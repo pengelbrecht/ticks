@@ -1,0 +1,12 @@
+{
+  "id": "1sw",
+  "title": "Implement tick benchmarks -d Write scripts/commands to measure tick list/ready/create/update performance.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "pjp",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-08T21:09:14.986366Z",
+  "updated_at": "2026-01-08T21:09:14.986366Z"
+}

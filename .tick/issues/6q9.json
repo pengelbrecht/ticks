@@ -1,0 +1,12 @@
+{
+  "id": "6q9",
+  "title": "Run benchmarks and collect results -d Execute benchmarks on the same dataset and capture timings.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "pjp",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-08T21:09:15.424879Z",
+  "updated_at": "2026-01-08T21:09:15.424879Z"
+}

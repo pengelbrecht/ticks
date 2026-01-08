@@ -1,0 +1,12 @@
+{
+  "id": "nty",
+  "title": "Define benchmark scenarios -d Specify datasets, operations, and metrics for beads vs tick comparison.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "pjp",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-08T21:09:14.165326Z",
+  "updated_at": "2026-01-08T21:09:14.165326Z"
+}

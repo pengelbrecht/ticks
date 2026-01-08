@@ -1,20 +1,8 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **tick** (`tk`) for issue tracking.
 
-## Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
-
-## Tick Quick Reference (tk)
-
-Use tick for lightweight, git-native tracking when requested:
+## Quick Reference (tk)
 
 ```bash
 tk ready --json | head -1
@@ -36,7 +24,6 @@ tk close <id> --reason "Fixed in this session"
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
