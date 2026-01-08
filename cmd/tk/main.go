@@ -14,6 +14,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
+	"github.com/pengelbrecht/ticks/internal/merge"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -59,6 +60,18 @@ func run(args []string) int {
 		return runBlocked(args[2:])
 	case "rebuild":
 		return runRebuild(args[2:])
+	case "delete":
+		return runDelete(args[2:])
+	case "label":
+		return runLabel(args[2:])
+	case "labels":
+		return runLabels(args[2:])
+	case "deps":
+		return runDeps(args[2:])
+	case "status":
+		return runStatus(args[2:])
+	case "merge-file":
+		return runMergeFile(args[2:])
 	case "--help", "-h":
 		printUsage()
 		return 0
@@ -1073,6 +1086,391 @@ func runRebuild(args []string) int {
 	return 0
 }
 
+func runDelete(args []string) int {
+	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
+	force := fs.Bool("force", false, "skip confirmation")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "id is required")
+		return 2
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+	project, err := github.DetectProject(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
+		return 5
+	}
+	id, err := github.NormalizeID(project, fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
+		return 4
+	}
+
+	if !*force {
+		fmt.Printf("Delete %s? (y/N): ", id)
+		var response string
+		if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || strings.ToLower(strings.TrimSpace(response)) != "y" {
+			fmt.Println("Aborted.")
+			return 0
+		}
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	if err := store.Delete(id); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to delete tick: %v\n", err)
+		return 6
+	}
+
+	// Cleanup references in other ticks.
+	ticks, err := store.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
+		return 6
+	}
+	for _, t := range ticks {
+		updated := removeString(t.BlockedBy, id)
+		if len(updated) == len(t.BlockedBy) {
+			continue
+		}
+		t.BlockedBy = updated
+		t.UpdatedAt = time.Now().UTC()
+		if err := store.Write(t); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
+			return 6
+		}
+	}
+
+	return 0
+}
+
+func runLabel(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tk label <add|rm|list> <id> [label]")
+		return 2
+	}
+	switch args[0] {
+	case "add":
+		return runLabelAdd(args[1:])
+	case "rm":
+		return runLabelRemove(args[1:])
+	case "list":
+		return runLabelList(args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "usage: tk label <add|rm|list> <id> [label]")
+		return 2
+	}
+}
+
+func runLabelAdd(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: tk label add <id> <label>")
+		return 2
+	}
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+	project, err := github.DetectProject(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
+		return 5
+	}
+	id, err := github.NormalizeID(project, args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
+		return 4
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	t, err := store.Read(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
+		return 4
+	}
+	t.Labels = appendUnique(t.Labels, args[1])
+	t.UpdatedAt = time.Now().UTC()
+	if err := store.Write(t); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
+		return 6
+	}
+	return 0
+}
+
+func runLabelRemove(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: tk label rm <id> <label>")
+		return 2
+	}
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+	project, err := github.DetectProject(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
+		return 5
+	}
+	id, err := github.NormalizeID(project, args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
+		return 4
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	t, err := store.Read(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
+		return 4
+	}
+	t.Labels = removeString(t.Labels, args[1])
+	t.UpdatedAt = time.Now().UTC()
+	if err := store.Write(t); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
+		return 6
+	}
+	return 0
+}
+
+func runLabelList(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tk label list <id>")
+		return 2
+	}
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+	project, err := github.DetectProject(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
+		return 5
+	}
+	id, err := github.NormalizeID(project, args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
+		return 4
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	t, err := store.Read(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
+		return 4
+	}
+	if len(t.Labels) == 0 {
+		return 0
+	}
+	for _, label := range t.Labels {
+		fmt.Println(label)
+	}
+	return 0
+}
+
+func runLabels(args []string) int {
+	fs := flag.NewFlagSet("labels", flag.ContinueOnError)
+	jsonOutput := fs.Bool("json", false, "output as json")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	ticks, err := store.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
+		return 6
+	}
+
+	counts := make(map[string]int)
+	for _, t := range ticks {
+		for _, label := range t.Labels {
+			counts[label]++
+		}
+	}
+
+	if *jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(counts); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
+			return 6
+		}
+		return 0
+	}
+
+	for label, count := range counts {
+		fmt.Printf("%s: %d\n", label, count)
+	}
+	return 0
+}
+
+func runDeps(args []string) int {
+	fs := flag.NewFlagSet("deps", flag.ContinueOnError)
+	jsonOutput := fs.Bool("json", false, "output as json")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "id is required")
+		return 2
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+	project, err := github.DetectProject(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
+		return 5
+	}
+	id, err := github.NormalizeID(project, fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
+		return 4
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	ticks, err := store.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
+		return 6
+	}
+
+	target, err := store.Read(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
+		return 4
+	}
+
+	var dependents []tick.Tick
+	for _, t := range ticks {
+		for _, blocker := range t.BlockedBy {
+			if blocker == target.ID {
+				dependents = append(dependents, t)
+				break
+			}
+		}
+	}
+
+	if *jsonOutput {
+		payload := map[string]any{"blocked_by": target.BlockedBy, "blocks": dependents}
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(payload); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
+			return 6
+		}
+		return 0
+	}
+
+	fmt.Printf("%s is blocked by: %s\n", target.ID, strings.Join(target.BlockedBy, ", "))
+	if len(dependents) == 0 {
+		fmt.Printf("%s blocks: none\n", target.ID)
+		return 0
+	}
+	fmt.Printf("%s blocks:\n", target.ID)
+	for _, t := range dependents {
+		fmt.Printf("- %s %s (%s)\n", t.ID, t.Title, t.Status)
+	}
+	return 0
+}
+
+func runStatus(args []string) int {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	jsonOutput := fs.Bool("json", false, "output as json")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+
+	cmd := exec.Command("git", "status", "--short", "--", ".tick")
+	cmd.Dir = root
+	output, err := cmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to get git status: %v\n", err)
+		return 6
+	}
+
+	if *jsonOutput {
+		changes := splitLines(strings.TrimSpace(string(output)))
+		payload := map[string]any{"changes": changes}
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(payload); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
+			return 6
+		}
+		return 0
+	}
+
+	fmt.Printf("%s", output)
+	return 0
+}
+
+func runMergeFile(args []string) int {
+	if len(args) < 4 {
+		fmt.Fprintln(os.Stderr, "usage: tk merge-file <base> <ours> <theirs> <path>")
+		return 2
+	}
+	base, err := tickFromPath(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read base: %v\n", err)
+		return 6
+	}
+	ours, err := tickFromPath(args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read ours: %v\n", err)
+		return 6
+	}
+	theirs, err := tickFromPath(args[2])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read theirs: %v\n", err)
+		return 6
+	}
+
+	merged := merge.Merge(base, ours, theirs)
+	if err := writeTickPath(args[3], merged); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write merged: %v\n", err)
+		return 6
+	}
+	return 0
+}
+
 func splitCSV(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1108,6 +1506,34 @@ func removeString(values []string, value string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+func splitLines(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, "\n")
+}
+
+func tickFromPath(path string) (tick.Tick, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return tick.Tick{}, err
+	}
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		return tick.Tick{}, err
+	}
+	return t, t.Validate()
+}
+
+func writeTickPath(path string, t tick.Tick) error {
+	data, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 type optionalString struct {
@@ -1171,5 +1597,5 @@ func bytesTrimSpace(in []byte) []byte {
 
 func printUsage() {
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, blocked, rebuild")
+	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, blocked, rebuild, delete, label, labels, deps, status, merge-file")
 }
