@@ -12,11 +12,14 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/merge"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
+	"github.com/pengelbrecht/ticks/internal/tui"
 )
 
 func main() {
@@ -74,6 +77,8 @@ func run(args []string) int {
 		return runMergeFile(args[2:])
 	case "stats":
 		return runStats(args[2:])
+	case "view":
+		return runView(args[2:])
 	case "--help", "-h":
 		printUsage()
 		return 0
@@ -1555,6 +1560,37 @@ func runStats(args []string) int {
 	return 0
 }
 
+func runView(args []string) int {
+	fs := flag.NewFlagSet("view", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return 3
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	ticks, err := store.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
+		return 6
+	}
+
+	model := tui.NewModel(ticks)
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to run view: %v\n", err)
+		return 6
+	}
+	return 0
+}
+
 func splitCSV(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1696,5 +1732,5 @@ func bytesTrimSpace(in []byte) []byte {
 
 func printUsage() {
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats")
+	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view")
 }
