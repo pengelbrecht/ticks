@@ -26,10 +26,20 @@ func main() {
 	os.Exit(run(os.Args))
 }
 
+const (
+	exitSuccess  = 0
+	exitGeneric  = 1
+	exitUsage    = 2
+	exitNoRepo   = 3
+	exitNotFound = 4
+	exitGitHub   = 5
+	exitIO       = 6
+)
+
 func run(args []string) int {
 	if len(args) < 2 {
 		printUsage()
-		return 2
+		return exitUsage
 	}
 
 	switch args[1] {
@@ -81,11 +91,11 @@ func run(args []string) int {
 		return runView(args[2:])
 	case "--help", "-h":
 		printUsage()
-		return 0
+		return exitSuccess
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[1])
 		printUsage()
-		return 2
+		return exitUsage
 	}
 }
 
@@ -93,50 +103,50 @@ func runInit() int {
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	owner, err := github.DetectOwner(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 
 	tickDir := filepath.Join(root, ".tick")
 	if err := os.MkdirAll(filepath.Join(tickDir, "issues"), 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create .tick directory: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if err := config.Save(filepath.Join(tickDir, "config.json"), config.Default()); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write config: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if err := os.WriteFile(filepath.Join(tickDir, ".gitignore"), []byte(".index.json\n"), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write .gitignore: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if err := github.EnsureGitAttributes(root); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update .gitattributes: %v\n", err)
-		return 6
+		return exitIO
 	}
 	if err := github.ConfigureMergeDriver(root); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to configure merge driver: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	fmt.Printf("Detected GitHub repo: %s\n", project)
 	fmt.Printf("Detected user: %s\n\n", owner)
 	fmt.Println("Initialized .tick/")
 
-	return 0
+	return exitSuccess
 }
 
 func runWhoami(args []string) int {
@@ -145,20 +155,20 @@ func runWhoami(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	owner, err := github.DetectOwner(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 
 	if *jsonOutput {
@@ -166,14 +176,14 @@ func runWhoami(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(payload); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Printf("Owner: %s\n", owner)
 	fmt.Printf("Project: %s\n", project)
-	return 0
+	return exitSuccess
 }
 
 func runCreate(args []string) int {
@@ -197,32 +207,32 @@ func runCreate(args []string) int {
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	title := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if title == "" {
 		fmt.Fprintln(os.Stderr, "title is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	cfg, err := config.Load(filepath.Join(root, ".tick", "config.json"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	creator, err := github.DetectOwner(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 
 	owner := creator
@@ -238,7 +248,7 @@ func runCreate(args []string) int {
 	}, cfg.IDLength)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to generate id: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	now := time.Now().UTC()
@@ -261,14 +271,14 @@ func runCreate(args []string) int {
 
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if newLen != cfg.IDLength {
 		cfg.IDLength = newLen
 		if err := config.Save(filepath.Join(root, ".tick", "config.json"), cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to update config: %v\n", err)
-			return 6
+			return exitIO
 		}
 	}
 
@@ -276,13 +286,13 @@ func runCreate(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Printf("%s\n", t.ID)
-	return 0
+	return exitSuccess
 }
 
 func runShow(args []string) int {
@@ -291,46 +301,46 @@ func runShow(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Printf("%s  P%d %s  %s  @%s\n\n", t.ID, t.Priority, t.Type, t.Status, t.Owner)
@@ -370,44 +380,44 @@ func runShow(args []string) int {
 
 	fmt.Printf("Global: %s:%s\n", project, t.ID)
 
-	return 0
+	return exitSuccess
 }
 
 func runBlock(args []string) int {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: tk block <id> <blocker-id>")
-		return 2
+		return exitUsage
 	}
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 	blockerID, err := github.NormalizeID(project, args[1])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid blocker id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 	if _, err := store.Read(blockerID); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read blocker tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	t.BlockedBy = appendUnique(t.BlockedBy, blockerID)
@@ -415,43 +425,43 @@ func runBlock(args []string) int {
 
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
-	return 0
+	return exitSuccess
 }
 
 func runUnblock(args []string) int {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: tk unblock <id> <blocker-id>")
-		return 2
+		return exitUsage
 	}
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 	blockerID, err := github.NormalizeID(project, args[1])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid blocker id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	t.BlockedBy = removeString(t.BlockedBy, blockerID)
@@ -459,10 +469,10 @@ func runUnblock(args []string) int {
 
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
-	return 0
+	return exitSuccess
 }
 
 func runUpdate(args []string) int {
@@ -485,37 +495,37 @@ func runUpdate(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	if title.set {
@@ -560,17 +570,17 @@ func runUpdate(args []string) int {
 	t.UpdatedAt = time.Now().UTC()
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
 	}
-	return 0
+	return exitSuccess
 }
 
 func runClose(args []string) int {
@@ -580,36 +590,36 @@ func runClose(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	now := time.Now().UTC()
@@ -620,17 +630,17 @@ func runClose(args []string) int {
 
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to close tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
 	}
-	return 0
+	return exitSuccess
 }
 
 func runReopen(args []string) int {
@@ -639,36 +649,36 @@ func runReopen(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	t.Status = tick.StatusOpen
@@ -678,17 +688,17 @@ func runReopen(args []string) int {
 
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to reopen tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
 	}
-	return 0
+	return exitSuccess
 }
 
 func runNote(args []string) int {
@@ -697,60 +707,60 @@ func runNote(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	if *edit {
 		editor := strings.TrimSpace(os.Getenv("EDITOR"))
 		if editor == "" {
 			fmt.Fprintln(os.Stderr, "EDITOR is not set")
-			return 2
+			return exitUsage
 		}
 
 		tmp, err := os.CreateTemp("", "tick-notes-*.txt")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to create temp file: %v\n", err)
-			return 6
+			return exitIO
 		}
 		defer os.Remove(tmp.Name())
 
 		if _, err := tmp.WriteString(t.Notes); err != nil {
 			_ = tmp.Close()
 			fmt.Fprintf(os.Stderr, "failed to write temp file: %v\n", err)
-			return 6
+			return exitIO
 		}
 		if err := tmp.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to close temp file: %v\n", err)
-			return 6
+			return exitIO
 		}
 
 		cmd := exec.Command(editor, tmp.Name())
@@ -759,31 +769,31 @@ func runNote(args []string) int {
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "editor failed: %v\n", err)
-			return 6
+			return exitIO
 		}
 
 		updated, err := os.ReadFile(tmp.Name())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to read temp file: %v\n", err)
-			return 6
+			return exitIO
 		}
 		t.Notes = string(updated)
 		t.UpdatedAt = time.Now().UTC()
 		if err := store.Write(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	if fs.NArg() < 2 {
 		fmt.Fprintln(os.Stderr, "note text is required")
-		return 2
+		return exitUsage
 	}
 	note := strings.TrimSpace(strings.Join(fs.Args()[1:], " "))
 	if note == "" {
 		fmt.Fprintln(os.Stderr, "note text is required")
-		return 2
+		return exitUsage
 	}
 
 	timestamp := time.Now().Format("2006-01-02 15:04")
@@ -796,9 +806,9 @@ func runNote(args []string) int {
 	t.UpdatedAt = time.Now().UTC()
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-		return 6
+		return exitIO
 	}
-	return 0
+	return exitSuccess
 }
 
 func runNotes(args []string) int {
@@ -806,41 +816,41 @@ func runNotes(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	fmt.Printf("Notes for %s (%s):\n\n", t.ID, t.Title)
 	fmt.Printf("%s\n", t.Notes)
-	return 0
+	return exitSuccess
 }
 
 func runList(args []string) int {
@@ -862,15 +872,15 @@ func runList(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	owner := strings.TrimSpace(*ownerFlag)
@@ -878,7 +888,7 @@ func runList(args []string) int {
 		detected, err := github.DetectOwner(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return 5
+			return exitGitHub
 		}
 		owner = detected
 	}
@@ -887,7 +897,7 @@ func runList(args []string) int {
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	var priority *int
@@ -912,9 +922,9 @@ func runList(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(filtered); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Println(" ID   PRI  TYPE     STATUS  TITLE")
@@ -922,7 +932,7 @@ func runList(args []string) int {
 		fmt.Printf(" %-4s P%d   %-7s %-7s %s\n", t.ID, t.Priority, t.Type, t.Status, t.Title)
 	}
 	fmt.Printf("\n%d ticks\n", len(filtered))
-	return 0
+	return exitSuccess
 }
 
 func runReady(args []string) int {
@@ -937,15 +947,15 @@ func runReady(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	owner := strings.TrimSpace(*ownerFlag)
@@ -953,7 +963,7 @@ func runReady(args []string) int {
 		detected, err := github.DetectOwner(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return 5
+			return exitGitHub
 		}
 		owner = detected
 	}
@@ -962,7 +972,7 @@ func runReady(args []string) int {
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	filtered := query.Apply(ticks, query.Filter{Owner: owner})
@@ -977,9 +987,9 @@ func runReady(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(ready); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Println(" ID   PRI  TYPE     STATUS  TITLE")
@@ -987,7 +997,7 @@ func runReady(args []string) int {
 		fmt.Printf(" %-4s P%d   %-7s %-7s %s\n", t.ID, t.Priority, t.Type, t.Status, t.Title)
 	}
 	fmt.Printf("\n%d ticks (ready)\n", len(ready))
-	return 0
+	return exitSuccess
 }
 
 func runBlocked(args []string) int {
@@ -1000,15 +1010,15 @@ func runBlocked(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	owner := strings.TrimSpace(*ownerFlag)
@@ -1016,7 +1026,7 @@ func runBlocked(args []string) int {
 		detected, err := github.DetectOwner(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return 5
+			return exitGitHub
 		}
 		owner = detected
 	}
@@ -1025,7 +1035,7 @@ func runBlocked(args []string) int {
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	filtered := query.Apply(ticks, query.Filter{Owner: owner})
@@ -1036,9 +1046,9 @@ func runBlocked(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(blocked); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Println(" ID   PRI  TYPE     STATUS  TITLE")
@@ -1046,7 +1056,7 @@ func runBlocked(args []string) int {
 		fmt.Printf(" %-4s P%d   %-7s %-7s %s\n", t.ID, t.Priority, t.Type, t.Status, t.Title)
 	}
 	fmt.Printf("\n%d ticks (blocked)\n", len(blocked))
-	return 0
+	return exitSuccess
 }
 
 func runRebuild(args []string) int {
@@ -1055,28 +1065,28 @@ func runRebuild(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	indexPath := filepath.Join(root, ".tick", ".index.json")
 	if err := query.SaveIndex(indexPath, ticks); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write index: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if *jsonOutput {
@@ -1084,13 +1094,13 @@ func runRebuild(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(payload); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Printf("Rebuilt index with %d ticks\n", len(ticks))
-	return 0
+	return exitSuccess
 }
 
 func runDelete(args []string) int {
@@ -1099,29 +1109,29 @@ func runDelete(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	if !*force {
@@ -1129,21 +1139,21 @@ func runDelete(args []string) int {
 		var response string
 		if _, err := fmt.Fscanln(os.Stdin, &response); err != nil || strings.ToLower(strings.TrimSpace(response)) != "y" {
 			fmt.Println("Aborted.")
-			return 0
+			return exitSuccess
 		}
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	if err := store.Delete(id); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to delete tick: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	// Cleanup references in other ticks.
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 	for _, t := range ticks {
 		updated := removeString(t.BlockedBy, id)
@@ -1154,17 +1164,17 @@ func runDelete(args []string) int {
 		t.UpdatedAt = time.Now().UTC()
 		if err := store.Write(t); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-			return 6
+			return exitIO
 		}
 	}
 
-	return 0
+	return exitSuccess
 }
 
 func runLabel(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: tk label <add|rm|list> <id> [label]")
-		return 2
+		return exitUsage
 	}
 	switch args[0] {
 	case "add":
@@ -1175,116 +1185,116 @@ func runLabel(args []string) int {
 		return runLabelList(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "usage: tk label <add|rm|list> <id> [label]")
-		return 2
+		return exitUsage
 	}
 }
 
 func runLabelAdd(args []string) int {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: tk label add <id> <label>")
-		return 2
+		return exitUsage
 	}
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 	t.Labels = appendUnique(t.Labels, args[1])
 	t.UpdatedAt = time.Now().UTC()
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-		return 6
+		return exitIO
 	}
-	return 0
+	return exitSuccess
 }
 
 func runLabelRemove(args []string) int {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: tk label rm <id> <label>")
-		return 2
+		return exitUsage
 	}
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 	t.Labels = removeString(t.Labels, args[1])
 	t.UpdatedAt = time.Now().UTC()
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
-		return 6
+		return exitIO
 	}
-	return 0
+	return exitSuccess
 }
 
 func runLabelList(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: tk label list <id>")
-		return 2
+		return exitUsage
 	}
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 	if len(t.Labels) == 0 {
-		return 0
+		return exitSuccess
 	}
 	for _, label := range t.Labels {
 		fmt.Println(label)
 	}
-	return 0
+	return exitSuccess
 }
 
 func runLabels(args []string) int {
@@ -1293,22 +1303,22 @@ func runLabels(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	counts := make(map[string]int)
@@ -1322,15 +1332,15 @@ func runLabels(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(counts); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	for label, count := range counts {
 		fmt.Printf("%s: %d\n", label, count)
 	}
-	return 0
+	return exitSuccess
 }
 
 func runDeps(args []string) int {
@@ -1339,42 +1349,42 @@ func runDeps(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	id, err := github.NormalizeID(project, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	target, err := store.Read(id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return 4
+		return exitNotFound
 	}
 
 	var dependents []tick.Tick
@@ -1392,21 +1402,21 @@ func runDeps(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(payload); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Printf("%s is blocked by: %s\n", target.ID, strings.Join(target.BlockedBy, ", "))
 	if len(dependents) == 0 {
 		fmt.Printf("%s blocks: none\n", target.ID)
-		return 0
+		return exitSuccess
 	}
 	fmt.Printf("%s blocks:\n", target.ID)
 	for _, t := range dependents {
 		fmt.Printf("- %s %s (%s)\n", t.ID, t.Title, t.Status)
 	}
-	return 0
+	return exitSuccess
 }
 
 func runStatus(args []string) int {
@@ -1415,15 +1425,15 @@ func runStatus(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	cmd := exec.Command("git", "status", "--short", "--", ".tick")
@@ -1431,7 +1441,7 @@ func runStatus(args []string) int {
 	output, err := cmd.Output()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to get git status: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	if *jsonOutput {
@@ -1440,42 +1450,42 @@ func runStatus(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(payload); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	fmt.Printf("%s", output)
-	return 0
+	return exitSuccess
 }
 
 func runMergeFile(args []string) int {
 	if len(args) < 4 {
 		fmt.Fprintln(os.Stderr, "usage: tk merge-file <base> <ours> <theirs> <path>")
-		return 2
+		return exitUsage
 	}
 	base, err := tickFromPath(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read base: %v\n", err)
-		return 6
+		return exitIO
 	}
 	ours, err := tickFromPath(args[1])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read ours: %v\n", err)
-		return 6
+		return exitIO
 	}
 	theirs, err := tickFromPath(args[2])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to read theirs: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	merged := merge.Merge(base, ours, theirs)
 	if err := writeTickPath(args[3], merged); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write merged: %v\n", err)
-		return 6
+		return exitIO
 	}
-	return 0
+	return exitSuccess
 }
 
 func runStats(args []string) int {
@@ -1485,15 +1495,15 @@ func runStats(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	owner := ""
@@ -1501,7 +1511,7 @@ func runStats(args []string) int {
 		detected, err := github.DetectOwner(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return 5
+			return exitGitHub
 		}
 		owner = detected
 	}
@@ -1510,7 +1520,7 @@ func runStats(args []string) int {
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	filtered := query.Apply(ticks, query.Filter{Owner: owner})
@@ -1540,15 +1550,15 @@ func runStats(args []string) int {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(payload); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return 6
+			return exitIO
 		}
-		return 0
+		return exitSuccess
 	}
 
 	project, err := github.DetectProject(nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return 5
+		return exitGitHub
 	}
 	fmt.Println(project)
 	fmt.Printf("\n  Total: %d ticks\n", len(filtered))
@@ -1557,7 +1567,7 @@ func runStats(args []string) int {
 	fmt.Printf("  Types: %s\n", formatTypeCounts(typeCounts))
 	fmt.Printf("\n  Ready: %d\n", len(ready))
 	fmt.Printf("  Blocked: %d\n", len(blocked))
-	return 0
+	return exitSuccess
 }
 
 func runView(args []string) int {
@@ -1578,22 +1588,22 @@ func runView(args []string) int {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitSuccess
 		}
-		return 2
+		return exitUsage
 	}
 
 	root, err := repoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return 3
+		return exitNoRepo
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
-		return 6
+		return exitIO
 	}
 
 	owner := strings.TrimSpace(*ownerFlag)
@@ -1601,7 +1611,7 @@ func runView(args []string) int {
 		detected, err := github.DetectOwner(nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return 5
+			return exitGitHub
 		}
 		owner = detected
 	}
@@ -1626,9 +1636,9 @@ func runView(args []string) int {
 	model := tui.NewModel(filtered)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to run view: %v\n", err)
-		return 6
+		return exitIO
 	}
-	return 0
+	return exitSuccess
 }
 
 func splitCSV(value string) []string {
