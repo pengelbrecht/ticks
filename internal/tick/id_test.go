@@ -58,3 +58,10 @@ func TestIDGeneratorCollisionFailsAtMaxLength(t *testing.T) {
 		t.Fatalf("expected length 4, got %d", length)
 	}
 }
+
+func TestIDGeneratorRejectsInvalidLength(t *testing.T) {
+	gen := NewIDGenerator(rand.New(rand.NewSource(4)))
+	if _, _, err := gen.Generate(func(string) bool { return false }, 2); err == nil {
+		t.Fatalf("expected error for invalid length")
+	}
+}
