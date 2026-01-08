@@ -1562,6 +1562,19 @@ func runStats(args []string) int {
 
 func runView(args []string) int {
 	fs := flag.NewFlagSet("view", flag.ContinueOnError)
+	allOwners := fs.Bool("all", false, "all owners")
+	fs.BoolVar(allOwners, "a", false, "all owners")
+	ownerFlag := fs.String("owner", "", "owner")
+	fs.StringVar(ownerFlag, "o", "", "owner")
+	statusFlag := fs.String("status", "", "status")
+	fs.StringVar(statusFlag, "s", "", "status")
+	priorityFlag := fs.Int("priority", -1, "priority")
+	fs.IntVar(priorityFlag, "p", -1, "priority")
+	typeFlag := fs.String("type", "", "type")
+	fs.StringVar(typeFlag, "t", "", "type")
+	labelFlag := fs.String("label", "", "label")
+	fs.StringVar(labelFlag, "l", "", "label")
+	parentFlag := fs.String("parent", "", "parent epic id")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -1583,7 +1596,34 @@ func runView(args []string) int {
 		return 6
 	}
 
-	model := tui.NewModel(ticks)
+	owner := strings.TrimSpace(*ownerFlag)
+	if !*allOwners && owner == "" {
+		detected, err := github.DetectOwner(nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+			return 5
+		}
+		owner = detected
+	}
+
+	var priority *int
+	if *priorityFlag >= 0 {
+		p := *priorityFlag
+		priority = &p
+	}
+
+	filter := query.Filter{
+		Owner:    owner,
+		Status:   strings.TrimSpace(*statusFlag),
+		Priority: priority,
+		Type:     strings.TrimSpace(*typeFlag),
+		Label:    strings.TrimSpace(*labelFlag),
+		Parent:   strings.TrimSpace(*parentFlag),
+	}
+
+	filtered := query.Apply(ticks, filter)
+
+	model := tui.NewModel(filtered)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to run view: %v\n", err)
 		return 6

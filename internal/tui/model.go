@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -17,16 +18,20 @@ type item struct {
 }
 
 type Model struct {
-	items     []item
-	collapsed map[string]bool
-	selected  int
+	allTicks    []tick.Tick
+	items       []item
+	collapsed   map[string]bool
+	selected    int
+	filter      string
+	searching   bool
+	searchInput string
 }
 
 // NewModel builds a tree view model from ticks.
 func NewModel(ticks []tick.Tick) Model {
 	collapsed := make(map[string]bool)
-	items := buildItems(ticks, collapsed)
-	return Model{items: items, collapsed: collapsed}
+	items := buildItems(ticks, collapsed, "")
+	return Model{allTicks: ticks, items: items, collapsed: collapsed}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -39,6 +44,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "/":
+			m.searching = true
+			m.searchInput = ""
+		case "esc":
+			if m.searching {
+				m.searching = false
+				m.searchInput = ""
+			}
 		case "j", "down":
 			if m.selected < len(m.items)-1 {
 				m.selected++
@@ -48,16 +61,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected--
 			}
 		case " ", "enter":
+			if m.searching {
+				m.filter = m.searchInput
+				m.searching = false
+				m.searchInput = ""
+				m.items = buildItems(m.allTicks, m.collapsed, m.filter)
+				if m.selected >= len(m.items) {
+					m.selected = len(m.items) - 1
+				}
+				return m, nil
+			}
 			if len(m.items) == 0 {
 				return m, nil
 			}
 			current := m.items[m.selected]
 			if current.IsEpic && current.HasKids {
 				m.collapsed[current.Tick.ID] = !m.collapsed[current.Tick.ID]
-				m.items = buildItemsFromState(m.items, m.collapsed)
+				m.items = buildItemsFromState(m.allTicks, m.collapsed, m.filter)
 				if m.selected >= len(m.items) {
 					m.selected = len(m.items) - 1
 				}
+			}
+		default:
+			if m.searching && msg.Type == tea.KeyRunes {
+				m.searchInput += msg.String()
+			}
+		}
+		if m.searching && msg.Type == tea.KeyBackspace {
+			if len(m.searchInput) > 0 {
+				m.searchInput = m.searchInput[:len(m.searchInput)-1]
 			}
 		}
 	}
@@ -65,11 +97,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	if len(m.items) == 0 {
-		return "No ticks\n"
+	out := ""
+	if m.searching {
+		out += fmt.Sprintf("Search: %s\n\n", m.searchInput)
+	} else if m.filter != "" {
+		out += fmt.Sprintf("Filter: %s (press / to change)\n\n", m.filter)
 	}
 
-	out := ""
+	if len(m.items) == 0 {
+		return out + "No ticks\n"
+	}
+
 	for i, item := range m.items {
 		cursor := " "
 		if i == m.selected {
@@ -93,8 +131,9 @@ func (m Model) View() string {
 	return out
 }
 
-func buildItems(ticks []tick.Tick, collapsed map[string]bool) []item {
-	roots, children := splitRoots(ticks)
+func buildItems(ticks []tick.Tick, collapsed map[string]bool, filter string) []item {
+	filtered := applyFilter(ticks, filter)
+	roots, children := splitRoots(filtered)
 	query.SortByPriorityCreatedAt(roots)
 
 	items := make([]item, 0, len(ticks))
@@ -112,17 +151,8 @@ func buildItems(ticks []tick.Tick, collapsed map[string]bool) []item {
 	return items
 }
 
-func buildItemsFromState(current []item, collapsed map[string]bool) []item {
-	var ticks []tick.Tick
-	seen := make(map[string]bool)
-	for _, item := range current {
-		if seen[item.Tick.ID] {
-			continue
-		}
-		seen[item.Tick.ID] = true
-		ticks = append(ticks, item.Tick)
-	}
-	return buildItems(ticks, collapsed)
+func buildItemsFromState(all []tick.Tick, collapsed map[string]bool, filter string) []item {
+	return buildItems(all, collapsed, filter)
 }
 
 func splitRoots(ticks []tick.Tick) ([]tick.Tick, map[string][]tick.Tick) {
@@ -151,4 +181,25 @@ func splitRoots(ticks []tick.Tick) ([]tick.Tick, map[string][]tick.Tick) {
 	}
 
 	return roots, children
+}
+
+func applyFilter(ticks []tick.Tick, filter string) []tick.Tick {
+	filter = strings.TrimSpace(strings.ToLower(filter))
+	if filter == "" {
+		return ticks
+	}
+	var out []tick.Tick
+	for _, t := range ticks {
+		if strings.Contains(strings.ToLower(t.Title), filter) {
+			out = append(out, t)
+			continue
+		}
+		for _, label := range t.Labels {
+			if strings.Contains(strings.ToLower(label), filter) {
+				out = append(out, t)
+				break
+			}
+		}
+	}
+	return out
 }
