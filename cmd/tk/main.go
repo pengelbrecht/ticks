@@ -153,7 +153,7 @@ func runWhoami(args []string) int {
 	fs := flag.NewFlagSet("whoami", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -205,14 +205,15 @@ func runCreate(args []string) int {
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
 
-	title := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	title := strings.TrimSpace(strings.Join(positionals, " "))
 	if title == "" {
 		fmt.Fprintln(os.Stderr, "title is required")
 		return exitUsage
@@ -299,14 +300,15 @@ func runShow(args []string) int {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
 
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -321,7 +323,7 @@ func runShow(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -493,14 +495,15 @@ func runUpdate(args []string) int {
 	fs.Var(&removeLabels, "remove-labels", "labels to remove")
 
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
 
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -515,7 +518,7 @@ func runUpdate(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -588,13 +591,14 @@ func runClose(args []string) int {
 	reason := fs.String("reason", "", "close reason")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -609,7 +613,7 @@ func runClose(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -647,13 +651,14 @@ func runReopen(args []string) int {
 	fs := flag.NewFlagSet("reopen", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -668,7 +673,7 @@ func runReopen(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -705,13 +710,14 @@ func runNote(args []string) int {
 	fs := flag.NewFlagSet("note", flag.ContinueOnError)
 	edit := fs.Bool("edit", false, "edit notes in $EDITOR")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -726,7 +732,7 @@ func runNote(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -786,11 +792,11 @@ func runNote(args []string) int {
 		return exitSuccess
 	}
 
-	if fs.NArg() < 2 {
+	if len(positionals) < 2 {
 		fmt.Fprintln(os.Stderr, "note text is required")
 		return exitUsage
 	}
-	note := strings.TrimSpace(strings.Join(fs.Args()[1:], " "))
+	note := strings.TrimSpace(strings.Join(positionals[1:], " "))
 	if note == "" {
 		fmt.Fprintln(os.Stderr, "note text is required")
 		return exitUsage
@@ -814,13 +820,14 @@ func runNote(args []string) int {
 func runNotes(args []string) int {
 	fs := flag.NewFlagSet("notes", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -835,7 +842,7 @@ func runNotes(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -870,7 +877,7 @@ func runList(args []string) int {
 	parentFlag := fs.String("parent", "", "parent epic id")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -945,7 +952,7 @@ func runReady(args []string) int {
 	fs.IntVar(limitFlag, "n", 10, "max results")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1008,7 +1015,7 @@ func runBlocked(args []string) int {
 	fs.StringVar(ownerFlag, "o", "", "owner")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1063,7 +1070,7 @@ func runRebuild(args []string) int {
 	fs := flag.NewFlagSet("rebuild", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1107,13 +1114,14 @@ func runDelete(args []string) int {
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
 	force := fs.Bool("force", false, "skip confirmation")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -1128,7 +1136,7 @@ func runDelete(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -1301,7 +1309,7 @@ func runLabels(args []string) int {
 	fs := flag.NewFlagSet("labels", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1347,13 +1355,14 @@ func runDeps(args []string) int {
 	fs := flag.NewFlagSet("deps", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
 		return exitUsage
 	}
-	if fs.NArg() < 1 {
+	if len(positionals) < 1 {
 		fmt.Fprintln(os.Stderr, "id is required")
 		return exitUsage
 	}
@@ -1368,7 +1377,7 @@ func runDeps(args []string) int {
 		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
 		return exitGitHub
 	}
-	id, err := github.NormalizeID(project, fs.Arg(0))
+	id, err := github.NormalizeID(project, positionals[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
 		return exitNotFound
@@ -1423,7 +1432,7 @@ func runStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1493,7 +1502,7 @@ func runStats(args []string) int {
 	allOwners := fs.Bool("all", false, "all owners")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1586,7 +1595,7 @@ func runView(args []string) int {
 	fs.StringVar(labelFlag, "l", "", "label")
 	parentFlag := fs.String("parent", "", "parent epic id")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
 		}
@@ -1704,6 +1713,59 @@ func writeTickPath(path string, t tick.Tick) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
+	var flagArgs []string
+	var positionals []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positionals = append(positionals, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			if strings.Contains(arg, "=") {
+				flagArgs = append(flagArgs, arg)
+				continue
+			}
+			name := strings.TrimLeft(arg, "-")
+			if name == "h" || name == "help" {
+				flagArgs = append(flagArgs, arg)
+				continue
+			}
+			fl := fs.Lookup(name)
+			if fl == nil {
+				flagArgs = append(flagArgs, arg)
+				continue
+			}
+			if getter, ok := fl.Value.(flag.Getter); ok {
+				if _, isBool := getter.Get().(bool); isBool {
+					if i+1 < len(args) && (args[i+1] == "true" || args[i+1] == "false") {
+						flagArgs = append(flagArgs, arg, args[i+1])
+						i++
+						continue
+					}
+					flagArgs = append(flagArgs, arg)
+					continue
+				}
+			}
+			if i+1 < len(args) {
+				flagArgs = append(flagArgs, arg, args[i+1])
+				i++
+				continue
+			}
+			flagArgs = append(flagArgs, arg)
+			continue
+		}
+		positionals = append(positionals, arg)
+	}
+
+	if err := fs.Parse(flagArgs); err != nil {
+		return nil, err
+	}
+	return positionals, nil
 }
 
 func formatStatusCounts(counts map[string]int) string {

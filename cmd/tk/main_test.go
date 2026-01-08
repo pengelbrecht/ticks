@@ -37,7 +37,7 @@ func TestCLIWorkflow(t *testing.T) {
 	}
 
 	out, code := captureStdout(func() int {
-		return run([]string{"tk", "create", "--json", "Test", "tick"})
+		return run([]string{"tk", "create", "Test", "tick", "-t", "bug", "--json"})
 	})
 	if code != exitSuccess {
 		t.Fatalf("expected create exit %d, got %d", exitSuccess, code)
@@ -49,6 +49,9 @@ func TestCLIWorkflow(t *testing.T) {
 	id, ok := created["id"].(string)
 	if !ok || id == "" {
 		t.Fatalf("expected id in create output")
+	}
+	if created["type"] != "bug" {
+		t.Fatalf("expected type bug, got %v", created["type"])
 	}
 
 	showOut, code := captureStdout(func() int {
