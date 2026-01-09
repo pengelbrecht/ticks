@@ -1,0 +1,13 @@
+{
+  "id": "leo",
+  "title": "Document beads migration snippet",
+  "description": "Provide example bd list --json pipeline with jq converting ids and fields into .tick/issues files.\\n\\nAcceptance:\\n- Shell snippet matches SPEC.\\n- Notes about trimming external fields included.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "btr",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:20:36.971864Z",
+  "updated_at": "2026-01-09T11:20:36.971864Z"
+}
