@@ -2,7 +2,7 @@
   "id": "791",
   "title": "Document comparison results",
   "description": "Summarize methodology and results in a report.",
-  "notes": "2026-01-09 10:09 - Updated summary with cold and warm stats and added bench_summary.py.",
+  "notes": "2026-01-09 10:09 - Updated summary with cold and warm stats and added bench_summary.py.\n2026-01-09 11:31 - Updated summary with 1000-item cold/warm stats.",
   "status": "closed",
   "priority": 2,
   "type": "task",
@@ -10,7 +10,7 @@
   "parent": "pjp",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-08T21:09:15.821177Z",
-  "updated_at": "2026-01-09T09:09:19.507034Z",
-  "closed_at": "2026-01-09T09:09:19.507034Z",
-  "closed_reason": "Summary updated with cold/warm stats."
+  "updated_at": "2026-01-09T10:31:06.37164Z",
+  "closed_at": "2026-01-09T10:31:06.37164Z",
+  "closed_reason": "Summary updated for 1000-item run."
 }

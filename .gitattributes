@@ -1,2 +1,5 @@
 
 .tick/issues/*.json merge=tick
+
+# Use bd merge for beads JSONL files
+.beads/issues.jsonl merge=beads
