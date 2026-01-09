@@ -1643,7 +1643,7 @@ func runView(args []string) int {
 	filtered := query.Apply(ticks, filter)
 
 	model := tui.NewModel(filtered)
-	if _, err := tea.NewProgram(model).Run(); err != nil {
+	if _, err := tea.NewProgram(model, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to run view: %v\n", err)
 		return exitIO
 	}

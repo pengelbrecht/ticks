@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
@@ -121,6 +122,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	if m.width == 0 || m.height == 0 {
+		return "Loading...\n"
+	}
+
 	out := ""
 	if m.searching {
 		out += fmt.Sprintf("Search: %s\n\n", m.searchInput)
@@ -138,38 +143,29 @@ func (m Model) View() string {
 	list := buildListView(m)
 	detail := buildDetailView(m)
 
-	if m.width <= 0 {
-		return out + list + "\n" + detail
-	}
-
 	leftWidth := m.width / 2
-	if leftWidth < 40 {
-		leftWidth = 40
+	if leftWidth < 36 {
+		leftWidth = 36
 	}
 	rightWidth := m.width - leftWidth - 1
-	if rightWidth < 20 {
-		rightWidth = 20
+	if rightWidth < 28 {
+		rightWidth = 28
 	}
 
-	linesLeft := splitLines(strings.TrimRight(list, "\n"))
-	linesRight := splitLines(strings.TrimRight(detail, "\n"))
-	maxLines := len(linesLeft)
-	if len(linesRight) > maxLines {
-		maxLines = len(linesRight)
-	}
+	headerStyle := lipgloss.NewStyle().Bold(true)
+	panelStyle := lipgloss.NewStyle().
+		Border(asciiBorder()).
+		Padding(0, 1).
+		Height(m.height - 1)
 
-	for i := 0; i < maxLines; i++ {
-		left := ""
-		if i < len(linesLeft) {
-			left = linesLeft[i]
-		}
-		right := ""
-		if i < len(linesRight) {
-			right = linesRight[i]
-		}
-		out += fmt.Sprintf("%-*s %s\n", leftWidth, truncate(left, leftWidth), truncate(right, rightWidth))
-	}
-	return out
+	leftPanel := panelStyle.
+		Width(leftWidth).
+		Render(headerStyle.Render("Ticks") + "\n" + list)
+	rightPanel := panelStyle.
+		Width(rightWidth).
+		Render(headerStyle.Render("Details") + "\n" + detail)
+
+	return out + lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n"
 }
 
 func buildListView(m Model) string {
@@ -351,4 +347,17 @@ func splitLines(value string) []string {
 		return nil
 	}
 	return strings.Split(value, "\n")
+}
+
+func asciiBorder() lipgloss.Border {
+	return lipgloss.Border{
+		Top:         "-",
+		Bottom:      "-",
+		Left:        "|",
+		Right:       "|",
+		TopLeft:     "+",
+		TopRight:    "+",
+		BottomLeft:  "+",
+		BottomRight: "+",
+	}
 }
