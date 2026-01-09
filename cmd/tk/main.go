@@ -874,7 +874,11 @@ func runList(args []string) int {
 	fs.StringVar(typeFlag, "t", "", "type")
 	labelFlag := fs.String("label", "", "label")
 	fs.StringVar(labelFlag, "l", "", "label")
+	labelAnyFlag := fs.String("label-any", "", "label-any (comma-separated)")
 	parentFlag := fs.String("parent", "", "parent epic id")
+	titleContainsFlag := fs.String("title-contains", "", "title contains (case-insensitive)")
+	descContainsFlag := fs.String("desc-contains", "", "description contains (case-insensitive)")
+	notesContainsFlag := fs.String("notes-contains", "", "notes contains (case-insensitive)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	if _, err := parseInterleaved(fs, args); err != nil {
@@ -914,12 +918,16 @@ func runList(args []string) int {
 	}
 
 	filter := query.Filter{
-		Owner:    owner,
-		Status:   strings.TrimSpace(*statusFlag),
-		Priority: priority,
-		Type:     strings.TrimSpace(*typeFlag),
-		Label:    strings.TrimSpace(*labelFlag),
-		Parent:   strings.TrimSpace(*parentFlag),
+		Owner:         owner,
+		Status:        strings.TrimSpace(*statusFlag),
+		Priority:      priority,
+		Type:          strings.TrimSpace(*typeFlag),
+		Label:         strings.TrimSpace(*labelFlag),
+		LabelAny:      splitCSV(*labelAnyFlag),
+		Parent:        strings.TrimSpace(*parentFlag),
+		TitleContains: strings.TrimSpace(*titleContainsFlag),
+		DescContains:  strings.TrimSpace(*descContainsFlag),
+		NotesContains: strings.TrimSpace(*notesContainsFlag),
 	}
 
 	filtered := query.Apply(ticks, filter)
