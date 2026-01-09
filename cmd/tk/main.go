@@ -958,6 +958,12 @@ func runReady(args []string) int {
 	fs.StringVar(ownerFlag, "o", "", "owner")
 	limitFlag := fs.Int("limit", 10, "max results")
 	fs.IntVar(limitFlag, "n", 10, "max results")
+	labelFlag := fs.String("label", "", "label")
+	fs.StringVar(labelFlag, "l", "", "label")
+	labelAnyFlag := fs.String("label-any", "", "label-any (comma-separated)")
+	titleContainsFlag := fs.String("title-contains", "", "title contains (case-insensitive)")
+	descContainsFlag := fs.String("desc-contains", "", "description contains (case-insensitive)")
+	notesContainsFlag := fs.String("notes-contains", "", "notes contains (case-insensitive)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	if _, err := parseInterleaved(fs, args); err != nil {
@@ -990,7 +996,14 @@ func runReady(args []string) int {
 		return exitIO
 	}
 
-	filtered := query.Apply(ticks, query.Filter{Owner: owner})
+	filtered := query.Apply(ticks, query.Filter{
+		Owner:         owner,
+		Label:         strings.TrimSpace(*labelFlag),
+		LabelAny:      splitCSV(*labelAnyFlag),
+		TitleContains: strings.TrimSpace(*titleContainsFlag),
+		DescContains:  strings.TrimSpace(*descContainsFlag),
+		NotesContains: strings.TrimSpace(*notesContainsFlag),
+	})
 	ready := query.Ready(filtered)
 	query.SortByPriorityCreatedAt(ready)
 
