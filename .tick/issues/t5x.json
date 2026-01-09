@@ -1,0 +1,12 @@
+{
+  "id": "t5x",
+  "title": "Spec: GitHub integration and IDs",
+  "description": "Define project/owner detection and global ID behavior.\\n\\nAcceptance:\\n- Git remote parsing for project.\\n- Owner detection order defined.\\n- Global ID format and validation documented.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "pengelbrecht",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:08:12.001591Z",
+  "updated_at": "2026-01-09T11:08:12.001591Z"
+}
