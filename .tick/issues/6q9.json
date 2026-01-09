@@ -2,6 +2,7 @@
   "id": "6q9",
   "title": "Run benchmarks and collect results",
   "description": "Execute benchmarks on the same dataset and capture timings.",
+  "notes": "2026-01-09 10:09 - Re-ran benchmarks with cold vs warm timing split.",
   "status": "closed",
   "priority": 2,
   "type": "task",
@@ -9,7 +10,7 @@
   "parent": "pjp",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-08T21:09:15.424879Z",
-  "updated_at": "2026-01-09T08:58:52.403696Z",
-  "closed_at": "2026-01-09T08:58:52.403696Z",
-  "closed_reason": "Ran benchmarks and captured results in benchmarks/*.json."
+  "updated_at": "2026-01-09T09:09:19.408791Z",
+  "closed_at": "2026-01-09T09:09:19.408791Z",
+  "closed_reason": "Updated benchmark runs with cold/warm split."
 }

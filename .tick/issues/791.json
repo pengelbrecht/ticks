@@ -2,6 +2,7 @@
   "id": "791",
   "title": "Document comparison results",
   "description": "Summarize methodology and results in a report.",
+  "notes": "2026-01-09 10:09 - Updated summary with cold and warm stats and added bench_summary.py.",
   "status": "closed",
   "priority": 2,
   "type": "task",
@@ -9,7 +10,7 @@
   "parent": "pjp",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-08T21:09:15.821177Z",
-  "updated_at": "2026-01-09T08:58:52.493543Z",
-  "closed_at": "2026-01-09T08:58:52.493543Z",
-  "closed_reason": "Wrote benchmarks/summary.md with median and p95."
+  "updated_at": "2026-01-09T09:09:19.507034Z",
+  "closed_at": "2026-01-09T09:09:19.507034Z",
+  "closed_reason": "Summary updated with cold/warm stats."
 }

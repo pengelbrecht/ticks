@@ -1,7 +1,8 @@
 # Benchmark Summary
 
 Dataset size: 100 items
-Runs per op: 20
+Cold runs: 1
+Warm runs per op: 20
 
 ## Method Details
 
@@ -30,15 +31,16 @@ Runs per op: 20
   - `note`: `bd update <id> --notes "Bench note"`
 
 ## Tick (ms)
-- list_open: median 16.39 / p95 36.95
-- ready: median 16.40 / p95 155.41
-- create: median 14.15 / p95 16.42
-- update: median 24.12 / p95 39.93
-- note: median 24.31 / p95 46.07
+- list_open: cold 17.95 / warm median 16.07 / warm p95 17.06
+- ready: cold 15.73 / warm median 16.09 / warm p95 18.53
+- create: cold 14.08 / warm median 13.86 / warm p95 14.43
+- update: cold 23.90 / warm median 23.58 / warm p95 25.23
+- note: cold 23.77 / warm median 23.73 / warm p95 25.86
 
 ## Beads (ms)
-- list_open: median 59.00 / p95 78.63
-- ready: median 54.82 / p95 68.55
-- create: median 74.97 / p95 78.98
-- update: median 55.61 / p95 57.10
-- note: median 55.13 / p95 74.51
+- list_open: cold 64.42 / warm median 59.34 / warm p95 78.87
+- ready: cold 58.35 / warm median 58.26 / warm p95 64.12
+- create: cold 80.64 / warm median 77.43 / warm p95 80.61
+- update: cold 61.04 / warm median 58.06 / warm p95 61.97
+- note: cold 58.79 / warm median 57.56 / warm p95 73.80
+

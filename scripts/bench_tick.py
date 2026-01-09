@@ -49,7 +49,13 @@ def main():
                 continue
             time_cmd([str(bin_path), "block", ids[i], ids[0]], cwd=tmp, env=env)
 
-        results = {"tool": "tick", "count": COUNT, "runs": RUNS, "ops": {}}
+        results = {
+            "tool": "tick",
+            "count": COUNT,
+            "cold_runs": 1,
+            "warm_runs": RUNS,
+            "ops": {},
+        }
 
         ops = {
             "list_open": [str(bin_path), "list", "--json"],
@@ -60,10 +66,11 @@ def main():
         }
 
         for name, cmd in ops.items():
+            cold = time_cmd(cmd, cwd=tmp, env=env, quiet=True)
             samples = []
             for _ in range(RUNS):
-            samples.append(time_cmd(cmd, cwd=tmp, env=env, quiet=True))
-        results["ops"][name] = samples
+                samples.append(time_cmd(cmd, cwd=tmp, env=env, quiet=True))
+            results["ops"][name] = {"cold_ms": cold, "warm_ms": samples}
 
         out_path = root / "benchmarks" / "tick.json"
         out_path.write_text(json.dumps(results, indent=2))
