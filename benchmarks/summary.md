@@ -14,6 +14,10 @@ Warm runs per op: 20
 - Ops measured:
   - `list_open`: `tk list --json`
   - `list_label`: `tk list --label bench-hit --all --json`
+  - `list_label_any`: `tk list --label-any bench-hit,bench-alt --all --json`
+  - `list_title_contains`: `tk list --title-contains Seed --all --json`
+  - `list_desc_contains`: `tk list --desc-contains "context for filtering" --all --json`
+  - `list_notes_contains`: `tk list --notes-contains needle --all --json`
   - `ready`: `tk ready --json` (default limit=10)
   - `create`: `tk create "Bench create"`
   - `update`: `tk update <id> --status in_progress`
@@ -27,24 +31,36 @@ Warm runs per op: 20
 - Ops measured:
   - `list_open`: `bd list`
   - `list_label`: `bd list --label bench-hit`
+  - `list_label_any`: `bd list --label-any bench-hit,bench-alt`
+  - `list_title_contains`: `bd list --title-contains Seed`
+  - `list_desc_contains`: `bd list --desc-contains "context for filtering"`
+  - `list_notes_contains`: `bd list --notes-contains needle`
   - `ready`: `bd ready`
   - `create`: `bd create "Bench create"`
   - `update`: `bd update <id> --status in_progress`
   - `note`: `bd update <id> --notes "Bench note"`
 
 ## Tick (ms)
-- list_open: cold 78.60 / warm median 35.53 / warm p95 41.81
-- list_label: cold 34.52 / warm median 34.04 / warm p95 35.25
-- ready: cold 34.53 / warm median 34.24 / warm p95 38.87
-- create: cold 14.83 / warm median 14.97 / warm p95 15.67
-- update: cold 24.87 / warm median 25.07 / warm p95 27.11
-- note: cold 26.29 / warm median 25.53 / warm p95 31.39
+- list_open: cold 95.62 / warm median 36.07 / warm p95 38.97
+- list_label: cold 36.03 / warm median 36.14 / warm p95 42.79
+- list_label_any: cold 35.95 / warm median 35.24 / warm p95 37.62
+- list_title_contains: cold 34.79 / warm median 36.46 / warm p95 87.09
+- list_desc_contains: cold 36.65 / warm median 35.48 / warm p95 46.57
+- list_notes_contains: cold 34.51 / warm median 35.69 / warm p95 39.90
+- ready: cold 35.91 / warm median 35.98 / warm p95 38.18
+- create: cold 16.60 / warm median 15.91 / warm p95 17.63
+- update: cold 29.21 / warm median 27.17 / warm p95 29.46
+- note: cold 28.20 / warm median 26.72 / warm p95 29.73
 
 ## Beads (ms)
-- list_open: cold 76.11 / warm median 68.48 / warm p95 72.51
-- list_label: cold 61.68 / warm median 67.43 / warm p95 132.24
-- ready: cold 159.49 / warm median 66.59 / warm p95 222.09
-- create: cold 86.45 / warm median 91.45 / warm p95 118.03
-- update: cold 75.66 / warm median 67.65 / warm p95 84.50
-- note: cold 66.92 / warm median 63.82 / warm p95 67.43
+- list_open: cold 79.84 / warm median 71.48 / warm p95 85.12
+- list_label: cold 68.07 / warm median 68.32 / warm p95 86.25
+- list_label_any: cold 68.45 / warm median 67.50 / warm p95 74.87
+- list_title_contains: cold 67.39 / warm median 68.14 / warm p95 74.12
+- list_desc_contains: cold 76.32 / warm median 69.07 / warm p95 78.81
+- list_notes_contains: cold 112.70 / warm median 69.39 / warm p95 79.50
+- ready: cold 74.74 / warm median 68.29 / warm p95 72.42
+- create: cold 94.59 / warm median 91.65 / warm p95 96.85
+- update: cold 67.03 / warm median 67.96 / warm p95 73.15
+- note: cold 66.42 / warm median 68.87 / warm p95 81.26
 

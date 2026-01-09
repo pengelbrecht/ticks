@@ -80,6 +80,10 @@ def main():
         ops = {
             "list_open": ["bd", "list"],
             "list_label": ["bd", "list", "--label", SEED_LABEL],
+            "list_label_any": ["bd", "list", "--label-any", f"{SEED_LABEL},{SEED_LABEL_ALT}"],
+            "list_title_contains": ["bd", "list", "--title-contains", "Seed"],
+            "list_desc_contains": ["bd", "list", "--desc-contains", "context for filtering"],
+            "list_notes_contains": ["bd", "list", "--notes-contains", "needle"],
             "ready": ["bd", "ready"],
             "create": ["bd", "create", "Bench create"],
             "update": ["bd", "update", ids[1], "--status", "in_progress"],
