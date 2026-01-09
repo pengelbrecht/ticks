@@ -1,0 +1,13 @@
+{
+  "id": "2ig",
+  "title": "Define out-of-scope features",
+  "description": "List explicit non-goals (web UI, daemon, realtime sync, compaction, templates, cross-repo refs, comments thread, time tracking, notifications, GitHub Issues sync).\\n\\nAcceptance:\\n- Table or list of excluded features with short rationale.\\n- Aligns with simplicity-first philosophy.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "mu0",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:07:50.752686Z",
+  "updated_at": "2026-01-09T11:07:50.752686Z"
+}
