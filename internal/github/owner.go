@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// DetectOwner resolves owner via TICK_OWNER or gh.
+// DetectOwner resolves owner via TICK_OWNER or git config user.email.
 func DetectOwner(run CommandRunner) (string, error) {
 	if owner := strings.TrimSpace(os.Getenv("TICK_OWNER")); owner != "" {
 		return owner, nil
@@ -16,14 +16,14 @@ func DetectOwner(run CommandRunner) (string, error) {
 		run = defaultRunner
 	}
 
-	out, err := run("gh", "api", "user", "--jq", ".login")
+	out, err := run("git", "config", "user.email")
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve owner via gh: %w", err)
+		return "", fmt.Errorf("failed to resolve owner via git config user.email: %w", err)
 	}
 
 	owner := strings.TrimSpace(string(out))
 	if owner == "" {
-		return "", fmt.Errorf("gh returned empty owner")
+		return "", fmt.Errorf("git config user.email returned empty owner")
 	}
 
 	return owner, nil

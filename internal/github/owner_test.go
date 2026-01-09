@@ -21,7 +21,7 @@ func TestDetectOwnerEnv(t *testing.T) {
 	}
 }
 
-func TestDetectOwnerGh(t *testing.T) {
+func TestDetectOwnerEmail(t *testing.T) {
 	os.Unsetenv("TICK_OWNER")
 
 	owner, err := DetectOwner(func(string, ...string) ([]byte, error) {
@@ -35,11 +35,11 @@ func TestDetectOwnerGh(t *testing.T) {
 	}
 }
 
-func TestDetectOwnerGhError(t *testing.T) {
+func TestDetectOwnerEmailError(t *testing.T) {
 	os.Unsetenv("TICK_OWNER")
 
 	_, err := DetectOwner(func(string, ...string) ([]byte, error) {
-		return nil, errors.New("missing gh")
+		return nil, errors.New("missing email")
 	})
 	if err == nil {
 		t.Fatalf("expected error")
