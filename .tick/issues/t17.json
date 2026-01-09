@@ -1,0 +1,13 @@
+{
+  "id": "t17",
+  "title": "Specify tk merge-file and tk rebuild",
+  "description": "Document internal merge-file command signature for git merge driver and tk rebuild for index cache.\\n\\nAcceptance:\\n- merge-file args (base/ours/theirs/path) described.\\n- rebuild forces index cache refresh.\\n- Note merge-file not for direct use.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "aez",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:14:59.289309Z",
+  "updated_at": "2026-01-09T11:14:59.289309Z"
+}
