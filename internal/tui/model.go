@@ -31,6 +31,14 @@ type Model struct {
 	height      int
 }
 
+var (
+	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F5C2E7"))
+	panelStyle    = lipgloss.NewStyle().Border(asciiBorder()).BorderForeground(lipgloss.Color("#6C7086")).Padding(0, 1)
+	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#89DCEB")).Bold(true)
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6ADC8"))
+	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F849C"))
+)
+
 // NewModel builds a tree view model from ticks.
 func NewModel(ticks []tick.Tick) Model {
 	collapsed := make(map[string]bool)
@@ -152,20 +160,23 @@ func (m Model) View() string {
 		rightWidth = 28
 	}
 
-	headerStyle := lipgloss.NewStyle().Bold(true)
-	panelStyle := lipgloss.NewStyle().
-		Border(asciiBorder()).
-		Padding(0, 1).
-		Height(m.height - 1)
+	panelHeight := m.height - 2
+	if panelHeight < 6 {
+		panelHeight = 6
+	}
 
 	leftPanel := panelStyle.
 		Width(leftWidth).
+		Height(panelHeight).
 		Render(headerStyle.Render("Ticks") + "\n" + list)
 	rightPanel := panelStyle.
 		Width(rightWidth).
+		Height(panelHeight).
 		Render(headerStyle.Render("Details") + "\n" + detail)
 
-	return out + lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n"
+	footer := footerStyle.Render("j/k or arrows: move  space/enter: fold  z: focus  /: search  esc: clear  q: quit")
+
+	return out + lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + footer + "\n"
 }
 
 func buildListView(m Model) string {
@@ -188,7 +199,11 @@ func buildListView(m Model) string {
 			}
 		}
 		line := fmt.Sprintf("%s %s%s %s  P%d %s", cursor, indent, marker, item.Tick.ID, item.Tick.Priority, item.Tick.Title)
-		out += line + "\n"
+		if i == m.selected {
+			out += selectedStyle.Render(line) + "\n"
+		} else {
+			out += dimStyle.Render(line) + "\n"
+		}
 	}
 	return out
 }
@@ -204,13 +219,13 @@ func buildDetailView(m Model) string {
 
 	if strings.TrimSpace(current.Description) != "" {
 		out = append(out, "")
-		out = append(out, "Description:")
+		out = append(out, headerStyle.Render("Description:"))
 		out = append(out, indentLines(current.Description, 2)...)
 	}
 
 	if strings.TrimSpace(current.Notes) != "" {
 		out = append(out, "")
-		out = append(out, "Notes:")
+		out = append(out, headerStyle.Render("Notes:"))
 		out = append(out, indentLines(current.Notes, 2)...)
 	}
 
