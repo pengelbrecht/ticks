@@ -1,0 +1,12 @@
+{
+  "id": "kjz",
+  "title": "Spec: Testing and performance",
+  "description": "Define test strategy, suites, fixtures, and performance targets.\\n\\nAcceptance:\\n- Unit/integration/JSON tests described.\\n- Fixture guidance included.\\n- Performance targets listed.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "pengelbrecht",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:18:20.092697Z",
+  "updated_at": "2026-01-09T11:18:20.092697Z"
+}
