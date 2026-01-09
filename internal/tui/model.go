@@ -33,7 +33,7 @@ type Model struct {
 
 var (
 	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F5C2E7"))
-	panelStyle    = lipgloss.NewStyle().Border(asciiBorder()).BorderForeground(lipgloss.Color("#6C7086")).Padding(0, 1)
+	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#6C7086")).Padding(0, 1)
 	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#89DCEB")).Bold(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6ADC8"))
 	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F849C"))
@@ -362,17 +362,4 @@ func splitLines(value string) []string {
 		return nil
 	}
 	return strings.Split(value, "\n")
-}
-
-func asciiBorder() lipgloss.Border {
-	return lipgloss.Border{
-		Top:         "-",
-		Bottom:      "-",
-		Left:        "|",
-		Right:       "|",
-		TopLeft:     "+",
-		TopRight:    "+",
-		BottomLeft:  "+",
-		BottomRight: "+",
-	}
 }
