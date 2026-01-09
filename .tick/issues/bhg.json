@@ -1,0 +1,13 @@
+{
+  "id": "bhg",
+  "title": "Specify tk stats output",
+  "description": "Describe stats command output including totals by status, priority, type, ready, and blocked counts; include JSON.\\n\\nAcceptance:\\n- Example output block included.\\n- Scope of --all vs default described.\\n- JSON fields listed.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "aez",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:14:38.828224Z",
+  "updated_at": "2026-01-09T11:14:38.828224Z"
+}
