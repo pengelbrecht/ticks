@@ -5,8 +5,18 @@ as a single JSON file, making git merges clean and predictable.
 
 ## Install
 
+Build and use locally:
+
+```bash
+go build -o tk ./cmd/tk
+./tk init
+```
+
+Or install to your `$GOPATH/bin` (make sure it's in your `$PATH`):
+
 ```bash
 go install ./cmd/tk
+tk init
 ```
 
 ## Quick Start
