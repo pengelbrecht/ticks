@@ -41,26 +41,26 @@ Warm runs per op: 20
   - `note`: `bd update <id> --notes "Bench note"`
 
 ## Tick (ms)
-- list_open: cold 95.62 / warm median 36.07 / warm p95 38.97
-- list_label: cold 36.03 / warm median 36.14 / warm p95 42.79
-- list_label_any: cold 35.95 / warm median 35.24 / warm p95 37.62
-- list_title_contains: cold 34.79 / warm median 36.46 / warm p95 87.09
-- list_desc_contains: cold 36.65 / warm median 35.48 / warm p95 46.57
-- list_notes_contains: cold 34.51 / warm median 35.69 / warm p95 39.90
-- ready: cold 35.91 / warm median 35.98 / warm p95 38.18
-- create: cold 16.60 / warm median 15.91 / warm p95 17.63
-- update: cold 29.21 / warm median 27.17 / warm p95 29.46
-- note: cold 28.20 / warm median 26.72 / warm p95 29.73
+- list_open: cold 89.43 / warm median 36.63 / warm p95 41.01
+- list_label: cold 35.12 / warm median 35.33 / warm p95 37.96
+- list_label_any: cold 34.89 / warm median 34.71 / warm p95 38.82
+- list_title_contains: cold 37.15 / warm median 36.40 / warm p95 60.82
+- list_desc_contains: cold 33.79 / warm median 35.40 / warm p95 42.55
+- list_notes_contains: cold 35.69 / warm median 35.55 / warm p95 37.60
+- ready: cold 40.64 / warm median 35.08 / warm p95 39.15
+- create: cold 15.75 / warm median 15.49 / warm p95 17.46
+- update: cold 27.81 / warm median 26.73 / warm p95 30.16
+- note: cold 25.48 / warm median 26.73 / warm p95 28.28
 
 ## Beads (ms)
-- list_open: cold 79.84 / warm median 71.48 / warm p95 85.12
-- list_label: cold 68.07 / warm median 68.32 / warm p95 86.25
-- list_label_any: cold 68.45 / warm median 67.50 / warm p95 74.87
-- list_title_contains: cold 67.39 / warm median 68.14 / warm p95 74.12
-- list_desc_contains: cold 76.32 / warm median 69.07 / warm p95 78.81
-- list_notes_contains: cold 112.70 / warm median 69.39 / warm p95 79.50
-- ready: cold 74.74 / warm median 68.29 / warm p95 72.42
-- create: cold 94.59 / warm median 91.65 / warm p95 96.85
-- update: cold 67.03 / warm median 67.96 / warm p95 73.15
-- note: cold 66.42 / warm median 68.87 / warm p95 81.26
+- list_open: cold 76.08 / warm median 72.32 / warm p95 85.18
+- list_label: cold 71.75 / warm median 67.10 / warm p95 81.08
+- list_label_any: cold 64.28 / warm median 66.78 / warm p95 67.97
+- list_title_contains: cold 66.43 / warm median 66.89 / warm p95 71.36
+- list_desc_contains: cold 66.17 / warm median 65.76 / warm p95 72.77
+- list_notes_contains: cold 66.17 / warm median 65.93 / warm p95 89.45
+- ready: cold 82.18 / warm median 68.55 / warm p95 79.61
+- create: cold 93.28 / warm median 90.62 / warm p95 121.11
+- update: cold 67.45 / warm median 68.17 / warm p95 70.53
+- note: cold 65.28 / warm median 67.98 / warm p95 163.25
 
