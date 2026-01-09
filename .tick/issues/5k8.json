@@ -1,0 +1,13 @@
+{
+  "id": "5k8",
+  "title": "Specify project detection from git remote",
+  "description": "Define how to derive owner/repo from git remote URL formats (https, ssh).\\n\\nAcceptance:\\n- Examples of input URLs and normalized output.\\n- Error behavior when origin missing.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "pengelbrecht",
+  "parent": "t5x",
+  "created_by": "pengelbrecht",
+  "created_at": "2026-01-09T11:08:21.129907Z",
+  "updated_at": "2026-01-09T11:08:21.129907Z"
+}
