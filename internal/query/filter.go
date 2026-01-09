@@ -14,7 +14,11 @@ type Filter struct {
 	Priority *int
 	Type    string
 	Label   string
+	LabelAny []string
 	Parent  string
+	TitleContains string
+	DescContains  string
+	NotesContains string
 }
 
 // Apply filters ticks according to Filter fields.
@@ -36,7 +40,19 @@ func Apply(ticks []tick.Tick, f Filter) []tick.Tick {
 		if f.Label != "" && !containsString(t.Labels, f.Label) {
 			continue
 		}
+		if len(f.LabelAny) > 0 && !containsAnyString(t.Labels, f.LabelAny) {
+			continue
+		}
 		if f.Parent != "" && t.Parent != f.Parent {
+			continue
+		}
+		if f.TitleContains != "" && !containsFold(t.Title, f.TitleContains) {
+			continue
+		}
+		if f.DescContains != "" && !containsFold(t.Description, f.DescContains) {
+			continue
+		}
+		if f.NotesContains != "" && !containsFold(t.Notes, f.NotesContains) {
 			continue
 		}
 		out = append(out, t)
@@ -64,4 +80,19 @@ func containsString(values []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func containsAnyString(values []string, needles []string) bool {
+	for _, needle := range needles {
+		if containsString(values, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFold(haystack, needle string) bool {
+	haystack = strings.ToLower(haystack)
+	needle = strings.ToLower(needle)
+	return strings.Contains(haystack, needle)
 }
