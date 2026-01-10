@@ -244,9 +244,9 @@ func UpdateInstructions(method InstallMethod) string {
 		return "Run: brew upgrade pengelbrecht/tap/ticks"
 	case InstallScript:
 		if runtime.GOOS == "windows" {
-			return "Run: tk upgrade\nOr reinstall: irm https://ticks.dev/install.ps1 | iex"
+			return "Run: tk upgrade\nOr reinstall: irm https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.ps1 | iex"
 		}
-		return "Run: tk upgrade\nOr reinstall: curl -fsSL https://ticks.dev/install.sh | sh"
+		return "Run: tk upgrade\nOr reinstall: curl -fsSL https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh | sh"
 	default:
 		return "Run: tk upgrade"
 	}
