@@ -62,25 +62,8 @@ func Import(issues []Issue, store *tick.Store, owner string) (*ImportResult, err
 func convertIssue(issue Issue, idMap map[string]string, owner string) tick.Tick {
 	newID := idMap[issue.ID]
 
-	// Map status (blocked/deferred -> open)
-	status := issue.Status
-	switch status {
-	case "blocked", "deferred", "pinned", "hooked":
-		status = tick.StatusOpen
-	case "in_progress":
-		status = tick.StatusInProgress
-	default:
-		status = tick.StatusOpen
-	}
-
-	// Map issue type (unknown types -> task)
-	issueType := issue.IssueType
-	switch issueType {
-	case "bug", "feature", "task", "epic", "chore":
-		// valid types, keep as-is
-	default:
-		issueType = tick.TypeTask
-	}
+	status := mapStatus(issue.Status)
+	issueType := mapType(issue.IssueType)
 
 	// Extract relationships from dependencies
 	var parent string
@@ -151,4 +134,26 @@ func FindBeadsFile(root string) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// mapStatus converts a beads status to a tick status.
+// Blocked, deferred, pinned, and hooked statuses map to open.
+func mapStatus(status string) string {
+	switch status {
+	case "in_progress":
+		return tick.StatusInProgress
+	default:
+		return tick.StatusOpen
+	}
+}
+
+// mapType converts a beads issue type to a tick type.
+// Unknown types default to task.
+func mapType(issueType string) string {
+	switch issueType {
+	case tick.TypeBug, tick.TypeFeature, tick.TypeTask, tick.TypeEpic, tick.TypeChore:
+		return issueType
+	default:
+		return tick.TypeTask
+	}
 }

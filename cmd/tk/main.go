@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -1016,14 +1017,10 @@ func runList(args []string) int {
 		return exitNoRepo
 	}
 
-	owner := strings.TrimSpace(*ownerFlag)
-	if !*allOwners && owner == "" {
-		detected, err := github.DetectOwner(nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return exitGitHub
-		}
-		owner = detected
+	owner, err := resolveOwner(*allOwners, *ownerFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+		return exitGitHub
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
@@ -1101,14 +1098,10 @@ func runReady(args []string) int {
 		return exitNoRepo
 	}
 
-	owner := strings.TrimSpace(*ownerFlag)
-	if !*allOwners && owner == "" {
-		detected, err := github.DetectOwner(nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return exitGitHub
-		}
-		owner = detected
+	owner, err := resolveOwner(*allOwners, *ownerFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+		return exitGitHub
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
@@ -1180,14 +1173,10 @@ func runNext(args []string) int {
 		return exitGitHub
 	}
 
-	owner := strings.TrimSpace(*ownerFlag)
-	if !*allOwners && owner == "" {
-		detected, err := github.DetectOwner(nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return exitGitHub
-		}
-		owner = detected
+	owner, err := resolveOwner(*allOwners, *ownerFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+		return exitGitHub
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
@@ -1262,14 +1251,10 @@ func runBlocked(args []string) int {
 		return exitNoRepo
 	}
 
-	owner := strings.TrimSpace(*ownerFlag)
-	if !*allOwners && owner == "" {
-		detected, err := github.DetectOwner(nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return exitGitHub
-		}
-		owner = detected
+	owner, err := resolveOwner(*allOwners, *ownerFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+		return exitGitHub
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
@@ -1749,14 +1734,10 @@ func runStats(args []string) int {
 		return exitNoRepo
 	}
 
-	owner := ""
-	if !*allOwners {
-		detected, err := github.DetectOwner(nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return exitGitHub
-		}
-		owner = detected
+	owner, err := resolveOwner(*allOwners, "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+		return exitGitHub
 	}
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
@@ -1842,21 +1823,17 @@ func runView(args []string) int {
 		return exitNoRepo
 	}
 
+	owner, err := resolveOwner(*allOwners, *ownerFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
+		return exitGitHub
+	}
+
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	ticks, err := store.List()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
 		return exitIO
-	}
-
-	owner := strings.TrimSpace(*ownerFlag)
-	if !*allOwners && owner == "" {
-		detected, err := github.DetectOwner(nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-			return exitGitHub
-		}
-		owner = detected
 	}
 
 	var priority *int
@@ -2134,25 +2111,28 @@ func formatTime(value time.Time) string {
 	return value.Local().Format("2006-01-02 15:04")
 }
 
+// resolveOwner returns the owner for filtering commands.
+// If allOwners is true, returns empty string (no filtering).
+// If ownerFlag is set, uses that value.
+// Otherwise detects the current git user.
+func resolveOwner(allOwners bool, ownerFlag string) (string, error) {
+	if allOwners {
+		return "", nil
+	}
+	owner := strings.TrimSpace(ownerFlag)
+	if owner != "" {
+		return owner, nil
+	}
+	return github.DetectOwner(nil)
+}
+
 func repoRoot() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	return string(bytesTrimSpace(out)), nil
-}
-
-func bytesTrimSpace(in []byte) []byte {
-	start := 0
-	for start < len(in) && (in[start] == ' ' || in[start] == '\n' || in[start] == '\t' || in[start] == '\r') {
-		start++
-	}
-	end := len(in)
-	for end > start && (in[end-1] == ' ' || in[end-1] == '\n' || in[end-1] == '\t' || in[end-1] == '\r') {
-		end--
-	}
-	return in[start:end]
+	return string(bytes.TrimSpace(out)), nil
 }
 
 func printUsage() {
