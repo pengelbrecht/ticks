@@ -1,0 +1,16 @@
+{
+  "id": "fym",
+  "title": "Write e2e test for beads import",
+  "notes": "2026-01-10 11:59 - E2e test should verify: 1) Correct number of issues imported (excluding closed), 2) Parent relationships preserved with new IDs, 3) Blocked_by relationships preserved with new IDs, 4) Field mapping correct (priority, labels, etc.), 5) Closed issues not imported.\n2026-01-10 12:00 - Field-by-field verification: id (remapped), title, description, notes, status, priority, type, owner, labels, blocked_by (remapped), parent (remapped), created_by, created_at (preserved), updated_at (preserved).",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "vwy"
+  ],
+  "parent": "ioa",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-10T10:58:14.610535Z",
+  "updated_at": "2026-01-10T11:00:23.835066Z"
+}

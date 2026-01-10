@@ -1,0 +1,15 @@
+{
+  "id": "5mm",
+  "title": "Research beads JSONL schema",
+  "notes": "2026-01-10 11:58 - Beads stores issues in .beads/issues.jsonl (one JSON object per line). Key fields to map: id, title, description, status, priority, type, labels, parent, blocked_by. Filter out closed issues during import.\n2026-01-10 12:02 - BEADS SCHEMA RESEARCH COMPLETE:\n\nField Mapping (beads → ticks):\n- ID → ID (generate new, build remap table)\n- Title → Title\n- Description → Description  \n- Notes → Notes\n- Status → Status (map: blocked/deferred→open, closed/tombstone→skip)\n- Priority → Priority (both 0-4)\n- IssueType → Type (bug/feature/task/epic/chore→same, others→task)\n- Assignee → Owner\n- Labels → Labels\n- CreatedAt → CreatedAt (preserve)\n- CreatedBy → CreatedBy\n- UpdatedAt → UpdatedAt (preserve)\n- ClosedAt → ClosedAt\n- CloseReason → ClosedReason\n\nDependency Mapping:\n- Dependencies[type=parent-child].DependsOnID → Parent\n- Dependencies[type=blocks].DependsOnID → BlockedBy[]\n- Dependencies[type=discovered-from].DependsOnID → DiscoveredFrom\n\nSkip import if:\n- Status is closed or tombstone\n- DeletedAt is not nil",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "ioa",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-10T10:58:07.638522Z",
+  "updated_at": "2026-01-10T11:02:17.946457Z",
+  "closed_at": "2026-01-10T11:02:17.946457Z",
+  "closed_reason": "Schema research complete - full field mapping documented"
+}

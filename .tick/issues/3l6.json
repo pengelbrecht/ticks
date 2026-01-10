@@ -1,0 +1,13 @@
+{
+  "id": "3l6",
+  "title": "Add ExternalRef field",
+  "notes": "2026-01-10 12:07 - Link to external issue (GitHub, Jira). Maps from beads external_ref field. Format: 'gh-42', 'jira-ABC-123'.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "l3y",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-10T11:07:04.932172Z",
+  "updated_at": "2026-01-10T11:07:13.440657Z"
+}
