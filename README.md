@@ -32,7 +32,7 @@ Ticks is a radically simpler alternative to [beads](https://github.com/steveyegg
 
 Ticks is **multiplayer-first**: designed for teams where multiple developers each have their own agents. Commands show your issues by default (`tk ready` vs `tk ready --all`), making it natural for a team to share a repo without stepping on each other's work.
 
-Both support multi-agent workflows via git worktrees. The difference is ticks adds owner scoping for teams of humans, not just teams of agents.
+Both support multi-agent workflows via git worktrees—ticks' lack of a daemon is actually an advantage here, as beads' daemon [doesn't work correctly with worktrees](https://github.com/steveyegge/beads/blob/main/docs/FAQ.md). The difference is ticks adds owner scoping for teams of humans, not just teams of agents.
 
 | | ticks | beads |
 |---|---|---|
