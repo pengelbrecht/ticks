@@ -18,7 +18,7 @@ Ticks gives agents persistent memory that survives session restarts, context com
 
 ### Why Not GitHub Issues?
 
-- **Speed**: `tk ready` returns in <20ms. GitHub API calls take seconds.
+- **Speed**: `tk ready` returns in ~35ms with 1000 issues. GitHub API calls take seconds.
 - **Offline**: Works without network access.
 - **Agent-native**: Commands like `tk next` and `--json` output are designed for agents.
 - **Git-tracked**: Issues travel with your code. Branch, merge, fork—issues come along.
@@ -35,7 +35,20 @@ Ticks is a radically simpler alternative to [beads](https://github.com/steveyegg
 | **Background process** | None | Daemon required |
 | **Codebase** | ~1k lines Go | ~130k lines Go |
 | **Agent hooks** | Optional `tk prime` | Complex plugin system |
-| **Query speed** | <20ms | <1ms |
+| **Query speed** | ~35ms | ~67ms |
+
+### Benchmarks
+
+With 1000 issues, median times (ms):
+
+| Operation | ticks | beads |
+|-----------|-------|-------|
+| `ready` | 35 | 69 |
+| `list` | 35-37 | 65-72 |
+| `create` | 15 | 91 |
+| `update` | 27 | 68 |
+
+Full benchmark methodology and results in `benchmarks/`.
 
 **Choose ticks if you want:**
 - Simple flat files you can `cat` and debug
