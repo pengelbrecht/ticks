@@ -24,6 +24,8 @@ Ticks gives agents persistent memory that survives session restarts, context com
 - **Git-tracked**: Issues travel with your code. Branch, merge, fork—issues come along.
 - **Multiplayer**: Built-in owner scoping for multi-agent collaboration.
 
+GitHub recently added [dependencies](https://github.blog/changelog/2025-08-21-dependencies-on-issues/) and [sub-issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues), but the API latency makes it impractical for agents that need to check status frequently.
+
 ### Why Ticks Over Beads?
 
 Ticks is a radically simpler alternative to [beads](https://github.com/steveyegge/beads). Both solve the same core problem—giving AI agents persistent memory across sessions—but with different tradeoffs:
@@ -192,6 +194,10 @@ tk list --owner bob
 ## How It Works
 
 Each issue is a JSON file in `.tick/issues/<id>.json`. Git handles merges naturally since different issues are different files. For the rare case of conflicting edits to the same issue, ticks provides a custom merge driver that intelligently combines changes.
+
+## Acknowledgements
+
+Ticks is inspired by [beads](https://github.com/steveyegge/beads) by Steve Yegge, which pioneered the idea of giving AI coding agents persistent memory through git-tracked issue management. Ticks takes a simpler approach to the same problem.
 
 ## License
 
