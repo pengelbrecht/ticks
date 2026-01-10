@@ -2156,6 +2156,7 @@ func bytesTrimSpace(in []byte) []byte {
 }
 
 func printUsage() {
+	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
 	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import")
 }
