@@ -2,7 +2,7 @@
   "id": "ti3",
   "title": "Add HOMEBREW_TAP_TOKEN secret to ticks repo",
   "description": "Add the PAT as a repository secret",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "ee5",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-10T08:44:48.831311Z",
-  "updated_at": "2026-01-10T08:44:57.57491Z"
+  "updated_at": "2026-01-10T08:51:21.868901Z",
+  "closed_at": "2026-01-10T08:51:21.868901Z",
+  "closed_reason": "Added HOMEBREW_TAP_TOKEN secret via gh CLI"
 }
