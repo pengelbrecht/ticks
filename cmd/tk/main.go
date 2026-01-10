@@ -55,6 +55,7 @@ tk close ID              # mark done
 
 **Dependencies & epics:**
 ` + "```" + `
+tk next --epic           # next ready epic
 tk block ID BLOCKER_ID   # ID is blocked by BLOCKER_ID
 tk create "task" --parent EPIC_ID
 ` + "```" + `
