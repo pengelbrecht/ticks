@@ -89,6 +89,8 @@ func run(args []string) int {
 		return runStats(args[2:])
 	case "view":
 		return runView(args[2:])
+	case "prime":
+		return runPrime()
 	case "--help", "-h":
 		printUsage()
 		return exitSuccess
@@ -145,6 +147,8 @@ func runInit() int {
 	fmt.Printf("Detected GitHub repo: %s\n", project)
 	fmt.Printf("Detected user: %s\n\n", owner)
 	fmt.Println("Initialized .tick/")
+	fmt.Println()
+	fmt.Println("Run `tk prime` to get CLAUDE.md content for agent integration.")
 
 	return exitSuccess
 }
@@ -1671,6 +1675,32 @@ func runView(args []string) int {
 	return exitSuccess
 }
 
+func runPrime() int {
+	const primeText = `## Ticks
+
+This project uses ` + "`tk`" + ` for issue tracking. Use ticks for work that spans sessions, has dependencies, or is discovered during other work. Use TodoWrite for simple single-session tasks.
+
+**Essential commands:**
+` + "```" + `
+tk ready                 # find work (unblocked only)
+tk create "title"        # create issue
+tk update ID --status in_progress
+tk note ID "message"     # log progress
+tk close ID              # mark done
+` + "```" + `
+
+**Dependencies & epics:**
+` + "```" + `
+tk block ID BLOCKER_ID   # ID is blocked by BLOCKER_ID
+tk create "task" --parent EPIC_ID
+` + "```" + `
+
+All commands support ` + "`--help`" + ` for options (e.g. ` + "`tk create --help`" + `, ` + "`tk list --help`" + `).
+`
+	fmt.Print(primeText)
+	return exitSuccess
+}
+
 func splitCSV(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1865,5 +1895,5 @@ func bytesTrimSpace(in []byte) []byte {
 
 func printUsage() {
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view")
+	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, prime")
 }
