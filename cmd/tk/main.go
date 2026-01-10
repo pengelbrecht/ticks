@@ -39,7 +39,7 @@ const (
 func run(args []string) int {
 	if len(args) < 2 {
 		printUsage()
-		return exitUsage
+		return exitSuccess
 	}
 
 	switch args[1] {
