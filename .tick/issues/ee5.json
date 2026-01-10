@@ -1,11 +1,13 @@
 {
   "id": "ee5",
   "title": "Epic: Homebrew distribution via pengelbrecht/homebrew-tap",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-10T08:44:36.438616Z",
-  "updated_at": "2026-01-10T08:44:36.438616Z"
+  "updated_at": "2026-01-10T08:57:20.834974Z",
+  "closed_at": "2026-01-10T08:57:20.834974Z",
+  "closed_reason": "Homebrew distribution complete - brew install pengelbrecht/homebrew-tap/tk works"
 }

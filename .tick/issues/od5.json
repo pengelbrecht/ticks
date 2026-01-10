@@ -2,7 +2,7 @@
   "id": "od5",
   "title": "Test release process with v0.1.0 tag",
   "description": "Push a tag and verify: release created, tap updated, brew install works",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "ee5",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-10T08:44:48.859729Z",
-  "updated_at": "2026-01-10T08:44:57.63673Z"
+  "updated_at": "2026-01-10T08:57:20.804703Z",
+  "closed_at": "2026-01-10T08:57:20.804703Z",
+  "closed_reason": "Release v0.1.0 created, tap updated, brew install works"
 }
