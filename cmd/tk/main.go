@@ -22,6 +22,7 @@ import (
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/tui"
+	"github.com/pengelbrecht/ticks/internal/update"
 )
 
 var Version = "dev"
@@ -126,8 +127,9 @@ func run(args []string) int {
 	case "import":
 		return runImport(args[2:])
 	case "version", "--version", "-v":
-		fmt.Printf("tk %s\n", Version)
-		return exitSuccess
+		return runVersion()
+	case "upgrade":
+		return runUpgrade()
 	case "--help", "-h":
 		printUsage()
 		return exitSuccess
@@ -1866,6 +1868,63 @@ func runSnippet() int {
 	return exitSuccess
 }
 
+func runVersion() int {
+	fmt.Printf("tk %s\n", Version)
+
+	// Check for updates (skip for dev builds)
+	if Version == "dev" {
+		return exitSuccess
+	}
+
+	release, hasUpdate, err := update.CheckForUpdate(Version)
+	if err != nil {
+		// Silently ignore update check errors
+		return exitSuccess
+	}
+
+	if hasUpdate && release != nil {
+		method := update.DetectInstallMethod()
+		fmt.Printf("\nUpdate available: %s -> %s\n", Version, release.Version)
+		fmt.Println(update.UpdateInstructions(method))
+	}
+
+	return exitSuccess
+}
+
+func runUpgrade() int {
+	fmt.Printf("Current version: %s\n", Version)
+
+	method := update.DetectInstallMethod()
+	if method == update.InstallHomebrew {
+		fmt.Println("\ntk was installed via Homebrew.")
+		fmt.Println("Run: brew upgrade ticks")
+		return exitSuccess
+	}
+
+	fmt.Println("Checking for updates...")
+
+	release, hasUpdate, err := update.CheckForUpdate(Version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to check for updates: %v\n", err)
+		return exitGeneric
+	}
+
+	if !hasUpdate {
+		fmt.Println("Already at latest version.")
+		return exitSuccess
+	}
+
+	fmt.Printf("Updating to %s...\n", release.Version)
+
+	if err := update.Update(Version); err != nil {
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		return exitGeneric
+	}
+
+	fmt.Printf("Successfully updated to %s\n", release.Version)
+	return exitSuccess
+}
+
 func runImport(args []string) int {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "output as json")
@@ -2138,5 +2197,5 @@ func repoRoot() (string, error) {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import")
+	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, version, upgrade")
 }
