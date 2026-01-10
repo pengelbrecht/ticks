@@ -2,12 +2,14 @@
   "id": "z2p",
   "title": "Add DeferUntil field",
   "notes": "2026-01-10 12:07 - Allows snoozing tasks until a future date. Maps from beads defer_until field. Issues with defer_until in future should be excluded from tk ready.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "l3y",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-10T11:07:04.905593Z",
-  "updated_at": "2026-01-10T11:07:13.413259Z"
+  "updated_at": "2026-01-10T11:11:52.173405Z",
+  "closed_at": "2026-01-10T11:11:52.173405Z",
+  "closed_reason": "DeferUntil field added, excludes from ready when in future"
 }

@@ -36,8 +36,11 @@ type Tick struct {
 	Labels         []string   `json:"labels,omitempty"`
 	BlockedBy      []string   `json:"blocked_by,omitempty"`
 	Parent         string     `json:"parent,omitempty"`
-	DiscoveredFrom string     `json:"discovered_from,omitempty"`
-	CreatedBy      string     `json:"created_by"`
+	DiscoveredFrom     string     `json:"discovered_from,omitempty"`
+	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
+	DeferUntil         *time.Time `json:"defer_until,omitempty"`
+	ExternalRef        string     `json:"external_ref,omitempty"`
+	CreatedBy          string     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	ClosedAt       *time.Time `json:"closed_at,omitempty"`

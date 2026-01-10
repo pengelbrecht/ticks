@@ -1,6 +1,10 @@
 package query
 
-import "github.com/pengelbrecht/ticks/internal/tick"
+import (
+	"time"
+
+	"github.com/pengelbrecht/ticks/internal/tick"
+)
 
 // Ready returns open ticks that are not blocked by open blockers.
 // Missing blockers are treated as open (not ready).
@@ -30,6 +34,10 @@ func Blocked(ticks []tick.Tick) []tick.Tick {
 
 func isReady(t tick.Tick, index map[string]tick.Tick) bool {
 	if t.Status != tick.StatusOpen {
+		return false
+	}
+	// Deferred tasks are not ready until the defer date passes
+	if t.DeferUntil != nil && t.DeferUntil.After(time.Now()) {
 		return false
 	}
 	for _, blocker := range t.BlockedBy {

@@ -213,6 +213,9 @@ func runCreate(args []string) int {
 	fs.StringVar(blockedFlag, "b", "", "comma-separated blocker ids")
 	parentFlag := fs.String("parent", "", "parent epic id")
 	discoveredFlag := fs.String("discovered-from", "", "source tick id")
+	acceptanceFlag := fs.String("acceptance", "", "acceptance criteria")
+	deferFlag := fs.String("defer", "", "defer until date (YYYY-MM-DD)")
+	externalFlag := fs.String("external-ref", "", "external reference (e.g. gh-42)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 
@@ -264,21 +267,34 @@ func runCreate(args []string) int {
 	}
 
 	now := time.Now().UTC()
+	var deferUntil *time.Time
+	if *deferFlag != "" {
+		parsed, err := time.Parse("2006-01-02", *deferFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid defer date (use YYYY-MM-DD): %v\n", err)
+			return exitUsage
+		}
+		deferUntil = &parsed
+	}
+
 	t := tick.Tick{
-		ID:             id,
-		Title:          title,
-		Description:    strings.TrimSpace(*description),
-		Status:         tick.StatusOpen,
-		Priority:       *priority,
-		Type:           strings.TrimSpace(*typeFlag),
-		Owner:          owner,
-		Labels:         splitCSV(*labelsFlag),
-		BlockedBy:      splitCSV(*blockedFlag),
-		Parent:         strings.TrimSpace(*parentFlag),
-		DiscoveredFrom: strings.TrimSpace(*discoveredFlag),
-		CreatedBy:      creator,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                 id,
+		Title:              title,
+		Description:        strings.TrimSpace(*description),
+		Status:             tick.StatusOpen,
+		Priority:           *priority,
+		Type:               strings.TrimSpace(*typeFlag),
+		Owner:              owner,
+		Labels:             splitCSV(*labelsFlag),
+		BlockedBy:          splitCSV(*blockedFlag),
+		Parent:             strings.TrimSpace(*parentFlag),
+		DiscoveredFrom:     strings.TrimSpace(*discoveredFlag),
+		AcceptanceCriteria: strings.TrimSpace(*acceptanceFlag),
+		DeferUntil:         deferUntil,
+		ExternalRef:        strings.TrimSpace(*externalFlag),
+		CreatedBy:          creator,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := store.Write(t); err != nil {
@@ -386,6 +402,15 @@ func runShow(args []string) int {
 			blocked = append(blocked, fmt.Sprintf("%s (%s)", blocker, blk.Status))
 		}
 		fmt.Printf("Blocked by: %s\n", strings.Join(blocked, ", "))
+	}
+	if strings.TrimSpace(t.AcceptanceCriteria) != "" {
+		fmt.Printf("Acceptance: %s\n", t.AcceptanceCriteria)
+	}
+	if t.DeferUntil != nil {
+		fmt.Printf("Deferred until: %s\n", t.DeferUntil.Format("2006-01-02"))
+	}
+	if strings.TrimSpace(t.ExternalRef) != "" {
+		fmt.Printf("External: %s\n", t.ExternalRef)
 	}
 
 	fmt.Printf("Created: %s by %s\n", formatTime(t.CreatedAt), t.CreatedBy)
@@ -504,6 +529,11 @@ func runUpdate(args []string) int {
 	fs.Var(&owner, "owner", "new owner")
 	fs.Var(&addLabels, "add-labels", "labels to add")
 	fs.Var(&removeLabels, "remove-labels", "labels to remove")
+	var acceptance, externalRef optionalString
+	var deferUntil optionalString
+	fs.Var(&acceptance, "acceptance", "acceptance criteria")
+	fs.Var(&deferUntil, "defer", "defer until date (YYYY-MM-DD)")
+	fs.Var(&externalRef, "external-ref", "external reference")
 
 	fs.SetOutput(os.Stderr)
 	positionals, err := parseInterleaved(fs, args)
@@ -579,6 +609,24 @@ func runUpdate(args []string) int {
 		for _, label := range splitCSV(removeLabels.value) {
 			t.Labels = removeString(t.Labels, label)
 		}
+	}
+	if acceptance.set {
+		t.AcceptanceCriteria = acceptance.value
+	}
+	if deferUntil.set {
+		if deferUntil.value == "" {
+			t.DeferUntil = nil
+		} else {
+			parsed, err := time.Parse("2006-01-02", deferUntil.value)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "invalid defer date (use YYYY-MM-DD): %v\n", err)
+				return exitUsage
+			}
+			t.DeferUntil = &parsed
+		}
+	}
+	if externalRef.set {
+		t.ExternalRef = externalRef.value
 	}
 
 	t.UpdatedAt = time.Now().UTC()

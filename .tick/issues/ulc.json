@@ -1,0 +1,12 @@
+{
+  "id": "ulc",
+  "title": "Add standalone tk import command",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "ioa",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-10T11:09:06.317281Z",
+  "updated_at": "2026-01-10T11:09:06.317281Z"
+}

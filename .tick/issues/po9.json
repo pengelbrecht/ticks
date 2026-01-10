@@ -2,12 +2,14 @@
   "id": "po9",
   "title": "Add AcceptanceCriteria field",
   "notes": "2026-01-10 12:07 - Helps agents know when a task is done. Maps from beads acceptance_criteria field.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "l3y",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-10T11:07:04.878148Z",
-  "updated_at": "2026-01-10T11:07:13.386768Z"
+  "updated_at": "2026-01-10T11:11:52.142867Z",
+  "closed_at": "2026-01-10T11:11:52.142867Z",
+  "closed_reason": "AcceptanceCriteria field added with CLI flags"
 }
