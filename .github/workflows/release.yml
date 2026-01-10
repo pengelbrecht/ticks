@@ -100,12 +100,15 @@ jobs:
           echo "Linux ARM64: $SHA_LINUX_ARM64"
           echo "Linux AMD64: $SHA_LINUX_AMD64"
 
+          # Remove old tk.rb if it exists
+          rm -f homebrew-tap/Formula/tk.rb
+
           # Generate formula from scratch
-          cat > homebrew-tap/Formula/tk.rb << 'FORMULA'
+          cat > homebrew-tap/Formula/ticks.rb << 'FORMULA'
           # typed: false
           # frozen_string_literal: true
 
-          class Tk < Formula
+          class Ticks < Formula
             desc "Multiplayer-first issue tracker for AI coding agents"
             homepage "https://github.com/pengelbrecht/ticks"
             version "VERSION_PLACEHOLDER"
@@ -154,23 +157,23 @@ jobs:
           FORMULA
 
           # Replace placeholders
-          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" homebrew-tap/Formula/tk.rb
-          sed -i "s/SHA_DARWIN_ARM64_PLACEHOLDER/${SHA_DARWIN_ARM64}/" homebrew-tap/Formula/tk.rb
-          sed -i "s/SHA_DARWIN_AMD64_PLACEHOLDER/${SHA_DARWIN_AMD64}/" homebrew-tap/Formula/tk.rb
-          sed -i "s/SHA_LINUX_ARM64_PLACEHOLDER/${SHA_LINUX_ARM64}/" homebrew-tap/Formula/tk.rb
-          sed -i "s/SHA_LINUX_AMD64_PLACEHOLDER/${SHA_LINUX_AMD64}/" homebrew-tap/Formula/tk.rb
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" homebrew-tap/Formula/ticks.rb
+          sed -i "s/SHA_DARWIN_ARM64_PLACEHOLDER/${SHA_DARWIN_ARM64}/" homebrew-tap/Formula/ticks.rb
+          sed -i "s/SHA_DARWIN_AMD64_PLACEHOLDER/${SHA_DARWIN_AMD64}/" homebrew-tap/Formula/ticks.rb
+          sed -i "s/SHA_LINUX_ARM64_PLACEHOLDER/${SHA_LINUX_ARM64}/" homebrew-tap/Formula/ticks.rb
+          sed -i "s/SHA_LINUX_AMD64_PLACEHOLDER/${SHA_LINUX_AMD64}/" homebrew-tap/Formula/ticks.rb
 
           # Remove leading whitespace from heredoc
-          sed -i 's/^          //' homebrew-tap/Formula/tk.rb
+          sed -i 's/^          //' homebrew-tap/Formula/ticks.rb
 
           echo "Generated formula:"
-          cat homebrew-tap/Formula/tk.rb
+          cat homebrew-tap/Formula/ticks.rb
 
       - name: Commit and push formula update
         working-directory: homebrew-tap
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/tk.rb
-          git commit -m "Update tk to ${{ github.ref_name }}" || echo "No changes to commit"
+          git add -A Formula/
+          git commit -m "Update ticks to ${{ github.ref_name }}" || echo "No changes to commit"
           git push
