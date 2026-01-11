@@ -47,6 +47,11 @@ var (
 	statusOpenStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")) // Gray (Overlay0)
 	statusInProgressStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")) // Blue
 	statusClosedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")) // Green
+
+	// Type color styles (Catppuccin Mocha palette)
+	typeEpicStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")) // Purple (Mauve)
+	typeBugStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")) // Red
+	typeFeatureStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5")) // Teal
 )
 
 // renderPriority returns a color-coded priority string.
@@ -76,6 +81,21 @@ func renderStatus(status string) string {
 		return statusClosedStyle.Render("✓")
 	default:
 		return status
+	}
+}
+
+// renderType returns a color-coded type string.
+// epic: purple, bug: red, feature: teal, task/chore: default
+func renderType(tickType string) string {
+	switch tickType {
+	case tick.TypeEpic:
+		return typeEpicStyle.Render(tickType)
+	case tick.TypeBug:
+		return typeBugStyle.Render(tickType)
+	case tick.TypeFeature:
+		return typeFeatureStyle.Render(tickType)
+	default:
+		return tickType
 	}
 }
 
@@ -258,7 +278,7 @@ func buildDetailView(m Model) string {
 	}
 	current := m.items[m.selected].Tick
 	var out []string
-	out = append(out, fmt.Sprintf("%s  %s %s %s  @%s", current.ID, renderStatus(current.Status), renderPriority(current.Priority), current.Type, current.Owner))
+	out = append(out, fmt.Sprintf("%s  %s %s %s  @%s", current.ID, renderStatus(current.Status), renderPriority(current.Priority), renderType(current.Type), current.Owner))
 	out = append(out, current.Title)
 
 	if strings.TrimSpace(current.Description) != "" {
