@@ -2,11 +2,12 @@
   "id": "d2h",
   "title": "Epic: Search/filter parity",
   "description": "Add search and filter capabilities to tk list/ready to match beads parity (title/description/notes contains, label-any).\\n\\nAcceptance:\\n- CLI flags added to tk list (title/desc/notes contains, label-any).\\n- Query logic supports case-insensitive substring matching.\\n- Benchmarks updated to include search/filter ops.\\n- Docs updated.",
+  "notes": "2026-01-11 15:59 - Iteration 1 (yol) complete: Search flags (--title-contains, --desc-contains, --notes-contains, --label-any) were already implemented in both list and ready commands. Added JSON output metadata wrapper (listOutput struct) that includes applied filters when search flags are used. JSON output now has 'ticks' array and optional 'filters' object. Tests pass. Next: nzg can likely be closed as the query matching logic is already implemented in internal/query/filter.go with containsFold() for case-insensitive matching.",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "pengelbrecht",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-09T13:39:45.077992Z",
-  "updated_at": "2026-01-09T13:39:45.077992Z"
+  "updated_at": "2026-01-11T15:59:27.689962969Z"
 }

@@ -27,6 +27,20 @@ import (
 
 var Version = "dev"
 
+// listOutput wraps list results with optional filter metadata for JSON output.
+type listOutput struct {
+	Ticks   []tick.Tick `json:"ticks"`
+	Filters *listFilter `json:"filters,omitempty"`
+}
+
+// listFilter captures the search/filter options applied to list output.
+type listFilter struct {
+	TitleContains string   `json:"title_contains,omitempty"`
+	DescContains  string   `json:"desc_contains,omitempty"`
+	NotesContains string   `json:"notes_contains,omitempty"`
+	LabelAny      []string `json:"label_any,omitempty"`
+}
+
 func main() {
 	os.Exit(run(os.Args))
 }
@@ -1107,8 +1121,18 @@ func runList(args []string) int {
 	query.SortByPriorityCreatedAt(filtered)
 
 	if *jsonOutput {
+		output := listOutput{Ticks: filtered}
+		// Include filter metadata if any search filters are present
+		if filter.TitleContains != "" || filter.DescContains != "" || filter.NotesContains != "" || len(filter.LabelAny) > 0 {
+			output.Filters = &listFilter{
+				TitleContains: filter.TitleContains,
+				DescContains:  filter.DescContains,
+				NotesContains: filter.NotesContains,
+				LabelAny:      filter.LabelAny,
+			}
+		}
 		enc := json.NewEncoder(os.Stdout)
-		if err := enc.Encode(filtered); err != nil {
+		if err := enc.Encode(output); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
 			return exitIO
 		}
@@ -1165,14 +1189,15 @@ func runReady(args []string) int {
 		return exitIO
 	}
 
-	filtered := query.Apply(ticks, query.Filter{
+	filter := query.Filter{
 		Owner:         owner,
 		Label:         strings.TrimSpace(*labelFlag),
 		LabelAny:      splitCSV(*labelAnyFlag),
 		TitleContains: strings.TrimSpace(*titleContainsFlag),
 		DescContains:  strings.TrimSpace(*descContainsFlag),
 		NotesContains: strings.TrimSpace(*notesContainsFlag),
-	})
+	}
+	filtered := query.Apply(ticks, filter)
 	ready := query.Ready(filtered)
 	query.SortByPriorityCreatedAt(ready)
 
@@ -1181,8 +1206,18 @@ func runReady(args []string) int {
 	}
 
 	if *jsonOutput {
+		output := listOutput{Ticks: ready}
+		// Include filter metadata if any search filters are present
+		if filter.TitleContains != "" || filter.DescContains != "" || filter.NotesContains != "" || len(filter.LabelAny) > 0 {
+			output.Filters = &listFilter{
+				TitleContains: filter.TitleContains,
+				DescContains:  filter.DescContains,
+				NotesContains: filter.NotesContains,
+				LabelAny:      filter.LabelAny,
+			}
+		}
 		enc := json.NewEncoder(os.Stdout)
-		if err := enc.Encode(ready); err != nil {
+		if err := enc.Encode(output); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
 			return exitIO
 		}

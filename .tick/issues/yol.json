@@ -2,12 +2,13 @@
   "id": "yol",
   "title": "Add list search flags",
   "description": "Add tk list flags for --title-contains, --desc-contains, --notes-contains, and --label-any to match beads search/filter options.\\n\\nAcceptance:\\n- Flags appear in --help.\\n- Flags support comma-separated label-any list.\\n- Flags included in JSON output metadata if present.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "pengelbrecht",
   "parent": "d2h",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-09T13:39:59.017048Z",
-  "updated_at": "2026-01-09T13:39:59.017048Z"
+  "updated_at": "2026-01-11T15:59:19.062403853Z",
+  "closed_at": "2026-01-11T15:59:19.062403853Z"
 }
