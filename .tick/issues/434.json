@@ -2,12 +2,12 @@
   "id": "434",
   "title": "TUI view improvements",
   "description": "Refine the tk view TUI with better styling, color coding, layout fixes, and Bubbles/Lipgloss enhancements",
-  "notes": "2026-01-11 15:09 - Completed 7us: List items now truncate to panel width. The buildListView() function now takes a width param and uses the existing truncate() helper. Content width is calculated as leftWidth - 4 to account for border and padding.\n2026-01-11 16:21 - Completed 1p3: Added renderStatus() helper with color-coded status symbols (○ gray open, ● blue in_progress, ✓ green closed). Status is now displayed in both list and detail views. Follows existing pattern from renderPriority().\n2026-01-11 16:26 - Completed xfd: Added renderType() helper with color coding (epic=purple, bug=red, feature=teal, task/chore=default). Follows same pattern as renderStatus() and renderPriority(). Type is displayed in detail view only (list view kept compact). All colors use Catppuccin Mocha palette.",
+  "notes": "2026-01-11 15:09 - Completed 7us: List items now truncate to panel width. The buildListView() function now takes a width param and uses the existing truncate() helper. Content width is calculated as leftWidth - 4 to account for border and padding.\n2026-01-11 16:21 - Completed 1p3: Added renderStatus() helper with color-coded status symbols (○ gray open, ● blue in_progress, ✓ green closed). Status is now displayed in both list and detail views. Follows existing pattern from renderPriority().\n2026-01-11 16:26 - Completed xfd: Added renderType() helper with color coding (epic=purple, bug=red, feature=teal, task/chore=default). Follows same pattern as renderStatus() and renderPriority(). Type is displayed in detail view only (list view kept compact). All colors use Catppuccin Mocha palette.\n2026-01-11 16:42 - Completed t2d: Added labelStyle with fixed width (10) for label alignment. Detail view now shows ID, Priority, Type, Status, Owner as separate labeled lines. Status displays both the colored symbol and text for clarity. Title is now a labeled section rather than inline.\n2026-01-11 16:43 - Completed v6r: Evaluated bubbles/list component. Recommendation is NOT to adopt - our hierarchical tree structure with collapse/expand and epic focus mode is not well suited for bubbles/list which is designed for flat lists. Custom delegate would be required anyway, negating convenience benefits. Current ~200 line list implementation is appropriate for the tree-aware architecture. Future enhancements could add fuzzy filtering (sahilm/fuzzy) without full bubbles adoption.",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:00:59.183143847Z",
-  "updated_at": "2026-01-11T16:26:26.829825034Z"
+  "updated_at": "2026-01-11T16:43:45.187944138Z"
 }

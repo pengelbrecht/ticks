@@ -1,8 +1,8 @@
 {
   "id": "v6r",
   "title": "Evaluate bubbles/list component adoption",
-  "description": "The bubbles/list component provides built-in fuzzy filtering, pagination, delegate pattern for custom rendering. Would replace manual list logic but requires refactor.",
-  "status": "open",
+  "description": "The bubbles/list component provides built-in fuzzy filtering, pagination, delegate pattern for custom rendering. Would replace manual list logic but requires refactor.\n\n## Evaluation Summary\n\n**Recommendation: Do NOT adopt bubbles/list at this time.**\n\n### Current Implementation Analysis\n\nThe current TUI (~440 lines) provides:\n- Hierarchical tree view with parent/child relationships (epics + children)\n- Collapsible epic nodes (+/- markers)\n- Focus mode for drilling into specific epics (z key)\n- Simple substring filtering on title/labels\n- Custom styling with Catppuccin Mocha palette\n- Split-panel layout (list + detail view)\n\n### What bubbles/list Provides\n\n1. **Built-in fuzzy filtering** - Uses sahilm/fuzzy for ranked fuzzy matching\n2. **Pagination** - Built-in paginator component\n3. **Delegate pattern** - Separates rendering from item data via ItemDelegate interface\n4. **Spinner/activity indicators** - Built-in loading states\n5. **Status messages** - Temporary notification support\n6. **Help integration** - Built-in help menu support\n\n### Why bubbles/list is NOT a Good Fit\n\n1. **Tree Structure vs Flat List**\n   - bubbles/list is designed for flat item lists\n   - Our TUI needs hierarchical parent-child relationships\n   - Collapse/expand state is custom logic not supported by bubbles/list\n   - Focus mode (zoom into epic) requires filtering by relationship\n\n2. **Custom Item Layout**\n   - Our items show: cursor, indent, fold marker, ID, status symbol, priority, title\n   - bubbles/list DefaultDelegate expects: title + description (two-line format)\n   - Would need full custom delegate anyway, negating much of the convenience\n\n3. **Filtering Requirements**\n   - We filter by title AND labels (substring match)\n   - bubbles/list filters by single FilterValue() string\n   - Our tree rebuilding on filter/focus change is more complex\n\n4. **Minimal Benefit, High Refactor Cost**\n   - Current implementation is ~200 lines for list logic\n   - Would need custom delegate, custom key handling, tree adaptation layer\n   - Pagination not needed (tree view with collapse handles large lists)\n   - Fuzzy search is nice-to-have but not essential for tick IDs/titles\n\n5. **Dependency Bloat**\n   - Adding bubbles dependency for one component\n   - Current pure bubbletea + lipgloss is minimal\n\n### What WOULD Make bubbles/list Worth It\n\n- If we needed flat list views (e.g., search results mode)\n- If we wanted proper fuzzy search ranking\n- If pagination became necessary (hundreds of visible items)\n- If we wanted standardized help menus\n\n### Alternative Improvements\n\nInstead of adopting bubbles/list, consider:\n1. Add fuzzy filtering manually (sahilm/fuzzy is small)\n2. Keep current tree-aware architecture\n3. Focus on polish: better key hints, viewport scrolling for detail panel",
+  "status": "closed",
   "priority": 3,
   "type": "feature",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "parent": "434",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:01:25.069526049Z",
-  "updated_at": "2026-01-11T15:01:25.069526049Z"
+  "updated_at": "2026-01-11T16:43:38.984460358Z",
+  "closed_at": "2026-01-11T16:43:38.984460358Z"
 }
