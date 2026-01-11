@@ -70,7 +70,6 @@ Full benchmark methodology and results in `benchmarks/`.
 - Minimal agent integration (just add output of `tk prime` to CLAUDE.md)
 
 **Choose beads if you need:**
-- Sub-millisecond queries on thousands of issues
 - Advanced multi-agent coordination
 - Automatic context injection via hooks
 
