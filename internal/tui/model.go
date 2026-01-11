@@ -381,12 +381,13 @@ func (m Model) View() string {
 		}
 	}
 
+	// Panel content width = total width - border (2); padding is inside width
 	leftPanel := panelStyle.
-		Width(leftWidth).
+		Width(leftWidth - 2).
 		Height(panelHeight).
 		Render(headerStyle.Render(leftHeader) + "\n" + list)
 	rightPanel := panelStyle.
-		Width(rightWidth).
+		Width(rightWidth - 2).
 		Height(panelHeight).
 		Render(headerStyle.Render(rightHeader) + "\n" + m.viewport.View())
 
