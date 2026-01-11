@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -29,6 +30,8 @@ type Model struct {
 	focusedEpic string
 	width       int
 	height      int
+	viewport    viewport.Model
+	ready       bool // viewport initialized
 }
 
 var (
@@ -112,10 +115,17 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	prevSelected := m.selected
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.updateViewportSize()
+		if !m.ready {
+			m.ready = true
+		}
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -131,6 +141,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusedEpic = ""
 				m.items = buildItems(m.allTicks, m.collapsed, m.filter, m.focusedEpic)
 				m.selected = 0
+				m.updateViewportContent()
 			}
 		case "j", "down":
 			if m.selected < len(m.items)-1 {
@@ -140,6 +151,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selected > 0 {
 				m.selected--
 			}
+		case "ctrl+d":
+			m.viewport.HalfViewDown()
+		case "ctrl+u":
+			m.viewport.HalfViewUp()
+		case "g":
+			m.viewport.GotoTop()
+		case "G":
+			m.viewport.GotoBottom()
 		case "z":
 			if len(m.items) == 0 {
 				return m, nil
@@ -153,6 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.items = buildItems(m.allTicks, m.collapsed, m.filter, m.focusedEpic)
 				m.selected = 0
+				m.updateViewportContent()
 			}
 		case " ", "enter":
 			if m.searching {
@@ -163,6 +183,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selected >= len(m.items) {
 					m.selected = len(m.items) - 1
 				}
+				if m.selected < 0 {
+					m.selected = 0
+				}
+				m.updateViewportContent()
 				return m, nil
 			}
 			if len(m.items) == 0 {
@@ -175,6 +199,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selected >= len(m.items) {
 					m.selected = len(m.items) - 1
 				}
+				m.updateViewportContent()
 			}
 		default:
 			if m.searching && msg.Type == tea.KeyRunes {
@@ -187,7 +212,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	return m, nil
+
+	// Update viewport content when selection changes
+	if prevSelected != m.selected {
+		m.updateViewportContent()
+	}
+
+	return m, cmd
 }
 
 func (m Model) View() string {
@@ -207,7 +238,6 @@ func (m Model) View() string {
 	listWidth := leftWidth - 4
 
 	list := buildListView(m, listWidth)
-	detail := buildDetailView(m)
 
 	rightWidth := m.width - leftWidth - 1
 	if rightWidth < 28 {
@@ -229,6 +259,13 @@ func (m Model) View() string {
 		leftHeader = fmt.Sprintf("Focus: %s", m.focusedEpic)
 	}
 
+	// Build right panel header with scroll indicator
+	rightHeader := "Details"
+	if m.ready && m.viewport.TotalLineCount() > m.viewport.VisibleLineCount() {
+		scrollPct := int(m.viewport.ScrollPercent() * 100)
+		rightHeader = fmt.Sprintf("Details (%d%%)", scrollPct)
+	}
+
 	leftPanel := panelStyle.
 		Width(leftWidth).
 		Height(panelHeight).
@@ -236,9 +273,9 @@ func (m Model) View() string {
 	rightPanel := panelStyle.
 		Width(rightWidth).
 		Height(panelHeight).
-		Render(headerStyle.Render("Details") + "\n" + detail)
+		Render(headerStyle.Render(rightHeader) + "\n" + m.viewport.View())
 
-	footer := footerStyle.Render("j/k or arrows: move  space/enter: fold  z: focus  /: search  esc: clear  q: quit")
+	footer := footerStyle.Render("j/k: move  ctrl+d/u: scroll  g/G: top/bottom  space: fold  z: focus  /: search  q: quit")
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + footer + "\n"
 }
@@ -273,50 +310,74 @@ func buildListView(m Model, width int) string {
 	return out
 }
 
-func buildDetailView(m Model) string {
-	if len(m.items) == 0 {
-		return ""
-	}
-	current := m.items[m.selected].Tick
+func buildDetailContent(t tick.Tick) string {
 	var out []string
 
 	// Labeled key-value fields
-	out = append(out, labelStyle.Render("ID:")+current.ID)
-	out = append(out, labelStyle.Render("Priority:")+renderPriority(current.Priority))
-	out = append(out, labelStyle.Render("Type:")+renderType(current.Type))
-	out = append(out, labelStyle.Render("Status:")+renderStatus(current.Status)+" "+current.Status)
-	out = append(out, labelStyle.Render("Owner:")+current.Owner)
+	out = append(out, labelStyle.Render("ID:")+t.ID)
+	out = append(out, labelStyle.Render("Priority:")+renderPriority(t.Priority))
+	out = append(out, labelStyle.Render("Type:")+renderType(t.Type))
+	out = append(out, labelStyle.Render("Status:")+renderStatus(t.Status)+" "+t.Status)
+	out = append(out, labelStyle.Render("Owner:")+t.Owner)
 	out = append(out, "")
 	out = append(out, headerStyle.Render("Title:"))
-	out = append(out, "  "+current.Title)
+	out = append(out, "  "+t.Title)
 
-	if strings.TrimSpace(current.Description) != "" {
+	if strings.TrimSpace(t.Description) != "" {
 		out = append(out, "")
 		out = append(out, headerStyle.Render("Description:"))
-		out = append(out, indentLines(current.Description, 2)...)
+		out = append(out, indentLines(t.Description, 2)...)
 	}
 
-	if strings.TrimSpace(current.Notes) != "" {
+	if strings.TrimSpace(t.Notes) != "" {
 		out = append(out, "")
 		out = append(out, headerStyle.Render("Notes:"))
-		out = append(out, indentLines(current.Notes, 2)...)
+		out = append(out, indentLines(t.Notes, 2)...)
 	}
 
-	if len(current.Labels) > 0 {
+	if len(t.Labels) > 0 {
 		out = append(out, "")
-		out = append(out, fmt.Sprintf("Labels: %s", strings.Join(current.Labels, ", ")))
+		out = append(out, fmt.Sprintf("Labels: %s", strings.Join(t.Labels, ", ")))
 	}
-	if len(current.BlockedBy) > 0 {
-		out = append(out, fmt.Sprintf("Blocked by: %s", strings.Join(current.BlockedBy, ", ")))
+	if len(t.BlockedBy) > 0 {
+		out = append(out, fmt.Sprintf("Blocked by: %s", strings.Join(t.BlockedBy, ", ")))
 	}
-	if current.Parent != "" {
-		out = append(out, fmt.Sprintf("Parent: %s", current.Parent))
+	if t.Parent != "" {
+		out = append(out, fmt.Sprintf("Parent: %s", t.Parent))
 	}
-	if current.DiscoveredFrom != "" {
-		out = append(out, fmt.Sprintf("Discovered from: %s", current.DiscoveredFrom))
+	if t.DiscoveredFrom != "" {
+		out = append(out, fmt.Sprintf("Discovered from: %s", t.DiscoveredFrom))
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// updateViewportSize recalculates viewport dimensions based on terminal size.
+func (m *Model) updateViewportSize() {
+	rightWidth := m.width - m.width/2 - 1
+	if rightWidth < 28 {
+		rightWidth = 28
+	}
+	// Subtract border (2), padding (2), and header line (1)
+	contentWidth := rightWidth - 4
+	contentHeight := m.height - 2 - 2 - 1
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	m.viewport.Width = contentWidth
+	m.viewport.Height = contentHeight
+	m.updateViewportContent()
+}
+
+// updateViewportContent sets the viewport content based on current selection.
+func (m *Model) updateViewportContent() {
+	if len(m.items) == 0 {
+		m.viewport.SetContent("")
+		return
+	}
+	content := buildDetailContent(m.items[m.selected].Tick)
+	m.viewport.SetContent(content)
+	m.viewport.GotoTop()
 }
 
 func buildItems(ticks []tick.Tick, collapsed map[string]bool, filter string, focus string) []item {
