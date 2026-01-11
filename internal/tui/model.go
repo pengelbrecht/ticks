@@ -134,18 +134,8 @@ func (m Model) View() string {
 		return "Loading...\n"
 	}
 
-	out := ""
-	if m.searching {
-		out += fmt.Sprintf("Search: %s\n\n", m.searchInput)
-	} else if m.filter != "" {
-		out += fmt.Sprintf("Filter: %s (press / to change)\n\n", m.filter)
-	}
-	if m.focusedEpic != "" {
-		out += fmt.Sprintf("Focus: %s (press z to clear)\n\n", m.focusedEpic)
-	}
-
 	if len(m.items) == 0 {
-		return out + "No ticks\n"
+		return "No ticks\n"
 	}
 
 	list := buildListView(m)
@@ -165,10 +155,20 @@ func (m Model) View() string {
 		panelHeight = 6
 	}
 
+	// Build left panel header with indicators
+	leftHeader := "Ticks"
+	if m.searching {
+		leftHeader = fmt.Sprintf("Search: %s", m.searchInput)
+	} else if m.filter != "" {
+		leftHeader = fmt.Sprintf("Filter: %s", m.filter)
+	} else if m.focusedEpic != "" {
+		leftHeader = fmt.Sprintf("Focus: %s", m.focusedEpic)
+	}
+
 	leftPanel := panelStyle.
 		Width(leftWidth).
 		Height(panelHeight).
-		Render(headerStyle.Render("Ticks") + "\n" + list)
+		Render(headerStyle.Render(leftHeader) + "\n" + list)
 	rightPanel := panelStyle.
 		Width(rightWidth).
 		Height(panelHeight).
@@ -176,7 +176,7 @@ func (m Model) View() string {
 
 	footer := footerStyle.Render("j/k or arrows: move  space/enter: fold  z: focus  /: search  esc: clear  q: quit")
 
-	return out + lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + footer + "\n"
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + footer + "\n"
 }
 
 func buildListView(m Model) string {

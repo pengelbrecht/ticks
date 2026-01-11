@@ -1,0 +1,17 @@
+{
+  "id": "xfd",
+  "title": "Add color coding for tick types",
+  "description": "Type-specific colors: epic (purple #CBA6F7), bug (red #F38BA8), feature (teal #94E2D5), task/chore (default). Create renderType() helper.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "styling"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:21.818382762Z",
+  "updated_at": "2026-01-11T15:01:21.818382762Z"
+}

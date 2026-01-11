@@ -1,0 +1,17 @@
+{
+  "id": "v6r",
+  "title": "Evaluate bubbles/list component adoption",
+  "description": "The bubbles/list component provides built-in fuzzy filtering, pagination, delegate pattern for custom rendering. Would replace manual list logic but requires refactor.",
+  "status": "open",
+  "priority": 3,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "bubbles"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:25.069526049Z",
+  "updated_at": "2026-01-11T15:01:25.069526049Z"
+}

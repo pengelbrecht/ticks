@@ -1,0 +1,17 @@
+{
+  "id": "1p3",
+  "title": "Add color coding for status values",
+  "description": "Status-specific styling: open (gray ○), in_progress (blue ●), closed (green ✓). Create renderStatus() helper.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "styling"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:10.416992611Z",
+  "updated_at": "2026-01-11T15:01:10.416992611Z"
+}

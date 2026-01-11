@@ -1,0 +1,18 @@
+{
+  "id": "ycq",
+  "title": "Fix top border not rendering",
+  "description": "Search/filter/focus indicators prepended before panels in View() push layout down, causing top border to be cut off. Move indicators inside panel header.",
+  "status": "closed",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "layout"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:07.544633018Z",
+  "updated_at": "2026-01-11T15:03:55.653444248Z",
+  "closed_at": "2026-01-11T15:03:55.653444248Z"
+}

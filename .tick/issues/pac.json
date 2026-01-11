@@ -1,0 +1,17 @@
+{
+  "id": "pac",
+  "title": "Evaluate bubbles/viewport for scrollable details",
+  "description": "Add viewport component to detail pane for scrolling long descriptions/notes. Would improve UX for ticks with extensive content.",
+  "status": "open",
+  "priority": 3,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "bubbles"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:26.061565019Z",
+  "updated_at": "2026-01-11T15:01:26.061565019Z"
+}

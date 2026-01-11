@@ -1,0 +1,13 @@
+{
+  "id": "hi3",
+  "title": "TUI view improvements",
+  "description": "Refine the tk view TUI with better styling, color coding, layout fixes, and potential Bubbles component integration",
+  "notes": "2026-01-11 15:02 - Warning: could not mark  as in_progress: tk update  --status in_progress: invalid id: id is required",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:00:22.749749409Z",
+  "updated_at": "2026-01-11T15:02:39.655574336Z"
+}

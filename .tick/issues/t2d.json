@@ -1,0 +1,17 @@
+{
+  "id": "t2d",
+  "title": "Add labels to detail view fields",
+  "description": "Replace unlabeled header line with labeled key-value pairs: ID, Priority, Type, Status, Owner. Consider using lipgloss/table for structured display.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "detail"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:23.558579744Z",
+  "updated_at": "2026-01-11T15:01:23.558579744Z"
+}

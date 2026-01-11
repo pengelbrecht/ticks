@@ -1,0 +1,17 @@
+{
+  "id": "lo2",
+  "title": "Evaluate bubbles/textinput for search",
+  "description": "Replace manual search input handling with bubbles/textinput for proper cursor, paste support, and better UX.",
+  "status": "open",
+  "priority": 3,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "tui",
+    "bubbles"
+  ],
+  "parent": "434",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T15:01:33.407306562Z",
+  "updated_at": "2026-01-11T15:01:33.407306562Z"
+}
