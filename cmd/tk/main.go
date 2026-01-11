@@ -725,6 +725,7 @@ func runUpdate(args []string) int {
 func runClose(args []string) int {
 	fs := flag.NewFlagSet("close", flag.ContinueOnError)
 	reason := fs.String("reason", "", "close reason")
+	force := fs.Bool("force", false, "close epic and all open children")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	positionals, err := parseInterleaved(fs, args)
@@ -763,6 +764,46 @@ func runClose(args []string) int {
 	}
 
 	now := time.Now().UTC()
+
+	// Check for open children if closing an epic
+	if t.Type == tick.TypeEpic {
+		all, err := store.List()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to list ticks: %v\n", err)
+			return exitIO
+		}
+
+		var openChildren []tick.Tick
+		for _, child := range all {
+			if child.Parent == t.ID && child.Status != tick.StatusClosed {
+				openChildren = append(openChildren, child)
+			}
+		}
+
+		if len(openChildren) > 0 {
+			if !*force {
+				fmt.Fprintf(os.Stderr, "cannot close epic %s: has %d open children\n", t.ID, len(openChildren))
+				for _, c := range openChildren {
+					fmt.Fprintf(os.Stderr, "  - %s: %s\n", c.ID, c.Title)
+				}
+				fmt.Fprintln(os.Stderr, "use --force to close epic and all children")
+				return exitUsage
+			}
+
+			// Close all children with --force
+			for _, c := range openChildren {
+				c.Status = tick.StatusClosed
+				c.ClosedAt = &now
+				c.ClosedReason = "closed with parent epic (--force)"
+				c.UpdatedAt = now
+				if err := store.Write(c); err != nil {
+					fmt.Fprintf(os.Stderr, "failed to close child %s: %v\n", c.ID, err)
+					return exitIO
+				}
+			}
+		}
+	}
+
 	t.Status = tick.StatusClosed
 	t.ClosedAt = &now
 	t.ClosedReason = strings.TrimSpace(*reason)
