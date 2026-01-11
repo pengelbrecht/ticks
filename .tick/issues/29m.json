@@ -2,7 +2,7 @@
   "id": "29m",
   "title": "Add color coding for priority levels",
   "description": "Add distinct colors: P1 red (#F38BA8), P2 peach (#FAB387), P3 green (#A6E3A1). Create renderPriority() helper.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "parent": "434",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:01:09.475769962Z",
-  "updated_at": "2026-01-11T15:01:09.475769962Z"
+  "updated_at": "2026-01-11T15:24:10.610816826Z",
+  "closed_at": "2026-01-11T15:24:10.610816826Z"
 }

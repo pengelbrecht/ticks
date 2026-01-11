@@ -37,7 +37,27 @@ var (
 	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#89DCEB")).Bold(true)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6ADC8"))
 	footerStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F849C"))
+
+	// Priority color styles (Catppuccin Mocha palette)
+	priorityP1Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")) // Red
+	priorityP2Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")) // Peach
+	priorityP3Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")) // Green
 )
+
+// renderPriority returns a color-coded priority string.
+func renderPriority(priority int) string {
+	text := fmt.Sprintf("P%d", priority)
+	switch priority {
+	case 1:
+		return priorityP1Style.Render(text)
+	case 2:
+		return priorityP2Style.Render(text)
+	case 3:
+		return priorityP3Style.Render(text)
+	default:
+		return text
+	}
+}
 
 // NewModel builds a tree view model from ticks.
 func NewModel(ticks []tick.Tick) Model {
@@ -201,7 +221,7 @@ func buildListView(m Model, width int) string {
 				marker = "-"
 			}
 		}
-		line := fmt.Sprintf("%s %s%s %s  P%d %s", cursor, indent, marker, item.Tick.ID, item.Tick.Priority, item.Tick.Title)
+		line := fmt.Sprintf("%s %s%s %s  %s %s", cursor, indent, marker, item.Tick.ID, renderPriority(item.Tick.Priority), item.Tick.Title)
 		line = truncate(line, width)
 		if i == m.selected {
 			out += selectedStyle.Render(line) + "\n"
@@ -218,7 +238,7 @@ func buildDetailView(m Model) string {
 	}
 	current := m.items[m.selected].Tick
 	var out []string
-	out = append(out, fmt.Sprintf("%s  P%d %s  %s  @%s", current.ID, current.Priority, current.Type, current.Status, current.Owner))
+	out = append(out, fmt.Sprintf("%s  %s %s  %s  @%s", current.ID, renderPriority(current.Priority), current.Type, current.Status, current.Owner))
 	out = append(out, current.Title)
 
 	if strings.TrimSpace(current.Description) != "" {

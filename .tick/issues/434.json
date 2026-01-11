@@ -2,11 +2,12 @@
   "id": "434",
   "title": "TUI view improvements",
   "description": "Refine the tk view TUI with better styling, color coding, layout fixes, and Bubbles/Lipgloss enhancements",
+  "notes": "2026-01-11 15:09 - Completed 7us: List items now truncate to panel width. The buildListView() function now takes a width param and uses the existing truncate() helper. Content width is calculated as leftWidth - 4 to account for border and padding.",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:00:59.183143847Z",
-  "updated_at": "2026-01-11T15:00:59.183143847Z"
+  "updated_at": "2026-01-11T15:22:10.043874601Z"
 }
