@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +22,77 @@ type item struct {
 	HasKids bool
 }
 
+// keyMap defines all keybindings for the TUI.
+type keyMap struct {
+	Up       key.Binding
+	Down     key.Binding
+	ScrollUp key.Binding
+	ScrollDn key.Binding
+	Top      key.Binding
+	Bottom   key.Binding
+	Fold     key.Binding
+	Focus    key.Binding
+	Search   key.Binding
+	Quit     key.Binding
+}
+
+// ShortHelp returns bindings for the short help view (single line).
+func (k keyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Up, k.ScrollUp, k.Fold, k.Focus, k.Search, k.Quit}
+}
+
+// FullHelp returns bindings for the full help view (multiple columns).
+func (k keyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down},
+		{k.ScrollUp, k.ScrollDn, k.Top, k.Bottom},
+		{k.Fold, k.Focus, k.Search, k.Quit},
+	}
+}
+
+var defaultKeyMap = keyMap{
+	Up: key.NewBinding(
+		key.WithKeys("k", "up"),
+		key.WithHelp("j/k", "move"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("j", "down"),
+		key.WithHelp("j/k", "move"),
+	),
+	ScrollUp: key.NewBinding(
+		key.WithKeys("ctrl+u"),
+		key.WithHelp("^d/u", "scroll"),
+	),
+	ScrollDn: key.NewBinding(
+		key.WithKeys("ctrl+d"),
+		key.WithHelp("^d/u", "scroll"),
+	),
+	Top: key.NewBinding(
+		key.WithKeys("g"),
+		key.WithHelp("g/G", "top/bottom"),
+	),
+	Bottom: key.NewBinding(
+		key.WithKeys("G"),
+		key.WithHelp("g/G", "top/bottom"),
+	),
+	Fold: key.NewBinding(
+		key.WithKeys(" ", "enter"),
+		key.WithHelp("space", "fold"),
+	),
+	Focus: key.NewBinding(
+		key.WithKeys("z"),
+		key.WithHelp("z", "focus"),
+	),
+	Search: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "search"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c"),
+		key.WithHelp("q", "quit"),
+	),
+}
+
 type Model struct {
 	allTicks    []tick.Tick
 	items       []item
@@ -33,6 +106,8 @@ type Model struct {
 	height      int
 	viewport    viewport.Model
 	ready       bool // viewport initialized
+	keys        keyMap
+	help        help.Model
 }
 
 var (
@@ -114,7 +189,19 @@ func NewModel(ticks []tick.Tick) Model {
 	ti.CharLimit = 100
 	ti.Width = 30
 
-	return Model{allTicks: ticks, items: items, collapsed: collapsed, searchInput: ti}
+	h := help.New()
+	h.Styles.ShortKey = footerStyle.Bold(true)
+	h.Styles.ShortDesc = footerStyle
+	h.Styles.ShortSeparator = footerStyle
+
+	return Model{
+		allTicks:    ticks,
+		items:       items,
+		collapsed:   collapsed,
+		searchInput: ti,
+		keys:        defaultKeyMap,
+		help:        h,
+	}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -130,6 +217,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.Width = msg.Width
 		m.updateViewportSize()
 		if !m.ready {
 			m.ready = true
@@ -288,9 +376,9 @@ func (m Model) View() string {
 		Height(panelHeight).
 		Render(headerStyle.Render(rightHeader) + "\n" + m.viewport.View())
 
-	footer := footerStyle.Render("j/k: move  ctrl+d/u: scroll  g/G: top/bottom  space: fold  z: focus  /: search  q: quit")
+	helpView := m.help.View(m.keys)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + footer + "\n"
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + helpView + "\n"
 }
 
 func buildListView(m Model, width int) string {

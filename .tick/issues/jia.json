@@ -2,7 +2,7 @@
   "id": "jia",
   "title": "Evaluate bubbles/help for keybindings",
   "description": "Replace static footer string with bubbles/help component that auto-generates from keymap. Provides consistent help display pattern.",
-  "status": "open",
+  "status": "closed",
   "priority": 3,
   "type": "feature",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "parent": "434",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:01:34.613640498Z",
-  "updated_at": "2026-01-11T15:01:34.613640498Z"
+  "updated_at": "2026-01-11T16:54:30.14281535Z",
+  "closed_at": "2026-01-11T16:54:30.14281535Z"
 }
