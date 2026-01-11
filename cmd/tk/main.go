@@ -1104,9 +1104,14 @@ func runList(args []string) int {
 		priority = &p
 	}
 
+	status := strings.TrimSpace(*statusFlag)
+	if status == "all" {
+		status = ""
+	}
+
 	filter := query.Filter{
 		Owner:         owner,
-		Status:        strings.TrimSpace(*statusFlag),
+		Status:        status,
 		Priority:      priority,
 		Type:          strings.TrimSpace(*typeFlag),
 		Label:         strings.TrimSpace(*labelFlag),
@@ -1932,9 +1937,14 @@ func runView(args []string) int {
 		priority = &p
 	}
 
+	status := strings.TrimSpace(*statusFlag)
+	if status == "all" {
+		status = ""
+	}
+
 	filter := query.Filter{
 		Owner:    owner,
-		Status:   strings.TrimSpace(*statusFlag),
+		Status:   status,
 		Priority: priority,
 		Type:     strings.TrimSpace(*typeFlag),
 		Label:    strings.TrimSpace(*labelFlag),

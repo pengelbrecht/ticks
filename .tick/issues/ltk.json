@@ -2,12 +2,14 @@
   "id": "ltk",
   "title": "Document new search flags",
   "description": "Update SPEC/README to document search/filter parity flags and examples (title-contains, desc-contains, notes-contains, label-any).\\n\\nAcceptance:\\n- CLI reference updated with new flags.\\n- Examples for searching provided.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "pengelbrecht",
   "parent": "d2h",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-09T13:40:52.528073Z",
-  "updated_at": "2026-01-09T13:40:52.528073Z"
+  "updated_at": "2026-01-11T16:08:51.55564325Z",
+  "closed_at": "2026-01-11T16:08:51.55564325Z",
+  "closed_reason": "README documents search flags"
 }

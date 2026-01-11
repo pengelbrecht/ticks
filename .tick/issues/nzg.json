@@ -2,12 +2,14 @@
   "id": "nzg",
   "title": "Implement query matching for search",
   "description": "Extend query filter logic to support case-insensitive substring matching on title/description/notes and label-any semantics.\\n\\nAcceptance:\\n- Matching uses lowercase comparison.\\n- Empty fields handled safely.\\n- Label-any matches at least one label.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "pengelbrecht",
   "parent": "d2h",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-09T13:40:11.66471Z",
-  "updated_at": "2026-01-09T13:40:11.66471Z"
+  "updated_at": "2026-01-11T16:08:51.50430597Z",
+  "closed_at": "2026-01-11T16:08:51.50430597Z",
+  "closed_reason": "Already implemented in internal/query/filter.go"
 }

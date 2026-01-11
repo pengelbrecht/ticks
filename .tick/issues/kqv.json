@@ -2,12 +2,14 @@
   "id": "kqv",
   "title": "Update benchmarks for search ops",
   "description": "Add tk and beads benchmark operations for search/filter parity (title/desc/notes contains, label-any) using seeded dataset.\\n\\nAcceptance:\\n- scripts/bench_* updated with new ops.\\n- summary includes method and results for search ops.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "pengelbrecht",
   "parent": "d2h",
   "created_by": "pengelbrecht",
   "created_at": "2026-01-09T13:40:37.335426Z",
-  "updated_at": "2026-01-09T13:40:37.335426Z"
+  "updated_at": "2026-01-11T16:08:51.539565884Z",
+  "closed_at": "2026-01-11T16:08:51.539565884Z",
+  "closed_reason": "Benchmarks include search ops"
 }
