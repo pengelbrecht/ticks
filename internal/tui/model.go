@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -10,10 +11,16 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
+
+func init() {
+	// Force TrueColor for terminals that misreport capabilities (e.g., TERM=screen in tmux)
+	os.Setenv("COLORTERM", "truecolor")
+}
 
 type item struct {
 	Tick    tick.Tick
@@ -266,6 +273,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.items = buildItems(m.allTicks, m.collapsed, m.filter, m.focusedEpic)
 				m.selected = 0
 				m.updateViewportContent()
+			} else {
+				return m, tea.Quit
 			}
 		case "j", "down":
 			if m.selected < len(m.items)-1 {
@@ -340,14 +349,16 @@ func (m Model) View() string {
 
 	list := buildListView(m, listWidth)
 
-	rightWidth := m.width - leftWidth - 1
+	rightWidth := m.width - leftWidth
 	if rightWidth < 28 {
 		rightWidth = 28
 	}
 
-	panelHeight := m.height - 2
-	if panelHeight < 6 {
-		panelHeight = 6
+	// Height budget: panel content + 2 (borders) + 1 (help) + 1 (trailing newline)
+	// So panel content = m.height - 4
+	panelHeight := m.height - 4
+	if panelHeight < 4 {
+		panelHeight = 4
 	}
 
 	// Build left panel header with indicators
@@ -360,11 +371,14 @@ func (m Model) View() string {
 		leftHeader = fmt.Sprintf("Focus: %s", m.focusedEpic)
 	}
 
-	// Build right panel header with scroll indicator
+	// Build right panel header with title and scroll indicator
 	rightHeader := "Details"
-	if m.ready && m.viewport.TotalLineCount() > m.viewport.VisibleLineCount() {
-		scrollPct := int(m.viewport.ScrollPercent() * 100)
-		rightHeader = fmt.Sprintf("Details (%d%%)", scrollPct)
+	if len(m.items) > 0 {
+		rightHeader = m.items[m.selected].Tick.Title
+		if m.ready && m.viewport.TotalLineCount() > m.viewport.VisibleLineCount() {
+			scrollPct := int(m.viewport.ScrollPercent() * 100)
+			rightHeader = fmt.Sprintf("%s (%d%%)", rightHeader, scrollPct)
+		}
 	}
 
 	leftPanel := panelStyle.
@@ -378,7 +392,7 @@ func (m Model) View() string {
 
 	helpView := m.help.View(m.keys)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + helpView + "\n"
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + helpView
 }
 
 func buildListView(m Model, width int) string {
@@ -420,9 +434,6 @@ func buildDetailContent(t tick.Tick) string {
 	out = append(out, labelStyle.Render("Type:")+renderType(t.Type))
 	out = append(out, labelStyle.Render("Status:")+renderStatus(t.Status)+" "+t.Status)
 	out = append(out, labelStyle.Render("Owner:")+t.Owner)
-	out = append(out, "")
-	out = append(out, headerStyle.Render("Title:"))
-	out = append(out, "  "+t.Title)
 
 	if strings.TrimSpace(t.Description) != "" {
 		out = append(out, "")
@@ -438,16 +449,19 @@ func buildDetailContent(t tick.Tick) string {
 
 	if len(t.Labels) > 0 {
 		out = append(out, "")
-		out = append(out, fmt.Sprintf("Labels: %s", strings.Join(t.Labels, ", ")))
+		out = append(out, labelStyle.Render("Labels:")+strings.Join(t.Labels, ", "))
 	}
 	if len(t.BlockedBy) > 0 {
-		out = append(out, fmt.Sprintf("Blocked by: %s", strings.Join(t.BlockedBy, ", ")))
+		out = append(out, labelStyle.Render("Blocked:")+strings.Join(t.BlockedBy, ", "))
 	}
 	if t.Parent != "" {
-		out = append(out, fmt.Sprintf("Parent: %s", t.Parent))
+		out = append(out, labelStyle.Render("Parent:")+t.Parent)
 	}
 	if t.DiscoveredFrom != "" {
-		out = append(out, fmt.Sprintf("Discovered from: %s", t.DiscoveredFrom))
+		out = append(out, labelStyle.Render("From:")+t.DiscoveredFrom)
+	}
+	if t.ClosedReason != "" {
+		out = append(out, labelStyle.Render("Closed:")+t.ClosedReason)
 	}
 
 	return strings.Join(out, "\n")
@@ -455,7 +469,7 @@ func buildDetailContent(t tick.Tick) string {
 
 // updateViewportSize recalculates viewport dimensions based on terminal size.
 func (m *Model) updateViewportSize() {
-	rightWidth := m.width - m.width/2 - 1
+	rightWidth := m.width - m.width/2
 	if rightWidth < 28 {
 		rightWidth = 28
 	}
@@ -582,13 +596,7 @@ func truncate(value string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if len(value) <= width {
-		return value
-	}
-	if width <= 1 {
-		return value[:width]
-	}
-	return value[:width-1] + "."
+	return ansi.Truncate(value, width, ".")
 }
 
 func splitLines(value string) []string {
