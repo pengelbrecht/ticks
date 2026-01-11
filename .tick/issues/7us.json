@@ -2,7 +2,7 @@
   "id": "7us",
   "title": "Truncate list items to panel width",
   "description": "Truncate lines in buildListView() to fit panel width instead of letting them wrap. The detail pane shows the full title. Use the existing truncate() helper.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "parent": "434",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:01:08.545657692Z",
-  "updated_at": "2026-01-11T15:01:08.545657692Z"
+  "updated_at": "2026-01-11T15:09:42.805270942Z",
+  "closed_at": "2026-01-11T15:09:42.805270942Z"
 }

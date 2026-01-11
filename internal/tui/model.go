@@ -138,13 +138,16 @@ func (m Model) View() string {
 		return "No ticks\n"
 	}
 
-	list := buildListView(m)
-	detail := buildDetailView(m)
-
 	leftWidth := m.width / 2
 	if leftWidth < 36 {
 		leftWidth = 36
 	}
+	// Content width accounts for border (2) and padding (2)
+	listWidth := leftWidth - 4
+
+	list := buildListView(m, listWidth)
+	detail := buildDetailView(m)
+
 	rightWidth := m.width - leftWidth - 1
 	if rightWidth < 28 {
 		rightWidth = 28
@@ -179,7 +182,7 @@ func (m Model) View() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel) + "\n" + footer + "\n"
 }
 
-func buildListView(m Model) string {
+func buildListView(m Model, width int) string {
 	var out string
 	for i, item := range m.items {
 		cursor := " "
@@ -199,6 +202,7 @@ func buildListView(m Model) string {
 			}
 		}
 		line := fmt.Sprintf("%s %s%s %s  P%d %s", cursor, indent, marker, item.Tick.ID, item.Tick.Priority, item.Tick.Title)
+		line = truncate(line, width)
 		if i == m.selected {
 			out += selectedStyle.Render(line) + "\n"
 		} else {

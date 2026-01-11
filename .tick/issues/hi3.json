@@ -2,12 +2,14 @@
   "id": "hi3",
   "title": "TUI view improvements",
   "description": "Refine the tk view TUI with better styling, color coding, layout fixes, and potential Bubbles component integration",
-  "notes": "2026-01-11 15:02 - Warning: could not mark  as in_progress: tk update  --status in_progress: invalid id: id is required",
-  "status": "open",
+  "notes": "2026-01-11 15:02 - Warning: could not mark  as in_progress: tk update  --status in_progress: invalid id: id is required\n2026-01-11 15:04 - Completed ycq (fix top border). Search/filter/focus indicators now display in left panel header instead of as prepended lines. The header dynamically shows 'Ticks', 'Search: X', 'Filter: X', or 'Focus: X' based on current mode.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-11T15:00:22.749749409Z",
-  "updated_at": "2026-01-11T15:02:39.655574336Z"
+  "updated_at": "2026-01-11T15:08:39.88013558Z",
+  "closed_at": "2026-01-11T15:08:39.88013558Z",
+  "closed_reason": "no tasks found"
 }
