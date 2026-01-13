@@ -540,6 +540,7 @@ tk update <id> [flags]
 | `--owner` | Reassign to user |
 | `--add-labels` | Add labels (comma-separated) |
 | `--remove-labels` | Remove labels (comma-separated) |
+| `--parent` | Change parent epic (empty string to clear) |
 | `--json` | Output updated tick |
 
 **Examples:**
@@ -556,6 +557,9 @@ tk update a1b --priority 1
 
 # Add labels
 tk update a1b --add-labels urgent,backend
+
+# Move to a different epic
+tk update a1b --parent c2d
 ```
 
 #### `tk close`

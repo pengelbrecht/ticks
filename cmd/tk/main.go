@@ -74,6 +74,7 @@ tk close ID              # mark done
 tk next --epic           # next ready epic
 tk block ID BLOCKER_ID   # ID is blocked by BLOCKER_ID
 tk create "task" --parent EPIC_ID
+tk update ID --parent EPIC_ID  # move to epic
 ` + "```" + `
 
 Commands show your ticks by default. Use ` + "`--all`" + ` to see everyone's (e.g. ` + "`tk next --all`" + `).
@@ -624,9 +625,11 @@ func runUpdate(args []string) int {
 	fs.Var(&removeLabels, "remove-labels", "labels to remove")
 	var acceptance, externalRef optionalString
 	var deferUntil optionalString
+	var parent optionalString
 	fs.Var(&acceptance, "acceptance", "acceptance criteria")
 	fs.Var(&deferUntil, "defer", "defer until date (YYYY-MM-DD)")
 	fs.Var(&externalRef, "external-ref", "external reference")
+	fs.Var(&parent, "parent", "parent epic id (use empty string to clear)")
 	var manual optionalBool
 	fs.Var(&manual, "manual", "mark as requiring human intervention (true/false)")
 
@@ -725,6 +728,9 @@ func runUpdate(args []string) int {
 	}
 	if manual.set {
 		t.Manual = manual.value
+	}
+	if parent.set {
+		t.Parent = parent.value
 	}
 
 	t.UpdatedAt = time.Now().UTC()
