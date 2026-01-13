@@ -40,6 +40,7 @@ type Tick struct {
 	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
 	DeferUntil         *time.Time `json:"defer_until,omitempty"`
 	ExternalRef        string     `json:"external_ref,omitempty"`
+	Manual             bool       `json:"manual,omitempty"`
 	CreatedBy          string     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`

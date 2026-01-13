@@ -307,6 +307,7 @@ func runCreate(args []string) int {
 	acceptanceFlag := fs.String("acceptance", "", "acceptance criteria")
 	deferFlag := fs.String("defer", "", "defer until date (YYYY-MM-DD)")
 	externalFlag := fs.String("external-ref", "", "external reference (e.g. gh-42)")
+	manualFlag := fs.Bool("manual", false, "mark as requiring human intervention (skipped by tk next)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 
@@ -383,6 +384,7 @@ func runCreate(args []string) int {
 		AcceptanceCriteria: strings.TrimSpace(*acceptanceFlag),
 		DeferUntil:         deferUntil,
 		ExternalRef:        strings.TrimSpace(*externalFlag),
+		Manual:             *manualFlag,
 		CreatedBy:          creator,
 		CreatedAt:          now,
 		UpdatedAt:          now,
@@ -625,6 +627,8 @@ func runUpdate(args []string) int {
 	fs.Var(&acceptance, "acceptance", "acceptance criteria")
 	fs.Var(&deferUntil, "defer", "defer until date (YYYY-MM-DD)")
 	fs.Var(&externalRef, "external-ref", "external reference")
+	var manual optionalBool
+	fs.Var(&manual, "manual", "mark as requiring human intervention (true/false)")
 
 	fs.SetOutput(os.Stderr)
 	positionals, err := parseInterleaved(fs, args)
@@ -718,6 +722,9 @@ func runUpdate(args []string) int {
 	}
 	if externalRef.set {
 		t.ExternalRef = externalRef.value
+	}
+	if manual.set {
+		t.Manual = manual.value
 	}
 
 	t.UpdatedAt = time.Now().UTC()
@@ -1070,6 +1077,7 @@ func runList(args []string) int {
 	titleContainsFlag := fs.String("title-contains", "", "title contains (case-insensitive)")
 	descContainsFlag := fs.String("desc-contains", "", "description contains (case-insensitive)")
 	notesContainsFlag := fs.String("notes-contains", "", "notes contains (case-insensitive)")
+	manualFlag := fs.Bool("manual", false, "show only manual tasks (requires human intervention)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	if _, err := parseInterleaved(fs, args); err != nil {
@@ -1123,6 +1131,18 @@ func runList(args []string) int {
 	}
 
 	filtered := query.Apply(ticks, filter)
+
+	// Filter by manual status if requested
+	if *manualFlag {
+		var manualTicks []tick.Tick
+		for _, t := range filtered {
+			if t.Manual {
+				manualTicks = append(manualTicks, t)
+			}
+		}
+		filtered = manualTicks
+	}
+
 	query.SortByPriorityCreatedAt(filtered)
 
 	if *jsonOutput {
@@ -1166,6 +1186,7 @@ func runReady(args []string) int {
 	titleContainsFlag := fs.String("title-contains", "", "title contains (case-insensitive)")
 	descContainsFlag := fs.String("desc-contains", "", "description contains (case-insensitive)")
 	notesContainsFlag := fs.String("notes-contains", "", "notes contains (case-insensitive)")
+	includeManual := fs.Bool("include-manual", false, "include tasks marked as manual (excluded by default)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	if _, err := parseInterleaved(fs, args); err != nil {
@@ -1204,6 +1225,18 @@ func runReady(args []string) int {
 	}
 	filtered := query.Apply(ticks, filter)
 	ready := query.Ready(filtered)
+
+	// Exclude manual tasks by default
+	if !*includeManual {
+		var nonManual []tick.Tick
+		for _, t := range ready {
+			if !t.Manual {
+				nonManual = append(nonManual, t)
+			}
+		}
+		ready = nonManual
+	}
+
 	query.SortByPriorityCreatedAt(ready)
 
 	if *limitFlag > 0 && len(ready) > *limitFlag {
@@ -1245,12 +1278,14 @@ func runNext(args []string) int {
 	fs.StringVar(ownerFlag, "o", "", "owner")
 	epicFlag := fs.Bool("epic", false, "show next ready epic")
 	fs.BoolVar(epicFlag, "e", false, "show next ready epic")
+	includeManual := fs.Bool("include-manual", false, "include tasks marked as manual (excluded by default)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: tk next [EPIC_ID] [flags]")
 		fmt.Fprintln(os.Stderr, "\nShow the next ready tick to work on.")
 		fmt.Fprintln(os.Stderr, "If EPIC_ID is provided, shows the next ready tick within that epic.")
+		fmt.Fprintln(os.Stderr, "Tasks marked as --manual are excluded by default (use --include-manual to include).")
 		fmt.Fprintln(os.Stderr, "\nFlags:")
 		fs.PrintDefaults()
 	}
@@ -1305,6 +1340,18 @@ func runNext(args []string) int {
 
 	filtered := query.Apply(ticks, filter)
 	ready := query.Ready(filtered)
+
+	// Exclude manual tasks by default
+	if !*includeManual {
+		var nonManual []tick.Tick
+		for _, t := range ready {
+			if !t.Manual {
+				nonManual = append(nonManual, t)
+			}
+		}
+		ready = nonManual
+	}
+
 	query.SortByPriorityCreatedAt(ready)
 
 	if len(ready) == 0 {
@@ -2271,6 +2318,29 @@ func (o *optionalInt) Set(value string) error {
 	return nil
 }
 
+type optionalBool struct {
+	value bool
+	set   bool
+}
+
+func (o *optionalBool) String() string {
+	return fmt.Sprintf("%t", o.value)
+}
+
+func (o *optionalBool) Set(value string) error {
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return err
+	}
+	o.value = parsed
+	o.set = true
+	return nil
+}
+
+func (o *optionalBool) IsBoolFlag() bool {
+	return true
+}
+
 func formatTime(value time.Time) string {
 	return value.Local().Format("2006-01-02 15:04")
 }
@@ -2303,4 +2373,9 @@ func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
 	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, version, upgrade")
+	fmt.Println()
+	fmt.Println("Manual tasks:")
+	fmt.Println("  Tasks marked with --manual require human intervention and are excluded from")
+	fmt.Println("  'tk next' and 'tk ready' by default. Use --include-manual to include them.")
+	fmt.Println("  Use 'tk list --manual' to view all manual tasks.")
 }
