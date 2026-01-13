@@ -474,6 +474,12 @@ func buildDetailContent(t tick.Tick, width int) string {
 		out = append(out, wrapAndIndent(t.Notes, 2, width)...)
 	}
 
+	if strings.TrimSpace(t.AcceptanceCriteria) != "" {
+		out = append(out, "")
+		out = append(out, headerStyle.Render("Acceptance Criteria:"))
+		out = append(out, wrapAndIndent(t.AcceptanceCriteria, 2, width)...)
+	}
+
 	if len(t.Labels) > 0 {
 		out = append(out, "")
 		out = append(out, labelStyle.Render("Labels:")+strings.Join(t.Labels, ", "))
