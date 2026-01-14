@@ -1,11 +1,5 @@
 {
-  "id": "md0",
-  "title": "Implement expanded help text for CLI commands",
-  "description": "Implement the enhanced help text format from AGENT_HUMAN_WORKFLOW.md\n\nCurrent help is just flag definitions. The design doc proposes:\n\n1. USAGE section showing command signature\n2. FLAGS section with grouped flags and multi-line descriptions  \n3. DESCRIPTION section explaining behavior\n4. EXAMPLES section with practical usage\n\nExample format for tk create:\n```\ntk create - Create a new tick\n\nUSAGE:\n    tk create \u003ctitle\u003e [flags]\n\nFLAGS:\n    -d, --description string   Tick description\n    --requires string          Pre-declared approval gate: approval, review, content\n                               Tick will route to human after agent completes\n    --awaiting string          Immediate human assignment: work, approval, ...\n                               Tick will be skipped by agent until human responds\n\nEXAMPLES:\n    tk create \"Fix login bug\" -d \"Users can't login\"\n    tk create \"Update auth flow\" --requires approval\n```\n\nCommands needing enhanced help:\n- create (with --requires, --awaiting)\n- approve\n- reject  \n- list (with --awaiting filter)\n- next (with --awaiting flag)\n- note (with --from flag)\n\nImplementation approach:\n- Override FlagSet.Usage to provide custom formatting\n- Or create help subcommand that outputs formatted help",
-  "status": "open",
-  "priority": 2,
-  "type": "task",
-  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "- [ ] create command shows enhanced help\n- [ ] approve command shows help with description and examples\n- [ ] reject command shows help with description and examples\n- [ ] list command shows --awaiting filter docs\n- [ ] next command shows --awaiting flag docs\n- [ ] note command shows --from flag docs",
   "blocked_by": [
     "ssq",
     "azn",
@@ -13,9 +7,120 @@
     "xkr",
     "d98"
   ],
-  "parent": "jko",
-  "acceptance_criteria": "- [ ] create command shows enhanced help\n- [ ] approve command shows help with description and examples\n- [ ] reject command shows help with description and examples\n- [ ] list command shows --awaiting filter docs\n- [ ] next command shows --awaiting flag docs\n- [ ] note command shows --from flag docs",
-  "created_by": "peter@engelbrecht.dk",
+  "closed_at": "2026-01-14T17:26:33.487735Z",
+  "closed_reason": "Enhanced help text already implemented by previous iterations when adding workflow flags. All 6 commands (create, approve, reject, list, next, note) have custom fs.Usage functions with USAGE, description, FLAGS, and EXAMPLES sections.",
   "created_at": "2026-01-14T16:50:59.772553Z",
-  "updated_at": "2026-01-14T16:51:19.054088Z"
+  "created_by": "peter@engelbrecht.dk",
+  "description": "Implement the enhanced help text format from AGENT_HUMAN_WORKFLOW.md\n\nCurrent help is just flag definitions. The design doc proposes:\n\n1. USAGE section showing command signature\n2. FLAGS section with grouped flags and multi-line descriptions  \n3. DESCRIPTION section explaining behavior\n4. EXAMPLES section with practical usage\n\nExample format for tk create:\n```\ntk create - Create a new tick\n\nUSAGE:\n    tk create \u003ctitle\u003e [flags]\n\nFLAGS:\n    -d, --description string   Tick description\n    --requires string          Pre-declared approval gate: approval, review, content\n                               Tick will route to human after agent completes\n    --awaiting string          Immediate human assignment: work, approval, ...\n                               Tick will be skipped by agent until human responds\n\nEXAMPLES:\n    tk create \"Fix login bug\" -d \"Users can't login\"\n    tk create \"Update auth flow\" --requires approval\n```\n\nCommands needing enhanced help:\n- create (with --requires, --awaiting)\n- approve\n- reject  \n- list (with --awaiting filter)\n- next (with --awaiting flag)\n- note (with --from flag)\n\nImplementation approach:\n- Override FlagSet.Usage to provide custom formatting\n- Or create help subcommand that outputs formatted help",
+  "id": "md0",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "jko",
+  "priority": 2,
+  "run": {
+    "session_id": "f68c9843-aa57-485d-95b6-4bedd7c7795d",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-14T18:25:18.817432+01:00",
+    "ended_at": "2026-01-14T18:26:45.697598+01:00",
+    "output": "I'll start by reviewing the current state of the codebase to understand how help text is currently implemented, then implement the enhanced help text format.\n\nNow let me read the main.go file to understand the current structure of the help text implementations.\n\nI can see the create command already has enhanced help text. Let me check the other commands that need enhanced help: approve, reject, list, next, and note.\n\nThe approve and reject commands already have enhanced help text. Let me check the list and next commands.\n\nBoth list and next commands already have enhanced help text. Now let me check the note command.\n\nThe note command also has enhanced help text. Let me check the update command to make sure it has proper enhanced help since it has --requires, --awaiting, and --verdict flags.\n\nAll the commands mentioned in the task already have enhanced help text:\n- **create** - Lines 322-349: Has USAGE, FLAGS (with PrintDefaults + workflow flags section), EXAMPLES\n- **approve** - Lines 2499-2519: Has USAGE, description, workflow explanation, FLAGS, EXAMPLES, and Workflow section\n- **reject** - Lines 2607-2632: Has USAGE, description, workflow explanation, FLAGS, EXAMPLES, and Workflow section\n- **list** - Lines 1294-1311: Has USAGE, description, FLAGS (with PrintDefaults), and Awaiting Filter Examples\n- **next** - Lines 1542-1570: Has USAGE, description, FLAGS, Agent Mode vs Human Mode sections, and Examples\n- **note** - Lines 1088-1108: Has USAGE, description, FLAGS, Note Authors explanation, and Examples\n- **update** - Lines 730-755: Has USAGE, description, FLAGS (with PrintDefaults + workflow flags section), and EXAMPLES\n\nLet me verify the acceptance criteria by checking the implementation against what was requested. Let me run the tests to make sure everything is working.\n\nAll the enhanced help text is already implemented. Let me run the tests to make sure everything passes.\n\nAll tests pass. Let me check the git status to see what changes exist.\n\nThe only changes are in the .tick/issues directory (which is managed by ticker). Looking at the task requirements again, all the enhanced help text was already implemented by previous iterations. Let me verify the acceptance criteria:\n\nAll acceptance criteria are already met by the implementation in main.go:\n\n1. ✅ **create command shows enhanced help** - Has USAGE, description, FLAGS (with workflow flags section), and EXAMPLES\n2. ✅ **approve command shows help with description and examples** - Has USAGE, description explaining state transitions, FLAGS, EXAMPLES, and Workflow section\n3. ✅ **reject command shows help with description and examples** - Has USAGE, description, state transitions, FLAGS, EXAMPLES, and Workflow section\n4. ✅ **list command shows --awaiting filter docs** - Has USAGE, description, FLAGS, and Awaiting Filter Examples section\n5. ✅ **next command shows --awaiting flag docs** - Has USAGE, description, FLAGS, Agent Mode vs Human Mode sections, and Examples\n6. ✅ **note command shows --from flag docs** - Has USAGE, description, FLAGS, Note Authors section, and Examples\n\nThe implementation was completed by previous iterations that added the workflow flags. Let me close the task and add a note.\n\nThe task is now complete. The enhanced help text for all CLI commands was already implemented by previous iterations when they added the workflow flags (--requires, --awaiting, --verdict, --from). Each command uses a custom `fs.Usage` function that overrides the default flag package output to provide:\n\n1. **USAGE** section showing command signature\n2. **Description** explaining what the command does\n3. **FLAGS** section using `fs.PrintDefaults()` plus additional workflow flag documentation\n4. **EXAMPLES** section with practical usage scenarios\n\nAll 6 commands mentioned in the acceptance criteria (create, approve, reject, list, next, note) have this enhanced help format, plus the update command which also has full enhanced help documentation.",
+    "tools": [
+      {
+        "name": "Read",
+        "duration_ms": 467
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1396
+      },
+      {
+        "name": "Read",
+        "duration_ms": 695
+      },
+      {
+        "name": "Read",
+        "duration_ms": 680
+      },
+      {
+        "name": "Read",
+        "duration_ms": 642
+      },
+      {
+        "name": "Read",
+        "duration_ms": 687
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1164
+      },
+      {
+        "name": "Read",
+        "duration_ms": 630
+      },
+      {
+        "name": "Read",
+        "duration_ms": 792
+      },
+      {
+        "name": "Read",
+        "duration_ms": 659
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 934
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 545
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 452
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 405
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 408
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 392
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 993
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 422
+      },
+      {
+        "name": "Read",
+        "duration_ms": 688
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1639
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2691
+      }
+    ],
+    "metrics": {
+      "input_tokens": 2,
+      "output_tokens": 2944,
+      "cache_read_tokens": 774560,
+      "cache_creation_tokens": 29702,
+      "cost_usd": 0.6695435000000001,
+      "duration_ms": 86451
+    },
+    "success": true,
+    "num_turns": 22
+  },
+  "status": "closed",
+  "title": "Implement expanded help text for CLI commands",
+  "type": "task",
+  "updated_at": "2026-01-14T17:26:33.487735Z"
 }

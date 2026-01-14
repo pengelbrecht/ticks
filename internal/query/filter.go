@@ -19,6 +19,14 @@ type Filter struct {
 	TitleContains string
 	DescContains  string
 	NotesContains string
+	// Awaiting filters by awaiting state. Use pointer to distinguish:
+	// - nil: no filter (show all)
+	// - pointer to empty string: show only ticks with awaiting=null (not awaiting human)
+	// - pointer to value: show only ticks with that specific awaiting value
+	Awaiting *string
+	// AwaitingAny filters to ticks matching any of the listed awaiting values.
+	// Treats Manual=true as awaiting="work" for backwards compatibility.
+	AwaitingAny []string
 }
 
 // Apply filters ticks according to Filter fields.
@@ -55,9 +63,40 @@ func Apply(ticks []tick.Tick, f Filter) []tick.Tick {
 		if f.NotesContains != "" && !containsFold(t.Notes, f.NotesContains) {
 			continue
 		}
+		if f.Awaiting != nil && !matchesAwaiting(t, *f.Awaiting) {
+			continue
+		}
+		if len(f.AwaitingAny) > 0 && !matchesAwaitingAny(t, f.AwaitingAny) {
+			continue
+		}
 		out = append(out, t)
 	}
 	return out
+}
+
+// matchesAwaiting checks if a tick matches the awaiting filter.
+// Empty string filter means "not awaiting human" (awaiting=null and not manual).
+// Non-empty filter matches specific awaiting value (Manual=true treated as "work").
+func matchesAwaiting(t tick.Tick, filter string) bool {
+	awaitingType := t.GetAwaitingType()
+	if filter == "" {
+		// Filter for ticks NOT awaiting human action
+		return awaitingType == ""
+	}
+	// Filter for specific awaiting type
+	return awaitingType == filter
+}
+
+// matchesAwaitingAny checks if a tick's awaiting type matches any in the list.
+// Manual=true is treated as awaiting="work" for backwards compatibility.
+func matchesAwaitingAny(t tick.Tick, filters []string) bool {
+	awaitingType := t.GetAwaitingType()
+	for _, filter := range filters {
+		if awaitingType == filter {
+			return true
+		}
+	}
+	return false
 }
 
 // SortByPriorityCreatedAt sorts ticks by status (in_progress first), priority, created_at, then id.

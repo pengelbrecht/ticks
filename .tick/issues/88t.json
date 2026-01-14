@@ -2,7 +2,7 @@
   "id": "88t",
   "title": "Write tests for query changes",
   "description": "Add unit tests for query changes in internal/query/ready_test.go and filter_test.go\n\nReady() tests:\n1. Ready excludes tick with Awaiting=approval\n2. Ready excludes tick with Awaiting=work\n3. Ready excludes tick with Awaiting=input\n4. Ready excludes tick with Manual=true (backwards compat)\n5. Ready includes tick with Awaiting=null\n6. Ready still respects blocked-by logic\n7. Ready still respects defer_until\n\nFilter tests for Awaiting:\n1. Filter Awaiting=nil shows all\n2. Filter Awaiting=\"\" shows only awaiting=null\n3. Filter Awaiting=\"approval\" shows only approval\n4. Filter AwaitingAny=[\"approval\",\"review\"] matches both\n5. Filter considers Manual=true as awaiting=work\n\nUse table-driven tests following existing patterns.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "- [ ] Ready() tests cover awaiting exclusion\n- [ ] Ready() tests verify backwards compat with Manual\n- [ ] Filter tests cover Awaiting field\n- [ ] Filter tests cover AwaitingAny field\n- [ ] All tests pass",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:18:08.139155Z",
-  "updated_at": "2026-01-14T16:18:08.139155Z"
+  "updated_at": "2026-01-14T17:31:57.409914Z",
+  "closed_at": "2026-01-14T17:31:57.409914Z",
+  "closed_reason": "Added comprehensive tests for query changes: (1) Ready() tests: TestReadyExcludesAllAwaitingTypes (table-driven for all 7 awaiting types), TestReadyManualFlagBackwardsCompat, TestReadyIncludesNullAwaiting, TestReadyRespectsBlockedBy, TestReadyRespectsDeferUntil. (2) Filter tests: Added Awaiting (*string) and AwaitingAny ([]string) fields to Filter struct with matchesAwaiting/matchesAwaitingAny helpers. Tests: TestFilterAwaitingNilShowsAll, TestFilterAwaitingEmptyShowsOnlyNotAwaiting, TestFilterAwaitingSpecificValue, TestFilterAwaitingAnyMatchesMultiple, TestFilterAwaitingManualAsWork, TestFilterAwaitingAnyWithManual. All 22 query tests pass."
 }

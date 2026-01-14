@@ -1,17 +1,98 @@
 {
-  "id": "nlt",
-  "title": "Update query.Ready to exclude awaiting ticks",
-  "description": "Modify query.Ready() in internal/query/ready.go to exclude ticks with awaiting set\n\nCurrent behavior:\n- Returns open/in_progress ticks not blocked by open blockers\n- Respects defer_until dates\n- Excludes Manual=true (via separate --include-manual flag in CLI)\n\nNew behavior:\n- Also exclude ticks where Awaiting != null\n- Use tick.IsAwaitingHuman() helper for backwards compat with Manual\n\nThis is critical for ticker integration:\n- tk next uses Ready() to find agent-workable tasks\n- Tasks awaiting human response should NOT be returned\n- Agent should move on to other tasks while waiting for human\n\nImplementation:\nIn the Ready() filter loop, add check:\n  if t.IsAwaitingHuman() {\n      continue // Skip, waiting for human\n  }\n\nNote: The Manual field handling may already be in CLI layer (--include-manual). Need to consolidate with awaiting handling.",
-  "status": "open",
-  "priority": 1,
-  "type": "task",
-  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "- [ ] Ready() excludes ticks with Awaiting set\n- [ ] Ready() excludes ticks with Manual=true (unchanged)\n- [ ] Uses IsAwaitingHuman() helper for consistency\n- [ ] tk next no longer returns awaiting ticks\n- [ ] Backwards compat with existing Manual handling",
   "blocked_by": [
     "bet"
   ],
-  "parent": "9fb",
-  "acceptance_criteria": "- [ ] Ready() excludes ticks with Awaiting set\n- [ ] Ready() excludes ticks with Manual=true (unchanged)\n- [ ] Uses IsAwaitingHuman() helper for consistency\n- [ ] tk next no longer returns awaiting ticks\n- [ ] Backwards compat with existing Manual handling",
-  "created_by": "peter@engelbrecht.dk",
+  "closed_at": "2026-01-14T17:28:02.704474Z",
+  "closed_reason": "Added IsAwaitingHuman() check in isReady() function to exclude ticks with Awaiting set or legacy Manual=true flag. Added TestReadyExcludesAwaitingTicks test case.",
   "created_at": "2026-01-14T16:18:02.508236Z",
-  "updated_at": "2026-01-14T16:20:32.130686Z"
+  "created_by": "peter@engelbrecht.dk",
+  "description": "Modify query.Ready() in internal/query/ready.go to exclude ticks with awaiting set\n\nCurrent behavior:\n- Returns open/in_progress ticks not blocked by open blockers\n- Respects defer_until dates\n- Excludes Manual=true (via separate --include-manual flag in CLI)\n\nNew behavior:\n- Also exclude ticks where Awaiting != null\n- Use tick.IsAwaitingHuman() helper for backwards compat with Manual\n\nThis is critical for ticker integration:\n- tk next uses Ready() to find agent-workable tasks\n- Tasks awaiting human response should NOT be returned\n- Agent should move on to other tasks while waiting for human\n\nImplementation:\nIn the Ready() filter loop, add check:\n  if t.IsAwaitingHuman() {\n      continue // Skip, waiting for human\n  }\n\nNote: The Manual field handling may already be in CLI layer (--include-manual). Need to consolidate with awaiting handling.",
+  "id": "nlt",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "9fb",
+  "priority": 1,
+  "run": {
+    "session_id": "8df074f2-fb3e-408d-b546-e384e67bedb3",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-14T18:26:55.903721+01:00",
+    "ended_at": "2026-01-14T18:28:25.611073+01:00",
+    "output": "I'll start by reviewing the current task and understanding the codebase. Let me first read the relevant files to understand the current implementation.\n\nNow I understand the codebase. The `IsAwaitingHuman()` helper already exists in `tick.go:180-182` and handles both the `Awaiting` field and the legacy `Manual` flag. I need to modify the `isReady` function in `ready.go` to exclude ticks that are awaiting human action.\n\nLet me also check the existing tests for the Ready function to understand the test patterns.\n\nNow I have a clear understanding. Let me implement the change to `isReady` and add tests. I'll update the `isReady` function in `ready.go` to exclude ticks where `IsAwaitingHuman()` returns true.\n\nNow let me add tests for the awaiting exclusion logic.\n\nNow let me run the tests to verify the changes work correctly.\n\nAll tests pass. Let me also run the full test suite to make sure this change doesn't break anything else.\n\nAll tests pass. Now let me close the task and commit.\n\nTask completed. I modified `internal/query/ready.go` to add an `IsAwaitingHuman()` check in the `isReady()` function. This ensures that ticks with `Awaiting` set (or the legacy `Manual` flag) are excluded from `Ready()` results, so `tk next` only returns agent-workable tasks.\n\nChanges made:\n- **internal/query/ready.go:57-60**: Added check `if t.IsAwaitingHuman() { return false }` in `isReady()` function\n- **internal/query/ready_test.go:52-79**: Added `TestReadyExcludesAwaitingTicks` test covering both `Awaiting` field and legacy `Manual` flag",
+    "tools": [
+      {
+        "name": "Read",
+        "duration_ms": 401
+      },
+      {
+        "name": "Read",
+        "duration_ms": 641
+      },
+      {
+        "name": "Read",
+        "duration_ms": 965
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 2132
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 5085
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1480
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 5398
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1325
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 780
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 579
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1295
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1771
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2425
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2244
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 928
+      }
+    ],
+    "metrics": {
+      "input_tokens": 2,
+      "output_tokens": 3303,
+      "cache_read_tokens": 703619,
+      "cache_creation_tokens": 15529,
+      "cost_usd": 0.5423847500000001,
+      "duration_ms": 89087
+    },
+    "success": true,
+    "num_turns": 16
+  },
+  "status": "closed",
+  "title": "Update query.Ready to exclude awaiting ticks",
+  "type": "task",
+  "updated_at": "2026-01-14T17:28:02.704474Z"
 }

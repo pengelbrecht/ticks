@@ -2,7 +2,7 @@
   "id": "7im",
   "title": "Add tk next --awaiting for human mode",
   "description": "Add --awaiting flag to tk next command for human workflow\n\nUsage:\n  tk next epic-id              # Agent mode: next agent-workable task\n  tk next epic-id --awaiting   # Human mode: next task needing human\n  tk next epic-id --awaiting approval  # Specific awaiting type\n\nCurrent behavior:\n  tk next returns first ready task (not blocked, not manual)\n\nNew behavior with --awaiting:\n  - Filter to ticks where Awaiting != null\n  - Optional value filters to specific type(s)\n  - Sort by priority (same as agent mode)\n  - Return single tick (first match)\n\nThis enables human workflow:\n  human$ tk next --awaiting\n  abc - \"Review security changes\" [awaiting: approval]\n  human$ tk show abc  # Review the work\n  human$ tk approve abc  # Or tk reject abc \"feedback\"\n\nImplementation:\n- Add --awaiting flag to next FlagSet\n- If flag present, filter differently\n- Consider showing awaiting type in output",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "acceptance_criteria": "- [ ] --awaiting flag added to next command\n- [ ] Without value: returns any awaiting task\n- [ ] With value: filters to specific type(s)\n- [ ] Returns single task (sorted by priority)\n- [ ] Output shows awaiting type\n- [ ] Works without epic-id (searches all)",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:18:04.281378Z",
-  "updated_at": "2026-01-14T16:20:32.163795Z"
+  "updated_at": "2026-01-14T17:12:16.936485Z",
+  "closed_at": "2026-01-14T17:12:16.936485Z"
 }

@@ -78,6 +78,127 @@ func TestReadyExcludesAwaitingTicks(t *testing.T) {
 	}
 }
 
+func TestReadyExcludesAllAwaitingTypes(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	// Test each awaiting type is excluded
+	tests := []struct {
+		name     string
+		awaiting string
+	}{
+		{"awaiting approval", tick.AwaitingApproval},
+		{"awaiting work", tick.AwaitingWork},
+		{"awaiting input", tick.AwaitingInput},
+		{"awaiting review", tick.AwaitingReview},
+		{"awaiting content", tick.AwaitingContent},
+		{"awaiting escalation", tick.AwaitingEscalation},
+		{"awaiting checkpoint", tick.AwaitingCheckpoint},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			awaiting := tt.awaiting
+			items := []tick.Tick{
+				{ID: "awaiting", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},
+				{ID: "ready", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},
+			}
+
+			ready := Ready(items)
+			if len(ready) != 1 {
+				t.Fatalf("expected 1 ready tick, got %d", len(ready))
+			}
+			if ready[0].ID != "ready" {
+				t.Fatalf("expected 'ready' tick, got %s", ready[0].ID)
+			}
+		})
+	}
+}
+
+func TestReadyManualFlagBackwardsCompat(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	items := []tick.Tick{
+		{ID: "manual", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},
+		{ID: "ready", Status: tick.StatusOpen, Manual: false, CreatedAt: now, UpdatedAt: now},
+	}
+
+	ready := Ready(items)
+	if len(ready) != 1 {
+		t.Fatalf("expected 1 ready tick, got %d", len(ready))
+	}
+	if ready[0].ID != "ready" {
+		t.Fatalf("expected 'ready' tick, got %s", ready[0].ID)
+	}
+}
+
+func TestReadyIncludesNullAwaiting(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	items := []tick.Tick{
+		{ID: "a", Status: tick.StatusOpen, Awaiting: nil, CreatedAt: now, UpdatedAt: now},
+		{ID: "b", Status: tick.StatusInProgress, Awaiting: nil, CreatedAt: now, UpdatedAt: now},
+	}
+
+	ready := Ready(items)
+	if len(ready) != 2 {
+		t.Fatalf("expected 2 ready ticks (both with nil awaiting), got %d", len(ready))
+	}
+}
+
+func TestReadyRespectsBlockedBy(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	items := []tick.Tick{
+		{ID: "blocker", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},
+		{ID: "blocked", Status: tick.StatusOpen, BlockedBy: []string{"blocker"}, CreatedAt: now, UpdatedAt: now},
+		{ID: "ready", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},
+	}
+
+	ready := Ready(items)
+	if len(ready) != 2 {
+		t.Fatalf("expected 2 ready ticks, got %d", len(ready))
+	}
+
+	ids := map[string]bool{}
+	for _, r := range ready {
+		ids[r.ID] = true
+	}
+	if !ids["blocker"] || !ids["ready"] {
+		t.Fatalf("expected blocker and ready, got %v", ids)
+	}
+	if ids["blocked"] {
+		t.Fatalf("blocked tick should not be ready")
+	}
+}
+
+func TestReadyRespectsDeferUntil(t *testing.T) {
+	now := time.Now()
+	past := now.Add(-24 * time.Hour)
+	future := now.Add(24 * time.Hour)
+
+	items := []tick.Tick{
+		{ID: "deferred-future", Status: tick.StatusOpen, DeferUntil: &future, CreatedAt: now, UpdatedAt: now},
+		{ID: "deferred-past", Status: tick.StatusOpen, DeferUntil: &past, CreatedAt: now, UpdatedAt: now},
+		{ID: "not-deferred", Status: tick.StatusOpen, DeferUntil: nil, CreatedAt: now, UpdatedAt: now},
+	}
+
+	ready := Ready(items)
+	if len(ready) != 2 {
+		t.Fatalf("expected 2 ready ticks (past + nil defer), got %d", len(ready))
+	}
+
+	ids := map[string]bool{}
+	for _, r := range ready {
+		ids[r.ID] = true
+	}
+	if ids["deferred-future"] {
+		t.Fatalf("future deferred tick should not be ready")
+	}
+	if !ids["deferred-past"] || !ids["not-deferred"] {
+		t.Fatalf("expected deferred-past and not-deferred, got %v", ids)
+	}
+}
+
 func TestReadyWithBlockersOutsideFilteredSet(t *testing.T) {
 	// This test simulates the bug where filtering by parent, then calling Ready(),
 	// fails to find blockers that exist outside the filtered set.

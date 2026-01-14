@@ -13,7 +13,6 @@
   "acceptance_criteria": "- [ ] --awaiting flag added to update command\n- [ ] All 7 valid values accepted\n- [ ] Empty value clears the field (returns to agent)\n- [ ] Invalid values rejected with error\n- [ ] Field saved correctly to tick JSON",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:17:14.54283Z",
-  "updated_at": "2026-01-14T17:08:28.99451Z",
-  "closed_at": "2026-01-14T17:08:28.99451Z",
-  "closed_reason": "Added --awaiting/-a flag to update command using optionalString pattern. Empty value clears field, non-empty validates against 7 awaiting types. Tests cover all types, clearing, invalid values, and short flag."
+  "updated_at": "2026-01-14T17:12:16.99027Z",
+  "closed_at": "2026-01-14T17:12:16.99027Z"
 }
