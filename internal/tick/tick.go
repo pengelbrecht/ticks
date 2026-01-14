@@ -41,6 +41,12 @@ const (
 	AwaitingCheckpoint = "checkpoint"
 )
 
+// Verdict values (human response to awaiting state).
+const (
+	VerdictApproved = "approved"
+	VerdictRejected = "rejected"
+)
+
 // Tick represents a single work item on disk.
 type Tick struct {
 	ID             string     `json:"id"`
@@ -61,6 +67,7 @@ type Tick struct {
 	Manual             bool       `json:"manual,omitempty"`
 	Requires           *string    `json:"requires,omitempty"`
 	Awaiting           *string    `json:"awaiting,omitempty"`
+	Verdict            *string    `json:"verdict,omitempty"`
 	CreatedBy          string     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
@@ -109,6 +116,9 @@ func (t Tick) Validate() error {
 	if t.Awaiting != nil && !isAwaitingValid(*t.Awaiting) {
 		errs = append(errs, fmt.Errorf("invalid awaiting: %s", *t.Awaiting))
 	}
+	if t.Verdict != nil && !isVerdictValid(*t.Verdict) {
+		errs = append(errs, fmt.Errorf("invalid verdict: %s", *t.Verdict))
+	}
 
 	return errors.Join(errs...)
 }
@@ -143,6 +153,15 @@ func isRequiresValid(value string) bool {
 func isAwaitingValid(value string) bool {
 	switch value {
 	case AwaitingWork, AwaitingApproval, AwaitingInput, AwaitingReview, AwaitingContent, AwaitingEscalation, AwaitingCheckpoint:
+		return true
+	default:
+		return false
+	}
+}
+
+func isVerdictValid(value string) bool {
+	switch value {
+	case VerdictApproved, VerdictRejected:
 		return true
 	default:
 		return false

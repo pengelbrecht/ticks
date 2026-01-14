@@ -121,6 +121,14 @@ func TestTickValidateEnums(t *testing.T) {
 	if err := badAwaiting.Validate(); err == nil || !strings.Contains(err.Error(), "invalid awaiting") {
 		t.Fatalf("expected invalid awaiting error, got %v", err)
 	}
+
+	// Test invalid verdict
+	invalidVerdict := "invalid_verdict"
+	badVerdict := base
+	badVerdict.Verdict = &invalidVerdict
+	if err := badVerdict.Validate(); err == nil || !strings.Contains(err.Error(), "invalid verdict") {
+		t.Fatalf("expected invalid verdict error, got %v", err)
+	}
 }
 
 func TestTickValidateRequires(t *testing.T) {
@@ -184,6 +192,39 @@ func TestTickValidateAwaiting(t *testing.T) {
 			tick.Awaiting = &aw
 			if err := tick.Validate(); err != nil {
 				t.Fatalf("awaiting=%q should be valid, got error: %v", a, err)
+			}
+		})
+	}
+}
+
+func TestTickValidateVerdict(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 30, 0, 0, time.UTC)
+	base := Tick{
+		ID:        "a1b",
+		Title:     "Fix auth",
+		Status:    StatusOpen,
+		Priority:  2,
+		Type:      TypeBug,
+		Owner:     "petere",
+		CreatedBy: "petere",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// nil verdict should be valid
+	if err := base.Validate(); err != nil {
+		t.Fatalf("nil verdict should be valid, got error: %v", err)
+	}
+
+	// valid verdict values
+	validVerdicts := []string{VerdictApproved, VerdictRejected}
+	for _, v := range validVerdicts {
+		t.Run(v, func(t *testing.T) {
+			tick := base
+			vd := v
+			tick.Verdict = &vd
+			if err := tick.Validate(); err != nil {
+				t.Fatalf("verdict=%q should be valid, got error: %v", v, err)
 			}
 		})
 	}
