@@ -315,6 +315,8 @@ func runCreate(args []string) int {
 	manualFlag := fs.Bool("manual", false, "mark as requiring human intervention (skipped by tk next)")
 	requiresFlag := fs.String("requires", "", "approval gate (approval|review|content) - tick routes to human even if agent signals COMPLETE")
 	fs.StringVar(requiresFlag, "r", "", "approval gate (approval|review|content)")
+	awaitingFlag := fs.String("awaiting", "", "wait state (work|approval|input|review|content|escalation|checkpoint) - tick assigned to human")
+	fs.StringVar(awaitingFlag, "a", "", "wait state (work|approval|input|review|content|escalation|checkpoint)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 
@@ -340,6 +342,18 @@ func runCreate(args []string) int {
 			// valid
 		default:
 			fmt.Fprintf(os.Stderr, "invalid requires value: %s (must be approval, review, or content)\n", requiresVal)
+			return exitUsage
+		}
+	}
+
+	// Validate awaiting flag if provided
+	awaitingVal := strings.TrimSpace(*awaitingFlag)
+	if awaitingVal != "" {
+		switch awaitingVal {
+		case tick.AwaitingWork, tick.AwaitingApproval, tick.AwaitingInput, tick.AwaitingReview, tick.AwaitingContent, tick.AwaitingEscalation, tick.AwaitingCheckpoint:
+			// valid
+		default:
+			fmt.Fprintf(os.Stderr, "invalid awaiting value: %s (must be work, approval, input, review, content, escalation, or checkpoint)\n", awaitingVal)
 			return exitUsage
 		}
 	}
@@ -394,6 +408,12 @@ func runCreate(args []string) int {
 		requires = &requiresVal
 	}
 
+	// Set awaiting pointer only if value provided
+	var awaiting *string
+	if awaitingVal != "" {
+		awaiting = &awaitingVal
+	}
+
 	t := tick.Tick{
 		ID:                 id,
 		Title:              title,
@@ -411,6 +431,7 @@ func runCreate(args []string) int {
 		ExternalRef:        strings.TrimSpace(*externalFlag),
 		Manual:             *manualFlag,
 		Requires:           requires,
+		Awaiting:           awaiting,
 		CreatedBy:          creator,
 		CreatedAt:          now,
 		UpdatedAt:          now,

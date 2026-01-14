@@ -2,13 +2,15 @@
   "id": "cuf",
   "title": "CLI Commands",
   "description": "Add new CLI commands for human verdict workflow:\n- tk approve \u003cid\u003e: Set verdict=approved on awaiting tick\n- tk reject \u003cid\u003e [feedback]: Set verdict=rejected with optional note\n\nThese commands enable humans to respond to agent handoffs.",
-  "notes": "2026-01-14 17:45 - Completed tk approve command [mld]. Key implementation details: (1) Added runApprove() following existing command patterns (FlagSet, parseInterleaved, etc.), (2) Manual flag backwards compatibility: when Awaiting is nil but Manual is true, we set Awaiting=work before calling ProcessVerdict, (3) ProcessVerdict handles the state machine - approve closes terminal states (work, approval, review, content) and returns to agent for non-terminal states (checkpoint, input, escalation), (4) JSON output includes both the tick and whether it was closed. Next task [boh] should follow same pattern for tk reject command, which also needs to accept optional feedback as positional arg.\n2026-01-14 17:49 - Completed tk reject [xkr]. Key pattern: feedback note added with [human] prefix BEFORE ProcessVerdict to prevent race condition where ticker picks up task before feedback is saved. Reject command mirrors approve command structure. Both commands now available for human verdict workflow.",
-  "status": "open",
+  "notes": "2026-01-14 17:45 - Completed tk approve command [mld]. Key implementation details: (1) Added runApprove() following existing command patterns (FlagSet, parseInterleaved, etc.), (2) Manual flag backwards compatibility: when Awaiting is nil but Manual is true, we set Awaiting=work before calling ProcessVerdict, (3) ProcessVerdict handles the state machine - approve closes terminal states (work, approval, review, content) and returns to agent for non-terminal states (checkpoint, input, escalation), (4) JSON output includes both the tick and whether it was closed. Next task [boh] should follow same pattern for tk reject command, which also needs to accept optional feedback as positional arg.\n2026-01-14 17:49 - Completed tk reject [xkr]. Key pattern: feedback note added with [human] prefix BEFORE ProcessVerdict to prevent race condition where ticker picks up task before feedback is saved. Reject command mirrors approve command structure. Both commands now available for human verdict workflow.\n2026-01-14 17:52 - Completed t6k: Added 24 integration tests for approve/reject commands. Key patterns: (1) Tests manipulate tick JSON directly via os.ReadFile/WriteFile to set awaiting state before testing commands, (2) JSON output verified via map[string]any unmarshaling and field assertions, (3) Feedback note test verifies [human] prefix is present in notes. All approve/reject state transitions now have test coverage matching ProcessVerdict logic.\n2026-01-14 17:55 - Completed d98: Added --from flag to note command. Uses [human] prefix format (Option A from spec) for consistency with reject command. Added 4 integration tests. Note command now supports --from agent (default, no prefix) and --from human (adds [human] prefix).",
+  "status": "closed",
   "priority": 1,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "parent": "7sn",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:14:29.486084Z",
-  "updated_at": "2026-01-14T16:49:26.210233Z"
+  "updated_at": "2026-01-14T16:55:38.398371Z",
+  "closed_at": "2026-01-14T16:55:38.398371Z",
+  "closed_reason": "all tasks completed"
 }

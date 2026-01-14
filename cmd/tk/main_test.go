@@ -1282,3 +1282,164 @@ func TestUpdateRequiresFlag(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateAwaitingFlag(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGit(repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := runGit(repo, "remote", "add", "origin", "https://github.com/petere/chefswiz.git"); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := os.Setenv("TICK_OWNER", "tester"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
+
+	if code := run([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	}
+
+	t.Run("create_with_awaiting_work", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting work", "--awaiting", "work", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "work" {
+			t.Errorf("expected awaiting=work, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_with_awaiting_approval", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting approval", "--awaiting", "approval", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "approval" {
+			t.Errorf("expected awaiting=approval, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_with_awaiting_input", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting input", "--awaiting", "input", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "input" {
+			t.Errorf("expected awaiting=input, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_with_awaiting_review", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting review", "--awaiting", "review", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "review" {
+			t.Errorf("expected awaiting=review, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_with_awaiting_content", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting content", "--awaiting", "content", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "content" {
+			t.Errorf("expected awaiting=content, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_with_awaiting_escalation", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting escalation", "--awaiting", "escalation", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "escalation" {
+			t.Errorf("expected awaiting=escalation, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_with_awaiting_checkpoint", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test awaiting checkpoint", "--awaiting", "checkpoint", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "checkpoint" {
+			t.Errorf("expected awaiting=checkpoint, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("create_without_awaiting", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test no awaiting", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != nil {
+			t.Errorf("expected awaiting=nil, got %v", created["awaiting"])
+		}
+	})
+
+	t.Run("invalid_awaiting_value_fails", func(t *testing.T) {
+		code := run([]string{"tk", "create", "Test invalid awaiting", "--awaiting", "invalid"})
+		if code != exitUsage {
+			t.Errorf("expected exit %d for invalid awaiting value, got %d", exitUsage, code)
+		}
+	})
+
+	t.Run("short_flag_a_works", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test short flag", "-a", "work", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		if created["awaiting"] != "work" {
+			t.Errorf("expected awaiting=work with -a flag, got %v", created["awaiting"])
+		}
+	})
+}

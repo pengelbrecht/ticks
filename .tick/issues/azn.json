@@ -2,7 +2,7 @@
   "id": "azn",
   "title": "Add --awaiting flag to tk create",
   "description": "Add --awaiting flag to the create command\n\nUsage: tk create \"title\" --awaiting work|approval|input|review|content|escalation|checkpoint\n\nBehavior:\n- Set the awaiting field on the new tick\n- Tick immediately assigned to human (not picked up by tk next)\n- Validate value is one of the 7 awaiting types\n\nCommon use case:\n  tk create \"Configure AWS credentials\" --awaiting work\n  (Creates task that human must complete, agent cannot do)\n\nImplementation:\n- Add -awaiting and --awaiting flags to create FlagSet\n- Validate enum value before creating tick\n\nNote: This is the replacement for --manual flag. For backwards compat, --manual will map to --awaiting work.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "- [ ] --awaiting flag added to create command\n- [ ] All 7 valid values accepted\n- [ ] Invalid values rejected with error\n- [ ] Field saved correctly to tick JSON\n- [ ] Help text documents all awaiting types",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:17:13.758858Z",
-  "updated_at": "2026-01-14T16:20:31.301366Z"
+  "updated_at": "2026-01-14T17:04:51.419861Z",
+  "closed_at": "2026-01-14T17:04:51.419861Z",
+  "closed_reason": "Added --awaiting/-a flag to create command with validation for 7 awaiting types (work|approval|input|review|content|escalation|checkpoint). Modified cmd/tk/main.go to add flag parsing, validation, and set Awaiting field on tick struct. Added comprehensive tests in main_test.go."
 }

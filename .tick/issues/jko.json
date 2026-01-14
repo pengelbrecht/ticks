@@ -2,6 +2,7 @@
   "id": "jko",
   "title": "CLI Flags",
   "description": "Add new flags to existing commands:\n- --requires flag on create/update\n- --awaiting flag on create/update\n- --verdict flag on update\n- --from flag on note command\n- --awaiting filter on list command\n\nThese flags expose the new workflow fields through the CLI.",
+  "notes": "2026-01-14 17:58 - Completed ssq: Added --requires flag to create command. Pattern established: flag parsing with both long (--requires) and short (-r) forms, validation against tick.RequiresApproval/RequiresReview/RequiresContent constants before tick creation, optional *string field set only when value provided. This pattern can be reused for --requires and --awaiting on update command.\n2026-01-14 18:01 - Completed rto: Added --requires/-r flag to update command. Same optionalString pattern as create, but with empty-to-clear behavior (like defer flag). Key difference from create: update uses optionalString with explicit set flag check, allowing empty values to clear the field. Tests added for all enum values, clearing, invalid values, and short flag.",
   "status": "open",
   "priority": 1,
   "type": "epic",
@@ -9,5 +10,5 @@
   "parent": "7sn",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:14:30.252557Z",
-  "updated_at": "2026-01-14T16:14:30.252557Z"
+  "updated_at": "2026-01-14T17:01:26.823614Z"
 }
