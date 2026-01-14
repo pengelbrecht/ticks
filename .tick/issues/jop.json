@@ -2,7 +2,7 @@
   "id": "jop",
   "title": "Deprecate --manual flag",
   "description": "Add deprecation warning for --manual flag and map to --awaiting work\n\nIn tk create and tk update commands:\n\nWhen --manual flag is used:\n1. Print deprecation warning to stderr:\n   \"Warning: --manual is deprecated, use --awaiting work instead\"\n2. Set awaiting = \"work\" (equivalent behavior)\n3. Do NOT set manual = true\n\nImplementation:\nfunc handleManualFlag(cmd *cobra.Command, awaiting *string) {\n    if manualFlag {\n        fmt.Fprintln(os.Stderr, \"Warning: --manual is deprecated, use --awaiting work instead\")\n        *awaiting = AwaitingWork\n    }\n}\n\nKeep the --manual flag functional for backwards compat, just deprecated.\n\nTimeline:\n- v2.0: Deprecation warning, maps to awaiting\n- v3.0: Remove --manual flag entirely",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "- [ ] --manual shows deprecation warning on stderr\n- [ ] --manual sets awaiting=work\n- [ ] --manual does NOT set manual=true\n- [ ] Warning only shown when flag actually used\n- [ ] Help text marks flag as deprecated",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:19:19.813676Z",
-  "updated_at": "2026-01-14T16:19:19.813676Z"
+  "updated_at": "2026-01-14T17:57:07.261998Z",
+  "closed_at": "2026-01-14T17:57:07.261998Z",
+  "closed_reason": "Changed create command to set Manual=false (never true) while --manual maps to awaiting=work. Update command already correctly uses SetAwaiting/ClearAwaiting. Added TestManualFlagDeprecation test in main_test.go. Files modified: cmd/tk/main.go (line 470), cmd/tk/main_test.go (new test)."
 }

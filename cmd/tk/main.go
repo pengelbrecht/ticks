@@ -467,7 +467,7 @@ func runCreate(args []string) int {
 		AcceptanceCriteria: strings.TrimSpace(*acceptanceFlag),
 		DeferUntil:         deferUntil,
 		ExternalRef:        strings.TrimSpace(*externalFlag),
-		Manual:             *manualFlag,
+		Manual:             false, // Never set Manual=true for new ticks; --manual maps to awaiting=work
 		Requires:           requires,
 		Awaiting:           awaiting,
 		CreatedBy:          creator,

@@ -2,13 +2,15 @@
   "id": "9fb",
   "title": "Query Changes",
   "description": "Update query logic to support agent-human workflow:\n- tk next excludes awaiting != null (agent mode)\n- tk next --awaiting returns tasks for humans\n- tk ready excludes awaiting != null\n- New filter options for awaiting field\n\nThis ensures ticker only picks up agent-ready tasks.",
-  "notes": "2026-01-14 18:28 - Completed nlt: Added IsAwaitingHuman() check in query.Ready() to exclude awaiting/manual ticks. The implementation uses the existing IsAwaitingHuman() helper from tick.go which handles both Awaiting field and legacy Manual flag. Test added to verify both cases.",
-  "status": "open",
+  "notes": "2026-01-14 18:28 - Completed nlt: Added IsAwaitingHuman() check in query.Ready() to exclude awaiting/manual ticks. The implementation uses the existing IsAwaitingHuman() helper from tick.go which handles both Awaiting field and legacy Manual flag. Test added to verify both cases.\n2026-01-14 18:32 - Completed 88t: Added comprehensive tests for query changes. Also implemented Awaiting and AwaitingAny filter fields in query.Filter struct with full backwards compatibility for Manual flag. The matchesAwaiting helper uses empty string to filter for 'not awaiting human' and specific values to filter for that awaiting type. GetAwaitingType() on tick handles the Manual=work mapping.\n2026-01-14 18:38 - Completed oag: Added --include-awaiting flag to tk ready. Key changes: (1) ReadyIncludeAwaiting() in query/ready.go for bypassing awaiting filter, (2) --include-manual deprecated with warning, (3) Removed redundant manual filter loop since Ready() uses IsAwaitingHuman(). The ready command now excludes awaiting ticks by default per agent workflow.\n2026-01-14 18:39 - Closed 6fl: Task was already implemented by iteration 88t. Awaiting filter in query.Filter is complete with tests. All query package tests pass.",
+  "status": "closed",
   "priority": 1,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "parent": "7sn",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:14:31.477818Z",
-  "updated_at": "2026-01-14T17:28:15.4822Z"
+  "updated_at": "2026-01-14T17:39:54.031992Z",
+  "closed_at": "2026-01-14T17:39:54.031992Z",
+  "closed_reason": "all tasks completed"
 }

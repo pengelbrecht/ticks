@@ -2046,6 +2046,131 @@ func TestCreateAwaitingFlag(t *testing.T) {
 	})
 }
 
+// TestManualFlagDeprecation verifies that --manual flag is deprecated and maps to awaiting=work
+func TestManualFlagDeprecation(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGit(repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := runGit(repo, "remote", "add", "origin", "https://github.com/petere/chefswiz.git"); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := os.Setenv("TICK_OWNER", "tester"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
+
+	if code := run([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	}
+
+	t.Run("create_with_manual_sets_awaiting_work_not_manual", func(t *testing.T) {
+		// Using --manual should set awaiting=work and NOT set manual=true
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test manual flag", "--manual", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		if err := json.Unmarshal([]byte(out), &created); err != nil {
+			t.Fatalf("parse json: %v", err)
+		}
+
+		// Should have awaiting=work
+		if created["awaiting"] != "work" {
+			t.Errorf("expected awaiting=work when using --manual, got %v", created["awaiting"])
+		}
+
+		// Should NOT have manual=true (field should be absent or false)
+		if created["manual"] == true {
+			t.Error("--manual flag should NOT set manual=true, only awaiting=work")
+		}
+	})
+
+	t.Run("update_with_manual_true_sets_awaiting_work", func(t *testing.T) {
+		// Create a normal tick first
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test update manual", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Update with --manual=true
+		code = run([]string{"tk", "update", id, "--manual=true"})
+		if code != exitSuccess {
+			t.Fatalf("failed to update tick: exit %d", code)
+		}
+
+		// Verify the tick has awaiting=work and manual=false
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "show", "--json", id})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to show tick: exit %d", code)
+		}
+		var shown map[string]any
+		json.Unmarshal([]byte(out), &shown)
+
+		if shown["awaiting"] != "work" {
+			t.Errorf("expected awaiting=work after --manual=true, got %v", shown["awaiting"])
+		}
+		if shown["manual"] == true {
+			t.Error("--manual=true should NOT set manual=true, only awaiting=work")
+		}
+	})
+
+	t.Run("update_with_manual_false_clears_awaiting", func(t *testing.T) {
+		// Create a tick with awaiting=work
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test clear manual", "--awaiting", "work", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Update with --manual=false (should clear awaiting)
+		code = run([]string{"tk", "update", id, "--manual=false"})
+		if code != exitSuccess {
+			t.Fatalf("failed to update tick: exit %d", code)
+		}
+
+		// Verify the tick has no awaiting
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "show", "--json", id})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to show tick: exit %d", code)
+		}
+		var shown map[string]any
+		json.Unmarshal([]byte(out), &shown)
+
+		if shown["awaiting"] != nil {
+			t.Errorf("expected awaiting=nil after --manual=false, got %v", shown["awaiting"])
+		}
+		if shown["manual"] == true {
+			t.Error("--manual=false should clear manual field")
+		}
+	})
+}
+
 func TestListAwaitingFilter(t *testing.T) {
 	repo := t.TempDir()
 	if err := runGit(repo, "init"); err != nil {

@@ -1,14 +1,219 @@
 {
-  "id": "oag",
-  "title": "Update tk ready to exclude awaiting ticks",
+  "acceptance_criteria": "- [ ] tk ready excludes awaiting ticks by default\n- [ ] Behavior consistent with Ready() function\n- [ ] Optional --include-awaiting flag to show them\n- [ ] Backwards compat with --include-manual",
+  "closed_at": "2026-01-14T17:38:10.875923Z",
+  "closed_reason": "Added --include-awaiting flag to tk ready command. Implemented ReadyIncludeAwaiting() in query package. Deprecated --include-manual flag with warning. Removed redundant manual filtering since Ready() now uses IsAwaitingHuman(). Added tests for both query and CLI.",
+  "created_at": "2026-01-14T16:18:05.259755Z",
+  "created_by": "peter@engelbrecht.dk",
   "description": "Update tk ready command to exclude awaiting ticks\n\nCurrent behavior:\n- Shows all ready tasks (not blocked)\n- Has --include-manual flag to optionally show manual tasks\n\nNew behavior:\n- Exclude awaiting ticks by default (like manual)\n- Add --include-awaiting flag for optional display\n- Consider renaming/generalizing to --include-human or similar\n\nThe tk ready command shows agent-workable tasks. Tasks awaiting human should not appear by default since they're not actionable by agent.\n\nImplementation options:\n1. Reuse Ready() which now excludes awaiting (simplest)\n2. Add explicit filter in ready command\n3. Add --include-awaiting flag for humans wanting to see all\n\nRecommendation: Use Ready() and add --include-awaiting flag that bypasses the awaiting filter.",
-  "status": "open",
-  "priority": 2,
-  "type": "task",
+  "id": "oag",
   "owner": "peter@engelbrecht.dk",
   "parent": "9fb",
-  "acceptance_criteria": "- [ ] tk ready excludes awaiting ticks by default\n- [ ] Behavior consistent with Ready() function\n- [ ] Optional --include-awaiting flag to show them\n- [ ] Backwards compat with --include-manual",
-  "created_by": "peter@engelbrecht.dk",
-  "created_at": "2026-01-14T16:18:05.259755Z",
-  "updated_at": "2026-01-14T16:18:05.259755Z"
+  "priority": 2,
+  "run": {
+    "session_id": "d7e099f5-f63f-480b-ba16-1176bd19f2d1",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-14T18:32:28.181611+01:00",
+    "ended_at": "2026-01-14T18:38:47.316135+01:00",
+    "output": "I'll start by reviewing the epic notes and understanding the current state of the codebase, then implement the changes for the `tk ready` command.\n\nLet me first explore the relevant files to understand the current implementation.\n\nLet me read around those lines to understand the ready command implementation:\n\nNow let me look at the query package to understand how `Ready()` now works (based on the epic notes, it should already exclude awaiting ticks):\n\nI can see that `query.Ready()` now already excludes awaiting human tasks (line 57-60). Looking at the `runReady` function, I see it:\n1. Uses `query.Ready()` which already excludes awaiting ticks\n2. Has separate post-filtering for `Manual` tasks (lines 1486-1494)\n\nBased on the epic notes and the current code, here's what I need to do:\n1. The `query.Ready()` already excludes awaiting ticks (including Manual=true via `IsAwaitingHuman()`)\n2. The manual filtering in `runReady` is now redundant since `Ready()` handles it\n3. I need to add an `--include-awaiting` flag that bypasses the awaiting filter\n\nLet me check the `IsAwaitingHuman` function to confirm it handles Manual:\n\nNow I understand the situation:\n1. `IsAwaitingHuman()` returns true if `Awaiting != nil` OR `Manual == true`\n2. `query.Ready()` already uses `IsAwaitingHuman()` to exclude awaiting ticks\n3. The current `runReady` has redundant manual filtering code that can now be replaced\n\nNow let me look at how `tk next` handles `--awaiting` to understand the pattern:\n\nNow I have a clear understanding. Let me also check if there are any tests for the ready command:\n\nLet me look at the test structure to understand how tests are typically written:\n\nNow I have a good understanding of the test patterns. Let me create a todo list and implement the changes:\n\nNow let me implement the changes. Based on the task requirements, I need to:\n1. Add `--include-awaiting` flag (the simpler approach since `Ready()` already excludes awaiting)\n2. The `--include-manual` flag is now somewhat redundant since `Ready()` handles it, but I should keep it for backwards compatibility OR deprecate it\n\nLet me re-read the relevant section of the runReady function:\n\nNow I understand the current state. Looking at this:\n1. `query.Ready()` already excludes awaiting ticks (including Manual=true via `IsAwaitingHuman()`)\n2. The post-filter for manual (lines 1486-1494) is now redundant and should be removed\n\nThe issue is: with the current code, `Ready()` excludes all awaiting ticks BUT then the post-filter only re-adds manual ones if `--include-manual` is used. This means even with `--include-manual`, it won't work because `Ready()` already excluded them!\n\nI need to implement a different approach. Let me look at how `Ready()` could be modified to optionally include awaiting tasks, or bypass the check:\n\nLooking at the task recommendation: \"Use Ready() and add --include-awaiting flag that bypasses the awaiting filter.\"\n\nThe cleanest approach is to:\n1. Keep using `Ready()` (which excludes awaiting by default)\n2. Add `--include-awaiting` flag that, when set, bypasses the Ready filter by calling a different function or post-adding awaiting tasks back\n\nActually, looking at the code flow:\n- `query.Apply(ticks, filter)` returns filtered ticks\n- `query.Ready(filtered, ticks)` returns only ready ticks (excluding awaiting)\n\nSo if we want to include awaiting ticks, we need to either:\n1. Call a variant of Ready that doesn't filter awaiting\n2. Add awaiting tasks back after Ready() call\n3. Use a custom ready check\n\nLet me look at the filter package to see if there's an Awaiting filter already:\n\nNow I see there are `Awaiting` and `AwaitingAny` filters in the query package. The best approach is to:\n\n1. Add `--include-awaiting` flag to `runReady`\n2. If `--include-awaiting` is set, we need to NOT use `query.Ready()` directly, but use an alternative that doesn't filter awaiting\n3. Remove the redundant manual filtering\n\nLooking at the code, I think the simplest implementation is:\n- Add a new function or modify Ready to accept an option to include awaiting\n- OR: When `--include-awaiting` is set, we filter manually without the awaiting check\n\nLet me look at the ready.go test to understand the behavior better:\n\nNow I understand the full picture. The cleanest approach is to add a new function `ReadyIncludeAwaiting` (or `ReadyAll`) in query package that doesn't filter awaiting, and use that when `--include-awaiting` is set. However, this may be over-engineering.\n\nLooking at the task more carefully, the simplest approach would be:\n1. Use the normal Ready() which already excludes awaiting\n2. When --include-awaiting is set, re-add awaiting ticks that would otherwise be ready (open/in_progress, not blocked, defer ok)\n\nActually, let me think about this more carefully. The cleanest approach would be to add an optional parameter to `isReady` or add a function `ReadyWithOptions`. But to minimize changes, I'll take a simpler approach:\n\n1. Remove the redundant manual filter in runReady (since Ready() handles it)\n2. Add `--include-awaiting` flag\n3. When `--include-awaiting` is set, we need to include awaiting ticks. But Ready() already excluded them. So we need a different approach.\n\nThe best approach is to add an optional `ReadyOptions` or just create a new helper. Let me add a `ReadyIncludeAwaiting` function in ready.go that behaves like Ready but doesn't filter awaiting.\n\nNow let me add a `ReadyIncludeAwaiting` function that uses this helper:\n\nNow let me update the `runReady` function to add `--include-awaiting` flag and use the new function:\n\nNow let me update the logic that uses these flags:\n\nNow let me add a test for the ready command with --include-awaiting flag. Let me look at the end of the test file:\n\nNow let me add a test for the ready command. I'll add it after the TestListAwaitingFilter function:\n\nI need to check if `captureStdoutAndStderr` exists in the test file:\n\nLet me check if there's a captureStdoutAndStderr function or I need to use a different approach:\n\nThe function `captureStdoutAndStderr` doesn't exist. Let me simplify the test to just use `captureStdout` and not worry about the deprecation warning in the output:\n\nNow let me run the tests to verify the changes:\n\nQuery tests pass. Now let me run the new test for the ready command:\n\nAll tests pass. Now let me run all the tests to make sure I didn't break anything:\n\nAll tests pass. Let me also add a test for the `ReadyIncludeAwaiting` function in the query package:\n\nThere's an issue with my test - when the blocker is not closed, tick c is blocked, but the blocker itself is also returned. Let me fix the test - I need to account for the blocker itself being \"ready\" and also tick c being blocked. The issue is that I set up blocker as open, so it's included in the ready list:\n\nHmm, still getting 2. Let me debug this - I think the deferred tick is being included because the future date is relative to `now` which is in 2025, not the actual current time:\n\nI see - the DeferUntil check uses `time.Now()` not the `now` variable in my test. Since `now` is set to 2025 and `time.Now()` is 2026, a date 24 hours after 2025 is in the past compared to `time.Now()` in 2026!\n\nLet me fix the test to use a future date relative to actual now:\n\nAll tests pass. Now let me update the todos and close the task:\n\nNow let me close the task and create a commit:\n\nNow let me add an epic note for future iterations:\n\nTask complete. Here's a summary of what was accomplished:\n\n## Summary\n\n**Task [oag]: Update tk ready to exclude awaiting ticks**\n\n### Changes Made:\n\n1. **internal/query/ready.go**:\n   - Added `ReadyIncludeAwaiting()` function that returns ready ticks including those awaiting human action\n   - Refactored internal helpers to use `isReadyWithOptions()` with an `includeAwaiting` parameter\n\n2. **cmd/tk/main.go**:\n   - Added `--include-awaiting` flag to `tk ready` command\n   - Deprecated `--include-manual` flag with a warning message pointing to `--include-awaiting`\n   - Removed the redundant manual filtering loop (since `Ready()` already uses `IsAwaitingHuman()`)\n   - Updated logic to call `ReadyIncludeAwaiting()` when either flag is set\n\n3. **Tests**:\n   - Added `TestReadyAwaitingFilter` in cmd/tk/main_test.go with three subtests:\n     - `ready_excludes_awaiting_by_default`\n     - `ready_include_awaiting_shows_all`\n     - `ready_include_manual_deprecated_still_works`\n   - Added `TestReadyIncludeAwaitingIncludesAwaitingTicks` and `TestReadyIncludeAwaitingRespectsOtherFilters` in internal/query/ready_test.go\n\n### Behavior:\n- `tk ready` now excludes awaiting ticks by default (agent-ready tasks only)\n- `tk ready --include-awaiting` shows all ready tasks including those awaiting human action\n- `tk ready --include-manual` still works but prints a deprecation warning",
+    "tools": [
+      {
+        "name": "Grep",
+        "duration_ms": 680
+      },
+      {
+        "name": "Glob",
+        "duration_ms": 846
+      },
+      {
+        "name": "Read",
+        "duration_ms": 570
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1721
+      },
+      {
+        "name": "Read",
+        "duration_ms": 823
+      },
+      {
+        "name": "Glob",
+        "duration_ms": 1000
+      },
+      {
+        "name": "Read",
+        "duration_ms": 602
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 2252
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1063
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 2099
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1263
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1206
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 3621
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1369
+      },
+      {
+        "name": "Read",
+        "duration_ms": 836
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1079
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 9355
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 9333
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 3571
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 5803
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 7862
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 4554
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1061
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 24656
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 2226
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1391
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 8824
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 2657
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1475
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1649
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 901
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1259
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 16714
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 12318
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 11089
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 8768
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1045
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 9704
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1178
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 4583
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2952
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1423
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 723
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 4481
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2819
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 4176
+      }
+    ],
+    "metrics": {
+      "input_tokens": 2,
+      "output_tokens": 15294,
+      "cache_read_tokens": 3053019,
+      "cache_creation_tokens": 52096,
+      "cost_usd": 2.2538585,
+      "duration_ms": 378598
+    },
+    "success": true,
+    "num_turns": 47
+  },
+  "status": "closed",
+  "title": "Update tk ready to exclude awaiting ticks",
+  "type": "task",
+  "updated_at": "2026-01-14T17:38:10.875923Z"
 }
