@@ -2237,3 +2237,143 @@ func TestListAwaitingFilter(t *testing.T) {
 	_ = reviewTickID
 	_ = manualTickID
 }
+
+func TestReadyAwaitingFilter(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGit(repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := runGit(repo, "remote", "add", "origin", "https://github.com/petere/chefswiz.git"); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := os.Setenv("TICK_OWNER", "tester"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
+
+	if code := run([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	}
+
+	// Create ticks with different awaiting states
+	var normalTickID, approvalTickID, manualTickID string
+
+	// Normal tick (no awaiting)
+	out, code := captureStdout(func() int {
+		return run([]string{"tk", "create", "Normal tick", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create normal tick: exit %d", code)
+	}
+	var created map[string]any
+	json.Unmarshal([]byte(out), &created)
+	normalTickID = created["id"].(string)
+
+	// Tick awaiting approval
+	out, code = captureStdout(func() int {
+		return run([]string{"tk", "create", "Approval tick", "--awaiting", "approval", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create approval tick: exit %d", code)
+	}
+	json.Unmarshal([]byte(out), &created)
+	approvalTickID = created["id"].(string)
+
+	// Manual tick (backwards compat - should be treated as awaiting work)
+	out, code = captureStdout(func() int {
+		return run([]string{"tk", "create", "Manual tick", "--manual", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create manual tick: exit %d", code)
+	}
+	json.Unmarshal([]byte(out), &created)
+	manualTickID = created["id"].(string)
+
+	t.Run("ready_excludes_awaiting_by_default", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "ready", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("ready failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should only include normal tick (1 total)
+		if len(listResult.Ticks) != 1 {
+			t.Errorf("expected 1 ready tick, got %d", len(listResult.Ticks))
+		}
+
+		// Should NOT include awaiting or manual ticks
+		for _, tick := range listResult.Ticks {
+			if tick["id"] == approvalTickID || tick["id"] == manualTickID {
+				t.Errorf("awaiting/manual tick %s should not be in ready list by default", tick["id"])
+			}
+		}
+	})
+
+	t.Run("ready_include_awaiting_shows_all", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "ready", "--include-awaiting", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("ready --include-awaiting failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should include all 3 ticks
+		if len(listResult.Ticks) != 3 {
+			t.Errorf("expected 3 ready ticks with --include-awaiting, got %d", len(listResult.Ticks))
+		}
+
+		// Verify all expected ticks are present
+		ids := make(map[string]bool)
+		for _, tick := range listResult.Ticks {
+			ids[tick["id"].(string)] = true
+		}
+		if !ids[normalTickID] || !ids[approvalTickID] || !ids[manualTickID] {
+			t.Errorf("expected all three ticks, got ids: %v", ids)
+		}
+	})
+
+	t.Run("ready_include_manual_deprecated_still_works", func(t *testing.T) {
+		// --include-manual is deprecated but should still work (maps to --include-awaiting)
+		// Warning is printed to stderr, we just verify the command succeeds
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "ready", "--include-manual", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("ready --include-manual failed: exit %d", code)
+		}
+
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should include all 3 ticks (same as --include-awaiting)
+		if len(listResult.Ticks) != 3 {
+			t.Errorf("expected 3 ready ticks with deprecated --include-manual, got %d", len(listResult.Ticks))
+		}
+	})
+
+	// Suppress unused variable warnings
+	_ = normalTickID
+	_ = approvalTickID
+	_ = manualTickID
+}

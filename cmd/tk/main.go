@@ -1442,7 +1442,8 @@ func runReady(args []string) int {
 	titleContainsFlag := fs.String("title-contains", "", "title contains (case-insensitive)")
 	descContainsFlag := fs.String("desc-contains", "", "description contains (case-insensitive)")
 	notesContainsFlag := fs.String("notes-contains", "", "notes contains (case-insensitive)")
-	includeManual := fs.Bool("include-manual", false, "include tasks marked as manual (excluded by default)")
+	includeAwaiting := fs.Bool("include-awaiting", false, "include tasks awaiting human action (excluded by default)")
+	includeManual := fs.Bool("include-manual", false, "deprecated: use --include-awaiting instead")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	if _, err := parseInterleaved(fs, args); err != nil {
@@ -1471,6 +1472,11 @@ func runReady(args []string) int {
 		return exitIO
 	}
 
+	// Deprecation warning for --include-manual
+	if *includeManual {
+		fmt.Fprintf(os.Stderr, "warning: --include-manual is deprecated, use --include-awaiting instead\n")
+	}
+
 	filter := query.Filter{
 		Owner:         owner,
 		Label:         strings.TrimSpace(*labelFlag),
@@ -1480,17 +1486,13 @@ func runReady(args []string) int {
 		NotesContains: strings.TrimSpace(*notesContainsFlag),
 	}
 	filtered := query.Apply(ticks, filter)
-	ready := query.Ready(filtered, ticks)
 
-	// Exclude manual tasks by default
-	if !*includeManual {
-		var nonManual []tick.Tick
-		for _, t := range ready {
-			if !t.Manual {
-				nonManual = append(nonManual, t)
-			}
-		}
-		ready = nonManual
+	// Use ReadyIncludeAwaiting when --include-awaiting or deprecated --include-manual is set
+	var ready []tick.Tick
+	if *includeAwaiting || *includeManual {
+		ready = query.ReadyIncludeAwaiting(filtered, ticks)
+	} else {
+		ready = query.Ready(filtered, ticks)
 	}
 
 	query.SortByPriorityCreatedAt(ready)

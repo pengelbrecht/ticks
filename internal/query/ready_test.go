@@ -244,3 +244,57 @@ func TestReadyWithBlockersOutsideFilteredSet(t *testing.T) {
 			tick.StatusClosed, tick.StatusClosed, tick.StatusClosed)
 	}
 }
+
+func TestReadyIncludeAwaitingIncludesAwaitingTicks(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+	awaiting := "approval"
+	items := []tick.Tick{
+		{ID: "a", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                         // ready
+		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},    // awaiting but included
+		{ID: "c", Status: tick.StatusInProgress, CreatedAt: now, UpdatedAt: now},                   // ready
+		{ID: "d", Status: tick.StatusInProgress, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now}, // awaiting but included
+		{ID: "e", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},           // manual but included
+		{ID: "f", Status: tick.StatusClosed, CreatedAt: now, UpdatedAt: now},                       // not included (closed)
+	}
+
+	ready := ReadyIncludeAwaiting(items)
+
+	// Should include all open/in_progress ticks regardless of awaiting status
+	if len(ready) != 5 {
+		t.Fatalf("expected 5 ready ticks (including awaiting), got %d", len(ready))
+	}
+
+	// Verify all expected ticks are present
+	ids := map[string]bool{}
+	for _, r := range ready {
+		ids[r.ID] = true
+	}
+	if !ids["a"] || !ids["b"] || !ids["c"] || !ids["d"] || !ids["e"] {
+		t.Fatalf("expected ticks a, b, c, d, e to be ready, got %v", ids)
+	}
+	if ids["f"] {
+		t.Fatalf("closed tick f should not be ready")
+	}
+}
+
+func TestReadyIncludeAwaitingRespectsOtherFilters(t *testing.T) {
+	now := time.Now()
+	future := now.Add(24 * time.Hour)
+	awaiting := "approval"
+	items := []tick.Tick{
+		{ID: "a", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},           // awaiting, included
+		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, DeferUntil: &future, CreatedAt: now, UpdatedAt: now}, // awaiting but deferred, excluded
+		{ID: "c", Status: tick.StatusOpen, Awaiting: &awaiting, BlockedBy: []string{"missing"}, CreatedAt: now, UpdatedAt: now}, // awaiting but blocked by missing, excluded
+	}
+
+	ready := ReadyIncludeAwaiting(items)
+
+	// Should include only a (awaiting but not blocked/deferred)
+	if len(ready) != 1 {
+		t.Fatalf("expected 1 ready tick, got %d", len(ready))
+	}
+
+	if ready[0].ID != "a" {
+		t.Fatalf("expected tick a, got %s", ready[0].ID)
+	}
+}
