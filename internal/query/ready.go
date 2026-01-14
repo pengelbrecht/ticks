@@ -54,6 +54,10 @@ func isReady(t tick.Tick, index map[string]tick.Tick) bool {
 	if t.DeferUntil != nil && t.DeferUntil.After(time.Now()) {
 		return false
 	}
+	// Tasks awaiting human action are not ready for agent work
+	if t.IsAwaitingHuman() {
+		return false
+	}
 	for _, blocker := range t.BlockedBy {
 		blockedTick, ok := index[blocker]
 		if !ok {

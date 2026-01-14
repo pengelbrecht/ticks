@@ -49,6 +49,35 @@ func TestInProgressTicksAreReady(t *testing.T) {
 	}
 }
 
+func TestReadyExcludesAwaitingTicks(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+	awaiting := "approval"
+	items := []tick.Tick{
+		{ID: "a", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                         // ready
+		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},    // not ready (awaiting)
+		{ID: "c", Status: tick.StatusInProgress, CreatedAt: now, UpdatedAt: now},                   // ready
+		{ID: "d", Status: tick.StatusInProgress, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now}, // not ready (awaiting)
+		{ID: "e", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},           // not ready (manual/legacy)
+	}
+
+	ready := Ready(items)
+	if len(ready) != 2 {
+		t.Fatalf("expected 2 ready ticks, got %d", len(ready))
+	}
+
+	// Verify only non-awaiting ticks are ready
+	ids := map[string]bool{}
+	for _, r := range ready {
+		ids[r.ID] = true
+	}
+	if !ids["a"] || !ids["c"] {
+		t.Fatalf("expected ticks a and c to be ready, got %v", ids)
+	}
+	if ids["b"] || ids["d"] || ids["e"] {
+		t.Fatalf("expected ticks b, d, e (awaiting/manual) to be excluded, got %v", ids)
+	}
+}
+
 func TestReadyWithBlockersOutsideFilteredSet(t *testing.T) {
 	// This test simulates the bug where filtering by parent, then calling Ready(),
 	// fails to find blockers that exist outside the filtered set.
