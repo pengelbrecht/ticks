@@ -2,7 +2,7 @@
   "id": "wa7",
   "title": "Display awaiting status in TUI list",
   "description": "Update TUI list view to show awaiting status\n\nCurrent display: Shows status symbol (○/●/✓), priority, title, labels\n\nNew display: Add awaiting indicator when set\n\nOptions:\nA) Prefix indicator: [A] or ⏳ before title\nB) Status suffix: \"title [awaiting: approval]\"\nC) Color change: Different color for awaiting ticks\nD) Symbol change: Different symbol (e.g., ◐ for awaiting)\n\nRecommendation: Option D with color - minimal space, visually distinct\n\nImplementation in internal/tui/model.go:\n- Check tick.IsAwaitingHuman() in render\n- Use different symbol and color\n- Consider showing awaiting type on hover/selection",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "- [ ] Awaiting ticks visually distinct in list\n- [ ] Works with Manual=true ticks (backwards compat)\n- [ ] Doesn't clutter the display\n- [ ] Consistent with existing visual language",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:19:52.568326Z",
-  "updated_at": "2026-01-14T16:19:52.568326Z"
+  "updated_at": "2026-01-14T17:59:28.666036Z",
+  "closed_at": "2026-01-14T17:59:28.666036Z",
+  "closed_reason": "Added awaiting status display to TUI list view using yellow ◐ symbol via new renderTickStatus function that checks IsAwaitingHuman(). Also displays awaiting type in detail view. Uses Catppuccin Yellow (#F9E2AF) for consistent palette."
 }

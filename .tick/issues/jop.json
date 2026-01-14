@@ -1,16 +1,155 @@
 {
-  "id": "jop",
-  "title": "Deprecate --manual flag",
+  "acceptance_criteria": "- [ ] --manual shows deprecation warning on stderr\n- [ ] --manual sets awaiting=work\n- [ ] --manual does NOT set manual=true\n- [ ] Warning only shown when flag actually used\n- [ ] Help text marks flag as deprecated",
+  "closed_at": "2026-01-14T17:57:07.261998Z",
+  "closed_reason": "Changed create command to set Manual=false (never true) while --manual maps to awaiting=work. Update command already correctly uses SetAwaiting/ClearAwaiting. Added TestManualFlagDeprecation test in main_test.go. Files modified: cmd/tk/main.go (line 470), cmd/tk/main_test.go (new test).",
+  "created_at": "2026-01-14T16:19:19.813676Z",
+  "created_by": "peter@engelbrecht.dk",
   "description": "Add deprecation warning for --manual flag and map to --awaiting work\n\nIn tk create and tk update commands:\n\nWhen --manual flag is used:\n1. Print deprecation warning to stderr:\n   \"Warning: --manual is deprecated, use --awaiting work instead\"\n2. Set awaiting = \"work\" (equivalent behavior)\n3. Do NOT set manual = true\n\nImplementation:\nfunc handleManualFlag(cmd *cobra.Command, awaiting *string) {\n    if manualFlag {\n        fmt.Fprintln(os.Stderr, \"Warning: --manual is deprecated, use --awaiting work instead\")\n        *awaiting = AwaitingWork\n    }\n}\n\nKeep the --manual flag functional for backwards compat, just deprecated.\n\nTimeline:\n- v2.0: Deprecation warning, maps to awaiting\n- v3.0: Remove --manual flag entirely",
-  "status": "closed",
-  "priority": 2,
-  "type": "task",
+  "id": "jop",
   "owner": "peter@engelbrecht.dk",
   "parent": "771",
-  "acceptance_criteria": "- [ ] --manual shows deprecation warning on stderr\n- [ ] --manual sets awaiting=work\n- [ ] --manual does NOT set manual=true\n- [ ] Warning only shown when flag actually used\n- [ ] Help text marks flag as deprecated",
-  "created_by": "peter@engelbrecht.dk",
-  "created_at": "2026-01-14T16:19:19.813676Z",
-  "updated_at": "2026-01-14T17:57:07.261998Z",
-  "closed_at": "2026-01-14T17:57:07.261998Z",
-  "closed_reason": "Changed create command to set Manual=false (never true) while --manual maps to awaiting=work. Update command already correctly uses SetAwaiting/ClearAwaiting. Added TestManualFlagDeprecation test in main_test.go. Files modified: cmd/tk/main.go (line 470), cmd/tk/main_test.go (new test)."
+  "priority": 2,
+  "run": {
+    "session_id": "2c5dbced-9f56-4146-9859-c2175d4502f9",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-14T18:52:46.697061+01:00",
+    "ended_at": "2026-01-14T18:57:36.522988+01:00",
+    "output": "I'll start by reviewing the current task and understanding the codebase structure. Let me first look at how the `--manual` flag is currently handled in the `tk create` and `tk update` commands.\n\nNow I have a clear picture of the current implementation. Let me review what's happening with `--manual` in the `create` command. Looking at lines 445-470, I can see:\n\n1. The deprecation warning IS being printed (line 447)\n2. It IS mapping to `awaiting=work` (lines 449-452)\n3. BUT it's still setting `Manual: *manualFlag` (line 470)\n\nThe task requires that when `--manual` is used, we should NOT set `manual = true`, only set `awaiting = \"work\"`. Let me fix this in the create command.\n\nI see the issue. Line 470 sets `Manual: *manualFlag` which means when `--manual` is passed, it still sets `Manual=true`. According to the task, we should NOT set `manual = true`, we should only set `awaiting = \"work\"`.\n\nLet me fix this:\n\nNow let me verify the update command is also correctly handling the `--manual` flag. Looking at lines 848-857:\n\nThe update command already handles `--manual` correctly:\n1. It prints a deprecation warning (line 849)\n2. If `--manual=true` and awaiting not set, it calls `t.SetAwaiting(tick.AwaitingWork)` which sets Awaiting and clears Manual (line 852)\n3. If `--manual=false`, it calls `t.ClearAwaiting()` which clears both fields (line 855)\n\nBoth `SetAwaiting` and `ClearAwaiting` were implemented in task zr8 and they both clear the `Manual` field. So the update command is correct.\n\nNow let me run the tests to make sure everything passes:\n\nAll tests pass. Now let me add a specific test to verify that `tk create --manual` sets `awaiting=work` and does NOT set `manual=true`. Let me check the existing test file:\n\nI see there are tests for `--manual` but they don't explicitly check that `manual=false` in the created tick. Let me add a specific test to verify the deprecation behavior:\n\nLet me look for where I should add a test for the deprecation behavior. Let me check for existing backcompat tests:\n\nI see comprehensive tests already exist. Now let me add a CLI-level test for the `--manual` flag deprecation behavior in `cmd/tk/main_test.go`. Let me find a good place to add it:\n\nGood, I found a good place to add my test. Let me add a test after `TestCreateAwaitingFlag` that specifically tests the `--manual` flag deprecation behavior. Let me find the end of `TestCreateAwaitingFlag`:\n\nNow I'll add a new test function for the `--manual` flag deprecation:\n\nNow let me run the tests to make sure they pass:\n\nThe first test passed! The second test has a panic issue - the `tk show` output structure is different. Let me check what the JSON output format looks like for `tk show`:\n\nI see - in the old example, `shown[\"id\"]` is accessed directly without the \"tick\" wrapper. It looks like the json output format is different between `tk create` and `tk show`. Let me check by looking at how the approve/reject tests access the data:\n\nI see, the approve command returns `result[\"tick\"]`. Let me check if `tk show` has the same structure. Let me look at the show command implementation:\n\nI see - `tk show` outputs the tick directly (line 546 `enc.Encode(t)`), not wrapped in a `{\"tick\": ...}` structure. So the test was wrong - it should access the fields directly from `shown`, not from `shown[\"tick\"]`. Let me fix the test:\n\nNow let me run the tests again:\n\nAll my new tests pass. Now let me run all the tests to make sure nothing is broken:\n\nAll tests pass. Now let me close the task:\n\nI've completed task jop. Here's a summary of what was done:\n\n## Summary\n\n**Task:** Deprecate `--manual` flag and map to `--awaiting work`\n\n**Changes Made:**\n\n1. **cmd/tk/main.go (line 470):** Changed the `create` command to always set `Manual: false` instead of `Manual: *manualFlag`. This ensures new ticks created with `--manual` never have `manual=true` set - they only get `awaiting=work`.\n\n2. **cmd/tk/main_test.go:** Added `TestManualFlagDeprecation` with three test cases:\n   - `create_with_manual_sets_awaiting_work_not_manual` - Verifies `tk create --manual` sets `awaiting=work` and NOT `manual=true`\n   - `update_with_manual_true_sets_awaiting_work` - Verifies `tk update --manual=true` sets `awaiting=work` via `SetAwaiting()`\n   - `update_with_manual_false_clears_awaiting` - Verifies `tk update --manual=false` clears awaiting via `ClearAwaiting()`\n\n**Key Points:**\n- The deprecation warning was already implemented in both create and update commands\n- The update command was already correctly using `SetAwaiting()/ClearAwaiting()` helpers (from task zr8) which properly clear the Manual field\n- Only the create command needed a fix to stop setting `Manual=true` for new ticks\n- All existing tests continue to pass",
+    "tools": [
+      {
+        "name": "Grep",
+        "duration_ms": 1015
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 783
+      },
+      {
+        "name": "Read",
+        "duration_ms": 923
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1757
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1380
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 2145
+      },
+      {
+        "name": "Read",
+        "duration_ms": 964
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1200
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1770
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1364
+      },
+      {
+        "name": "Read",
+        "duration_ms": 671
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1720
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1165
+      },
+      {
+        "name": "Read",
+        "duration_ms": 785
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1487
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 22773
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2058
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1721
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1451
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1024
+      },
+      {
+        "name": "Read",
+        "duration_ms": 7988
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1682
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 12617
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 10616
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1575
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 922
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 24830
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 888
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 5414
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2451
+      }
+    ],
+    "metrics": {
+      "input_tokens": 348,
+      "output_tokens": 8390,
+      "cache_read_tokens": 1811588,
+      "cache_creation_tokens": 42572,
+      "cost_usd": 1.3990729999999998,
+      "duration_ms": 289248
+    },
+    "success": true,
+    "num_turns": 31
+  },
+  "status": "closed",
+  "title": "Deprecate --manual flag",
+  "type": "task",
+  "updated_at": "2026-01-14T17:57:07.261998Z"
 }

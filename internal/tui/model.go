@@ -141,6 +141,7 @@ var (
 	statusOpenStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")) // Gray (Overlay0)
 	statusInProgressStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")) // Blue
 	statusClosedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")) // Green
+	statusAwaitingStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")) // Yellow (awaiting human)
 
 	// Type color styles (Catppuccin Mocha palette)
 	typeEpicStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")) // Purple (Mauve)
@@ -176,6 +177,15 @@ func renderStatus(status string) string {
 	default:
 		return status
 	}
+}
+
+// renderTickStatus returns a color-coded status symbol for a tick,
+// accounting for awaiting state. Awaiting ticks show yellow ◐.
+func renderTickStatus(t tick.Tick) string {
+	if t.IsAwaitingHuman() {
+		return statusAwaitingStyle.Render("◐")
+	}
+	return renderStatus(t.Status)
 }
 
 // renderType returns a color-coded type string.
@@ -441,7 +451,7 @@ func buildListContent(m Model, width int) string {
 				marker = "-"
 			}
 		}
-		line := fmt.Sprintf("%s %s%s %s  %s %s %s", cursor, indent, marker, item.Tick.ID, renderStatus(item.Tick.Status), renderPriority(item.Tick.Priority), item.Tick.Title)
+		line := fmt.Sprintf("%s %s%s %s  %s %s %s", cursor, indent, marker, item.Tick.ID, renderTickStatus(item.Tick), renderPriority(item.Tick.Priority), item.Tick.Title)
 		line = truncate(line, width)
 		if i == m.selected {
 			lines = append(lines, selectedStyle.Render(line))
@@ -460,6 +470,9 @@ func buildDetailContent(t tick.Tick, width int) string {
 	out = append(out, labelStyle.Render("Priority:")+renderPriority(t.Priority))
 	out = append(out, labelStyle.Render("Type:")+renderType(t.Type))
 	out = append(out, labelStyle.Render("Status:")+renderStatus(t.Status)+" "+t.Status)
+	if t.IsAwaitingHuman() {
+		out = append(out, labelStyle.Render("Awaiting:")+statusAwaitingStyle.Render(t.GetAwaitingType()))
+	}
 	out = append(out, labelStyle.Render("Owner:")+t.Owner)
 
 	if strings.TrimSpace(t.Description) != "" {
