@@ -113,6 +113,14 @@ func TestTickValidateEnums(t *testing.T) {
 	if err := badRequires.Validate(); err == nil || !strings.Contains(err.Error(), "invalid requires") {
 		t.Fatalf("expected invalid requires error, got %v", err)
 	}
+
+	// Test invalid awaiting
+	invalidAwaiting := "invalid_state"
+	badAwaiting := base
+	badAwaiting.Awaiting = &invalidAwaiting
+	if err := badAwaiting.Validate(); err == nil || !strings.Contains(err.Error(), "invalid awaiting") {
+		t.Fatalf("expected invalid awaiting error, got %v", err)
+	}
 }
 
 func TestTickValidateRequires(t *testing.T) {
@@ -143,6 +151,39 @@ func TestTickValidateRequires(t *testing.T) {
 			tick.Requires = &req
 			if err := tick.Validate(); err != nil {
 				t.Fatalf("requires=%q should be valid, got error: %v", r, err)
+			}
+		})
+	}
+}
+
+func TestTickValidateAwaiting(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 30, 0, 0, time.UTC)
+	base := Tick{
+		ID:        "a1b",
+		Title:     "Fix auth",
+		Status:    StatusOpen,
+		Priority:  2,
+		Type:      TypeBug,
+		Owner:     "petere",
+		CreatedBy: "petere",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// nil awaiting should be valid
+	if err := base.Validate(); err != nil {
+		t.Fatalf("nil awaiting should be valid, got error: %v", err)
+	}
+
+	// valid awaiting values
+	validAwaiting := []string{AwaitingWork, AwaitingApproval, AwaitingInput, AwaitingReview, AwaitingContent, AwaitingEscalation, AwaitingCheckpoint}
+	for _, a := range validAwaiting {
+		t.Run(a, func(t *testing.T) {
+			tick := base
+			aw := a
+			tick.Awaiting = &aw
+			if err := tick.Validate(); err != nil {
+				t.Fatalf("awaiting=%q should be valid, got error: %v", a, err)
 			}
 		})
 	}

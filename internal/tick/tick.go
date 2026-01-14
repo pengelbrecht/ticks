@@ -30,6 +30,17 @@ const (
 	RequiresContent  = "content"
 )
 
+// Awaiting values (current wait state).
+const (
+	AwaitingWork       = "work"
+	AwaitingApproval   = "approval"
+	AwaitingInput      = "input"
+	AwaitingReview     = "review"
+	AwaitingContent    = "content"
+	AwaitingEscalation = "escalation"
+	AwaitingCheckpoint = "checkpoint"
+)
+
 // Tick represents a single work item on disk.
 type Tick struct {
 	ID             string     `json:"id"`
@@ -49,6 +60,7 @@ type Tick struct {
 	ExternalRef        string     `json:"external_ref,omitempty"`
 	Manual             bool       `json:"manual,omitempty"`
 	Requires           *string    `json:"requires,omitempty"`
+	Awaiting           *string    `json:"awaiting,omitempty"`
 	CreatedBy          string     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
@@ -94,6 +106,9 @@ func (t Tick) Validate() error {
 	if t.Requires != nil && !isRequiresValid(*t.Requires) {
 		errs = append(errs, fmt.Errorf("invalid requires: %s", *t.Requires))
 	}
+	if t.Awaiting != nil && !isAwaitingValid(*t.Awaiting) {
+		errs = append(errs, fmt.Errorf("invalid awaiting: %s", *t.Awaiting))
+	}
 
 	return errors.Join(errs...)
 }
@@ -119,6 +134,15 @@ func isTypeValid(value string) bool {
 func isRequiresValid(value string) bool {
 	switch value {
 	case RequiresApproval, RequiresReview, RequiresContent:
+		return true
+	default:
+		return false
+	}
+}
+
+func isAwaitingValid(value string) bool {
+	switch value {
+	case AwaitingWork, AwaitingApproval, AwaitingInput, AwaitingReview, AwaitingContent, AwaitingEscalation, AwaitingCheckpoint:
 		return true
 	default:
 		return false
