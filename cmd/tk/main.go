@@ -152,6 +152,8 @@ func run(args []string) int {
 		return runSnippet()
 	case "import":
 		return runImport(args[2:])
+	case "approve":
+		return runApprove(args[2:])
 	case "version", "--version", "-v":
 		return runVersion()
 	case "upgrade":
@@ -2156,6 +2158,100 @@ func runImport(args []string) int {
 	return exitSuccess
 }
 
+func runApprove(args []string) int {
+	fs := flag.NewFlagSet("approve", flag.ContinueOnError)
+	jsonOutput := fs.Bool("json", false, "output as json")
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: tk approve <id>")
+		fmt.Fprintln(os.Stderr, "\nSet verdict=approved on a tick awaiting human decision.")
+		fmt.Fprintln(os.Stderr, "Triggers state transition: may close tick or return to agent.")
+		fmt.Fprintln(os.Stderr, "\nFlags:")
+		fs.PrintDefaults()
+	}
+	positionals, err := parseInterleaved(fs, args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitSuccess
+		}
+		return exitUsage
+	}
+
+	if len(positionals) < 1 {
+		fmt.Fprintln(os.Stderr, "id is required")
+		return exitUsage
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
+		return exitNoRepo
+	}
+	project, err := github.DetectProject(nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
+		return exitGitHub
+	}
+	id, err := github.NormalizeID(project, positionals[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
+		return exitNotFound
+	}
+
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	t, err := store.Read(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
+		return exitNotFound
+	}
+
+	// Verify tick is awaiting human decision
+	if !t.IsAwaitingHuman() {
+		fmt.Fprintf(os.Stderr, "tick %s is not awaiting human decision\n", t.ID)
+		fmt.Fprintf(os.Stderr, "use `tk show %s` to check current status\n", t.ID)
+		return exitUsage
+	}
+
+	// Handle legacy manual flag - treat as awaiting=work
+	if t.Awaiting == nil && t.Manual {
+		awaitingWork := tick.AwaitingWork
+		t.Awaiting = &awaitingWork
+	}
+
+	// Set verdict and process
+	verdict := tick.VerdictApproved
+	t.Verdict = &verdict
+	t.UpdatedAt = time.Now().UTC()
+
+	closed, err := tick.ProcessVerdict(&t)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to process verdict: %v\n", err)
+		return exitGeneric
+	}
+
+	if err := store.Write(t); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to save tick: %v\n", err)
+		return exitIO
+	}
+
+	if *jsonOutput {
+		payload := map[string]any{"tick": t, "closed": closed}
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(payload); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
+			return exitIO
+		}
+		return exitSuccess
+	}
+
+	if closed {
+		fmt.Printf("approved %s (closed)\n", t.ID)
+	} else {
+		fmt.Printf("approved %s (returned to agent)\n", t.ID)
+	}
+	return exitSuccess
+}
+
 func splitCSV(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -2377,7 +2473,10 @@ func repoRoot() (string, error) {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, version, upgrade")
+	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, approve, version, upgrade")
+	fmt.Println()
+	fmt.Println("Human verdict commands:")
+	fmt.Println("  tk approve <id>        Set verdict=approved on awaiting tick")
 	fmt.Println()
 	fmt.Println("Manual tasks:")
 	fmt.Println("  Tasks marked with --manual require human intervention and are excluded from")
