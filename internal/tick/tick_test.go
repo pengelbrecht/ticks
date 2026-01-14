@@ -229,3 +229,38 @@ func TestTickValidateVerdict(t *testing.T) {
 		})
 	}
 }
+
+func TestValidValueSlices(t *testing.T) {
+	// Test ValidRequiresValues contains all valid requires values
+	expectedRequires := []string{RequiresApproval, RequiresReview, RequiresContent}
+	if len(ValidRequiresValues) != len(expectedRequires) {
+		t.Errorf("ValidRequiresValues has %d elements, expected %d", len(ValidRequiresValues), len(expectedRequires))
+	}
+	for i, v := range expectedRequires {
+		if ValidRequiresValues[i] != v {
+			t.Errorf("ValidRequiresValues[%d] = %q, expected %q", i, ValidRequiresValues[i], v)
+		}
+	}
+
+	// Test ValidAwaitingValues contains all valid awaiting values
+	expectedAwaiting := []string{AwaitingWork, AwaitingApproval, AwaitingInput, AwaitingReview, AwaitingContent, AwaitingEscalation, AwaitingCheckpoint}
+	if len(ValidAwaitingValues) != len(expectedAwaiting) {
+		t.Errorf("ValidAwaitingValues has %d elements, expected %d", len(ValidAwaitingValues), len(expectedAwaiting))
+	}
+	for i, v := range expectedAwaiting {
+		if ValidAwaitingValues[i] != v {
+			t.Errorf("ValidAwaitingValues[%d] = %q, expected %q", i, ValidAwaitingValues[i], v)
+		}
+	}
+
+	// Test ValidVerdictValues contains all valid verdict values
+	expectedVerdict := []string{VerdictApproved, VerdictRejected}
+	if len(ValidVerdictValues) != len(expectedVerdict) {
+		t.Errorf("ValidVerdictValues has %d elements, expected %d", len(ValidVerdictValues), len(expectedVerdict))
+	}
+	for i, v := range expectedVerdict {
+		if ValidVerdictValues[i] != v {
+			t.Errorf("ValidVerdictValues[%d] = %q, expected %q", i, ValidVerdictValues[i], v)
+		}
+	}
+}

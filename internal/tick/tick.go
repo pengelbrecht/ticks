@@ -47,6 +47,13 @@ const (
 	VerdictRejected = "rejected"
 )
 
+// Valid values for workflow fields (for validation and documentation).
+var (
+	ValidRequiresValues = []string{RequiresApproval, RequiresReview, RequiresContent}
+	ValidAwaitingValues = []string{AwaitingWork, AwaitingApproval, AwaitingInput, AwaitingReview, AwaitingContent, AwaitingEscalation, AwaitingCheckpoint}
+	ValidVerdictValues  = []string{VerdictApproved, VerdictRejected}
+)
+
 // Tick represents a single work item on disk.
 type Tick struct {
 	ID             string     `json:"id"`
