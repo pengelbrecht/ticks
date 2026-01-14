@@ -2,7 +2,7 @@
   "id": "rto",
   "title": "Add --requires flag to tk update",
   "description": "Add --requires flag to the update command\n\nUsage: tk update \u003cid\u003e --requires approval|review|content\n       tk update \u003cid\u003e --requires=  (clear the requires field)\n\nBehavior:\n- Set or clear the requires field on existing tick\n- Validate value is one of: approval, review, content, or empty\n- Empty value clears the field (removes gate)\n\nImplementation:\n- Add -requires and --requires flags to update FlagSet\n- Use optionalString pattern for nullable field\n- --requires= (empty) clears the field\n- Validate enum value before updating\n\nNote: Clearing requires is valid - human may decide gate is no longer needed.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "- [ ] --requires flag added to update command\n- [ ] Valid values accepted (approval, review, content)\n- [ ] Empty value clears the field\n- [ ] Invalid values rejected with error\n- [ ] Field saved correctly to tick JSON",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:17:12.33507Z",
-  "updated_at": "2026-01-14T16:20:31.267637Z"
+  "updated_at": "2026-01-14T17:01:07.431558Z",
+  "closed_at": "2026-01-14T17:01:07.431558Z",
+  "closed_reason": "Added --requires and -r flags to update command using optionalString pattern. Validates against approval/review/content enum values; empty value clears the field. Added comprehensive tests covering all enum values, clearing, invalid values, and short flag."
 }

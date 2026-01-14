@@ -657,6 +657,9 @@ func runUpdate(args []string) int {
 	fs.Var(&parent, "parent", "parent epic id (use empty string to clear)")
 	var manual optionalBool
 	fs.Var(&manual, "manual", "mark as requiring human intervention (true/false)")
+	var requires optionalString
+	fs.Var(&requires, "requires", "approval gate (approval|review|content, empty to clear)")
+	fs.Var(&requires, "r", "approval gate (approval|review|content, empty to clear)")
 
 	fs.SetOutput(os.Stderr)
 	positionals, err := parseInterleaved(fs, args)
@@ -756,6 +759,19 @@ func runUpdate(args []string) int {
 	}
 	if parent.set {
 		t.Parent = parent.value
+	}
+	if requires.set {
+		if requires.value == "" {
+			t.Requires = nil
+		} else {
+			switch requires.value {
+			case tick.RequiresApproval, tick.RequiresReview, tick.RequiresContent:
+				t.Requires = &requires.value
+			default:
+				fmt.Fprintf(os.Stderr, "invalid requires value: %s (must be approval, review, or content)\n", requires.value)
+				return exitUsage
+			}
+		}
 	}
 
 	t.UpdatedAt = time.Now().UTC()
