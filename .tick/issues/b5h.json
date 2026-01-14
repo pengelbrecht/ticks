@@ -2,7 +2,7 @@
   "id": "b5h",
   "title": "Add --awaiting filter to tk list",
   "description": "Add --awaiting filter flag to the list command\n\nUsage: \n  tk list --awaiting              # All ticks awaiting human\n  tk list --awaiting approval     # Specific awaiting type\n  tk list --awaiting approval,review  # Multiple types\n\nBehavior:\n- No value: filter to any awaiting != null\n- With value: filter to specific awaiting type(s)\n- Comma-separated for multiple types\n- Combines with other filters (--status, --owner, etc.)\n\nImplementation:\n- Add --awaiting flag to list FlagSet\n- Parse as optional string (no value vs specific value)\n- Add filter logic in query.Apply or as post-filter\n- Consider backwards compat with Manual field\n\nUse cases:\n  tk list --awaiting             # What needs my attention?\n  tk list --awaiting approval    # What needs sign-off?\n  tk list --awaiting input       # What questions need answering?",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "- [ ] --awaiting flag added to list command\n- [ ] No value filters to any awaiting != null\n- [ ] Specific value filters to that awaiting type\n- [ ] Comma-separated values work\n- [ ] Combines correctly with other filters\n- [ ] Also matches Manual=true ticks (backwards compat)",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-14T16:17:16.791269Z",
-  "updated_at": "2026-01-14T16:17:16.791269Z"
+  "updated_at": "2026-01-14T17:20:10.893529Z",
+  "closed_at": "2026-01-14T17:20:10.893529Z",
+  "closed_reason": "Verified implementation of --awaiting filter on list command was already complete: optionalString flag type with empty-value (all awaiting) and specific value (comma-separated types) support. Added comprehensive tests for all filter behaviors: empty value filters all awaiting ticks, specific type filtering, comma-separated multiple types, backwards compat with Manual=true ticks (maps to awaiting=work), and combination with other filters."
 }

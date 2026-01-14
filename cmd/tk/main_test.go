@@ -1940,3 +1940,195 @@ func TestCreateAwaitingFlag(t *testing.T) {
 		}
 	})
 }
+
+func TestListAwaitingFilter(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGit(repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := runGit(repo, "remote", "add", "origin", "https://github.com/petere/chefswiz.git"); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := os.Setenv("TICK_OWNER", "tester"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
+
+	if code := run([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	}
+
+	// Create ticks with different awaiting states
+	var normalTickID, approvalTickID, reviewTickID, manualTickID string
+
+	// Normal tick (no awaiting)
+	out, code := captureStdout(func() int {
+		return run([]string{"tk", "create", "Normal tick", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create normal tick: exit %d", code)
+	}
+	var created map[string]any
+	json.Unmarshal([]byte(out), &created)
+	normalTickID = created["id"].(string)
+
+	// Tick awaiting approval
+	out, code = captureStdout(func() int {
+		return run([]string{"tk", "create", "Approval tick", "--awaiting", "approval", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create approval tick: exit %d", code)
+	}
+	json.Unmarshal([]byte(out), &created)
+	approvalTickID = created["id"].(string)
+
+	// Tick awaiting review
+	out, code = captureStdout(func() int {
+		return run([]string{"tk", "create", "Review tick", "--awaiting", "review", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create review tick: exit %d", code)
+	}
+	json.Unmarshal([]byte(out), &created)
+	reviewTickID = created["id"].(string)
+
+	// Manual tick (backwards compat - should be treated as awaiting work)
+	out, code = captureStdout(func() int {
+		return run([]string{"tk", "create", "Manual tick", "--manual", "--json"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("failed to create manual tick: exit %d", code)
+	}
+	json.Unmarshal([]byte(out), &created)
+	manualTickID = created["id"].(string)
+
+	t.Run("awaiting_empty_filters_all_awaiting", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "list", "--awaiting=", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("list --awaiting= failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should include approval, review, and manual ticks (3 total)
+		if len(listResult.Ticks) != 3 {
+			t.Errorf("expected 3 awaiting ticks, got %d", len(listResult.Ticks))
+		}
+
+		// Should NOT include normal tick
+		for _, tick := range listResult.Ticks {
+			if tick["id"] == normalTickID {
+				t.Errorf("normal tick should not be in awaiting list")
+			}
+		}
+	})
+
+	t.Run("awaiting_specific_type_filters_correctly", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "list", "--awaiting", "approval", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("list --awaiting approval failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should only include approval tick
+		if len(listResult.Ticks) != 1 {
+			t.Errorf("expected 1 approval tick, got %d", len(listResult.Ticks))
+		}
+		if len(listResult.Ticks) > 0 && listResult.Ticks[0]["id"] != approvalTickID {
+			t.Errorf("expected approval tick id %s, got %v", approvalTickID, listResult.Ticks[0]["id"])
+		}
+	})
+
+	t.Run("awaiting_comma_separated_filters_multiple", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "list", "--awaiting", "approval,review", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("list --awaiting approval,review failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should include approval and review ticks (2 total)
+		if len(listResult.Ticks) != 2 {
+			t.Errorf("expected 2 ticks (approval, review), got %d", len(listResult.Ticks))
+		}
+
+		// Should NOT include normal or manual tick
+		for _, tick := range listResult.Ticks {
+			if tick["id"] == normalTickID || tick["id"] == manualTickID {
+				t.Errorf("unexpected tick %s in filtered list", tick["id"])
+			}
+		}
+	})
+
+	t.Run("awaiting_work_includes_manual_ticks", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "list", "--awaiting", "work", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("list --awaiting work failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should include manual tick (backwards compat: Manual=true maps to awaiting=work)
+		if len(listResult.Ticks) != 1 {
+			t.Errorf("expected 1 work tick (manual), got %d", len(listResult.Ticks))
+		}
+		if len(listResult.Ticks) > 0 && listResult.Ticks[0]["id"] != manualTickID {
+			t.Errorf("expected manual tick id %s, got %v", manualTickID, listResult.Ticks[0]["id"])
+		}
+	})
+
+	t.Run("awaiting_combines_with_other_filters", func(t *testing.T) {
+		// Use --all to ensure we see all owners, combined with --awaiting
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "list", "--awaiting", "review", "--all", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("list --awaiting review --all failed: exit %d", code)
+		}
+		var listResult struct {
+			Ticks []map[string]any `json:"ticks"`
+		}
+		json.Unmarshal([]byte(out), &listResult)
+
+		// Should still only include review tick
+		if len(listResult.Ticks) != 1 {
+			t.Errorf("expected 1 review tick, got %d", len(listResult.Ticks))
+		}
+		if len(listResult.Ticks) > 0 && listResult.Ticks[0]["id"] != reviewTickID {
+			t.Errorf("expected review tick id %s, got %v", reviewTickID, listResult.Ticks[0]["id"])
+		}
+	})
+
+	// Suppress unused variable warnings
+	_ = normalTickID
+	_ = approvalTickID
+	_ = reviewTickID
+	_ = manualTickID
+}
