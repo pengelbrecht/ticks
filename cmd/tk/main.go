@@ -1430,15 +1430,38 @@ func runNext(args []string) int {
 	epicFlag := fs.Bool("epic", false, "show next ready epic")
 	fs.BoolVar(epicFlag, "e", false, "show next ready epic")
 	includeManual := fs.Bool("include-manual", false, "include tasks marked as manual (excluded by default)")
+	var awaitingFilter optionalString
+	fs.Var(&awaitingFilter, "awaiting", "get next task awaiting human (empty = any type, or specific type(s) comma-separated)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: tk next [EPIC_ID] [flags]")
 		fmt.Fprintln(os.Stderr, "\nShow the next ready tick to work on.")
 		fmt.Fprintln(os.Stderr, "If EPIC_ID is provided, shows the next ready tick within that epic.")
-		fmt.Fprintln(os.Stderr, "Tasks marked as --manual are excluded by default (use --include-manual to include).")
+		fmt.Fprintln(os.Stderr, "Tasks marked as --manual or awaiting human are excluded by default.")
 		fmt.Fprintln(os.Stderr, "\nFlags:")
 		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "\nAgent Mode (default):")
+		fmt.Fprintln(os.Stderr, "  Returns next task for agent: open, not blocked, not awaiting human.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Human Mode (--awaiting):")
+		fmt.Fprintln(os.Stderr, "  Returns next task awaiting human action.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Examples:")
+		fmt.Fprintln(os.Stderr, "  # Agent's next task")
+		fmt.Fprintln(os.Stderr, "  tk next epic-123")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Human's next task (any awaiting type)")
+		fmt.Fprintln(os.Stderr, "  tk next epic-123 --awaiting=")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Human's next approval to review")
+		fmt.Fprintln(os.Stderr, "  tk next epic-123 --awaiting approval")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Human's next content or review task")
+		fmt.Fprintln(os.Stderr, "  tk next epic-123 --awaiting content,review")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Human's next task across all epics")
+		fmt.Fprintln(os.Stderr, "  tk next --awaiting=")
 	}
 	positionals, err := parseInterleaved(fs, args)
 	if err != nil {
@@ -1490,6 +1513,59 @@ func runNext(args []string) int {
 	}
 
 	filtered := query.Apply(ticks, filter)
+
+	// Human mode: return next awaiting task
+	if awaitingFilter.set {
+		awaitingVal := strings.TrimSpace(awaitingFilter.value)
+		var awaiting []tick.Tick
+
+		// Filter for open, awaiting tasks (not blocked by status)
+		for _, t := range filtered {
+			if t.Status != tick.StatusOpen {
+				continue
+			}
+			if !t.IsAwaitingHuman() {
+				continue
+			}
+			// If specific types requested, filter by them
+			if awaitingVal != "" {
+				types := splitCSV(awaitingVal)
+				typeSet := make(map[string]bool)
+				for _, typ := range types {
+					typeSet[typ] = true
+				}
+				if !typeSet[t.GetAwaitingType()] {
+					continue
+				}
+			}
+			awaiting = append(awaiting, t)
+		}
+
+		query.SortByPriorityCreatedAt(awaiting)
+
+		if len(awaiting) == 0 {
+			if *jsonOutput {
+				fmt.Println("null")
+				return exitSuccess
+			}
+			fmt.Println("No awaiting ticks")
+			return exitSuccess
+		}
+
+		next := awaiting[0]
+		if *jsonOutput {
+			enc := json.NewEncoder(os.Stdout)
+			if err := enc.Encode(next); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
+				return exitIO
+			}
+			return exitSuccess
+		}
+		fmt.Printf("%s  P%d %s  %s (awaiting: %s)\n", next.ID, next.Priority, next.Type, next.Title, next.GetAwaitingType())
+		return exitSuccess
+	}
+
+	// Agent mode: return next ready task (not awaiting)
 	ready := query.Ready(filtered, ticks)
 
 	// Exclude manual tasks by default
@@ -1502,6 +1578,15 @@ func runNext(args []string) int {
 		}
 		ready = nonManual
 	}
+
+	// Exclude awaiting tasks (agent shouldn't pick these up)
+	var nonAwaiting []tick.Tick
+	for _, t := range ready {
+		if !t.IsAwaitingHuman() {
+			nonAwaiting = append(nonAwaiting, t)
+		}
+	}
+	ready = nonAwaiting
 
 	query.SortByPriorityCreatedAt(ready)
 
