@@ -712,6 +712,9 @@ func runUpdate(args []string) int {
 	var awaiting optionalString
 	fs.Var(&awaiting, "awaiting", "wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
 	fs.Var(&awaiting, "a", "wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
+	var verdict optionalString
+	fs.Var(&verdict, "verdict", "set verdict and trigger processing (approved|rejected)")
+	fs.Var(&verdict, "v", "set verdict and trigger processing (approved|rejected)")
 
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
@@ -722,6 +725,7 @@ func runUpdate(args []string) int {
 		fmt.Fprintln(os.Stderr, "\nAgent-Human Workflow Flags:")
 		fmt.Fprintln(os.Stderr, "  --requires value    Pre-declared approval gate (approval|review|content, empty to clear)")
 		fmt.Fprintln(os.Stderr, "  --awaiting value    Wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
+		fmt.Fprintln(os.Stderr, "  --verdict value     Set verdict and trigger processing (approved|rejected)")
 		fmt.Fprintln(os.Stderr, "  --manual            [DEPRECATED] Use --awaiting=work instead")
 		fmt.Fprintln(os.Stderr, "\nExamples:")
 		fmt.Fprintln(os.Stderr, "  # Route task to human for approval")
@@ -735,6 +739,9 @@ func runUpdate(args []string) int {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  # Mark task as needing human work (replaces --manual)")
 		fmt.Fprintln(os.Stderr, "  tk update abc123 --awaiting work")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Set verdict on awaiting tick (lower-level alternative to tk approve/reject)")
+		fmt.Fprintln(os.Stderr, "  tk update abc123 --verdict approved")
 	}
 	positionals, err := parseInterleaved(fs, args)
 	if err != nil {
@@ -860,8 +867,27 @@ func runUpdate(args []string) int {
 			}
 		}
 	}
+	if verdict.set {
+		switch verdict.value {
+		case tick.VerdictApproved, tick.VerdictRejected:
+			t.Verdict = &verdict.value
+		default:
+			fmt.Fprintf(os.Stderr, "invalid verdict value: %s (must be approved or rejected)\n", verdict.value)
+			return exitUsage
+		}
+	}
 
 	t.UpdatedAt = time.Now().UTC()
+
+	// Process verdict if it was set (triggers state machine)
+	if verdict.set {
+		_, err := tick.ProcessVerdict(&t)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to process verdict: %v\n", err)
+			return exitGeneric
+		}
+	}
+
 	if err := store.Write(t); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to update tick: %v\n", err)
 		return exitIO
@@ -1047,6 +1073,21 @@ func runNote(args []string) int {
 		fmt.Fprintln(os.Stderr, "\nAdd a timestamped note to a tick.")
 		fmt.Fprintln(os.Stderr, "\nFlags:")
 		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "\nNote Authors:")
+		fmt.Fprintln(os.Stderr, "  The --from flag marks the source of the note for agent-human handoffs:")
+		fmt.Fprintln(os.Stderr, "  - agent: Context about work, questions, PR links (default)")
+		fmt.Fprintln(os.Stderr, "  - human: Feedback, answers, direction for the agent")
+		fmt.Fprintln(os.Stderr, "\nExamples:")
+		fmt.Fprintln(os.Stderr, "  # Agent adding context (default)")
+		fmt.Fprintln(os.Stderr, "  tk note abc123 \"PR ready: https://github.com/org/repo/pull/456\"")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Human providing feedback after rejection")
+		fmt.Fprintln(os.Stderr, "  tk note abc123 \"Use friendlier language in error messages\" --from human")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Human answering a question")
+		fmt.Fprintln(os.Stderr, "  tk note abc123 \"Use Stripe for payment processing\" --from human")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Note: tk reject <id> \"feedback\" automatically adds a human-marked note.")
 	}
 	positionals, err := parseInterleaved(fs, args)
 	if err != nil {
@@ -1229,8 +1270,28 @@ func runList(args []string) int {
 	descContainsFlag := fs.String("desc-contains", "", "description contains (case-insensitive)")
 	notesContainsFlag := fs.String("notes-contains", "", "notes contains (case-insensitive)")
 	manualFlag := fs.Bool("manual", false, "show only manual tasks (requires human intervention)")
+	var awaitingFilter optionalString
+	fs.Var(&awaitingFilter, "awaiting", "filter by awaiting status (empty = all awaiting, or specific type(s) comma-separated)")
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: tk list [flags]")
+		fmt.Fprintln(os.Stderr, "\nList ticks with optional filters.")
+		fmt.Fprintln(os.Stderr, "\nFlags:")
+		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "\nAwaiting Filter Examples:")
+		fmt.Fprintln(os.Stderr, "  # All ticks awaiting human action")
+		fmt.Fprintln(os.Stderr, "  tk list --awaiting=")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Only ticks awaiting approval")
+		fmt.Fprintln(os.Stderr, "  tk list --awaiting approval")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Ticks awaiting approval or review")
+		fmt.Fprintln(os.Stderr, "  tk list --awaiting approval,review")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  # Show what needs your attention (JSON)")
+		fmt.Fprintln(os.Stderr, "  tk list --awaiting= --json | jq '.ticks[] | {id, title, awaiting}'")
+	}
 	if _, err := parseInterleaved(fs, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitSuccess
@@ -1292,6 +1353,33 @@ func runList(args []string) int {
 			}
 		}
 		filtered = manualTicks
+	}
+
+	// Filter by awaiting status if requested
+	if awaitingFilter.set {
+		awaitingVal := strings.TrimSpace(awaitingFilter.value)
+		var awaitingTicks []tick.Tick
+		if awaitingVal == "" {
+			// Empty string means all awaiting ticks
+			for _, t := range filtered {
+				if t.IsAwaitingHuman() {
+					awaitingTicks = append(awaitingTicks, t)
+				}
+			}
+		} else {
+			// Filter by specific awaiting type(s)
+			types := splitCSV(awaitingVal)
+			typeSet := make(map[string]bool)
+			for _, typ := range types {
+				typeSet[typ] = true
+			}
+			for _, t := range filtered {
+				if t.IsAwaitingHuman() && typeSet[t.GetAwaitingType()] {
+					awaitingTicks = append(awaitingTicks, t)
+				}
+			}
+		}
+		filtered = awaitingTicks
 	}
 
 	query.SortByPriorityCreatedAt(filtered)
@@ -2844,12 +2932,20 @@ func printUsage() {
 	fmt.Println("Usage: tk <command> [--help]")
 	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, approve, reject, version, upgrade")
 	fmt.Println()
-	fmt.Println("Human verdict commands:")
+	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")
 	fmt.Println("  tk reject <id> [feedback]    Set verdict=rejected with optional note")
+	fmt.Println("  tk next --awaiting=          Get next task awaiting human (human mode)")
+	fmt.Println("  tk list --awaiting=          List all tasks awaiting human action")
+	fmt.Println("  tk note <id> \"msg\" --from human  Add human feedback note")
 	fmt.Println()
-	fmt.Println("Manual tasks:")
-	fmt.Println("  Tasks marked with --manual require human intervention and are excluded from")
-	fmt.Println("  'tk next' and 'tk ready' by default. Use --include-manual to include them.")
-	fmt.Println("  Use 'tk list --manual' to view all manual tasks.")
+	fmt.Println("Workflow Flags:")
+	fmt.Println("  --requires value    Pre-declared approval gate (approval|review|content)")
+	fmt.Println("                      Tick routes to human even if agent signals COMPLETE")
+	fmt.Println("  --awaiting value    Wait state (work|approval|input|review|content|escalation|checkpoint)")
+	fmt.Println("                      Tick assigned to human, skipped by agent")
+	fmt.Println()
+	fmt.Println("DEPRECATION NOTICE:")
+	fmt.Println("  --manual is deprecated. Use --awaiting=work instead.")
+	fmt.Println("  Tasks with manual=true are treated as awaiting=work for backwards compatibility.")
 }

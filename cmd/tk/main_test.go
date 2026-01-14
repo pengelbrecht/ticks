@@ -1560,6 +1560,226 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 	})
 }
 
+func TestUpdateVerdictFlag(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGit(repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := runGit(repo, "remote", "add", "origin", "https://github.com/petere/chefswiz.git"); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := os.Setenv("TICK_OWNER", "tester"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
+
+	if code := run([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	}
+
+	t.Run("verdict_approved_closes_awaiting_approval", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test verdict approved", "--awaiting", "approval", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Set verdict=approved
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "update", id, "--verdict", "approved", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+		}
+
+		var updated map[string]any
+		json.Unmarshal([]byte(out), &updated)
+		// ProcessVerdict should have cleared awaiting and closed the tick
+		if updated["status"] != "closed" {
+			t.Errorf("expected status=closed after approved verdict on awaiting=approval, got %v", updated["status"])
+		}
+		if updated["awaiting"] != nil {
+			t.Errorf("expected awaiting=nil after verdict processing, got %v", updated["awaiting"])
+		}
+	})
+
+	t.Run("verdict_rejected_returns_to_agent", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test verdict rejected", "--awaiting", "approval", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Set verdict=rejected
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "update", id, "--verdict", "rejected", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+		}
+
+		var updated map[string]any
+		json.Unmarshal([]byte(out), &updated)
+		// ProcessVerdict should have cleared awaiting but NOT closed (rejected on approval returns to agent)
+		if updated["status"] == "closed" {
+			t.Errorf("expected status != closed after rejected verdict on awaiting=approval, got %v", updated["status"])
+		}
+		if updated["awaiting"] != nil {
+			t.Errorf("expected awaiting=nil after verdict processing, got %v", updated["awaiting"])
+		}
+	})
+
+	t.Run("verdict_approved_on_input_returns_to_agent", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test input approved", "--awaiting", "input", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Set verdict=approved on input (should return to agent, not close)
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "update", id, "--verdict", "approved", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+		}
+
+		var updated map[string]any
+		json.Unmarshal([]byte(out), &updated)
+		// Input + approved = returns to agent (not closed)
+		if updated["status"] == "closed" {
+			t.Errorf("expected status != closed after approved verdict on awaiting=input, got %v", updated["status"])
+		}
+	})
+
+	t.Run("verdict_rejected_on_input_closes", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test input rejected", "--awaiting", "input", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Set verdict=rejected on input (should close)
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "update", id, "--verdict", "rejected", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+		}
+
+		var updated map[string]any
+		json.Unmarshal([]byte(out), &updated)
+		// Input + rejected = closes (can't proceed)
+		if updated["status"] != "closed" {
+			t.Errorf("expected status=closed after rejected verdict on awaiting=input, got %v", updated["status"])
+		}
+	})
+
+	t.Run("invalid_verdict_value_fails", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test invalid verdict", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Try invalid value
+		code = run([]string{"tk", "update", id, "--verdict", "invalid"})
+		if code != exitUsage {
+			t.Errorf("expected exit %d for invalid verdict value, got %d", exitUsage, code)
+		}
+	})
+
+	t.Run("short_flag_v_works", func(t *testing.T) {
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test short flag", "--awaiting", "approval", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+
+		// Update with -v approved
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "update", id, "-v", "approved", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+		}
+
+		var updated map[string]any
+		json.Unmarshal([]byte(out), &updated)
+		if updated["status"] != "closed" {
+			t.Errorf("expected status=closed with -v approved flag, got %v", updated["status"])
+		}
+	})
+
+	t.Run("verdict_on_non_awaiting_tick_is_no_op", func(t *testing.T) {
+		// Per task spec: "Unlike approve/reject commands, this doesn't automatically validate
+		// that awaiting is set. The verdict processing will handle the edge case (no-op if not awaiting)."
+		out, code := captureStdout(func() int {
+			return run([]string{"tk", "create", "Test no awaiting", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("failed to create tick: exit %d", code)
+		}
+		var created map[string]any
+		json.Unmarshal([]byte(out), &created)
+		id := created["id"].(string)
+		origStatus := created["status"]
+
+		// Set verdict on tick without awaiting
+		out, code = captureStdout(func() int {
+			return run([]string{"tk", "update", id, "--verdict", "approved", "--json"})
+		})
+		if code != exitSuccess {
+			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+		}
+
+		var updated map[string]any
+		json.Unmarshal([]byte(out), &updated)
+		// Should not close (no-op since not awaiting)
+		if updated["status"] != origStatus {
+			t.Errorf("expected status unchanged for verdict on non-awaiting tick, got %v", updated["status"])
+		}
+		// Verdict should still be set even if processing was no-op
+		if updated["verdict"] != "approved" {
+			t.Errorf("expected verdict=approved to be set, got %v", updated["verdict"])
+		}
+	})
+}
+
 func TestCreateAwaitingFlag(t *testing.T) {
 	repo := t.TempDir()
 	if err := runGit(repo, "init"); err != nil {
