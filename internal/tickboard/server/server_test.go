@@ -509,14 +509,17 @@ func TestListTicks_MethodNotAllowed(t *testing.T) {
 	go func() { _ = srv.Run(ctx) }()
 	time.Sleep(100 * time.Millisecond)
 
-	resp, err := http.Post("http://localhost:18769/api/ticks", "application/json", nil)
+	// PUT is not allowed (GET and POST are allowed)
+	req, _ := http.NewRequest(http.MethodPut, "http://localhost:18769/api/ticks", nil)
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("failed to request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
+		t.Errorf("PUT /api/ticks status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
 	}
 }
 
@@ -1598,5 +1601,338 @@ func TestAddNote_MethodNotAllowed(t *testing.T) {
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("GET /api/ticks/abc/note status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestCreateTick_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18793)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"title": "New Test Task", "description": "A test description"}`
+	resp, err := http.Post("http://localhost:18793/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	var result CreateTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Verify tick was created
+	if result.ID == "" {
+		t.Error("expected non-empty ID")
+	}
+	if result.Title != "New Test Task" {
+		t.Errorf("Title = %s, want 'New Test Task'", result.Title)
+	}
+	if result.Description != "A test description" {
+		t.Errorf("Description = %s, want 'A test description'", result.Description)
+	}
+	// Defaults
+	if result.Type != tick.TypeTask {
+		t.Errorf("Type = %s, want %s", result.Type, tick.TypeTask)
+	}
+	if result.Priority != 2 {
+		t.Errorf("Priority = %d, want 2", result.Priority)
+	}
+	if result.Status != tick.StatusOpen {
+		t.Errorf("Status = %s, want %s", result.Status, tick.StatusOpen)
+	}
+	if result.Owner != "tickboard" {
+		t.Errorf("Owner = %s, want 'tickboard'", result.Owner)
+	}
+	if result.CreatedBy != "tickboard" {
+		t.Errorf("CreatedBy = %s, want 'tickboard'", result.CreatedBy)
+	}
+	// Computed fields
+	if result.Column != ColumnReady {
+		t.Errorf("Column = %s, want %s", result.Column, ColumnReady)
+	}
+	if result.IsBlocked {
+		t.Error("expected IsBlocked=false")
+	}
+
+	// Verify file was created
+	tickPath := filepath.Join(issuesDir, result.ID+".json")
+	if _, err := os.Stat(tickPath); os.IsNotExist(err) {
+		t.Errorf("tick file was not created at %s", tickPath)
+	}
+}
+
+func TestCreateTick_WithAllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create parent epic first
+	parentEpic := baseTick("parent", "Parent Epic")
+	parentEpic.Type = tick.TypeEpic
+	createTestTick(t, issuesDir, parentEpic)
+
+	srv, err := New(tickDir, 18794)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{
+		"title": "Feature Task",
+		"description": "Implement the feature",
+		"type": "feature",
+		"priority": 1,
+		"parent": "parent",
+		"requires": "approval"
+	}`
+	resp, err := http.Post("http://localhost:18794/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	var result CreateTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Type != tick.TypeFeature {
+		t.Errorf("Type = %s, want %s", result.Type, tick.TypeFeature)
+	}
+	if result.Priority != 1 {
+		t.Errorf("Priority = %d, want 1", result.Priority)
+	}
+	if result.Parent != "parent" {
+		t.Errorf("Parent = %s, want 'parent'", result.Parent)
+	}
+	if result.Requires == nil || *result.Requires != tick.RequiresApproval {
+		t.Errorf("Requires = %v, want %s", result.Requires, tick.RequiresApproval)
+	}
+}
+
+func TestCreateTick_MissingTitle(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18795)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"description": "No title provided"}`
+	resp, err := http.Post("http://localhost:18795/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestCreateTick_EmptyTitle(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18796)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"title": "   "}`
+	resp, err := http.Post("http://localhost:18796/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestCreateTick_InvalidType(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18797)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"title": "Test", "type": "invalid_type"}`
+	resp, err := http.Post("http://localhost:18797/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestCreateTick_InvalidPriority(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18798)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"title": "Test", "priority": 10}`
+	resp, err := http.Post("http://localhost:18798/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestCreateTick_InvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18799)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{invalid json}`
+	resp, err := http.Post("http://localhost:18799/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestCreateTick_BacklogColumn(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18800)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Priority 3+ goes to backlog
+	reqBody := `{"title": "Low Priority Task", "priority": 3}`
+	resp, err := http.Post("http://localhost:18800/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	var result CreateTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Column != ColumnBacklog {
+		t.Errorf("Column = %s, want %s", result.Column, ColumnBacklog)
 	}
 }

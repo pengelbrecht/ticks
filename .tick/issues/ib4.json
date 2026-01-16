@@ -2,7 +2,7 @@
   "id": "ib4",
   "title": "API: Create tick",
   "description": "POST /api/ticks endpoint:\n- Accepts JSON body: title, description, type, priority, parent, requires\n- Creates tick using tick.Store\n- Returns created tick JSON",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "- POST /api/ticks with JSON body creates tick\n- Required: title\n- Optional: description, type, priority, parent, requires\n- Returns created tick with ID\n- 400 for missing title",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:16:02.21653Z",
-  "updated_at": "2026-01-16T09:19:42.922053Z"
+  "updated_at": "2026-01-16T13:00:22.55196Z",
+  "closed_at": "2026-01-16T13:00:22.55196Z",
+  "closed_reason": "Implemented POST /api/ticks endpoint in server.go. Added CreateTickRequest/CreateTickResponse types. Handler validates title, applies defaults (type=task, priority=2, owner=tickboard), generates unique ID using tick.IDGenerator, saves using tick.Store, returns created tick with computed isBlocked and column fields. Returns 201 Created. Added 8 tests covering basic creation, all fields, validation errors, and computed column."
 }

@@ -144,12 +144,20 @@ type ListTicksResponse struct {
 	Ticks []TickResponse `json:"ticks"`
 }
 
-// handleListTicks handles GET /api/ticks with query filters.
+// handleListTicks handles GET /api/ticks with query filters and POST /api/ticks for creating.
 func (s *Server) handleListTicks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleListTicksGet(w, r)
+	case http.MethodPost:
+		s.handleCreateTick(w, r)
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
+}
+
+// handleListTicksGet handles GET /api/ticks with query filters.
+func (s *Server) handleListTicksGet(w http.ResponseWriter, r *http.Request) {
 
 	// Load all ticks
 	issuesDir := filepath.Join(s.tickDir, "issues")
@@ -466,6 +474,23 @@ type RejectTickResponse struct {
 	Closed    bool   `json:"closed"`
 }
 
+// CreateTickRequest is the request body for POST /api/ticks.
+type CreateTickRequest struct {
+	Title       string  `json:"title"`
+	Description string  `json:"description,omitempty"`
+	Type        string  `json:"type,omitempty"`
+	Priority    *int    `json:"priority,omitempty"`
+	Parent      string  `json:"parent,omitempty"`
+	Requires    *string `json:"requires,omitempty"`
+}
+
+// CreateTickResponse is the response body for POST /api/ticks.
+type CreateTickResponse struct {
+	tick.Tick
+	IsBlocked bool   `json:"isBlocked"`
+	Column    string `json:"column"`
+}
+
 // handleApproveTick handles POST /api/ticks/:id/approve.
 func (s *Server) handleApproveTick(w http.ResponseWriter, r *http.Request, tickID string) {
 	if r.Method != http.MethodPost {
@@ -756,6 +781,118 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request, tickID st
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleCreateTick handles POST /api/ticks.
+func (s *Server) handleCreateTick(w http.ResponseWriter, r *http.Request) {
+	// Parse request body
+	var req CreateTickRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate required field: title
+	if strings.TrimSpace(req.Title) == "" {
+		http.Error(w, "title is required", http.StatusBadRequest)
+		return
+	}
+
+	// Set defaults
+	tickType := tick.TypeTask
+	if req.Type != "" {
+		tickType = req.Type
+	}
+
+	priority := 2 // default medium priority
+	if req.Priority != nil {
+		priority = *req.Priority
+	}
+
+	// Create store for ID generation and saving
+	store := tick.NewStore(s.tickDir)
+
+	// Load existing tick IDs to check for collisions
+	existingTicks, err := store.List()
+	if err != nil && !os.IsNotExist(err) {
+		http.Error(w, fmt.Sprintf("Failed to load existing ticks: %v", err), http.StatusInternalServerError)
+		return
+	}
+	existingIDs := make(map[string]bool, len(existingTicks))
+	for _, t := range existingTicks {
+		existingIDs[t.ID] = true
+	}
+
+	// Generate unique ID
+	idGen := tick.NewIDGenerator(nil)
+	newID, _, err := idGen.Generate(func(id string) bool {
+		return existingIDs[id]
+	}, 3)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to generate tick ID: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Create the tick
+	now := time.Now()
+	newTick := tick.Tick{
+		ID:          newID,
+		Title:       strings.TrimSpace(req.Title),
+		Description: req.Description,
+		Status:      tick.StatusOpen,
+		Priority:    priority,
+		Type:        tickType,
+		Owner:       "tickboard",
+		CreatedBy:   "tickboard",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Parent:      req.Parent,
+		Requires:    req.Requires,
+	}
+
+	// Validate the tick
+	if err := newTick.Validate(); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid tick: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Save the tick
+	if err := store.Write(newTick); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with computed fields
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		// Non-fatal: return tick without computed fields
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(CreateTickResponse{Tick: newTick})
+		return
+	}
+
+	tickIndex := make(map[string]tick.Tick, len(allTicks))
+	for _, tk := range allTicks {
+		tickIndex[tk.ID] = tk
+	}
+
+	isBlocked := computeIsBlocked(newTick, tickIndex)
+	column := computeColumn(newTick, isBlocked)
+
+	response := CreateTickResponse{
+		Tick:      newTick,
+		IsBlocked: isBlocked,
+		Column:    column,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
