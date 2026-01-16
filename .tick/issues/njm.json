@@ -2,11 +2,12 @@
   "id": "njm",
   "title": "Tick Board: Repo should have full path",
   "description": "today right next to Tick Board in header it says e.g. \"ticks\", it should be \"pengelbrecht/ticks\"",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "tickboard",
   "created_by": "tickboard",
   "created_at": "2026-01-16T18:51:42.450567+01:00",
-  "updated_at": "2026-01-16T18:51:42.450567+01:00"
+  "updated_at": "2026-01-16T19:18:00.845346Z",
+  "closed_at": "2026-01-16T19:18:00.845346Z"
 }

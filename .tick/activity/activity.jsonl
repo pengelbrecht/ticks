@@ -25,3 +25,8 @@
 {"ts":"2026-01-16T17:48:47.563127Z","tick":"sog","action":"create","actor":"tickboard","data":{"priority":2,"title":"tickboard workflow states","type":"task"}}
 {"ts":"2026-01-16T17:51:42.45137Z","tick":"njm","action":"create","actor":"tickboard","data":{"priority":2,"title":"Tick Board: Repo should have full path","type":"task"}}
 {"ts":"2026-01-16T17:53:16.572815Z","tick":"wwh","action":"create","actor":"tickboard","data":{"priority":2,"title":"tick board: explore spontaneous reordering","type":"task"}}
+{"ts":"2026-01-16T19:01:38.470254Z","tick":"hdb","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Set up real domain for tickboard cloud","type":"task"}}
+{"ts":"2026-01-16T19:01:38.497262Z","tick":"kz9","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Apply board styling to rest of cloud UI","type":"task"}}
+{"ts":"2026-01-16T19:08:32.83638Z","tick":"kz9","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Apply board styling to rest of cloud UI"}}
+{"ts":"2026-01-16T19:18:00.84639Z","tick":"njm","action":"close","actor":"tickboard","data":{"title":"Tick Board: Repo should have full path"}}
+{"ts":"2026-01-16T19:21:31.173063Z","tick":"d0p","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Cloud: Allow removing boards from dashboard list","type":"task"}}
