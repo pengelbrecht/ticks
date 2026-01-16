@@ -114,12 +114,13 @@ func NewClient(cfg Config) (*Client, error) {
 // LoadConfig loads the cloud configuration from environment and config file.
 // Returns nil config if no token is configured (cloud is optional).
 func LoadConfig(tickDir string, localPort int) *Config {
-	// Try environment variable first
-	token := os.Getenv(EnvToken)
+	// Read config file
+	fileCfg := readConfigFile()
 
-	// Fall back to config file
+	// Try environment variable first, fall back to config file
+	token := os.Getenv(EnvToken)
 	if token == "" {
-		token = readTokenFromConfig()
+		token = fileCfg.Token
 	}
 
 	// No token means cloud is not configured
@@ -127,8 +128,11 @@ func LoadConfig(tickDir string, localPort int) *Config {
 		return nil
 	}
 
-	// Get cloud URL (can be overridden for testing)
+	// Get cloud URL: env var > config file > default
 	cloudURL := os.Getenv(EnvCloudURL)
+	if cloudURL == "" {
+		cloudURL = fileCfg.URL
+	}
 	if cloudURL == "" {
 		cloudURL = DefaultCloudURL
 	}
@@ -151,21 +155,28 @@ func LoadConfig(tickDir string, localPort int) *Config {
 	}
 }
 
-// readTokenFromConfig reads the token from ~/.tickboardrc.
-func readTokenFromConfig() string {
+// configFile holds values read from ~/.tickboardrc.
+type configFile struct {
+	Token string
+	URL   string
+}
+
+// readConfigFile reads token and URL from ~/.tickboardrc.
+func readConfigFile() configFile {
+	var cfg configFile
+
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return cfg
 	}
 
 	configPath := filepath.Join(home, ConfigFileName)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return ""
+		return cfg
 	}
 
-	// Simple format: just the token on the first line
-	// Or key=value format: token=xxx
+	// Key=value format: token=xxx, url=xxx
 	content := strings.TrimSpace(string(data))
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
@@ -174,12 +185,15 @@ func readTokenFromConfig() string {
 			continue
 		}
 		if strings.HasPrefix(line, "token=") {
-			return strings.TrimPrefix(line, "token=")
+			cfg.Token = strings.TrimPrefix(line, "token=")
+		} else if strings.HasPrefix(line, "url=") {
+			cfg.URL = strings.TrimPrefix(line, "url=")
+		} else if cfg.Token == "" {
+			// Legacy: first non-empty line without key= is token
+			cfg.Token = line
 		}
-		// If no key=value format, treat first non-empty line as token
-		return line
 	}
-	return ""
+	return cfg
 }
 
 // deriveBoardName gets the board name from the tick directory.
