@@ -366,7 +366,7 @@ export const landingPage = `<!DOCTYPE html>
         list.innerHTML = data.boards.map(b => \`
           <li class="board-item \${b.online ? '' : 'board-offline'}" onclick="openBoard('\${b.name}', \${b.online})">
             <span class="status \${b.online ? 'online' : 'offline'}"></span>
-            <span class="board-name">\${b.name}</span>
+            <span class="board-name">\${b.name.replace(/--/g, '/')}</span>
             <span style="font-size: 0.75rem; color: var(--overlay0)">\${b.online ? 'online' : 'offline'}</span>
           </li>
         \`).join('');

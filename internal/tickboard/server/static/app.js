@@ -957,10 +957,10 @@ async function initBoard() {
     // Fetch board info
     boardInfo = await fetchInfo();
 
-    // Set repo name in header
+    // Set repo name in header (convert -- back to / for display)
     const repoNameEl = document.getElementById('repo-name');
     if (boardInfo.repoName) {
-        repoNameEl.textContent = boardInfo.repoName;
+        repoNameEl.textContent = boardInfo.repoName.replace(/--/g, '/');
         repoNameEl.style.display = '';
     } else {
         repoNameEl.style.display = 'none';
