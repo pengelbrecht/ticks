@@ -2,11 +2,12 @@
   "id": "dfb",
   "title": "Tick Board - Web Kanban for Ticks",
   "description": "A local web server that displays ticks in a kanban board interface with human interaction capabilities (approve, reject, add notes). Server looks for .tick in current dir or takes path as argument.",
+  "notes": "2026-01-16 10:25 - Completed qai (Core server with CLI). Key decisions: Used cobra for CLI (consistent with modern Go practices), embedded static files using go:embed, server uses context-based graceful shutdown. Static files in internal/tickboard/server/static/. Next tasks should add API endpoints to server.go and build out the frontend in static files.",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:15:34.993992Z",
-  "updated_at": "2026-01-16T09:15:34.993992Z"
+  "updated_at": "2026-01-16T09:25:13.05138Z"
 }
