@@ -223,6 +223,7 @@ var (
 	statusInProgressStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")) // Blue
 	statusClosedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")) // Green
 	statusAwaitingStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")) // Yellow (awaiting human)
+	statusBlockedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")) // Red (blocked)
 
 	// Type color styles (Catppuccin Mocha palette)
 	typeEpicStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")) // Purple (Mauve)
@@ -264,8 +265,48 @@ func renderStatus(status string) string {
 	}
 }
 
+// isTickBlocked checks if a tick is blocked by looking up its blockers.
+// A tick is blocked if it has BlockedBy entries and at least one is open.
+func (m *Model) isTickBlocked(t tick.Tick) bool {
+	if len(t.BlockedBy) == 0 {
+		return false
+	}
+	// Build a map of open tick IDs for quick lookup
+	openTicks := make(map[string]bool)
+	for _, tk := range m.allTicks {
+		if tk.Status != tick.StatusClosed {
+			openTicks[tk.ID] = true
+		}
+	}
+	// Check if any blocker is still open
+	for _, blockerID := range t.BlockedBy {
+		if openTicks[blockerID] {
+			return true
+		}
+	}
+	return false
+}
+
+// renderTickStatusIcon returns a color-coded status icon for a tick,
+// accounting for workflow state priority:
+// 1. Awaiting human → ◐ yellow
+// 2. Blocked → ⊘ red
+// 3. Status (open/in_progress/closed)
+func (m *Model) renderTickStatusIcon(t tick.Tick) string {
+	// Awaiting human takes priority
+	if t.IsAwaitingHuman() {
+		return statusAwaitingStyle.Render("◐")
+	}
+	// Blocked status (open tick with open blockers)
+	if t.Status == tick.StatusOpen && m.isTickBlocked(t) {
+		return statusBlockedStyle.Render("⊘")
+	}
+	return renderStatus(t.Status)
+}
+
 // renderTickStatus returns a color-coded status symbol for a tick,
 // accounting for awaiting state. Awaiting ticks show yellow ◐.
+// Deprecated: Use Model.renderTickStatusIcon for blocked detection.
 func renderTickStatus(t tick.Tick) string {
 	if t.IsAwaitingHuman() {
 		return statusAwaitingStyle.Render("◐")
@@ -298,6 +339,54 @@ func renderVerdict(verdict string) string {
 		return verdictRejectedStyle.Render(verdict)
 	default:
 		return verdict
+	}
+}
+
+// describeRequires returns a human-readable description for a requires value.
+func describeRequires(requires string) string {
+	switch requires {
+	case tick.RequiresApproval:
+		return "Requires human approval before closing"
+	case tick.RequiresReview:
+		return "Requires code review before closing"
+	case tick.RequiresContent:
+		return "Requires content review before closing"
+	default:
+		return "Requires: " + requires
+	}
+}
+
+// describeAwaiting returns a human-readable description for an awaiting value.
+func describeAwaiting(awaiting string) string {
+	switch awaiting {
+	case tick.AwaitingWork:
+		return "Awaiting manual work (not automatable)"
+	case tick.AwaitingApproval:
+		return "Awaiting human approval"
+	case tick.AwaitingInput:
+		return "Awaiting human input"
+	case tick.AwaitingReview:
+		return "Awaiting code review"
+	case tick.AwaitingContent:
+		return "Awaiting content review"
+	case tick.AwaitingEscalation:
+		return "Awaiting escalation/help"
+	case tick.AwaitingCheckpoint:
+		return "Awaiting checkpoint review"
+	default:
+		return "Awaiting: " + awaiting
+	}
+}
+
+// describeVerdict returns a human-readable description for a verdict value.
+func describeVerdict(verdict string) string {
+	switch verdict {
+	case tick.VerdictApproved:
+		return "Approved ✓"
+	case tick.VerdictRejected:
+		return "Rejected ✗"
+	default:
+		return "Verdict: " + verdict
 	}
 }
 
@@ -937,7 +1026,11 @@ func buildListContent(m Model, width int) string {
 				marker = "-"
 			}
 		}
-		line := fmt.Sprintf("%s %s%s %s  %s %s %s", cursor, indent, marker, item.Tick.ID, renderTickStatus(item.Tick), renderPriority(item.Tick.Priority), item.Tick.Title)
+
+		// Status icon with blocked detection
+		statusIcon := m.renderTickStatusIcon(item.Tick)
+
+		line := fmt.Sprintf("%s %s%s %s  %s %s %s", cursor, indent, marker, item.Tick.ID, statusIcon, renderPriority(item.Tick.Priority), item.Tick.Title)
 		line = truncate(line, width)
 		if i == m.selected {
 			lines = append(lines, selectedStyle.Render(line))
@@ -963,14 +1056,36 @@ func buildDetailContent(t tick.Tick, width int) string {
 	if hasWorkflowFields {
 		out = append(out, "")
 		out = append(out, headerStyle.Render("Workflow:"))
+
+		// Show gate requirement with its current state
 		if t.Requires != nil {
-			out = append(out, "  "+labelStyle.Render("Requires:")+*t.Requires)
-		}
-		if t.IsAwaitingHuman() {
-			out = append(out, "  "+labelStyle.Render("Awaiting:")+statusAwaitingStyle.Render(t.GetAwaitingType()))
-		}
-		if t.Verdict != nil {
-			out = append(out, "  "+labelStyle.Render("Verdict:")+renderVerdict(*t.Verdict))
+			gateLine := "  " + describeRequires(*t.Requires)
+			// Show state of this gate
+			if t.Verdict != nil && *t.Verdict == tick.VerdictApproved {
+				gateLine += " → " + verdictApprovedStyle.Render("Approved ✓")
+			} else if t.Verdict != nil && *t.Verdict == tick.VerdictRejected && t.IsAwaitingHuman() {
+				// Rejected but retrying
+				gateLine += " → " + verdictRejectedStyle.Render("Rejected ✗") + " → " + statusAwaitingStyle.Render("Pending retry")
+			} else if t.Verdict != nil && *t.Verdict == tick.VerdictRejected {
+				gateLine += " → " + verdictRejectedStyle.Render("Rejected ✗")
+			} else if t.IsAwaitingHuman() {
+				gateLine += " → " + statusAwaitingStyle.Render("Pending")
+			} else {
+				gateLine += " → " + dimStyle.Render("Not yet requested")
+			}
+			out = append(out, gateLine)
+		} else {
+			// No gate, but has awaiting/verdict - show standalone
+			if t.IsAwaitingHuman() {
+				out = append(out, "  "+statusAwaitingStyle.Render(describeAwaiting(t.GetAwaitingType())))
+			}
+			if t.Verdict != nil {
+				if *t.Verdict == tick.VerdictApproved {
+					out = append(out, "  "+verdictApprovedStyle.Render(describeVerdict(*t.Verdict)))
+				} else {
+					out = append(out, "  "+verdictRejectedStyle.Render(describeVerdict(*t.Verdict)))
+				}
+			}
 		}
 	}
 

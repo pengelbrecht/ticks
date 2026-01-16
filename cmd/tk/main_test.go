@@ -227,8 +227,8 @@ func TestApproveCommand(t *testing.T) {
 		if tickResult["awaiting"] != nil {
 			t.Errorf("expected awaiting to be cleared, got %v", tickResult["awaiting"])
 		}
-		if tickResult["verdict"] != nil {
-			t.Errorf("expected verdict to be cleared, got %v", tickResult["verdict"])
+		if tickResult["verdict"] != "approved" {
+			t.Errorf("expected verdict to be preserved as approved, got %v", tickResult["verdict"])
 		}
 	})
 

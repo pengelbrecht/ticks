@@ -36,9 +36,13 @@ func ProcessVerdict(t *Tick) (closed bool, err error) {
 		shouldClose = false
 	}
 
-	// Clear transient state (also clears legacy Manual field)
+	// Clear awaiting state (also clears legacy Manual field)
 	t.ClearAwaiting()
-	t.Verdict = nil
+
+	// Clear verdict only if not closing - preserve verdict on closed ticks for audit trail
+	if !shouldClose {
+		t.Verdict = nil
+	}
 
 	if shouldClose {
 		t.Status = StatusClosed

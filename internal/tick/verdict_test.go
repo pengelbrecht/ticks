@@ -45,6 +45,7 @@ func TestProcessVerdict(t *testing.T) {
 		},
 
 		// Terminal states - close on approved
+		// Terminal states - close on approved (verdict preserved on close)
 		{
 			name:         "work approved closes",
 			awaiting:     ptr(AwaitingWork),
@@ -52,7 +53,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   true,
 			wantStatus:   StatusClosed,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  ptr(VerdictApproved), // Preserved for audit trail
 		},
 		{
 			name:         "work rejected does not close",
@@ -61,7 +62,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   false,
 			wantStatus:   StatusInProgress,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  nil, // Cleared so agent can retry
 		},
 		{
 			name:         "approval approved closes",
@@ -70,7 +71,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   true,
 			wantStatus:   StatusClosed,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  ptr(VerdictApproved),
 		},
 		{
 			name:         "approval rejected does not close",
@@ -88,7 +89,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   true,
 			wantStatus:   StatusClosed,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  ptr(VerdictApproved),
 		},
 		{
 			name:         "review rejected does not close",
@@ -106,7 +107,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   true,
 			wantStatus:   StatusClosed,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  ptr(VerdictApproved),
 		},
 		{
 			name:         "content rejected does not close",
@@ -118,7 +119,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantVerdict:  nil,
 		},
 
-		// Non-terminal states - close on rejected
+		// Non-terminal states - close on rejected (verdict preserved on close)
 		{
 			name:         "input approved does not close",
 			awaiting:     ptr(AwaitingInput),
@@ -126,7 +127,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   false,
 			wantStatus:   StatusInProgress,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  nil, // Cleared so agent continues
 		},
 		{
 			name:         "input rejected closes",
@@ -135,7 +136,7 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   true,
 			wantStatus:   StatusClosed,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  ptr(VerdictRejected), // Preserved for audit trail
 		},
 		{
 			name:         "escalation approved does not close",
@@ -153,10 +154,10 @@ func TestProcessVerdict(t *testing.T) {
 			wantClosed:   true,
 			wantStatus:   StatusClosed,
 			wantAwaiting: nil,
-			wantVerdict:  nil,
+			wantVerdict:  ptr(VerdictRejected),
 		},
 
-		// Checkpoint - never closes
+		// Checkpoint - never closes (verdict always cleared)
 		{
 			name:         "checkpoint approved does not close",
 			awaiting:     ptr(AwaitingCheckpoint),
@@ -488,12 +489,16 @@ func TestProcessVerdictMatrix(t *testing.T) {
 			if closed != tc.expectClosed {
 				t.Errorf("%s: closed=%v, want %v", tc.description, closed, tc.expectClosed)
 			}
-			// Verify state cleared
+			// Verify awaiting always cleared
 			if tick.Awaiting != nil {
 				t.Error("Awaiting should be cleared")
 			}
-			if tick.Verdict != nil {
-				t.Error("Verdict should be cleared")
+			// Verdict preserved on close, cleared otherwise
+			if closed && tick.Verdict == nil {
+				t.Error("Verdict should be preserved when closed")
+			}
+			if !closed && tick.Verdict != nil {
+				t.Error("Verdict should be cleared when not closed")
 			}
 			// Verify status
 			if closed && tick.Status != StatusClosed {
@@ -555,8 +560,8 @@ func TestVerdictProcessingWorkflow(t *testing.T) {
 		if tick.Awaiting != nil {
 			t.Error("expected Awaiting to be cleared")
 		}
-		if tick.Verdict != nil {
-			t.Error("expected Verdict to be cleared")
+		if tick.Verdict == nil || *tick.Verdict != VerdictApproved {
+			t.Error("expected Verdict to be preserved on close")
 		}
 		// Requires persists even after close
 		if tick.Requires == nil || *tick.Requires != RequiresApproval {
