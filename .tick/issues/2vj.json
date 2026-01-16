@@ -2,12 +2,13 @@
   "id": "2vj",
   "title": "Cloud: Durable Object WebSocket hub",
   "description": "Cloudflare Durable Object for agent connections:\n- Accept WebSocket from local agents\n- Authenticate via token\n- Store connection state (board name, last seen, machine)\n- Relay HTTP requests to agent, return response\n- Handle disconnect/reconnect\n- Ping/pong keepalive",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "mto",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:49:40.237395Z",
-  "updated_at": "2026-01-16T09:49:40.237395Z"
+  "updated_at": "2026-01-16T17:48:10.475659Z",
+  "closed_at": "2026-01-16T17:48:10.475659Z"
 }

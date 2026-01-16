@@ -1,0 +1,26 @@
+name = "tickboard-cloud"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Durable Objects bindings
+[durable_objects]
+bindings = [
+  { name = "AGENT_HUB", class_name = "AgentHub" }
+]
+
+# Migrations for Durable Objects
+[[migrations]]
+tag = "v1"
+new_classes = ["AgentHub"]
+
+# Environment variables (set via wrangler secret)
+# TICKBOARD_SECRET - shared secret for token validation
+
+# Development settings
+[dev]
+port = 8787
+
+# KV namespace for session data (optional, for future use)
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = "xxx"
