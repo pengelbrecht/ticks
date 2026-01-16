@@ -97,46 +97,52 @@ export async function login(
   email: string,
   password: string
 ): Promise<Response> {
-  if (!email || !password) {
-    return Response.json({ error: "Email and password required" }, { status: 400 });
+  try {
+    if (!email || !password) {
+      return Response.json({ error: "Email and password required" }, { status: 400 });
+    }
+
+    const passwordHash = await hashPassword(password);
+
+    const result = await env.DB.prepare(
+      "SELECT id, email FROM users WHERE email = ? AND password_hash = ?"
+    )
+      .bind(email.toLowerCase(), passwordHash)
+      .first<User>();
+
+    if (!result) {
+      return Response.json({ error: "Invalid email or password" }, { status: 401 });
+    }
+
+    // Create a session token (for API use)
+    const token = generateToken();
+    const tokenHash = await hashPassword(token);
+    const tokenId = generateId();
+    const sessionName = `session-${Date.now()}`;
+
+    await env.DB.prepare(
+      "INSERT INTO tokens (id, user_id, name, token_hash) VALUES (?, ?, ?, ?)"
+    )
+      .bind(tokenId, result.id, sessionName, tokenHash)
+      .run();
+
+    const response = Response.json({
+      user: { id: result.id, email: result.email },
+      token: token,
+    });
+
+    // Also set session cookie for browser-based access
+    const headers = new Headers(response.headers);
+    headers.set("Set-Cookie", createSessionCookie(token));
+
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: `Login error: ${message}` }, { status: 500 });
   }
-
-  const passwordHash = await hashPassword(password);
-
-  const result = await env.DB.prepare(
-    "SELECT id, email FROM users WHERE email = ? AND password_hash = ?"
-  )
-    .bind(email.toLowerCase(), passwordHash)
-    .first<User>();
-
-  if (!result) {
-    return Response.json({ error: "Invalid email or password" }, { status: 401 });
-  }
-
-  // Create a session token (for API use)
-  const token = generateToken();
-  const tokenHash = await hashPassword(token);
-  const tokenId = generateId();
-
-  await env.DB.prepare(
-    "INSERT INTO tokens (id, user_id, name, token_hash) VALUES (?, ?, ?, ?)"
-  )
-    .bind(tokenId, result.id, "session", tokenHash)
-    .run();
-
-  const response = Response.json({
-    user: { id: result.id, email: result.email },
-    token: token,
-  });
-
-  // Also set session cookie for browser-based access
-  const headers = new Headers(response.headers);
-  headers.set("Set-Cookie", createSessionCookie(token));
-
-  return new Response(response.body, {
-    status: response.status,
-    headers,
-  });
 }
 
 // Create API token for local agents
