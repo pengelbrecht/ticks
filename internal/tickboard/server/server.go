@@ -101,13 +101,12 @@ func (s *Server) TickDir() string {
 
 // Column represents kanban board columns.
 const (
-	ColumnBacklog  = "backlog"
-	ColumnReady    = "ready"
-	ColumnAgent    = "agent"
-	ColumnReview   = "review"
-	ColumnInput    = "input"
-	ColumnRejected = "rejected"
-	ColumnDone     = "done"
+	ColumnBacklog = "backlog"
+	ColumnReady   = "ready"
+	ColumnAgent   = "agent"
+	ColumnReview  = "review"
+	ColumnInput   = "input"
+	ColumnDone    = "done"
 )
 
 // TickResponse is a tick with computed fields for the API response.
@@ -230,21 +229,15 @@ func computeIsBlocked(t tick.Tick, index map[string]tick.Tick) bool {
 // computeColumn determines which kanban column a tick belongs to.
 // Column logic:
 //   - backlog: open + (blocked OR priority>=3)
-//   - ready: open + unblocked + !awaiting
+//   - ready: open + unblocked + !awaiting (includes rejected+open, so agent can retry)
 //   - agent: in_progress + !awaiting
 //   - review: awaiting in (approval,review,content,work)
 //   - input: awaiting in (input,escalation,checkpoint)
-//   - rejected: verdict=rejected + open
 //   - done: closed
 func computeColumn(t tick.Tick, isBlocked bool) string {
 	// done: closed
 	if t.Status == tick.StatusClosed {
 		return ColumnDone
-	}
-
-	// rejected: verdict=rejected + open (includes in_progress)
-	if t.Verdict != nil && *t.Verdict == tick.VerdictRejected {
-		return ColumnRejected
 	}
 
 	// Get awaiting type (handles legacy Manual field)
@@ -273,6 +266,7 @@ func computeColumn(t tick.Tick, isBlocked bool) string {
 	}
 
 	// ready: open + unblocked + !awaiting
+	// Note: Rejected+open ticks also go here so agent can see feedback and retry
 	return ColumnReady
 }
 

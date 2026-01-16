@@ -388,9 +388,9 @@ func TestComputeColumn(t *testing.T) {
 			wantColumn: ColumnDone,
 		},
 		{
-			name:       "open+rejected -> rejected",
+			name:       "open+rejected -> ready (rejected returns to agent queue)",
 			tick:       tick.Tick{Status: tick.StatusOpen, Verdict: &rejected},
-			wantColumn: ColumnRejected,
+			wantColumn: ColumnReady,
 		},
 		{
 			name:       "awaiting input -> input",

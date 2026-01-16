@@ -148,13 +148,6 @@ main {
     background-color: var(--yellow);
 }
 
-.kanban-column[data-column="rejected"] .column-header {
-    border-top: 3px solid var(--red);
-}
-.kanban-column[data-column="rejected"] .count-badge {
-    background-color: var(--red);
-}
-
 .kanban-column[data-column="done"] .column-header {
     border-top: 3px solid var(--green);
 }
@@ -337,6 +330,15 @@ main {
 .tick-card-badge.badge-blocked {
     background-color: rgba(243, 139, 168, 0.2); /* red */
     color: var(--red);
+}
+.tick-card-badge.badge-rejected {
+    background-color: rgba(235, 160, 172, 0.2); /* maroon */
+    color: var(--maroon);
+}
+
+/* Rejected tick card styling - subtle left border indicator */
+.tick-card.tick-card-rejected {
+    border-left: 3px solid var(--maroon);
 }
 
 /* Responsive adjustments */

@@ -64,6 +64,9 @@ function createTickCard(tick) {
     // Determine awaiting display (from awaiting field or legacy manual)
     const awaitingType = tick.awaiting || (tick.manual ? 'work' : null);
 
+    // Check if tick has rejected verdict
+    const isRejected = tick.verdict === 'rejected';
+
     // Build card HTML
     card.innerHTML = `
         <div class="tick-card-header">
@@ -73,11 +76,17 @@ function createTickCard(tick) {
         <div class="tick-card-title" title="${escapeHtml(tick.title)}">${escapeHtml(tick.title)}</div>
         <div class="tick-card-footer">
             <span class="tick-card-priority priority-${tick.priority}">P${tick.priority}</span>
+            ${isRejected ? '<span class="tick-card-badge badge-rejected">Rejected</span>' : ''}
             ${awaitingType ? `<span class="tick-card-badge badge-awaiting">${formatAwaiting(awaitingType)}</span>` : ''}
             ${tick.requires ? `<span class="tick-card-badge badge-requires">${formatRequires(tick.requires)}</span>` : ''}
             ${tick.isBlocked ? '<span class="tick-card-badge badge-blocked">Blocked</span>' : ''}
         </div>
     `;
+
+    // Add visual indicator for rejected state
+    if (isRejected) {
+        card.classList.add('tick-card-rejected');
+    }
 
     // Make card clickable (will open detail panel in future task)
     card.addEventListener('click', () => {
@@ -356,7 +365,6 @@ function renderTicks(ticks) {
         ready: document.querySelector('[data-column="ready"] .column-content'),
         review: document.querySelector('[data-column="review"] .column-content'),
         input: document.querySelector('[data-column="input"] .column-content'),
-        rejected: document.querySelector('[data-column="rejected"] .column-content'),
         done: document.querySelector('[data-column="done"] .column-content')
     };
 
@@ -371,7 +379,6 @@ function renderTicks(ticks) {
         ready: 0,
         review: 0,
         input: 0,
-        rejected: 0,
         done: 0
     };
 
@@ -401,7 +408,6 @@ function renderTicks(ticks) {
                 ready: 'No items ready',
                 review: 'No items awaiting review',
                 input: 'No items need input',
-                rejected: 'No rejected items',
                 done: 'No completed items'
             };
             colEl.innerHTML = `<p class="empty-state">${emptyText[colName]}</p>`;
