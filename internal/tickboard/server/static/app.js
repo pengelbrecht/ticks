@@ -795,16 +795,37 @@ function renderTicks(ticks) {
         done: 0
     };
 
-    // Sort ticks by priority (P0 first, P4 last), then by ID for stable ordering
+    // Separate ticks by column for custom sorting
+    const doneTicks = filteredTicks.filter(t => t.column === 'done');
+    const otherTicks = filteredTicks.filter(t => t.column !== 'done');
+
+    // Sort "done" ticks by closed_at descending (most recently closed on top)
+    doneTicks.sort((a, b) => {
+        // Both have closed_at - sort by date descending
+        if (a.closed_at && b.closed_at) {
+            return new Date(b.closed_at) - new Date(a.closed_at);
+        }
+        // Only a has closed_at - a comes first
+        if (a.closed_at && !b.closed_at) return -1;
+        // Only b has closed_at - b comes first
+        if (!a.closed_at && b.closed_at) return 1;
+        // Neither has closed_at - sort by ID for stability
+        return a.id.localeCompare(b.id);
+    });
+
+    // Sort other ticks by priority (P0 first, P4 last), then by ID for stable ordering
     // Secondary sort by ID ensures consistent ordering when priorities are equal,
     // since backend loads ticks concurrently with non-deterministic order
-    const sortedTicks = [...filteredTicks].sort((a, b) => {
+    otherTicks.sort((a, b) => {
         if (a.priority !== b.priority) {
             return a.priority - b.priority;
         }
         // Secondary sort by ID for stability
         return a.id.localeCompare(b.id);
     });
+
+    // Combine for rendering
+    const sortedTicks = [...otherTicks, ...doneTicks];
 
     // Render ticks into their columns
     sortedTicks.forEach(tick => {
