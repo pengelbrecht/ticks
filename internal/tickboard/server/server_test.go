@@ -1037,3 +1037,327 @@ func TestRejectTick_EmptyFeedback(t *testing.T) {
 		t.Errorf("notes should be empty when no feedback provided, got: %s", result.Notes)
 	}
 }
+
+func TestGetTick_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create a test tick
+	task := baseTick("abc", "Test Task")
+	task.Description = "A test task description"
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18782)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18782/api/ticks/abc")
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/ticks/abc status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result GetTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.ID != "abc" {
+		t.Errorf("ID = %s, want abc", result.ID)
+	}
+	if result.Title != "Test Task" {
+		t.Errorf("Title = %s, want 'Test Task'", result.Title)
+	}
+	if result.Column != ColumnReady {
+		t.Errorf("Column = %s, want %s", result.Column, ColumnReady)
+	}
+}
+
+func TestGetTick_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18783)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18783/api/ticks/nonexistent")
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /api/ticks/nonexistent status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestGetTick_MethodNotAllowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	task := baseTick("abc", "Test Task")
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18784)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Post("http://localhost:18784/api/ticks/abc", "application/json", nil)
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/ticks/abc status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestGetTick_WithNotes(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create a tick with notes
+	task := baseTick("abc", "Task with notes")
+	task.Notes = "2024-01-15 10:30 - (from: human) First feedback\n2024-01-15 11:00 - (from: agent) Response to feedback\nSimple note without timestamp"
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18785)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18785/api/ticks/abc")
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result GetTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(result.NotesList) != 3 {
+		t.Fatalf("got %d notes, want 3", len(result.NotesList))
+	}
+
+	// First note: with timestamp and author
+	if result.NotesList[0].Timestamp != "2024-01-15 10:30" {
+		t.Errorf("note[0].Timestamp = %s, want '2024-01-15 10:30'", result.NotesList[0].Timestamp)
+	}
+	if result.NotesList[0].Author != "human" {
+		t.Errorf("note[0].Author = %s, want 'human'", result.NotesList[0].Author)
+	}
+	if result.NotesList[0].Text != "First feedback" {
+		t.Errorf("note[0].Text = %s, want 'First feedback'", result.NotesList[0].Text)
+	}
+
+	// Second note: with timestamp and author
+	if result.NotesList[1].Author != "agent" {
+		t.Errorf("note[1].Author = %s, want 'agent'", result.NotesList[1].Author)
+	}
+
+	// Third note: simple without timestamp
+	if result.NotesList[2].Timestamp != "" {
+		t.Errorf("note[2].Timestamp should be empty, got %s", result.NotesList[2].Timestamp)
+	}
+	if result.NotesList[2].Text != "Simple note without timestamp" {
+		t.Errorf("note[2].Text = %s, want 'Simple note without timestamp'", result.NotesList[2].Text)
+	}
+}
+
+func TestGetTick_WithBlockers(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create blocker ticks
+	blocker1 := baseTick("blk1", "Open Blocker")
+	blocker1.Status = tick.StatusOpen
+	createTestTick(t, issuesDir, blocker1)
+
+	blocker2 := baseTick("blk2", "Closed Blocker")
+	blocker2.Status = tick.StatusClosed
+	closedAt := time.Now()
+	blocker2.ClosedAt = &closedAt
+	createTestTick(t, issuesDir, blocker2)
+
+	// Create blocked tick
+	blocked := baseTick("abc", "Blocked Task")
+	blocked.BlockedBy = []string{"blk1", "blk2", "missing"}
+	createTestTick(t, issuesDir, blocked)
+
+	srv, err := New(tickDir, 18786)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18786/api/ticks/abc")
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result GetTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Should be blocked (has open blocker)
+	if !result.IsBlocked {
+		t.Error("expected IsBlocked=true")
+	}
+
+	if len(result.BlockerDetails) != 3 {
+		t.Fatalf("got %d blocker details, want 3", len(result.BlockerDetails))
+	}
+
+	// Check blocker details are correct
+	blockerByID := make(map[string]BlockerDetail)
+	for _, b := range result.BlockerDetails {
+		blockerByID[b.ID] = b
+	}
+
+	if blockerByID["blk1"].Title != "Open Blocker" {
+		t.Errorf("blk1 title = %s, want 'Open Blocker'", blockerByID["blk1"].Title)
+	}
+	if blockerByID["blk1"].Status != tick.StatusOpen {
+		t.Errorf("blk1 status = %s, want %s", blockerByID["blk1"].Status, tick.StatusOpen)
+	}
+
+	if blockerByID["blk2"].Status != tick.StatusClosed {
+		t.Errorf("blk2 status = %s, want %s", blockerByID["blk2"].Status, tick.StatusClosed)
+	}
+
+	// Missing blocker should have placeholder values
+	if blockerByID["missing"].Title != "(not found)" {
+		t.Errorf("missing blocker title = %s, want '(not found)'", blockerByID["missing"].Title)
+	}
+	if blockerByID["missing"].Status != "unknown" {
+		t.Errorf("missing blocker status = %s, want 'unknown'", blockerByID["missing"].Status)
+	}
+}
+
+func TestParseNotes(t *testing.T) {
+	tests := []struct {
+		name  string
+		notes string
+		want  []Note
+	}{
+		{
+			name:  "empty notes",
+			notes: "",
+			want:  []Note{},
+		},
+		{
+			name:  "simple note",
+			notes: "Just a simple note",
+			want:  []Note{{Text: "Just a simple note"}},
+		},
+		{
+			name:  "note with timestamp and author",
+			notes: "2024-01-15 10:30 - (from: human) Feedback message",
+			want:  []Note{{Timestamp: "2024-01-15 10:30", Author: "human", Text: "Feedback message"}},
+		},
+		{
+			name:  "note with timestamp no author",
+			notes: "2024-01-15 10:30 - Some message without author",
+			want:  []Note{{Timestamp: "2024-01-15 10:30", Text: "Some message without author"}},
+		},
+		{
+			name:  "multiple notes",
+			notes: "2024-01-15 10:30 - (from: human) First\n2024-01-15 11:00 - (from: agent) Second\nThird without timestamp",
+			want: []Note{
+				{Timestamp: "2024-01-15 10:30", Author: "human", Text: "First"},
+				{Timestamp: "2024-01-15 11:00", Author: "agent", Text: "Second"},
+				{Text: "Third without timestamp"},
+			},
+		},
+		{
+			name:  "blank lines ignored",
+			notes: "First note\n\nSecond note\n\n",
+			want: []Note{
+				{Text: "First note"},
+				{Text: "Second note"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseNotes(tt.notes)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d notes, want %d", len(got), len(tt.want))
+			}
+			for i, note := range got {
+				if note.Timestamp != tt.want[i].Timestamp {
+					t.Errorf("note[%d].Timestamp = %s, want %s", i, note.Timestamp, tt.want[i].Timestamp)
+				}
+				if note.Author != tt.want[i].Author {
+					t.Errorf("note[%d].Author = %s, want %s", i, note.Author, tt.want[i].Author)
+				}
+				if note.Text != tt.want[i].Text {
+					t.Errorf("note[%d].Text = %s, want %s", i, note.Text, tt.want[i].Text)
+				}
+			}
+		})
+	}
+}

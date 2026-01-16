@@ -117,6 +117,29 @@ type TickResponse struct {
 	Column    string `json:"column"`
 }
 
+// Note represents a parsed note entry.
+type Note struct {
+	Timestamp string `json:"timestamp,omitempty"`
+	Author    string `json:"author,omitempty"`
+	Text      string `json:"text"`
+}
+
+// BlockerDetail contains information about a blocker tick.
+type BlockerDetail struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// GetTickResponse is the response body for GET /api/ticks/:id.
+type GetTickResponse struct {
+	tick.Tick
+	IsBlocked      bool            `json:"isBlocked"`
+	Column         string          `json:"column"`
+	NotesList      []Note          `json:"notesList"`
+	BlockerDetails []BlockerDetail `json:"blockerDetails"`
+}
+
 // ListTicksResponse is the response body for GET /api/ticks.
 type ListTicksResponse struct {
 	Ticks []TickResponse `json:"ticks"`
@@ -253,17 +276,76 @@ func computeColumn(t tick.Tick, isBlocked bool) string {
 	return ColumnReady
 }
 
-// handleTickActions routes requests to /api/ticks/:id/action endpoints.
+// parseNotes parses the Notes string into a slice of Note structs.
+// Notes format: "YYYY-MM-DD HH:MM - (from: author) text" or just "text"
+func parseNotes(notes string) []Note {
+	if notes == "" {
+		return []Note{}
+	}
+
+	var result []Note
+	lines := strings.Split(notes, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		note := Note{Text: line}
+
+		// Try to parse timestamp: "YYYY-MM-DD HH:MM - "
+		if len(line) >= 18 && line[4] == '-' && line[7] == '-' && line[10] == ' ' && line[13] == ':' {
+			// Check for " - " separator after timestamp
+			if idx := strings.Index(line[16:], " - "); idx != -1 {
+				note.Timestamp = line[:16]
+				remainder := line[16+idx+3:] // Skip " - "
+
+				// Try to parse author: "(from: author) "
+				if strings.HasPrefix(remainder, "(from: ") {
+					if endIdx := strings.Index(remainder, ") "); endIdx != -1 {
+						note.Author = remainder[7:endIdx]
+						note.Text = remainder[endIdx+2:]
+					} else {
+						note.Text = remainder
+					}
+				} else {
+					note.Text = remainder
+				}
+			}
+		}
+
+		result = append(result, note)
+	}
+
+	return result
+}
+
+// handleTickActions routes requests to /api/ticks/:id and /api/ticks/:id/action endpoints.
 func (s *Server) handleTickActions(w http.ResponseWriter, r *http.Request) {
-	// Parse path: /api/ticks/:id/approve
+	// Parse path: /api/ticks/:id or /api/ticks/:id/action
 	path := strings.TrimPrefix(r.URL.Path, "/api/ticks/")
 	parts := strings.Split(path, "/")
-	if len(parts) != 2 {
+
+	if len(parts) == 0 || parts[0] == "" {
 		http.NotFound(w, r)
 		return
 	}
 
 	tickID := parts[0]
+
+	// GET /api/ticks/:id - get single tick
+	if len(parts) == 1 {
+		s.handleGetTick(w, r, tickID)
+		return
+	}
+
+	// /api/ticks/:id/action
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+
 	action := parts[1]
 
 	switch action {
@@ -273,6 +355,85 @@ func (s *Server) handleTickActions(w http.ResponseWriter, r *http.Request) {
 		s.handleRejectTick(w, r, tickID)
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+// handleGetTick handles GET /api/ticks/:id.
+func (s *Server) handleGetTick(w http.ResponseWriter, r *http.Request, tickID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Load the tick
+	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
+	data, err := os.ReadFile(tickPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Tick not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to read tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Load all ticks for blocked calculation and blocker details
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load ticks: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	tickIndex := make(map[string]tick.Tick, len(allTicks))
+	for _, tk := range allTicks {
+		tickIndex[tk.ID] = tk
+	}
+
+	// Compute isBlocked and column
+	isBlocked := computeIsBlocked(t, tickIndex)
+	column := computeColumn(t, isBlocked)
+
+	// Parse notes
+	notesList := parseNotes(t.Notes)
+
+	// Build blocker details
+	blockerDetails := make([]BlockerDetail, 0, len(t.BlockedBy))
+	for _, blockerID := range t.BlockedBy {
+		if blocker, ok := tickIndex[blockerID]; ok {
+			blockerDetails = append(blockerDetails, BlockerDetail{
+				ID:     blocker.ID,
+				Title:  blocker.Title,
+				Status: blocker.Status,
+			})
+		} else {
+			// Include missing blockers with unknown status
+			blockerDetails = append(blockerDetails, BlockerDetail{
+				ID:     blockerID,
+				Title:  "(not found)",
+				Status: "unknown",
+			})
+		}
+	}
+
+	response := GetTickResponse{
+		Tick:           t,
+		IsBlocked:      isBlocked,
+		Column:         column,
+		NotesList:      notesList,
+		BlockerDetails: blockerDetails,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
 	}
 }
 

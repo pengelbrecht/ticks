@@ -2,7 +2,7 @@
   "id": "ccz",
   "title": "API: Get single tick",
   "description": "GET /api/ticks/:id endpoint:\n- Returns full tick JSON\n- Include notes parsed as array\n- Include blocker details (title, status of each blocker)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "- GET /api/ticks/:id returns tick JSON\n- Notes parsed into array with timestamps\n- Blockers include title and status\n- 404 for unknown ID",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:15:59.286555Z",
-  "updated_at": "2026-01-16T09:19:37.77665Z"
+  "updated_at": "2026-01-16T09:46:26.166507Z",
+  "closed_at": "2026-01-16T09:46:26.166507Z",
+  "closed_reason": "Added GET /api/ticks/:id endpoint to server.go. Returns full tick JSON with notesList (parsed from Notes string with timestamp/author/text fields) and blockerDetails (ID, title, status for each blocker). Missing blockers are handled gracefully with placeholder values. Modified handleTickActions to route single-tick GET requests. Added parseNotes helper function and comprehensive tests."
 }
