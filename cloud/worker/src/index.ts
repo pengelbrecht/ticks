@@ -82,16 +82,22 @@ export default {
         const boardName = parts[2];
         const path = "/" + parts.slice(3).join("/");
 
-        // Authenticate user
-        const user = await auth.getUserFromRequest(env, request);
-        if (!user) {
-          return jsonResponse({ error: "Unauthorized" }, 401);
-        }
+        // Static assets don't require auth (CSS, JS, images, fonts)
+        const isStaticAsset = path.startsWith("/static/") ||
+          /\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/i.test(path);
 
-        // Verify user owns this board
-        const ownsBoard = await auth.userOwnsBoard(env, user.userId, boardName);
-        if (!ownsBoard) {
-          return jsonResponse({ error: "Board not found or access denied" }, 403);
+        if (!isStaticAsset) {
+          // Authenticate user
+          const user = await auth.getUserFromRequest(env, request);
+          if (!user) {
+            return jsonResponse({ error: "Unauthorized" }, 401);
+          }
+
+          // Verify user owns this board
+          const ownsBoard = await auth.userOwnsBoard(env, user.userId, boardName);
+          if (!ownsBoard) {
+            return jsonResponse({ error: "Board not found or access denied" }, 403);
+          }
         }
 
         const id = env.AGENT_HUB.idFromName("global");
