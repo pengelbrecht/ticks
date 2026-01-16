@@ -251,37 +251,44 @@ function moveSelection(direction) {
                 break;
             case 'left':
             case 'right':
-                // Move to adjacent column at similar vertical position
+                // Move to next non-empty column at similar vertical position
                 const currentCard = cards[selectedCardIndex];
                 const currentCol = currentCard.closest('.kanban-column');
                 const columns = ['blocked', 'ready', 'agent', 'human', 'done'];
                 const currentColIndex = columns.indexOf(currentCol.dataset.column);
-                const targetColIndex = direction === 'left'
-                    ? Math.max(0, currentColIndex - 1)
-                    : Math.min(columns.length - 1, currentColIndex + 1);
 
-                if (targetColIndex !== currentColIndex) {
+                // Search for next non-empty column in the direction
+                const step = direction === 'left' ? -1 : 1;
+                let targetColIndex = currentColIndex + step;
+                let targetCards = [];
+
+                while (targetColIndex >= 0 && targetColIndex < columns.length) {
                     const targetCol = document.querySelector(`[data-column="${columns[targetColIndex]}"] .column-content`);
-                    const targetCards = targetCol ? targetCol.querySelectorAll('.tick-card') : [];
+                    targetCards = targetCol ? Array.from(targetCol.querySelectorAll('.tick-card')) : [];
                     if (targetCards.length > 0) {
-                        // Find card at similar position in target column
-                        const currentRect = currentCard.getBoundingClientRect();
-                        let bestIndex = 0;
-                        let bestDistance = Infinity;
-
-                        targetCards.forEach((tc, i) => {
-                            const rect = tc.getBoundingClientRect();
-                            const distance = Math.abs(rect.top - currentRect.top);
-                            if (distance < bestDistance) {
-                                bestDistance = distance;
-                                bestIndex = i;
-                            }
-                        });
-
-                        // Find this card's index in the full cards array
-                        const targetCard = targetCards[bestIndex];
-                        selectedCardIndex = cards.indexOf(targetCard);
+                        break; // Found a non-empty column
                     }
+                    targetColIndex += step;
+                }
+
+                if (targetCards.length > 0) {
+                    // Find card at similar vertical position in target column
+                    const currentRect = currentCard.getBoundingClientRect();
+                    let bestIndex = 0;
+                    let bestDistance = Infinity;
+
+                    targetCards.forEach((tc, i) => {
+                        const rect = tc.getBoundingClientRect();
+                        const distance = Math.abs(rect.top - currentRect.top);
+                        if (distance < bestDistance) {
+                            bestDistance = distance;
+                            bestIndex = i;
+                        }
+                    });
+
+                    // Find this card's index in the full cards array
+                    const targetCard = targetCards[bestIndex];
+                    selectedCardIndex = cards.indexOf(targetCard);
                 }
                 break;
         }
@@ -445,10 +452,17 @@ document.addEventListener('keydown', function(e) {
         return;
     }
 
-    // Enter - Open selected card
+    // Enter - Open selected card (or select first card if none selected)
     if (e.key === 'Enter') {
-        if (selectedCardIndex !== null) {
-            e.preventDefault();
+        e.preventDefault();
+        if (selectedCardIndex === null) {
+            // Select first card if none selected
+            const cards = getVisibleCards();
+            if (cards.length > 0) {
+                selectedCardIndex = 0;
+                updateCardSelection();
+            }
+        } else {
             openSelectedCard();
         }
         return;
