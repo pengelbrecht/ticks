@@ -2640,9 +2640,9 @@ func runReject(args []string) int {
 	jsonOutput := fs.Bool("json", false, "output as json")
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: tk reject <id> [feedback message]")
+		fmt.Fprintln(os.Stderr, "Usage: tk reject <id> <feedback message>")
 		fmt.Fprintln(os.Stderr, "\nSet verdict=rejected on a tick awaiting human decision.")
-		fmt.Fprintln(os.Stderr, "Optional feedback message is added as a note (marked as human) for agent context.")
+		fmt.Fprintln(os.Stderr, "Feedback message is required and added as a note (marked as human) for agent context.")
 		fmt.Fprintln(os.Stderr, "Triggers state transition based on the awaiting type:")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  awaiting=approval|review|content|checkpoint  -> Returns tick to agent (with feedback)")
@@ -2650,9 +2650,6 @@ func runReject(args []string) int {
 		fmt.Fprintln(os.Stderr, "\nFlags:")
 		fs.PrintDefaults()
 		fmt.Fprintln(os.Stderr, "\nExamples:")
-		fmt.Fprintln(os.Stderr, "  # Reject without feedback")
-		fmt.Fprintln(os.Stderr, "  tk reject abc123")
-		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "  # Reject with feedback for the agent")
 		fmt.Fprintln(os.Stderr, "  tk reject abc123 \"Error messages too harsh, soften the tone\"")
 		fmt.Fprintln(os.Stderr, "")
@@ -2713,17 +2710,22 @@ func runReject(args []string) int {
 		t.SetAwaiting(tick.AwaitingWork)
 	}
 
+	// Feedback is required for reject
+	feedback := strings.TrimSpace(strings.Join(positionals[1:], " "))
+	if feedback == "" {
+		fmt.Fprintln(os.Stderr, "feedback message is required for reject")
+		fmt.Fprintln(os.Stderr, "usage: tk reject <id> <feedback message>")
+		return exitUsage
+	}
+
 	// Add feedback note FIRST (before processing verdict) to prevent race condition
 	// where ticker picks up task before feedback is saved
-	feedback := strings.TrimSpace(strings.Join(positionals[1:], " "))
-	if feedback != "" {
-		timestamp := time.Now().Format("2006-01-02 15:04")
-		line := fmt.Sprintf("%s - [human] %s", timestamp, feedback)
-		if strings.TrimSpace(t.Notes) == "" {
-			t.Notes = line
-		} else {
-			t.Notes = strings.TrimRight(t.Notes, "\n") + "\n" + line
-		}
+	timestamp := time.Now().Format("2006-01-02 15:04")
+	line := fmt.Sprintf("%s - [human] %s", timestamp, feedback)
+	if strings.TrimSpace(t.Notes) == "" {
+		t.Notes = line
+	} else {
+		t.Notes = strings.TrimRight(t.Notes, "\n") + "\n" + line
 	}
 
 	// Set verdict and process

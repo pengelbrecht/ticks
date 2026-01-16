@@ -8,3 +8,13 @@
 {"ts":"2026-01-16T17:06:54.705314Z","tick":"oa8","action":"note","actor":"peter@engelbrecht.dk","epic":"dfb","data":{"note":"\n2026-01-16 18:06 - Testing real-time activity notifications","title":"Keyboard shortcuts"}}
 {"ts":"2026-01-16T17:12:19.661244Z","tick":"oa8","action":"close","actor":"peter@engelbrecht.dk","epic":"dfb","data":{"title":"Keyboard shortcuts"}}
 {"ts":"2026-01-16T17:21:59.305097Z","tick":"dfb","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Tick Board - Web Kanban for Ticks"}}
+{"ts":"2026-01-16T17:26:18.865834Z","tick":"t73","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Test activity logging 2"}}
+{"ts":"2026-01-16T17:26:19.01003Z","tick":"lg8","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Test activity logging"}}
+{"ts":"2026-01-16T17:26:26.544777Z","tick":"hft","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Test reject","type":"task"}}
+{"ts":"2026-01-16T17:26:26.862623Z","tick":"hft","action":"awaiting","actor":"peter@engelbrecht.dk","data":{"awaiting":"approval","title":"Test reject"}}
+{"ts":"2026-01-16T17:26:54.39638Z","tick":"hft","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Test reject"}}
+{"ts":"2026-01-16T17:29:19.875783Z","tick":"2lk","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Test reject mandatory","type":"task"}}
+{"ts":"2026-01-16T17:29:20.467388Z","tick":"2lk","action":"awaiting","actor":"peter@engelbrecht.dk","data":{"awaiting":"approval","title":"Test reject mandatory"}}
+{"ts":"2026-01-16T17:29:33.283476Z","tick":"2lk","action":"note","actor":"peter@engelbrecht.dk","data":{"note":"2026-01-16 18:29 - [human] This is required feedback","title":"Test reject mandatory"}}
+{"ts":"2026-01-16T17:29:33.310294Z","tick":"2lk","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Test reject mandatory"}}
+{"ts":"2026-01-16T17:30:30.83272Z","tick":"b2w","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"tk reject: make reason mandatory"}}

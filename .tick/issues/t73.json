@@ -1,11 +1,12 @@
 {
   "id": "t73",
   "title": "Test activity logging 2",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T16:05:15.680135Z",
-  "updated_at": "2026-01-16T16:05:15.680135Z"
+  "updated_at": "2026-01-16T17:26:18.865447Z",
+  "closed_at": "2026-01-16T17:26:18.865447Z"
 }

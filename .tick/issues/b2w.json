@@ -2,11 +2,12 @@
   "id": "b2w",
   "title": "tk reject: make reason mandatory",
   "description": "The tk reject command should require a reason/comment:\n- Update reject command to require reason argument\n- Add reason as note to the tick\n- Return error if reason is empty or not provided\n- Update help text to show reason is required\n\nExample: tk reject abc \"Card styling needs more contrast\"",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T12:41:31.650438Z",
-  "updated_at": "2026-01-16T12:41:31.650438Z"
+  "updated_at": "2026-01-16T17:30:30.832222Z",
+  "closed_at": "2026-01-16T17:30:30.832222Z"
 }

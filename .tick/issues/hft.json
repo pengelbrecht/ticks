@@ -1,0 +1,12 @@
+{
+  "id": "hft",
+  "title": "Test reject",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T17:26:26.544381Z",
+  "updated_at": "2026-01-16T17:26:54.396023Z",
+  "closed_at": "2026-01-16T17:26:54.396023Z"
+}

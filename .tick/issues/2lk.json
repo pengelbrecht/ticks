@@ -1,0 +1,13 @@
+{
+  "id": "2lk",
+  "title": "Test reject mandatory",
+  "notes": "2026-01-16 18:29 - [human] This is required feedback",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T17:29:19.875158Z",
+  "updated_at": "2026-01-16T17:29:33.309993Z",
+  "closed_at": "2026-01-16T17:29:33.309993Z"
+}

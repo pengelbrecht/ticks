@@ -1,11 +1,12 @@
 {
   "id": "lg8",
   "title": "Test activity logging",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T16:04:52.692007Z",
-  "updated_at": "2026-01-16T16:04:52.692007Z"
+  "updated_at": "2026-01-16T17:26:19.009588Z",
+  "closed_at": "2026-01-16T17:26:19.009588Z"
 }
