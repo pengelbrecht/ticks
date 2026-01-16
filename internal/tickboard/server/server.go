@@ -75,6 +75,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// API endpoint: board info (repo name, epics)
 	mux.HandleFunc("/api/info", s.handleInfo)
 
+	// API endpoint: activity feed
+	mux.HandleFunc("/api/activity", s.handleActivity)
+
 	// Root handler - serve index.html
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -100,6 +103,14 @@ func (s *Server) Run(ctx context.Context) error {
 	issuesDir := filepath.Join(s.tickDir, "issues")
 	if err := s.watcher.Add(issuesDir); err != nil {
 		return fmt.Errorf("failed to watch issues directory: %w", err)
+	}
+
+	// Watch activity directory for changes
+	activityDir := filepath.Join(s.tickDir, "activity")
+	os.MkdirAll(activityDir, 0o755) // Ensure it exists
+	if err := s.watcher.Add(activityDir); err != nil {
+		// Non-fatal: activity watching is optional
+		fmt.Fprintf(os.Stderr, "warning: failed to watch activity directory: %v\n", err)
 	}
 
 	// Start watching for file changes
@@ -215,7 +226,19 @@ func (s *Server) watchFiles(ctx context.Context) {
 				return
 			}
 
-			// Only care about .json files
+			// Handle activity log changes
+			if strings.HasSuffix(event.Name, "activity.jsonl") {
+				// Debounce and broadcast activity update
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+				debounceTimer = time.AfterFunc(debounceDelay, func() {
+					s.broadcast(`{"type":"activity"}`)
+				})
+				continue
+			}
+
+			// Only care about .json files for tick changes
 			if !strings.HasSuffix(event.Name, ".json") {
 				continue
 			}
@@ -298,6 +321,50 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	response := InfoResponse{
 		RepoName: repoName,
 		Epics:    epics,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// ActivityResponse is the response body for GET /api/activity.
+type ActivityResponse struct {
+	Activities []tick.Activity `json:"activities"`
+}
+
+// handleActivity handles GET /api/activity.
+func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse limit from query params (default 50)
+	limit := 50
+	if limitParam := r.URL.Query().Get("limit"); limitParam != "" {
+		if l, err := fmt.Sscanf(limitParam, "%d", &limit); err != nil || l != 1 {
+			limit = 50
+		}
+		if limit > 200 {
+			limit = 200 // Cap at 200
+		}
+	}
+
+	// Read activity log
+	store := tick.NewStore(s.tickDir)
+	activities, err := store.ReadActivity(limit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read activity: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Reverse to show most recent first
+	for i, j := 0, len(activities)-1; i < j; i, j = i+1, j-1 {
+		activities[i], activities[j] = activities[j], activities[i]
+	}
+
+	response := ActivityResponse{
+		Activities: activities,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -1,0 +1,8 @@
+{"ts":"2026-01-16T16:08:18.492777Z","tick":"381","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Activity test tick","type":"task"}}
+{"ts":"2026-01-16T16:08:30.331941Z","tick":"381","action":"close","actor":"peter@engelbrecht.dk"}
+{"ts":"2026-01-16T16:08:30.476938Z","tick":"381","action":"reopen","actor":"peter@engelbrecht.dk"}
+{"ts":"2026-01-16T16:08:30.649338Z","tick":"381","action":"note","actor":"peter@engelbrecht.dk","data":{"note":"2026-01-16 17:08 - Added a test note"}}
+{"ts":"2026-01-16T16:08:37.093204Z","tick":"381","action":"close","actor":"peter@engelbrecht.dk"}
+{"ts":"2026-01-16T16:11:07.849965Z","tick":"ucl","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Test activity feed","type":"task"}}
+{"ts":"2026-01-16T16:11:16.266847Z","tick":"ucl","action":"close","actor":"peter@engelbrecht.dk"}
+{"ts":"2026-01-16T17:06:54.705314Z","tick":"oa8","action":"note","actor":"peter@engelbrecht.dk","epic":"dfb","data":{"note":"\n2026-01-16 18:06 - Testing real-time activity notifications","title":"Keyboard shortcuts"}}

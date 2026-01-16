@@ -23,6 +23,10 @@
                 </select>
             </div>
             <div class="header-right">
+                <button id="activity-btn" class="header-btn header-btn-activity" onclick="toggleActivityDropdown()" title="Recent activity">
+                    <span class="activity-icon-bell">⚡</span>
+                    <span id="activity-badge" class="activity-badge hidden">0</span>
+                </button>
                 <button class="header-btn" onclick="openCreateModal()" title="Create new tick">+</button>
             </div>
         </header>
@@ -73,6 +77,15 @@
                 </div>
             </div>
         </main>
+        <!-- Activity Dropdown -->
+        <div id="activity-dropdown" class="activity-dropdown hidden">
+            <div class="activity-dropdown-header">
+                <span>Recent Activity</span>
+            </div>
+            <div id="activity-list" class="activity-list">
+                <p class="activity-empty">Loading...</p>
+            </div>
+        </div>
         <!-- Tick Detail Panel Overlay -->
         <div id="detail-overlay" class="detail-overlay hidden" onclick="closeTickDetail()"></div>
         <!-- Tick Detail Panel -->

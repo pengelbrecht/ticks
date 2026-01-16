@@ -737,8 +737,17 @@ function setupLiveUpdates() {
         const data = JSON.parse(event.data);
         console.log('SSE update:', data);
 
+        // Handle activity updates
+        if (data.type === 'activity') {
+            refreshActivityFeed();
+            return;
+        }
+
         // Animate the board update
         await animatedBoardUpdate();
+
+        // Also refresh activity since tick changes generate activity
+        refreshActivityFeed();
     });
 
     eventSource.onerror = (error) => {
@@ -1260,10 +1269,233 @@ async function submitCreateTick(event) {
     }
 }
 
+// ========================================
+// Activity Feed
+// ========================================
+
+// Track last seen activity timestamp
+let lastSeenActivityTs = localStorage.getItem('lastSeenActivityTs') || null;
+let newActivityCount = 0;
+let activityDropdownOpen = false;
+
+// Format activity action for display
+function formatActivityAction(activity) {
+    const actions = {
+        create: 'created',
+        update: 'updated',
+        close: 'closed',
+        reopen: 'reopened',
+        note: 'added note to',
+        approve: 'approved',
+        reject: 'rejected',
+        block: 'blocked',
+        unblock: 'unblocked',
+        assign: 'reassigned',
+        awaiting: 'set awaiting on'
+    };
+    return actions[activity.action] || activity.action;
+}
+
+// Format relative time (e.g., "5m ago", "2h ago", "3d ago")
+function formatRelativeTime(timestamp) {
+    const now = new Date();
+    const then = new Date(timestamp);
+    const diffMs = now - then;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffSec < 60) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHour < 24) return `${diffHour}h ago`;
+    if (diffDay < 7) return `${diffDay}d ago`;
+    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Fetch activity from API
+async function fetchActivity(limit = 30) {
+    try {
+        const response = await fetch(`/api/activity?limit=${limit}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const data = await response.json();
+        return data.activities || [];
+    } catch (error) {
+        console.error('Failed to fetch activity:', error);
+        return [];
+    }
+}
+
+// Render activity feed
+function renderActivity(activities) {
+    const container = document.getElementById('activity-list');
+    if (!container) return;
+
+    if (activities.length === 0) {
+        container.innerHTML = '<p class="activity-empty">No recent activity</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+    activities.forEach(activity => {
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+        item.dataset.tickId = activity.tick;
+
+        // Mark as new if after last seen
+        const isNew = lastSeenActivityTs && activity.ts > lastSeenActivityTs;
+        if (isNew) {
+            item.classList.add('activity-item-new');
+        }
+
+        const actionText = formatActivityAction(activity);
+        const timeText = formatRelativeTime(activity.ts);
+
+        // Get action icon
+        const actionIcons = {
+            create: '+',
+            update: '~',
+            close: '✓',
+            reopen: '↺',
+            note: '✎',
+            approve: '✓',
+            reject: '✗',
+            block: '⊘',
+            unblock: '○',
+            assign: '→',
+            awaiting: '👤'
+        };
+        const icon = actionIcons[activity.action] || '•';
+
+        // Build detail text from data - always show title if available
+        let detail = '';
+        if (activity.data && activity.data.title) {
+            detail = activity.data.title;
+            // Truncate long titles
+            if (detail.length > 60) {
+                detail = detail.substring(0, 57) + '...';
+            }
+        }
+
+        item.innerHTML = `
+            <span class="activity-icon action-${activity.action}">${icon}</span>
+            <span class="activity-tick">${escapeHtml(activity.tick)}</span>
+            <span class="activity-action">${actionText}</span>
+            <span class="activity-time">${timeText}</span>
+            ${detail ? `<span class="activity-detail">${escapeHtml(detail)}</span>` : ''}
+        `;
+
+        // Click to open tick detail
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeActivityDropdown();
+            openTickDetail(activity.tick);
+        });
+
+        container.appendChild(item);
+    });
+}
+
+// Update the badge count
+function updateActivityBadge(activities) {
+    const badge = document.getElementById('activity-badge');
+    const btn = document.getElementById('activity-btn');
+    if (!badge || !btn) return;
+
+    // Count activities newer than last seen
+    // On first visit (no lastSeenActivityTs), show all activity as new
+    if (!lastSeenActivityTs) {
+        newActivityCount = activities.length;
+    } else {
+        newActivityCount = activities.filter(a => a.ts > lastSeenActivityTs).length;
+    }
+
+    if (newActivityCount > 0) {
+        badge.textContent = newActivityCount > 99 ? '99+' : newActivityCount;
+        badge.classList.remove('hidden');
+        btn.classList.add('has-new');
+    } else {
+        badge.classList.add('hidden');
+        btn.classList.remove('has-new');
+    }
+}
+
+// Initialize activity feed
+async function initActivityFeed() {
+    const activities = await fetchActivity(30);
+    renderActivity(activities);
+    updateActivityBadge(activities);
+}
+
+// Refresh activity feed (called on SSE updates)
+async function refreshActivityFeed() {
+    const activities = await fetchActivity(30);
+    renderActivity(activities);
+    // Only update badge if dropdown is closed
+    if (!activityDropdownOpen) {
+        updateActivityBadge(activities);
+    }
+}
+
+// Toggle activity dropdown
+function toggleActivityDropdown() {
+    const dropdown = document.getElementById('activity-dropdown');
+    if (dropdown.classList.contains('hidden')) {
+        openActivityDropdown();
+    } else {
+        closeActivityDropdown();
+    }
+}
+
+// Open activity dropdown
+function openActivityDropdown() {
+    const dropdown = document.getElementById('activity-dropdown');
+    dropdown.classList.remove('hidden');
+    activityDropdownOpen = true;
+
+    // Mark current time as last seen
+    markActivityAsSeen();
+}
+
+// Close activity dropdown
+function closeActivityDropdown() {
+    const dropdown = document.getElementById('activity-dropdown');
+    dropdown.classList.add('hidden');
+    activityDropdownOpen = false;
+}
+
+// Mark activity as seen (update last seen timestamp)
+async function markActivityAsSeen() {
+    const activities = await fetchActivity(1);
+    if (activities.length > 0) {
+        lastSeenActivityTs = activities[0].ts;
+        localStorage.setItem('lastSeenActivityTs', lastSeenActivityTs);
+    }
+
+    // Clear badge
+    const badge = document.getElementById('activity-badge');
+    const btn = document.getElementById('activity-btn');
+    if (badge) badge.classList.add('hidden');
+    if (btn) btn.classList.remove('has-new');
+    newActivityCount = 0;
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('activity-dropdown');
+    const btn = document.getElementById('activity-btn');
+    if (dropdown && !dropdown.contains(e.target) && btn && !btn.contains(e.target)) {
+        closeActivityDropdown();
+    }
+})
+
 // Main entry point
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Tick Board initialized');
     initBoard();
+    initActivityFeed();
 
     // Try to set up live updates (will fail gracefully if endpoint not implemented)
     try {
