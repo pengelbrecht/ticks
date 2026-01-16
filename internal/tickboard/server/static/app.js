@@ -784,8 +784,16 @@ function renderTicks(ticks) {
         done: 0
     };
 
-    // Sort ticks by priority (P0 first, P4 last) - same as tk next logic
-    const sortedTicks = [...filteredTicks].sort((a, b) => a.priority - b.priority);
+    // Sort ticks by priority (P0 first, P4 last), then by ID for stable ordering
+    // Secondary sort by ID ensures consistent ordering when priorities are equal,
+    // since backend loads ticks concurrently with non-deterministic order
+    const sortedTicks = [...filteredTicks].sort((a, b) => {
+        if (a.priority !== b.priority) {
+            return a.priority - b.priority;
+        }
+        // Secondary sort by ID for stability
+        return a.id.localeCompare(b.id);
+    });
 
     // Render ticks into their columns
     sortedTicks.forEach(tick => {
