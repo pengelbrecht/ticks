@@ -194,10 +194,165 @@ function closeTickDetail() {
     currentTickId = null;
 }
 
-// Handle escape key to close panel/modal
+// ========================================
+// Keyboard Navigation
+// ========================================
+
+// Currently selected card index (null = no selection)
+let selectedCardIndex = null;
+
+// Get all visible tick cards in DOM order (column by column, top to bottom)
+function getVisibleCards() {
+    const cards = [];
+    const columns = ['blocked', 'ready', 'agent', 'human', 'done'];
+    columns.forEach(col => {
+        const colEl = document.querySelector(`[data-column="${col}"] .column-content`);
+        if (colEl) {
+            colEl.querySelectorAll('.tick-card').forEach(card => cards.push(card));
+        }
+    });
+    return cards;
+}
+
+// Update visual selection state
+function updateCardSelection() {
+    // Remove selection from all cards
+    document.querySelectorAll('.tick-card').forEach(card => {
+        card.classList.remove('tick-card-selected');
+    });
+
+    // Add selection to current card
+    if (selectedCardIndex !== null) {
+        const cards = getVisibleCards();
+        if (selectedCardIndex >= 0 && selectedCardIndex < cards.length) {
+            const card = cards[selectedCardIndex];
+            card.classList.add('tick-card-selected');
+            // Scroll card into view if needed
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+}
+
+// Move selection in a direction
+function moveSelection(direction) {
+    const cards = getVisibleCards();
+    if (cards.length === 0) return;
+
+    if (selectedCardIndex === null) {
+        // No selection yet, select first card
+        selectedCardIndex = 0;
+    } else {
+        switch (direction) {
+            case 'up':
+                selectedCardIndex = Math.max(0, selectedCardIndex - 1);
+                break;
+            case 'down':
+                selectedCardIndex = Math.min(cards.length - 1, selectedCardIndex + 1);
+                break;
+            case 'left':
+            case 'right':
+                // Move to adjacent column at similar vertical position
+                const currentCard = cards[selectedCardIndex];
+                const currentCol = currentCard.closest('.kanban-column');
+                const columns = ['blocked', 'ready', 'agent', 'human', 'done'];
+                const currentColIndex = columns.indexOf(currentCol.dataset.column);
+                const targetColIndex = direction === 'left'
+                    ? Math.max(0, currentColIndex - 1)
+                    : Math.min(columns.length - 1, currentColIndex + 1);
+
+                if (targetColIndex !== currentColIndex) {
+                    const targetCol = document.querySelector(`[data-column="${columns[targetColIndex]}"] .column-content`);
+                    const targetCards = targetCol ? targetCol.querySelectorAll('.tick-card') : [];
+                    if (targetCards.length > 0) {
+                        // Find card at similar position in target column
+                        const currentRect = currentCard.getBoundingClientRect();
+                        let bestIndex = 0;
+                        let bestDistance = Infinity;
+
+                        targetCards.forEach((tc, i) => {
+                            const rect = tc.getBoundingClientRect();
+                            const distance = Math.abs(rect.top - currentRect.top);
+                            if (distance < bestDistance) {
+                                bestDistance = distance;
+                                bestIndex = i;
+                            }
+                        });
+
+                        // Find this card's index in the full cards array
+                        const targetCard = targetCards[bestIndex];
+                        selectedCardIndex = cards.indexOf(targetCard);
+                    }
+                }
+                break;
+        }
+    }
+
+    updateCardSelection();
+}
+
+// Open selected card
+function openSelectedCard() {
+    if (selectedCardIndex === null) return;
+    const cards = getVisibleCards();
+    if (selectedCardIndex >= 0 && selectedCardIndex < cards.length) {
+        const tickId = cards[selectedCardIndex].dataset.tickId;
+        openTickDetail(tickId);
+    }
+}
+
+// Check if any modal or dropdown is open
+function isModalOpen() {
+    const createModal = document.getElementById('create-modal');
+    const closeModal = document.getElementById('close-modal');
+    const rejectModal = document.getElementById('reject-modal');
+    const helpModal = document.getElementById('help-modal');
+
+    return (createModal && !createModal.classList.contains('hidden')) ||
+           (closeModal && !closeModal.classList.contains('hidden')) ||
+           (rejectModal && !rejectModal.classList.contains('hidden')) ||
+           (helpModal && !helpModal.classList.contains('hidden'));
+}
+
+// Check if detail panel is open
+function isDetailPanelOpen() {
+    const panel = document.getElementById('detail-panel');
+    return panel && !panel.classList.contains('hidden');
+}
+
+// Check if an input/textarea is focused
+function isInputFocused() {
+    const active = document.activeElement;
+    return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+}
+
+// Show keyboard shortcuts help modal
+function showHelpModal() {
+    const modal = document.getElementById('help-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
+// Close keyboard shortcuts help modal
+function closeHelpModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('help-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+// Main keyboard event handler
 document.addEventListener('keydown', function(e) {
+    // Handle Escape first - closes modals/panels
     if (e.key === 'Escape') {
-        // Close modals first if open (in order of z-index)
+        // Close help modal if open
+        const helpModal = document.getElementById('help-modal');
+        if (helpModal && !helpModal.classList.contains('hidden')) {
+            closeHelpModal();
+            return;
+        }
+        // Close other modals in order of z-index
         const createModal = document.getElementById('create-modal');
         if (!createModal.classList.contains('hidden')) {
             closeCreateModal();
@@ -213,7 +368,97 @@ document.addEventListener('keydown', function(e) {
             closeRejectModal();
             return;
         }
-        closeTickDetail();
+        // Close activity dropdown
+        if (activityDropdownOpen) {
+            closeActivityDropdown();
+            return;
+        }
+        // Close detail panel and clear selection
+        if (isDetailPanelOpen()) {
+            closeTickDetail();
+            return;
+        }
+        // Clear card selection
+        if (selectedCardIndex !== null) {
+            selectedCardIndex = null;
+            updateCardSelection();
+            return;
+        }
+        return;
+    }
+
+    // Don't handle other keys if input is focused
+    if (isInputFocused()) return;
+
+    // Don't handle navigation keys if modal is open (except detail panel)
+    if (isModalOpen()) return;
+
+    // '?' - Show help
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        showHelpModal();
+        return;
+    }
+
+    // Handle keys when detail panel is open
+    if (isDetailPanelOpen()) {
+        // 'a' - Approve
+        if (e.key === 'a' || e.key === 'A') {
+            const actionsSection = document.getElementById('detail-actions-section');
+            if (actionsSection && actionsSection.style.display !== 'none') {
+                e.preventDefault();
+                approveTick();
+            }
+            return;
+        }
+        // 'r' - Reject
+        if (e.key === 'r' || e.key === 'R') {
+            const actionsSection = document.getElementById('detail-actions-section');
+            if (actionsSection && actionsSection.style.display !== 'none') {
+                e.preventDefault();
+                openRejectModal();
+            }
+            return;
+        }
+        return;
+    }
+
+    // Arrow key navigation (when detail panel is closed)
+    if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        moveSelection('up');
+        return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        moveSelection('down');
+        return;
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'h') {
+        e.preventDefault();
+        moveSelection('left');
+        return;
+    }
+    if (e.key === 'ArrowRight' || e.key === 'l') {
+        e.preventDefault();
+        moveSelection('right');
+        return;
+    }
+
+    // Enter - Open selected card
+    if (e.key === 'Enter') {
+        if (selectedCardIndex !== null) {
+            e.preventDefault();
+            openSelectedCard();
+        }
+        return;
+    }
+
+    // 'n' - Create new tick
+    if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        openCreateModal();
+        return;
     }
 });
 

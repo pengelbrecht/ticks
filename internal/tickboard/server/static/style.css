@@ -356,6 +356,15 @@ main {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.tick-card-selected {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.tick-card-selected:hover {
+    border-color: var(--blue);
+}
+
 /* Card Header: ID badge + status icon */
 .tick-card-header {
     display: flex;
@@ -1251,6 +1260,61 @@ main {
 
 .modal-lg {
     width: 500px;
+}
+
+.modal-help {
+    width: 380px;
+}
+
+.shortcuts-section {
+    margin-bottom: 1.25rem;
+}
+
+.shortcuts-section:last-child {
+    margin-bottom: 0;
+}
+
+.shortcuts-section h4 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--subtext0);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--surface1);
+}
+
+.shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem 0;
+}
+
+.shortcut-keys {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.shortcut-keys kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: var(--text);
+    background-color: var(--surface1);
+    border: 1px solid var(--surface2);
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.shortcut-desc {
+    font-size: 0.8125rem;
+    color: var(--subtext1);
 }
 
 .form-group {

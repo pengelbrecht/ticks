@@ -340,6 +340,56 @@
             </div>
         </div>
 
+        <!-- Keyboard Shortcuts Help Modal -->
+        <div id="help-modal" class="modal-overlay hidden" onclick="closeHelpModal(event)">
+            <div class="modal modal-help" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3>Keyboard Shortcuts</h3>
+                    <button class="modal-close" onclick="closeHelpModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="shortcuts-section">
+                        <h4>Navigation</h4>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></span>
+                            <span class="shortcut-desc">Move between cards</span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>j</kbd> <kbd>k</kbd> <kbd>h</kbd> <kbd>l</kbd></span>
+                            <span class="shortcut-desc">Vim-style navigation</span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>Enter</kbd></span>
+                            <span class="shortcut-desc">Open selected card</span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>Esc</kbd></span>
+                            <span class="shortcut-desc">Close panel / Clear selection</span>
+                        </div>
+                    </div>
+                    <div class="shortcuts-section">
+                        <h4>Actions</h4>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>n</kbd></span>
+                            <span class="shortcut-desc">Create new tick</span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>a</kbd></span>
+                            <span class="shortcut-desc">Approve (when panel open)</span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>r</kbd></span>
+                            <span class="shortcut-desc">Reject (when panel open)</span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-keys"><kbd>?</kbd></span>
+                            <span class="shortcut-desc">Show this help</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Toast Container -->
         <div id="toast-container"></div>
     </div>
