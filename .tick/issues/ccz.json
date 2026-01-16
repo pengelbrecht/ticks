@@ -2,7 +2,7 @@
   "id": "ccz",
   "title": "API: Get single tick",
   "description": "GET /api/ticks/:id endpoint:\n- Returns full tick JSON\n- Include notes parsed as array\n- Include blocker details (title, status of each blocker)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "acceptance_criteria": "- GET /api/ticks/:id returns tick JSON\n- Notes parsed into array with timestamps\n- Blockers include title and status\n- 404 for unknown ID",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:15:59.286555Z",
-  "updated_at": "2026-01-16T09:49:43.091571Z"
+  "updated_at": "2026-01-16T12:37:31.515241Z",
+  "closed_at": "2026-01-16T12:37:31.515241Z"
 }

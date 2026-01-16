@@ -2,7 +2,7 @@
   "id": "sok",
   "title": "UI: Tick card component",
   "description": "Tick card showing:\n- ID badge (colored by type)\n- Title (truncated)\n- Priority indicator (P1/P2/P3)\n- Status icon (same as tk view)\n- Awaiting badge if set\n- Requires badge if set\n- Blocked indicator if blocked\n\nCards are clickable to open detail panel.\n\nAGENT VERIFICATION:\n- Use agent-browser to navigate to http://localhost:3000\n- Verify cards render in appropriate columns\n- Verify status icons match tk view\n- Verify blocked ticks show indicator\n- Take screenshot\n\nHUMAN REVIEW:\n- URL: http://localhost:3000\n- Verify cards are readable and scannable\n- Check visual hierarchy is clear",
-  "notes": "2026-01-16 10:43 - Review: Tick cards in internal/tickboard/server/static/app.js (createTickCard function, lines 56-88) and style.css (lines 203-340). Verify: ID badges show correct colors (blue=task, mauve=epic, red=bug), priority colors (P0-P1=red, P2=peach, P3=green), status icons match tk view, badges render correctly for awaiting/requires/blocked states.\n2026-01-16 09:43 - Work complete, awaiting content\n2026-01-16 09:43 - Work complete, awaiting content\n2026-01-16 10:44 - UI tick card component at http://localhost:3000 - verify cards are readable and scannable, visual hierarchy is clear. Review files: app.js lines 56-88 (createTickCard function), style.css lines 203-340 (card styling). Check ID badge colors, priority indicators, status icons, and badge displays.",
+  "notes": "2026-01-16 10:43 - Review: Tick cards in internal/tickboard/server/static/app.js (createTickCard function, lines 56-88) and style.css (lines 203-340). Verify: ID badges show correct colors (blue=task, mauve=epic, red=bug), priority colors (P0-P1=red, P2=peach, P3=green), status icons match tk view, badges render correctly for awaiting/requires/blocked states.\n2026-01-16 09:43 - Work complete, awaiting content\n2026-01-16 09:43 - Work complete, awaiting content\n2026-01-16 10:44 - UI tick card component at http://localhost:3000 - verify cards are readable and scannable, visual hierarchy is clear. Review files: app.js lines 56-88 (createTickCard function), style.css lines 203-340 (card styling). Check ID badge colors, priority indicators, status icons, and badge displays.\n2026-01-16 12:40 - Work complete, awaiting content",
   "status": "in_progress",
   "priority": 1,
   "type": "task",
@@ -15,5 +15,5 @@
   "awaiting": "content",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:16:19.000457Z",
-  "updated_at": "2026-01-16T09:44:27.825896Z"
+  "updated_at": "2026-01-16T12:40:41.433072Z"
 }

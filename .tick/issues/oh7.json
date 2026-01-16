@@ -1,0 +1,13 @@
+{
+  "id": "oh7",
+  "title": "Remove rejected column - rejected ticks go to Ready",
+  "description": "Rejected ticks should return to agent queue, not sit in a separate column:\n- Remove 'Rejected' column from index.html\n- Remove rejected column from app.js column mapping\n- Remove rejected column styles from style.css\n- Update getColumn() in server.go: rejected+open returns 'ready' not 'rejected'\n- Add visual indicator on card when tick has rejected verdict (e.g., small badge or border)\n- Rejected feedback should be visible in notes\n\nThis aligns with the flow: human rejects -\u003e agent sees feedback in notes -\u003e agent retries",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "dfb",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T12:41:30.291349Z",
+  "updated_at": "2026-01-16T12:41:30.291349Z"
+}

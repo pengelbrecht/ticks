@@ -1,0 +1,13 @@
+{
+  "id": "lz6",
+  "title": "API: Make reject feedback mandatory",
+  "description": "POST /api/ticks/:id/reject should require feedback:\n- Return 400 Bad Request if feedback is empty\n- Update RejectTickRequest validation\n- Update tests to verify mandatory feedback",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "dfb",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T12:41:32.327924Z",
+  "updated_at": "2026-01-16T12:41:32.327924Z"
+}
