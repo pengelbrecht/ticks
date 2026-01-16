@@ -2,12 +2,13 @@
   "id": "chc",
   "title": "Cloud: User auth and board registry",
   "description": "User management and board tracking:\n- Sign up / login (email + password or OAuth)\n- Generate API tokens for local agents\n- D1 schema: users, tokens, boards\n- Board auto-registers on agent connect\n- List boards for user (with online/offline status)\n- Revoke tokens",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "mto",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:49:41.622261Z",
-  "updated_at": "2026-01-16T09:49:41.622261Z"
+  "updated_at": "2026-01-16T17:51:35.901924Z",
+  "closed_at": "2026-01-16T17:51:35.901924Z"
 }

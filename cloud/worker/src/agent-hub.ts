@@ -6,12 +6,14 @@
  */
 
 import type { Env } from "./index";
+import { validateToken, registerBoard } from "./auth";
 
 interface AgentConnection {
   socket: WebSocket;
   boardName: string;
   machineId: string;
   token: string;
+  userId: string;
   lastSeen: number;
   pendingRequests: Map<string, {
     resolve: (response: RelayResponse) => void;
@@ -58,11 +60,21 @@ export class AgentHub {
 
     // Set up WebSocket hibernation handlers
     this.state.getWebSockets().forEach((ws) => {
-      const meta = ws.deserializeAttachment() as AgentConnection | null;
+      const meta = ws.deserializeAttachment() as {
+        boardName: string;
+        machineId: string;
+        token: string;
+        userId: string;
+        lastSeen: number;
+      } | null;
       if (meta) {
         this.agents.set(ws, {
-          ...meta,
           socket: ws,
+          boardName: meta.boardName,
+          machineId: meta.machineId,
+          token: meta.token,
+          userId: meta.userId || "",
+          lastSeen: meta.lastSeen,
           pendingRequests: new Map(),
         });
         this.boardIndex.set(meta.boardName, ws);
@@ -91,6 +103,7 @@ export class AgentHub {
         boardName: "",
         machineId: "",
         token: "",
+        userId: "",
         lastSeen: Date.now(),
         pendingRequests: new Map(),
       };
@@ -166,31 +179,42 @@ export class AgentHub {
     conn: AgentConnection,
     data: RegisterMessage
   ) {
-    // Validate token (simple check for now)
+    // Validate token format
     if (!data.token || data.token.length < 8) {
-      ws.send(JSON.stringify({ type: "error", data: "Invalid token" }));
+      ws.send(JSON.stringify({ type: "error", data: "Invalid token format" }));
       ws.close(4001, "Invalid token");
       return;
     }
 
-    // TODO: Validate token against database/KV
+    // Validate token against database
+    const tokenInfo = await validateToken(this.env, data.token);
+    if (!tokenInfo) {
+      ws.send(JSON.stringify({ type: "error", data: "Invalid or revoked token" }));
+      ws.close(4001, "Invalid token");
+      return;
+    }
 
     conn.token = data.token;
+    conn.userId = tokenInfo.userId;
     conn.boardName = data.board_name;
     conn.machineId = data.machine_id;
+
+    // Register/update board in database
+    await registerBoard(this.env, tokenInfo.userId, data.board_name, data.machine_id);
 
     // Serialize attachment for hibernation
     ws.serializeAttachment({
       boardName: conn.boardName,
       machineId: conn.machineId,
       token: conn.token,
+      userId: conn.userId,
       lastSeen: conn.lastSeen,
     });
 
     // Index by board name (overwrites if same board reconnects)
     this.boardIndex.set(conn.boardName, ws);
 
-    console.log(`Agent registered: ${conn.boardName}/${conn.machineId}`);
+    console.log(`Agent registered: ${conn.boardName}/${conn.machineId} (user: ${conn.userId})`);
 
     ws.send(JSON.stringify({ type: "registered", data: { board_name: conn.boardName } }));
   }

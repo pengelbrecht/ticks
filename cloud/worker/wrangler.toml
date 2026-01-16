@@ -13,6 +13,12 @@ bindings = [
 tag = "v1"
 new_classes = ["AgentHub"]
 
+# D1 database for users, tokens, boards
+[[d1_databases]]
+binding = "DB"
+database_name = "tickboard"
+database_id = "placeholder-create-via-wrangler"
+
 # Environment variables (set via wrangler secret)
 # TICKBOARD_SECRET - shared secret for token validation
 
