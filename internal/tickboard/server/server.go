@@ -8,10 +8,13 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -24,13 +27,27 @@ type Server struct {
 	tickDir string
 	port    int
 	srv     *http.Server
+
+	// SSE client management
+	sseClients   map[chan string]struct{}
+	sseClientsMu sync.RWMutex
+
+	// File watcher
+	watcher *fsnotify.Watcher
 }
 
 // New creates a new tickboard server.
 func New(tickDir string, port int) (*Server, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file watcher: %w", err)
+	}
+
 	s := &Server{
-		tickDir: tickDir,
-		port:    port,
+		tickDir:    tickDir,
+		port:       port,
+		sseClients: make(map[chan string]struct{}),
+		watcher:    watcher,
 	}
 	return s, nil
 }
@@ -51,6 +68,12 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// API endpoint: approve a tick
 	mux.HandleFunc("/api/ticks/", s.handleTickActions)
+
+	// API endpoint: SSE events
+	mux.HandleFunc("/api/events", s.handleSSE)
+
+	// API endpoint: board info (repo name, epics)
+	mux.HandleFunc("/api/info", s.handleInfo)
 
 	// Root handler - serve index.html
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +96,15 @@ func (s *Server) Run(ctx context.Context) error {
 		Handler: mux,
 	}
 
+	// Start file watcher for .tick/issues directory
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	if err := s.watcher.Add(issuesDir); err != nil {
+		return fmt.Errorf("failed to watch issues directory: %w", err)
+	}
+
+	// Start watching for file changes
+	go s.watchFiles(ctx)
+
 	// Start server in goroutine
 	errChan := make(chan error, 1)
 	go func() {
@@ -88,8 +120,10 @@ func (s *Server) Run(ctx context.Context) error {
 		// Graceful shutdown with timeout
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		s.watcher.Close()
 		return s.srv.Shutdown(shutdownCtx)
 	case err := <-errChan:
+		s.watcher.Close()
 		return err
 	}
 }
@@ -99,13 +133,183 @@ func (s *Server) TickDir() string {
 	return s.tickDir
 }
 
+// handleSSE handles GET /api/events for Server-Sent Events.
+func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Create channel for this client
+	clientChan := make(chan string, 10)
+
+	// Register client
+	s.sseClientsMu.Lock()
+	s.sseClients[clientChan] = struct{}{}
+	s.sseClientsMu.Unlock()
+
+	// Unregister on disconnect
+	defer func() {
+		s.sseClientsMu.Lock()
+		delete(s.sseClients, clientChan)
+		close(clientChan)
+		s.sseClientsMu.Unlock()
+	}()
+
+	// Get flusher for streaming
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Send initial connection message
+	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
+	flusher.Flush()
+
+	// Stream events to client
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-clientChan:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: update\ndata: %s\n\n", msg)
+			flusher.Flush()
+		}
+	}
+}
+
+// broadcast sends a message to all connected SSE clients.
+func (s *Server) broadcast(msg string) {
+	s.sseClientsMu.RLock()
+	defer s.sseClientsMu.RUnlock()
+
+	for clientChan := range s.sseClients {
+		select {
+		case clientChan <- msg:
+		default:
+			// Client buffer full, skip
+		}
+	}
+}
+
+// watchFiles watches the issues directory for changes and broadcasts updates.
+func (s *Server) watchFiles(ctx context.Context) {
+	// Debounce timer
+	var debounceTimer *time.Timer
+	debounceDelay := 100 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			return
+		case event, ok := <-s.watcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only care about .json files
+			if !strings.HasSuffix(event.Name, ".json") {
+				continue
+			}
+
+			// Debounce rapid changes
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			debounceTimer = time.AfterFunc(debounceDelay, func() {
+				// Determine event type
+				eventType := "update"
+				if event.Op&fsnotify.Create == fsnotify.Create {
+					eventType = "create"
+				} else if event.Op&fsnotify.Remove == fsnotify.Remove {
+					eventType = "delete"
+				}
+
+				// Extract tick ID from filename
+				tickID := strings.TrimSuffix(filepath.Base(event.Name), ".json")
+
+				// Broadcast the change
+				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
+				s.broadcast(msg)
+			})
+
+		case err, ok := <-s.watcher.Errors:
+			if !ok {
+				return
+			}
+			// Log error but continue
+			fmt.Fprintf(os.Stderr, "file watcher error: %v\n", err)
+		}
+	}
+}
+
+// EpicInfo represents an epic for the filter dropdown.
+type EpicInfo struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// InfoResponse is the response body for GET /api/info.
+type InfoResponse struct {
+	RepoName string     `json:"repoName"`
+	Epics    []EpicInfo `json:"epics"`
+}
+
+// handleInfo handles GET /api/info.
+func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get repo name from parent of .tick directory
+	repoName := filepath.Base(filepath.Dir(s.tickDir))
+	if repoName == "." || repoName == "/" {
+		repoName = "Tick Board"
+	}
+
+	// Load all ticks to find epics
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load ticks: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Filter for open epics
+	var epics []EpicInfo
+	for _, t := range allTicks {
+		if t.Type == tick.TypeEpic && t.Status == tick.StatusOpen {
+			epics = append(epics, EpicInfo{
+				ID:    t.ID,
+				Title: t.Title,
+			})
+		}
+	}
+
+	response := InfoResponse{
+		RepoName: repoName,
+		Epics:    epics,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // Column represents kanban board columns.
 const (
-	ColumnBacklog = "backlog"
+	ColumnBlocked = "blocked"
 	ColumnReady   = "ready"
 	ColumnAgent   = "agent"
-	ColumnReview  = "review"
-	ColumnInput   = "input"
+	ColumnHuman   = "human"
 	ColumnDone    = "done"
 )
 
@@ -236,11 +440,10 @@ func computeIsBlocked(t tick.Tick, index map[string]tick.Tick) bool {
 
 // computeColumn determines which kanban column a tick belongs to.
 // Column logic:
-//   - backlog: open + (blocked OR priority>=3)
+//   - blocked: open + has open blockers
 //   - ready: open + unblocked + !awaiting (includes rejected+open, so agent can retry)
 //   - agent: in_progress + !awaiting
-//   - review: awaiting in (approval,review,content,work)
-//   - input: awaiting in (input,escalation,checkpoint)
+//   - human: any awaiting type (approval,review,content,work,input,escalation,checkpoint)
 //   - done: closed
 func computeColumn(t tick.Tick, isBlocked bool) string {
 	// done: closed
@@ -251,16 +454,9 @@ func computeColumn(t tick.Tick, isBlocked bool) string {
 	// Get awaiting type (handles legacy Manual field)
 	awaitingType := t.GetAwaitingType()
 
-	// input: awaiting in (input,escalation,checkpoint)
-	switch awaitingType {
-	case tick.AwaitingInput, tick.AwaitingEscalation, tick.AwaitingCheckpoint:
-		return ColumnInput
-	}
-
-	// review: awaiting in (approval,review,content,work)
-	switch awaitingType {
-	case tick.AwaitingApproval, tick.AwaitingReview, tick.AwaitingContent, tick.AwaitingWork:
-		return ColumnReview
+	// human: any awaiting type
+	if awaitingType != "" {
+		return ColumnHuman
 	}
 
 	// agent: in_progress + !awaiting
@@ -268,12 +464,12 @@ func computeColumn(t tick.Tick, isBlocked bool) string {
 		return ColumnAgent
 	}
 
-	// backlog: open + (blocked OR priority>=3)
-	if isBlocked || t.Priority >= 3 {
-		return ColumnBacklog
+	// blocked: open + has open blockers
+	if isBlocked {
+		return ColumnBlocked
 	}
 
-	// ready: open + unblocked + !awaiting
+	// ready: open + unblocked + !awaiting (all priorities)
 	// Note: Rejected+open ticks also go here so agent can see feedback and retry
 	return ColumnReady
 }
@@ -337,7 +533,12 @@ func (s *Server) handleTickActions(w http.ResponseWriter, r *http.Request) {
 	tickID := parts[0]
 
 	// GET /api/ticks/:id - get single tick
+	// PATCH /api/ticks/:id - update tick fields
 	if len(parts) == 1 {
+		if r.Method == http.MethodPatch {
+			s.handleUpdateTick(w, r, tickID)
+			return
+		}
 		s.handleGetTick(w, r, tickID)
 		return
 	}
@@ -357,6 +558,8 @@ func (s *Server) handleTickActions(w http.ResponseWriter, r *http.Request) {
 		s.handleRejectTick(w, r, tickID)
 	case "note":
 		s.handleAddNote(w, r, tickID)
+	case "close":
+		s.handleCloseTick(w, r, tickID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -464,6 +667,7 @@ type AddNoteResponse struct {
 	tick.Tick
 	IsBlocked bool   `json:"isBlocked"`
 	Column    string `json:"column"`
+	NotesList []Note `json:"notesList"`
 }
 
 // RejectTickResponse is the response body for POST /api/ticks/:id/reject.
@@ -472,6 +676,27 @@ type RejectTickResponse struct {
 	IsBlocked bool   `json:"isBlocked"`
 	Column    string `json:"column"`
 	Closed    bool   `json:"closed"`
+}
+
+// UpdateTickRequest is the request body for PATCH /api/ticks/:id.
+type UpdateTickRequest struct {
+	Priority *int    `json:"priority,omitempty"`
+	Type     *string `json:"type,omitempty"`
+	Parent   *string `json:"parent,omitempty"`
+	Owner    *string `json:"owner,omitempty"`
+	Requires *string `json:"requires,omitempty"`
+}
+
+// CloseTickRequest is the request body for POST /api/ticks/:id/close.
+type CloseTickRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// CloseTickResponse is the response body for POST /api/ticks/:id/close.
+type CloseTickResponse struct {
+	tick.Tick
+	IsBlocked bool   `json:"isBlocked"`
+	Column    string `json:"column"`
 }
 
 // CreateTickRequest is the request body for POST /api/ticks.
@@ -489,6 +714,20 @@ type CreateTickResponse struct {
 	tick.Tick
 	IsBlocked bool   `json:"isBlocked"`
 	Column    string `json:"column"`
+}
+
+// getGitUser returns the git user name, or "human" if not available.
+func getGitUser() string {
+	cmd := exec.Command("git", "config", "user.name")
+	out, err := cmd.Output()
+	if err != nil {
+		return "human"
+	}
+	name := strings.TrimSpace(string(out))
+	if name == "" {
+		return "human"
+	}
+	return name
 }
 
 // handleApproveTick handles POST /api/ticks/:id/approve.
@@ -526,6 +765,15 @@ func (s *Server) handleApproveTick(w http.ResponseWriter, r *http.Request, tickI
 	// This ensures ProcessVerdict works correctly
 	if t.Manual && t.Awaiting == nil {
 		t.SetAwaiting(tick.AwaitingWork)
+	}
+
+	// Add approval note with git user
+	gitUser := getGitUser()
+	note := fmt.Sprintf("%s - (from: %s) Approved", time.Now().Format("2006-01-02 15:04"), gitUser)
+	if t.Notes != "" {
+		t.Notes = t.Notes + "\n" + note
+	} else {
+		t.Notes = note
 	}
 
 	// Set verdict to approved
@@ -636,8 +884,9 @@ func (s *Server) handleRejectTick(w http.ResponseWriter, r *http.Request, tickID
 		t.SetAwaiting(tick.AwaitingWork)
 	}
 
-	// Add feedback as note
-	note := fmt.Sprintf("%s - (from: human) %s", time.Now().Format("2006-01-02 15:04"), req.Feedback)
+	// Add feedback as note with git user
+	gitUser := getGitUser()
+	note := fmt.Sprintf("%s - (from: %s) Rejected: %s", time.Now().Format("2006-01-02 15:04"), gitUser, req.Feedback)
 	if t.Notes != "" {
 		t.Notes = t.Notes + "\n" + note
 	} else {
@@ -764,9 +1013,9 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request, tickID st
 	issuesDir := filepath.Join(s.tickDir, "issues")
 	allTicks, err := query.LoadTicksParallel(issuesDir)
 	if err != nil {
-		// Non-fatal: return tick without computed fields
+		// Non-fatal: return tick without computed fields but with notesList
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(AddNoteResponse{Tick: t})
+		json.NewEncoder(w).Encode(AddNoteResponse{Tick: t, NotesList: parseNotes(t.Notes)})
 		return
 	}
 
@@ -777,11 +1026,13 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request, tickID st
 
 	isBlocked := computeIsBlocked(t, tickIndex)
 	column := computeColumn(t, isBlocked)
+	notesList := parseNotes(t.Notes)
 
 	response := AddNoteResponse{
 		Tick:      t,
 		IsBlocked: isBlocked,
 		Column:    column,
+		NotesList: notesList,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -791,7 +1042,220 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request, tickID st
 	}
 }
 
-// handleCreateTick handles POST /api/ticks.
+// handleUpdateTick handles PATCH /api/ticks/:id.
+func (s *Server) handleUpdateTick(w http.ResponseWriter, r *http.Request, tickID string) {
+	// Parse request body
+	var req UpdateTickRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Load the tick
+	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
+	data, err := os.ReadFile(tickPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Tick not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to read tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Cannot edit closed ticks
+	if t.Status == tick.StatusClosed {
+		http.Error(w, "Cannot edit closed tick", http.StatusBadRequest)
+		return
+	}
+
+	// Cannot edit in_progress ticks (agent working)
+	if t.Status == tick.StatusInProgress {
+		http.Error(w, "Cannot edit tick while agent is working", http.StatusBadRequest)
+		return
+	}
+
+	// Apply updates
+	if req.Priority != nil {
+		t.Priority = *req.Priority
+	}
+	if req.Type != nil {
+		t.Type = *req.Type
+	}
+	if req.Parent != nil {
+		t.Parent = *req.Parent
+	}
+	if req.Owner != nil {
+		t.Owner = *req.Owner
+	}
+	if req.Requires != nil {
+		if *req.Requires == "" {
+			t.Requires = nil
+		} else {
+			t.Requires = req.Requires
+		}
+	}
+
+	t.UpdatedAt = time.Now()
+
+	// Validate the updated tick
+	if err := t.Validate(); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid tick: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Save the tick
+	updatedData, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(tickPath, updatedData, 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with computed fields
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(GetTickResponse{Tick: t})
+		return
+	}
+
+	tickIndex := make(map[string]tick.Tick, len(allTicks))
+	for _, tk := range allTicks {
+		tickIndex[tk.ID] = tk
+	}
+
+	isBlocked := computeIsBlocked(t, tickIndex)
+	column := computeColumn(t, isBlocked)
+	notesList := parseNotes(t.Notes)
+
+	// Build blocker details
+	blockerDetails := make([]BlockerDetail, 0, len(t.BlockedBy))
+	for _, blockerID := range t.BlockedBy {
+		if blocker, ok := tickIndex[blockerID]; ok {
+			blockerDetails = append(blockerDetails, BlockerDetail{
+				ID:     blocker.ID,
+				Title:  blocker.Title,
+				Status: blocker.Status,
+			})
+		}
+	}
+
+	response := GetTickResponse{
+		Tick:           t,
+		IsBlocked:      isBlocked,
+		Column:         column,
+		NotesList:      notesList,
+		BlockerDetails: blockerDetails,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleCloseTick handles POST /api/ticks/:id/close.
+func (s *Server) handleCloseTick(w http.ResponseWriter, r *http.Request, tickID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body (optional reason)
+	var req CloseTickRequest
+	if r.Body != nil {
+		json.NewDecoder(r.Body).Decode(&req) // Ignore errors - reason is optional
+	}
+
+	// Load the tick
+	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
+	data, err := os.ReadFile(tickPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Tick not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to read tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Cannot close already closed ticks
+	if t.Status == tick.StatusClosed {
+		http.Error(w, "Tick is already closed", http.StatusBadRequest)
+		return
+	}
+
+	// Cannot close ticks with requires gate (must use approve/reject)
+	if t.Requires != nil && *t.Requires != "" {
+		http.Error(w, "Tick has a workflow gate - use approve/reject instead", http.StatusBadRequest)
+		return
+	}
+
+	// Cannot close in_progress ticks (agent working)
+	if t.Status == tick.StatusInProgress {
+		http.Error(w, "Cannot close tick while agent is working", http.StatusBadRequest)
+		return
+	}
+
+	// Close the tick
+	t.Status = tick.StatusClosed
+	now := time.Now()
+	t.ClosedAt = &now
+	t.UpdatedAt = now
+	if req.Reason != "" {
+		t.ClosedReason = req.Reason
+	}
+
+	// Add close note
+	gitUser := getGitUser()
+	noteText := "Closed"
+	if req.Reason != "" {
+		noteText = fmt.Sprintf("Closed: %s", req.Reason)
+	}
+	note := fmt.Sprintf("%s - (from: %s) %s", now.Format("2006-01-02 15:04"), gitUser, noteText)
+	if t.Notes != "" {
+		t.Notes = t.Notes + "\n" + note
+	} else {
+		t.Notes = note
+	}
+
+	// Save the tick
+	updatedData, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(tickPath, updatedData, 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response
+	response := CloseTickResponse{
+		Tick:      t,
+		IsBlocked: false,
+		Column:    ColumnDone,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func (s *Server) handleCreateTick(w http.ResponseWriter, r *http.Request) {
 	// Parse request body
 	var req CreateTickRequest

@@ -9,16 +9,31 @@
 <body>
     <div id="app">
         <header>
-            <h1>Tick Board</h1>
+            <div class="header-left">
+                <h1>Tick Board</h1>
+                <span id="repo-name" class="repo-name"></span>
+            </div>
+            <div class="header-center">
+                <div class="search-wrapper">
+                    <input type="text" id="search-input" class="search-input" placeholder="Search by ID or title..." oninput="handleSearchInput()">
+                    <button id="search-clear" class="search-clear hidden" onclick="clearSearch()" aria-label="Clear search">&times;</button>
+                </div>
+                <select id="epic-filter" class="epic-filter" onchange="handleEpicFilterChange()">
+                    <option value="">All Ticks</option>
+                </select>
+            </div>
+            <div class="header-right">
+                <button class="header-btn" onclick="openCreateModal()" title="Create new tick">+</button>
+            </div>
         </header>
         <main id="board" class="kanban-board">
-            <div class="kanban-column" data-column="backlog">
+            <div class="kanban-column" data-column="blocked">
                 <div class="column-header">
-                    <h2>Backlog</h2>
+                    <h2>Blocked</h2>
                     <span class="count-badge">0</span>
                 </div>
                 <div class="column-content">
-                    <p class="empty-state">No items in backlog</p>
+                    <p class="empty-state">No blocked items</p>
                 </div>
             </div>
             <div class="kanban-column" data-column="ready">
@@ -30,22 +45,22 @@
                     <p class="empty-state">No items ready</p>
                 </div>
             </div>
-            <div class="kanban-column" data-column="review">
+            <div class="kanban-column" data-column="agent">
                 <div class="column-header">
-                    <h2>Needs Review</h2>
+                    <h2>In Progress</h2>
                     <span class="count-badge">0</span>
                 </div>
                 <div class="column-content">
-                    <p class="empty-state">No items awaiting review</p>
+                    <p class="empty-state">No items in progress</p>
                 </div>
             </div>
-            <div class="kanban-column" data-column="input">
+            <div class="kanban-column" data-column="human">
                 <div class="column-header">
-                    <h2>Needs Input</h2>
+                    <h2>Needs Human</h2>
                     <span class="count-badge">0</span>
                 </div>
                 <div class="column-content">
-                    <p class="empty-state">No items need input</p>
+                    <p class="empty-state">No items awaiting human</p>
                 </div>
             </div>
             <div class="kanban-column" data-column="done">
@@ -79,10 +94,24 @@
                         <div class="detail-field">
                             <span class="detail-label">Type</span>
                             <span id="detail-type" class="detail-value"></span>
+                            <select id="detail-type-edit" class="detail-select hidden" onchange="updateTickField('type', this.value)">
+                                <option value="task">Task</option>
+                                <option value="epic">Epic</option>
+                                <option value="bug">Bug</option>
+                                <option value="feature">Feature</option>
+                                <option value="chore">Chore</option>
+                            </select>
                         </div>
                         <div class="detail-field">
                             <span class="detail-label">Priority</span>
                             <span id="detail-priority" class="detail-value"></span>
+                            <select id="detail-priority-edit" class="detail-select hidden" onchange="updateTickField('priority', parseInt(this.value))">
+                                <option value="0">P0 - Critical</option>
+                                <option value="1">P1 - High</option>
+                                <option value="2">P2 - Medium</option>
+                                <option value="3">P3 - Low</option>
+                                <option value="4">P4 - Backlog</option>
+                            </select>
                         </div>
                         <div class="detail-field">
                             <span class="detail-label">Owner</span>
@@ -92,9 +121,22 @@
                             <span class="detail-label">Created</span>
                             <span id="detail-created" class="detail-value"></span>
                         </div>
-                        <div class="detail-field" id="detail-parent-field" style="display: none;">
+                        <div class="detail-field" id="detail-parent-field">
                             <span class="detail-label">Parent</span>
                             <span id="detail-parent" class="detail-value"></span>
+                            <select id="detail-parent-edit" class="detail-select hidden" onchange="updateTickField('parent', this.value)">
+                                <option value="">None</option>
+                            </select>
+                        </div>
+                        <div class="detail-field" id="detail-requires-field">
+                            <span class="detail-label">Workflow</span>
+                            <span id="detail-requires" class="detail-value"></span>
+                            <select id="detail-requires-edit" class="detail-select hidden" onchange="updateTickField('requires', this.value)">
+                                <option value="">None</option>
+                                <option value="approval">Requires Approval</option>
+                                <option value="review">Requires Review</option>
+                                <option value="content">Requires Content</option>
+                            </select>
                         </div>
                         <div class="detail-field" id="detail-labels-field" style="display: none;">
                             <span class="detail-label">Labels</span>
@@ -133,6 +175,17 @@
                     <div id="detail-notes" class="detail-notes"></div>
                 </section>
 
+                <!-- Add Note Section -->
+                <section class="detail-section">
+                    <h3 class="detail-section-title">Add Note</h3>
+                    <div class="add-note-form">
+                        <textarea id="note-input" class="note-textarea" rows="3" placeholder="Add a note..."></textarea>
+                        <button id="btn-add-note" class="action-btn action-btn-note" onclick="submitNote()">
+                            Add Note
+                        </button>
+                    </div>
+                </section>
+
                 <!-- Closed Section -->
                 <section id="detail-closed-section" class="detail-section" style="display: none;">
                     <h3 class="detail-section-title">Closed</h3>
@@ -147,8 +200,135 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- Actions Section (for ticks awaiting human) -->
+                <section id="detail-actions-section" class="detail-section" style="display: none;">
+                    <h3 class="detail-section-title">Actions</h3>
+                    <div class="detail-actions">
+                        <button id="btn-approve" class="action-btn action-btn-approve" onclick="approveTick()">
+                            ✓ Approve
+                        </button>
+                        <button id="btn-reject" class="action-btn action-btn-reject" onclick="openRejectModal()">
+                            ✗ Reject
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Close Tick Section (for closable ticks) -->
+                <section id="detail-close-section" class="detail-section" style="display: none;">
+                    <h3 class="detail-section-title">Close Tick</h3>
+                    <div class="detail-actions">
+                        <button id="btn-close-tick" class="action-btn action-btn-close" onclick="openCloseModal()">
+                            Close Tick
+                        </button>
+                    </div>
+                </section>
             </div>
         </aside>
+
+        <!-- Reject Feedback Modal -->
+        <div id="reject-modal" class="modal-overlay hidden" onclick="closeRejectModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3>Reject Tick</h3>
+                    <button class="modal-close" onclick="closeRejectModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <label for="reject-feedback" class="modal-label">Feedback (required)</label>
+                    <textarea id="reject-feedback" class="modal-textarea" rows="4" placeholder="Explain why this is being rejected and what needs to change..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn action-btn-secondary" onclick="closeRejectModal()">Cancel</button>
+                    <button class="action-btn action-btn-reject" onclick="submitReject()">Reject</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Close Tick Modal -->
+        <div id="close-modal" class="modal-overlay hidden" onclick="closeCloseModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3>Close Tick</h3>
+                    <button class="modal-close" onclick="closeCloseModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <label for="close-reason" class="modal-label">Reason (optional)</label>
+                    <textarea id="close-reason" class="modal-textarea" rows="3" placeholder="Add an optional reason for closing..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn action-btn-secondary" onclick="closeCloseModal()">Cancel</button>
+                    <button class="action-btn action-btn-close" onclick="submitClose()">Close Tick</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Tick Modal -->
+        <div id="create-modal" class="modal-overlay hidden" onclick="closeCreateModal(event)">
+            <div class="modal modal-lg" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3>Create Tick</h3>
+                    <button class="modal-close" onclick="closeCreateModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="create-form" onsubmit="submitCreateTick(event)">
+                        <div class="form-group">
+                            <label for="create-title" class="form-label">Title *</label>
+                            <input type="text" id="create-title" class="form-input" placeholder="Enter tick title" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="create-description" class="form-label">Description</label>
+                            <textarea id="create-description" class="form-textarea" rows="3" placeholder="Optional description"></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="create-type" class="form-label">Type</label>
+                                <select id="create-type" class="form-select">
+                                    <option value="task">Task</option>
+                                    <option value="epic">Epic</option>
+                                    <option value="bug">Bug</option>
+                                    <option value="feature">Feature</option>
+                                    <option value="chore">Chore</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="create-priority" class="form-label">Priority</label>
+                                <select id="create-priority" class="form-select">
+                                    <option value="0">P0 - Critical</option>
+                                    <option value="1">P1 - High</option>
+                                    <option value="2" selected>P2 - Medium</option>
+                                    <option value="3">P3 - Low</option>
+                                    <option value="4">P4 - Backlog</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="create-parent" class="form-label">Parent Epic</label>
+                                <select id="create-parent" class="form-select">
+                                    <option value="">None</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="create-requires" class="form-label">Workflow</label>
+                                <select id="create-requires" class="form-select">
+                                    <option value="">None</option>
+                                    <option value="approval">Requires Approval</option>
+                                    <option value="review">Requires Code Review</option>
+                                    <option value="content">Requires Content Review</option>
+                                </select>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn action-btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                    <button class="action-btn action-btn-primary" onclick="submitCreateTick(event)">Create</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Container -->
+        <div id="toast-container"></div>
     </div>
     <script src="/static/app.js"></script>
 </body>
