@@ -1,0 +1,12 @@
+{
+  "id": "kz9",
+  "title": "Apply board styling to rest of cloud UI",
+  "description": "Login page, token management, and other cloud pages should use the same dark theme styling as the board",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T19:01:38.496918Z",
+  "updated_at": "2026-01-16T19:01:38.496918Z"
+}

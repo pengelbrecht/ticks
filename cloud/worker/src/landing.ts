@@ -1,5 +1,6 @@
 /**
  * Minimal landing page - login/signup + board picker
+ * Uses Catppuccin Mocha theme to match board styling
  */
 
 export const landingPage = `<!DOCTYPE html>
@@ -9,58 +10,92 @@ export const landingPage = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tickboard</title>
   <style>
+    :root {
+      --rosewater: #f5e0dc;
+      --flamingo: #f2cdcd;
+      --pink: #f5c2e7;
+      --mauve: #cba6f7;
+      --red: #f38ba8;
+      --maroon: #eba0ac;
+      --peach: #fab387;
+      --yellow: #f9e2af;
+      --green: #a6e3a1;
+      --teal: #94e2d5;
+      --sky: #89dceb;
+      --sapphire: #74c7ec;
+      --blue: #89b4fa;
+      --lavender: #b4befe;
+      --text: #cdd6f4;
+      --subtext1: #bac2de;
+      --subtext0: #a6adc8;
+      --overlay2: #9399b2;
+      --overlay1: #7f849c;
+      --overlay0: #6c7086;
+      --surface2: #585b70;
+      --surface1: #45475a;
+      --surface0: #313244;
+      --base: #1e1e2e;
+      --mantle: #181825;
+      --crust: #11111b;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0a0a0a;
-      color: #e5e5e5;
+      background: var(--base);
+      color: var(--text);
       min-height: 100vh;
     }
     .container { max-width: 400px; margin: 0 auto; padding: 2rem 1rem; }
     .card {
-      background: #141414;
-      border: 1px solid #262626;
-      border-radius: 0.5rem;
+      background: var(--mantle);
+      border: 1px solid var(--surface0);
+      border-radius: 8px;
       padding: 1.5rem;
     }
-    h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.5rem; }
+    h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.5rem; color: var(--rosewater); }
     .form-group { margin-bottom: 1rem; }
-    label { display: block; margin-bottom: 0.375rem; font-size: 0.875rem; color: #a3a3a3; }
+    label { display: block; margin-bottom: 0.375rem; font-size: 0.875rem; color: var(--subtext0); }
     input {
       width: 100%;
       padding: 0.625rem 0.75rem;
-      background: #1a1a1a;
-      border: 1px solid #262626;
-      border-radius: 0.375rem;
-      color: #e5e5e5;
+      background: var(--surface0);
+      border: 1px solid var(--surface1);
+      border-radius: 6px;
+      color: var(--text);
       font-size: 0.875rem;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    input:focus { outline: none; border-color: #3b82f6; }
+    input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.2); }
+    input::placeholder { color: var(--overlay0); }
     .btn {
       width: 100%;
       padding: 0.625rem 1rem;
       border: none;
-      border-radius: 0.375rem;
+      border-radius: 6px;
       font-size: 0.875rem;
       font-weight: 500;
       cursor: pointer;
       margin-top: 0.5rem;
+      transition: background-color 0.15s ease, transform 0.1s ease;
     }
-    .btn-primary { background: #3b82f6; color: white; }
-    .btn-primary:hover { background: #2563eb; }
-    .btn-secondary { background: #262626; color: #e5e5e5; }
-    .btn-secondary:hover { background: #333; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn-primary { background: var(--blue); color: var(--crust); }
+    .btn-primary:hover { background: #7aa8f5; }
+    .btn-secondary { background: var(--surface1); color: var(--text); }
+    .btn-secondary:hover { background: var(--surface2); }
     .error {
       padding: 0.75rem;
       margin-bottom: 1rem;
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid #ef4444;
-      border-radius: 0.375rem;
-      color: #ef4444;
+      background: rgba(243, 139, 168, 0.1);
+      border: 1px solid var(--red);
+      border-radius: 6px;
+      color: var(--red);
       font-size: 0.875rem;
     }
-    .toggle { text-align: center; margin-top: 1rem; font-size: 0.875rem; color: #a3a3a3; }
-    .toggle a { color: #3b82f6; cursor: pointer; }
+    .toggle { text-align: center; margin-top: 1rem; font-size: 0.875rem; color: var(--subtext0); }
+    .toggle a { color: var(--blue); cursor: pointer; }
+    .toggle a:hover { color: #7aa8f5; }
     .hidden { display: none; }
     .header {
       display: flex;
@@ -69,54 +104,67 @@ export const landingPage = `<!DOCTYPE html>
       margin-bottom: 1.5rem;
     }
     .header h1 { margin: 0; }
-    .logout { font-size: 0.875rem; color: #a3a3a3; cursor: pointer; }
-    .logout:hover { color: #e5e5e5; }
+    .logout { font-size: 0.875rem; color: var(--subtext0); cursor: pointer; transition: color 0.15s ease; }
+    .logout:hover { color: var(--text); }
     .board-list { list-style: none; }
     .board-item {
       display: flex;
       align-items: center;
       padding: 0.75rem;
-      border: 1px solid #262626;
-      border-radius: 0.375rem;
+      background: var(--surface0);
+      border: 1px solid var(--surface1);
+      border-radius: 6px;
       margin-bottom: 0.5rem;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    .board-item:hover { background: #1a1a1a; }
+    .board-item:hover { border-color: var(--surface2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
     .status {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       margin-right: 0.75rem;
     }
-    .status.online { background: #22c55e; }
-    .status.offline { background: #525252; }
+    .status.online { background: var(--green); }
+    .status.offline { background: var(--surface2); }
     .board-name { flex: 1; }
-    .board-offline { color: #737373; }
-    .empty { text-align: center; color: #737373; padding: 2rem; }
-    .token-section { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #262626; }
-    .token-section h2 { font-size: 1rem; margin-bottom: 1rem; }
+    .board-offline { color: var(--overlay0); }
+    .empty { text-align: center; color: var(--overlay0); padding: 2rem; font-style: italic; }
+    .token-section { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--surface0); }
+    .token-section h2 { font-size: 1rem; margin-bottom: 1rem; color: var(--text); }
     .token-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid #262626;
+      padding: 0.5rem 0.75rem;
+      background: var(--surface0);
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
       font-size: 0.875rem;
     }
-    .token-name { color: #e5e5e5; }
-    .token-revoke { color: #ef4444; cursor: pointer; font-size: 0.75rem; }
+    .token-name { color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8125rem; }
+    .token-revoke { color: var(--red); cursor: pointer; font-size: 0.75rem; transition: color 0.15s ease; }
+    .token-revoke:hover { color: #e57a96; }
     .new-token { margin-top: 1rem; display: flex; gap: 0.5rem; }
     .new-token input { flex: 1; }
     .new-token .btn { width: auto; margin-top: 0; }
     .token-value {
-      background: #1a1a1a;
+      background: var(--surface0);
       padding: 0.75rem;
-      border-radius: 0.375rem;
-      font-family: monospace;
+      border-radius: 6px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 0.75rem;
       word-break: break-all;
       margin-top: 0.5rem;
+      color: var(--green);
+      border: 1px solid var(--surface1);
+    }
+    code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      background: var(--surface0);
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
     }
   </style>
 </head>
@@ -176,7 +224,7 @@ export const landingPage = `<!DOCTYPE html>
         <h2>API Tokens</h2>
         <div id="token-list"></div>
         <div id="new-token-display" class="hidden">
-          <div style="color: #22c55e; font-size: 0.875rem; margin-bottom: 0.5rem;">Token created! Copy it now (won't be shown again):</div>
+          <div style="color: var(--green); font-size: 0.875rem; margin-bottom: 0.5rem;">Token created! Copy it now (won't be shown again):</div>
           <div class="token-value" id="new-token-value"></div>
         </div>
         <div class="new-token">
@@ -319,7 +367,7 @@ export const landingPage = `<!DOCTYPE html>
           <li class="board-item \${b.online ? '' : 'board-offline'}" onclick="openBoard('\${b.name}', \${b.online})">
             <span class="status \${b.online ? 'online' : 'offline'}"></span>
             <span class="board-name">\${b.name}</span>
-            <span style="font-size: 0.75rem; color: #737373">\${b.online ? 'online' : 'offline'}</span>
+            <span style="font-size: 0.75rem; color: var(--overlay0)">\${b.online ? 'online' : 'offline'}</span>
           </li>
         \`).join('');
       } catch (e) {
@@ -344,7 +392,7 @@ export const landingPage = `<!DOCTYPE html>
         const list = document.getElementById('token-list');
 
         if (!data.tokens || data.tokens.length === 0) {
-          list.innerHTML = '<div style="color: #737373; font-size: 0.875rem">No tokens yet</div>';
+          list.innerHTML = '<div style="color: var(--overlay0); font-size: 0.875rem">No tokens yet</div>';
           return;
         }
 
@@ -355,7 +403,7 @@ export const landingPage = `<!DOCTYPE html>
               <span class="token-name">\${t.name}</span>
               <span class="token-revoke" onclick="revokeToken('\${t.id}')">revoke</span>
             </div>
-          \`).join('') || '<div style="color: #737373; font-size: 0.875rem">No tokens yet</div>';
+          \`).join('') || '<div style="color: var(--overlay0); font-size: 0.875rem">No tokens yet</div>';
       } catch (e) {
         console.error(e);
       }

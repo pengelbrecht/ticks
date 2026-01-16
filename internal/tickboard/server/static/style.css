@@ -207,6 +207,15 @@ header h1 {
     transform: scale(0.98);
 }
 
+.header-btn-cloud {
+    background-color: var(--surface1);
+    font-size: 1.25rem;
+}
+
+.header-btn-cloud:hover {
+    background-color: var(--surface2);
+}
+
 main {
     flex: 1;
     padding: 1.5rem;

@@ -1,0 +1,12 @@
+{
+  "id": "hdb",
+  "title": "Set up real domain for tickboard cloud",
+  "description": "Configure a proper domain (e.g., tickboard.io) instead of workers.dev URL",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T19:01:38.46984Z",
+  "updated_at": "2026-01-16T19:01:38.46984Z"
+}

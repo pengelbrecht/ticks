@@ -1760,11 +1760,30 @@ document.addEventListener('click', function(e) {
     }
 })
 
+// Cloud mode detection and navigation
+function isCloudMode() {
+    return window.location.pathname.match(/^\/b\/([^\/]+)\//);
+}
+
+function goToCloudHome() {
+    window.location.href = '/';
+}
+
+function initCloudUI() {
+    if (isCloudMode()) {
+        const homeBtn = document.getElementById('cloud-home-btn');
+        if (homeBtn) {
+            homeBtn.classList.remove('hidden');
+        }
+    }
+}
+
 // Main entry point
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Tick Board initialized');
     initBoard();
     initActivityFeed();
+    initCloudUI();
 
     // Try to set up live updates (will fail gracefully if endpoint not implemented)
     try {
