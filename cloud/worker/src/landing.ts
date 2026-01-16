@@ -119,6 +119,18 @@ export const landingPage = `<!DOCTYPE html>
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .board-item:hover { border-color: var(--surface2); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+    .board-item:hover .board-remove { opacity: 1; }
+    .board-remove {
+      opacity: 0;
+      color: var(--overlay0);
+      cursor: pointer;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      margin-left: 0.5rem;
+      border-radius: 4px;
+      transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+    }
+    .board-remove:hover { color: var(--red); background-color: rgba(243, 139, 168, 0.1); }
     .status {
       width: 8px;
       height: 8px;
@@ -364,10 +376,11 @@ export const landingPage = `<!DOCTYPE html>
 
         empty.classList.add('hidden');
         list.innerHTML = data.boards.map(b => \`
-          <li class="board-item \${b.online ? '' : 'board-offline'}" onclick="openBoard('\${b.name}', \${b.online})">
-            <span class="status \${b.online ? 'online' : 'offline'}"></span>
-            <span class="board-name">\${b.name.replace(/--/g, '/')}</span>
-            <span style="font-size: 0.75rem; color: var(--overlay0)">\${b.online ? 'online' : 'offline'}</span>
+          <li class="board-item \${b.online ? '' : 'board-offline'}">
+            <span class="status \${b.online ? 'online' : 'offline'}" onclick="openBoard('\${b.name}', \${b.online})"></span>
+            <span class="board-name" onclick="openBoard('\${b.name}', \${b.online})">\${b.name.replace(/--/g, '/')}</span>
+            <span style="font-size: 0.75rem; color: var(--overlay0)" onclick="openBoard('\${b.name}', \${b.online})">\${b.online ? 'online' : 'offline'}</span>
+            <span class="board-remove" onclick="event.stopPropagation(); removeBoard('\${b.id}', '\${b.name.replace(/--/g, '/')}')">remove</span>
           </li>
         \`).join('');
       } catch (e) {
@@ -446,6 +459,24 @@ export const landingPage = `<!DOCTYPE html>
         loadTokens();
       } catch (e) {
         console.error(e);
+      }
+    }
+
+    async function removeBoard(id, displayName) {
+      if (!confirm('Remove "' + displayName + '" from your dashboard? The board can reconnect later.')) return;
+
+      try {
+        const res = await fetch('/api/boards/' + id, {
+          method: 'DELETE',
+          headers: { Authorization: 'Bearer ' + token }
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to remove board');
+        }
+        loadBoards();
+      } catch (e) {
+        alert(e.message);
       }
     }
 

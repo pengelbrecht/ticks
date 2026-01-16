@@ -326,6 +326,25 @@ export async function userOwnsBoard(
   return result !== null;
 }
 
+// Delete a board from the user's dashboard
+export async function deleteBoard(
+  env: Env,
+  userId: string,
+  boardId: string
+): Promise<Response> {
+  const result = await env.DB.prepare(
+    "DELETE FROM boards WHERE id = ? AND user_id = ?"
+  )
+    .bind(boardId, userId)
+    .run();
+
+  if (result.meta.changes === 0) {
+    return Response.json({ error: "Board not found" }, { status: 404 });
+  }
+
+  return Response.json({ success: true });
+}
+
 // Create session cookie header
 export function createSessionCookie(token: string, maxAge = 30 * 24 * 60 * 60): string {
   return `session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}; Path=/`;

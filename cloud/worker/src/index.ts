@@ -206,6 +206,16 @@ export default {
       return auth.listBoards(env, user.userId, onlineBoards);
     }
 
+    // Delete board
+    if (url.pathname.startsWith("/api/boards/") && request.method === "DELETE") {
+      if (!user) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      const boardId = url.pathname.split("/")[3];
+      return auth.deleteBoard(env, user.userId, boardId);
+    }
+
     // Health check
     if (url.pathname === "/health") {
       return new Response("ok", { status: 200 });
