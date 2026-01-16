@@ -2,7 +2,7 @@
   "id": "qai",
   "title": "Core server with CLI",
   "description": "Go server with cobra CLI:\n- `tickboard` or `tickboard ./path/to/repo`\n- `--port 8080` flag (default 3000)\n- Finds .tick dir in specified path or cwd\n- Serves static files from embedded fs\n- Graceful shutdown on SIGINT",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "- Server starts with `tickboard` or `tickboard ./path`\n- `--port` flag works (default 3000)\n- Finds .tick dir in path or cwd\n- Returns 404 for missing .tick\n- Graceful shutdown on Ctrl+C\n- Static files served from /static/",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:15:43.280244Z",
-  "updated_at": "2026-01-16T09:19:36.013809Z"
+  "updated_at": "2026-01-16T09:24:47.022566Z",
+  "closed_at": "2026-01-16T09:24:47.022566Z",
+  "closed_reason": "Implemented tickboard CLI with cobra: cmd/tickboard/main.go with --port flag (default 3000), path argument, .tick directory discovery, and graceful SIGINT shutdown. Created server package at internal/tickboard/server with embedded static files. All tests pass."
 }
