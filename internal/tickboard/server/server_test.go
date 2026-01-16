@@ -1361,3 +1361,242 @@ func TestParseNotes(t *testing.T) {
 		})
 	}
 }
+
+func TestAddNote_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create a test tick
+	task := baseTick("abc", "Test Task")
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18787)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"message": "This is a test note"}`
+	resp, err := http.Post("http://localhost:18787/api/ticks/abc/note", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("POST /api/ticks/abc/note status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result AddNoteResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Note should be added with timestamp and author
+	if !strings.Contains(result.Notes, "This is a test note") {
+		t.Errorf("notes should contain message, got: %s", result.Notes)
+	}
+	if !strings.Contains(result.Notes, "(from: human)") {
+		t.Errorf("notes should contain '(from: human)', got: %s", result.Notes)
+	}
+	// Should have computed fields
+	if result.Column != ColumnReady {
+		t.Errorf("column = %s, want %s", result.Column, ColumnReady)
+	}
+}
+
+func TestAddNote_ToExistingNotes(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create a tick with existing notes
+	task := baseTick("abc", "Task with notes")
+	task.Notes = "2024-01-15 10:00 - (from: agent) Previous note"
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18788)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"message": "New note added"}`
+	resp, err := http.Post("http://localhost:18788/api/ticks/abc/note", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("POST /api/ticks/abc/note status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result AddNoteResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Should contain both old and new notes
+	if !strings.Contains(result.Notes, "Previous note") {
+		t.Errorf("notes should contain old note, got: %s", result.Notes)
+	}
+	if !strings.Contains(result.Notes, "New note added") {
+		t.Errorf("notes should contain new note, got: %s", result.Notes)
+	}
+	// New note should be on a new line
+	if !strings.Contains(result.Notes, "\n") {
+		t.Errorf("notes should have newline between entries, got: %s", result.Notes)
+	}
+}
+
+func TestAddNote_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18789)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	reqBody := `{"message": "Note for nonexistent tick"}`
+	resp, err := http.Post("http://localhost:18789/api/ticks/nonexistent/note", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("POST /api/ticks/nonexistent/note status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestAddNote_EmptyMessage(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	task := baseTick("abc", "Test Task")
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18790)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Empty message should be rejected
+	reqBody := `{"message": ""}`
+	resp, err := http.Post("http://localhost:18790/api/ticks/abc/note", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks/abc/note with empty message status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestAddNote_MissingMessage(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	task := baseTick("abc", "Test Task")
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18791)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Missing message field should be rejected
+	reqBody := `{}`
+	resp, err := http.Post("http://localhost:18791/api/ticks/abc/note", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /api/ticks/abc/note without message status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestAddNote_MethodNotAllowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	task := baseTick("abc", "Test Task")
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18792)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18792/api/ticks/abc/note")
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("GET /api/ticks/abc/note status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}

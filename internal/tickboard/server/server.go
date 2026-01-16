@@ -347,6 +347,8 @@ func (s *Server) handleTickActions(w http.ResponseWriter, r *http.Request) {
 		s.handleApproveTick(w, r, tickID)
 	case "reject":
 		s.handleRejectTick(w, r, tickID)
+	case "note":
+		s.handleAddNote(w, r, tickID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -442,6 +444,18 @@ type ApproveTickResponse struct {
 // RejectTickRequest is the request body for POST /api/ticks/:id/reject.
 type RejectTickRequest struct {
 	Feedback string `json:"feedback"`
+}
+
+// AddNoteRequest is the request body for POST /api/ticks/:id/note.
+type AddNoteRequest struct {
+	Message string `json:"message"`
+}
+
+// AddNoteResponse is the response body for POST /api/ticks/:id/note.
+type AddNoteResponse struct {
+	tick.Tick
+	IsBlocked bool   `json:"isBlocked"`
+	Column    string `json:"column"`
 }
 
 // RejectTickResponse is the response body for POST /api/ticks/:id/reject.
@@ -650,6 +664,95 @@ func (s *Server) handleRejectTick(w http.ResponseWriter, r *http.Request, tickID
 		IsBlocked: isBlocked,
 		Column:    column,
 		Closed:    closed,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleAddNote handles POST /api/ticks/:id/note.
+func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request, tickID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body
+	var req AddNoteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate message is provided
+	if req.Message == "" {
+		http.Error(w, "message field is required", http.StatusBadRequest)
+		return
+	}
+
+	// Load the tick
+	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
+	data, err := os.ReadFile(tickPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Tick not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to read tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Add timestamped note
+	note := fmt.Sprintf("%s - (from: human) %s", time.Now().Format("2006-01-02 15:04"), req.Message)
+	if t.Notes != "" {
+		t.Notes = t.Notes + "\n" + note
+	} else {
+		t.Notes = note
+	}
+	t.UpdatedAt = time.Now()
+
+	// Save the tick
+	updatedData, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(tickPath, updatedData, 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with computed fields
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		// Non-fatal: return tick without computed fields
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(AddNoteResponse{Tick: t})
+		return
+	}
+
+	tickIndex := make(map[string]tick.Tick, len(allTicks))
+	for _, tk := range allTicks {
+		tickIndex[tk.ID] = tk
+	}
+
+	isBlocked := computeIsBlocked(t, tickIndex)
+	column := computeColumn(t, isBlocked)
+
+	response := AddNoteResponse{
+		Tick:      t,
+		IsBlocked: isBlocked,
+		Column:    column,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
