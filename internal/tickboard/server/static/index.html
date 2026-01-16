@@ -11,6 +11,9 @@
     <div id="app">
         <header>
             <div class="header-left">
+                <button id="menu-toggle" class="menu-toggle" onclick="toggleMobileNav()" aria-label="Toggle menu" aria-expanded="false">
+                    <span class="menu-toggle-icon"></span>
+                </button>
                 <h1>Tick Board</h1>
                 <span id="repo-name" class="repo-name"></span>
             </div>
@@ -32,6 +35,46 @@
                 <button id="cloud-home-btn" class="header-btn header-btn-cloud hidden" onclick="goToCloudHome()" title="Switch board">⌂</button>
             </div>
         </header>
+        <!-- Mobile Navigation Overlay -->
+        <div id="mobile-nav-overlay" class="mobile-nav-overlay hidden" onclick="closeMobileNav()"></div>
+        <!-- Mobile Navigation Sidebar -->
+        <nav id="mobile-nav" class="mobile-nav hidden" aria-label="Mobile navigation">
+            <div class="mobile-nav-header">
+                <h2>Menu</h2>
+                <button class="mobile-nav-close" onclick="closeMobileNav()" aria-label="Close menu">&times;</button>
+            </div>
+            <div class="mobile-nav-content">
+                <div class="mobile-nav-section">
+                    <label class="mobile-nav-label" for="mobile-epic-filter">Filter by Epic</label>
+                    <select id="mobile-epic-filter" class="mobile-nav-select" onchange="handleMobileEpicFilterChange()">
+                        <option value="">All Ticks</option>
+                    </select>
+                </div>
+                <div class="mobile-nav-section">
+                    <label class="mobile-nav-label" for="mobile-search-input">Search</label>
+                    <div class="mobile-search-wrapper">
+                        <input type="text" id="mobile-search-input" class="mobile-nav-input" placeholder="Search by ID or title..." oninput="handleMobileSearchInput()">
+                        <button id="mobile-search-clear" class="mobile-search-clear hidden" onclick="clearMobileSearch()" aria-label="Clear search">&times;</button>
+                    </div>
+                </div>
+                <div class="mobile-nav-actions">
+                    <button class="mobile-nav-btn mobile-nav-btn-primary" onclick="openCreateModal(); closeMobileNav();">
+                        <span class="mobile-nav-btn-icon">+</span>
+                        Create Tick
+                    </button>
+                    <button id="mobile-cloud-home-btn" class="mobile-nav-btn mobile-nav-btn-secondary hidden" onclick="goToCloudHome()">
+                        <span class="mobile-nav-btn-icon">⌂</span>
+                        Switch Board
+                    </button>
+                </div>
+            </div>
+            <div class="mobile-nav-footer">
+                <button class="mobile-nav-help-btn" onclick="showHelpModal(); closeMobileNav();">
+                    <span>?</span>
+                    Keyboard Shortcuts
+                </button>
+            </div>
+        </nav>
         <main id="board" class="kanban-board">
             <div class="kanban-column" data-column="blocked">
                 <div class="column-header">

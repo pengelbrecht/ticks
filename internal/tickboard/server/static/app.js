@@ -9,6 +9,9 @@ let searchTerm = ''; // Search filter for ID/title
 let cachedTicks = []; // Cached ticks for filtering
 let boardInfo = null; // Cached board info (repo name, epics)
 
+// Mobile navigation state
+let mobileNavOpen = false;
+
 // Status icons matching tk view
 const STATUS_ICONS = {
     open: '\u25CB',       // ○ (empty circle)
@@ -373,6 +376,11 @@ document.addEventListener('keydown', function(e) {
         const rejectModal = document.getElementById('reject-modal');
         if (!rejectModal.classList.contains('hidden')) {
             closeRejectModal();
+            return;
+        }
+        // Close mobile nav if open
+        if (mobileNavOpen) {
+            closeMobileNav();
             return;
         }
         // Close activity dropdown
@@ -885,6 +893,9 @@ function populateEpicFilter(epics, ticks) {
     if (selectedEpicId) {
         select.value = selectedEpicId;
     }
+
+    // Also populate mobile epic filter
+    populateMobileEpicFilter(epics, ticks);
 }
 
 // Handle epic filter change
@@ -1811,6 +1822,196 @@ function initCloudUI() {
         const homeBtn = document.getElementById('cloud-home-btn');
         if (homeBtn) {
             homeBtn.classList.remove('hidden');
+        }
+        // Also show mobile cloud home button
+        const mobileHomeBtn = document.getElementById('mobile-cloud-home-btn');
+        if (mobileHomeBtn) {
+            mobileHomeBtn.classList.remove('hidden');
+        }
+    }
+}
+
+// ========================================
+// Mobile Navigation
+// ========================================
+
+// Toggle mobile navigation
+function toggleMobileNav() {
+    if (mobileNavOpen) {
+        closeMobileNav();
+    } else {
+        openMobileNav();
+    }
+}
+
+// Open mobile navigation
+function openMobileNav() {
+    const nav = document.getElementById('mobile-nav');
+    const overlay = document.getElementById('mobile-nav-overlay');
+    const toggle = document.getElementById('menu-toggle');
+
+    nav.classList.remove('hidden');
+    overlay.classList.remove('hidden');
+    toggle.classList.add('menu-open');
+    toggle.setAttribute('aria-expanded', 'true');
+
+    // Sync mobile filter with desktop filter
+    syncMobileFilters();
+
+    // Prevent body scroll when nav is open
+    document.body.style.overflow = 'hidden';
+
+    mobileNavOpen = true;
+}
+
+// Close mobile navigation
+function closeMobileNav() {
+    const nav = document.getElementById('mobile-nav');
+    const overlay = document.getElementById('mobile-nav-overlay');
+    const toggle = document.getElementById('menu-toggle');
+
+    nav.classList.add('hidden');
+    overlay.classList.add('hidden');
+    toggle.classList.remove('menu-open');
+    toggle.setAttribute('aria-expanded', 'false');
+
+    // Restore body scroll
+    document.body.style.overflow = '';
+
+    mobileNavOpen = false;
+}
+
+// Sync mobile filter dropdowns with desktop state
+function syncMobileFilters() {
+    const mobileEpicFilter = document.getElementById('mobile-epic-filter');
+    const mobileSearchInput = document.getElementById('mobile-search-input');
+    const mobileSearchClear = document.getElementById('mobile-search-clear');
+
+    // Sync epic filter value
+    if (mobileEpicFilter) {
+        mobileEpicFilter.value = selectedEpicId;
+    }
+
+    // Sync search input value
+    if (mobileSearchInput) {
+        mobileSearchInput.value = searchTerm;
+        // Show/hide clear button
+        if (mobileSearchClear) {
+            if (searchTerm) {
+                mobileSearchClear.classList.remove('hidden');
+            } else {
+                mobileSearchClear.classList.add('hidden');
+            }
+        }
+    }
+}
+
+// Populate mobile epic filter dropdown
+function populateMobileEpicFilter(epics, ticks) {
+    const select = document.getElementById('mobile-epic-filter');
+    if (!select) return;
+
+    // Keep "All Ticks" option
+    select.innerHTML = '<option value="">All Ticks</option>';
+
+    // Check for orphaned ticks (non-epics without a parent)
+    const hasOrphaned = ticks.some(t => t.type !== 'epic' && !t.parent);
+    if (hasOrphaned) {
+        const orphanedOption = document.createElement('option');
+        orphanedOption.value = 'orphaned';
+        orphanedOption.textContent = 'No Epic (Orphaned)';
+        select.appendChild(orphanedOption);
+    }
+
+    // Add epics to dropdown
+    epics.forEach(epic => {
+        const option = document.createElement('option');
+        option.value = epic.id;
+        option.textContent = `${epic.id}: ${epic.title}`;
+        select.appendChild(option);
+    });
+
+    // Restore selected value
+    if (selectedEpicId) {
+        select.value = selectedEpicId;
+    }
+}
+
+// Handle mobile epic filter change
+function handleMobileEpicFilterChange() {
+    const select = document.getElementById('mobile-epic-filter');
+    selectedEpicId = select.value;
+
+    // Update URL param
+    const url = new URL(window.location);
+    if (selectedEpicId) {
+        url.searchParams.set('epic', selectedEpicId);
+    } else {
+        url.searchParams.delete('epic');
+    }
+    window.history.replaceState({}, '', url);
+
+    // Re-render with cached ticks
+    renderTicks(cachedTicks);
+
+    // Sync desktop filter
+    const desktopFilter = document.getElementById('epic-filter');
+    if (desktopFilter) {
+        desktopFilter.value = selectedEpicId;
+    }
+
+    // Close mobile nav after selection
+    closeMobileNav();
+}
+
+// Handle mobile search input
+function handleMobileSearchInput() {
+    const input = document.getElementById('mobile-search-input');
+    const clearBtn = document.getElementById('mobile-search-clear');
+    searchTerm = input.value.trim().toLowerCase();
+
+    // Show/hide clear button
+    if (input.value) {
+        clearBtn.classList.remove('hidden');
+    } else {
+        clearBtn.classList.add('hidden');
+    }
+
+    // Re-render with cached ticks
+    renderTicks(cachedTicks);
+
+    // Sync desktop search
+    const desktopSearch = document.getElementById('search-input');
+    const desktopClear = document.getElementById('search-clear');
+    if (desktopSearch) {
+        desktopSearch.value = input.value;
+        if (desktopClear) {
+            if (input.value) {
+                desktopClear.classList.remove('hidden');
+            } else {
+                desktopClear.classList.add('hidden');
+            }
+        }
+    }
+}
+
+// Clear mobile search input
+function clearMobileSearch() {
+    const input = document.getElementById('mobile-search-input');
+    const clearBtn = document.getElementById('mobile-search-clear');
+    input.value = '';
+    searchTerm = '';
+    clearBtn.classList.add('hidden');
+    renderTicks(cachedTicks);
+    input.focus();
+
+    // Sync desktop search
+    const desktopSearch = document.getElementById('search-input');
+    const desktopClear = document.getElementById('search-clear');
+    if (desktopSearch) {
+        desktopSearch.value = '';
+        if (desktopClear) {
+            desktopClear.classList.add('hidden');
         }
     }
 }
