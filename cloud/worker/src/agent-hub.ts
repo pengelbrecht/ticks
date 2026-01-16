@@ -146,26 +146,41 @@ export class AgentHub {
   private handleSSE(boardName: string): Response {
     const encoder = new TextEncoder();
 
-    // Create a transform stream for SSE
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-    const writer = writable.getWriter();
+    // Create a readable stream for SSE
+    let subscriberRef: EventSubscriber | null = null;
 
-    // Register subscriber
-    const subscriber: EventSubscriber = { writer, boardName };
-    if (!this.eventSubscribers.has(boardName)) {
-      this.eventSubscribers.set(boardName, new Set());
-    }
-    this.eventSubscribers.get(boardName)!.add(subscriber);
+    const stream = new ReadableStream({
+      start: (controller) => {
+        // Create a pseudo-writer that enqueues to the controller
+        const pseudoWriter = {
+          write: (data: Uint8Array) => {
+            try {
+              controller.enqueue(data);
+            } catch {
+              // Stream closed, ignore
+            }
+          },
+        };
 
-    // Send initial connection event
-    writer.write(encoder.encode(`event: connected\ndata: {"board":"${boardName}"}\n\n`));
+        // Register subscriber
+        subscriberRef = { writer: pseudoWriter as unknown as WritableStreamDefaultWriter<Uint8Array>, boardName };
+        if (!this.eventSubscribers.has(boardName)) {
+          this.eventSubscribers.set(boardName, new Set());
+        }
+        this.eventSubscribers.get(boardName)!.add(subscriberRef);
 
-    // Clean up when client disconnects
-    readable.pipeTo(new WritableStream()).catch(() => {
-      this.eventSubscribers.get(boardName)?.delete(subscriber);
+        // Send initial connection event
+        controller.enqueue(encoder.encode(`event: connected\ndata: {"board":"${boardName}"}\n\n`));
+      },
+      cancel: () => {
+        // Clean up when client disconnects
+        if (subscriberRef) {
+          this.eventSubscribers.get(boardName)?.delete(subscriberRef);
+        }
+      },
     });
 
-    return new Response(readable, {
+    return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",

@@ -22,6 +22,11 @@ import (
 //go:embed static/*
 var staticFS embed.FS
 
+// EventPusher interface for cloud event broadcasting.
+type EventPusher interface {
+	PushEvent(eventType string, payload interface{}) error
+}
+
 // Server represents the tickboard HTTP server.
 type Server struct {
 	tickDir string
@@ -34,6 +39,9 @@ type Server struct {
 
 	// File watcher
 	watcher *fsnotify.Watcher
+
+	// Cloud client for event broadcasting
+	cloudClient EventPusher
 }
 
 // New creates a new tickboard server.
@@ -50,6 +58,21 @@ func New(tickDir string, port int) (*Server, error) {
 		watcher:    watcher,
 	}
 	return s, nil
+}
+
+// SetCloudClient sets the cloud client for event broadcasting.
+func (s *Server) SetCloudClient(client EventPusher) {
+	s.cloudClient = client
+}
+
+// pushCloudEvent sends an event to the cloud if connected.
+func (s *Server) pushCloudEvent(eventType string, payload interface{}) {
+	if s.cloudClient != nil {
+		if err := s.cloudClient.PushEvent(eventType, payload); err != nil {
+			// Log but don't fail - cloud is optional
+			fmt.Fprintf(os.Stderr, "cloud: failed to push event: %v\n", err)
+		}
+	}
 }
 
 // Run starts the HTTP server and blocks until the context is cancelled.
@@ -234,6 +257,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 				}
 				debounceTimer = time.AfterFunc(debounceDelay, func() {
 					s.broadcast(`{"type":"activity"}`)
+					s.pushCloudEvent("activity", map[string]string{"type": "activity"})
 				})
 				continue
 			}
@@ -259,9 +283,12 @@ func (s *Server) watchFiles(ctx context.Context) {
 				// Extract tick ID from filename
 				tickID := strings.TrimSuffix(filepath.Base(event.Name), ".json")
 
-				// Broadcast the change
+				// Broadcast the change locally
 				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
 				s.broadcast(msg)
+
+				// Push to cloud
+				s.pushCloudEvent(eventType, map[string]string{"type": eventType, "tickId": tickID})
 			})
 
 		case err, ok := <-s.watcher.Errors:

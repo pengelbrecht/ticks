@@ -100,6 +100,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to create cloud client: %v\n", err)
 		} else {
+			// Connect server to cloud for event broadcasting
+			srv.SetCloudClient(cloudClient)
+
 			// Start cloud client in background
 			go func() {
 				if err := cloudClient.Run(ctx); err != nil && ctx.Err() == nil {

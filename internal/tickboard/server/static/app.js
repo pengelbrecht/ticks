@@ -985,7 +985,17 @@ async function initBoard() {
 
 // Set up SSE for live updates with FLIP animations
 function setupLiveUpdates() {
-    const eventSource = new EventSource('api/events');
+    // Determine SSE endpoint based on whether we're on cloud or local
+    // Cloud URLs are like /b/<boardName>/, local is at root
+    let sseUrl = 'api/events';
+    const pathMatch = window.location.pathname.match(/^\/b\/([^\/]+)\//);
+    if (pathMatch) {
+        // On cloud - use the cloud's SSE endpoint
+        const boardName = pathMatch[1];
+        sseUrl = `/events/${boardName}`;
+    }
+
+    const eventSource = new EventSource(sseUrl);
 
     eventSource.addEventListener('connected', () => {
         console.log('SSE connected');
