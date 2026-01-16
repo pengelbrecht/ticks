@@ -54,9 +54,9 @@ function formatAwaiting(awaiting) {
 function formatRequires(requires) {
     if (!requires) return null;
     const labels = {
-        approval: 'Needs Approval',
-        review: 'Needs Review',
-        content: 'Needs Content'
+        approval: 'Needs approval',
+        review: 'Needs review (code)',
+        content: 'Needs review (content)'
     };
     return labels[requires] || requires;
 }
