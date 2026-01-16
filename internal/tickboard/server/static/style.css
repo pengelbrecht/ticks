@@ -1839,6 +1839,158 @@ main {
     }
 }
 
+/* ========================================
+   Mobile Touch Interactions
+   ======================================== */
+
+/* Touch target minimum sizing (44px as per WCAG guidelines) */
+@media (pointer: coarse) {
+    /* All clickable elements need minimum 44px touch targets */
+    .tick-card {
+        min-height: 2.75rem; /* 44px */
+        /* Add touch-action to prevent scroll interference during tap */
+        touch-action: manipulation;
+    }
+
+    .header-btn {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+    }
+
+    .action-btn {
+        min-height: 2.75rem;
+        padding: 0.75rem 1rem;
+    }
+
+    .search-clear {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+
+    .modal-close,
+    .detail-close {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+
+    .activity-item {
+        min-height: 2.75rem;
+        padding: 0.625rem 0.75rem;
+    }
+
+    .blocker-item {
+        min-height: 2.75rem;
+    }
+
+    /* Form elements need adequate touch targets */
+    .form-input,
+    .form-select,
+    .form-textarea,
+    .search-input,
+    .epic-filter,
+    .detail-select,
+    .modal-textarea,
+    .note-textarea {
+        min-height: 2.75rem;
+        font-size: 1rem; /* Prevent zoom on iOS */
+    }
+
+    /* Increase column header tap area */
+    .column-header {
+        min-height: 2.75rem;
+        padding: 0.75rem 1rem;
+    }
+}
+
+/* Draggable card styles */
+.tick-card {
+    /* Enable potential for drag */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.tick-card.dragging {
+    opacity: 0.8;
+    transform: scale(1.02);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    cursor: grabbing;
+}
+
+.tick-card.drag-over {
+    border-color: var(--blue);
+    border-style: dashed;
+}
+
+/* Drop zone indicator for columns */
+.kanban-column.drop-target .column-content {
+    background-color: rgba(137, 180, 250, 0.1);
+    border: 2px dashed var(--blue);
+    border-radius: 6px;
+}
+
+/* Touch drag ghost styling */
+.tick-card.touch-dragging {
+    position: fixed;
+    pointer-events: none;
+    z-index: 10000;
+    opacity: 0.9;
+    transform: rotate(2deg) scale(1.05);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    transition: none;
+}
+
+/* Placeholder for dragged card's original position */
+.tick-card-placeholder {
+    background-color: var(--surface1);
+    border: 2px dashed var(--surface2);
+    border-radius: 6px;
+    min-height: 60px;
+    margin-bottom: 0.5rem;
+}
+
+/* Swipe indicator for horizontal scroll on tablet */
+@media (max-width: 768px) and (min-width: 481px) {
+    /* Add scroll snap for better swipe experience */
+    .kanban-board {
+        scroll-snap-type: x mandatory;
+        scroll-behavior: smooth;
+        /* Prevent overscroll bounce interfering */
+        overscroll-behavior-x: contain;
+    }
+
+    .kanban-column {
+        scroll-snap-align: center;
+        scroll-snap-stop: always;
+    }
+
+    /* Visual swipe hint on first load */
+    .kanban-board::after {
+        content: '';
+        display: block;
+        flex-shrink: 0;
+        width: 1rem;
+    }
+}
+
+/* Touch-optimized scrolling in columns */
+@media (pointer: coarse) {
+    .column-content {
+        /* Smooth momentum scrolling on touch */
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
+    }
+
+    /* Wider scrollbar for touch dragging */
+    .column-content::-webkit-scrollbar {
+        width: 8px;
+    }
+}
+
 /* Utility Classes */
 .hidden {
     display: none !important;

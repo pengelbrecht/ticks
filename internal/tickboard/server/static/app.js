@@ -1815,12 +1815,370 @@ function initCloudUI() {
     }
 }
 
+// ========================================
+// Touch Drag and Drop
+// ========================================
+
+// Track touch drag state
+let touchDragState = {
+    active: false,
+    card: null,
+    ghost: null,
+    placeholder: null,
+    startX: 0,
+    startY: 0,
+    offsetX: 0,
+    offsetY: 0,
+    sourceColumn: null,
+    longPressTimer: null
+};
+
+// Minimum drag distance to start drag (prevents accidental drags)
+const DRAG_THRESHOLD = 10;
+const LONG_PRESS_DURATION = 300; // ms
+
+// Check if device supports touch
+function isTouchDevice() {
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
+// Initialize touch drag for a card
+function initTouchDrag(card) {
+    if (!isTouchDevice()) return;
+
+    let touchStarted = false;
+    let touchMoved = false;
+
+    card.addEventListener('touchstart', function(e) {
+        // Only handle single touch
+        if (e.touches.length !== 1) return;
+
+        const touch = e.touches[0];
+        touchStarted = true;
+        touchMoved = false;
+
+        touchDragState.startX = touch.clientX;
+        touchDragState.startY = touch.clientY;
+
+        // Calculate offset from card's top-left corner
+        const rect = card.getBoundingClientRect();
+        touchDragState.offsetX = touch.clientX - rect.left;
+        touchDragState.offsetY = touch.clientY - rect.top;
+
+        // Start long press timer for drag initiation
+        touchDragState.longPressTimer = setTimeout(() => {
+            if (touchStarted && !touchMoved) {
+                startTouchDrag(card, touch);
+            }
+        }, LONG_PRESS_DURATION);
+    }, { passive: true });
+
+    card.addEventListener('touchmove', function(e) {
+        if (!touchStarted) return;
+
+        const touch = e.touches[0];
+        const deltaX = Math.abs(touch.clientX - touchDragState.startX);
+        const deltaY = Math.abs(touch.clientY - touchDragState.startY);
+
+        // Check if moved beyond threshold
+        if (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD) {
+            touchMoved = true;
+            // Clear long press timer if moved before it fires
+            if (touchDragState.longPressTimer) {
+                clearTimeout(touchDragState.longPressTimer);
+                touchDragState.longPressTimer = null;
+            }
+        }
+
+        // If dragging, update ghost position
+        if (touchDragState.active && touchDragState.card === card) {
+            e.preventDefault();
+            updateTouchDragPosition(touch);
+            updateDropTarget(touch);
+        }
+    }, { passive: false });
+
+    card.addEventListener('touchend', function(e) {
+        // Clear long press timer
+        if (touchDragState.longPressTimer) {
+            clearTimeout(touchDragState.longPressTimer);
+            touchDragState.longPressTimer = null;
+        }
+
+        if (touchDragState.active && touchDragState.card === card) {
+            endTouchDrag(e);
+        }
+
+        touchStarted = false;
+        touchMoved = false;
+    });
+
+    card.addEventListener('touchcancel', function() {
+        if (touchDragState.longPressTimer) {
+            clearTimeout(touchDragState.longPressTimer);
+            touchDragState.longPressTimer = null;
+        }
+        cancelTouchDrag();
+    });
+}
+
+// Start touch drag
+function startTouchDrag(card, touch) {
+    // Haptic feedback if available
+    if (navigator.vibrate) {
+        navigator.vibrate(50);
+    }
+
+    touchDragState.active = true;
+    touchDragState.card = card;
+    touchDragState.sourceColumn = card.closest('.kanban-column')?.dataset.column;
+
+    // Create ghost element
+    const ghost = card.cloneNode(true);
+    ghost.classList.add('touch-dragging');
+    ghost.style.width = card.offsetWidth + 'px';
+    document.body.appendChild(ghost);
+    touchDragState.ghost = ghost;
+
+    // Position ghost at touch point
+    updateTouchDragPosition(touch);
+
+    // Create placeholder
+    const placeholder = document.createElement('div');
+    placeholder.className = 'tick-card-placeholder';
+    placeholder.style.height = card.offsetHeight + 'px';
+    card.parentNode.insertBefore(placeholder, card);
+    touchDragState.placeholder = placeholder;
+
+    // Hide original card
+    card.style.visibility = 'hidden';
+    card.classList.add('dragging');
+
+    // Prevent scrolling while dragging
+    document.body.style.overflow = 'hidden';
+}
+
+// Update ghost position during drag
+function updateTouchDragPosition(touch) {
+    if (!touchDragState.ghost) return;
+
+    const x = touch.clientX - touchDragState.offsetX;
+    const y = touch.clientY - touchDragState.offsetY;
+
+    touchDragState.ghost.style.left = x + 'px';
+    touchDragState.ghost.style.top = y + 'px';
+}
+
+// Update drop target highlighting
+function updateDropTarget(touch) {
+    // Remove existing drop targets
+    document.querySelectorAll('.kanban-column.drop-target').forEach(col => {
+        col.classList.remove('drop-target');
+    });
+
+    // Find column under touch point
+    const elementsUnder = document.elementsFromPoint(touch.clientX, touch.clientY);
+    const column = elementsUnder.find(el => el.classList?.contains('kanban-column'));
+
+    if (column) {
+        column.classList.add('drop-target');
+    }
+}
+
+// End touch drag - handle drop
+function endTouchDrag(e) {
+    if (!touchDragState.active) return;
+
+    const touch = e.changedTouches[0];
+
+    // Find target column
+    const elementsUnder = document.elementsFromPoint(touch.clientX, touch.clientY);
+    const targetColumn = elementsUnder.find(el => el.classList?.contains('kanban-column'));
+    const targetColumnName = targetColumn?.dataset.column;
+
+    // Check if dropped on a different column and if the move is valid
+    if (targetColumnName && targetColumnName !== touchDragState.sourceColumn) {
+        const tickId = touchDragState.card.dataset.tickId;
+        handleCardDrop(tickId, touchDragState.sourceColumn, targetColumnName);
+    }
+
+    // Clean up
+    cleanupTouchDrag();
+}
+
+// Cancel touch drag
+function cancelTouchDrag() {
+    cleanupTouchDrag();
+}
+
+// Clean up after drag
+function cleanupTouchDrag() {
+    // Remove ghost
+    if (touchDragState.ghost) {
+        touchDragState.ghost.remove();
+    }
+
+    // Remove placeholder
+    if (touchDragState.placeholder) {
+        touchDragState.placeholder.remove();
+    }
+
+    // Restore original card
+    if (touchDragState.card) {
+        touchDragState.card.style.visibility = '';
+        touchDragState.card.classList.remove('dragging');
+    }
+
+    // Remove drop target highlighting
+    document.querySelectorAll('.kanban-column.drop-target').forEach(col => {
+        col.classList.remove('drop-target');
+    });
+
+    // Restore scrolling
+    document.body.style.overflow = '';
+
+    // Reset state
+    touchDragState = {
+        active: false,
+        card: null,
+        ghost: null,
+        placeholder: null,
+        startX: 0,
+        startY: 0,
+        offsetX: 0,
+        offsetY: 0,
+        sourceColumn: null,
+        longPressTimer: null
+    };
+}
+
+// Handle card drop - update tick status based on column
+async function handleCardDrop(tickId, sourceColumn, targetColumn) {
+    // Define valid column transitions and their actions
+    const validMoves = {
+        // Moving to 'done' column closes the tick
+        'done': async () => {
+            try {
+                const response = await fetch(`api/ticks/${tickId}/close`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: 'Closed via drag and drop' })
+                });
+                if (!response.ok) throw new Error('Failed to close tick');
+                showToast('Tick closed', 'success');
+                return true;
+            } catch (error) {
+                showToast('Cannot move to Done: ' + error.message, 'error');
+                return false;
+            }
+        },
+        // Moving from 'done' reopens the tick
+        'reopen': async () => {
+            try {
+                const response = await fetch(`api/ticks/${tickId}/reopen`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!response.ok) throw new Error('Failed to reopen tick');
+                showToast('Tick reopened', 'success');
+                return true;
+            } catch (error) {
+                showToast('Cannot reopen: ' + error.message, 'error');
+                return false;
+            }
+        }
+    };
+
+    let success = false;
+
+    // Handle move to done
+    if (targetColumn === 'done' && sourceColumn !== 'done') {
+        success = await validMoves['done']();
+    }
+    // Handle move from done (reopen)
+    else if (sourceColumn === 'done' && targetColumn !== 'done') {
+        success = await validMoves['reopen']();
+    }
+    // Other column moves aren't directly supported via drag (state is determined by tick properties)
+    else {
+        showToast('This move is not supported. Use the detail panel to modify tick properties.', 'error');
+    }
+
+    // Refresh board to reflect changes
+    if (success) {
+        await animatedBoardUpdate();
+    }
+}
+
+// ========================================
+// Swipe Navigation for Tablet
+// ========================================
+
+// Initialize swipe gestures for horizontal column navigation
+function initSwipeNavigation() {
+    const board = document.getElementById('board');
+    if (!board || !isTouchDevice()) return;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isSwiping = false;
+
+    board.addEventListener('touchstart', function(e) {
+        // Don't interfere with card drags
+        if (touchDragState.active) return;
+
+        if (e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            isSwiping = false;
+        }
+    }, { passive: true });
+
+    board.addEventListener('touchmove', function(e) {
+        if (touchDragState.active) return;
+        if (e.touches.length !== 1) return;
+
+        const deltaX = e.touches[0].clientX - touchStartX;
+        const deltaY = e.touches[0].clientY - touchStartY;
+
+        // Determine if horizontal swipe (more horizontal than vertical)
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 20) {
+            isSwiping = true;
+        }
+    }, { passive: true });
+
+    // The browser's native scroll-snap handles the actual snapping
+    // We just add visual feedback during swipe
+}
+
+// Initialize drag and swipe for all cards
+function initTouchInteractions() {
+    // Initialize touch drag for existing cards
+    document.querySelectorAll('.tick-card').forEach(card => {
+        initTouchDrag(card);
+    });
+
+    // Initialize swipe navigation
+    initSwipeNavigation();
+}
+
+// Re-initialize touch drag when cards are re-rendered
+const originalRenderTicks = renderTicks;
+renderTicks = function(ticks) {
+    originalRenderTicks(ticks);
+    // Re-attach touch handlers to new cards
+    document.querySelectorAll('.tick-card').forEach(card => {
+        initTouchDrag(card);
+    });
+};
+
 // Main entry point
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Tick Board initialized');
     initBoard();
     initActivityFeed();
     initCloudUI();
+    initTouchInteractions();
 
     // Try to set up live updates (will fail gracefully if endpoint not implemented)
     try {
