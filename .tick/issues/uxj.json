@@ -1,0 +1,12 @@
+{
+  "id": "uxj",
+  "title": "Document awaiting=work in tk top-level help",
+  "description": "The tk top-level help mentions --manual is deprecated but doesn't explain --awaiting=work as the replacement. Add clear documentation for awaiting=work usage.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T17:41:16.310145Z",
+  "updated_at": "2026-01-16T17:41:16.310145Z"
+}

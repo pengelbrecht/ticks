@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/tickboard/cloud"
 	"github.com/pengelbrecht/ticks/internal/tickboard/server"
 )
 
@@ -89,10 +90,35 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Starting Tick Board server at http://localhost:%d\n", port)
 	fmt.Printf("Serving ticks from: %s\n", tickDir)
+
+	// Check for cloud configuration
+	cloudCfg := cloud.LoadConfig(tickDir, port)
+	var cloudClient *cloud.Client
+	if cloudCfg != nil {
+		var err error
+		cloudClient, err = cloud.NewClient(*cloudCfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create cloud client: %v\n", err)
+		} else {
+			// Start cloud client in background
+			go func() {
+				if err := cloudClient.Run(ctx); err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "Cloud client error: %v\n", err)
+				}
+			}()
+			fmt.Printf("Cloud: connecting to %s as %s\n", cloudCfg.CloudURL, cloudCfg.BoardName)
+		}
+	}
+
 	fmt.Println("Press Ctrl+C to stop")
 
 	if err := srv.Run(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("server error: %w", err)
+	}
+
+	// Clean up cloud client
+	if cloudClient != nil {
+		cloudClient.Close()
 	}
 
 	return nil

@@ -2,13 +2,13 @@
   "id": "l27",
   "title": "Cloud: Billing and usage tracking",
   "description": "Commercial features:\n- Track usage per user (requests, bandwidth, boards)\n- Stripe integration for subscriptions\n- Free tier limits\n- Usage dashboard",
+  "notes": "2026-01-16 18:43 - (from: human) this should be it's own epic",
   "status": "open",
   "priority": 3,
-  "type": "task",
+  "type": "epic",
   "owner": "peter@engelbrecht.dk",
-  "parent": "mto",
   "awaiting": "work",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:49:46.793267Z",
-  "updated_at": "2026-01-16T17:39:02.711485Z"
+  "updated_at": "2026-01-16T18:43:35.775796+01:00"
 }

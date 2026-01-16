@@ -2,12 +2,13 @@
   "id": "3yt",
   "title": "Local: Auto-connect to cloud",
   "description": "Add cloud connection to local tickboard:\n- Read token from ~/.tickboardrc or TICKBOARD_TOKEN env\n- If token present, connect wss://tickboard.io/agent on startup\n- Register board: name (from .tick or dir name), machine ID\n- Handle relayed HTTP requests, return responses\n- Reconnect with exponential backoff\n- Graceful fallback if cloud unreachable (local-only mode)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "mto",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:49:39.550351Z",
-  "updated_at": "2026-01-16T09:49:39.550351Z"
+  "updated_at": "2026-01-16T17:43:59.219518Z",
+  "closed_at": "2026-01-16T17:43:59.219518Z"
 }
