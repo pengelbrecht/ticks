@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/query"
@@ -46,6 +48,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// API endpoint: list ticks with filters
 	mux.HandleFunc("/api/ticks", s.handleListTicks)
+
+	// API endpoint: approve a tick
+	mux.HandleFunc("/api/ticks/", s.handleTickActions)
 
 	// Root handler - serve index.html
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -246,4 +251,129 @@ func computeColumn(t tick.Tick, isBlocked bool) string {
 
 	// ready: open + unblocked + !awaiting
 	return ColumnReady
+}
+
+// handleTickActions routes requests to /api/ticks/:id/action endpoints.
+func (s *Server) handleTickActions(w http.ResponseWriter, r *http.Request) {
+	// Parse path: /api/ticks/:id/approve
+	path := strings.TrimPrefix(r.URL.Path, "/api/ticks/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+
+	tickID := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "approve":
+		s.handleApproveTick(w, r, tickID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// ApproveTickResponse is the response body for POST /api/ticks/:id/approve.
+type ApproveTickResponse struct {
+	tick.Tick
+	IsBlocked bool   `json:"isBlocked"`
+	Column    string `json:"column"`
+	Closed    bool   `json:"closed"`
+}
+
+// handleApproveTick handles POST /api/ticks/:id/approve.
+func (s *Server) handleApproveTick(w http.ResponseWriter, r *http.Request, tickID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Load the tick
+	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
+	data, err := os.ReadFile(tickPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Tick not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to read tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Validate tick is awaiting human action
+	if !t.IsAwaitingHuman() {
+		http.Error(w, "Tick is not awaiting human action", http.StatusBadRequest)
+		return
+	}
+
+	// Handle legacy Manual flag by converting to Awaiting field
+	// This ensures ProcessVerdict works correctly
+	if t.Manual && t.Awaiting == nil {
+		t.SetAwaiting(tick.AwaitingWork)
+	}
+
+	// Set verdict to approved
+	verdict := tick.VerdictApproved
+	t.Verdict = &verdict
+	t.UpdatedAt = time.Now()
+
+	// Process the verdict
+	closed, err := tick.ProcessVerdict(&t)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to process verdict: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Save the tick
+	updatedData, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to marshal tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(tickPath, updatedData, 0644); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save tick: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Build response with computed fields
+	// Load all ticks for blocked calculation
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		// Non-fatal: return tick without computed fields
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ApproveTickResponse{
+			Tick:   t,
+			Closed: closed,
+		})
+		return
+	}
+
+	tickIndex := make(map[string]tick.Tick, len(allTicks))
+	for _, tk := range allTicks {
+		tickIndex[tk.ID] = tk
+	}
+
+	isBlocked := computeIsBlocked(t, tickIndex)
+	column := computeColumn(t, isBlocked)
+
+	response := ApproveTickResponse{
+		Tick:      t,
+		IsBlocked: isBlocked,
+		Column:    column,
+		Closed:    closed,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
 }
