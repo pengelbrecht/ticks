@@ -26,6 +26,12 @@ database_id = "cc15ca7e-a3b6-4f5d-85cf-42e94d536d6f"
 [dev]
 port = 8787
 
+# Custom domain configuration
+# To enable: add domain to Cloudflare, then uncomment routes below
+# [routes]
+# { pattern = "tickboard.io/*", zone_name = "tickboard.io" }
+# { pattern = "www.tickboard.io/*", zone_name = "tickboard.io" }
+
 # KV namespace for session data (optional, for future use)
 # [[kv_namespaces]]
 # binding = "SESSIONS"
