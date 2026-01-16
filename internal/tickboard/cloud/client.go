@@ -2,9 +2,11 @@ package cloud
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -278,8 +280,42 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
 
+	// Extract hostname for TLS ServerName (needed if connecting via IP)
+	cloudHost := "tickboard.dev"
+	if strings.Contains(c.cloudURL, "://") {
+		parts := strings.SplitN(c.cloudURL, "://", 2)
+		if len(parts) == 2 {
+			hostPort := strings.SplitN(parts[1], "/", 2)[0]
+			cloudHost = strings.SplitN(hostPort, ":", 2)[0]
+		}
+	}
+
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+		TLSClientConfig: &tls.Config{
+			ServerName: cloudHost,
+		},
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// Force IPv4 by resolving and picking IPv4 address
+			hostPart, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			}
+
+			ips, err := net.LookupIP(hostPart)
+			if err != nil {
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			}
+
+			// Find first IPv4 address
+			for _, ip := range ips {
+				if ip4 := ip.To4(); ip4 != nil {
+					return (&net.Dialer{}).DialContext(ctx, "tcp4", net.JoinHostPort(ip4.String(), port))
+				}
+			}
+
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
 	}
 
 	conn, _, err := dialer.DialContext(ctx, c.cloudURL, nil)
