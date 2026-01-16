@@ -2,7 +2,7 @@
   "id": "2l3",
   "title": "Live updates via SSE",
   "description": "Real-time board updates using Server-Sent Events:\n\nSERVER:\n- Watch .tick/issues/ with fsnotify\n- SSE endpoint GET /api/events\n- Stream tick change events: {type: 'update'|'create'|'delete', tick: {...}}\n- Debounce rapid changes (100ms)\n\nCLIENT:\n- htmx SSE extension\n- Connect to /api/events on load\n- Update/add/remove cards on events\n- Smooth CSS transitions for card moves\n- Reconnect on disconnect\n\nReplace polling approach (xa7).",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "acceptance_criteria": "- Changes in .tick/ appear on board within 500ms\n- No polling - pure event-driven\n- Cards animate when moving columns\n- Handles reconnect gracefully",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:28:09.668564Z",
-  "updated_at": "2026-01-16T09:28:09.668564Z"
+  "updated_at": "2026-01-16T15:00:26.69839Z",
+  "closed_at": "2026-01-16T16:00:26.698391+01:00"
 }

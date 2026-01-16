@@ -2,7 +2,8 @@
   "id": "oa8",
   "title": "Keyboard shortcuts",
   "description": "Keyboard navigation:\n- Arrow keys to move between cards\n- Enter to open detail panel\n- Escape to close panel\n- 'a' to approve (when panel open)\n- 'r' to reject (when panel open)\n- '?' to show shortcuts help",
-  "status": "open",
+  "notes": "2026-01-16 15:38 - Test SSE live update\n2026-01-16 18:06 - Testing real-time activity notifications",
+  "status": "closed",
   "priority": 3,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +14,6 @@
   "acceptance_criteria": "- Arrow keys navigate cards\n- Enter opens detail, Escape closes\n- 'a' approves, 'r' rejects when panel open\n- '?' shows help",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:16:50.839704Z",
-  "updated_at": "2026-01-16T09:19:54.582456Z"
+  "updated_at": "2026-01-16T17:12:19.660933Z",
+  "closed_at": "2026-01-16T17:12:19.660933Z"
 }

@@ -2,7 +2,7 @@
   "id": "yyh",
   "title": "UI: Approve/Reject actions",
   "description": "Action buttons in detail panel for ticks awaiting human:\n- Approve button (green) - calls POST /api/ticks/:id/approve\n- Reject button (red) - opens feedback modal\n- Feedback modal: textarea + submit\n- htmx for async updates\n- Success/error toast notifications\n- Card moves to new column on success\n\nAGENT VERIFICATION:\n- Use agent-browser to open a tick in 'Needs Review' column\n- Click Approve, verify card moves to Done\n- Open another tick, click Reject\n- Enter feedback, submit\n- Verify card moves to Rejected column\n- Take screenshot of each step\n\nHUMAN REVIEW:\n- URL: http://localhost:3000\n- Test approve flow on a real tick\n- Test reject flow with feedback\n- Verify feedback appears in notes",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,7 +13,9 @@
   ],
   "parent": "dfb",
   "requires": "content",
+  "verdict": "approved",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:16:35.970087Z",
-  "updated_at": "2026-01-16T09:16:59.361524Z"
+  "updated_at": "2026-01-16T14:57:31.146553+01:00",
+  "closed_at": "2026-01-16T14:57:31.146554+01:00"
 }

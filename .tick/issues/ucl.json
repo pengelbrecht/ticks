@@ -1,0 +1,12 @@
+{
+  "id": "ucl",
+  "title": "Test activity feed",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T16:11:07.849576Z",
+  "updated_at": "2026-01-16T16:11:16.266481Z",
+  "closed_at": "2026-01-16T16:11:16.266481Z"
+}

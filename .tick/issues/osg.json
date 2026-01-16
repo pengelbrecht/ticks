@@ -1,0 +1,14 @@
+{
+  "id": "osg",
+  "title": "Tick actions: close and edit from board",
+  "description": "Add ability to manage ticks from the board UI:\n\nCLOSE:\n- Close button on tick cards in Backlog and Agent Queue columns\n- Ticks with 'requires' field cannot be closed directly (must use approve/reject)\n- Ticks in_progress cannot be closed (agent working)\n- Confirmation modal with optional close reason\n\nEDIT (for any open tick not in_progress):\n- Change priority\n- Change type  \n- Change parent epic\n- Change owner\n- Add/change workflow (requires field)\n\nImplementation:\n- Add action menu or buttons to tick detail panel\n- PATCH /api/ticks/:id endpoint for updates\n- Respect workflow rules (no closing ticks with requires gate)",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "dfb",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T15:25:20.460943Z",
+  "updated_at": "2026-01-16T15:43:37.348997Z",
+  "closed_at": "2026-01-16T15:43:37.348997Z"
+}

@@ -2,7 +2,7 @@
   "id": "rd9",
   "title": "UI: Create tick modal",
   "description": "Create tick button and modal:\n- '+' button in header\n- Modal with form fields:\n  - Title (required)\n  - Description (textarea)\n  - Type (select: task/bug/feature/chore)\n  - Priority (select: P1/P2/P3)\n  - Parent epic (select from epics)\n  - Requires gate (select: none/approval/review/content)\n- htmx POST to /api/ticks\n- New card appears in appropriate column\n- Modal closes on success\n\nAGENT VERIFICATION:\n- Use agent-browser to click '+' button\n- Fill out form with test data\n- Submit and verify card appears\n- Take screenshot\n\nHUMAN REVIEW:\n- URL: http://localhost:3000\n- Create a test tick\n- Verify it appears in correct column",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,6 @@
   "requires": "content",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:16:38.21587Z",
-  "updated_at": "2026-01-16T09:17:00.578585Z"
+  "updated_at": "2026-01-16T14:33:13.541894Z",
+  "closed_at": "2026-01-16T15:33:13.541894+01:00"
 }

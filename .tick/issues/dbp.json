@@ -1,0 +1,13 @@
+{
+  "id": "dbp",
+  "title": "Test in-progress tick",
+  "description": "This tick should show pulsing animation",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T15:13:42.831893Z",
+  "updated_at": "2026-01-16T15:20:52.573872Z",
+  "closed_at": "2026-01-16T15:20:52.573872Z"
+}

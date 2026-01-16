@@ -1,0 +1,12 @@
+{
+  "id": "rrl",
+  "title": "Test tick from UI modal",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "tickboard",
+  "created_by": "tickboard",
+  "created_at": "2026-01-16T15:20:10.056503+01:00",
+  "updated_at": "2026-01-16T14:21:19.638836Z",
+  "closed_at": "2026-01-16T14:21:19.638836Z"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "hme",
+  "title": "Test review tick",
+  "description": "This tick should show human icon",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "verdict": "approved",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T15:13:43.896876Z",
+  "updated_at": "2026-01-16T16:14:24.95913+01:00",
+  "closed_at": "2026-01-16T16:14:24.959131+01:00"
+}

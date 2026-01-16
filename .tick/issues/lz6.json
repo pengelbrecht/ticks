@@ -1,13 +1,122 @@
 {
-  "id": "lz6",
-  "title": "API: Make reject feedback mandatory",
+  "closed_at": "2026-01-16T13:02:22.964597Z",
+  "closed_reason": "Added mandatory feedback validation to POST /api/ticks/:id/reject. Returns 400 Bad Request when feedback is empty or whitespace-only. Updated handleRejectTick with strings.TrimSpace validation. Added TestRejectTick_WhitespaceOnlyFeedback test. Files: server.go, server_test.go",
+  "created_at": "2026-01-16T12:41:32.327924Z",
+  "created_by": "peter@engelbrecht.dk",
   "description": "POST /api/ticks/:id/reject should require feedback:\n- Return 400 Bad Request if feedback is empty\n- Update RejectTickRequest validation\n- Update tests to verify mandatory feedback",
-  "status": "open",
-  "priority": 2,
-  "type": "task",
+  "id": "lz6",
   "owner": "peter@engelbrecht.dk",
   "parent": "dfb",
-  "created_by": "peter@engelbrecht.dk",
-  "created_at": "2026-01-16T12:41:32.327924Z",
-  "updated_at": "2026-01-16T12:41:32.327924Z"
+  "priority": 2,
+  "run": {
+    "session_id": "ddab8bc0-5abd-4db5-b9b9-c118144909e4",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-16T14:00:56.749851+01:00",
+    "ended_at": "2026-01-16T14:03:02.413041+01:00",
+    "output": "I'll work on making the reject feedback mandatory for the POST /api/ticks/:id/reject endpoint.\n\nLet me start by reading the current implementation to understand the code structure.\n\nNow I can see the `handleRejectTick` function starting at line 590. Currently, it only adds feedback as a note if `req.Feedback != \"\"` (lines 633-641), but it doesn't return an error if feedback is empty. I need to add validation to require feedback.\n\nLet me also look at the existing tests to understand how they test the reject endpoint.\n\nThere's already a `TestRejectTick_EmptyFeedback` test. Let me read it to understand what the current expectation is.\n\nThe test `TestRejectTick_EmptyFeedback` (lines 996-1042) currently expects that empty feedback should return `http.StatusOK`. I need to:\n\n1. Update the `handleRejectTick` function to return 400 Bad Request when feedback is empty\n2. Update the `TestRejectTick_EmptyFeedback` test to expect 400 Bad Request\n\nLet me also look at one of the successful reject tests to understand the test pattern.\n\nNow I have a good understanding. Let me make the changes:\n\n1. First, update `handleRejectTick` to validate that feedback is not empty\n2. Then, update the test to expect 400 Bad Request\n\nNow I can remove the conditional check around adding the feedback as a note since feedback is now mandatory. Let me check where that logic is.\n\nI should simplify the code since feedback is now mandatory - the `if req.Feedback != \"\"` check is no longer needed. Let me update it.\n\nNow let me update the test to expect 400 Bad Request when feedback is empty.\n\nNow let me run the tests to verify everything works.\n\nAll the reject tests pass. Let me also run all tests in the tickboard server package to ensure I haven't broken anything else.\n\nAll tests pass. Let me mark the todo as complete and close the task.\n\nNow let me close the task.\n\nThe task is closed. Now let me commit the changes.\n\nNow let me add an epic note for future iterations.\n\nTask completed. Here's a summary:\n\n**Changes made:**\n\n1. **server.go** - Added validation in `handleRejectTick` to require non-empty feedback:\n   - Returns 400 Bad Request with \"feedback is required\" if `strings.TrimSpace(req.Feedback)` is empty\n   - Simplified the note-adding logic since feedback is now always present\n\n2. **server_test.go** - Updated tests:\n   - Modified `TestRejectTick_EmptyFeedback` to expect 400 Bad Request instead of 200 OK\n   - Added `TestRejectTick_WhitespaceOnlyFeedback` to verify whitespace-only feedback also returns 400\n\nAll tests pass.\n\n\u003cpromise\u003eCOMPLETE\u003c/promise\u003e",
+    "tools": [
+      {
+        "name": "Read",
+        "duration_ms": 488
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1178
+      },
+      {
+        "name": "Read",
+        "duration_ms": 863
+      },
+      {
+        "name": "Read",
+        "duration_ms": 665
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1642
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 2501
+      },
+      {
+        "name": "Read",
+        "duration_ms": 548
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 2227
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1436
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 12596
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1375
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1157
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 732
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1165
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2747
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 593
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1343
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 607
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 949
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 3044
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2045
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 309
+      }
+    ],
+    "metrics": {
+      "input_tokens": 2,
+      "output_tokens": 5086,
+      "cache_read_tokens": 1389740,
+      "cache_creation_tokens": 33531,
+      "cost_usd": 1.0517647499999998,
+      "duration_ms": 125174
+    },
+    "success": true,
+    "num_turns": 23
+  },
+  "status": "closed",
+  "title": "API: Make reject feedback mandatory",
+  "type": "task",
+  "updated_at": "2026-01-16T13:02:22.964597Z"
 }

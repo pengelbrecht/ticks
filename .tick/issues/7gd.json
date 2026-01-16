@@ -1,0 +1,14 @@
+{
+  "id": "7gd",
+  "title": "Test close and edit from board",
+  "notes": "2026-01-16 16:42 - (from: Peter Engelbrecht) Closed: Testing close from board UI",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "tickboard",
+  "created_by": "tickboard",
+  "created_at": "2026-01-16T16:36:29.687416+01:00",
+  "updated_at": "2026-01-16T16:42:18.297362+01:00",
+  "closed_at": "2026-01-16T16:42:18.297362+01:00",
+  "closed_reason": "Testing close from board UI"
+}

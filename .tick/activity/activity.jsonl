@@ -6,3 +6,5 @@
 {"ts":"2026-01-16T16:11:07.849965Z","tick":"ucl","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Test activity feed","type":"task"}}
 {"ts":"2026-01-16T16:11:16.266847Z","tick":"ucl","action":"close","actor":"peter@engelbrecht.dk"}
 {"ts":"2026-01-16T17:06:54.705314Z","tick":"oa8","action":"note","actor":"peter@engelbrecht.dk","epic":"dfb","data":{"note":"\n2026-01-16 18:06 - Testing real-time activity notifications","title":"Keyboard shortcuts"}}
+{"ts":"2026-01-16T17:12:19.661244Z","tick":"oa8","action":"close","actor":"peter@engelbrecht.dk","epic":"dfb","data":{"title":"Keyboard shortcuts"}}
+{"ts":"2026-01-16T17:21:59.305097Z","tick":"dfb","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Tick Board - Web Kanban for Ticks"}}

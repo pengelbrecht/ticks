@@ -2,7 +2,8 @@
   "id": "vfo",
   "title": "UI: Tick detail panel",
   "description": "Slide-out panel showing full tick details:\n- All tick fields (like tk show)\n- Workflow section with requires/awaiting/verdict\n- Notes history (parsed and formatted)\n- Blocker list with status\n- Close button\n\nAGENT VERIFICATION:\n- Use agent-browser to click a card\n- Verify panel slides in from right\n- Verify all fields display correctly\n- Verify notes are formatted with timestamps\n- Take screenshot\n\nHUMAN REVIEW:\n- URL: http://localhost:3000 (click any card)\n- Verify information is complete and readable",
-  "status": "open",
+  "notes": "2026-01-16 13:50 - Review: Detail panel in internal/tickboard/server/static/index.html (lines 70-160 HTML structure), style.css (lines 359-701 CSS styles), app.js (lines 97-349 JavaScript). Panel slides in from right when clicking any tick card. Check at http://localhost:3000 (run: go run ./cmd/tickboard). Verify: panel shows ID badge, status icon, title, details grid, description, acceptance criteria, workflow badges, blockers list, notes with timestamps, and closed section. Close via X button, overlay click, or Escape key.\n2026-01-16 12:50 - Work complete, awaiting content\n2026-01-16 13:51 - UI tick detail panel implementation - review at http://localhost:3000 (run: go run ./cmd/tickboard). Click any card to see detail panel. Files: internal/tickboard/server/static/index.html, style.css, app.js",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +14,6 @@
   "requires": "content",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-16T09:16:20.248069Z",
-  "updated_at": "2026-01-16T09:16:20.248069Z"
+  "updated_at": "2026-01-16T13:50:40.717434Z",
+  "closed_at": "2026-01-16T14:50:40.717434+01:00"
 }

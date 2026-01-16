@@ -1,0 +1,14 @@
+{
+  "id": "381",
+  "title": "Activity test tick",
+  "description": "Testing activity logging",
+  "notes": "2026-01-16 17:08 - Added a test note",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-16T16:08:18.492203Z",
+  "updated_at": "2026-01-16T16:08:37.092852Z",
+  "closed_at": "2026-01-16T16:08:37.092852Z"
+}
