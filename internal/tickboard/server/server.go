@@ -67,11 +67,11 @@ func (s *Server) SetCloudClient(client EventPusher) {
 
 // pushCloudEvent sends an event to the cloud if connected.
 func (s *Server) pushCloudEvent(eventType string, payload interface{}) {
-	if s.cloudClient != nil {
-		if err := s.cloudClient.PushEvent(eventType, payload); err != nil {
-			// Log but don't fail - cloud is optional
-			fmt.Fprintf(os.Stderr, "cloud: failed to push event: %v\n", err)
-		}
+	if s.cloudClient == nil {
+		return
+	}
+	if err := s.cloudClient.PushEvent(eventType, payload); err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: failed to push event: %v\n", err)
 	}
 }
 
@@ -233,15 +233,22 @@ func (s *Server) broadcast(msg string) {
 
 // watchFiles watches the issues directory for changes and broadcasts updates.
 func (s *Server) watchFiles(ctx context.Context) {
-	// Debounce timer
-	var debounceTimer *time.Timer
+	// Separate debounce timers for activity and tick events
+	var activityTimer *time.Timer
+	var tickTimer *time.Timer
 	debounceDelay := 100 * time.Millisecond
+
+	// Track the last tick event for the closure
+	var lastTickEvent fsnotify.Event
 
 	for {
 		select {
 		case <-ctx.Done():
-			if debounceTimer != nil {
-				debounceTimer.Stop()
+			if activityTimer != nil {
+				activityTimer.Stop()
+			}
+			if tickTimer != nil {
+				tickTimer.Stop()
 			}
 			return
 		case event, ok := <-s.watcher.Events:
@@ -251,13 +258,13 @@ func (s *Server) watchFiles(ctx context.Context) {
 
 			// Handle activity log changes
 			if strings.HasSuffix(event.Name, "activity.jsonl") {
-				// Debounce and broadcast activity update
-				if debounceTimer != nil {
-					debounceTimer.Stop()
+				// Debounce activity updates
+				if activityTimer != nil {
+					activityTimer.Stop()
 				}
-				debounceTimer = time.AfterFunc(debounceDelay, func() {
+				activityTimer = time.AfterFunc(debounceDelay, func() {
 					s.broadcast(`{"type":"activity"}`)
-					s.pushCloudEvent("activity", map[string]string{"type": "activity"})
+					s.pushCloudEvent("update", map[string]string{"type": "activity"})
 				})
 				continue
 			}
@@ -267,28 +274,31 @@ func (s *Server) watchFiles(ctx context.Context) {
 				continue
 			}
 
-			// Debounce rapid changes
-			if debounceTimer != nil {
-				debounceTimer.Stop()
+			// Capture event for closure
+			lastTickEvent = event
+
+			// Debounce tick changes
+			if tickTimer != nil {
+				tickTimer.Stop()
 			}
-			debounceTimer = time.AfterFunc(debounceDelay, func() {
+			tickTimer = time.AfterFunc(debounceDelay, func() {
 				// Determine event type
 				eventType := "update"
-				if event.Op&fsnotify.Create == fsnotify.Create {
+				if lastTickEvent.Op&fsnotify.Create == fsnotify.Create {
 					eventType = "create"
-				} else if event.Op&fsnotify.Remove == fsnotify.Remove {
+				} else if lastTickEvent.Op&fsnotify.Remove == fsnotify.Remove {
 					eventType = "delete"
 				}
 
 				// Extract tick ID from filename
-				tickID := strings.TrimSuffix(filepath.Base(event.Name), ".json")
+				tickID := strings.TrimSuffix(filepath.Base(lastTickEvent.Name), ".json")
 
 				// Broadcast the change locally
 				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
 				s.broadcast(msg)
 
 				// Push to cloud
-				s.pushCloudEvent(eventType, map[string]string{"type": eventType, "tickId": tickID})
+				s.pushCloudEvent("update", map[string]string{"type": eventType, "tickId": tickID})
 			})
 
 		case err, ok := <-s.watcher.Errors:
