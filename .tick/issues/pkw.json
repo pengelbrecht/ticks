@@ -1,0 +1,12 @@
+{
+  "id": "pkw",
+  "title": "Phase 1: Absorb Tickboard",
+  "description": "Move tickboard into ticks as the tk board command. No standalone tickboard binary after this phase.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-17T23:00:34.106661Z",
+  "updated_at": "2026-01-17T23:00:34.106661Z"
+}

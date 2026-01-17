@@ -10,7 +10,7 @@ Absorb the `ticker` project into `ticks` so there is only one CLI (`tk`) and one
 - **Run mode:** `tk run` is headless-only (no `--headless` flag needed).
 - **Tickboard:** Absorbed into `tk board` command; enhanced to show streaming agent output and detailed run status.
 
-## Phase 0: CLI Foundation (Cobra migration)
+## Phase 0: CLI Foundation (Cobra migration) ✅
 **Why:** `ticker` already uses Cobra; adopting it in `ticks` provides a clean subcommand structure for `run/resume/checkpoints/merge` and removes manual flag plumbing.
 
 **Tasks:**
@@ -19,7 +19,21 @@ Absorb the `ticker` project into `ticks` so there is only one CLI (`tk`) and one
   - `init`, `whoami`, `show`, `create`, `block`, `unblock`, `update`, `close`, `reopen`, `note`, `notes`, `list`, `ready`, `next`, `blocked`, `rebuild`, `delete`, `label`, `labels`, `deps`, `status`, `merge-file`, `stats`, `view`, `snippet`, `import`, `approve`, `reject`, `version`, `upgrade`.
 - Preserve current flags, exit codes, and behavior.
 
-## Phase 1: Package Merge (Engine + Runner)
+**Status:** Complete (epic 8un)
+
+## Phase 1: Absorb Tickboard
+Move tickboard into `ticks` as the `tk board` command.
+
+**Tasks:**
+- Move `cmd/tickboard/` → `cmd/tk/cmd/board.go` (Cobra subcommand).
+- Move `internal/tickboard/` → `internal/board/`.
+- Move `web/` assets into `internal/board/web/` (embedded via `//go:embed`).
+- Update imports to `github.com/pengelbrecht/ticks/...`.
+- Preserve existing tickboard functionality (SSE, API endpoints, static serving).
+
+**Result:** `tk board` launches the tickboard server; no standalone `tickboard` binary.
+
+## Phase 2: Package Merge (Engine + Runner)
 Move the following packages from `ticker/internal/` to `ticks/internal/`:
 - `engine` → `internal/engine`
 - `agent` → `internal/agent`
@@ -38,24 +52,12 @@ Move the following packages from `ticker/internal/` to `ticks/internal/`:
 
 Update imports to `github.com/pengelbrecht/ticks/...`.
 
-## Phase 2: Replace `tk` Exec with In-Process Store Access
+## Phase 3: Replace `tk` Exec with In-Process Store Access
 `ticker/internal/ticks/client.go` shells out to `tk`. In the merged codebase, replace this with direct access to:
 - `internal/tick` (store + schema)
 - `internal/query` (filtering and selection)
 
 This removes the `tk` process dependency and simplifies the runner loop.
-
-## Phase 3: Absorb Tickboard
-Move tickboard into `ticks` as the `tk board` command.
-
-**Tasks:**
-- Move `cmd/tickboard/` → `cmd/tk/board.go` (Cobra subcommand).
-- Move `internal/tickboard/` → `internal/board/`.
-- Move `web/` assets into `internal/board/web/` (embedded via `//go:embed`).
-- Update imports to `github.com/pengelbrecht/ticks/...`.
-- Preserve existing tickboard functionality (SSE, API endpoints, static serving).
-
-**Result:** `tk board` launches the tickboard server; no standalone `tickboard` binary.
 
 ## Phase 4: Run Log Storage (Separate Files)
 **New storage path:** `.tick/runlog/<tick-id>.json`
@@ -158,14 +160,14 @@ Convert `ticker/skills/ticker/` to a unified skill in `ticks/skills/ticks/`.
 - `ticker/skills/ticker/references/tick-patterns.md` → `ticks/skills/ticks/references/tick-patterns.md`
 
 ## Deliverables Checklist
-- [ ] Cobra-based `tk` CLI with all existing commands preserved
+- [x] Cobra-based `tk` CLI with all existing commands preserved
+- [ ] `tk board` command (replaces standalone tickboard binary)
 - [ ] Runner engine + agent packages under `ticks/internal/`
 - [ ] No shelling out to `tk` from within `tk`
 - [ ] Run logs stored in `.tick/runlog/`
 - [ ] Log cleanup on `tk run`/`tk board` startup (30-day retention)
 - [ ] `tk gc` command for manual cleanup
 - [ ] Tickboard enhanced with streaming output and run status
-- [ ] `tk board` command (replaces standalone tickboard binary)
 - [ ] `tk run` is headless-only
 - [ ] All `ticker` runner commands available as `tk` subcommands
 - [ ] Unified `ticks` skill in `ticks/skills/ticks/` (replaces `ticker` skill)

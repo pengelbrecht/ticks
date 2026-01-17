@@ -1,0 +1,13 @@
+{
+  "id": "0gv",
+  "title": "Create tk board Cobra subcommand",
+  "description": "Create cmd/tk/cmd/board.go that reuses logic from cmd/tickboard/main.go. Add --port flag (default 3000), optional [path] argument. Import internal/tickboard/server and internal/tickboard/cloud packages.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "pkw",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-17T23:01:27.132766Z",
+  "updated_at": "2026-01-17T23:01:27.132766Z"
+}
