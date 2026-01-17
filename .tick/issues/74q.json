@@ -2,7 +2,7 @@
   "id": "74q",
   "title": "Port label and labels commands to Cobra",
   "description": "Migrate label (manage tick labels) and labels (list all labels) commands to Cobra subcommands.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "8un",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-17T21:29:21.166598Z",
-  "updated_at": "2026-01-17T21:30:00.362874Z"
+  "updated_at": "2026-01-17T22:19:01.175315Z",
+  "closed_at": "2026-01-17T22:19:01.175315Z",
+  "closed_reason": "Created cmd/tk/cmd/label.go with subcommands (add, rm, list) and cmd/tk/cmd/labels.go with --json flag. Added label and labels to Cobra routing in main.go. Follows established pattern from other Cobra migrations."
 }
