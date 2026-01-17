@@ -54,6 +54,13 @@ func Execute() {
 	}
 }
 
+// ExecuteArgs runs the command with specific args, returning an error if the command fails.
+// This is used when we need to pass args from the legacy run() function.
+func ExecuteArgs(args []string) error {
+	rootCmd.SetArgs(args)
+	return rootCmd.Execute()
+}
+
 // SetVersion allows main.go to set the version at initialization
 func SetVersion(v string) {
 	Version = v

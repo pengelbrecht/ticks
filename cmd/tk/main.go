@@ -15,7 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/pengelbrecht/ticks/cmd/tk/cmd"
+	cobracmd "github.com/pengelbrecht/ticks/cmd/tk/cmd"
 	"github.com/pengelbrecht/ticks/internal/beads"
 	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
@@ -30,7 +30,7 @@ var Version = "dev"
 
 func init() {
 	// Sync version with the Cobra cmd package for when commands are migrated
-	cmd.SetVersion(Version)
+	cobracmd.SetVersion(Version)
 }
 
 // listOutput wraps list results with optional filter metadata for JSON output.
@@ -115,10 +115,12 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init":
-		return runInit(args[2:])
-	case "whoami":
-		return runWhoami(args[2:])
+	case "init", "whoami":
+		// Route to Cobra command (pass args[1:] to include the subcommand)
+		if err := cobracmd.ExecuteArgs(args[1:]); err != nil {
+			return exitGeneric
+		}
+		return exitSuccess
 	case "show":
 		return runShow(args[2:])
 	case "create":
@@ -183,129 +185,6 @@ func run(args []string) int {
 		printUsage()
 		return exitUsage
 	}
-}
-
-func runInit(args []string) int {
-	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	importBeads := fs.Bool("import-beads", false, "import beads issues after init")
-	fs.SetOutput(os.Stderr)
-	if _, err := parseInterleaved(fs, args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitSuccess
-		}
-		return exitUsage
-	}
-
-	root, err := repoRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return exitNoRepo
-	}
-
-	project, err := github.DetectProject(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return exitGitHub
-	}
-	owner, err := github.DetectOwner(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-		return exitGitHub
-	}
-
-	tickDir := filepath.Join(root, ".tick")
-	if err := os.MkdirAll(filepath.Join(tickDir, "issues"), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create .tick directory: %v\n", err)
-		return exitIO
-	}
-
-	if err := config.Save(filepath.Join(tickDir, "config.json"), config.Default()); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to write config: %v\n", err)
-		return exitIO
-	}
-
-	if err := os.WriteFile(filepath.Join(tickDir, ".gitignore"), []byte(".index.json\n"), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to write .gitignore: %v\n", err)
-		return exitIO
-	}
-
-	if err := github.EnsureGitAttributes(root); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to update .gitattributes: %v\n", err)
-		return exitIO
-	}
-	if err := github.ConfigureMergeDriver(root); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to configure merge driver: %v\n", err)
-		return exitIO
-	}
-
-	fmt.Printf("Detected GitHub repo: %s\n", project)
-	fmt.Printf("Detected user: %s\n\n", owner)
-	fmt.Println("Initialized .tick/")
-
-	// Import beads if requested
-	if *importBeads {
-		beadsFile := beads.FindBeadsFile(root)
-		if beadsFile == "" {
-			fmt.Println("\nNo beads file found to import.")
-		} else {
-			issues, err := beads.ParseFile(beadsFile)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "\nFailed to parse beads file: %v\n", err)
-				return exitIO
-			}
-			store := tick.NewStore(tickDir)
-			result, err := beads.Import(issues, store, owner)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "\nFailed to import beads: %v\n", err)
-				return exitIO
-			}
-			fmt.Printf("\nImported %d beads issues (%d skipped)\n", result.Imported, result.Skipped)
-		}
-	}
-
-	fmt.Println()
-	fmt.Println("Add the following to your CLAUDE.md or AGENTS.md:")
-	fmt.Println()
-	fmt.Print(snippetText)
-
-	return exitSuccess
-}
-
-func runWhoami(args []string) int {
-	fs := flag.NewFlagSet("whoami", flag.ContinueOnError)
-	jsonOutput := fs.Bool("json", false, "output as json")
-	fs.SetOutput(os.Stderr)
-	if _, err := parseInterleaved(fs, args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitSuccess
-		}
-		return exitUsage
-	}
-
-	project, err := github.DetectProject(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return exitGitHub
-	}
-	owner, err := github.DetectOwner(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect owner: %v\n", err)
-		return exitGitHub
-	}
-
-	if *jsonOutput {
-		payload := map[string]string{"owner": owner, "project": project}
-		enc := json.NewEncoder(os.Stdout)
-		if err := enc.Encode(payload); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return exitIO
-		}
-		return exitSuccess
-	}
-
-	fmt.Printf("Owner: %s\n", owner)
-	fmt.Printf("Project: %s\n", project)
-	return exitSuccess
 }
 
 func runCreate(args []string) int {
