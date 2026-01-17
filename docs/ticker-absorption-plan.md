@@ -121,6 +121,31 @@ Map flags from `ticker` (excluding `--headless`):
 - Document `tk run`, `tk board`, `tk gc` commands.
 - Remove `ticker` repo (archive or delete).
 
+## Phase 8: Skill Migration
+Convert `ticker/skills/ticker/` to a unified skill in `ticks/skills/ticks/`.
+
+**Current skill covers:**
+- Spec creation workflow (SPEC.md)
+- Tick creation from specs (TDD patterns)
+- Manual task handling
+- Running ticker (headless + TUI modes)
+- Handoff signal protocol (COMPLETE, EJECT, BLOCKED, etc.)
+- Human feedback workflows (approve/reject/input)
+- Pre-declared gates (`requires` field)
+
+**Updates for new architecture:**
+- Single installation: `tk` binary only (no separate `ticker` install)
+- Remove TUI references: `tk run` is headless-only
+- Add `tk board` for visual monitoring
+- Add `tk gc` for log cleanup
+- Update command examples throughout
+- Consolidate `tk` and `ticker` command references into unified `tk` reference
+
+**Files to migrate:**
+- `ticker/skills/ticker/SKILL.md` → `ticks/skills/ticks/SKILL.md`
+- `ticker/skills/ticker/references/tk-commands.md` → `ticks/skills/ticks/references/tk-commands.md` (update with runner commands)
+- `ticker/skills/ticker/references/tick-patterns.md` → `ticks/skills/ticks/references/tick-patterns.md`
+
 ## Deliverables Checklist
 - [ ] Cobra-based `tk` CLI with all existing commands preserved
 - [ ] Runner engine + agent packages under `ticks/internal/`
@@ -132,4 +157,5 @@ Map flags from `ticker` (excluding `--headless`):
 - [ ] `tk board` command (replaces standalone tickboard binary)
 - [ ] `tk run` is headless-only
 - [ ] All `ticker` runner commands available as `tk` subcommands
+- [ ] Unified `ticks` skill in `ticks/skills/ticks/` (replaces `ticker` skill)
 - [ ] `ticker` repo no longer required
