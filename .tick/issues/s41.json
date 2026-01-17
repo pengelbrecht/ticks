@@ -1,0 +1,12 @@
+{
+  "id": "s41",
+  "title": "Fix TestRejectCommand tests - add required feedback argument",
+  "description": "Multiple tests in TestRejectCommand are failing because they call `tk reject \u003cid\u003e --json` without providing a feedback message.\n\nSince commit that made feedback mandatory for reject, 9 tests fail:\n- reject_awaiting_approval_returns_to_agent (line 597)\n- reject_awaiting_review_returns_to_agent (line 641)  \n- reject_awaiting_content_returns_to_agent (line 676)\n- reject_awaiting_work_returns_to_agent (line 711)\n- reject_awaiting_input_closes_tick (line 747)\n- reject_awaiting_escalation_closes_tick (line 789)\n- reject_awaiting_checkpoint_returns_to_agent (line 831)\n- reject_manual_tick_returns_to_agent (line 906)\n- reject_with_json_output (line 943)\n\n**Fix:** Update each test to include a feedback argument, e.g.:\n```go\nrun([]string{\"tk\", \"reject\", id, \"Test feedback\", \"--json\"})\n```\n\n**File:** cmd/tk/main_test.go\n**Implementation:** cmd/tk/main.go:2500-2503 requires feedback",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-17T21:48:35.65191Z",
+  "updated_at": "2026-01-17T21:48:35.65191Z"
+}

@@ -2,7 +2,7 @@
   "id": "9fr",
   "title": "Port ready, next, and blocked commands to Cobra",
   "description": "Migrate ready (list unblocked tasks), next (get next task for epic), and blocked (list blocked tasks) commands to Cobra. Preserve --include-manual and other flags.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "8un",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-17T21:29:20.583249Z",
-  "updated_at": "2026-01-17T21:30:00.336471Z"
+  "updated_at": "2026-01-17T22:15:06.974679Z",
+  "closed_at": "2026-01-17T22:15:06.974679Z",
+  "closed_reason": "Ported ready, next, and blocked commands to Cobra. Created ready.go (--include-awaiting, --include-manual deprecated, filter flags), next.go (--awaiting with empty-means-any semantics, --epic, --include-manual), and blocked.go (simple owner/json flags). Added routing in main.go."
 }
