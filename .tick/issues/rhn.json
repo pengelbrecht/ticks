@@ -1,0 +1,12 @@
+{
+  "id": "rhn",
+  "title": "Tickboard token revoke bug",
+  "description": "When attempting to revoke a token i get an error message, i got the impression it might attempt to go through the wss connection, but token revokation should happen strictly on worker/d1?",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-17T08:01:24.088913Z",
+  "updated_at": "2026-01-17T08:01:24.088913Z"
+}

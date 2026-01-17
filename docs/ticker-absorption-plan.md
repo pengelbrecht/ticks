@@ -45,7 +45,19 @@ Update imports to `github.com/pengelbrecht/ticks/...`.
 
 This removes the `tk` process dependency and simplifies the runner loop.
 
-## Phase 3: Run Log Storage (Separate Files)
+## Phase 3: Absorb Tickboard
+Move tickboard into `ticks` as the `tk board` command.
+
+**Tasks:**
+- Move `cmd/tickboard/` → `cmd/tk/board.go` (Cobra subcommand).
+- Move `internal/tickboard/` → `internal/board/`.
+- Move `web/` assets into `internal/board/web/` (embedded via `//go:embed`).
+- Update imports to `github.com/pengelbrecht/ticks/...`.
+- Preserve existing tickboard functionality (SSE, API endpoints, static serving).
+
+**Result:** `tk board` launches the tickboard server; no standalone `tickboard` binary.
+
+## Phase 4: Run Log Storage (Separate Files)
 **New storage path:** `.tick/runlog/<tick-id>.json`
 
 **Tasks:**
@@ -69,7 +81,7 @@ Implement `internal/gc.Cleanup(maxAge time.Duration)` to clean all temporary/log
 - Called async (non-blocking) at `tk run` and `tk board` startup.
 - Optional `tk gc` command for manual cleanup with `--dry-run` and `--max-age` flags.
 
-## Phase 4: Tickboard Enhancement
+## Phase 5: Tickboard Enhancement
 **Goal:** Tickboard replaces ticker TUI as the visual interface for monitoring runs.
 
 **New APIs:**
@@ -95,7 +107,7 @@ Implement `internal/gc.Cleanup(maxAge time.Duration)` to clean all temporary/log
 - `RunRecord` — session metadata, output, thinking, tools log, metrics, success/error.
 - Live metrics — input/output tokens, cache tokens, model, status.
 
-## Phase 5: CLI Surface Integration
+## Phase 6: CLI Surface Integration
 Add runner commands to `tk`:
 - `tk run [epic-id...]` — Run agent loop (headless-only).
 - `tk resume <checkpoint-id>` — Resume from checkpoint.
@@ -110,18 +122,17 @@ Map flags from `ticker` (excluding `--headless`):
 - `--worktree`, `--parallel`, `--watch`, `--timeout`, `--poll`, `--debounce`
 - `--include-standalone`, `--include-orphans`, `--all`
 
-## Phase 6: Update/Install Cleanup
+## Phase 7: Update/Install Cleanup
 - Remove `ticker` installer and updater references.
 - Ensure `ticks/internal/update` handles all update checks + upgrade.
 - Update `ticks` install scripts to include runner in release artifacts.
-- Remove `cmd/tickboard` (absorbed into `tk board`).
 
-## Phase 7: Docs + Repo Cleanup
+## Phase 8: Docs + Repo Cleanup
 - Update `ticks/README.md` and `ticks/SPEC.md` to describe runner features.
 - Document `tk run`, `tk board`, `tk gc` commands.
 - Remove `ticker` repo (archive or delete).
 
-## Phase 8: Skill Migration
+## Phase 9: Skill Migration
 Convert `ticker/skills/ticker/` to a unified skill in `ticks/skills/ticks/`.
 
 **Current skill covers:**

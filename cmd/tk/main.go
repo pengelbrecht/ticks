@@ -115,14 +115,12 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami":
+	case "init", "whoami", "show":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		if err := cobracmd.ExecuteArgs(args[1:]); err != nil {
 			return exitGeneric
 		}
 		return exitSuccess
-	case "show":
-		return runShow(args[2:])
 	case "create":
 		return runCreate(args[2:])
 	case "block":
@@ -392,104 +390,6 @@ func runCreate(args []string) int {
 	}
 
 	fmt.Printf("%s\n", t.ID)
-	return exitSuccess
-}
-
-func runShow(args []string) int {
-	fs := flag.NewFlagSet("show", flag.ContinueOnError)
-	jsonOutput := fs.Bool("json", false, "output as json")
-	fs.SetOutput(os.Stderr)
-	positionals, err := parseInterleaved(fs, args)
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitSuccess
-		}
-		return exitUsage
-	}
-
-	if len(positionals) < 1 {
-		fmt.Fprintln(os.Stderr, "id is required")
-		return exitUsage
-	}
-
-	root, err := repoRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect repo root: %v\n", err)
-		return exitNoRepo
-	}
-	project, err := github.DetectProject(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to detect project: %v\n", err)
-		return exitGitHub
-	}
-	id, err := github.NormalizeID(project, positionals[0])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid id: %v\n", err)
-		return exitNotFound
-	}
-
-	store := tick.NewStore(filepath.Join(root, ".tick"))
-	t, err := store.Read(id)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read tick: %v\n", err)
-		return exitNotFound
-	}
-
-	if *jsonOutput {
-		enc := json.NewEncoder(os.Stdout)
-		if err := enc.Encode(t); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to encode json: %v\n", err)
-			return exitIO
-		}
-		return exitSuccess
-	}
-
-	fmt.Printf("%s  P%d %s  %s  @%s\n\n", t.ID, t.Priority, t.Type, t.Status, t.Owner)
-	fmt.Printf("%s\n\n", t.Title)
-
-	if strings.TrimSpace(t.Description) != "" {
-		fmt.Println("Description:")
-		fmt.Printf("  %s\n\n", t.Description)
-	}
-
-	if strings.TrimSpace(t.Notes) != "" {
-		fmt.Println("Notes:")
-		for _, line := range strings.Split(t.Notes, "\n") {
-			fmt.Printf("  %s\n", line)
-		}
-		fmt.Println()
-	}
-
-	if len(t.Labels) > 0 {
-		fmt.Printf("Labels: %s\n", strings.Join(t.Labels, ", "))
-	}
-	if len(t.BlockedBy) > 0 {
-		var blocked []string
-		for _, blocker := range t.BlockedBy {
-			blk, err := store.Read(blocker)
-			if err != nil {
-				blocked = append(blocked, fmt.Sprintf("%s (unknown)", blocker))
-				continue
-			}
-			blocked = append(blocked, fmt.Sprintf("%s (%s)", blocker, blk.Status))
-		}
-		fmt.Printf("Blocked by: %s\n", strings.Join(blocked, ", "))
-	}
-	if strings.TrimSpace(t.AcceptanceCriteria) != "" {
-		fmt.Printf("Acceptance: %s\n", t.AcceptanceCriteria)
-	}
-	if t.DeferUntil != nil {
-		fmt.Printf("Deferred until: %s\n", t.DeferUntil.Format("2006-01-02"))
-	}
-	if strings.TrimSpace(t.ExternalRef) != "" {
-		fmt.Printf("External: %s\n", t.ExternalRef)
-	}
-
-	fmt.Printf("Created: %s by %s\n", formatTime(t.CreatedAt), t.CreatedBy)
-	fmt.Printf("Updated: %s\n\n", formatTime(t.UpdatedAt))
-
-	fmt.Printf("Global: %s:%s\n", project, t.ID)
-
 	return exitSuccess
 }
 
