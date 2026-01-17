@@ -1,0 +1,13 @@
+{
+  "id": "7ey",
+  "title": "Help text improvement",
+  "description": "in top level help -t just lists default 'task', doesn't list all options",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-17T07:54:37.651915Z",
+  "updated_at": "2026-01-17T07:58:24.516166Z",
+  "closed_at": "2026-01-17T07:58:24.516166Z"
+}
