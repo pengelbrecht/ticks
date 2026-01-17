@@ -115,7 +115,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ready", "next", "blocked", "label", "labels":
+	case "init", "whoami", "show", "create", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ready", "next", "blocked", "label", "labels", "deps", "status":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		if err := cobracmd.ExecuteArgs(args[1:]); err != nil {
 			return exitGeneric
@@ -123,10 +123,6 @@ func run(args []string) int {
 		return exitSuccess
 	case "rebuild":
 		return runRebuild(args[2:])
-	case "deps":
-		return runDeps(args[2:])
-	case "status":
-		return runStatus(args[2:])
 	case "merge-file":
 		return runMergeFile(args[2:])
 	case "stats":
