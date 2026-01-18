@@ -2,12 +2,14 @@
   "id": "pkw",
   "title": "Phase 1: Absorb Tickboard",
   "description": "Move tickboard into ticks as the tk board command. No standalone tickboard binary after this phase.",
-  "notes": "2026-01-18 00:14 - Task 0gv complete: Created cmd/tk/cmd/board.go with full functionality from tickboard. The findTickDir function was also added to board.go (local to the command). Next tasks should: (1) migrate tests from cmd/tickboard/main_test.go to cmd/tk/cmd/board_test.go, (2) delete the standalone cmd/tickboard/ directory after verification. Note: tickboard server/cloud tests have pre-existing failures (undefined ColumnBacklog, ColumnReview) - not related to this migration.\n2026-01-18 00:16 - Task rgb verified complete - board routing was already done in task 0gv. All pieces in place: (1) main.go switch case includes 'board', (2) help text includes 'board', (3) ResetFlags() resets boardPort=3000. Next: migrate tests from cmd/tickboard/main_test.go to cmd/tk/cmd/board_test.go, then delete cmd/tickboard/.",
-  "status": "open",
+  "notes": "2026-01-18 00:14 - Task 0gv complete: Created cmd/tk/cmd/board.go with full functionality from tickboard. The findTickDir function was also added to board.go (local to the command). Next tasks should: (1) migrate tests from cmd/tickboard/main_test.go to cmd/tk/cmd/board_test.go, (2) delete the standalone cmd/tickboard/ directory after verification. Note: tickboard server/cloud tests have pre-existing failures (undefined ColumnBacklog, ColumnReview) - not related to this migration.\n2026-01-18 00:16 - Task rgb verified complete - board routing was already done in task 0gv. All pieces in place: (1) main.go switch case includes 'board', (2) help text includes 'board', (3) ResetFlags() resets boardPort=3000. Next: migrate tests from cmd/tickboard/main_test.go to cmd/tk/cmd/board_test.go, then delete cmd/tickboard/.\n2026-01-18 00:18 - Task 5ws complete: Verified tk board works correctly - server starts, responds HTTP 200, port flag works, cloud sync connects. Migrated findTickDir tests to cmd/tk/cmd/board_test.go (3 tests pass). Next task should delete cmd/tickboard/ directory since all functionality has been migrated to tk board and tests are in place.\n2026-01-18 00:20 - Task 1om complete: Deleted cmd/tickboard/ directory. The standalone tickboard binary is now gone. All tickboard functionality is available via 'tk board' command. Phase 1 (Absorb Tickboard) should now be complete - verify all tasks in epic are closed.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-17T23:00:34.106661Z",
-  "updated_at": "2026-01-17T23:16:10.191432Z"
+  "updated_at": "2026-01-17T23:20:13.185751Z",
+  "closed_at": "2026-01-17T23:20:13.185751Z",
+  "closed_reason": "all tasks completed"
 }
