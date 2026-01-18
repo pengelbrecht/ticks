@@ -1,0 +1,20 @@
+{
+  "id": "tbk",
+  "title": "Move engine package from ticker to ticks",
+  "description": "Copy ticker/internal/engine/ to ticks/internal/engine/. Update imports. This is the core Ralph loop orchestration - depends on agent, budget, checkpoint, verify packages.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "hyc",
+    "jk6",
+    "h8w",
+    "n1e"
+  ],
+  "parent": "ote",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-18T06:28:00.814941Z",
+  "updated_at": "2026-01-18T06:31:37.141441Z",
+  "closed_at": "2026-01-18T06:31:37.141441Z"
+}

@@ -21,7 +21,7 @@ Absorb the `ticker` project into `ticks` so there is only one CLI (`tk`) and one
 
 **Status:** Complete (epic 8un)
 
-## Phase 1: Absorb Tickboard
+## Phase 1: Absorb Tickboard ✅
 Move tickboard into `ticks` as the `tk board` command.
 
 **Tasks:**

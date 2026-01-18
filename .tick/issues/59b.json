@@ -1,0 +1,14 @@
+{
+  "id": "59b",
+  "title": "Move worktree package from ticker to ticks",
+  "description": "Copy ticker/internal/worktree/ to ticks/internal/worktree/. Update imports. This package manages git worktrees for parallel execution.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "ote",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-18T06:28:00.927435Z",
+  "updated_at": "2026-01-18T06:30:12.485566Z",
+  "closed_at": "2026-01-18T06:30:12.485566Z"
+}

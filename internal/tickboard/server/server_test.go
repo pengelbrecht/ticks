@@ -363,8 +363,8 @@ func TestListTicks_ComputedFields(t *testing.T) {
 	}
 
 	// Check columns
-	if tickByID["blkd"].Column != ColumnBacklog {
-		t.Errorf("blkd column = %s, want %s", tickByID["blkd"].Column, ColumnBacklog)
+	if tickByID["blkd"].Column != ColumnBlocked {
+		t.Errorf("blkd column = %s, want %s", tickByID["blkd"].Column, ColumnBlocked)
 	}
 	if tickByID["unb"].Column != ColumnReady {
 		t.Errorf("unb column = %s, want %s", tickByID["unb"].Column, ColumnReady)
@@ -393,14 +393,14 @@ func TestComputeColumn(t *testing.T) {
 			wantColumn: ColumnReady,
 		},
 		{
-			name:       "awaiting input -> input",
+			name:       "awaiting input -> human",
 			tick:       tick.Tick{Status: tick.StatusOpen, Awaiting: &input},
-			wantColumn: ColumnInput,
+			wantColumn: ColumnHuman,
 		},
 		{
-			name:       "awaiting approval -> review",
+			name:       "awaiting approval -> human",
 			tick:       tick.Tick{Status: tick.StatusOpen, Awaiting: &approval},
-			wantColumn: ColumnReview,
+			wantColumn: ColumnHuman,
 		},
 		{
 			name:       "in_progress -> agent",
@@ -408,15 +408,15 @@ func TestComputeColumn(t *testing.T) {
 			wantColumn: ColumnAgent,
 		},
 		{
-			name:       "open+blocked -> backlog",
+			name:       "open+blocked -> blocked",
 			tick:       tick.Tick{Status: tick.StatusOpen, Priority: 2},
 			isBlocked:  true,
-			wantColumn: ColumnBacklog,
+			wantColumn: ColumnBlocked,
 		},
 		{
-			name:       "open+low priority -> backlog",
+			name:       "open+low priority -> ready (all priorities in ready)",
 			tick:       tick.Tick{Status: tick.StatusOpen, Priority: 3},
-			wantColumn: ColumnBacklog,
+			wantColumn: ColumnReady,
 		},
 		{
 			name:       "open+unblocked+high priority -> ready",
@@ -424,9 +424,9 @@ func TestComputeColumn(t *testing.T) {
 			wantColumn: ColumnReady,
 		},
 		{
-			name:       "legacy manual -> review",
+			name:       "legacy manual -> human",
 			tick:       tick.Tick{Status: tick.StatusOpen, Manual: true},
-			wantColumn: ColumnReview,
+			wantColumn: ColumnHuman,
 		},
 	}
 
@@ -1924,7 +1924,7 @@ func TestCreateTick_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestCreateTick_BacklogColumn(t *testing.T) {
+func TestCreateTick_LowPriorityGoesToReady(t *testing.T) {
 	tmpDir := t.TempDir()
 	tickDir := filepath.Join(tmpDir, ".tick")
 	issuesDir := filepath.Join(tickDir, "issues")
@@ -1943,7 +1943,7 @@ func TestCreateTick_BacklogColumn(t *testing.T) {
 	go func() { _ = srv.Run(ctx) }()
 	time.Sleep(100 * time.Millisecond)
 
-	// Priority 3+ goes to backlog
+	// Low priority unblocked items go to ready column
 	reqBody := `{"title": "Low Priority Task", "priority": 3}`
 	resp, err := http.Post("http://localhost:18800/api/ticks", "application/json", strings.NewReader(reqBody))
 	if err != nil {
@@ -1960,7 +1960,7 @@ func TestCreateTick_BacklogColumn(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if result.Column != ColumnBacklog {
-		t.Errorf("Column = %s, want %s", result.Column, ColumnBacklog)
+	if result.Column != ColumnReady {
+		t.Errorf("Column = %s, want %s", result.Column, ColumnBlocked)
 	}
 }

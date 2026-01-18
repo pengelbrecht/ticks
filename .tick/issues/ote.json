@@ -1,0 +1,13 @@
+{
+  "id": "ote",
+  "title": "Phase 2: Package Merge (Engine + Runner)",
+  "description": "Move ticker engine packages to ticks: engine, agent, worktree, verify, budget, checkpoint, parallel, runlog. Extract needed TUI data structures. Update all imports to github.com/pengelbrecht/ticks/...",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-18T06:27:44.801648Z",
+  "updated_at": "2026-01-18T06:38:03.243129Z",
+  "closed_at": "2026-01-18T06:38:03.243129Z"
+}

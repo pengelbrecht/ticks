@@ -210,3 +210,43 @@
 {"ts":"2026-01-17T23:19:46.099578Z","tick":"1om","action":"close","actor":"peter@engelbrecht.dk","epic":"pkw","data":{"reason":"Deleted cmd/tickboard/ directory. Verified tk board command works, tests pass, and build succeeds. No build scripts or Makefile referenced tickboard binary.","title":"Remove cmd/tickboard directory"}}
 {"ts":"2026-01-17T23:20:09.26048Z","tick":"pkw","action":"note","actor":"peter@engelbrecht.dk","data":{"note":"\n2026-01-18 00:20 - Task 1om complete: Deleted cmd/tickboard/ directory. The standalone tickboard binary is now gone. All tickboard functionality is available via 'tk board' command. Phase 1 (Absorb Tickboard) should now be complete - verify all tasks in epic are closed.","title":"Phase 1: Absorb Tickboard"}}
 {"ts":"2026-01-17T23:20:13.186164Z","tick":"pkw","action":"close","actor":"peter@engelbrecht.dk","data":{"reason":"all tasks completed","title":"Phase 1: Absorb Tickboard"}}
+{"ts":"2026-01-18T06:27:44.802213Z","tick":"ote","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Phase 2: Package Merge (Engine + Runner)","type":"epic"}}
+{"ts":"2026-01-18T06:27:51.600066Z","tick":"hyc","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move agent package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.758852Z","tick":"jk6","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move budget package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.787281Z","tick":"h8w","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move checkpoint package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.815288Z","tick":"tbk","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move engine package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.84441Z","tick":"jlu","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move parallel package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.871919Z","tick":"y2p","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move runlog package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.900384Z","tick":"n1e","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move verify package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:00.92782Z","tick":"59b","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Move worktree package from ticker to ticks","type":"task"}}
+{"ts":"2026-01-18T06:28:09.185649Z","tick":"h8p","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Extract TUI data structures for tickboard","type":"task"}}
+{"ts":"2026-01-18T06:28:09.218687Z","tick":"vlo","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Update all internal imports to ticks module path","type":"task"}}
+{"ts":"2026-01-18T06:28:09.253207Z","tick":"ghy","action":"create","actor":"peter@engelbrecht.dk","epic":"ote","data":{"priority":2,"title":"Verify packages compile and tests pass","type":"task"}}
+{"ts":"2026-01-18T06:28:19.544334Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.574308Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.603739Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.633611Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","tbk"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.664057Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","tbk","jlu"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.693153Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","tbk","jlu","y2p"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.723195Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","tbk","jlu","y2p","n1e"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.75252Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","tbk","jlu","y2p","n1e","59b"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.78262Z","tick":"vlo","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","tbk","jlu","y2p","n1e","59b","h8p"],"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:28:19.811546Z","tick":"ghy","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["vlo"],"title":"Verify packages compile and tests pass"}}
+{"ts":"2026-01-18T06:28:26.052471Z","tick":"tbk","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc"],"title":"Move engine package from ticker to ticks"}}
+{"ts":"2026-01-18T06:28:26.088696Z","tick":"tbk","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6"],"title":"Move engine package from ticker to ticks"}}
+{"ts":"2026-01-18T06:28:26.126603Z","tick":"tbk","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w"],"title":"Move engine package from ticker to ticks"}}
+{"ts":"2026-01-18T06:28:26.16006Z","tick":"tbk","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","jk6","h8w","n1e"],"title":"Move engine package from ticker to ticks"}}
+{"ts":"2026-01-18T06:28:26.195977Z","tick":"h8p","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc"],"title":"Extract TUI data structures for tickboard"}}
+{"ts":"2026-01-18T06:28:26.235679Z","tick":"h8p","action":"block","actor":"peter@engelbrecht.dk","epic":"ote","data":{"blockers":["hyc","tbk"],"title":"Extract TUI data structures for tickboard"}}
+{"ts":"2026-01-18T06:30:11.570909Z","tick":"y2p","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move runlog package from ticker to ticks"}}
+{"ts":"2026-01-18T06:30:12.485924Z","tick":"59b","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move worktree package from ticker to ticks"}}
+{"ts":"2026-01-18T06:30:13.957142Z","tick":"hyc","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move agent package from ticker to ticks"}}
+{"ts":"2026-01-18T06:30:19.141085Z","tick":"h8w","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move checkpoint package from ticker to ticks"}}
+{"ts":"2026-01-18T06:30:19.594177Z","tick":"jk6","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move budget package from ticker to ticks"}}
+{"ts":"2026-01-18T06:30:22.669174Z","tick":"n1e","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move verify package from ticker to ticks"}}
+{"ts":"2026-01-18T06:31:11.921426Z","tick":"jlu","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move parallel package from ticker to ticks"}}
+{"ts":"2026-01-18T06:31:37.141847Z","tick":"tbk","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Move engine package from ticker to ticks"}}
+{"ts":"2026-01-18T06:34:01.7075Z","tick":"h8p","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Extract TUI data structures for tickboard"}}
+{"ts":"2026-01-18T06:34:58.194849Z","tick":"vlo","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Update all internal imports to ticks module path"}}
+{"ts":"2026-01-18T06:37:32.657138Z","tick":"ghy","action":"close","actor":"peter@engelbrecht.dk","epic":"ote","data":{"title":"Verify packages compile and tests pass"}}
+{"ts":"2026-01-18T06:38:03.243529Z","tick":"ote","action":"close","actor":"peter@engelbrecht.dk","data":{"title":"Phase 2: Package Merge (Engine + Runner)"}}

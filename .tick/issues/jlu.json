@@ -1,0 +1,14 @@
+{
+  "id": "jlu",
+  "title": "Move parallel package from ticker to ticks",
+  "description": "Copy ticker/internal/parallel/ to ticks/internal/parallel/. Update imports. This package handles parallel task execution across worktrees.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "ote",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-18T06:28:00.84407Z",
+  "updated_at": "2026-01-18T06:31:11.921042Z",
+  "closed_at": "2026-01-18T06:31:11.921042Z"
+}
