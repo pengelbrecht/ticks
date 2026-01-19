@@ -17,13 +17,13 @@ A prototype demonstrating the Tick Board UI built with Lit web components and Sh
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Start dev server with hot reload
-npm run dev
+pnpm dev
 
 # Build for production
-npm run build
+pnpm build
 ```
 
 ## Stack
