@@ -322,7 +322,27 @@ export class TickDetailDrawer extends LitElement {
 
     @media (max-width: 480px) {
       sl-drawer::part(panel) {
-        width: 100%;
+        width: 100vw;
+        max-width: 100vw;
+      }
+
+      /* Larger touch targets for mobile */
+      .actions-section sl-button::part(base) {
+        min-height: 44px;
+        font-size: 1rem;
+      }
+
+      .add-note-actions sl-button::part(base) {
+        min-height: 44px;
+      }
+
+      .tick-link {
+        padding: 0.5rem;
+        margin: -0.5rem;
+      }
+
+      .reason-buttons sl-button::part(base) {
+        min-height: 44px;
       }
     }
 

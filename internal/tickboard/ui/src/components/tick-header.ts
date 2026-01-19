@@ -99,6 +99,7 @@ export class TickHeader extends LitElement {
     @media (max-width: 480px) {
       header {
         padding: 0.75rem 1rem;
+        gap: 0.5rem;
       }
 
       .repo-badge {
@@ -106,7 +107,21 @@ export class TickHeader extends LitElement {
       }
 
       .header-left h1 {
-        font-size: 1.125rem;
+        font-size: 1rem;
+      }
+
+      /* Make buttons larger for touch */
+      .header-right sl-button::part(base) {
+        min-width: 44px;
+        min-height: 44px;
+      }
+
+      .menu-toggle {
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
     }
   `;

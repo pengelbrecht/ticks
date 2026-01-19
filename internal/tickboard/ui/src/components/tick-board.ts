@@ -53,7 +53,7 @@ export class TickBoard extends LitElement {
       margin-bottom: 1rem;
     }
 
-    /* Kanban board */
+    /* Kanban board - Desktop */
     main {
       flex: 1;
       padding: 1rem;
@@ -67,46 +67,167 @@ export class TickBoard extends LitElement {
       overflow-x: auto;
     }
 
-    /* Mobile column selector */
-    .mobile-column-select {
+    /* Mobile tab layout - hidden on desktop */
+    .mobile-tab-layout {
       display: none;
-      padding: 0.75rem 1rem;
-      background: var(--surface0);
-      border-bottom: 1px solid var(--surface1);
     }
 
-    .mobile-column-select sl-select {
+    /* Mobile filter drawer */
+    .filter-drawer-content {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 0.5rem 0;
+    }
+
+    .filter-drawer-content label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--subtext1);
+      margin-bottom: 0.25rem;
+      display: block;
+    }
+
+    .filter-drawer-content sl-input,
+    .filter-drawer-content sl-select {
       width: 100%;
     }
 
-    /* Responsive */
-    @media (max-width: 768px) {
-      .kanban-board {
-        gap: 0.75rem;
-      }
-    }
-
-    @media (max-width: 480px) {
+    /* Tablet - Horizontal scroll with snap (481-768px) */
+    @media (max-width: 768px) and (min-width: 481px) {
       main {
-        padding: 0;
-      }
-
-      .mobile-column-select {
-        display: block;
+        padding: 0.75rem;
       }
 
       .kanban-board {
-        display: block;
-        height: calc(100vh - 140px);
-        overflow-y: auto;
+        display: flex;
+        gap: 0.75rem;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.5rem;
       }
 
       .kanban-board tick-column {
+        scroll-snap-align: start;
+        flex: 0 0 280px;
+        min-width: 280px;
+      }
+    }
+
+    /* Mobile - Tab layout (≤480px) */
+    @media (max-width: 480px) {
+      main {
         display: none;
       }
 
-      .kanban-board tick-column.mobile-active {
+      .mobile-tab-layout {
         display: flex;
+        flex-direction: column;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      /* Tab group styling */
+      .mobile-tab-layout sl-tab-group {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .mobile-tab-layout sl-tab-group::part(base) {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      .mobile-tab-layout sl-tab-group::part(nav) {
+        background: var(--surface0);
+        border-bottom: 1px solid var(--surface1);
+        overflow-x: auto;
+        padding: 0 0.5rem;
+      }
+
+      .mobile-tab-layout sl-tab-group::part(tabs) {
+        gap: 0;
+      }
+
+      .mobile-tab-layout sl-tab-group::part(body) {
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .mobile-tab-layout sl-tab {
+        font-size: 0.75rem;
+        padding: 0.5rem 0.75rem;
+      }
+
+      .mobile-tab-layout sl-tab::part(base) {
+        padding: 0.5rem 0.75rem;
+        color: var(--subtext0);
+      }
+
+      .mobile-tab-layout sl-tab[active]::part(base) {
+        color: var(--text);
+      }
+
+      /* Tab badge for count */
+      .tab-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.25rem;
+        height: 1.25rem;
+        padding: 0 0.375rem;
+        margin-left: 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        background: var(--surface1);
+        border-radius: 999px;
+        color: var(--subtext0);
+      }
+
+      .mobile-tab-layout sl-tab[active] .tab-badge {
+        background: var(--blue);
+        color: var(--base);
+      }
+
+      /* Tab panel content */
+      .mobile-tab-layout sl-tab-panel {
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .mobile-tab-layout sl-tab-panel::part(base) {
+        height: 100%;
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .mobile-column-content {
+        height: calc(100vh - 140px);
+        overflow-y: auto;
+        padding: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .mobile-empty-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--subtext0);
+        padding: 2rem 1rem;
+        text-align: center;
+      }
+
+      .mobile-empty-state .empty-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.5;
       }
     }
 
@@ -182,6 +303,7 @@ export class TickBoard extends LitElement {
   @state() private focusedColumnIndex = -1; // -1 means no column focused
   @state() private focusedTickIndex = -1;   // -1 means no tick focused
   @state() private showKeyboardHelp = false;
+  @state() private showMobileFilterDrawer = false;
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
@@ -669,6 +791,37 @@ export class TickBoard extends LitElement {
     console.log('Menu toggle clicked');
   }
 
+  private handleMobileMenuToggle() {
+    this.showMobileFilterDrawer = true;
+  }
+
+  private handleMobileTabChange(e: CustomEvent) {
+    const tabGroup = e.target as HTMLElement;
+    const activeTab = tabGroup.querySelector('sl-tab[active]');
+    if (activeTab) {
+      const panel = activeTab.getAttribute('panel') as TickColumn;
+      if (panel && COLUMN_IDS.includes(panel)) {
+        this.activeColumn = panel;
+        // Update focused column index when switching tabs
+        this.focusedColumnIndex = COLUMN_IDS.indexOf(panel);
+        this.focusedTickIndex = this.getColumnTicks(panel).length > 0 ? 0 : -1;
+        this.updateBoardState();
+      }
+    }
+  }
+
+  private handleMobileSearchInput(e: CustomEvent) {
+    const input = e.target as HTMLInputElement;
+    this.searchTerm = input.value;
+    this.updateBoardState();
+  }
+
+  private handleMobileEpicFilterChange(e: CustomEvent) {
+    const select = e.target as HTMLSelectElement;
+    this.selectedEpic = select.value;
+    this.updateBoardState();
+  }
+
   // Handle activity item click - find and select the tick
   private handleActivityClick(e: CustomEvent<{ tickId: string }>) {
     const tickId = e.detail.tickId;
@@ -692,11 +845,6 @@ export class TickBoard extends LitElement {
     console.log('Tick selected:', e.detail.tick.id);
   }
 
-  private handleMobileColumnChange(e: Event) {
-    const select = e.target as HTMLSelectElement;
-    this.activeColumn = select.value as TickColumn;
-    this.updateBoardState();
-  }
 
   // Get filtered ticks for a column
   private getFilteredTicks(): BoardTick[] {
@@ -770,29 +918,18 @@ export class TickBoard extends LitElement {
         @search-change=${this.handleSearchChange}
         @epic-filter-change=${this.handleEpicFilterChange}
         @create-click=${this.handleCreateClick}
-        @menu-toggle=${this.handleMenuToggle}
+        @menu-toggle=${this.handleMobileMenuToggle}
         @activity-click=${this.handleActivityClick}
       ></tick-header>
 
       <!-- Toast notification stack -->
       <tick-toast-stack></tick-toast-stack>
 
-      <!-- Mobile column selector -->
-      <div class="mobile-column-select">
-        <sl-select .value=${this.activeColumn} @sl-change=${this.handleMobileColumnChange}>
-          ${COLUMNS.map(col => html`
-            <sl-option value=${col.id}>
-              ${col.icon} ${col.name} (${this.getColumnTicks(col.id).length})
-            </sl-option>
-          `)}
-        </sl-select>
-      </div>
-
+      <!-- Desktop/Tablet kanban board -->
       <main>
         <div class="kanban-board">
           ${COLUMNS.map((col, colIndex) => html`
             <tick-column
-              class=${this.activeColumn === col.id ? 'mobile-active' : ''}
               name=${col.id}
               .ticks=${this.getColumnTicks(col.id)}
               .epicNames=${epicNames}
@@ -802,6 +939,85 @@ export class TickBoard extends LitElement {
           `)}
         </div>
       </main>
+
+      <!-- Mobile tab layout (visible only on ≤480px) -->
+      <div class="mobile-tab-layout">
+        <sl-tab-group @sl-tab-show=${this.handleMobileTabChange}>
+          ${COLUMNS.map(col => html`
+            <sl-tab
+              slot="nav"
+              panel=${col.id}
+              ?active=${this.activeColumn === col.id}
+            >
+              ${col.icon}
+              <span class="tab-badge">${this.getColumnTicks(col.id).length}</span>
+            </sl-tab>
+          `)}
+          ${COLUMNS.map((col, colIndex) => html`
+            <sl-tab-panel name=${col.id}>
+              <div class="mobile-column-content">
+                ${this.getColumnTicks(col.id).length === 0
+                  ? html`
+                      <div class="mobile-empty-state">
+                        <div class="empty-icon">${col.icon}</div>
+                        <div>No ticks in ${col.name}</div>
+                      </div>
+                    `
+                  : this.getColumnTicks(col.id).map(tick => html`
+                      <tick-card
+                        .tick=${tick}
+                        epic-name=${epicNames[tick.parent || ''] || ''}
+                        ?focused=${this.focusedColumnIndex === colIndex && this.getFocusedTickId() === tick.id}
+                        @tick-selected=${this.handleTickSelected}
+                      ></tick-card>
+                    `)}
+              </div>
+            </sl-tab-panel>
+          `)}
+        </sl-tab-group>
+      </div>
+
+      <!-- Mobile filter drawer -->
+      <sl-drawer
+        label="Filters"
+        placement="start"
+        ?open=${this.showMobileFilterDrawer}
+        @sl-after-hide=${() => { this.showMobileFilterDrawer = false; }}
+      >
+        <div class="filter-drawer-content">
+          <div>
+            <label>Search</label>
+            <sl-input
+              placeholder="Search by ID or title..."
+              clearable
+              .value=${this.searchTerm}
+              @sl-input=${this.handleMobileSearchInput}
+            >
+              <sl-icon name="search" slot="prefix"></sl-icon>
+            </sl-input>
+          </div>
+          <div>
+            <label>Filter by Epic</label>
+            <sl-select
+              placeholder="All Ticks"
+              clearable
+              .value=${this.selectedEpic}
+              @sl-change=${this.handleMobileEpicFilterChange}
+            >
+              ${this.epics.map(epic => html`
+                <sl-option value=${epic.id}>${epic.title}</sl-option>
+              `)}
+            </sl-select>
+          </div>
+        </div>
+        <sl-button
+          slot="footer"
+          variant="primary"
+          @click=${() => { this.showMobileFilterDrawer = false; }}
+        >
+          Apply
+        </sl-button>
+      </sl-drawer>
 
       <!-- Keyboard shortcuts help dialog -->
       <sl-dialog
