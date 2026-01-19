@@ -14,6 +14,9 @@ const COLUMNS = [
   { id: 'done' as TickColumn, name: 'Done', color: 'var(--green)', icon: '✓' },
 ] as const;
 
+// Column IDs in order for navigation
+const COLUMN_IDS: TickColumn[] = ['blocked', 'ready', 'agent', 'human', 'done'];
+
 @customElement('tick-board')
 export class TickBoard extends LitElement {
   static styles = css`
@@ -106,6 +109,56 @@ export class TickBoard extends LitElement {
         display: flex;
       }
     }
+
+    /* Keyboard shortcuts help dialog */
+    .shortcuts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    .shortcut-group h4 {
+      margin: 0 0 0.75rem 0;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 1px solid var(--surface1);
+      padding-bottom: 0.5rem;
+    }
+
+    .shortcut-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--subtext1);
+    }
+
+    .shortcut-row span {
+      margin-left: auto;
+      color: var(--text);
+    }
+
+    kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.5rem;
+      padding: 0.125rem 0.375rem;
+      font-family: monospace;
+      font-size: 0.75rem;
+      background: var(--surface1);
+      border: 1px solid var(--surface2, var(--overlay0));
+      border-radius: 4px;
+      color: var(--text);
+    }
+
+    @media (max-width: 480px) {
+      .shortcuts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   `;
 
   // Provide board context to all child components
@@ -125,6 +178,11 @@ export class TickBoard extends LitElement {
   @state() private loading = true;
   @state() private error: string | null = null;
 
+  // Keyboard navigation state
+  @state() private focusedColumnIndex = -1; // -1 means no column focused
+  @state() private focusedTickIndex = -1;   // -1 means no tick focused
+  @state() private showKeyboardHelp = false;
+
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
   // SSE connection for real-time updates
@@ -136,6 +194,7 @@ export class TickBoard extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
+    document.addEventListener('keydown', this.handleKeyDown);
     this.loadData();
     this.connectSSE();
   }
@@ -166,6 +225,7 @@ export class TickBoard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this.mediaQuery.removeEventListener('change', this.handleMediaChange);
+    document.removeEventListener('keydown', this.handleKeyDown);
     this.disconnectSSE();
   }
 
@@ -310,6 +370,263 @@ export class TickBoard extends LitElement {
       default:
         console.warn('[SSE] Unknown update type:', type);
     }
+  }
+
+  // ============================================================================
+  // Keyboard Navigation
+  // ============================================================================
+
+  /**
+   * Check if an input element is currently focused.
+   * Keyboard navigation should be disabled when user is typing.
+   */
+  private isInputFocused(): boolean {
+    const activeElement = document.activeElement;
+    if (!activeElement) return false;
+
+    const tagName = activeElement.tagName.toLowerCase();
+    // Check for standard inputs, textareas, selects, and Shoelace components
+    if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+      return true;
+    }
+    // Shoelace input components
+    if (tagName.startsWith('sl-') && (
+      tagName.includes('input') ||
+      tagName.includes('textarea') ||
+      tagName.includes('select')
+    )) {
+      return true;
+    }
+    // Check if element is contenteditable
+    if (activeElement.getAttribute('contenteditable') === 'true') {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Get ticks for the currently focused column.
+   */
+  private getFocusedColumnTicks(): BoardTick[] {
+    if (this.focusedColumnIndex < 0 || this.focusedColumnIndex >= COLUMN_IDS.length) {
+      return [];
+    }
+    return this.getColumnTicks(COLUMN_IDS[this.focusedColumnIndex]);
+  }
+
+  /**
+   * Initialize focus to the first non-empty column.
+   */
+  private initializeFocus() {
+    for (let i = 0; i < COLUMN_IDS.length; i++) {
+      const ticks = this.getColumnTicks(COLUMN_IDS[i]);
+      if (ticks.length > 0) {
+        this.focusedColumnIndex = i;
+        this.focusedTickIndex = 0;
+        return;
+      }
+    }
+    // No ticks anywhere, focus first column
+    this.focusedColumnIndex = 0;
+    this.focusedTickIndex = -1;
+  }
+
+  /**
+   * Clear keyboard focus.
+   */
+  private clearFocus() {
+    this.focusedColumnIndex = -1;
+    this.focusedTickIndex = -1;
+  }
+
+  /**
+   * Handle keyboard events for navigation.
+   */
+  private handleKeyDown = (e: KeyboardEvent) => {
+    // Don't handle if loading, in error state, or input is focused
+    if (this.loading || this.error || this.isInputFocused()) {
+      return;
+    }
+
+    // Close keyboard help on any key
+    if (this.showKeyboardHelp && e.key !== '?') {
+      this.showKeyboardHelp = false;
+    }
+
+    switch (e.key) {
+      // Toggle keyboard help
+      case '?':
+        e.preventDefault();
+        this.showKeyboardHelp = !this.showKeyboardHelp;
+        break;
+
+      // Navigate down: j or ArrowDown
+      case 'j':
+      case 'ArrowDown':
+        e.preventDefault();
+        this.navigateVertical(1);
+        break;
+
+      // Navigate up: k or ArrowUp
+      case 'k':
+      case 'ArrowUp':
+        e.preventDefault();
+        this.navigateVertical(-1);
+        break;
+
+      // Navigate left: h or ArrowLeft
+      case 'h':
+      case 'ArrowLeft':
+        e.preventDefault();
+        this.navigateHorizontal(-1);
+        break;
+
+      // Navigate right: l or ArrowRight
+      case 'l':
+      case 'ArrowRight':
+        e.preventDefault();
+        this.navigateHorizontal(1);
+        break;
+
+      // Open selected tick: Enter
+      case 'Enter':
+        e.preventDefault();
+        this.openFocusedTick();
+        break;
+
+      // Close drawer/dialog or clear focus: Escape
+      case 'Escape':
+        e.preventDefault();
+        this.handleEscape();
+        break;
+
+      // Open create dialog: n
+      case 'n':
+        e.preventDefault();
+        this.handleCreateClick();
+        break;
+
+      // Focus search input: /
+      case '/':
+        e.preventDefault();
+        this.focusSearchInput();
+        break;
+    }
+  };
+
+  /**
+   * Navigate vertically within the current column.
+   */
+  private navigateVertical(direction: 1 | -1) {
+    // Initialize focus if not set
+    if (this.focusedColumnIndex < 0) {
+      this.initializeFocus();
+      return;
+    }
+
+    const ticks = this.getFocusedColumnTicks();
+    if (ticks.length === 0) return;
+
+    // Calculate new index with wrapping
+    let newIndex = this.focusedTickIndex + direction;
+    if (newIndex < 0) {
+      newIndex = ticks.length - 1;
+    } else if (newIndex >= ticks.length) {
+      newIndex = 0;
+    }
+
+    this.focusedTickIndex = newIndex;
+  }
+
+  /**
+   * Navigate horizontally between columns.
+   */
+  private navigateHorizontal(direction: 1 | -1) {
+    // Initialize focus if not set
+    if (this.focusedColumnIndex < 0) {
+      this.initializeFocus();
+      return;
+    }
+
+    // Calculate new column index with wrapping
+    let newColumnIndex = this.focusedColumnIndex + direction;
+    if (newColumnIndex < 0) {
+      newColumnIndex = COLUMN_IDS.length - 1;
+    } else if (newColumnIndex >= COLUMN_IDS.length) {
+      newColumnIndex = 0;
+    }
+
+    this.focusedColumnIndex = newColumnIndex;
+
+    // Adjust tick index for new column
+    const ticks = this.getColumnTicks(COLUMN_IDS[newColumnIndex]);
+    if (ticks.length === 0) {
+      this.focusedTickIndex = -1;
+    } else if (this.focusedTickIndex >= ticks.length) {
+      this.focusedTickIndex = ticks.length - 1;
+    } else if (this.focusedTickIndex < 0) {
+      this.focusedTickIndex = 0;
+    }
+
+    // On mobile, switch active column
+    if (this.isMobile) {
+      this.activeColumn = COLUMN_IDS[newColumnIndex];
+      this.updateBoardState();
+    }
+  }
+
+  /**
+   * Open the currently focused tick in the drawer.
+   */
+  private openFocusedTick() {
+    if (this.focusedColumnIndex < 0 || this.focusedTickIndex < 0) {
+      return;
+    }
+
+    const ticks = this.getFocusedColumnTicks();
+    if (this.focusedTickIndex < ticks.length) {
+      this.selectedTick = ticks[this.focusedTickIndex];
+    }
+  }
+
+  /**
+   * Handle escape key: close dialogs/drawers or clear focus.
+   */
+  private handleEscape() {
+    if (this.showKeyboardHelp) {
+      this.showKeyboardHelp = false;
+    } else if (this.selectedTick) {
+      this.selectedTick = null;
+    } else {
+      this.clearFocus();
+    }
+  }
+
+  /**
+   * Focus the search input in the header.
+   */
+  private focusSearchInput() {
+    const header = this.shadowRoot?.querySelector('tick-header');
+    if (header?.shadowRoot) {
+      const searchInput = header.shadowRoot.querySelector('sl-input');
+      if (searchInput) {
+        (searchInput as HTMLElement).focus();
+      }
+    }
+  }
+
+  /**
+   * Get the currently focused tick ID (for child components).
+   */
+  private getFocusedTickId(): string | null {
+    if (this.focusedColumnIndex < 0 || this.focusedTickIndex < 0) {
+      return null;
+    }
+    const ticks = this.getFocusedColumnTicks();
+    if (this.focusedTickIndex < ticks.length) {
+      return ticks[this.focusedTickIndex].id;
+    }
+    return null;
   }
 
   private handleMediaChange = (e: MediaQueryListEvent) => {
@@ -473,17 +790,71 @@ export class TickBoard extends LitElement {
 
       <main>
         <div class="kanban-board">
-          ${COLUMNS.map(col => html`
+          ${COLUMNS.map((col, colIndex) => html`
             <tick-column
               class=${this.activeColumn === col.id ? 'mobile-active' : ''}
               name=${col.id}
               .ticks=${this.getColumnTicks(col.id)}
               .epicNames=${epicNames}
+              focused-tick-id=${this.focusedColumnIndex === colIndex ? this.getFocusedTickId() ?? '' : ''}
               @tick-selected=${this.handleTickSelected}
             ></tick-column>
           `)}
         </div>
       </main>
+
+      <!-- Keyboard shortcuts help dialog -->
+      <sl-dialog
+        label="Keyboard Shortcuts"
+        ?open=${this.showKeyboardHelp}
+        @sl-after-hide=${() => { this.showKeyboardHelp = false; }}
+        class="keyboard-help-dialog"
+      >
+        <div class="shortcuts-grid">
+          <div class="shortcut-group">
+            <h4>Navigation</h4>
+            <div class="shortcut-row">
+              <kbd>j</kbd> <kbd>↓</kbd>
+              <span>Move down</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>k</kbd> <kbd>↑</kbd>
+              <span>Move up</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>h</kbd> <kbd>←</kbd>
+              <span>Previous column</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>l</kbd> <kbd>→</kbd>
+              <span>Next column</span>
+            </div>
+          </div>
+          <div class="shortcut-group">
+            <h4>Actions</h4>
+            <div class="shortcut-row">
+              <kbd>Enter</kbd>
+              <span>Open selected tick</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>Esc</kbd>
+              <span>Close drawer / clear focus</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>n</kbd>
+              <span>Create new tick</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>/</kbd>
+              <span>Focus search</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>?</kbd>
+              <span>Show this help</span>
+            </div>
+          </div>
+        </div>
+      </sl-dialog>
     `;
   }
 }

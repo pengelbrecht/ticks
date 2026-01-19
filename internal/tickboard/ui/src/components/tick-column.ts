@@ -141,6 +141,9 @@ export class TickColumn extends LitElement {
   @property({ type: Object, attribute: false })
   epicNames: Record<string, string> = {};
 
+  @property({ type: String, attribute: 'focused-tick-id' })
+  focusedTickId = '';
+
   private getColumnColor(): string {
     // Use provided color or fall back to default based on name
     return this.color || COLUMN_COLORS[this.name] || 'var(--blue)';
@@ -198,6 +201,7 @@ export class TickColumn extends LitElement {
                 <tick-card
                   .tick=${tick}
                   epic-name=${this.epicNames[tick.parent || ''] || ''}
+                  ?focused=${this.focusedTickId === tick.id}
                   @tick-selected=${this.handleTickSelected}
                 ></tick-card>
               `

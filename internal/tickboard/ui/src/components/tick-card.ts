@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { customElement, property, query } from 'lit/decorators.js';
 import type { BoardTick, TickType } from '../types/tick.js';
 
 // Priority colors: 0=critical→red, 1=high→peach, 2=medium→yellow, 3=low→green
@@ -51,6 +51,16 @@ export class TickCard extends LitElement {
     .card.selected {
       border-color: var(--blue);
       box-shadow: 0 0 0 1px var(--blue);
+    }
+
+    .card.focused {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px var(--blue);
+      outline: none;
+    }
+
+    .card.focused.selected {
+      box-shadow: 0 0 0 2px var(--sapphire);
     }
 
     .card-header {
@@ -191,8 +201,21 @@ export class TickCard extends LitElement {
   @property({ type: Boolean })
   selected = false;
 
+  @property({ type: Boolean })
+  focused = false;
+
   @property({ type: String, attribute: 'epic-name' })
   epicName?: string;
+
+  @query('.card')
+  private cardElement!: HTMLDivElement;
+
+  updated(changedProperties: Map<string, unknown>) {
+    // Scroll into view when becoming focused
+    if (changedProperties.has('focused') && this.focused && this.cardElement) {
+      this.cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
 
   private handleClick() {
     this.dispatchEvent(
@@ -213,14 +236,14 @@ export class TickCard extends LitElement {
   }
 
   render() {
-    const { tick, selected, epicName } = this;
+    const { tick, selected, focused, epicName } = this;
 
     return html`
       <div
-        class="card ${selected ? 'selected' : ''}"
+        class="card ${selected ? 'selected' : ''} ${focused ? 'focused' : ''}"
         @click=${this.handleClick}
         role="button"
-        tabindex="0"
+        tabindex=${focused ? '0' : '-1'}
         aria-label="Tick ${tick.id}: ${tick.title}"
       >
         <div class="card-header">
