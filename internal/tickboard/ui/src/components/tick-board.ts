@@ -2,7 +2,8 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { provide } from '@lit/context';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
-import type { BoardTick, TickColumn } from '../types/tick.js';
+import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
+import { fetchTicks, fetchInfo, type EpicInfo } from '../api/ticks.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -22,76 +23,31 @@ export class TickBoard extends LitElement {
       min-height: 100vh;
     }
 
-    /* Header */
-    header {
+    /* Loading and error states */
+    .loading-state,
+    .error-state {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 1rem 1.5rem;
-      background-color: var(--surface0);
-      border-bottom: 1px solid var(--surface1);
-    }
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .header-left h1 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: var(--rosewater);
-      margin: 0;
-    }
-
-    .repo-badge {
-      font-size: 0.75rem;
-      padding: 0.25rem 0.5rem;
-      background: var(--surface1);
-      border-radius: 4px;
-      font-family: monospace;
-      color: var(--subtext0);
-    }
-
-    .header-center {
-      flex: 1;
-      display: flex;
       justify-content: center;
-      gap: 0.75rem;
-      max-width: 600px;
-    }
-
-    .header-center sl-input {
-      flex: 1;
-      max-width: 250px;
-    }
-
-    .header-center sl-select {
-      min-width: 180px;
-    }
-
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    /* Mobile menu button */
-    .menu-toggle {
-      display: none;
-      background: none;
-      border: none;
+      min-height: 100vh;
+      gap: 1rem;
       color: var(--text);
-      font-size: 1.5rem;
-      cursor: pointer;
-      padding: 0.5rem;
-      border-radius: 6px;
     }
 
-    .menu-toggle:hover {
-      background: var(--surface1);
+    .loading-spinner {
+      font-size: 2rem;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .error-state sl-alert {
+      max-width: 400px;
+      margin-bottom: 1rem;
     }
 
     /* Kanban board */
@@ -108,57 +64,6 @@ export class TickBoard extends LitElement {
       overflow-x: auto;
     }
 
-    /* Column placeholder styling */
-    .column-placeholder {
-      flex: 1;
-      min-width: 220px;
-      max-width: 320px;
-      background: var(--surface0);
-      border-radius: 8px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .column-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--surface1);
-    }
-
-    .column-title {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-weight: 600;
-      font-size: 0.875rem;
-    }
-
-    .column-icon {
-      font-size: 0.75rem;
-    }
-
-    .column-count {
-      font-size: 0.75rem;
-      padding: 0.125rem 0.5rem;
-      background: var(--surface1);
-      border-radius: 999px;
-      color: var(--subtext0);
-    }
-
-    .column-content {
-      flex: 1;
-      padding: 0.5rem;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: var(--subtext0);
-      font-size: 0.875rem;
-    }
-
     /* Mobile column selector */
     .mobile-column-select {
       display: none;
@@ -173,37 +78,12 @@ export class TickBoard extends LitElement {
 
     /* Responsive */
     @media (max-width: 768px) {
-      .header-center {
-        display: none;
-      }
-
-      .menu-toggle {
-        display: block;
-      }
-
       .kanban-board {
         gap: 0.75rem;
-      }
-
-      .column-placeholder {
-        min-width: 260px;
-        flex: 0 0 260px;
       }
     }
 
     @media (max-width: 480px) {
-      header {
-        padding: 0.75rem 1rem;
-      }
-
-      .repo-badge {
-        display: none;
-      }
-
-      .header-left h1 {
-        font-size: 1.125rem;
-      }
-
       main {
         padding: 0;
       }
@@ -218,14 +98,11 @@ export class TickBoard extends LitElement {
         overflow-y: auto;
       }
 
-      .column-placeholder {
+      .kanban-board tick-column {
         display: none;
-        width: 100%;
-        max-width: none;
-        height: 100%;
       }
 
-      .column-placeholder.mobile-active {
+      .kanban-board tick-column.mobile-active {
         display: flex;
       }
     }
@@ -238,17 +115,45 @@ export class TickBoard extends LitElement {
 
   // Local state
   @state() private ticks: BoardTick[] = [];
+  @state() private epics: EpicInfo[] = [];
+  @state() private repoName = '';
   @state() private selectedEpic = '';
   @state() private searchTerm = '';
   @state() private activeColumn: TickColumn = 'blocked';
   @state() private isMobile = window.matchMedia('(max-width: 480px)').matches;
+  @state() private selectedTick: BoardTick | null = null;
+  @state() private loading = true;
+  @state() private error: string | null = null;
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
   connectedCallback() {
     super.connectedCallback();
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
-    this.updateBoardState();
+    this.loadData();
+  }
+
+  private async loadData() {
+    this.loading = true;
+    this.error = null;
+
+    try {
+      // Fetch ticks and info in parallel
+      const [ticks, info] = await Promise.all([
+        fetchTicks(),
+        fetchInfo(),
+      ]);
+
+      this.ticks = ticks;
+      this.epics = info.epics;
+      this.repoName = info.repoName;
+      this.updateBoardState();
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Failed to load data';
+      console.error('Failed to load board data:', err);
+    } finally {
+      this.loading = false;
+    }
   }
 
   disconnectedCallback() {
@@ -263,9 +168,11 @@ export class TickBoard extends LitElement {
 
   // Update the shared board state when local state changes
   private updateBoardState() {
+    // Convert EpicInfo to Epic for context (Epic requires all Tick fields)
+    // For now, we'll cast as the context primarily uses id/title from epics
     this.boardState = {
       ticks: this.ticks,
-      epics: [],
+      epics: this.epics as unknown as Epic[],
       selectedEpic: this.selectedEpic,
       searchTerm: this.searchTerm,
       activeColumn: this.activeColumn,
@@ -273,10 +180,31 @@ export class TickBoard extends LitElement {
     };
   }
 
-  private handleSearchInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    this.searchTerm = input.value;
+  // Event handlers for tick-header
+  private handleSearchChange(e: CustomEvent<{ value: string }>) {
+    this.searchTerm = e.detail.value;
     this.updateBoardState();
+  }
+
+  private handleEpicFilterChange(e: CustomEvent<{ value: string }>) {
+    this.selectedEpic = e.detail.value;
+    this.updateBoardState();
+  }
+
+  private handleCreateClick() {
+    // TODO: Open create tick dialog in future task
+    console.log('Create tick clicked');
+  }
+
+  private handleMenuToggle() {
+    // TODO: Open mobile menu drawer in future task
+    console.log('Menu toggle clicked');
+  }
+
+  // Handle tick selection from columns
+  private handleTickSelected(e: CustomEvent<{ tick: BoardTick }>) {
+    this.selectedTick = e.detail.tick;
+    console.log('Tick selected:', e.detail.tick.id);
   }
 
   private handleMobileColumnChange(e: Event) {
@@ -285,48 +213,80 @@ export class TickBoard extends LitElement {
     this.updateBoardState();
   }
 
+  // Get filtered ticks for a column
+  private getFilteredTicks(): BoardTick[] {
+    let filtered = this.ticks;
+
+    // Filter by search term (match ID or title, case-insensitive)
+    if (this.searchTerm) {
+      const term = this.searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        tick =>
+          tick.id.toLowerCase().includes(term) ||
+          tick.title.toLowerCase().includes(term) ||
+          (tick.description && tick.description.toLowerCase().includes(term))
+      );
+    }
+
+    // Filter by selected epic (parent matches)
+    if (this.selectedEpic) {
+      filtered = filtered.filter(tick => tick.parent === this.selectedEpic);
+    }
+
+    return filtered;
+  }
+
   private getColumnTicks(columnId: TickColumn): BoardTick[] {
-    return this.ticks.filter(tick => tick.column === columnId);
+    return this.getFilteredTicks().filter(tick => tick.column === columnId);
+  }
+
+  // Build epic name lookup map for tick-column
+  private getEpicNames(): Record<string, string> {
+    const names: Record<string, string> = {};
+    for (const epic of this.epics) {
+      names[epic.id] = epic.title;
+    }
+    return names;
   }
 
   render() {
+    // Show loading state
+    if (this.loading) {
+      return html`
+        <div class="loading-state">
+          <sl-icon name="arrow-repeat" class="loading-spinner"></sl-icon>
+          <span>Loading board...</span>
+        </div>
+      `;
+    }
+
+    // Show error state
+    if (this.error) {
+      return html`
+        <div class="error-state">
+          <sl-alert variant="danger" open>
+            <sl-icon slot="icon" name="exclamation-octagon"></sl-icon>
+            <strong>Failed to load board</strong><br>
+            ${this.error}
+          </sl-alert>
+          <sl-button variant="primary" @click=${this.loadData}>Retry</sl-button>
+        </div>
+      `;
+    }
+
+    const epicNames = this.getEpicNames();
+
     return html`
-      <header>
-        <div class="header-left">
-          <button class="menu-toggle" aria-label="Menu">☰</button>
-          <h1>Tick Board</h1>
-          <span class="repo-badge">ticks</span>
-        </div>
-
-        <div class="header-center">
-          <sl-input
-            placeholder="Search by ID or title..."
-            size="small"
-            clearable
-            .value=${this.searchTerm}
-            @sl-input=${this.handleSearchInput}
-          >
-            <sl-icon name="search" slot="prefix"></sl-icon>
-          </sl-input>
-
-          <sl-select
-            placeholder="All Ticks"
-            size="small"
-            clearable
-            .value=${this.selectedEpic}
-          >
-            <!-- Epic options will be populated from API -->
-          </sl-select>
-        </div>
-
-        <div class="header-right">
-          <sl-tooltip content="Create new tick">
-            <sl-button variant="primary" size="small">
-              <sl-icon name="plus-lg"></sl-icon>
-            </sl-button>
-          </sl-tooltip>
-        </div>
-      </header>
+      <tick-header
+        repo-name=${this.repoName}
+        .epics=${this.epics}
+        selected-epic=${this.selectedEpic}
+        search-term=${this.searchTerm}
+        @search-change=${this.handleSearchChange}
+        @epic-filter-change=${this.handleEpicFilterChange}
+        @create-click=${this.handleCreateClick}
+        @menu-toggle=${this.handleMenuToggle}
+      ></tick-header>
 
       <!-- Mobile column selector -->
       <div class="mobile-column-select">
@@ -342,21 +302,13 @@ export class TickBoard extends LitElement {
       <main>
         <div class="kanban-board">
           ${COLUMNS.map(col => html`
-            <div
-              class="column-placeholder ${this.activeColumn === col.id ? 'mobile-active' : ''}"
-            >
-              <div class="column-header">
-                <span class="column-title">
-                  <span class="column-icon" style="color: ${col.color}">${col.icon}</span>
-                  ${col.name}
-                </span>
-                <span class="column-count">${this.getColumnTicks(col.id).length}</span>
-              </div>
-              <div class="column-content">
-                <!-- tick-column components will render cards here in future tasks -->
-                No ticks
-              </div>
-            </div>
+            <tick-column
+              class=${this.activeColumn === col.id ? 'mobile-active' : ''}
+              name=${col.id}
+              .ticks=${this.getColumnTicks(col.id)}
+              .epicNames=${epicNames}
+              @tick-selected=${this.handleTickSelected}
+            ></tick-column>
           `)}
         </div>
       </main>
