@@ -1,7 +1,8 @@
 import { LitElement, html, css, nothing } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
-import type { Tick } from '../types/tick.js';
+import { customElement, property, state } from 'lit/decorators.js';
+import type { Tick, BoardTick } from '../types/tick.js';
 import type { Note, BlockerDetail } from '../api/ticks.js';
+import { approveTick, rejectTick, closeTick, reopenTick, ApiError } from '../api/ticks.js';
 
 // Priority labels for display
 const PRIORITY_LABELS: Record<number, string> = {
@@ -324,6 +325,46 @@ export class TickDetailDrawer extends LitElement {
         width: 100%;
       }
     }
+
+    /* Action buttons section */
+    .actions-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .actions-section sl-button::part(base) {
+      font-size: 0.875rem;
+    }
+
+    /* Reason input container */
+    .reason-container {
+      margin-top: 0.75rem;
+      padding: 0.75rem;
+      background: var(--surface0);
+      border: 1px solid var(--surface1);
+      border-radius: 6px;
+    }
+
+    .reason-container .reason-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--subtext0);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .reason-container .reason-buttons {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Error alert */
+    .error-alert {
+      margin-bottom: 1rem;
+    }
   `;
 
   @property({ attribute: false })
@@ -341,13 +382,30 @@ export class TickDetailDrawer extends LitElement {
   @property({ type: String, attribute: 'parent-title' })
   parentTitle?: string;
 
+  // Internal state for action buttons
+  @state() private loading = false;
+  @state() private errorMessage = '';
+  @state() private showRejectInput = false;
+  @state() private showCloseInput = false;
+  @state() private rejectReason = '';
+  @state() private closeReason = '';
+
   private handleDrawerHide() {
+    // Reset action state when drawer closes
+    this.resetActionState();
     this.dispatchEvent(
       new CustomEvent('drawer-close', {
         bubbles: true,
         composed: true,
       })
     );
+  }
+
+  // Reset state when tick changes
+  updated(changedProperties: Map<string, unknown>) {
+    if (changedProperties.has('tick')) {
+      this.resetActionState();
+    }
   }
 
   private handleTickLinkClick(tickId: string) {
@@ -358,6 +416,145 @@ export class TickDetailDrawer extends LitElement {
         composed: true,
       })
     );
+  }
+
+  private resetActionState() {
+    this.showRejectInput = false;
+    this.showCloseInput = false;
+    this.rejectReason = '';
+    this.closeReason = '';
+    this.errorMessage = '';
+  }
+
+  private emitTickUpdated(tick: BoardTick) {
+    this.dispatchEvent(
+      new CustomEvent('tick-updated', {
+        detail: { tick },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private async handleApprove() {
+    if (!this.tick) return;
+
+    this.loading = true;
+    this.errorMessage = '';
+
+    try {
+      const response = await approveTick(this.tick.id);
+      // Convert response to BoardTick format
+      const updatedTick: BoardTick = {
+        ...response,
+        is_blocked: response.isBlocked,
+      };
+      this.emitTickUpdated(updatedTick);
+      this.resetActionState();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        this.errorMessage = error.body || error.message;
+      } else {
+        this.errorMessage = 'Failed to approve tick';
+      }
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private handleRejectClick() {
+    this.showRejectInput = true;
+    this.showCloseInput = false;
+  }
+
+  private handleRejectCancel() {
+    this.showRejectInput = false;
+    this.rejectReason = '';
+  }
+
+  private async handleRejectConfirm() {
+    if (!this.tick || !this.rejectReason.trim()) return;
+
+    this.loading = true;
+    this.errorMessage = '';
+
+    try {
+      const response = await rejectTick(this.tick.id, this.rejectReason.trim());
+      const updatedTick: BoardTick = {
+        ...response,
+        is_blocked: response.isBlocked,
+      };
+      this.emitTickUpdated(updatedTick);
+      this.resetActionState();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        this.errorMessage = error.body || error.message;
+      } else {
+        this.errorMessage = 'Failed to reject tick';
+      }
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private handleCloseClick() {
+    this.showCloseInput = true;
+    this.showRejectInput = false;
+  }
+
+  private handleCloseCancel() {
+    this.showCloseInput = false;
+    this.closeReason = '';
+  }
+
+  private async handleCloseConfirm() {
+    if (!this.tick) return;
+
+    this.loading = true;
+    this.errorMessage = '';
+
+    try {
+      const response = await closeTick(this.tick.id, this.closeReason.trim() || undefined);
+      const updatedTick: BoardTick = {
+        ...response,
+        is_blocked: response.isBlocked,
+      };
+      this.emitTickUpdated(updatedTick);
+      this.resetActionState();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        this.errorMessage = error.body || error.message;
+      } else {
+        this.errorMessage = 'Failed to close tick';
+      }
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async handleReopen() {
+    if (!this.tick) return;
+
+    this.loading = true;
+    this.errorMessage = '';
+
+    try {
+      const response = await reopenTick(this.tick.id);
+      const updatedTick: BoardTick = {
+        ...response,
+        is_blocked: response.isBlocked,
+      };
+      this.emitTickUpdated(updatedTick);
+      this.resetActionState();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        this.errorMessage = error.body || error.message;
+      } else {
+        this.errorMessage = 'Failed to reopen tick';
+      }
+    } finally {
+      this.loading = false;
+    }
   }
 
   private formatTimestamp(isoString: string): string {
@@ -377,6 +574,169 @@ export class TickDetailDrawer extends LitElement {
 
   private getPriorityColor(priority: number): string {
     return PRIORITY_COLORS[priority] ?? PRIORITY_COLORS[2];
+  }
+
+  private renderActions() {
+    const tick = this.tick;
+    if (!tick) return nothing;
+
+    const isOpen = tick.status === 'open';
+    const isClosed = tick.status === 'closed';
+    const hasAwaiting = !!tick.awaiting;
+    const hasRequires = !!tick.requires;
+
+    // Determine which buttons to show
+    const showApproveReject = isOpen && hasAwaiting;
+    const showClose = isOpen && !hasRequires;
+    const showReopen = isClosed;
+
+    // If no actions available, don't render section
+    if (!showApproveReject && !showClose && !showReopen) {
+      return nothing;
+    }
+
+    return html`
+      <div class="section">
+        <div class="section-title">Actions</div>
+
+        ${this.errorMessage
+          ? html`
+              <sl-alert variant="danger" open class="error-alert">
+                <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+                ${this.errorMessage}
+              </sl-alert>
+            `
+          : nothing}
+
+        <div class="actions-section">
+          ${showApproveReject
+            ? html`
+                <sl-button
+                  variant="success"
+                  size="small"
+                  ?loading=${this.loading}
+                  ?disabled=${this.loading}
+                  @click=${this.handleApprove}
+                >
+                  <sl-icon slot="prefix" name="check-lg"></sl-icon>
+                  Approve
+                </sl-button>
+                <sl-button
+                  variant="danger"
+                  size="small"
+                  ?loading=${this.loading}
+                  ?disabled=${this.loading}
+                  @click=${this.handleRejectClick}
+                >
+                  <sl-icon slot="prefix" name="x-lg"></sl-icon>
+                  Reject
+                </sl-button>
+              `
+            : nothing}
+          ${showClose
+            ? html`
+                <sl-button
+                  variant="neutral"
+                  size="small"
+                  ?loading=${this.loading}
+                  ?disabled=${this.loading}
+                  @click=${this.handleCloseClick}
+                >
+                  <sl-icon slot="prefix" name="check-circle"></sl-icon>
+                  Close
+                </sl-button>
+              `
+            : nothing}
+          ${showReopen
+            ? html`
+                <sl-button
+                  variant="primary"
+                  size="small"
+                  ?loading=${this.loading}
+                  ?disabled=${this.loading}
+                  @click=${this.handleReopen}
+                >
+                  <sl-icon slot="prefix" name="arrow-counterclockwise"></sl-icon>
+                  Reopen
+                </sl-button>
+              `
+            : nothing}
+        </div>
+
+        ${this.showRejectInput
+          ? html`
+              <div class="reason-container">
+                <span class="reason-label">Rejection reason (required)</span>
+                <sl-textarea
+                  placeholder="Explain why this is being rejected..."
+                  rows="2"
+                  .value=${this.rejectReason}
+                  @sl-input=${(e: Event) => {
+                    this.rejectReason = (e.target as HTMLInputElement).value;
+                  }}
+                ></sl-textarea>
+                <div class="reason-buttons">
+                  <sl-button
+                    variant="danger"
+                    size="small"
+                    ?loading=${this.loading}
+                    ?disabled=${this.loading || !this.rejectReason.trim()}
+                    @click=${this.handleRejectConfirm}
+                  >
+                    Confirm Reject
+                  </sl-button>
+                  <sl-button
+                    variant="neutral"
+                    size="small"
+                    ?disabled=${this.loading}
+                    @click=${this.handleRejectCancel}
+                  >
+                    Cancel
+                  </sl-button>
+                </div>
+              </div>
+            `
+          : nothing}
+
+        ${this.showCloseInput
+          ? html`
+              <div class="reason-container">
+                <span class="reason-label">Close reason (optional)</span>
+                <sl-textarea
+                  placeholder="Add a reason for closing..."
+                  rows="2"
+                  .value=${this.closeReason}
+                  @sl-input=${(e: Event) => {
+                    this.closeReason = (e.target as HTMLInputElement).value;
+                  }}
+                ></sl-textarea>
+                <div class="reason-buttons">
+                  <sl-button
+                    variant="neutral"
+                    size="small"
+                    ?loading=${this.loading}
+                    ?disabled=${this.loading}
+                    @click=${this.handleCloseConfirm}
+                  >
+                    Confirm Close
+                  </sl-button>
+                  <sl-button
+                    variant="neutral"
+                    size="small"
+                    outline
+                    ?disabled=${this.loading}
+                    @click=${this.handleCloseCancel}
+                  >
+                    Cancel
+                  </sl-button>
+                </div>
+              </div>
+            `
+          : nothing}
+      </div>
+
+      <sl-divider></sl-divider>
+    `;
   }
 
   private renderBlockers() {
@@ -515,7 +875,8 @@ export class TickDetailDrawer extends LitElement {
                   </div>
                 </div>
 
-                <sl-divider></sl-divider>
+                <!-- Actions (approve/reject/close/reopen) -->
+                ${this.renderActions()}
 
                 <!-- Description -->
                 <div class="section">
