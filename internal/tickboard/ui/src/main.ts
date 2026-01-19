@@ -23,6 +23,7 @@ import '@shoelace-style/shoelace/dist/components/menu-item/menu-item.js';
 import '@shoelace-style/shoelace/dist/components/icon/icon.js';
 import '@shoelace-style/shoelace/dist/components/divider/divider.js';
 import '@shoelace-style/shoelace/dist/components/tooltip/tooltip.js';
+import '@shoelace-style/shoelace/dist/components/checkbox/checkbox.js';
 
 // Set base path for Shoelace assets (local icons in production)
 import { setBasePath } from '@shoelace-style/shoelace/dist/utilities/base-path.js';
@@ -34,3 +35,4 @@ import './components/tick-card.js';
 import './components/tick-column.js';
 import './components/tick-header.js';
 import './components/tick-detail-drawer.js';
+import './components/tick-create-dialog.js';
