@@ -30,3 +30,4 @@ setBasePath('/shoelace');
 
 // Register custom components
 import './components/tick-board.js';
+import './components/tick-card.js';
