@@ -1,502 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Tick Board</title>
-    <!-- Favicons -->
-    <link rel="icon" type="image/svg+xml" href="static/favicon.svg">
-    <link rel="icon" type="image/png" sizes="32x32" href="static/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="static/favicon-16x16.png">
-    <link rel="shortcut icon" href="static/favicon.ico">
-    <!-- Apple Touch Icon -->
-    <link rel="apple-touch-icon" sizes="180x180" href="static/apple-touch-icon.png">
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="static/manifest.json">
-    <meta name="theme-color" content="#1e1e2e">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="TickBoard">
-    <link rel="stylesheet" href="static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tick Board</title>
+
+  <style>
+    /* Catppuccin Mocha color palette */
+    :root {
+      --rosewater: #f5e0dc;
+      --flamingo: #f2cdcd;
+      --pink: #f5c2e7;
+      --mauve: #cba6f7;
+      --red: #f38ba8;
+      --maroon: #eba0ac;
+      --peach: #fab387;
+      --yellow: #f9e2af;
+      --green: #a6e3a1;
+      --teal: #94e2d5;
+      --sky: #89dceb;
+      --sapphire: #74c7ec;
+      --blue: #89b4fa;
+      --lavender: #b4befe;
+      --text: #cdd6f4;
+      --subtext1: #bac2de;
+      --subtext0: #a6adc8;
+      --overlay2: #9399b2;
+      --overlay1: #7f849c;
+      --overlay0: #6c7086;
+      --surface2: #585b70;
+      --surface1: #45475a;
+      --surface0: #313244;
+      --base: #1e1e2e;
+      --mantle: #181825;
+      --crust: #11111b;
+
+      /* Map to Shoelace tokens */
+      --sl-color-primary-500: var(--blue);
+      --sl-color-primary-600: var(--sapphire);
+      --sl-color-success-500: var(--green);
+      --sl-color-warning-500: var(--yellow);
+      --sl-color-danger-500: var(--red);
+      --sl-color-neutral-0: var(--base);
+      --sl-color-neutral-100: var(--mantle);
+      --sl-color-neutral-200: var(--surface0);
+      --sl-color-neutral-300: var(--surface1);
+      --sl-color-neutral-600: var(--overlay1);
+      --sl-color-neutral-900: var(--text);
+      --sl-panel-background-color: var(--mantle);
+      --sl-input-background-color: var(--surface0);
+      --sl-input-border-color: var(--surface1);
+      --sl-input-color: var(--text);
+      --sl-input-placeholder-color: var(--overlay0);
+      --sl-border-radius-medium: 8px;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--base);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    tick-board {
+      display: block;
+      min-height: 100vh;
+    }
+  </style>
+
+  <script type="module" crossorigin src="/assets/app-DJyeNQVk.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Cnu7xt1c.css">
 </head>
-<body>
-    <div id="app">
-        <header>
-            <div class="header-left">
-                <button id="menu-toggle" class="menu-toggle" onclick="toggleMobileNav()" aria-label="Toggle menu" aria-expanded="false">
-                    <span class="menu-toggle-icon"></span>
-                </button>
-                <h1>Tick Board</h1>
-                <span id="repo-name" class="repo-name"></span>
-            </div>
-            <div class="header-center">
-                <div class="search-wrapper">
-                    <input type="text" id="search-input" class="search-input" placeholder="Search by ID or title..." oninput="handleSearchInput()">
-                    <button id="search-clear" class="search-clear hidden" onclick="clearSearch()" aria-label="Clear search">&times;</button>
-                </div>
-                <select id="epic-filter" class="epic-filter" onchange="handleEpicFilterChange()">
-                    <option value="">All Ticks</option>
-                </select>
-            </div>
-            <div class="header-right">
-                <button id="activity-btn" class="header-btn header-btn-activity" onclick="toggleActivityDropdown()" title="Recent activity">
-                    <span class="activity-icon-bell">⚡</span>
-                    <span id="activity-badge" class="activity-badge hidden">0</span>
-                </button>
-                <button class="header-btn" onclick="openCreateModal()" title="Create new tick">+</button>
-                <button id="cloud-home-btn" class="header-btn header-btn-cloud hidden" onclick="goToCloudHome()" title="Switch board">⌂</button>
-            </div>
-        </header>
-        <!-- Mobile Navigation Overlay -->
-        <div id="mobile-nav-overlay" class="mobile-nav-overlay hidden" onclick="closeMobileNav()"></div>
-        <!-- Mobile Navigation Sidebar -->
-        <nav id="mobile-nav" class="mobile-nav hidden" aria-label="Mobile navigation">
-            <div class="mobile-nav-header">
-                <h2>Menu</h2>
-                <button class="mobile-nav-close" onclick="closeMobileNav()" aria-label="Close menu">&times;</button>
-            </div>
-            <div class="mobile-nav-content">
-                <div class="mobile-nav-section">
-                    <label class="mobile-nav-label" for="mobile-epic-filter">Filter by Epic</label>
-                    <select id="mobile-epic-filter" class="mobile-nav-select" onchange="handleMobileEpicFilterChange()">
-                        <option value="">All Ticks</option>
-                    </select>
-                </div>
-                <div class="mobile-nav-section">
-                    <label class="mobile-nav-label" for="mobile-search-input">Search</label>
-                    <div class="mobile-search-wrapper">
-                        <input type="text" id="mobile-search-input" class="mobile-nav-input" placeholder="Search by ID or title..." oninput="handleMobileSearchInput()">
-                        <button id="mobile-search-clear" class="mobile-search-clear hidden" onclick="clearMobileSearch()" aria-label="Clear search">&times;</button>
-                    </div>
-                </div>
-                <div class="mobile-nav-actions">
-                    <button class="mobile-nav-btn mobile-nav-btn-primary" onclick="openCreateModal(); closeMobileNav();">
-                        <span class="mobile-nav-btn-icon">+</span>
-                        Create Tick
-                    </button>
-                    <button id="mobile-cloud-home-btn" class="mobile-nav-btn mobile-nav-btn-secondary hidden" onclick="goToCloudHome()">
-                        <span class="mobile-nav-btn-icon">⌂</span>
-                        Switch Board
-                    </button>
-                </div>
-            </div>
-            <div class="mobile-nav-footer">
-                <button class="mobile-nav-help-btn" onclick="showHelpModal(); closeMobileNav();">
-                    <span>?</span>
-                    Keyboard Shortcuts
-                </button>
-            </div>
-        </nav>
-        <!-- Mobile Column Tabs (visible only on mobile) -->
-        <div id="mobile-column-tabs" class="mobile-column-tabs">
-            <button class="mobile-column-tab active" data-column="blocked" onclick="switchMobileColumn('blocked')">
-                <span class="mobile-tab-icon">⊘</span>
-                <span class="mobile-tab-label">Blocked</span>
-                <span class="mobile-tab-count" id="mobile-count-blocked">0</span>
-            </button>
-            <button class="mobile-column-tab" data-column="ready" onclick="switchMobileColumn('ready')">
-                <span class="mobile-tab-icon">▶</span>
-                <span class="mobile-tab-label">Queue</span>
-                <span class="mobile-tab-count" id="mobile-count-ready">0</span>
-            </button>
-            <button class="mobile-column-tab" data-column="agent" onclick="switchMobileColumn('agent')">
-                <span class="mobile-tab-icon">●</span>
-                <span class="mobile-tab-label">Active</span>
-                <span class="mobile-tab-count" id="mobile-count-agent">0</span>
-            </button>
-            <button class="mobile-column-tab" data-column="human" onclick="switchMobileColumn('human')">
-                <span class="mobile-tab-icon">👤</span>
-                <span class="mobile-tab-label">Human</span>
-                <span class="mobile-tab-count" id="mobile-count-human">0</span>
-            </button>
-            <button class="mobile-column-tab" data-column="done" onclick="switchMobileColumn('done')">
-                <span class="mobile-tab-icon">✓</span>
-                <span class="mobile-tab-label">Done</span>
-                <span class="mobile-tab-count" id="mobile-count-done">0</span>
-            </button>
-        </div>
-        <main id="board" class="kanban-board">
-            <div class="kanban-column" data-column="blocked">
-                <div class="column-header">
-                    <h2>Blocked</h2>
-                    <span class="count-badge">0</span>
-                </div>
-                <div class="column-content">
-                    <p class="empty-state">No blocked items</p>
-                </div>
-            </div>
-            <div class="kanban-column" data-column="ready">
-                <div class="column-header">
-                    <h2>Agent Queue</h2>
-                    <span class="count-badge">0</span>
-                </div>
-                <div class="column-content">
-                    <p class="empty-state">No items ready</p>
-                </div>
-            </div>
-            <div class="kanban-column" data-column="agent">
-                <div class="column-header">
-                    <h2>In Progress</h2>
-                    <span class="count-badge">0</span>
-                </div>
-                <div class="column-content">
-                    <p class="empty-state">No items in progress</p>
-                </div>
-            </div>
-            <div class="kanban-column" data-column="human">
-                <div class="column-header">
-                    <h2>Needs Human</h2>
-                    <span class="count-badge">0</span>
-                </div>
-                <div class="column-content">
-                    <p class="empty-state">No items awaiting human</p>
-                </div>
-            </div>
-            <div class="kanban-column" data-column="done">
-                <div class="column-header">
-                    <h2>Done</h2>
-                    <span class="count-badge">0</span>
-                </div>
-                <div class="column-content">
-                    <p class="empty-state">No completed items</p>
-                </div>
-            </div>
-        </main>
-        <!-- Activity Dropdown -->
-        <div id="activity-dropdown" class="activity-dropdown hidden">
-            <div class="activity-dropdown-header">
-                <span>Recent Activity</span>
-            </div>
-            <div id="activity-list" class="activity-list">
-                <p class="activity-empty">Loading...</p>
-            </div>
-        </div>
-        <!-- Tick Detail Panel Overlay -->
-        <div id="detail-overlay" class="detail-overlay hidden" onclick="closeTickDetail()"></div>
-        <!-- Tick Detail Panel -->
-        <aside id="detail-panel" class="detail-panel hidden">
-            <div class="detail-header">
-                <div class="detail-header-left">
-                    <span id="detail-id" class="detail-id"></span>
-                    <span id="detail-status" class="detail-status"></span>
-                </div>
-                <button class="detail-close" onclick="closeTickDetail()" aria-label="Close panel">&times;</button>
-            </div>
-            <div class="detail-content">
-                <h2 id="detail-title" class="detail-title"></h2>
-
-                <!-- Core Fields Section -->
-                <section class="detail-section">
-                    <h3 class="detail-section-title">Details</h3>
-                    <div class="detail-fields">
-                        <div class="detail-field">
-                            <span class="detail-label">Type</span>
-                            <span id="detail-type" class="detail-value"></span>
-                            <select id="detail-type-edit" class="detail-select hidden" onchange="updateTickField('type', this.value)">
-                                <option value="task">Task</option>
-                                <option value="epic">Epic</option>
-                                <option value="bug">Bug</option>
-                                <option value="feature">Feature</option>
-                                <option value="chore">Chore</option>
-                            </select>
-                        </div>
-                        <div class="detail-field">
-                            <span class="detail-label">Priority</span>
-                            <span id="detail-priority" class="detail-value"></span>
-                            <select id="detail-priority-edit" class="detail-select hidden" onchange="updateTickField('priority', parseInt(this.value))">
-                                <option value="0">P0 - Critical</option>
-                                <option value="1">P1 - High</option>
-                                <option value="2">P2 - Medium</option>
-                                <option value="3">P3 - Low</option>
-                                <option value="4">P4 - Backlog</option>
-                            </select>
-                        </div>
-                        <div class="detail-field">
-                            <span class="detail-label">Owner</span>
-                            <span id="detail-owner" class="detail-value"></span>
-                        </div>
-                        <div class="detail-field">
-                            <span class="detail-label">Created</span>
-                            <span id="detail-created" class="detail-value"></span>
-                        </div>
-                        <div class="detail-field" id="detail-parent-field">
-                            <span class="detail-label">Parent</span>
-                            <span id="detail-parent" class="detail-value"></span>
-                            <select id="detail-parent-edit" class="detail-select hidden" onchange="updateTickField('parent', this.value)">
-                                <option value="">None</option>
-                            </select>
-                        </div>
-                        <div class="detail-field" id="detail-requires-field">
-                            <span class="detail-label">Workflow</span>
-                            <span id="detail-requires" class="detail-value"></span>
-                            <select id="detail-requires-edit" class="detail-select hidden" onchange="updateTickField('requires', this.value)">
-                                <option value="">None</option>
-                                <option value="approval">Needs approval</option>
-                                <option value="review">Needs review (code)</option>
-                                <option value="content">Needs review (content)</option>
-                            </select>
-                        </div>
-                        <div class="detail-field" id="detail-labels-field" style="display: none;">
-                            <span class="detail-label">Labels</span>
-                            <span id="detail-labels" class="detail-value"></span>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Description Section -->
-                <section id="detail-description-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Description</h3>
-                    <p id="detail-description" class="detail-description"></p>
-                </section>
-
-                <!-- Acceptance Criteria Section -->
-                <section id="detail-ac-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Acceptance Criteria</h3>
-                    <p id="detail-ac" class="detail-description"></p>
-                </section>
-
-                <!-- Workflow Section -->
-                <section id="detail-workflow-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Workflow</h3>
-                    <div id="detail-workflow" class="detail-workflow"></div>
-                </section>
-
-                <!-- Blockers Section -->
-                <section id="detail-blockers-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Blocked By</h3>
-                    <ul id="detail-blockers" class="detail-blockers"></ul>
-                </section>
-
-                <!-- Notes Section -->
-                <section id="detail-notes-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Notes</h3>
-                    <div id="detail-notes" class="detail-notes"></div>
-                </section>
-
-                <!-- Add Note Section -->
-                <section class="detail-section">
-                    <h3 class="detail-section-title">Add Note</h3>
-                    <div class="add-note-form">
-                        <textarea id="note-input" class="note-textarea" rows="3" placeholder="Add a note..."></textarea>
-                        <button id="btn-add-note" class="action-btn action-btn-note" onclick="submitNote()">
-                            Add Note
-                        </button>
-                    </div>
-                </section>
-
-                <!-- Closed Section -->
-                <section id="detail-closed-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Closed</h3>
-                    <div class="detail-fields">
-                        <div class="detail-field">
-                            <span class="detail-label">Closed At</span>
-                            <span id="detail-closed-at" class="detail-value"></span>
-                        </div>
-                        <div class="detail-field" id="detail-closed-reason-field" style="display: none;">
-                            <span class="detail-label">Reason</span>
-                            <span id="detail-closed-reason" class="detail-value"></span>
-                        </div>
-                    </div>
-                    <div class="detail-actions" style="margin-top: 1rem;">
-                        <button id="btn-reopen-tick" class="action-btn action-btn-reopen" onclick="reopenTick()">
-                            ↺ Reopen
-                        </button>
-                    </div>
-                </section>
-
-                <!-- Actions Section (for ticks awaiting human) -->
-                <section id="detail-actions-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Actions</h3>
-                    <div class="detail-actions">
-                        <button id="btn-approve" class="action-btn action-btn-approve" onclick="approveTick()">
-                            ✓ Approve
-                        </button>
-                        <button id="btn-reject" class="action-btn action-btn-reject" onclick="openRejectModal()">
-                            ✗ Reject
-                        </button>
-                    </div>
-                </section>
-
-                <!-- Close Tick Section (for closable ticks) -->
-                <section id="detail-close-section" class="detail-section" style="display: none;">
-                    <h3 class="detail-section-title">Close Tick</h3>
-                    <div class="detail-actions">
-                        <button id="btn-close-tick" class="action-btn action-btn-close" onclick="openCloseModal()">
-                            Close Tick
-                        </button>
-                    </div>
-                </section>
-            </div>
-        </aside>
-
-        <!-- Reject Feedback Modal -->
-        <div id="reject-modal" class="modal-overlay hidden" onclick="closeRejectModal(event)">
-            <div class="modal" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <h3>Reject Tick</h3>
-                    <button class="modal-close" onclick="closeRejectModal()" aria-label="Close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <label for="reject-feedback" class="modal-label">Feedback (required)</label>
-                    <textarea id="reject-feedback" class="modal-textarea" rows="4" placeholder="Explain why this is being rejected and what needs to change..."></textarea>
-                </div>
-                <div class="modal-footer">
-                    <button class="action-btn action-btn-secondary" onclick="closeRejectModal()">Cancel</button>
-                    <button class="action-btn action-btn-reject" onclick="submitReject()">Reject</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Close Tick Modal -->
-        <div id="close-modal" class="modal-overlay hidden" onclick="closeCloseModal(event)">
-            <div class="modal" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <h3>Close Tick</h3>
-                    <button class="modal-close" onclick="closeCloseModal()" aria-label="Close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <label for="close-reason" class="modal-label">Reason (optional)</label>
-                    <textarea id="close-reason" class="modal-textarea" rows="3" placeholder="Add an optional reason for closing..."></textarea>
-                </div>
-                <div class="modal-footer">
-                    <button class="action-btn action-btn-secondary" onclick="closeCloseModal()">Cancel</button>
-                    <button class="action-btn action-btn-close" onclick="submitClose()">Close Tick</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Create Tick Modal -->
-        <div id="create-modal" class="modal-overlay hidden" onclick="closeCreateModal(event)">
-            <div class="modal modal-lg" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <h3>Create Tick</h3>
-                    <button class="modal-close" onclick="closeCreateModal()" aria-label="Close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <form id="create-form" onsubmit="submitCreateTick(event)">
-                        <div class="form-group">
-                            <label for="create-title" class="form-label">Title *</label>
-                            <input type="text" id="create-title" class="form-input" placeholder="Enter tick title" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="create-description" class="form-label">Description</label>
-                            <textarea id="create-description" class="form-textarea" rows="3" placeholder="Optional description"></textarea>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="create-type" class="form-label">Type</label>
-                                <select id="create-type" class="form-select">
-                                    <option value="task">Task</option>
-                                    <option value="epic">Epic</option>
-                                    <option value="bug">Bug</option>
-                                    <option value="feature">Feature</option>
-                                    <option value="chore">Chore</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="create-priority" class="form-label">Priority</label>
-                                <select id="create-priority" class="form-select">
-                                    <option value="0">P0 - Critical</option>
-                                    <option value="1">P1 - High</option>
-                                    <option value="2" selected>P2 - Medium</option>
-                                    <option value="3">P3 - Low</option>
-                                    <option value="4">P4 - Backlog</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="create-parent" class="form-label">Parent Epic</label>
-                                <select id="create-parent" class="form-select">
-                                    <option value="">None</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="create-requires" class="form-label">Workflow</label>
-                                <select id="create-requires" class="form-select">
-                                    <option value="">None</option>
-                                    <option value="approval">Requires Approval</option>
-                                    <option value="review">Requires Code Review</option>
-                                    <option value="content">Requires Content Review</option>
-                                </select>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button class="action-btn action-btn-secondary" onclick="closeCreateModal()">Cancel</button>
-                    <button class="action-btn action-btn-primary" onclick="submitCreateTick(event)">Create</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Keyboard Shortcuts Help Modal -->
-        <div id="help-modal" class="modal-overlay hidden" onclick="closeHelpModal(event)">
-            <div class="modal modal-help" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <h3>Keyboard Shortcuts</h3>
-                    <button class="modal-close" onclick="closeHelpModal()" aria-label="Close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="shortcuts-section">
-                        <h4>Navigation</h4>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></span>
-                            <span class="shortcut-desc">Move between cards</span>
-                        </div>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>j</kbd> <kbd>k</kbd> <kbd>h</kbd> <kbd>l</kbd></span>
-                            <span class="shortcut-desc">Vim-style navigation</span>
-                        </div>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>Enter</kbd></span>
-                            <span class="shortcut-desc">Open selected card</span>
-                        </div>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>Esc</kbd></span>
-                            <span class="shortcut-desc">Close panel / Clear selection</span>
-                        </div>
-                    </div>
-                    <div class="shortcuts-section">
-                        <h4>Actions</h4>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>n</kbd></span>
-                            <span class="shortcut-desc">Create new tick</span>
-                        </div>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>a</kbd></span>
-                            <span class="shortcut-desc">Approve (when panel open)</span>
-                        </div>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>r</kbd></span>
-                            <span class="shortcut-desc">Reject (when panel open)</span>
-                        </div>
-                        <div class="shortcut-row">
-                            <span class="shortcut-keys"><kbd>?</kbd></span>
-                            <span class="shortcut-desc">Show this help</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Toast Container -->
-        <div id="toast-container"></div>
-    </div>
-    <script src="static/app.js"></script>
-    <script>
-        // Register service worker for PWA offline support
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/sw.js')
-                    .then((registration) => {
-                        console.log('ServiceWorker registered:', registration.scope);
-                    })
-                    .catch((error) => {
-                        console.log('ServiceWorker registration failed:', error);
-                    });
-            });
-        }
-    </script>
+<body class="sl-theme-dark">
+  <tick-board></tick-board>
 </body>
 </html>
