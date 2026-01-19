@@ -440,6 +440,9 @@ export class TickBoard extends LitElement {
         @menu-toggle=${this.handleMenuToggle}
       ></tick-header>
 
+      <!-- Toast notification stack -->
+      <tick-toast-stack></tick-toast-stack>
+
       <!-- Mobile column selector -->
       <div class="mobile-column-select">
         <sl-select .value=${this.activeColumn} @sl-change=${this.handleMobileColumnChange}>
