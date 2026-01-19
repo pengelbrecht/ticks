@@ -3,7 +3,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { provide } from '@lit/context';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { fetchTicks, fetchInfo, type EpicInfo } from '../api/ticks.js';
+import { fetchTicks, fetchTick, fetchInfo, type EpicInfo } from '../api/ticks.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -127,10 +127,17 @@ export class TickBoard extends LitElement {
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
+  // SSE connection for real-time updates
+  private eventSource: EventSource | null = null;
+  private reconnectDelay = 1000; // Start with 1 second
+  private maxReconnectDelay = 30000; // Max 30 seconds
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
   connectedCallback() {
     super.connectedCallback();
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
     this.loadData();
+    this.connectSSE();
   }
 
   private async loadData() {
@@ -159,6 +166,151 @@ export class TickBoard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this.mediaQuery.removeEventListener('change', this.handleMediaChange);
+    this.disconnectSSE();
+  }
+
+  // ============================================================================
+  // SSE Real-time Updates
+  // ============================================================================
+
+  /**
+   * Connect to the SSE endpoint for real-time tick updates.
+   * Uses exponential backoff for reconnection on errors.
+   */
+  private connectSSE() {
+    // Clean up any existing connection
+    if (this.eventSource) {
+      this.eventSource.close();
+    }
+
+    this.eventSource = new EventSource('/api/events');
+
+    // Reset reconnect delay on successful connection
+    this.eventSource.addEventListener('connected', () => {
+      this.reconnectDelay = 1000;
+      console.log('[SSE] Connected to server');
+    });
+
+    // Handle tick updates
+    this.eventSource.addEventListener('update', (event) => {
+      try {
+        const data = JSON.parse(event.data) as { type: string; tickId?: string };
+        this.handleRealtimeUpdate(data);
+      } catch (err) {
+        console.error('[SSE] Failed to parse update:', err);
+      }
+    });
+
+    // Handle connection errors with exponential backoff
+    this.eventSource.onerror = () => {
+      console.log('[SSE] Connection error, will reconnect...');
+      this.eventSource?.close();
+      this.eventSource = null;
+      this.scheduleReconnect();
+    };
+  }
+
+  /**
+   * Disconnect from SSE and clean up timers.
+   */
+  private disconnectSSE() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff.
+   */
+  private scheduleReconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+
+    this.reconnectTimeout = setTimeout(() => {
+      console.log(`[SSE] Reconnecting after ${this.reconnectDelay}ms...`);
+      this.connectSSE();
+    }, this.reconnectDelay);
+
+    // Exponential backoff: double the delay for next time, up to max
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+  }
+
+  /**
+   * Handle a real-time update from the server.
+   * Fetches fresh tick data and updates local state.
+   */
+  private async handleRealtimeUpdate(data: { type: string; tickId?: string }) {
+    const { type, tickId } = data;
+
+    // Activity updates - reload all data for now
+    if (type === 'activity') {
+      // Activity changed, but we don't currently display activity in the board
+      // Could add activity indicator in the future
+      return;
+    }
+
+    if (!tickId) {
+      console.warn('[SSE] Received update without tickId:', data);
+      return;
+    }
+
+    switch (type) {
+      case 'create':
+      case 'update': {
+        // Fetch the updated tick from the server
+        try {
+          const response = await fetchTick(tickId);
+          const updatedTick: BoardTick = {
+            ...response,
+            is_blocked: response.isBlocked,
+          };
+
+          // Find existing tick in our list
+          const existingIndex = this.ticks.findIndex(t => t.id === tickId);
+
+          if (existingIndex >= 0) {
+            // Update existing tick
+            this.ticks = [
+              ...this.ticks.slice(0, existingIndex),
+              updatedTick,
+              ...this.ticks.slice(existingIndex + 1),
+            ];
+          } else {
+            // Add new tick (only if it's a task, not an epic)
+            if (updatedTick.type !== 'epic') {
+              this.ticks = [...this.ticks, updatedTick];
+            }
+          }
+
+          this.updateBoardState();
+        } catch (err) {
+          console.error(`[SSE] Failed to fetch tick ${tickId}:`, err);
+        }
+        break;
+      }
+
+      case 'delete': {
+        // Remove tick from our list
+        const tickIndex = this.ticks.findIndex(t => t.id === tickId);
+        if (tickIndex >= 0) {
+          this.ticks = [
+            ...this.ticks.slice(0, tickIndex),
+            ...this.ticks.slice(tickIndex + 1),
+          ];
+          this.updateBoardState();
+        }
+        break;
+      }
+
+      default:
+        console.warn('[SSE] Unknown update type:', type);
+    }
   }
 
   private handleMediaChange = (e: MediaQueryListEvent) => {
