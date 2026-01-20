@@ -56,7 +56,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(tickDir, ".gitignore"), []byte(".index.json\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tickDir, ".gitignore"), []byte(".index.json\nlogs/\n"), 0o644); err != nil {
 		return fmt.Errorf("failed to write .gitignore: %w", err)
 	}
 
