@@ -2,12 +2,14 @@
   "id": "rt1",
   "title": "Test Epic for Board Demo",
   "description": "Small test epic to exercise the tickboard UI while watching",
-  "notes": "2026-01-20 09:02 - Task av4 complete: Created docs/hello.txt with greeting content. Next task mm9 can now append the date to this file.\n2026-01-20 09:03 - Task mm9 complete: Appended date (Tue Jan 20 09:02:43 CET 2026) to docs/hello.txt. File now contains greeting and timestamp.\n2026-01-20 09:03 - Task alk complete: Created docs/goodbye.txt with farewell message. Only task ry6 (cleanup) remains.",
-  "status": "open",
+  "notes": "2026-01-20 09:02 - Task av4 complete: Created docs/hello.txt with greeting content. Next task mm9 can now append the date to this file.\n2026-01-20 09:03 - Task mm9 complete: Appended date (Tue Jan 20 09:02:43 CET 2026) to docs/hello.txt. File now contains greeting and timestamp.\n2026-01-20 09:03 - Task alk complete: Created docs/goodbye.txt with farewell message. Only task ry6 (cleanup) remains.\n2026-01-20 09:04 - Task ry6 complete: Removed docs/hello.txt and docs/goodbye.txt. All test epic tasks are now complete - created test files, appended date, and cleaned up.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-20T08:01:23.743013Z",
-  "updated_at": "2026-01-20T08:03:29.232585Z"
+  "updated_at": "2026-01-20T08:04:16.44911Z",
+  "closed_at": "2026-01-20T08:04:16.44911Z",
+  "closed_reason": "all tasks completed"
 }

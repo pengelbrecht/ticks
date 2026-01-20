@@ -1,0 +1,13 @@
+{
+  "id": "35q",
+  "title": "Epic filter dropdown should show ID + title",
+  "description": "In the epic filter dropdown, show both the epic ID and title. Format the ID differently (e.g. monospace, muted color) to distinguish it from the title.\n\nCurrent: 'Tickboard UI Bug Fixes'\nDesired: 't4x - Tickboard UI Bug Fixes' or similar",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "t4x",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:14:33.15052Z",
+  "updated_at": "2026-01-20T08:14:33.15052Z"
+}

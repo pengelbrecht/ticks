@@ -1,0 +1,13 @@
+{
+  "id": "go3",
+  "title": "Fix: tickboard.dev returns 404 for all assets",
+  "description": "tickboard.dev (cloud deployment) returns 404 for all JS/CSS assets, manifest.json, and favicons. Board doesn't load at all.\n\nErrors:\n- app-CzImBuAL.js 404\n- app-BFFKgTMz.css 404  \n- manifest.json 404\n- favicon.svg, favicon-32x32.png, favicon-16x16.png 404\n\nLikely cause: Cloud deployment not updated with new Lit build output, or asset paths misconfigured for cloud.",
+  "status": "open",
+  "priority": 0,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "t4x",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:14:32.642902Z",
+  "updated_at": "2026-01-20T08:14:32.642902Z"
+}

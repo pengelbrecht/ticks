@@ -1,0 +1,13 @@
+{
+  "id": "q68",
+  "title": "Fix: cloud 'unknown message type: registered' warning",
+  "description": "Console shows 'cloud: unknown message type: registered' warning. Pre-existing issue from before the refactor but should be investigated.",
+  "status": "open",
+  "priority": 3,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "t4x",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:14:32.923826Z",
+  "updated_at": "2026-01-20T08:14:32.923826Z"
+}

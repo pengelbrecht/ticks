@@ -2,11 +2,14 @@
   "id": "t4x",
   "title": "Tickboard UI Bug Fixes",
   "description": "Fix bugs found during initial testing of the Lit/Shoelace board UI",
-  "status": "open",
+  "notes": "2026-01-20 09:09 - Completed [nwx]: Added tick-detail-drawer to tick-board.ts template. The issue was the drawer component existed but was never rendered. Key changes: 1) Added Note and BlockerDetail type imports, 2) Added state for notes/blockers/parentTitle, 3) Modified handleTickSelected to fetch full details via fetchTick API, 4) Added handleDrawerClose to reset state. The drawer is now bound with .tick, .open, .notesList, .blockerDetails, and parent-title properties.\n2026-01-20 09:10 - Completed [y46]: Fixed missing plus icon in create button by adding slot=\"prefix\" to the sl-icon element in tick-header.ts:282. This is a common Shoelace pattern - icons inside sl-button need the slot attribute to render correctly. Same pattern was already used correctly for the search icon in the header.\n2026-01-20 09:11 - Completed [6ds]: Fixed toast notification close button visibility by adding CSS styling for sl-alert::part(close-button). The closable attribute was correctly set, but the button was invisible due to missing color styling against the dark theme. Added --subtext0 for base color and --text for hover state.\n2026-01-20 09:12 - Completed [9zw]: Fixed activity feed bell icon by adding slot=\"prefix\" to sl-icon element in tick-activity-feed.ts:342. Also fixed the refresh button icon at line 355 for consistency. This is the same Shoelace pattern issue that was fixed in [y46] - icons inside sl-button need slot=\"prefix\" to render correctly. All 4 tasks in this epic now use consistent Shoelace icon patterns.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-20T08:03:59.216205Z",
-  "updated_at": "2026-01-20T08:03:59.216205Z"
+  "updated_at": "2026-01-20T08:12:40.304161Z",
+  "closed_at": "2026-01-20T08:12:40.304161Z",
+  "closed_reason": "all tasks completed"
 }
