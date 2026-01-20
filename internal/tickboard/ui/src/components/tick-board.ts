@@ -924,6 +924,34 @@ export class TickBoard extends LitElement {
     this.selectedTickParentTitle = '';
   }
 
+  private handleTickUpdated(e: CustomEvent<{ tick: BoardTick & { notesList?: Note[]; blockerDetails?: BlockerDetail[] } }>) {
+    const { tick } = e.detail;
+
+    // Update notes and blockers if provided
+    if (tick.notesList) {
+      this.selectedTickNotes = tick.notesList;
+    }
+    if (tick.blockerDetails) {
+      this.selectedTickBlockers = tick.blockerDetails;
+    }
+
+    // Update the tick in our list
+    const existingIndex = this.ticks.findIndex(t => t.id === tick.id);
+    if (existingIndex >= 0) {
+      this.ticks = [
+        ...this.ticks.slice(0, existingIndex),
+        tick,
+        ...this.ticks.slice(existingIndex + 1),
+      ];
+    }
+
+    // Update selected tick if it's the same one
+    if (this.selectedTick?.id === tick.id) {
+      this.selectedTick = tick;
+    }
+
+    this.updateBoardState();
+  }
 
   // Get filtered ticks for a column
   private getFilteredTicks(): BoardTick[] {
@@ -1012,6 +1040,7 @@ export class TickBoard extends LitElement {
         .blockerDetails=${this.selectedTickBlockers}
         parent-title=${this.selectedTickParentTitle}
         @drawer-close=${this.handleDrawerClose}
+        @tick-updated=${this.handleTickUpdated}
       ></tick-detail-drawer>
 
       <!-- Create tick dialog -->
