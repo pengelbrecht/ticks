@@ -336,7 +336,7 @@ export class TickActivityFeed extends LitElement {
 
   render() {
     return html`
-      <sl-dropdown @sl-show=${this.handleDropdownShow}>
+      <sl-dropdown placement="bottom-end" hoist @sl-show=${this.handleDropdownShow}>
         <div slot="trigger" class="trigger-button">
           <sl-button variant="text" size="small">
             <sl-icon name="bell"></sl-icon>

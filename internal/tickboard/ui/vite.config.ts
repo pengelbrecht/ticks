@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig({
+  base: './',  // Use relative paths for cloud proxy compatibility
   build: {
     outDir: '../server/static',
     emptyOutDir: true,
