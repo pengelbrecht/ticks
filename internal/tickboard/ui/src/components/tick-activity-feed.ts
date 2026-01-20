@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
-import { customElement, state } from 'lit/decorators.js';
+import { customElement, state, query } from 'lit/decorators.js';
+import type SlDropdown from '@shoelace-style/shoelace/dist/components/dropdown/dropdown.js';
 import { fetchActivity, type Activity } from '../api/ticks.js';
 
 /**
@@ -14,18 +15,23 @@ export class TickActivityFeed extends LitElement {
       display: inline-block;
     }
 
-    /* Constrain the dropdown panel width */
-    sl-dropdown {
-      --panel-width: 360px;
-    }
-
+    /* Constrain the dropdown panel width - full width on mobile */
     sl-dropdown::part(panel) {
-      width: var(--panel-width);
-      max-width: calc(100vw - 2rem);
+      width: 360px;
+      max-width: calc(100vw - 1rem);
       border-radius: 8px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
       border: 1px solid var(--surface1);
       background: var(--mantle);
+    }
+
+    @media (max-width: 480px) {
+      sl-dropdown::part(panel) {
+        width: calc(100vw - 1rem);
+        max-width: none;
+        left: 0.5rem !important;
+        right: 0.5rem;
+      }
     }
 
     .trigger-button {
@@ -68,8 +74,18 @@ export class TickActivityFeed extends LitElement {
       color: var(--text);
     }
 
+    .menu-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
     .menu-header sl-button::part(base) {
       font-size: 0.75rem;
+    }
+
+    .close-button::part(base) {
+      padding: 0.25rem;
     }
 
     .empty-state {
@@ -169,6 +185,8 @@ export class TickActivityFeed extends LitElement {
     }
   `;
 
+  @query('sl-dropdown') private dropdown!: SlDropdown;
+
   @state() private activities: Activity[] = [];
   @state() private loading = true;
   @state() private unreadCount = 0;
@@ -176,6 +194,7 @@ export class TickActivityFeed extends LitElement {
 
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private sseListener: ((event: Event) => void) | null = null;
+  private escapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
   connectedCallback() {
     super.connectedCallback();
@@ -264,6 +283,26 @@ export class TickActivityFeed extends LitElement {
     // Mark all as read when dropdown opens
     this.saveLastSeenTimestamp();
     this.unreadCount = 0;
+
+    // Add escape key listener
+    this.escapeHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        this.closeDropdown();
+      }
+    };
+    document.addEventListener('keydown', this.escapeHandler);
+  }
+
+  private handleDropdownHide() {
+    // Remove escape key listener
+    if (this.escapeHandler) {
+      document.removeEventListener('keydown', this.escapeHandler);
+      this.escapeHandler = null;
+    }
+  }
+
+  private closeDropdown() {
+    this.dropdown?.hide();
   }
 
   private handleActivityClick(activity: Activity) {
@@ -352,7 +391,7 @@ export class TickActivityFeed extends LitElement {
 
   render() {
     return html`
-      <sl-dropdown placement="bottom-end" hoist @sl-show=${this.handleDropdownShow}>
+      <sl-dropdown placement="bottom-end" hoist @sl-show=${this.handleDropdownShow} @sl-hide=${this.handleDropdownHide}>
         <div slot="trigger" class="trigger-button">
           <sl-button variant="text" size="small">
             <sl-icon name="bell"></sl-icon>
@@ -365,13 +404,18 @@ export class TickActivityFeed extends LitElement {
         <sl-menu>
           <div class="menu-header">
             <span>Activity</span>
-            ${this.activities.length > 0
-              ? html`
-                  <sl-button size="small" variant="text" @click=${this.loadActivities}>
-                    <sl-icon slot="prefix" name="arrow-clockwise"></sl-icon>
-                  </sl-button>
-                `
-              : nothing}
+            <div class="menu-header-actions">
+              ${this.activities.length > 0
+                ? html`
+                    <sl-button size="small" variant="text" @click=${this.loadActivities}>
+                      <sl-icon name="arrow-clockwise"></sl-icon>
+                    </sl-button>
+                  `
+                : nothing}
+              <sl-button size="small" variant="text" class="close-button" @click=${this.closeDropdown}>
+                <sl-icon name="x-lg"></sl-icon>
+              </sl-button>
+            </div>
           </div>
 
           ${this.loading
