@@ -438,3 +438,33 @@ export interface RunStatusResponse {
 export async function fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
   return request<RunStatusResponse>(`/api/run-status/${encodeURIComponent(epicId)}`);
 }
+
+/**
+ * Fetches context markdown for an epic.
+ * Returns null if no context exists (404 response).
+ */
+export async function fetchContext(epicId: string): Promise<string | null> {
+  try {
+    // Convert absolute paths to relative for cloud proxy compatibility
+    const relativeUrl = `./api/context/${encodeURIComponent(epicId)}`;
+    const response = await fetch(relativeUrl);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      throw new ApiError(
+        `API request failed: ${response.status} ${response.statusText}`,
+        response.status,
+        await response.text()
+      );
+    }
+
+    return response.text();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
