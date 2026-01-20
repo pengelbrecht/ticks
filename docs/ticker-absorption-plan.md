@@ -205,13 +205,13 @@ Convert `ticker/skills/ticker/` to a unified skill in `ticks/skills/ticks/`.
 - [x] `tk board` command (replaces standalone tickboard binary)
 - [x] Runner engine + agent packages under `ticks/internal/`
 - [x] No shelling out to `tk` from within `tk`
-- [ ] Unified logging under `.tick/logs/` (runs, records, checkpoints, context)
-- [ ] Auto-generated `.tick/.gitignore` with `logs/` entry
-- [ ] Migration from `.ticker/` to `.tick/logs/`
-- [ ] Log cleanup on `tk run`/`tk board` startup (30-day retention)
-- [ ] `tk gc` command for manual cleanup
-- [ ] Tickboard enhanced with streaming output and run status
-- [ ] `tk run` is headless-only
-- [ ] All `ticker` runner commands available as `tk` subcommands
-- [ ] Unified `ticks` skill in `ticks/skills/ticks/` (replaces `ticker` skill)
+- [x] Unified logging under `.tick/logs/` (runs, records, checkpoints, context)
+- [x] Auto-generated `.tick/.gitignore` with `logs/` entry
+- [x] Migration from `.ticker/` to `.tick/logs/`
+- [x] Log cleanup on `tk run`/`tk board` startup (30-day retention)
+- [x] `tk gc` command for manual cleanup
+- [x] Tickboard enhanced with streaming output and run status
+- [x] `tk run` is headless-only
+- [x] All `ticker` runner commands available as `tk` subcommands
+- [x] Unified `ticks` skill in `ticks/skills/ticks/` (replaces `ticker` skill)
 - [ ] `ticker` repo no longer required
