@@ -2,6 +2,7 @@ package ticks
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -61,13 +62,19 @@ func splitNonEmpty(s string) []string {
 // Client provides direct access to the Ticks issue tracker via the tick.Store.
 // This avoids the overhead of exec'ing the tk CLI for each operation.
 type Client struct {
-	store *tick.Store
+	store          *tick.Store
+	runrecordStore *runrecord.Store
 }
 
 // NewClient creates a new Client using the given tick directory.
+// tickDir should be the .tick directory (e.g., "/path/to/project/.tick").
 func NewClient(tickDir string) *Client {
+	// The runrecord.Store expects the project root, not the .tick dir.
+	// Since tickDir is ".tick", the parent is the project root.
+	projectRoot := filepath.Dir(tickDir)
 	return &Client{
-		store: tick.NewStore(tickDir),
+		store:          tick.NewStore(tickDir),
+		runrecordStore: runrecord.NewStore(projectRoot),
 	}
 }
 
@@ -759,79 +766,23 @@ func (c *Client) GetAgentNotes(issueID string) ([]Note, error) {
 	return c.GetNotesByAuthor(issueID, "agent")
 }
 
-// SetRunRecord stores a RunRecord on a task.
-// The RunRecord is stored as a "run" field in the tick JSON file.
+// SetRunRecord stores a RunRecord for a task.
+// The RunRecord is stored in a separate file at .tick/logs/records/<task-id>.json
 func (c *Client) SetRunRecord(taskID string, record *agent.RunRecord) error {
 	if record == nil {
 		return nil
 	}
-
-	// Read the tick file as raw JSON to preserve all fields
-	t, err := c.store.Read(taskID)
-	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
-	}
-
-	// Read the raw JSON to get a map we can modify
-	filePath := c.tickPath(taskID)
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("reading tick file %s: %w", taskID, err)
-	}
-
-	var tickData map[string]interface{}
-	if err := json.Unmarshal(data, &tickData); err != nil {
-		return fmt.Errorf("parsing tick file %s: %w", taskID, err)
-	}
-
-	// Add the run record
-	tickData["run"] = record
-
-	// Update the updated_at timestamp
-	tickData["updated_at"] = time.Now().UTC()
-
-	// Write back
-	output, err := json.MarshalIndent(tickData, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling tick file %s: %w", taskID, err)
-	}
-
-	if err := os.WriteFile(filePath, output, 0600); err != nil {
-		return fmt.Errorf("writing tick file %s: %w", taskID, err)
-	}
-
-	// Suppress unused variable warning - we verified the tick exists
-	_ = t
-
-	return nil
+	return c.runrecordStore.Write(taskID, record)
 }
 
 // GetRunRecord retrieves the RunRecord for a task.
 // Returns nil if no RunRecord exists.
 func (c *Client) GetRunRecord(taskID string) (*agent.RunRecord, error) {
-	filePath := c.tickPath(taskID)
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reading tick file %s: %w", taskID, err)
+	record, err := c.runrecordStore.Read(taskID)
+	if err == runrecord.ErrNotFound {
+		return nil, nil
 	}
-
-	var tickData struct {
-		Run *agent.RunRecord `json:"run,omitempty"`
-	}
-	if err := json.Unmarshal(data, &tickData); err != nil {
-		return nil, fmt.Errorf("parsing tick file %s: %w", taskID, err)
-	}
-
-	return tickData.Run, nil
-}
-
-// tickPath returns the path to a tick's JSON file.
-func (c *Client) tickPath(tickID string) string {
-	return c.store.Root + "/issues/" + tickID + ".json"
+	return record, err
 }
 
 // Compile-time assertion that Client implements TicksClient from the engine package.

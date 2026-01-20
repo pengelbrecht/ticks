@@ -297,28 +297,9 @@ func containsHelper(s, substr string) bool {
 func TestSetRunRecord(t *testing.T) {
 	// Create temp directory structure
 	tmpDir := t.TempDir()
-	tickDir := filepath.Join(tmpDir, ".tick", "issues")
-	if err := os.MkdirAll(tickDir, 0755); err != nil {
+	tickDir := filepath.Join(tmpDir, ".tick")
+	if err := os.MkdirAll(filepath.Join(tickDir, "issues"), 0755); err != nil {
 		t.Fatalf("creating tick dir: %v", err)
-	}
-
-	// Create a test task file
-	taskData := map[string]interface{}{
-		"id":          "test123",
-		"owner":      "test",
-		"created_by": "test",
-		"created_at": "2025-01-01T00:00:00Z",
-		"updated_at": "2025-01-01T00:00:00Z",
-		"title":       "Test Task",
-		"description": "A test task",
-		"status":      "open",
-		"priority":    2,
-		"type":        "task",
-	}
-	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
-	taskFile := filepath.Join(tickDir, "test123.json")
-	if err := os.WriteFile(taskFile, taskJSON, 0600); err != nil {
-		t.Fatalf("writing task file: %v", err)
 	}
 
 	// Create a RunRecord
@@ -343,43 +324,32 @@ func TestSetRunRecord(t *testing.T) {
 	}
 
 	// Test SetRunRecord
-	client := NewClient(filepath.Join(tmpDir, ".tick"))
+	client := NewClient(tickDir)
 	if err := client.SetRunRecord("test123", record); err != nil {
 		t.Fatalf("SetRunRecord failed: %v", err)
 	}
 
-	// Read the file and verify the run field was added
-	data, err := os.ReadFile(taskFile)
+	// Run records are now stored in .tick/logs/records/<id>.json
+	recordFile := filepath.Join(tmpDir, ".tick", "logs", "records", "test123.json")
+	data, err := os.ReadFile(recordFile)
 	if err != nil {
-		t.Fatalf("reading updated file: %v", err)
+		t.Fatalf("reading run record file: %v", err)
 	}
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("parsing updated file: %v", err)
+		t.Fatalf("parsing run record file: %v", err)
 	}
 
-	// Check original fields preserved
-	if result["id"] != "test123" {
-		t.Errorf("expected id to be preserved, got %v", result["id"])
+	// Check run record fields
+	if result["session_id"] != "session-abc" {
+		t.Errorf("expected session_id to be 'session-abc', got %v", result["session_id"])
 	}
-	if result["title"] != "Test Task" {
-		t.Errorf("expected title to be preserved, got %v", result["title"])
+	if result["model"] != "claude-opus-4-5-20251101" {
+		t.Errorf("expected model to be 'claude-opus-4-5-20251101', got %v", result["model"])
 	}
-
-	// Check run field was added
-	run, ok := result["run"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected run field to be a map, got %T", result["run"])
-	}
-	if run["session_id"] != "session-abc" {
-		t.Errorf("expected session_id to be 'session-abc', got %v", run["session_id"])
-	}
-	if run["model"] != "claude-opus-4-5-20251101" {
-		t.Errorf("expected model to be 'claude-opus-4-5-20251101', got %v", run["model"])
-	}
-	if run["success"] != true {
-		t.Errorf("expected success to be true, got %v", run["success"])
+	if result["success"] != true {
+		t.Errorf("expected success to be true, got %v", result["success"])
 	}
 }
 
@@ -394,59 +364,56 @@ func TestSetRunRecordNilRecord(t *testing.T) {
 	if err := client.SetRunRecord("test123", nil); err != nil {
 		t.Errorf("SetRunRecord with nil record should return nil, got %v", err)
 	}
+
+	// Verify no file was created
+	recordFile := filepath.Join(tmpDir, ".tick", "logs", "records", "test123.json")
+	if _, err := os.Stat(recordFile); !os.IsNotExist(err) {
+		t.Errorf("expected no record file to be created for nil record")
+	}
 }
 func TestGetRunRecord(t *testing.T) {
-	// Create a temp directory structure for .tick/issues
+	// Create a temp directory structure for .tick
 	tempDir := t.TempDir()
-	tickDir := filepath.Join(tempDir, ".tick", "issues")
-	if err := os.MkdirAll(tickDir, 0755); err != nil {
-		t.Fatalf("creating temp dirs: %v", err)
+	tickDir := filepath.Join(tempDir, ".tick")
+	recordsDir := filepath.Join(tickDir, "logs", "records")
+	if err := os.MkdirAll(recordsDir, 0755); err != nil {
+		t.Fatalf("creating records dir: %v", err)
 	}
 
-	// Create a task file with a run record
+	// Create a run record file (now stored separately from tick)
 	startTime := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
 	endTime := time.Date(2025, 1, 1, 10, 5, 0, 0, time.UTC)
 
-	taskData := map[string]interface{}{
-		"id":     "test456",
-		"type":       "task",
-		"owner":      "test",
-		"created_by": "test",
-		"created_at": "2025-01-01T00:00:00Z",
-		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Test Task with Run",
-		"status": "closed",
-		"run": map[string]interface{}{
-			"session_id": "session-xyz",
-			"model":      "claude-3-5-sonnet",
-			"started_at": startTime.Format(time.RFC3339),
-			"ended_at":   endTime.Format(time.RFC3339),
-			"output":     "Test output",
-			"tools": []map[string]interface{}{
-				{"name": "Read", "duration_ms": 100},
-			},
-			"metrics": map[string]interface{}{
-				"input_tokens":  2000,
-				"output_tokens": 1000,
-				"cost_usd":      0.10,
-			},
-			"success":   true,
-			"num_turns": 5,
+	recordData := map[string]interface{}{
+		"session_id": "session-xyz",
+		"model":      "claude-3-5-sonnet",
+		"started_at": startTime.Format(time.RFC3339),
+		"ended_at":   endTime.Format(time.RFC3339),
+		"output":     "Test output",
+		"tools": []map[string]interface{}{
+			{"name": "Read", "duration_ms": 100},
 		},
+		"metrics": map[string]interface{}{
+			"input_tokens":  2000,
+			"output_tokens": 1000,
+			"cost_usd":      0.10,
+		},
+		"success":   true,
+		"num_turns": 5,
 	}
 
-	data, err := json.MarshalIndent(taskData, "", "  ")
+	data, err := json.MarshalIndent(recordData, "", "  ")
 	if err != nil {
-		t.Fatalf("marshaling task data: %v", err)
+		t.Fatalf("marshaling record data: %v", err)
 	}
 
-	taskFile := filepath.Join(tickDir, "test456.json")
-	if err := os.WriteFile(taskFile, data, 0600); err != nil {
-		t.Fatalf("writing task file: %v", err)
+	recordFile := filepath.Join(recordsDir, "test456.json")
+	if err := os.WriteFile(recordFile, data, 0644); err != nil {
+		t.Fatalf("writing record file: %v", err)
 	}
 
 	// Test GetRunRecord
-	client := NewClient(filepath.Join(tempDir, ".tick"))
+	client := NewClient(tickDir)
 	record, err := client.GetRunRecord("test456")
 	if err != nil {
 		t.Fatalf("GetRunRecord failed: %v", err)
@@ -476,37 +443,18 @@ func TestGetRunRecord(t *testing.T) {
 }
 
 func TestGetRunRecordNoRecord(t *testing.T) {
-	// Create a temp directory structure for .tick/issues
+	// Create a temp directory structure for .tick
 	tempDir := t.TempDir()
-	tickDir := filepath.Join(tempDir, ".tick", "issues")
-	if err := os.MkdirAll(tickDir, 0755); err != nil {
-		t.Fatalf("creating temp dirs: %v", err)
+	tickDir := filepath.Join(tempDir, ".tick")
+	recordsDir := filepath.Join(tickDir, "logs", "records")
+	if err := os.MkdirAll(recordsDir, 0755); err != nil {
+		t.Fatalf("creating records dir: %v", err)
 	}
 
-	// Create a task file WITHOUT a run record
-	taskData := map[string]interface{}{
-		"id":     "test789",
-		"type":       "task",
-		"owner":      "test",
-		"created_by": "test",
-		"created_at": "2025-01-01T00:00:00Z",
-		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task Without Run",
-		"status": "open",
-	}
-
-	data, err := json.MarshalIndent(taskData, "", "  ")
-	if err != nil {
-		t.Fatalf("marshaling task data: %v", err)
-	}
-
-	taskFile := filepath.Join(tickDir, "test789.json")
-	if err := os.WriteFile(taskFile, data, 0600); err != nil {
-		t.Fatalf("writing task file: %v", err)
-	}
+	// No run record file exists for test789
 
 	// Test GetRunRecord - should return nil, nil
-	client := NewClient(filepath.Join(tempDir, ".tick"))
+	client := NewClient(tickDir)
 	record, err := client.GetRunRecord("test789")
 	if err != nil {
 		t.Fatalf("GetRunRecord failed: %v", err)
@@ -517,15 +465,13 @@ func TestGetRunRecordNoRecord(t *testing.T) {
 }
 
 func TestGetRunRecordNonexistent(t *testing.T) {
-	// Create a temp directory structure for .tick/issues
+	// Create a temp directory structure for .tick
 	tempDir := t.TempDir()
-	tickDir := filepath.Join(tempDir, ".tick", "issues")
-	if err := os.MkdirAll(tickDir, 0755); err != nil {
-		t.Fatalf("creating temp dirs: %v", err)
-	}
+	tickDir := filepath.Join(tempDir, ".tick")
+	// Don't create records dir - testing when the directory doesn't exist
 
 	// Test GetRunRecord for non-existent task - should return nil, nil
-	client := NewClient(filepath.Join(tempDir, ".tick"))
+	client := NewClient(tickDir)
 	record, err := client.GetRunRecord("nonexistent")
 	if err != nil {
 		t.Fatalf("GetRunRecord for nonexistent task should not error, got: %v", err)
