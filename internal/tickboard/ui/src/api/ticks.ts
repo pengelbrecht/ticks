@@ -383,3 +383,58 @@ export async function fetchRecord(tickId: string): Promise<RunRecord | null> {
     throw error;
   }
 }
+
+// ============================================================================
+// Run Status Types
+// ============================================================================
+
+/** Active tool record for live runs */
+export interface ActiveToolRecord {
+  name: string;
+  input?: string;
+  output?: string;
+  duration_ms?: number;
+  is_error?: boolean;
+}
+
+/** Active task status for live runs */
+export interface ActiveTaskStatus {
+  tickId: string;
+  title: string;
+  status: string;
+  activeTool?: ActiveToolRecord;
+  numTurns: number;
+  metrics: MetricsRecord;
+  lastUpdated: string;
+}
+
+/** Live record for in-progress runs */
+export interface LiveRecord {
+  session_id: string;
+  model: string;
+  started_at: string;
+  output: string;
+  thinking?: string;
+  tools?: ToolRecord[];
+  metrics: MetricsRecord;
+  num_turns: number;
+  status: string;
+  active_tool?: ActiveToolRecord;
+  last_updated: string;
+}
+
+/** Response from GET /api/run-status/:epicId */
+export interface RunStatusResponse {
+  epicId: string;
+  isRunning: boolean;
+  activeTask?: ActiveTaskStatus;
+  metrics?: LiveRecord;
+}
+
+/**
+ * Fetches run status for an epic.
+ * Returns whether there's an active run and details about it.
+ */
+export async function fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
+  return request<RunStatusResponse>(`/api/run-status/${encodeURIComponent(epicId)}`);
+}

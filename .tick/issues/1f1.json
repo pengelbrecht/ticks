@@ -1,0 +1,101 @@
+{
+  "blocked_by": [
+    "kxe"
+  ],
+  "closed_at": "2026-01-20T15:16:37.901783Z",
+  "closed_reason": "Created tool-activity.ts Lit component with: ToolActivityInfo interface for tool data, TOOL_ICONS/TOOL_COLORS mappings for 16+ Claude tools, compact inline view (icon, name, input preview, duration, spinner/status), expanded view with full input/output sections, live elapsed timer with 100ms updates, success/error indicators, Catppuccin Mocha color palette.",
+  "created_at": "2026-01-20T14:36:42.875367Z",
+  "created_by": "peter@engelbrecht.dk",
+  "description": "Create a Lit component to show current tool activity during runs.\n\nLocation: internal/tickboard/ui/src/components/tool-activity.ts\n\nFeatures:\n- Shows current tool name (Read, Write, Edit, Bash, etc.)\n- Displays tool input preview (truncated)\n- Shows duration timer (elapsed since tool started)\n- Spinner/loading animation while tool is running\n- Success/error indicator when tool completes\n\nProps:\n- activity: ToolActivityInfo | null\n\nDisplay:\n- Compact inline view for card display\n- Expanded view with full input/output in drawer",
+  "id": "1f1",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "12s",
+  "priority": 2,
+  "run": {
+    "session_id": "204c48f4-8510-4407-a343-a818fa938214",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-20T16:14:01.942888+01:00",
+    "ended_at": "2026-01-20T16:17:07.743898+01:00",
+    "output": "I'll start by reviewing the existing code to understand the patterns used, then implement the tool activity indicator component.\n\nNow let me look at the tick-card.ts to understand the compact component patterns and also check the tick-detail-drawer for expanded views:\n\nNow I have a good understanding of the patterns used. Let me check the types file to understand the data structures:\n\nNow I have all the context I need. Let me create the tool activity indicator component. Based on the task requirements:\n\n1. Shows current tool name (Read, Write, Edit, Bash, etc.)\n2. Displays tool input preview (truncated)\n3. Shows duration timer (elapsed since tool started)\n4. Spinner/loading animation while tool is running\n5. Success/error indicator when tool completes\n6. Props: activity: ToolActivityInfo | null\n7. Compact inline view for card display\n8. Expanded view with full input/output in drawer\n\nNow let me run the TypeScript build to check for any errors:\n\nThe build is successful. Now let me run the existing tests to make sure nothing is broken:\n\nThere's a failing test. Let me see what failed:\n\nThe failing tests are pre-existing issues (TestLoadConfig_NoToken, TestServer_Run, TestStaticFS_Embedded, TestRejectTick_TerminalAwaiting) and aren't related to my changes. Let me verify this by checking if these are known issues:\n\nThese failures exist before my changes. Let me restore my work:\n\nGood, the test failures are pre-existing. Now let me close the task and commit the changes:\n\nNow let me add an epic note for the next iteration:\n\nI have completed the task. Here's a summary:\n\n## Summary\n\nCreated the `tool-activity.ts` Lit component at `internal/tickboard/ui/src/components/tool-activity.ts` with the following features:\n\n**Interface:**\n- `ToolActivityInfo` with fields: `name`, `input`, `output`, `startedAt`, `durationMs`, `isError`, `isComplete`\n\n**Features:**\n1. **Tool name display** with icon mapping for 16+ Claude tools (Read, Write, Edit, Bash, Glob, Grep, Task, WebFetch, etc.)\n2. **Tool input preview** - truncated in compact mode, full display in expanded mode\n3. **Duration timer** - live elapsed time updated every 100ms while tool is running\n4. **Spinner animation** while tool is running via Shoelace `\u003csl-spinner\u003e`\n5. **Success/error indicators** - check-circle or x-circle icons when tool completes\n6. **Color-coded by tool type** using Catppuccin Mocha palette\n\n**Display modes:**\n- **Compact inline view** - for embedding in cards/headers: `[icon] ToolName input-preview... 2.3s [spinner/status]`\n- **Expanded view** - for drawer display with full Input and Output sections\n\nThe component follows existing patterns from `run-output-pane.ts` and `tick-card.ts`, uses Shoelace components, and integrates with the Catppuccin Mocha color scheme.",
+    "tools": [
+      {
+        "name": "Read",
+        "duration_ms": 1276
+      },
+      {
+        "name": "Read",
+        "duration_ms": 841
+      },
+      {
+        "name": "Glob",
+        "duration_ms": 502
+      },
+      {
+        "name": "Read",
+        "duration_ms": 717
+      },
+      {
+        "name": "Read",
+        "duration_ms": 681
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1274
+      },
+      {
+        "name": "Write",
+        "duration_ms": 66320
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1173
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1447
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1447
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1698
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 690
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 4434
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1313
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 4021
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 3703
+      }
+    ],
+    "metrics": {
+      "input_tokens": 2,
+      "output_tokens": 7011,
+      "cache_read_tokens": 1107503,
+      "cache_creation_tokens": 53871,
+      "cost_usd": 1.09064425,
+      "duration_ms": 185237
+    },
+    "success": true,
+    "num_turns": 17
+  },
+  "status": "closed",
+  "title": "Add tool activity indicator component",
+  "type": "task",
+  "updated_at": "2026-01-20T15:16:37.901783Z"
+}

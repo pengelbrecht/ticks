@@ -1,0 +1,21 @@
+{
+  "id": "xv9",
+  "title": "Integrate run monitoring into tick-board main view",
+  "description": "Wire up the new components into the main tick-board view.\n\nLocation: internal/tickboard/ui/src/components/tick-board.ts\n\nIntegration:\n- Add 'Live Run' panel/drawer that appears when an epic has active runs\n- Connect to SSE stream for selected epic\n- Display run-output-pane when run is active\n- Show tool-activity indicator in header or sidebar\n- Display run-metrics during active run\n- Broadcast run completion events to update tick cards\n\nUI Layout:\n- Consider split view: board on left, run output on right\n- Or overlay/drawer approach\n- Mobile: full-screen toggle between board and run view",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "vcc",
+    "1f1",
+    "zxy",
+    "wyk"
+  ],
+  "parent": "12s",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T14:37:11.92984Z",
+  "updated_at": "2026-01-20T15:39:52.928414Z",
+  "closed_at": "2026-01-20T15:39:52.928414Z",
+  "closed_reason": "Integrated run monitoring into tick-board main view. Added: (1) Run status polling to auto-detect active runs across epics, (2) SSE run stream connection for real-time updates, (3) Split-view layout with collapsible run panel alongside kanban board, (4) Wired run-output-pane, tool-activity, and run-metrics components into the panel, (5) 'r' keyboard shortcut to toggle run panel and Escape to close, (6) Live dot indicator when runs are active. Modified tick-board.ts and api/ticks.ts."
+}

@@ -1,17 +1,19 @@
 {
-  "id": "lwo",
-  "title": "Hook engine StateCallback to write AgentStateSnapshot to .live.json during runs",
-  "description": "Update engine to use agent.RunOpts.StateCallback to write current AgentStateSnapshot to .tick/runlog/\u003ctick-id\u003e.live.json on each state change. On run completion, call FinalizeLive() to convert to final .json. This enables tickboard to watch the file for real-time updates.",
-  "status": "open",
-  "priority": 2,
-  "type": "task",
-  "owner": "peter@engelbrecht.dk",
   "blocked_by": [
     "2j4",
     "63o"
   ],
-  "parent": "ntp",
-  "created_by": "peter@engelbrecht.dk",
+  "closed_at": "2026-01-20T13:07:24.445718Z",
+  "closed_reason": "Added live file tracking: WriteLive writes AgentStateSnapshot to .tick/logs/records/\u003ctick-id\u003e.live.json during runs, FinalizeLive renames to .json on completion. Engine StateCallback now wraps user callback to also write live files. Added LiveExists, DeleteLive helpers. Tests cover all new functionality.",
   "created_at": "2026-01-18T07:41:36.73162Z",
-  "updated_at": "2026-01-18T07:41:36.73162Z"
+  "created_by": "peter@engelbrecht.dk",
+  "description": "Update engine to use agent.RunOpts.StateCallback to write current AgentStateSnapshot to .tick/runlog/\u003ctick-id\u003e.live.json on each state change. On run completion, call FinalizeLive() to convert to final .json. This enables tickboard to watch the file for real-time updates.",
+  "id": "lwo",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "ntp",
+  "priority": 2,
+  "status": "closed",
+  "title": "Hook engine StateCallback to write AgentStateSnapshot to .live.json during runs",
+  "type": "task",
+  "updated_at": "2026-01-20T13:07:24.445718Z"
 }

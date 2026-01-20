@@ -1,0 +1,13 @@
+{
+  "id": "yng",
+  "title": "Distinguish agent vs human actor in activity feed",
+  "description": "Activity notifications currently show the git user email for all actions, even when performed by the AI agent (ticker). This is confusing because it looks like the human made the change.\n\nSolution: Use a distinct identifier for agent-performed actions (e.g., 'ticker' or 'agent') vs human actions (git user email). The tk CLI already has context about whether it's being run by ticker or directly by a human.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "py7",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T12:57:53.181683Z",
+  "updated_at": "2026-01-20T12:57:53.181683Z"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "els",
+  "title": "Verify Phase 5: end-to-end run monitoring test",
+  "description": "Verify all Phase 5 features work together.\n\nTest scenarios:\n1. Start a run with ticker, verify SSE stream works\n2. Verify .live.json updates are broadcast to tickboard\n3. Verify tool activity appears in UI\n4. Verify metrics update in real-time\n5. Verify run completion finalizes correctly\n6. Verify run history shows in drawer\n7. Test with multiple concurrent epic runs\n\nAcceptance:\n- Can watch an epic run in real-time via tickboard\n- Output streams without significant delay\n- Tool activity shows current tool with timing\n- Metrics update as tokens are consumed\n- Run history is accessible after completion",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "xv9"
+  ],
+  "parent": "12s",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T14:37:19.731214Z",
+  "updated_at": "2026-01-20T14:37:39.008708Z"
+}

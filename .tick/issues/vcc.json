@@ -1,0 +1,190 @@
+{
+  "blocked_by": [
+    "kxe",
+    "iyf"
+  ],
+  "closed_at": "2026-01-20T15:13:18.412187Z",
+  "closed_reason": "Added run-output-pane.ts Lit component with SSE connection to /api/run-stream/:epicId, ANSI-to-HTML conversion for terminal colors, auto-scrolling output display, clear/copy buttons, and connection status indicator. Component uses Catppuccin Mocha color palette for ANSI mappings.",
+  "created_at": "2026-01-20T14:36:36.396908Z",
+  "created_by": "peter@engelbrecht.dk",
+  "description": "Create a Lit component to display streaming agent output.\n\nLocation: internal/tickboard/ui/src/components/run-output-pane.ts\n\nFeatures:\n- Auto-scrolling output display (can be paused)\n- ANSI color support for terminal output\n- Timestamp display per line\n- Clear/copy buttons\n- Expandable/collapsible view\n\nProps:\n- epicId: string\n- autoScroll: boolean\n\nEvents:\n- Connects to /api/run-stream/:epicId SSE endpoint\n- Displays output events as they arrive\n- Shows connection status indicator",
+  "id": "vcc",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "12s",
+  "priority": 2,
+  "run": {
+    "session_id": "d54ebfc7-e11a-4c3d-9a20-24942fa9b6dd",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-20T16:08:47.454074+01:00",
+    "ended_at": "2026-01-20T16:13:58.797042+01:00",
+    "output": "I'll start by reviewing the epic notes and understanding the existing codebase structure before implementing the streaming output pane component.\n\nNow let me look at the SSE event types being sent by the server and check the run stream types.\n\nLet me check the run stream handler to see what events it broadcasts and what data shape to expect.\n\nNow let me see the handleRunStream function in the server to understand what events it sends.\n\nLet me see the rest of the broadcastRunStreamEvent and the watcher that sends events.\n\nNow I have a good understanding of the event types. Let me also check the tick-board.ts to see how components are integrated.\n\nNow I have a good understanding of the patterns. Let me update my todo list and start creating the component.\n\nNow let me check if there are any existing ANSI color utilities or other patterns for handling terminal output:\n\nI'll create a simple ANSI-to-HTML converter within the component since there's no existing dependency. Now let me create the run-output-pane component:\n\nLet me build the UI to verify there are no TypeScript compilation errors:\n\nThe build passes. Now let me run the Go server tests to make sure nothing is broken:\n\nThe tests show some pre-existing failures (not related to my changes). Let me run a quick check on just the build and basic tests to verify my component doesn't break anything:\n\nThe Go code builds fine. Let me verify that the component is valid by checking the TypeScript compilation more thoroughly:\n\nI need to fix the `showToast` type declaration. Let me check the existing declaration:\n\nI see - there's already a `ShowToastOptions` type. Let me check it and update my component to use it:\n\nI need to remove my duplicate `Window` interface declaration and import the `ShowToastOptions` type. Let me update the component:\n\nNow I need to update the copyOutput method to use the correct type:\n\nThe issue is that `showToast` is on the global `Window` interface already, but the `window` object itself doesn't know about it. The existing code in tick-toast-stack.ts has the same approach. Let me run the TypeScript check again to see if the issue is resolved:\n\nThe only remaining error is in tick-board.ts (not my component) which is a pre-existing issue. My component compiles correctly now. Let me rebuild to confirm:\n\nThe build passes. Let me update the todo list and close the task:\n\nNow let me add an epic note for future iterations:\n\nI've completed the task. Here's a summary of what was implemented:\n\n## Summary\n\nCreated `internal/tickboard/ui/src/components/run-output-pane.ts` - a Lit component for displaying streaming agent output with the following features:\n\n**SSE Connection:**\n- Connects to `/api/run-stream/:epicId` endpoint\n- Handles events: `connected`, `task-started`, `task-update`, `tool-activity`, `task-completed`, `epic-completed`\n- Automatic reconnection with exponential backoff\n- Connection status indicator (connected/connecting/disconnected)\n\n**ANSI Color Support:**\n- Custom ANSI-to-HTML converter supporting:\n  - Standard colors (30-37) and bright colors (90-97)\n  - Background colors (40-47)\n  - Text styles (bold, dim, italic, underline)\n- Uses Catppuccin Mocha color palette for consistent theming\n\n**Output Display:**\n- Auto-scrolling output (can be paused by user or toggled)\n- Timestamp display for each line\n- Different styling for output types (output/status/tool/error)\n- Footer showing active task ID and current tool\n\n**UI Controls:**\n- Auto-scroll toggle button\n- Copy to clipboard button\n- Clear output button",
+    "tools": [
+      {
+        "name": "TodoWrite",
+        "duration_ms": 4339
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1267
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1054
+      },
+      {
+        "name": "Glob",
+        "duration_ms": 358
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1073
+      },
+      {
+        "name": "Read",
+        "duration_ms": 770
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1529
+      },
+      {
+        "name": "Read",
+        "duration_ms": 739
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1880
+      },
+      {
+        "name": "Read",
+        "duration_ms": 957
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1773
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1510
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1482
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1124
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 5049
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 2000
+      },
+      {
+        "name": "Read",
+        "duration_ms": 648
+      },
+      {
+        "name": "Write",
+        "duration_ms": 105960
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 4656
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1374
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1363
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1571
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1641
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 2017
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1542
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 3338
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 3230
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1171
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1947
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1359
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1273
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 3300
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 3263
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1065
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1023
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 5118
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 4449
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 3858
+      }
+    ],
+    "metrics": {
+      "input_tokens": 785,
+      "output_tokens": 13784,
+      "cache_read_tokens": 3279675,
+      "cache_creation_tokens": 82557,
+      "cost_usd": 2.5291937499999992,
+      "duration_ms": 310841
+    },
+    "success": true,
+    "num_turns": 39
+  },
+  "status": "closed",
+  "title": "Add streaming output pane component",
+  "type": "task",
+  "updated_at": "2026-01-20T15:13:18.412187Z"
+}

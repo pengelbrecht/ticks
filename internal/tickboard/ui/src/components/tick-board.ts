@@ -1,9 +1,11 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { provide } from '@lit/context';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { fetchTicks, fetchTick, fetchInfo, type EpicInfo, type Note, type BlockerDetail } from '../api/ticks.js';
+import { fetchTicks, fetchTick, fetchInfo, fetchRunStatus, type EpicInfo, type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord } from '../api/ticks.js';
+import type { ToolActivityInfo } from './tool-activity.js';
+import type { MetricsRecord } from './run-metrics.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -301,6 +303,204 @@ export class TickBoard extends LitElement {
         grid-template-columns: 1fr;
       }
     }
+
+    /* Split layout when run panel is active */
+    .board-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .board-layout.split main {
+      flex: 0 0 50%;
+      min-width: 400px;
+    }
+
+    .board-layout.split .kanban-board {
+      height: calc(100vh - 80px);
+    }
+
+    /* Run panel container */
+    .run-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--surface1, #45475a);
+      background: var(--base, #1e1e2e);
+      min-width: 400px;
+      max-width: 60%;
+      overflow: hidden;
+    }
+
+    .run-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      background: var(--surface0, #313244);
+      border-bottom: 1px solid var(--surface1, #45475a);
+      flex-shrink: 0;
+    }
+
+    .run-panel-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .run-panel-title {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text, #cdd6f4);
+    }
+
+    .run-panel-title sl-icon {
+      color: var(--green, #a6e3a1);
+    }
+
+    .run-panel-epic {
+      font-size: 0.75rem;
+      color: var(--subtext0, #a6adc8);
+    }
+
+    .run-panel-epic .epic-id {
+      font-family: monospace;
+      color: var(--blue, #89b4fa);
+    }
+
+    .run-panel-header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .run-panel-header-right sl-icon-button::part(base) {
+      color: var(--subtext0, #a6adc8);
+    }
+
+    .run-panel-header-right sl-icon-button::part(base):hover {
+      color: var(--text, #cdd6f4);
+    }
+
+    .run-panel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0.75rem;
+      gap: 0.75rem;
+    }
+
+    /* Run info bar */
+    .run-info-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .run-task-info {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+    }
+
+    .run-task-id {
+      font-family: monospace;
+      color: var(--blue, #89b4fa);
+      font-weight: 500;
+    }
+
+    .run-task-title {
+      color: var(--text, #cdd6f4);
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Run output section */
+    .run-output-section {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* No run state */
+    .no-run-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      color: var(--subtext0, #a6adc8);
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .no-run-state sl-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
+    .no-run-state p {
+      margin: 0;
+      font-size: 0.875rem;
+    }
+
+    .no-run-state .hint {
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      color: var(--overlay0, #6c7086);
+    }
+
+    /* Run toggle button in header area */
+    .run-toggle-btn {
+      position: relative;
+    }
+
+    .run-toggle-btn .live-dot {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green, #a6e3a1);
+      box-shadow: 0 0 6px var(--green, #a6e3a1);
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+
+    /* Hide run panel on mobile */
+    @media (max-width: 768px) {
+      .run-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        min-width: unset;
+        max-width: unset;
+        border-left: none;
+        z-index: 100;
+      }
+
+      .board-layout.split main {
+        flex: 1;
+        min-width: unset;
+      }
+    }
   `;
 
   // Provide board context to all child components
@@ -330,6 +530,14 @@ export class TickBoard extends LitElement {
   @state() private showCreateDialog = false;
   @state() private showMobileFilterDrawer = false;
 
+  // Run monitoring state
+  @state() private showRunPanel = false;
+  @state() private runStatus: RunStatusResponse | null = null;
+  @state() private runPanelEpicId: string | null = null;
+  @state() private runStreamConnected = false;
+  @state() private activeToolInfo: ToolActivityInfo | null = null;
+  @state() private runMetrics: MetricsRecord | null = null;
+
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
   // SSE connection for real-time updates
@@ -338,12 +546,19 @@ export class TickBoard extends LitElement {
   private maxReconnectDelay = 30000; // Max 30 seconds
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  // SSE connection for run stream
+  private runEventSource: EventSource | null = null;
+  private runReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private runPollInterval: ReturnType<typeof setInterval> | null = null;
+
   connectedCallback() {
     super.connectedCallback();
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
     document.addEventListener('keydown', this.handleKeyDown);
     this.loadData();
     this.connectSSE();
+    // Start polling for active runs
+    this.startRunStatusPolling();
   }
 
   private async loadData() {
@@ -374,6 +589,8 @@ export class TickBoard extends LitElement {
     this.mediaQuery.removeEventListener('change', this.handleMediaChange);
     document.removeEventListener('keydown', this.handleKeyDown);
     this.disconnectSSE();
+    this.disconnectRunStream();
+    this.stopRunStatusPolling();
   }
 
   // ============================================================================
@@ -446,6 +663,282 @@ export class TickBoard extends LitElement {
 
     // Exponential backoff: double the delay for next time, up to max
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+  }
+
+  // ============================================================================
+  // Run Status Monitoring
+  // ============================================================================
+
+  /**
+   * Start polling for active runs across all epics.
+   * This detects when a run starts so we can show the run panel.
+   */
+  private startRunStatusPolling() {
+    // Poll every 5 seconds for new runs
+    this.runPollInterval = setInterval(() => {
+      this.checkForActiveRuns();
+    }, 5000);
+
+    // Also check immediately
+    this.checkForActiveRuns();
+  }
+
+  /**
+   * Stop polling for active runs.
+   */
+  private stopRunStatusPolling() {
+    if (this.runPollInterval) {
+      clearInterval(this.runPollInterval);
+      this.runPollInterval = null;
+    }
+  }
+
+  /**
+   * Check all epics for active runs.
+   * If a run is found and we're not already showing the run panel,
+   * automatically show it.
+   */
+  private async checkForActiveRuns() {
+    // Only check if we have epics
+    if (this.epics.length === 0) return;
+
+    // Check each epic for active runs
+    for (const epic of this.epics) {
+      try {
+        const status = await fetchRunStatus(epic.id);
+        if (status.isRunning) {
+          // Found an active run
+          this.runStatus = status;
+
+          // If not already connected to this epic's stream, connect
+          if (this.runPanelEpicId !== epic.id) {
+            this.runPanelEpicId = epic.id;
+            this.connectRunStream(epic.id);
+          }
+
+          // Auto-show the run panel if not already visible
+          if (!this.showRunPanel) {
+            this.showRunPanel = true;
+          }
+
+          // Update metrics from status
+          if (status.activeTask?.metrics) {
+            this.runMetrics = this.convertApiMetrics(status.activeTask.metrics);
+          }
+
+          // Update active tool
+          if (status.activeTask?.activeTool) {
+            this.activeToolInfo = {
+              name: status.activeTask.activeTool.name,
+              input: status.activeTask.activeTool.input,
+              output: status.activeTask.activeTool.output,
+              durationMs: status.activeTask.activeTool.duration_ms,
+              isError: status.activeTask.activeTool.is_error,
+              isComplete: false,
+            };
+          }
+
+          return; // Only handle one active run at a time
+        }
+      } catch {
+        // Ignore errors when checking run status
+      }
+    }
+
+    // No active runs found
+    if (this.runStatus?.isRunning) {
+      this.runStatus = { ...this.runStatus, isRunning: false };
+    }
+  }
+
+  /**
+   * Convert API metrics format to component metrics format.
+   */
+  private convertApiMetrics(apiMetrics: ApiMetricsRecord): MetricsRecord {
+    return {
+      inputTokens: apiMetrics.input_tokens,
+      outputTokens: apiMetrics.output_tokens,
+      cacheReadTokens: apiMetrics.cache_read_tokens,
+      cacheCreationTokens: apiMetrics.cache_creation_tokens,
+      costUsd: apiMetrics.cost_usd,
+      durationMs: apiMetrics.duration_ms,
+    };
+  }
+
+  /**
+   * Connect to the run stream SSE for a specific epic.
+   */
+  private connectRunStream(epicId: string) {
+    // Clean up any existing connection
+    this.disconnectRunStream();
+
+    this.runEventSource = new EventSource(`./api/run-stream/${epicId}`);
+
+    // Handle connection established
+    this.runEventSource.addEventListener('connected', () => {
+      this.runStreamConnected = true;
+      console.log('[RunStream] Connected to epic:', epicId);
+    });
+
+    // Handle task started
+    this.runEventSource.addEventListener('task-started', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        this.runStatus = {
+          epicId,
+          isRunning: true,
+          activeTask: {
+            tickId: data.taskId,
+            title: data.title || '',
+            status: 'running',
+            numTurns: data.numTurns || 0,
+            metrics: data.metrics || {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_creation_tokens: 0,
+              cost_usd: 0,
+              duration_ms: 0,
+            },
+            lastUpdated: new Date().toISOString(),
+          },
+        };
+        this.activeToolInfo = null;
+      } catch (err) {
+        console.error('[RunStream] Failed to parse task-started:', err);
+      }
+    });
+
+    // Handle task update
+    this.runEventSource.addEventListener('task-update', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Update metrics
+        if (data.metrics) {
+          this.runMetrics = this.convertApiMetrics(data.metrics);
+        }
+
+        // Update active tool
+        if (data.activeTool) {
+          this.activeToolInfo = {
+            name: data.activeTool.name,
+            input: data.activeTool.input,
+            output: data.activeTool.output,
+            durationMs: data.activeTool.duration,
+            isComplete: false,
+          };
+        }
+
+        // Update run status
+        if (this.runStatus?.activeTask) {
+          this.runStatus = {
+            ...this.runStatus,
+            activeTask: {
+              ...this.runStatus.activeTask,
+              numTurns: data.numTurns ?? this.runStatus.activeTask.numTurns,
+              lastUpdated: new Date().toISOString(),
+            },
+          };
+        }
+      } catch (err) {
+        console.error('[RunStream] Failed to parse task-update:', err);
+      }
+    });
+
+    // Handle tool activity
+    this.runEventSource.addEventListener('tool-activity', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const tool = data.tool || data.activeTool;
+        if (tool) {
+          this.activeToolInfo = {
+            name: tool.name,
+            input: tool.input,
+            output: tool.output,
+            durationMs: tool.duration,
+            isComplete: false,
+          };
+        }
+      } catch (err) {
+        console.error('[RunStream] Failed to parse tool-activity:', err);
+      }
+    });
+
+    // Handle task completed
+    this.runEventSource.addEventListener('task-completed', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('[RunStream] Task completed:', data.taskId);
+
+        // Clear active tool
+        this.activeToolInfo = null;
+
+        // Update status
+        if (this.runStatus) {
+          this.runStatus = {
+            ...this.runStatus,
+            isRunning: false,
+            activeTask: undefined,
+          };
+        }
+      } catch (err) {
+        console.error('[RunStream] Failed to parse task-completed:', err);
+      }
+    });
+
+    // Handle epic completed
+    this.runEventSource.addEventListener('epic-completed', () => {
+      console.log('[RunStream] Epic completed:', epicId);
+      this.runStatus = { epicId, isRunning: false };
+      this.activeToolInfo = null;
+    });
+
+    // Handle errors
+    this.runEventSource.onerror = () => {
+      console.log('[RunStream] Connection error');
+      this.runStreamConnected = false;
+      this.runEventSource?.close();
+      this.runEventSource = null;
+      // Don't auto-reconnect - let polling handle it
+    };
+  }
+
+  /**
+   * Disconnect from run stream SSE.
+   */
+  private disconnectRunStream() {
+    if (this.runReconnectTimeout) {
+      clearTimeout(this.runReconnectTimeout);
+      this.runReconnectTimeout = null;
+    }
+    if (this.runEventSource) {
+      this.runEventSource.close();
+      this.runEventSource = null;
+    }
+    this.runStreamConnected = false;
+  }
+
+  /**
+   * Toggle the run panel visibility.
+   */
+  private toggleRunPanel() {
+    this.showRunPanel = !this.showRunPanel;
+
+    // If showing and we have an active run, connect to its stream
+    if (this.showRunPanel && this.runStatus?.isRunning && this.runStatus.epicId) {
+      if (this.runPanelEpicId !== this.runStatus.epicId) {
+        this.runPanelEpicId = this.runStatus.epicId;
+        this.connectRunStream(this.runStatus.epicId);
+      }
+    }
+  }
+
+  /**
+   * Close the run panel.
+   */
+  private closeRunPanel() {
+    this.showRunPanel = false;
   }
 
   /**
@@ -680,6 +1173,12 @@ export class TickBoard extends LitElement {
         e.preventDefault();
         this.focusSearchInput();
         break;
+
+      // Toggle run panel: r
+      case 'r':
+        e.preventDefault();
+        this.toggleRunPanel();
+        break;
     }
   };
 
@@ -766,6 +1265,8 @@ export class TickBoard extends LitElement {
       this.showKeyboardHelp = false;
     } else if (this.selectedTick) {
       this.selectedTick = null;
+    } else if (this.showRunPanel) {
+      this.showRunPanel = false;
     } else {
       this.clearFocus();
     }
@@ -996,6 +1497,99 @@ export class TickBoard extends LitElement {
     return names;
   }
 
+  /**
+   * Render the run monitoring panel.
+   */
+  private renderRunPanel() {
+    const hasActiveRun = this.runStatus?.isRunning && this.runStatus.activeTask;
+    const epicTitle = this.epics.find(e => e.id === this.runPanelEpicId)?.title || this.runPanelEpicId || 'Unknown Epic';
+
+    return html`
+      <div class="run-panel">
+        <div class="run-panel-header">
+          <div class="run-panel-header-left">
+            <div class="run-panel-title">
+              <sl-icon name="terminal"></sl-icon>
+              <span>Live Run</span>
+            </div>
+            ${this.runPanelEpicId
+              ? html`
+                  <div class="run-panel-epic">
+                    <span class="epic-id">${this.runPanelEpicId}</span>
+                    <span>· ${epicTitle}</span>
+                  </div>
+                `
+              : nothing}
+          </div>
+          <div class="run-panel-header-right">
+            <sl-icon-button
+              name="x-lg"
+              label="Close run panel"
+              @click=${this.closeRunPanel}
+            ></sl-icon-button>
+          </div>
+        </div>
+
+        <div class="run-panel-body">
+          ${hasActiveRun
+            ? this.renderActiveRun()
+            : this.renderNoRunState()}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render the active run content.
+   */
+  private renderActiveRun() {
+    const activeTask = this.runStatus?.activeTask;
+    if (!activeTask) return nothing;
+
+    return html`
+      <!-- Task info bar -->
+      <div class="run-info-bar">
+        <div class="run-task-info">
+          <span class="run-task-id">${activeTask.tickId}</span>
+          <span class="run-task-title">${activeTask.title}</span>
+        </div>
+        ${this.runMetrics
+          ? html`<run-metrics .metrics=${this.runMetrics} ?live=${true}></run-metrics>`
+          : nothing}
+      </div>
+
+      <!-- Tool activity indicator -->
+      ${this.activeToolInfo
+        ? html`
+            <tool-activity
+              .tool=${this.activeToolInfo}
+              ?expanded=${true}
+            ></tool-activity>
+          `
+        : nothing}
+
+      <!-- Output pane -->
+      <div class="run-output-section">
+        <run-output-pane
+          epic-id=${this.runPanelEpicId || ''}
+        ></run-output-pane>
+      </div>
+    `;
+  }
+
+  /**
+   * Render the no run state.
+   */
+  private renderNoRunState() {
+    return html`
+      <div class="no-run-state">
+        <sl-icon name="hourglass-split"></sl-icon>
+        <p>No active run</p>
+        <p class="hint">When a ticker run starts, output will appear here</p>
+      </div>
+    `;
+  }
+
   render() {
     // Show loading state
     if (this.loading) {
@@ -1058,20 +1652,25 @@ export class TickBoard extends LitElement {
         @tick-created=${this.handleTickCreated}
       ></tick-create-dialog>
 
-      <!-- Desktop/Tablet kanban board -->
-      <main>
-        <div class="kanban-board">
-          ${COLUMNS.map((col, colIndex) => html`
-            <tick-column
-              name=${col.id}
-              .ticks=${this.getColumnTicks(col.id)}
-              .epicNames=${epicNames}
-              focused-tick-id=${this.focusedColumnIndex === colIndex ? this.getFocusedTickId() ?? '' : ''}
-              @tick-selected=${this.handleTickSelected}
-            ></tick-column>
-          `)}
-        </div>
-      </main>
+      <!-- Desktop/Tablet kanban board with optional run panel -->
+      <div class="board-layout ${this.showRunPanel ? 'split' : ''}">
+        <main>
+          <div class="kanban-board">
+            ${COLUMNS.map((col, colIndex) => html`
+              <tick-column
+                name=${col.id}
+                .ticks=${this.getColumnTicks(col.id)}
+                .epicNames=${epicNames}
+                focused-tick-id=${this.focusedColumnIndex === colIndex ? this.getFocusedTickId() ?? '' : ''}
+                @tick-selected=${this.handleTickSelected}
+              ></tick-column>
+            `)}
+          </div>
+        </main>
+
+        <!-- Run monitoring panel -->
+        ${this.showRunPanel ? this.renderRunPanel() : nothing}
+      </div>
 
       <!-- Mobile tab layout (visible only on ≤480px) -->
       <div class="mobile-tab-layout">
@@ -1198,6 +1797,10 @@ export class TickBoard extends LitElement {
             <div class="shortcut-row">
               <kbd>/</kbd>
               <span>Focus search</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>r</kbd>
+              <span>Toggle run panel</span>
             </div>
             <div class="shortcut-row">
               <kbd>?</kbd>

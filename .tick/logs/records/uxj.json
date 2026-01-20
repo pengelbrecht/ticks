@@ -1,0 +1,91 @@
+{
+  "session_id": "69cfa177-a512-4107-b4c2-3c9bf51511da",
+  "model": "claude-opus-4-5-20251101",
+  "started_at": "2026-01-16T20:50:50.212671+01:00",
+  "ended_at": "2026-01-16T20:52:42.706057+01:00",
+  "output": "I'll work on documenting `--awaiting=work` in the `tk` top-level help. Let me first understand the current state of the help text and the `awaiting` flag implementation.\n\nLet me look at the current help implementation in `cmd/tk/main.go` to see what documentation exists:\n\nNow let me see the full top-level help function to understand its structure:\n\nI can see the top-level help already mentions that `--manual` is deprecated and to use `--awaiting=work` instead, but it doesn't clearly explain **what `awaiting=work` does** or how to use it. The task is asking for clear documentation for `awaiting=work` usage.\n\nLet me check the task details to see what specific improvements are needed:\n\nThe current top-level help has:\n1. A brief mention of `--awaiting value` in \"Workflow Flags\" - but this is generic and covers all awaiting types\n2. A deprecation notice that says to use `--awaiting=work` instead of `--manual`\n\nWhat's missing is **clear documentation explaining what `awaiting=work` specifically means and how to use it**. The help should explain:\n- That `awaiting=work` marks a task as requiring human work (not AI agent work)\n- How to create a task with `awaiting=work`\n- That such tasks are skipped by agents\n\nLet me improve the top-level help to add clearer documentation:\n\nNow let me verify the change by running the help command:\n\nThe help output now clearly documents `--awaiting work`. Let me run the tests to make sure nothing is broken:\n\nThere's a test failure. Let me see what test is failing:\n\nLet me see the actual failure details:\n\nThe test failures are unrelated to my change - they seem to be pre-existing issues with the `reject` command tests. Let me verify this by checking git status and seeing if the only change is to my documentation line:\n\nMy change is only to the help text. Let me verify the tests were already failing before my change by checking if this test failure is pre-existing:\n\nConfirmed - the tests were already failing before my change. The test failures are a pre-existing issue and not caused by my documentation update.\n\nNow let me close the task and commit:\n\nThe epic ID is empty in the instructions. Let me verify the task is closed:\n\nTask is closed. The epic ID placeholder was empty in the instructions, so I can't add a note to the epic. The task is complete.\n\n**Summary:** Added a dedicated \"Human-Only Tasks (awaiting=work)\" section to the `tk --help` output that clearly documents:\n- What `--awaiting work` is for (marking tasks requiring human work)\n- That such tasks are skipped by agent queues (`tk next` and `tk ready`)\n- Practical examples for creating, updating, clearing, and listing tasks with this flag\n\n\u003cpromise\u003eCOMPLETE\u003c/promise\u003e",
+  "tools": [
+    {
+      "name": "Bash",
+      "duration_ms": 530
+    },
+    {
+      "name": "Grep",
+      "duration_ms": 578
+    },
+    {
+      "name": "Grep",
+      "duration_ms": 1156
+    },
+    {
+      "name": "Read",
+      "duration_ms": 1081
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 348
+    },
+    {
+      "name": "Edit",
+      "duration_ms": 9345
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 647
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 501
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 398
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 490
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 597
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 425
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 327
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 905
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 1643
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 2695
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 1603
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 311
+    }
+  ],
+  "metrics": {
+    "input_tokens": 2,
+    "output_tokens": 3340,
+    "cache_read_tokens": 872035,
+    "cache_creation_tokens": 38995,
+    "cost_usd": 0.7968442500000001,
+    "duration_ms": 111449
+  },
+  "success": true,
+  "num_turns": 19
+}

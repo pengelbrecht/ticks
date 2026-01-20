@@ -1,0 +1,79 @@
+{
+  "session_id": "8df074f2-fb3e-408d-b546-e384e67bedb3",
+  "model": "claude-opus-4-5-20251101",
+  "started_at": "2026-01-14T18:26:55.903721+01:00",
+  "ended_at": "2026-01-14T18:28:25.611073+01:00",
+  "output": "I'll start by reviewing the current task and understanding the codebase. Let me first read the relevant files to understand the current implementation.\n\nNow I understand the codebase. The `IsAwaitingHuman()` helper already exists in `tick.go:180-182` and handles both the `Awaiting` field and the legacy `Manual` flag. I need to modify the `isReady` function in `ready.go` to exclude ticks that are awaiting human action.\n\nLet me also check the existing tests for the Ready function to understand the test patterns.\n\nNow I have a clear understanding. Let me implement the change to `isReady` and add tests. I'll update the `isReady` function in `ready.go` to exclude ticks where `IsAwaitingHuman()` returns true.\n\nNow let me add tests for the awaiting exclusion logic.\n\nNow let me run the tests to verify the changes work correctly.\n\nAll tests pass. Let me also run the full test suite to make sure this change doesn't break anything else.\n\nAll tests pass. Now let me close the task and commit.\n\nTask completed. I modified `internal/query/ready.go` to add an `IsAwaitingHuman()` check in the `isReady()` function. This ensures that ticks with `Awaiting` set (or the legacy `Manual` flag) are excluded from `Ready()` results, so `tk next` only returns agent-workable tasks.\n\nChanges made:\n- **internal/query/ready.go:57-60**: Added check `if t.IsAwaitingHuman() { return false }` in `isReady()` function\n- **internal/query/ready_test.go:52-79**: Added `TestReadyExcludesAwaitingTicks` test covering both `Awaiting` field and legacy `Manual` flag",
+  "tools": [
+    {
+      "name": "Read",
+      "duration_ms": 401
+    },
+    {
+      "name": "Read",
+      "duration_ms": 641
+    },
+    {
+      "name": "Read",
+      "duration_ms": 965
+    },
+    {
+      "name": "TodoWrite",
+      "duration_ms": 2132
+    },
+    {
+      "name": "Edit",
+      "duration_ms": 5085
+    },
+    {
+      "name": "TodoWrite",
+      "duration_ms": 1480
+    },
+    {
+      "name": "Edit",
+      "duration_ms": 5398
+    },
+    {
+      "name": "TodoWrite",
+      "duration_ms": 1325
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 780
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 579
+    },
+    {
+      "name": "TodoWrite",
+      "duration_ms": 1295
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 1771
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 2425
+    },
+    {
+      "name": "Bash",
+      "duration_ms": 2244
+    },
+    {
+      "name": "TodoWrite",
+      "duration_ms": 928
+    }
+  ],
+  "metrics": {
+    "input_tokens": 2,
+    "output_tokens": 3303,
+    "cache_read_tokens": 703619,
+    "cache_creation_tokens": 15529,
+    "cost_usd": 0.5423847500000001,
+    "duration_ms": 89087
+  },
+  "success": true,
+  "num_turns": 16
+}

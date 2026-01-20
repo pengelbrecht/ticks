@@ -1,0 +1,185 @@
+{
+  "blocked_by": [
+    "ptp"
+  ],
+  "closed_at": "2026-01-20T15:24:29.65338Z",
+  "closed_reason": "Added run history view to tick-detail-drawer. Implemented: (1) RunRecord/ToolRecord/MetricsRecord TypeScript interfaces in api/ticks.ts, (2) fetchRecord() API function with 404 handling, (3) Run history section in drawer that loads on tick change (tasks only), (4) Expandable run record UI with session ID, timestamps, duration, turns, token breakdown, (5) Collapsible sections for output, thinking, and tools log, (6) Copy log path link. Files modified: api/ticks.ts, tick-detail-drawer.ts",
+  "created_at": "2026-01-20T14:36:56.747008Z",
+  "created_by": "peter@engelbrecht.dk",
+  "description": "Enhance tick-detail-drawer to show run history for tasks.\n\nLocation: internal/tickboard/ui/src/components/tick-detail-drawer.ts\n\nFeatures:\n- 'Run History' tab or section in drawer\n- List of previous runs with timestamp, success/error, metrics summary\n- Expandable RunRecord details (thinking, output, tools log)\n- Link to full run log file\n\nImplementation:\n- Fetch from GET /api/records/:tickId\n- Display RunRecord fields:\n  - Session ID\n  - Started/ended timestamps\n  - Success/error status\n  - Output summary\n  - Thinking summary (collapsible)\n  - Tools log (collapsible list)",
+  "id": "wyk",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "12s",
+  "priority": 2,
+  "run": {
+    "session_id": "c11a3d12-6234-432f-9259-87c24e37b861",
+    "model": "claude-opus-4-5-20251101",
+    "started_at": "2026-01-20T16:20:56.488176+01:00",
+    "ended_at": "2026-01-20T16:25:11.590307+01:00",
+    "output": "I'll start by reading the current tick-detail-drawer.ts to understand its structure before adding the run history feature.\n\nNow let me look at the run-metrics and run-output-pane components to understand the existing types and patterns used for run records.\n\nNow let me check the API endpoint for records and the server to understand the data structure returned.\n\nNow let me check the server.go to see the /api/records/:tickId endpoint implementation to understand the exact response format.\n\nGood, I can see the endpoint returns an `agent.RunRecord` directly. Now let me look at the main.ts to see how components are registered, and check the existing patterns.\n\nNow I have a good understanding of the structure. Let me create a todo list and start implementing the run history view in the tick-detail-drawer.\n\nLet me add the TypeScript types for RunRecord and ToolRecord to the api/ticks.ts file.\n\nNow let me add the fetchRecord API function at the end of the file.\n\nNow let me update the tick-detail-drawer component to add the run history functionality. I'll add imports, state, and the section to render run history.\n\nNow let me add state variables for the run history. I'll add them after the existing state declarations.\n\nNow let me update the updated() method to fetch run record when tick changes, and update resetActionState to reset run history state.\n\nNow update the resetActionState method to also reset run history state.\n\nNow let me add CSS styles for the run history section. I'll add them to the static styles.\n\nNow let me add the renderRunHistory method and related helper methods. Let me first see where renderNotes ends to add the new methods.\n\nLet me find where renderNotes ends to add the new methods after it.\n\nNow let me add the renderRunHistory method right before the render() method.\n\nNow I need to add the renderRunHistory call in the main render() method. Let me find where to insert it.\n\nI'll add the run history section after the Notes section and before the Timestamps section.\n\nNow let me build the UI to verify it compiles correctly.\n\nThe build succeeded. Now let me also run the Go tests to make sure everything works correctly.\n\nThe tests are running. Some failures are pre-existing and not related to my changes. Let me run a quick check to see the completion status of the tests.\n\nThe test failures are pre-existing and not related to my changes:\n1. `TestServer_Run` - Connection refused (port binding issue)\n2. `TestStaticFS_Embedded` - Missing static file in test environment  \n3. `TestRejectTick_TerminalAwaiting` - Expected \"human\" author but got actual user name\n\nNone of these are related to the run history feature I added. The build succeeded, which validates my TypeScript changes compile correctly.\n\nLet me update the todo list and proceed with closing the task.\n\nNow let me close the task with a summary of the solution.\n\nNow let me add an epic note for future iterations.\n\nI have completed the task [wyk]. Here's a summary of what was implemented:\n\n## Summary\n\nAdded run history view to the tick-detail-drawer component for displaying completed agent run records.\n\n### Changes Made\n\n**1. api/ticks.ts**\n- Added `MetricsRecord`, `ToolRecord`, and `RunRecord` TypeScript interfaces matching the server response format\n- Added `fetchRecord()` API function that fetches from `/api/records/:tickId` with graceful 404 handling (returns null)\n\n**2. tick-detail-drawer.ts**\n- Added state variables: `runRecord`, `loadingRunRecord`, `runRecordError`, `expandedSections`\n- Added `loadRunRecord()` method that fetches when a task tick is selected\n- Added `renderRunHistory()` method that displays:\n  - Loading spinner while fetching\n  - Error alert on fetch failure\n  - \"No run history\" message when no record exists\n  - Expandable run record card with success/error status indicator\n- Added `renderRunRecordBody()` for expanded details:\n  - Session ID, duration, turns, timestamps\n  - Token breakdown (input, output, cache read, cache creation)\n  - Error message for failed runs\n  - Collapsible output, thinking, and tools sections\n- Added `renderToolItem()` for tool list display\n- Added helper methods: `toggleSection()`, `formatTokenCount()`, `formatCost()`, `formatDuration()`, `truncateText()`\n- Added comprehensive CSS styles for all run history UI elements\n\nThe run history section only appears for task-type ticks (not epics) and is positioned between the Notes and Timestamps sections in the drawer.",
+    "tools": [
+      {
+        "name": "Read",
+        "duration_ms": 830
+      },
+      {
+        "name": "Read",
+        "duration_ms": 991
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1044
+      },
+      {
+        "name": "Read",
+        "duration_ms": 1230
+      },
+      {
+        "name": "Read",
+        "duration_ms": 498
+      },
+      {
+        "name": "Grep",
+        "duration_ms": 1781
+      },
+      {
+        "name": "Read",
+        "duration_ms": 461
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 3506
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 6502
+      },
+      {
+        "name": "Read",
+        "duration_ms": 548
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 3216
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1790
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 3552
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 2757
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 3984
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 3048
+      },
+      {
+        "name": "Read",
+        "duration_ms": 726
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 20450
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 2479
+      },
+      {
+        "name": "Read",
+        "duration_ms": 739
+      },
+      {
+        "name": "Read",
+        "duration_ms": 704
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 33424
+      },
+      {
+        "name": "Read",
+        "duration_ms": 693
+      },
+      {
+        "name": "Edit",
+        "duration_ms": 2292
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 2682
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1038
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 899
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 943
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1871
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 4061
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 477
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 698
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 462
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 1398
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 2705
+      },
+      {
+        "name": "Bash",
+        "duration_ms": 3711
+      },
+      {
+        "name": "TodoWrite",
+        "duration_ms": 1835
+      }
+    ],
+    "metrics": {
+      "input_tokens": 2,
+      "output_tokens": 13626,
+      "cache_read_tokens": 3355967,
+      "cache_creation_tokens": 94755,
+      "cost_usd": 2.6343962499999996,
+      "duration_ms": 254667
+    },
+    "success": true,
+    "num_turns": 38
+  },
+  "status": "closed",
+  "title": "Add run history view in tick drawer",
+  "type": "task",
+  "updated_at": "2026-01-20T15:24:29.65338Z"
+}
