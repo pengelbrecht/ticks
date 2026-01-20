@@ -327,6 +327,12 @@ func ResetFlags() {
 	runIncludeStandalone = false
 	runIncludeOrphans = false
 	runAll = false
+
+	// Reset resume flags
+	resumeMaxIterations = 50
+	resumeMaxCost = 0
+	resumeSkipVerify = false
+	resumeJSONL = false
 }
 
 // SetVersion allows main.go to set the version at initialization
