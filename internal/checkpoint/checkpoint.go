@@ -54,7 +54,7 @@ type Manager struct {
 
 // NewManager creates a new checkpoint manager with the default directory.
 func NewManager() *Manager {
-	return &Manager{dir: ".ticker/checkpoints"}
+	return &Manager{dir: ".tick/logs/checkpoints"}
 }
 
 // NewManagerWithDir creates a new checkpoint manager with a custom directory.

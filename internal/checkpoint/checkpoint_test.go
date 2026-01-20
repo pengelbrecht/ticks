@@ -13,8 +13,8 @@ func TestNewManager(t *testing.T) {
 	if m == nil {
 		t.Fatal("NewManager() returned nil")
 	}
-	if m.Dir() != ".ticker/checkpoints" {
-		t.Errorf("Dir() = %q, want %q", m.Dir(), ".ticker/checkpoints")
+	if m.Dir() != ".tick/logs/checkpoints" {
+		t.Errorf("Dir() = %q, want %q", m.Dir(), ".tick/logs/checkpoints")
 	}
 }
 
