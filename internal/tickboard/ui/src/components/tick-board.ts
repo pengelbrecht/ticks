@@ -3,7 +3,7 @@ import { customElement, state } from 'lit/decorators.js';
 import { provide } from '@lit/context';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { fetchTicks, fetchTick, fetchInfo, type EpicInfo } from '../api/ticks.js';
+import { fetchTicks, fetchTick, fetchInfo, type EpicInfo, type Note, type BlockerDetail } from '../api/ticks.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -311,6 +311,9 @@ export class TickBoard extends LitElement {
   @state() private activeColumn: TickColumn = 'blocked';
   @state() private isMobile = window.matchMedia('(max-width: 480px)').matches;
   @state() private selectedTick: BoardTick | null = null;
+  @state() private selectedTickNotes: Note[] = [];
+  @state() private selectedTickBlockers: BlockerDetail[] = [];
+  @state() private selectedTickParentTitle = '';
   @state() private loading = true;
   @state() private error: string | null = null;
 
@@ -855,9 +858,37 @@ export class TickBoard extends LitElement {
   }
 
   // Handle tick selection from columns
-  private handleTickSelected(e: CustomEvent<{ tick: BoardTick }>) {
-    this.selectedTick = e.detail.tick;
-    console.log('Tick selected:', e.detail.tick.id);
+  private async handleTickSelected(e: CustomEvent<{ tick: BoardTick }>) {
+    const tick = e.detail.tick;
+    this.selectedTick = tick;
+
+    // Reset drawer details
+    this.selectedTickNotes = [];
+    this.selectedTickBlockers = [];
+    this.selectedTickParentTitle = '';
+
+    // Fetch full tick details (notes, blockers, etc.)
+    try {
+      const details = await fetchTick(tick.id);
+      this.selectedTickNotes = details.notesList || [];
+      this.selectedTickBlockers = details.blockerDetails || [];
+
+      // Look up parent title if tick has a parent
+      if (tick.parent) {
+        const parentEpic = this.epics.find(e => e.id === tick.parent);
+        this.selectedTickParentTitle = parentEpic?.title || '';
+      }
+    } catch (err) {
+      console.error('Failed to fetch tick details:', err);
+    }
+  }
+
+  // Handle drawer close
+  private handleDrawerClose() {
+    this.selectedTick = null;
+    this.selectedTickNotes = [];
+    this.selectedTickBlockers = [];
+    this.selectedTickParentTitle = '';
   }
 
 
@@ -939,6 +970,16 @@ export class TickBoard extends LitElement {
 
       <!-- Toast notification stack -->
       <tick-toast-stack></tick-toast-stack>
+
+      <!-- Detail drawer -->
+      <tick-detail-drawer
+        .tick=${this.selectedTick}
+        .open=${this.selectedTick !== null}
+        .notesList=${this.selectedTickNotes}
+        .blockerDetails=${this.selectedTickBlockers}
+        parent-title=${this.selectedTickParentTitle}
+        @drawer-close=${this.handleDrawerClose}
+      ></tick-detail-drawer>
 
       <!-- Desktop/Tablet kanban board -->
       <main>
