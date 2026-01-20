@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/gc"
 	"github.com/pengelbrecht/ticks/internal/tickboard/cloud"
 	"github.com/pengelbrecht/ticks/internal/tickboard/server"
 )
@@ -69,6 +70,18 @@ func runBoard(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Run garbage collection asynchronously (non-blocking)
+	go func() {
+		result, err := gc.Cleanup(absPath, gc.DefaultMaxAge)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gc: cleanup error: %v\n", err)
+		} else if len(result.Errors) > 0 {
+			for _, e := range result.Errors {
+				fmt.Fprintf(os.Stderr, "gc: %v\n", e)
+			}
+		}
+	}()
 
 	// Create and start server
 	srv, err := server.New(tickDir, boardPort)
