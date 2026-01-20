@@ -157,7 +157,9 @@ export interface ListTicksParams {
  * Throws ApiError on non-2xx responses.
  */
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  // Convert absolute paths to relative for cloud proxy compatibility
+  const relativeUrl = url.startsWith('/') ? './' + url.slice(1) : url;
+  const response = await fetch(relativeUrl, options);
 
   if (!response.ok) {
     const body = await response.text();
