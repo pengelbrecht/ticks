@@ -401,7 +401,7 @@ func (e *Engine) loadEpicContext(epicID string) string {
 }
 
 // SetRunLog sets the run logger for control flow events.
-// When set, all control flow decisions are logged to .ticker/runs/<run-id>.jsonl.
+// When set, all control flow decisions are logged to .tick/logs/runs/<run-id>.jsonl.
 func (e *Engine) SetRunLog(l *runlog.Logger) {
 	e.runLog = l
 }

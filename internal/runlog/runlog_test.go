@@ -30,8 +30,8 @@ func TestNew(t *testing.T) {
 	defer logger.Close()
 
 	// Check that the run directory was created
-	if _, err := os.Stat(filepath.Join(".ticker", "runs")); os.IsNotExist(err) {
-		t.Error(".ticker/runs directory was not created")
+	if _, err := os.Stat(filepath.Join(".tick", "logs", "runs")); os.IsNotExist(err) {
+		t.Error(".tick/logs/runs directory was not created")
 	}
 
 	// Check that logger has a run ID
@@ -55,7 +55,7 @@ func TestNewWithWorkDir(t *testing.T) {
 	defer logger.Close()
 
 	// Check that the run directory was created in the work dir
-	expectedDir := filepath.Join(tmpDir, ".ticker", "runs")
+	expectedDir := filepath.Join(tmpDir, ".tick", "logs", "runs")
 	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
 		t.Errorf("expected directory %s was not created", expectedDir)
 	}

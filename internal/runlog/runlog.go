@@ -1,5 +1,5 @@
 // Package runlog provides structured logging for ticker runs.
-// Each run creates a JSONL file in .ticker/runs/<run-id>.jsonl that documents
+// Each run creates a JSONL file in .tick/logs/runs/<run-id>.jsonl that documents
 // every decision and action in the control flow loop.
 package runlog
 
@@ -95,12 +95,12 @@ type Logger struct {
 }
 
 // New creates a new run logger.
-// Creates .ticker/runs/ directory if needed and opens the log file.
+// Creates .tick/logs/runs/ directory if needed and opens the log file.
 func New(epicID string) (*Logger, error) {
 	runID := generateRunID()
 
-	// Create .ticker/runs directory
-	dir := filepath.Join(".ticker", "runs")
+	// Create .tick/logs/runs directory
+	dir := filepath.Join(".tick", "logs", "runs")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("creating run log directory: %w", err)
 	}
@@ -124,8 +124,8 @@ func New(epicID string) (*Logger, error) {
 func NewWithWorkDir(epicID, workDir string) (*Logger, error) {
 	runID := generateRunID()
 
-	// Create .ticker/runs directory in workDir
-	dir := filepath.Join(workDir, ".ticker", "runs")
+	// Create .tick/logs/runs directory in workDir
+	dir := filepath.Join(workDir, ".tick", "logs", "runs")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("creating run log directory: %w", err)
 	}
