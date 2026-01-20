@@ -1,0 +1,12 @@
+{
+  "id": "t4x",
+  "title": "Tickboard UI Bug Fixes",
+  "description": "Fix bugs found during initial testing of the Lit/Shoelace board UI",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:03:59.216205Z",
+  "updated_at": "2026-01-20T08:03:59.216205Z"
+}

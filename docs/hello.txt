@@ -1,2 +1,0 @@
-Hello from ticker!
-Tue Jan 20 09:02:43 CET 2026

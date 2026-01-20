@@ -1,0 +1,12 @@
+{
+  "id": "nwx",
+  "title": "Fix: Clicking tick card doesn't open detail drawer",
+  "description": "When clicking on a tick card in the board, the detail drawer doesn't open. The tick-selected event may not be wired up correctly to open the drawer.\n\nSteps to reproduce:\n1. Open tk board\n2. Click on any tick card\n3. Expected: Detail drawer slides in from right\n4. Actual: Nothing happens\n\nCheck tick-board.ts handleTickSelected and drawer open logic.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:03:51.667654Z",
+  "updated_at": "2026-01-20T08:03:51.667654Z"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "y46",
+  "title": "Fix: New tick button missing plus icon/text",
+  "description": "The create new tick button in the header has no visible icon or text - appears empty/blank.\n\nCheck tick-header.ts create button - likely missing sl-icon or text content.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:03:51.891639Z",
+  "updated_at": "2026-01-20T08:03:51.891639Z"
+}

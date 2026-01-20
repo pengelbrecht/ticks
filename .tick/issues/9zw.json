@@ -1,0 +1,12 @@
+{
+  "id": "9zw",
+  "title": "Fix: Activity feed should open via bell button click",
+  "description": "The activity feed/notifications panel opens on the left but should be triggered by clicking the bell icon button in the header.\n\nCheck tick-activity-feed.ts and tick-header.ts - the dropdown trigger may not be wired correctly.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:03:52.28481Z",
+  "updated_at": "2026-01-20T08:03:52.28481Z"
+}

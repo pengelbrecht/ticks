@@ -1,0 +1,12 @@
+{
+  "id": "6ds",
+  "title": "Fix: Toast notifications missing close button",
+  "description": "Toast notifications appear but have no close/dismiss button visible.\n\nCheck tick-toast-stack.ts - the sl-alert closable attribute or close button may be missing.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:03:52.092493Z",
+  "updated_at": "2026-01-20T08:03:52.092493Z"
+}
