@@ -80,8 +80,8 @@ export class TickHeader extends LitElement {
 
     .epic-id {
       font-family: monospace;
-      color: var(--subtext0);
       font-size: 0.85em;
+      opacity: 0.7;
     }
 
     .header-right {

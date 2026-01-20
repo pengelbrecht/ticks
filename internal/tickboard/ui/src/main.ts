@@ -28,9 +28,9 @@ import '@shoelace-style/shoelace/dist/components/tab-group/tab-group.js';
 import '@shoelace-style/shoelace/dist/components/tab/tab.js';
 import '@shoelace-style/shoelace/dist/components/tab-panel/tab-panel.js';
 
-// Set base path for Shoelace assets (local icons in production)
+// Set base path for Shoelace assets (relative for cloud proxy compatibility)
 import { setBasePath } from '@shoelace-style/shoelace/dist/utilities/base-path.js';
-setBasePath('/shoelace');
+setBasePath('./shoelace');
 
 // Register custom components
 import './components/tick-board.js';
@@ -46,7 +46,7 @@ import './components/tick-activity-feed.js';
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      const registration = await navigator.serviceWorker.register('./sw.js');
       console.log('[PWA] Service worker registered:', registration.scope);
 
       // Listen for updates

@@ -4923,8 +4923,8 @@
 
     .epic-id {
       font-family: monospace;
-      color: var(--subtext0);
       font-size: 0.85em;
+      opacity: 0.7;
     }
 
     .header-right {
@@ -6278,4 +6278,4 @@
     sl-menu-item::part(label) {
       width: 100%;
     }
-  `;Ie([b()],ee.prototype,"activities",2);Ie([b()],ee.prototype,"loading",2);Ie([b()],ee.prototype,"unreadCount",2);Ie([b()],ee.prototype,"lastSeenTimestamp",2);ee=Ie([Wt("tick-activity-feed")],ee);_i("/shoelace");"serviceWorker"in navigator&&window.addEventListener("load",async()=>{try{const t=await navigator.serviceWorker.register("/sw.js");console.log("[PWA] Service worker registered:",t.scope),t.addEventListener("updatefound",()=>{const e=t.installing;e&&e.addEventListener("statechange",()=>{e.state==="installed"&&navigator.serviceWorker.controller&&window.showToast&&window.showToast({message:"A new version is available. Refresh to update.",variant:"primary",duration:1e4})})}),navigator.serviceWorker.addEventListener("message",e=>{var i;((i=e.data)==null?void 0:i.type)==="SW_ACTIVATED"&&console.log("[PWA] Service worker activated:",e.data.version)})}catch(t){console.error("[PWA] Service worker registration failed:",t)}});
+  `;Ie([b()],ee.prototype,"activities",2);Ie([b()],ee.prototype,"loading",2);Ie([b()],ee.prototype,"unreadCount",2);Ie([b()],ee.prototype,"lastSeenTimestamp",2);ee=Ie([Wt("tick-activity-feed")],ee);_i("./shoelace");"serviceWorker"in navigator&&window.addEventListener("load",async()=>{try{const t=await navigator.serviceWorker.register("./sw.js");console.log("[PWA] Service worker registered:",t.scope),t.addEventListener("updatefound",()=>{const e=t.installing;e&&e.addEventListener("statechange",()=>{e.state==="installed"&&navigator.serviceWorker.controller&&window.showToast&&window.showToast({message:"A new version is available. Refresh to update.",variant:"primary",duration:1e4})})}),navigator.serviceWorker.addEventListener("message",e=>{var i;((i=e.data)==null?void 0:i.type)==="SW_ACTIVATED"&&console.log("[PWA] Service worker activated:",e.data.version)})}catch(t){console.error("[PWA] Service worker registration failed:",t)}});
