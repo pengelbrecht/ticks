@@ -1,0 +1,13 @@
+{
+  "id": "5ql",
+  "title": "Fix: Activity feed bell button has no icon",
+  "description": "The activity feed bell button shows just the 9+ badge but no bell icon. The slot='prefix' fix was applied but icon still not visible.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "t4x",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:26:35.900823Z",
+  "updated_at": "2026-01-20T08:26:35.900823Z"
+}

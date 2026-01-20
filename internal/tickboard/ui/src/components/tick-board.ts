@@ -327,6 +327,7 @@ export class TickBoard extends LitElement {
   @state() private focusedColumnIndex = -1; // -1 means no column focused
   @state() private focusedTickIndex = -1;   // -1 means no tick focused
   @state() private showKeyboardHelp = false;
+  @state() private showCreateDialog = false;
   @state() private showMobileFilterDrawer = false;
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
@@ -806,8 +807,19 @@ export class TickBoard extends LitElement {
   }
 
   private handleCreateClick() {
-    // TODO: Open create tick dialog in future task
-    console.log('Create tick clicked');
+    this.showCreateDialog = true;
+  }
+
+  private handleCreateDialogClose() {
+    this.showCreateDialog = false;
+  }
+
+  private handleTickCreated(e: CustomEvent) {
+    // Add the new tick to the list and refresh
+    const { tick } = e.detail;
+    this.ticks = [...this.ticks, tick];
+    this.showCreateDialog = false;
+    window.showToast?.({ message: `Created tick ${tick.id}`, variant: 'success' });
   }
 
   private handleMenuToggle() {
@@ -986,6 +998,14 @@ export class TickBoard extends LitElement {
         parent-title=${this.selectedTickParentTitle}
         @drawer-close=${this.handleDrawerClose}
       ></tick-detail-drawer>
+
+      <!-- Create tick dialog -->
+      <tick-create-dialog
+        .open=${this.showCreateDialog}
+        .epics=${this.epics}
+        @dialog-close=${this.handleCreateDialogClose}
+        @tick-created=${this.handleTickCreated}
+      ></tick-create-dialog>
 
       <!-- Desktop/Tablet kanban board -->
       <main>

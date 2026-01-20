@@ -1,0 +1,13 @@
+{
+  "id": "pub",
+  "title": "Fix: Activity feed opens as full-screen left panel on desktop",
+  "description": "The activity feed/notifications panel opens as a full-screen left-aligned panel instead of a dropdown from the bell button. Looks OK on mobile but strange on desktop. Should be a dropdown positioned near the bell icon.",
+  "status": "open",
+  "priority": 2,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "t4x",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T08:26:36.179911Z",
+  "updated_at": "2026-01-20T08:26:36.179911Z"
+}

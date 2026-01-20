@@ -287,7 +287,7 @@ export class TickHeader extends LitElement {
               size="small"
               @click=${this.handleCreateClick}
             >
-              <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+              <sl-icon name="plus-lg"></sl-icon>
             </sl-button>
           </sl-tooltip>
         </div>
