@@ -2,12 +2,12 @@
   "id": "ntp",
   "title": "Phase 4: Run Log Storage",
   "description": "Move RunRecords from tick JSON files to separate .tick/runlog/\u003ctick-id\u003e.json files. Implement in-progress .live.json files and garbage collection.",
-  "notes": "2026-01-18 13:41 - Session paused. New unified logging structure decided: all logs under .tick/logs/ with subdirs runs/, records/, checkpoints/, context/. Plan doc updated. runrecord package created but needs path update to .tick/logs/records/. Next: update all packages to use new paths, update tk init for .gitignore, create gc package.\n2026-01-20 13:49 - Task 63o complete: ticks.Client now uses runrecord.Store for SetRunRecord/GetRunRecord. Records stored at .tick/logs/records/\u003cid\u003e.json. The runrecord package was already created by previous tasks - this task just wired it into the Client. Note: the old 'run' field in tick JSONs may need migration or can be ignored (fallback read from old location not implemented).",
+  "notes": "2026-01-18 13:41 - Session paused. New unified logging structure decided: all logs under .tick/logs/ with subdirs runs/, records/, checkpoints/, context/. Plan doc updated. runrecord package created but needs path update to .tick/logs/records/. Next: update all packages to use new paths, update tk init for .gitignore, create gc package.\n2026-01-20 13:49 - Task 63o complete: ticks.Client now uses runrecord.Store for SetRunRecord/GetRunRecord. Records stored at .tick/logs/records/\u003cid\u003e.json. The runrecord package was already created by previous tasks - this task just wired it into the Client. Note: the old 'run' field in tick JSONs may need migration or can be ignored (fallback read from old location not implemented).\n2026-01-20 13:54 - Task trw complete: Created tk migrate command that migrates run records from tick JSON 'run' field to .tick/logs/records/\u003cid\u003e.json. Successfully migrated 101 run records. The migration is idempotent and includes --dry-run support. The 'run' field is now removed from all tick JSON files.",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-18T07:26:04.307733Z",
-  "updated_at": "2026-01-20T12:49:16.427223Z"
+  "updated_at": "2026-01-20T12:54:22.139248Z"
 }

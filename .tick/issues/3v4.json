@@ -2,7 +2,7 @@
   "id": "3v4",
   "title": "Create internal/gc package for log cleanup",
   "description": "Implement gc.Cleanup(maxAge) that cleans: .tick/activity/activity.jsonl (trim old), .tick/logs/records/*.json (delete old), .tick/logs/runs/*.jsonl (delete old), .tick/logs/checkpoints/*.json (delete old), .tick/logs/context/*.md (delete old). Skip .live.json files. Default 30 days.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "ntp",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-18T07:28:24.556677Z",
-  "updated_at": "2026-01-18T12:41:20.788213Z"
+  "updated_at": "2026-01-20T12:57:25.262835Z",
+  "closed_at": "2026-01-20T12:57:25.262835Z",
+  "closed_reason": "Created internal/gc package with Cleaner type that cleans old files from .tick/logs/records, .tick/logs/runs, .tick/logs/checkpoints, .tick/logs/context, and trims .tick/activity/activity.jsonl. Features: configurable max age (default 30 days), dry-run mode, skips .live.json files. 11 comprehensive tests covering all cleanup scenarios."
 }
