@@ -29,6 +29,7 @@ import '@shoelace-style/shoelace/dist/components/tab/tab.js';
 import '@shoelace-style/shoelace/dist/components/tab-panel/tab-panel.js';
 import '@shoelace-style/shoelace/dist/components/spinner/spinner.js';
 import '@shoelace-style/shoelace/dist/components/icon-button/icon-button.js';
+import '@shoelace-style/shoelace/dist/components/details/details.js';
 
 // Set base path for Shoelace assets (relative for cloud proxy compatibility)
 import { setBasePath } from '@shoelace-style/shoelace/dist/utilities/base-path.js';
@@ -46,6 +47,7 @@ import './components/tick-activity-feed.js';
 import './components/run-output-pane.js';
 import './components/tool-activity.js';
 import './components/run-metrics.js';
+import './components/run-record.js';
 
 // Register service worker for PWA support
 if ('serviceWorker' in navigator) {
