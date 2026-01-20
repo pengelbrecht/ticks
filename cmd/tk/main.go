@@ -47,7 +47,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ready", "next", "blocked", "label", "labels", "deps", "status", "rebuild", "merge-file", "stats", "view", "snippet", "import", "approve", "reject", "version", "upgrade", "board", "migrate", "gc", "run", "resume", "checkpoints":
+	case "init", "whoami", "show", "create", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ready", "next", "blocked", "label", "labels", "deps", "status", "rebuild", "merge-file", "stats", "view", "snippet", "import", "approve", "reject", "version", "upgrade", "board", "migrate", "gc", "run", "resume", "checkpoints", "merge":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		if err := cobracmd.ExecuteArgs(args[1:]); err != nil {
 			return cobracmd.GetExitCode(err)
@@ -91,7 +91,7 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, approve, reject, version, upgrade, board, migrate, gc, run, resume, checkpoints")
+	fmt.Println("Commands: init, whoami, show, create, block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, status, merge-file, stats, view, snippet, import, approve, reject, version, upgrade, board, migrate, gc, run, resume, checkpoints, merge")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")

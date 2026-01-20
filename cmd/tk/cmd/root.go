@@ -336,6 +336,12 @@ func ResetFlags() {
 
 	// Reset checkpoints flags
 	checkpointsJSON = false
+
+	// Reset merge flags
+	mergeForce = false
+	mergeDeleteBranch = true
+	mergeDryRun = false
+	mergeYes = false
 }
 
 // SetVersion allows main.go to set the version at initialization
