@@ -144,6 +144,15 @@ export class TickToastStack extends LitElement {
       color: var(--blue);
     }
 
+    /* Close button styling for visibility in dark theme */
+    sl-alert::part(close-button) {
+      color: var(--subtext0);
+    }
+
+    sl-alert::part(close-button):hover {
+      color: var(--text);
+    }
+
     /* Countdown animation for auto-dismiss */
     .toast-progress {
       position: absolute;
