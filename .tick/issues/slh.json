@@ -2,7 +2,8 @@
   "id": "slh",
   "title": "Implement mobile responsive layout with tabs",
   "description": "Add mobile-specific layout to tick-board for screens ≤480px:\n\nMobile layout using Shoelace sl-tab-group:\n- Replace 5-column grid with tab-based column switching\n- sl-tab for each column (Blocked, Ready, In Progress, Review, Done)\n- sl-tab-panel containing tick-cards for selected column\n- Tab badge showing tick count\n\nMobile header:\n- Hamburger menu for filters (sl-drawer from left)\n- Compact search\n- Create button remains visible\n\nMobile detail drawer:\n- Full-width (100vw)\n- Larger touch targets for buttons\n\nBreakpoints:\n- ≤480px: Tab layout\n- 481-768px: Horizontal scroll with snap\n- \u003e768px: 5-column grid\n\nTest: Resize to mobile, verify tab switching, touch interactions",
-  "status": "open",
+  "notes": "2026-01-19 22:51 - Review: Mobile responsive layout in internal/tickboard/ui/src/components/tick-board.ts. Test at ≤480px width: (1) Tab-based column switching with badge counts, (2) Hamburger menu opens filter drawer from left, (3) Tick cards inside tab panels. Test at 481-768px: horizontal scroll with snap. Also review tick-detail-drawer.ts for 100vw mobile drawer and larger touch targets (44px min-height for buttons).\n2026-01-19 21:51 - Work complete, awaiting content\n2026-01-19 22:52 - Mobile responsive layout in tick-board UI. Test at ≤480px: (1) Tab-based column switching with badge counts, (2) Hamburger menu opens filter drawer from left, (3) Tick cards inside tab panels. Test at 481-768px: horizontal scroll with snap. Also check tick-detail-drawer for 100vw mobile drawer and 44px touch targets. Files: tick-board.ts lines 70-232 (mobile styles), 943-1020 (mobile tab layout + filter drawer), tick-detail-drawer.ts lines 323-343 (mobile styles), tick-header.ts lines 99-123 (mobile header).",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,7 +13,10 @@
   "parent": "u5u",
   "acceptance_criteria": "Mobile layout shows tabs, switching works, drawer is full-width, touch targets ≥44px",
   "requires": "content",
+  "awaiting": "content",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-19T20:05:50.077992Z",
-  "updated_at": "2026-01-19T20:05:50.077992Z"
+  "updated_at": "2026-01-19T21:52:15.470189Z",
+  "closed_at": "2026-01-19T21:51:34.738821Z",
+  "closed_reason": "Implemented mobile responsive layout with sl-tab-group for ≤480px screens (tab switching, badge counts, filter drawer from hamburger menu), horizontal scroll with snap for tablets (481-768px), full-width detail drawer with 44px touch targets on mobile. Modified tick-board.ts, tick-header.ts, tick-detail-drawer.ts, and added tab imports to main.ts."
 }

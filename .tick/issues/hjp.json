@@ -2,7 +2,8 @@
   "id": "hjp",
   "title": "Remove old vanilla HTML/CSS/JS static files",
   "description": "Remove legacy static files that are replaced by Lit components:\n\nFiles to remove (after verifying new UI works):\n- Old index.html (replaced by Vite-built version)\n- Old CSS files (styles moved to components)\n- Old JavaScript files (logic moved to TypeScript)\n\nSteps:\n1. List all files in old static directory\n2. Verify each is replaced by new implementation\n3. Remove old files\n4. Update any references in Go code\n5. Run full build to verify nothing breaks\n\nTest: go build ./cmd/tk \u0026\u0026 ./tk board",
-  "status": "open",
+  "notes": "2026-01-20 08:38 - Summary: Removed empty internal/tickboard/static/ directory. This directory was from the old vanilla HTML/CSS/JS implementation and has been replaced by the Vite build output in internal/tickboard/server/static/. The Go server already references server/static via the embed directive on line 22 of server.go. Go build verified successful after removal. Risk: None - directory was already empty and unused.\n2026-01-20 07:38 - Work complete, awaiting approval",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,7 +13,9 @@
   "parent": "2kk",
   "acceptance_criteria": "Old files removed, Go build succeeds, tk board serves new UI correctly",
   "requires": "approval",
+  "verdict": "approved",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-19T20:06:10.343094Z",
-  "updated_at": "2026-01-19T20:06:10.343094Z"
+  "updated_at": "2026-01-20T07:39:13.376813Z",
+  "closed_at": "2026-01-20T08:39:13.376813+01:00"
 }

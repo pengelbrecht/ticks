@@ -1,0 +1,12 @@
+{
+  "id": "ehb",
+  "title": "Show progress indicator during epic context generation",
+  "description": "When generating context for an epic, the TUI should display a visual progress indicator (spinner or progress bar) so the user knows work is happening. Currently there's no feedback during the context generation phase which can take 2-3 minutes.\n\nAcceptance criteria:\n- Show spinner/progress during context generation\n- Display elapsed time\n- Show 'Generating context for epic X...' message",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T07:39:23.844441Z",
+  "updated_at": "2026-01-20T07:39:23.844441Z"
+}

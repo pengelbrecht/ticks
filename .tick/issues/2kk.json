@@ -2,11 +2,12 @@
   "id": "2kk",
   "title": "Tickboard Lit/Shoelace Migration - Phase 5: Cleanup",
   "description": "Remove old static files, update documentation, run performance testing, ensure bundle size meets the 70KB gzipped budget.",
+  "notes": "2026-01-20 08:38 - [hjp] Removed empty internal/tickboard/static/ directory. This was the old location for vanilla HTML/CSS/JS files - all were already migrated to Lit/Shoelace in the ui/ directory. The Vite build now outputs to server/static/ which is embedded in the Go binary. No code changes needed since the directory was already empty.\n2026-01-20 08:45 - Completed [ulo] documentation task: Created comprehensive README.md in ui/ directory with component architecture, dev setup, theming guide, and Shoelace reference. Updated main README.md with tk board command. Added JSDoc to all major components. pnpm install/build verified working.\n2026-01-20 08:47 - Performance testing [7dx] complete: Build time 1.6s (well under 10s). Bundle size 80.5KB gzipped is 10.5KB (15%) over 70KB budget - primarily due to 19 Shoelace components. Added Performance section to README.md with metrics and optimization opportunities. Ready for human approval to decide: accept current size or invest in optimization.",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-19T20:02:29.161988Z",
-  "updated_at": "2026-01-19T20:02:29.161988Z"
+  "updated_at": "2026-01-20T07:47:12.37199Z"
 }

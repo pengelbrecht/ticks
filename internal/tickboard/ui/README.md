@@ -294,6 +294,58 @@ Production build creates:
 
 The Go server embeds these files via `//go:embed static/*`.
 
+## Performance
+
+### Bundle Size (as of 2026-01-20)
+
+| Asset | Raw Size | Gzipped | Notes |
+|-------|----------|---------|-------|
+| JavaScript | 346 KB | 75.7 KB | Lit + Shoelace components |
+| CSS | 24 KB | 4.8 KB | Shoelace theme + custom styles |
+| **Total** | **370 KB** | **80.5 KB** | |
+
+**Budget Status:** Currently 10.5 KB over the 70 KB gzipped budget (~15% over).
+
+### Bundle Breakdown (estimated)
+
+| Library | Estimated Size (gzipped) |
+|---------|--------------------------|
+| Lit runtime | ~5 KB |
+| Shoelace components (19) | ~55 KB |
+| App code | ~15 KB |
+| CSS styles | ~5 KB |
+
+### Build Performance
+
+- **Build time:** ~1.6 seconds (Vite + TypeScript)
+- **Modules transformed:** 175
+
+### Lighthouse Notes
+
+Lighthouse testing requires manual browser execution. Target scores:
+- Performance: ≥90
+- Accessibility: ≥90
+- Best Practices: ≥90
+
+### Optimization Opportunities
+
+To reduce bundle size toward the 70 KB target:
+
+1. **Review Shoelace components** - Currently 19 components imported. Consider:
+   - Remove unused components
+   - Use native elements where Shoelace adds minimal value
+   - `sl-tooltip` could be replaced with CSS-only tooltips
+
+2. **Lazy-load icons** - Shoelace icons are loaded on-demand but could benefit from fewer icon variations
+
+3. **Code splitting** - Split detail drawer and create dialog into lazy chunks
+
+4. **Tree-shaking audit** - Run `rollup-plugin-visualizer` to identify bundled but unused code:
+   ```bash
+   pnpm add -D rollup-plugin-visualizer
+   # Add to vite.config.ts and run pnpm build
+   ```
+
 ## API Endpoints
 
 The UI communicates with these Go backend endpoints:

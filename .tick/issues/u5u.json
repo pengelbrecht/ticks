@@ -2,11 +2,14 @@
   "id": "u5u",
   "title": "Tickboard Lit/Shoelace Migration - Phase 4: Polish",
   "description": "Add polish features: toast notifications, activity feed, keyboard navigation, mobile responsive layout with tabs, and PWA service worker.",
-  "status": "open",
+  "notes": "2026-01-19 22:40 - Completed tick-toast-stack component [5ng]. Toast API: window.showToast({ message, variant, duration }) or dispatch 'show-toast' CustomEvent. Variants: primary (blue), success (green), warning (yellow), danger (red). Default 5s auto-dismiss. Component placed in tick-board.ts after tick-header. Type declarations added to global Window interface.\n2026-01-19 22:45 - Completed activity feed [2pg]. Activity API: fetchActivity(limit) returns Activity[] with ts, tick, action, actor, epic, data fields. tick-activity-feed component uses sl-dropdown with bell icon, tracks unread via localStorage. Listens for 'activity-update' window event from SSE. Clicks dispatch 'activity-click' to open tick in drawer.\n2026-01-19 22:48 - Completed keyboard navigation [azu]. Shortcuts: j/k (down/up), h/l (left/right), Enter (open drawer), Esc (close/clear focus), n (create), / (search), ? (help). State tracked in tick-board via focusedColumnIndex and focusedTickIndex. tick-column passes focused-tick-id attribute to tick-card. Focused cards show blue ring (box-shadow: 0 0 0 2px var(--blue)) and auto-scroll into view via scrollIntoView(). Keyboard events ignored when sl-input/sl-textarea/sl-select is focused.\n2026-01-19 22:51 - Completed mobile responsive layout [slh]. Three breakpoints implemented: ≤480px uses sl-tab-group with 5 tabs (icon + badge count), hamburger menu opens filter drawer from left; 481-768px uses horizontal scroll with scroll-snap-type:x mandatory; \u003e768px uses 5-column grid. Detail drawer is 100vw on mobile with 44px min-height touch targets. Tab imports added to main.ts (tab-group, tab, tab-panel).\n2026-01-19 22:55 - Completed PWA service worker [20t]. manifest.json at /public/ with icons at root paths (not /static/). sw.js implements: stale-while-revalidate for static/navigation, network-first with offline fallback for API (returns cached with X-Offline header or 503 JSON error), cache-first for Shoelace icons. SW registration in main.ts shows update toast via window.showToast(). Index.html has manifest link, theme-color #1e1e2e, apple-touch-icon, iOS PWA meta tags. Cache names: tickboard-v2, tickboard-static-v2.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-19T20:02:24.698235Z",
-  "updated_at": "2026-01-19T20:02:24.698235Z"
+  "updated_at": "2026-01-19T21:56:09.314079Z",
+  "closed_at": "2026-01-19T21:56:09.314079Z",
+  "closed_reason": "all tasks completed"
 }

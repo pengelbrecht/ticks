@@ -2,11 +2,14 @@
   "id": "hd4",
   "title": "Tickboard Lit/Shoelace Migration - Phase 3: Interactions",
   "description": "Build interactive components: detail drawer, create dialog. Add CRUD actions (approve/reject/close) and notes functionality.",
-  "status": "open",
+  "notes": "2026-01-19 22:23 - bfe complete: Created tick-detail-drawer.ts. Component accepts tick, open, notesList, blockerDetails, and parentTitle props. Emits 'drawer-close' on sl-after-hide and 'tick-link-click' for navigation. Integration with tick-board will need: 1) Add drawer to tick-board render(), 2) Handle tick-selected events to fetch full tick details via fetchTick(), 3) Wire tick-link-click to re-fetch and display different tick. CSS uses same badge patterns as tick-card.\n2026-01-19 22:27 - 881 complete: Created tick-create-dialog.ts with form fields for title (required), description, type, priority, parent epic, labels, and manual checkbox. Component uses sl-dialog, calls createTick API on submit, emits 'tick-created' event with {tick, labels[], manual} detail. Integration with tick-board will need: 1) Add dialog to tick-board render(), 2) Handle 'create-click' from tick-header to open dialog, 3) Handle 'tick-created' to add new tick to board state. Note: labels and manual are passed in event detail but not yet sent to API (API NewTick doesn't support them currently).\n2026-01-19 22:30 - b14 complete: Added action buttons to tick-detail-drawer. Approve/Reject show for ticks with awaiting state, Close for open ticks without requires gate, Reopen for closed ticks. Reject requires reason, Close has optional reason. Component emits 'tick-updated' event with BoardTick. Integration with tick-board: listen for tick-updated event and update ticks array accordingly. State auto-resets on drawer close or tick change.\n2026-01-19 22:32 - r8q complete: Added notes functionality to tick-detail-drawer. Notes display in scrollable container with add note form below. Optimistic UI shows notes immediately with dashed border and 'Sending...' indicator, reverts on error. Ctrl+Enter submits. Component emits 'tick-updated' on success so tick-board can update state. The notesList property is updated from server response for consistency.\n2026-01-19 22:34 - i4a complete: Added SSE real-time updates to tick-board.ts. Note: The task description mentioned WebSocket but the server uses SSE (Server-Sent Events) at /api/events. Implementation connects to SSE, listens for 'update' events with {type: create|update|delete, tickId} payloads, fetches fresh data from API, and updates local state. Includes exponential backoff reconnection. Test by opening board in two tabs - changes in one should appear in other automatically.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-19T20:02:20.4329Z",
-  "updated_at": "2026-01-19T20:02:20.4329Z"
+  "updated_at": "2026-01-19T21:35:09.882981Z",
+  "closed_at": "2026-01-19T21:35:09.882981Z",
+  "closed_reason": "all tasks completed"
 }

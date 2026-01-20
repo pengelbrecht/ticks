@@ -2,11 +2,14 @@
   "id": "x0x",
   "title": "Tickboard Lit/Shoelace Migration - Phase 2: Core Components",
   "description": "Build the core UI components: tick-card, tick-column, tick-header. Wire up API fetching and render the board with real data.",
-  "status": "open",
+  "notes": "2026-01-19 22:07 - tick-card component created at src/components/tick-card.ts. Uses @property({attribute: false}) for tick object to avoid serialization. Emits 'tick-selected' custom event with {detail: {tick}, bubbles: true, composed: true}. epicName is passed as separate prop (not derived from tick.parent) since parent is just an ID - tick-column will need to resolve epic names.\n2026-01-19 22:08 - tick-column component created at src/components/tick-column.ts. Uses TickColumn type from types/tick.ts for name prop. Accepts ticks as BoardTick[] via attribute: false prop. Has epicNames: Record\u003cstring, string\u003e prop for tick-board to pass resolved epic names. Re-dispatches tick-selected events with bubbles: true, composed: true. Column colors/icons/names have defaults based on TickColumn type but color can be overridden.\n2026-01-19 22:10 - tick-header component created at src/components/tick-header.ts. Uses EpicInfo interface (id, title) for epics prop - matches API /api/info response format. Search input has 300ms debounce. Events: search-change (detail.value), epic-filter-change (detail.value), create-click, menu-toggle. Responsive: header-center hidden on tablet (768px), repo-badge hidden on mobile (480px). Cleanup of debounce timer in disconnectedCallback.\n2026-01-19 22:12 - API helpers created at src/api/ticks.ts. Key exports: ApiError class (status, body), fetchTicks (returns BoardTick[]), fetchTick (GetTickResponse with notesList/blockerDetails), updateTick, createTick, closeTick, addNote, approveTick, rejectTick, reopenTick, fetchInfo. Response types match server.go. Note: fetchTicks maps server's isBlocked to BoardTick's is_blocked field.\n2026-01-19 22:17 - tick-board.ts wired up with API data. Key patterns: 1) loadData() fetches ticks+info in parallel with Promise.all; 2) Server computes column field so no client-side grouping logic needed; 3) getFilteredTicks() applies search (id/title/description match) and epic (parent match) filters; 4) epicNames map passed to tick-columns for resolving parent IDs to titles; 5) selectedTick state tracks clicked tick (will be used by detail drawer in future). TODO items logged for create-click and menu-toggle handlers.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-19T20:02:15.95792Z",
-  "updated_at": "2026-01-19T20:02:15.95792Z"
+  "updated_at": "2026-01-19T21:17:43.959554Z",
+  "closed_at": "2026-01-19T21:17:43.959554Z",
+  "closed_reason": "all tasks completed"
 }

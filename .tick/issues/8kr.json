@@ -1,0 +1,12 @@
+{
+  "id": "8kr",
+  "title": "Add command to view generated epic context document",
+  "description": "Provide an easy way to view the generated context document for an epic. This could be:\n- A TUI command/keybind to show the context in a pager\n- A CLI command like 'ticker context \u003cepic-id\u003e' to display it\n- Save context to a file in .ticker/ that can be viewed\n\nThis helps users understand what context the agent sees and debug issues.\n\nAcceptance criteria:\n- Easy way to view context document\n- Shows full context content\n- Works both during and after ticker run",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-20T07:39:24.03621Z",
+  "updated_at": "2026-01-20T07:39:24.03621Z"
+}
