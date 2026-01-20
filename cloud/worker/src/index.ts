@@ -39,6 +39,16 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await handleRequest(request, env);
+    } catch (err) {
+      console.error("Worker error:", err);
+      return jsonResponse({ error: "Internal server error", details: String(err) }, 500);
+    }
+  },
+};
+
+async function handleRequest(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     // Handle CORS preflight
@@ -229,8 +239,7 @@ export default {
     }
 
     return new Response("Not found", { status: 404 });
-  },
-};
+}
 
 // Re-export the Durable Object
 export { AgentHub } from "./agent-hub";
