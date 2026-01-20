@@ -2,6 +2,9 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import type { ShowToastOptions } from './tick-toast-stack.js';
+import type { ContextPane } from './context-pane.js';
+
+const TAB_STORAGE_KEY = 'run-output-pane-active-tab';
 
 // ANSI escape code mappings to CSS classes
 const ANSI_COLORS: Record<number, string> = {
@@ -373,6 +376,64 @@ export class RunOutputPane extends LitElement {
     .line-count {
       font-variant-numeric: tabular-nums;
     }
+
+    /* Tab container and styling */
+    .tab-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    sl-tab-group {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    sl-tab-group::part(base) {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    sl-tab-group::part(nav) {
+      background: var(--mantle, #181825);
+      border-bottom: 1px solid var(--surface0, #313244);
+    }
+
+    sl-tab-group::part(tabs) {
+      padding: 0 0.5rem;
+    }
+
+    sl-tab-group::part(body) {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    sl-tab::part(base) {
+      font-size: 0.8125rem;
+      padding: 0.5rem 0.75rem;
+      color: var(--subtext0, #a6adc8);
+    }
+
+    sl-tab::part(base):hover {
+      color: var(--text, #cdd6f4);
+    }
+
+    sl-tab[active]::part(base) {
+      color: var(--blue, #89b4fa);
+    }
+
+    sl-tab-panel {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    sl-tab-panel::part(base) {
+      height: 100%;
+      padding: 0;
+    }
   `;
 
   @property({ type: String, attribute: 'epic-id' })
@@ -386,9 +447,13 @@ export class RunOutputPane extends LitElement {
   @state() private activeTaskId: string | null = null;
   @state() private activeTool: string | null = null;
   @state() private lastOutput = ''; // Track previous output to compute deltas
+  @state() private activeTab: 'output' | 'context' = 'output';
 
   @query('.output-container')
   private outputContainer!: HTMLDivElement;
+
+  @query('context-pane')
+  private contextPane!: ContextPane;
 
   private eventSource: EventSource | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -398,6 +463,11 @@ export class RunOutputPane extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    // Load saved tab preference
+    const savedTab = localStorage.getItem(TAB_STORAGE_KEY);
+    if (savedTab === 'output' || savedTab === 'context') {
+      this.activeTab = savedTab;
+    }
     if (this.epicId) {
       this.connect();
     }
@@ -646,6 +716,15 @@ export class RunOutputPane extends LitElement {
   }
 
   /**
+   * Handle tab change and persist selection.
+   */
+  private handleTabShow(event: CustomEvent) {
+    const tabName = event.detail.name as 'output' | 'context';
+    this.activeTab = tabName;
+    localStorage.setItem(TAB_STORAGE_KEY, tabName);
+  }
+
+  /**
    * Clear all output lines.
    */
   private clearOutput() {
@@ -749,63 +828,86 @@ export class RunOutputPane extends LitElement {
     }
   }
 
+  /**
+   * Render the output content (used in Output tab).
+   */
+  private renderOutputContent() {
+    return html`
+      <div
+        class="output-container"
+        @scroll=${this.handleScroll}
+      >
+        ${this.lines.length === 0
+          ? html`
+              <div class="empty-state">
+                <sl-icon name="terminal"></sl-icon>
+                <p>No output yet. Connect to an epic to see agent output.</p>
+              </div>
+            `
+          : this.lines.map(line => html`
+              <div class="output-line">
+                <span class="line-timestamp">${this.formatTimestamp(line.timestamp)}</span>
+                <span class="line-content ${line.type}">
+                  ${line.type === 'output'
+                    ? unsafeHTML(this.ansiToHtml(line.content))
+                    : line.content}
+                </span>
+              </div>
+            `)}
+      </div>
+    `;
+  }
+
   render() {
     return html`
       <div class="output-pane">
         <div class="pane-header">
           <div class="header-left">
-            <span class="pane-title">Agent Output</span>
             <div class="connection-status">
               <span class="status-indicator ${this.connectionStatus}"></span>
               <span>${this.getStatusText()}</span>
             </div>
           </div>
           <div class="header-actions">
-            <div
-              class="auto-scroll-toggle ${this.autoScroll ? 'active' : ''}"
-              @click=${this.toggleAutoScroll}
-              title="Auto-scroll to bottom"
-            >
-              <sl-icon name="arrow-down-circle${this.autoScroll ? '-fill' : ''}"></sl-icon>
-              Auto
-            </div>
-            <sl-icon-button
-              name="clipboard"
-              label="Copy output"
-              @click=${this.copyOutput}
-            ></sl-icon-button>
-            <sl-icon-button
-              name="trash"
-              label="Clear output"
-              @click=${this.clearOutput}
-            ></sl-icon-button>
+            ${this.activeTab === 'output' ? html`
+              <div
+                class="auto-scroll-toggle ${this.autoScroll ? 'active' : ''}"
+                @click=${this.toggleAutoScroll}
+                title="Auto-scroll to bottom"
+              >
+                <sl-icon name="arrow-down-circle${this.autoScroll ? '-fill' : ''}"></sl-icon>
+                Auto
+              </div>
+              <sl-icon-button
+                name="clipboard"
+                label="Copy output"
+                @click=${this.copyOutput}
+              ></sl-icon-button>
+              <sl-icon-button
+                name="trash"
+                label="Clear output"
+                @click=${this.clearOutput}
+              ></sl-icon-button>
+            ` : nothing}
           </div>
         </div>
 
-        <div
-          class="output-container"
-          @scroll=${this.handleScroll}
-        >
-          ${this.lines.length === 0
-            ? html`
-                <div class="empty-state">
-                  <sl-icon name="terminal"></sl-icon>
-                  <p>No output yet. Connect to an epic to see agent output.</p>
-                </div>
-              `
-            : this.lines.map(line => html`
-                <div class="output-line">
-                  <span class="line-timestamp">${this.formatTimestamp(line.timestamp)}</span>
-                  <span class="line-content ${line.type}">
-                    ${line.type === 'output'
-                      ? unsafeHTML(this.ansiToHtml(line.content))
-                      : line.content}
-                  </span>
-                </div>
-              `)}
+        <div class="tab-container">
+          <sl-tab-group @sl-tab-show=${this.handleTabShow}>
+            <sl-tab slot="nav" panel="output" ?active=${this.activeTab === 'output'}>Output</sl-tab>
+            <sl-tab slot="nav" panel="context" ?active=${this.activeTab === 'context'}>Context</sl-tab>
+
+            <sl-tab-panel name="output">
+              ${this.renderOutputContent()}
+            </sl-tab-panel>
+
+            <sl-tab-panel name="context">
+              <context-pane .epicId=${this.epicId}></context-pane>
+            </sl-tab-panel>
+          </sl-tab-group>
         </div>
 
-        ${this.activeTaskId || this.activeTool
+        ${this.activeTab === 'output' && (this.activeTaskId || this.activeTool)
           ? html`
               <div class="pane-footer">
                 <div class="active-task">
