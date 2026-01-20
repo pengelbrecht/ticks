@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/pengelbrecht/ticks/internal/query"
+	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -116,6 +118,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// API endpoint: activity feed
 	mux.HandleFunc("/api/activity", s.handleActivity)
+
+	// API endpoint: run records
+	mux.HandleFunc("/api/records/", s.handleRecords)
 
 	// Root handler - serve index.html and PWA assets at root paths
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -535,6 +540,44 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleRecords routes requests to /api/records/:tickId.
+func (s *Server) handleRecords(w http.ResponseWriter, r *http.Request) {
+	// Parse path: /api/records/:tickId
+	path := strings.TrimPrefix(r.URL.Path, "/api/records/")
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Remove any trailing slash
+	tickID := strings.TrimSuffix(path, "/")
+	if tickID == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Only GET method is supported
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get the run record
+	store := runrecord.NewStore(filepath.Dir(s.tickDir))
+	record, err := store.Read(tickID)
+	if err != nil {
+		if errors.Is(err, runrecord.ErrNotFound) {
+			http.Error(w, "Run record not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to read run record: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(record)
 }
 
 // Column represents kanban board columns.

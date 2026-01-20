@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pengelbrecht/ticks/internal/agent"
+	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -1976,5 +1978,167 @@ func TestCreateTick_LowPriorityGoesToReady(t *testing.T) {
 
 	if result.Column != ColumnReady {
 		t.Errorf("Column = %s, want %s", result.Column, ColumnBlocked)
+	}
+}
+
+func TestGetRecord_Basic(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Create a run record
+	store := runrecord.NewStore(tmpDir)
+	record := &agent.RunRecord{
+		SessionID: "test-session",
+		Model:     "claude-3-opus",
+		StartedAt: time.Now().Add(-time.Minute),
+		EndedAt:   time.Now(),
+		Output:    "Task completed successfully",
+		Tools: []agent.ToolRecord{
+			{Name: "Read", Duration: 100},
+		},
+		Metrics: agent.MetricsRecord{
+			InputTokens:  1000,
+			OutputTokens: 500,
+			CostUSD:      0.05,
+		},
+		Success:  true,
+		NumTurns: 3,
+	}
+	if err := store.Write("abc", record); err != nil {
+		t.Fatalf("failed to write run record: %v", err)
+	}
+
+	srv, err := New(tickDir, 18801)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18801/api/records/abc")
+	if err != nil {
+		t.Fatalf("failed to request /api/records/abc: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/records/abc status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result agent.RunRecord
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.SessionID != "test-session" {
+		t.Errorf("SessionID = %q, want %q", result.SessionID, "test-session")
+	}
+	if result.Model != "claude-3-opus" {
+		t.Errorf("Model = %q, want %q", result.Model, "claude-3-opus")
+	}
+	if !result.Success {
+		t.Error("Success = false, want true")
+	}
+	if result.NumTurns != 3 {
+		t.Errorf("NumTurns = %d, want 3", result.NumTurns)
+	}
+}
+
+func TestGetRecord_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18802)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18802/api/records/nonexistent")
+	if err != nil {
+		t.Fatalf("failed to request /api/records/nonexistent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /api/records/nonexistent status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestGetRecord_MethodNotAllowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18803)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Post("http://localhost:18803/api/records/abc", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/records/abc status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestGetRecord_EmptyTickID(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18804)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Request with no tick ID
+	resp, err := http.Get("http://localhost:18804/api/records/")
+	if err != nil {
+		t.Fatalf("failed to request /api/records/: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /api/records/ status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 	}
 }
