@@ -8238,12 +8238,14 @@ var ko=Object.defineProperty;var _o=(e,t,i)=>t in e?ko(e,t,{enumerable:!0,config
 
     .output-line {
       display: flex;
+      align-items: flex-start;
       gap: 0.75rem;
       padding: 0.125rem 0;
     }
 
     .line-timestamp {
       flex-shrink: 0;
+      min-width: 5.5rem;
       font-size: 0.6875rem;
       color: var(--overlay0, #6c7086);
       font-variant-numeric: tabular-nums;

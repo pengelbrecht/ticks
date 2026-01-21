@@ -243,12 +243,14 @@ export class RunOutputPane extends LitElement {
 
     .output-line {
       display: flex;
+      align-items: flex-start;
       gap: 0.75rem;
       padding: 0.125rem 0;
     }
 
     .line-timestamp {
       flex-shrink: 0;
+      min-width: 5.5rem;
       font-size: 0.6875rem;
       color: var(--overlay0, #6c7086);
       font-variant-numeric: tabular-nums;
