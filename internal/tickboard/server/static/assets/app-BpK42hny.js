@@ -8104,14 +8104,18 @@ var ko=Object.defineProperty;var _o=(e,t,i)=>t in e?ko(e,t,{enumerable:!0,config
       </div>
     `}};he.styles=C`
     :host {
-      display: block;
-      height: 100%;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .output-pane {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       background: var(--crust, #11111b);
       border: 1px solid var(--surface1, #45475a);
       border-radius: 8px;
@@ -8212,6 +8216,7 @@ var ko=Object.defineProperty;var _o=(e,t,i)=>t in e?ko(e,t,{enumerable:!0,config
     /* Output content */
     .output-container {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
       font-size: 0.8125rem;
@@ -8331,8 +8336,12 @@ var ko=Object.defineProperty;var _o=(e,t,i)=>t in e?ko(e,t,{enumerable:!0,config
     }
 
     /* Collapsed view */
+    :host([collapsed]) {
+      flex: none;
+    }
+
     :host([collapsed]) .output-pane {
-      height: auto;
+      flex: none;
     }
 
     :host([collapsed]) .output-container {
@@ -8383,19 +8392,22 @@ var ko=Object.defineProperty;var _o=(e,t,i)=>t in e?ko(e,t,{enumerable:!0,config
     /* Tab container and styling */
     .tab-container {
       flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
 
     sl-tab-group {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
 
     sl-tab-group::part(base) {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
@@ -8429,13 +8441,16 @@ var ko=Object.defineProperty;var _o=(e,t,i)=>t in e?ko(e,t,{enumerable:!0,config
     }
 
     sl-tab-panel {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
 
     sl-tab-panel::part(base) {
       height: 100%;
       padding: 0;
+      display: flex;
+      flex-direction: column;
     }
   `;Re([d({type:String,attribute:"epic-id"})],he.prototype,"epicId",2);Re([d({type:Boolean,attribute:"auto-scroll"})],he.prototype,"autoScroll",2);Re([v()],he.prototype,"lines",2);Re([v()],he.prototype,"connectionStatus",2);Re([v()],he.prototype,"activeTaskId",2);Re([v()],he.prototype,"activeTool",2);Re([v()],he.prototype,"lastOutput",2);Re([v()],he.prototype,"activeTab",2);Re([$(".output-container")],he.prototype,"outputContainer",2);Re([$("context-pane")],he.prototype,"contextPane",2);he=Re([pe("run-output-pane")],he);var oc=Object.defineProperty,ac=Object.getOwnPropertyDescriptor,Mi=(e,t,i,s)=>{for(var r=s>1?void 0:s?ac(t,i):t,o=e.length-1,a;o>=0;o--)(a=e[o])&&(r=(s?a(t,i,r):a(r))||r);return s&&r&&oc(t,i,r),r};const nc={Read:"file-earmark-text",Write:"file-earmark-plus",Edit:"pencil-square",Bash:"terminal",Glob:"search",Grep:"file-earmark-code",Task:"list-task",WebFetch:"globe",WebSearch:"search",TodoWrite:"check2-square",AskUserQuestion:"chat-left-dots",NotebookEdit:"journal-code",KillShell:"x-circle",TaskOutput:"box-arrow-right",Skill:"lightning",EnterPlanMode:"map",ExitPlanMode:"check2-circle"},lc={Read:"var(--blue, #89b4fa)",Write:"var(--green, #a6e3a1)",Edit:"var(--yellow, #f9e2af)",Bash:"var(--peach, #fab387)",Glob:"var(--teal, #94e2d5)",Grep:"var(--sapphire, #74c7ec)",Task:"var(--mauve, #cba6f7)",WebFetch:"var(--sky, #89dceb)",WebSearch:"var(--sky, #89dceb)",TodoWrite:"var(--lavender, #b4befe)",AskUserQuestion:"var(--pink, #f5c2e7)",NotebookEdit:"var(--flamingo, #f2cdcd)",KillShell:"var(--red, #f38ba8)",TaskOutput:"var(--rosewater, #f5e0dc)",Skill:"var(--maroon, #eba0ac)",EnterPlanMode:"var(--lavender, #b4befe)",ExitPlanMode:"var(--green, #a6e3a1)"};let Ct=class extends Q{constructor(){super(...arguments),this.activity=null,this.expanded=!1,this.elapsedMs=0,this.timerInterval=null}connectedCallback(){super.connectedCallback(),this.startTimer()}disconnectedCallback(){super.disconnectedCallback(),this.stopTimer()}updated(e){e.has("activity")&&this.updateTimer()}startTimer(){this.timerInterval||(this.timerInterval=setInterval(()=>{if(this.activity&&!this.activity.isComplete&&this.activity.startedAt){const e=this.activity.startedAt instanceof Date?this.activity.startedAt.getTime():new Date(this.activity.startedAt).getTime();this.elapsedMs=Date.now()-e}},100))}stopTimer(){this.timerInterval&&(clearInterval(this.timerInterval),this.timerInterval=null)}updateTimer(){var e;(e=this.activity)!=null&&e.isComplete?(this.stopTimer(),this.activity.durationMs!==void 0&&(this.elapsedMs=this.activity.durationMs)):this.activity&&!this.timerInterval&&this.startTimer()}getToolIcon(e){return nc[e]??"gear"}getToolColor(e){return lc[e]??"var(--mauve, #cba6f7)"}formatDuration(e){if(e<1e3)return`${e}ms`;const t=Math.floor(e/1e3),i=e%1e3;if(t<60)return`${t}.${Math.floor(i/100)}s`;const s=Math.floor(t/60),r=t%60;return`${s}m ${r}s`}truncateInput(e,t=50){return e.length<=t?e:e.slice(0,t)+"..."}getStatusClass(){return this.activity?this.activity.isError?"error":this.activity.isComplete?"complete":"running":""}renderCompact(){const{activity:e}=this;if(!e)return h`
         <div class="empty-state">

@@ -109,14 +109,18 @@ interface RunStreamEventData {
 export class RunOutputPane extends LitElement {
   static styles = css`
     :host {
-      display: block;
-      height: 100%;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .output-pane {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       background: var(--crust, #11111b);
       border: 1px solid var(--surface1, #45475a);
       border-radius: 8px;
@@ -217,6 +221,7 @@ export class RunOutputPane extends LitElement {
     /* Output content */
     .output-container {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
       font-size: 0.8125rem;
@@ -336,8 +341,12 @@ export class RunOutputPane extends LitElement {
     }
 
     /* Collapsed view */
+    :host([collapsed]) {
+      flex: none;
+    }
+
     :host([collapsed]) .output-pane {
-      height: auto;
+      flex: none;
     }
 
     :host([collapsed]) .output-container {
@@ -388,19 +397,22 @@ export class RunOutputPane extends LitElement {
     /* Tab container and styling */
     .tab-container {
       flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
 
     sl-tab-group {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
 
     sl-tab-group::part(base) {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
@@ -434,13 +446,16 @@ export class RunOutputPane extends LitElement {
     }
 
     sl-tab-panel {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
 
     sl-tab-panel::part(base) {
       height: 100%;
       padding: 0;
+      display: flex;
+      flex-direction: column;
     }
   `;
 
