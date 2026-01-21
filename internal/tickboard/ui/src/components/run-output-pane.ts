@@ -58,6 +58,7 @@ interface OutputLine {
  */
 interface RunStreamEventData {
   taskId?: string;
+  epicId?: string;
   status?: string;
   output?: string;
   numTurns?: number;
@@ -82,6 +83,9 @@ interface RunStreamEventData {
     duration?: number;
   };
   timestamp?: string;
+  message?: string;    // Human-readable status message (for context events)
+  taskCount?: number;  // Number of tasks (for context_generating)
+  tokenCount?: number; // Estimated token count (for context_generated/context_loaded)
 }
 
 /**
@@ -581,6 +585,59 @@ export class RunOutputPane extends LitElement {
         }
       } catch (err) {
         console.error('[RunOutputPane] Failed to parse task-completed:', err);
+      }
+    });
+
+    // Handle context generating
+    this.eventSource.addEventListener('context-generating', (event) => {
+      try {
+        const data = JSON.parse(event.data) as RunStreamEventData;
+        const taskCount = data.taskCount ?? 0;
+        this.addStatusLine(`📚 Generating epic context (${taskCount} tasks)...`);
+      } catch (err) {
+        console.error('[RunOutputPane] Failed to parse context-generating:', err);
+      }
+    });
+
+    // Handle context generated
+    this.eventSource.addEventListener('context-generated', (event) => {
+      try {
+        const data = JSON.parse(event.data) as RunStreamEventData;
+        const tokenCount = data.tokenCount ?? 0;
+        this.addStatusLine(`✓ Context generated (~${tokenCount} tokens)`);
+      } catch (err) {
+        console.error('[RunOutputPane] Failed to parse context-generated:', err);
+      }
+    });
+
+    // Handle context loaded (from cache)
+    this.eventSource.addEventListener('context-loaded', (event) => {
+      try {
+        const data = JSON.parse(event.data) as RunStreamEventData;
+        const tokenCount = data.tokenCount ?? 0;
+        this.addStatusLine(`📖 Using existing context (~${tokenCount} tokens)`);
+      } catch (err) {
+        console.error('[RunOutputPane] Failed to parse context-loaded:', err);
+      }
+    });
+
+    // Handle context failed
+    this.eventSource.addEventListener('context-failed', (event) => {
+      try {
+        const data = JSON.parse(event.data) as RunStreamEventData;
+        this.addStatusLine(`⚠ Context generation failed: ${data.message ?? 'unknown error'}`);
+      } catch (err) {
+        console.error('[RunOutputPane] Failed to parse context-failed:', err);
+      }
+    });
+
+    // Handle context skipped
+    this.eventSource.addEventListener('context-skipped', (event) => {
+      try {
+        const data = JSON.parse(event.data) as RunStreamEventData;
+        this.addStatusLine(`⏭ Context skipped: ${data.message ?? 'single-task epic'}`);
+      } catch (err) {
+        console.error('[RunOutputPane] Failed to parse context-skipped:', err);
       }
     });
 

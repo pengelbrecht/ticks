@@ -360,3 +360,148 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+func TestStore_EpicStatus_WriteRead(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	status := &EpicStatus{
+		EpicID:     "epic123",
+		Status:     "context_generating",
+		Message:    "Generating epic context (5 tasks)...",
+		TaskCount:  5,
+		TokenCount: 0,
+	}
+
+	// Write
+	err := store.WriteEpicStatus("epic123", status)
+	if err != nil {
+		t.Fatalf("WriteEpicStatus failed: %v", err)
+	}
+
+	// Verify file exists
+	path := filepath.Join(dir, ".tick", "logs", "records", "_epic-epic123.status.json")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Fatal("Epic status file not created")
+	}
+
+	// Read back
+	got, err := store.ReadEpicStatus("epic123")
+	if err != nil {
+		t.Fatalf("ReadEpicStatus failed: %v", err)
+	}
+
+	if got.EpicID != status.EpicID {
+		t.Errorf("EpicID mismatch: got %q, want %q", got.EpicID, status.EpicID)
+	}
+	if got.Status != status.Status {
+		t.Errorf("Status mismatch: got %q, want %q", got.Status, status.Status)
+	}
+	if got.Message != status.Message {
+		t.Errorf("Message mismatch: got %q, want %q", got.Message, status.Message)
+	}
+	if got.TaskCount != status.TaskCount {
+		t.Errorf("TaskCount mismatch: got %d, want %d", got.TaskCount, status.TaskCount)
+	}
+	if got.LastUpdated.IsZero() {
+		t.Error("LastUpdated should be set")
+	}
+}
+
+func TestStore_EpicStatus_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	_, err := store.ReadEpicStatus("nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestStore_EpicStatus_Exists(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	if store.EpicStatusExists("epic456") {
+		t.Error("EpicStatusExists returned true for nonexistent status")
+	}
+
+	status := &EpicStatus{EpicID: "epic456", Status: "running"}
+	if err := store.WriteEpicStatus("epic456", status); err != nil {
+		t.Fatalf("WriteEpicStatus failed: %v", err)
+	}
+
+	if !store.EpicStatusExists("epic456") {
+		t.Error("EpicStatusExists returned false for existing status")
+	}
+}
+
+func TestStore_EpicStatus_Delete(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	status := &EpicStatus{EpicID: "epic789", Status: "context_generated"}
+	if err := store.WriteEpicStatus("epic789", status); err != nil {
+		t.Fatalf("WriteEpicStatus failed: %v", err)
+	}
+
+	if err := store.DeleteEpicStatus("epic789"); err != nil {
+		t.Fatalf("DeleteEpicStatus failed: %v", err)
+	}
+
+	if store.EpicStatusExists("epic789") {
+		t.Error("Epic status still exists after delete")
+	}
+
+	// Delete nonexistent should not error
+	if err := store.DeleteEpicStatus("nonexistent"); err != nil {
+		t.Errorf("DeleteEpicStatus nonexistent returned error: %v", err)
+	}
+}
+
+func TestIsEpicStatusFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"valid epic status", "_epic-abc123.status.json", true},
+		{"valid epic status with hyphen", "_epic-my-epic.status.json", true},
+		{"regular json", "abc.json", false},
+		{"live json", "abc.live.json", false},
+		{"missing prefix", "epic-abc.status.json", false},
+		{"missing suffix", "_epic-abc.json", false},
+		{"too short", "_epic-.status.json", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsEpicStatusFile(tt.filename)
+			if got != tt.want {
+				t.Errorf("IsEpicStatusFile(%q) = %v, want %v", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseEpicStatusFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		want     string
+	}{
+		{"simple epic id", "_epic-abc123.status.json", "abc123"},
+		{"epic id with hyphen", "_epic-my-epic.status.json", "my-epic"},
+		{"not an epic status file", "abc.json", ""},
+		{"not an epic status file live", "abc.live.json", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseEpicStatusFilename(tt.filename)
+			if got != tt.want {
+				t.Errorf("ParseEpicStatusFilename(%q) = %q, want %q", tt.filename, got, tt.want)
+			}
+		})
+	}
+}

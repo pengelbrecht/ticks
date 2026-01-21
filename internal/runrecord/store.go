@@ -293,3 +293,101 @@ func truncateString(s string, max int) string {
 	}
 	return s[:max] + "..."
 }
+
+// EpicStatus represents the current status of an epic run.
+// This is used to track epic-level events like context generation.
+type EpicStatus struct {
+	EpicID      string    `json:"epic_id"`
+	Status      string    `json:"status"`      // "context_generating", "context_generated", "context_loaded", "context_skipped", "context_failed", "running", "idle"
+	Message     string    `json:"message"`     // Human-readable status message
+	TaskCount   int       `json:"task_count"`  // Number of tasks (for context generation)
+	TokenCount  int       `json:"token_count"` // Estimated tokens (for context generated)
+	LastUpdated time.Time `json:"last_updated"`
+}
+
+// WriteEpicStatus writes the current epic status to a status file.
+// The file is named _epic-<epicId>.status.json to distinguish from task records.
+func (s *Store) WriteEpicStatus(epicID string, status *EpicStatus) error {
+	if err := os.MkdirAll(s.dir, 0755); err != nil {
+		return fmt.Errorf("create runrecords dir: %w", err)
+	}
+
+	status.LastUpdated = time.Now()
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal epic status: %w", err)
+	}
+
+	// Write atomically: temp file + rename
+	statusPath := s.epicStatusPath(epicID)
+	tempPath := statusPath + ".tmp"
+
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		return fmt.Errorf("write epic status temp: %w", err)
+	}
+
+	if err := os.Rename(tempPath, statusPath); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("rename epic status: %w", err)
+	}
+
+	return nil
+}
+
+// ReadEpicStatus loads the current epic status.
+// Returns ErrNotFound if no status file exists.
+func (s *Store) ReadEpicStatus(epicID string) (*EpicStatus, error) {
+	path := s.epicStatusPath(epicID)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("read epic status: %w", err)
+	}
+
+	var status EpicStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("unmarshal epic status: %w", err)
+	}
+
+	return &status, nil
+}
+
+// DeleteEpicStatus removes an epic status file.
+// Returns nil if the file doesn't exist.
+func (s *Store) DeleteEpicStatus(epicID string) error {
+	err := os.Remove(s.epicStatusPath(epicID))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete epic status: %w", err)
+	}
+	return nil
+}
+
+// EpicStatusExists checks if an epic status file exists.
+func (s *Store) EpicStatusExists(epicID string) bool {
+	_, err := os.Stat(s.epicStatusPath(epicID))
+	return err == nil
+}
+
+// epicStatusPath returns the file path for an epic's status file.
+func (s *Store) epicStatusPath(epicID string) string {
+	return filepath.Join(s.dir, "_epic-"+epicID+".status.json")
+}
+
+// IsEpicStatusFile checks if a filename is an epic status file.
+func IsEpicStatusFile(name string) bool {
+	return len(name) > 19 && name[:6] == "_epic-" && name[len(name)-12:] == ".status.json"
+}
+
+// ParseEpicStatusFilename extracts the epic ID from an epic status filename.
+// Returns empty string if the filename is not an epic status file.
+func ParseEpicStatusFilename(name string) string {
+	if !IsEpicStatusFile(name) {
+		return ""
+	}
+	// _epic-<epicId>.status.json
+	// Remove "_epic-" prefix and ".status.json" suffix
+	return name[6 : len(name)-12]
+}

@@ -342,6 +342,15 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 	if e.OnContextGenerating != nil {
 		e.OnContextGenerating(epic.ID, len(tasks))
 	}
+	// Write epic status for tickboard SSE
+	if e.runRecordStore != nil {
+		_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+			EpicID:    epic.ID,
+			Status:    "context_generating",
+			Message:   fmt.Sprintf("Generating epic context (%d tasks)...", len(tasks)),
+			TaskCount: len(tasks),
+		})
+	}
 
 	// Generate context using the AI agent
 	content, err := e.contextGenerator.Generate(ctx, epic, tasks)
@@ -352,6 +361,14 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 		}
 		if e.OnContextFailed != nil {
 			e.OnContextFailed(epic.ID, err.Error())
+		}
+		// Write epic status for tickboard SSE
+		if e.runRecordStore != nil {
+			_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+				EpicID:  epic.ID,
+				Status:  "context_failed",
+				Message: fmt.Sprintf("Context generation failed: %s", err.Error()),
+			})
 		}
 		return
 	}
@@ -364,16 +381,33 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 		if e.OnContextFailed != nil {
 			e.OnContextFailed(epic.ID, err.Error())
 		}
+		// Write epic status for tickboard SSE
+		if e.runRecordStore != nil {
+			_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+				EpicID:  epic.ID,
+				Status:  "context_failed",
+				Message: fmt.Sprintf("Context save failed: %s", err.Error()),
+			})
+		}
 		return
 	}
 
 	if e.runLog != nil {
 		e.runLog.LogContextGenerationCompleted(epic.ID, len(content))
 	}
+	// Approximate token count: content length / 4 (rough estimate)
+	tokenCount := len(content) / 4
 	if e.OnContextGenerated != nil {
-		// Approximate token count: content length / 4 (rough estimate)
-		tokenCount := len(content) / 4
 		e.OnContextGenerated(epic.ID, tokenCount)
+	}
+	// Write epic status for tickboard SSE
+	if e.runRecordStore != nil {
+		_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+			EpicID:     epic.ID,
+			Status:     "context_generated",
+			Message:    fmt.Sprintf("Context generated (~%d tokens)", tokenCount),
+			TokenCount: tokenCount,
+		})
 	}
 }
 
@@ -394,8 +428,20 @@ func (e *Engine) loadEpicContext(epicID string) string {
 	}
 
 	// Notify TUI that context was loaded from cache (if content exists)
-	if content != "" && e.OnContextLoaded != nil {
-		e.OnContextLoaded(epicID, content)
+	if content != "" {
+		if e.OnContextLoaded != nil {
+			e.OnContextLoaded(epicID, content)
+		}
+		// Write epic status for tickboard SSE
+		if e.runRecordStore != nil {
+			tokenCount := len(content) / 4 // rough estimate
+			_ = e.runRecordStore.WriteEpicStatus(epicID, &runrecord.EpicStatus{
+				EpicID:     epicID,
+				Status:     "context_loaded",
+				Message:    fmt.Sprintf("Using existing context (~%d tokens)", tokenCount),
+				TokenCount: tokenCount,
+			})
+		}
 	}
 
 	return content

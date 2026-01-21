@@ -1921,6 +1921,9 @@ type RunStreamEventData struct {
 	Output     string                   `json:"output,omitempty"`
 	NumTurns   int                      `json:"numTurns,omitempty"`
 	ActiveTool *agent.ToolRecord        `json:"activeTool,omitempty"`
+	Message    string                   `json:"message,omitempty"`    // Human-readable status message (for context events)
+	TaskCount  int                      `json:"taskCount,omitempty"`  // Number of tasks (for context_generating)
+	TokenCount int                      `json:"tokenCount,omitempty"` // Estimated token count (for context_generated/context_loaded)
 }
 
 // handleRunStream handles GET /api/run-stream/:epicId for SSE streaming of run updates.
@@ -2117,6 +2120,26 @@ func (s *Server) watchRecords(ctx context.Context) {
 				continue
 			}
 
+			// Handle epic status files (_epic-<epicId>.status.json)
+			if runrecord.IsEpicStatusFile(filename) {
+				epicID := runrecord.ParseEpicStatusFilename(filename)
+				if epicID == "" {
+					continue
+				}
+
+				// Debounce per epic
+				debounceKey := "epic_status_" + epicID
+				if timer, exists := debounceTimers[debounceKey]; exists {
+					timer.Stop()
+				}
+
+				capturedEpicID := epicID
+				debounceTimers[debounceKey] = time.AfterFunc(debounceDelay, func() {
+					s.handleEpicStatusChange(capturedEpicID)
+				})
+				continue
+			}
+
 			// Handle finalized .json files (when .live.json is renamed to .json)
 			if strings.HasSuffix(filename, ".json") && !strings.HasSuffix(filename, ".live.json") {
 				// This might be a finalization (rename from .live.json to .json)
@@ -2278,6 +2301,45 @@ func (s *Server) handleRecordFinalized(tickID string, previousStates map[string]
 			Timestamp: time.Now().Format(time.RFC3339),
 		})
 	}
+}
+
+// handleEpicStatusChange processes a change to an epic status file.
+// This broadcasts context generation events to connected SSE clients.
+func (s *Server) handleEpicStatusChange(epicID string) {
+	store := runrecord.NewStore(filepath.Dir(s.tickDir))
+
+	status, err := store.ReadEpicStatus(epicID)
+	if err != nil {
+		return
+	}
+
+	// Map status to SSE event type
+	var eventType string
+	switch status.Status {
+	case "context_generating":
+		eventType = "context-generating"
+	case "context_generated":
+		eventType = "context-generated"
+	case "context_loaded":
+		eventType = "context-loaded"
+	case "context_failed":
+		eventType = "context-failed"
+	case "context_skipped":
+		eventType = "context-skipped"
+	default:
+		// Unknown status, use generic epic-status event
+		eventType = "epic-status"
+	}
+
+	// Broadcast to connected clients
+	s.broadcastRunStreamEvent(epicID, eventType, RunStreamEventData{
+		EpicID:     epicID,
+		Status:     status.Status,
+		Message:    status.Message,
+		TaskCount:  status.TaskCount,
+		TokenCount: status.TokenCount,
+		Timestamp:  status.LastUpdated.Format(time.RFC3339),
+	})
 }
 
 // handleContext handles GET /api/context/:epicId.
