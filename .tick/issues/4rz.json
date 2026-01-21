@@ -1,0 +1,15 @@
+{
+  "id": "4rz",
+  "title": "repo name in header should be with \"/\"",
+  "description": "e.g. this repo is displayed as pengelbrecht--ticks. Should be pengelbrecht/ticks. -- was just used because / caused trouble in some of the web serving",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "tickboard",
+  "parent": "hh4",
+  "created_by": "tickboard",
+  "created_at": "2026-01-21T07:55:09.036174+01:00",
+  "updated_at": "2026-01-21T06:57:45.798134Z",
+  "closed_at": "2026-01-21T06:57:45.798134Z",
+  "closed_reason": "Fixed repo name display by removing the / to -- conversion in parseGitRemote() functions. The conversion was originally added for URL-path safety but wasn't needed since the repo name is only used for display (header badge) and JSON messages (cloud sync). Updated both server/server.go and cloud/client.go."
+}

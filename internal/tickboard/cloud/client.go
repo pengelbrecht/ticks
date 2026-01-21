@@ -235,8 +235,7 @@ func deriveBoardName(tickDir string) string {
 	return repoName
 }
 
-// parseGitRemote extracts "owner--repo" from a git remote URL.
-// Uses "--" as separator instead of "/" to be URL-path safe.
+// parseGitRemote extracts "owner/repo" from a git remote URL.
 // Supports HTTPS (https://github.com/owner/repo.git) and SSH (git@github.com:owner/repo.git).
 func parseGitRemote(remoteURL string) string {
 	// Remove trailing .git
@@ -271,8 +270,7 @@ func parseGitRemote(remoteURL string) string {
 		return ""
 	}
 
-	// Replace / with -- to make it URL-path safe
-	return strings.ReplaceAll(ownerRepo, "/", "--")
+	return ownerRepo
 }
 
 // Connect establishes the WebSocket connection to the cloud.
