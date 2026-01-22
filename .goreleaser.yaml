@@ -1,6 +1,9 @@
 version: 2
 project_name: tk
 
+# Note: UI bundle is built by GitHub Actions workflow before goreleaser runs.
+# For local releases, run ./scripts/build-ui.sh first.
+
 before:
   hooks:
     - go mod tidy
