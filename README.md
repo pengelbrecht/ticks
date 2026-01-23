@@ -249,12 +249,12 @@ See `internal/tickboard/ui/README.md` for development docs.
 
 ## Cloud Sync
 
-Access your ticks from anywhere at [tickboard.dev](https://tickboard.dev).
+Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
 
 ### Setup
 
-1. Get a token from https://tickboard.dev/settings
-2. Add to `~/.tickboardrc`:
+1. Get a token from https://ticks.sh/settings
+2. Add to `~/.ticksrc`:
    ```
    token=your-token-here
    ```

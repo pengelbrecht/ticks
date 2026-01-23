@@ -1,6 +1,6 @@
 {
-  "name": "Tick Board",
-  "short_name": "TickBoard",
+  "name": "ticks board",
+  "short_name": "ticks",
   "description": "Kanban-style issue tracker for AI-assisted development",
   "start_url": "/",
   "display": "standalone",

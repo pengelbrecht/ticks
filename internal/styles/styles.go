@@ -1,5 +1,11 @@
 // Package styles provides shared terminal styling for tk commands.
 // Uses Catppuccin Mocha color palette with lipgloss.
+//
+// Brand fonts (for web/marketing):
+//   - Geist: Headings & body text (https://vercel.com/font)
+//   - Geist Mono: Code, CLI, logo
+//
+// See logos/brand.html for full brand guidelines.
 package styles
 
 import (
@@ -10,17 +16,27 @@ import (
 
 // Catppuccin Mocha color palette
 const (
+	// Accent colors
 	ColorRed     = lipgloss.Color("#F38BA8") // Red
 	ColorPeach   = lipgloss.Color("#FAB387") // Peach
 	ColorYellow  = lipgloss.Color("#F9E2AF") // Yellow
-	ColorGreen   = lipgloss.Color("#A6E3A1") // Green
+	ColorGreen   = lipgloss.Color("#A6E3A1") // Green (primary brand color)
 	ColorTeal    = lipgloss.Color("#94E2D5") // Teal
 	ColorBlue    = lipgloss.Color("#89DCEB") // Sky
 	ColorPurple  = lipgloss.Color("#CBA6F7") // Mauve
 	ColorPink    = lipgloss.Color("#F5C2E7") // Pink
-	ColorGray    = lipgloss.Color("#6C7086") // Overlay0
+
+	// Text colors
+	ColorText    = lipgloss.Color("#CDD6F4") // Text
 	ColorSubtext = lipgloss.Color("#A6ADC8") // Subtext0
 	ColorDim     = lipgloss.Color("#7F849C") // Overlay1
+	ColorGray    = lipgloss.Color("#6C7086") // Overlay0
+
+	// Background colors
+	ColorSurface = lipgloss.Color("#313244") // Surface0
+	ColorBase    = lipgloss.Color("#1E1E2E") // Base
+	ColorMantle  = lipgloss.Color("#181825") // Mantle
+	ColorCrust   = lipgloss.Color("#11111B") // Crust
 )
 
 // Status icons (aligned with web UI)
@@ -47,6 +63,8 @@ var (
 	LabelStyle  = lipgloss.NewStyle().Foreground(ColorDim).Width(12)
 	DimStyle    = lipgloss.NewStyle().Foreground(ColorSubtext)
 	BoldStyle   = lipgloss.NewStyle().Bold(true)
+	Yellow      = lipgloss.NewStyle().Foreground(ColorYellow)
+	Dim         = lipgloss.NewStyle().Foreground(ColorDim)
 )
 
 // Priority styles (aligned with web UI)

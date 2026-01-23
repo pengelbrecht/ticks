@@ -2,8 +2,9 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { provide } from '@lit/context';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
-import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
+import type { BoardTick, TickColumn, Epic, Tick } from '../types/tick.js';
 import { fetchTicks, fetchTick, fetchInfo, fetchRunStatus, type EpicInfo, type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord } from '../api/ticks.js';
+import { SyncClient } from '../api/sync.js';
 import type { ToolActivityInfo } from './tool-activity.js';
 import type { MetricsRecord } from './run-metrics.js';
 
@@ -551,14 +552,172 @@ export class TickBoard extends LitElement {
   private runReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private runPollInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Cloud sync mode
+  private isCloudMode = false;
+  private syncClient: SyncClient | null = null;
+  private projectId: string | null = null;
+
   connectedCallback() {
     super.connectedCallback();
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
     document.addEventListener('keydown', this.handleKeyDown);
+
+    // Detect cloud mode from URL or config
+    this.detectCloudMode();
+
     this.loadData();
-    this.connectSSE();
+
+    // Use sync client in cloud mode, SSE in local mode
+    if (this.isCloudMode && this.projectId) {
+      this.connectSyncClient();
+    } else {
+      this.connectSSE();
+    }
+
     // Start polling for active runs
     this.startRunStatusPolling();
+  }
+
+  /**
+   * Detect if running in cloud mode.
+   * Cloud mode is detected when:
+   * - URL contains /p/<project-id> (cloud UI path)
+   * - Or localStorage has ticks_project set
+   */
+  private detectCloudMode() {
+    // Check URL path for cloud pattern: /p/<owner>/<repo>
+    const pathMatch = window.location.pathname.match(/^\/p\/([^/]+\/[^/]+)/);
+    if (pathMatch) {
+      this.isCloudMode = true;
+      this.projectId = pathMatch[1];
+      console.log('[TickBoard] Cloud mode detected, project:', this.projectId);
+      return;
+    }
+
+    // Check localStorage for project config
+    const storedProject = localStorage.getItem('ticks_project');
+    if (storedProject) {
+      this.isCloudMode = true;
+      this.projectId = storedProject;
+      console.log('[TickBoard] Cloud mode from localStorage, project:', this.projectId);
+      return;
+    }
+
+    // Check if served from ticks.sh (not localhost)
+    if (window.location.hostname === 'ticks.sh' || window.location.hostname.endsWith('.ticks.sh')) {
+      // Need project ID to enable cloud mode
+      const projectFromUrl = new URLSearchParams(window.location.search).get('project');
+      if (projectFromUrl) {
+        this.isCloudMode = true;
+        this.projectId = projectFromUrl;
+        console.log('[TickBoard] Cloud mode from query param, project:', this.projectId);
+        return;
+      }
+    }
+
+    console.log('[TickBoard] Local mode');
+  }
+
+  /**
+   * Connect to the DO sync client for real-time updates in cloud mode.
+   */
+  private connectSyncClient() {
+    if (!this.projectId) return;
+
+    this.syncClient = new SyncClient(this.projectId, {
+      onStateUpdate: (ticks: Map<string, Tick>) => {
+        // Convert Map to array of BoardTicks
+        this.ticks = Array.from(ticks.values()).map(tick => this.tickToBoardTick(tick));
+        this.updateBoardState();
+        console.log('[SyncClient] State updated:', this.ticks.length, 'ticks');
+      },
+      onTickUpdate: (tick: Tick) => {
+        const boardTick = this.tickToBoardTick(tick);
+        const existingIndex = this.ticks.findIndex(t => t.id === tick.id);
+
+        if (existingIndex >= 0) {
+          this.ticks = [
+            ...this.ticks.slice(0, existingIndex),
+            boardTick,
+            ...this.ticks.slice(existingIndex + 1),
+          ];
+        } else {
+          this.ticks = [...this.ticks, boardTick];
+        }
+
+        // Update selected tick if it's the same one
+        if (this.selectedTick?.id === tick.id) {
+          this.selectedTick = boardTick;
+        }
+
+        this.updateBoardState();
+      },
+      onTickDelete: (id: string) => {
+        const tickIndex = this.ticks.findIndex(t => t.id === id);
+        if (tickIndex >= 0) {
+          this.ticks = [
+            ...this.ticks.slice(0, tickIndex),
+            ...this.ticks.slice(tickIndex + 1),
+          ];
+          this.updateBoardState();
+        }
+
+        // Close drawer if deleted tick was selected
+        if (this.selectedTick?.id === id) {
+          this.selectedTick = null;
+        }
+      },
+      onConnected: () => {
+        console.log('[TickBoard] Sync client connected');
+      },
+      onDisconnected: () => {
+        console.log('[TickBoard] Sync client disconnected');
+      },
+      onError: (error: string) => {
+        console.error('[TickBoard] Sync client error:', error);
+      },
+    });
+
+    this.syncClient.connect();
+  }
+
+  /**
+   * Disconnect the sync client.
+   */
+  private disconnectSyncClient() {
+    if (this.syncClient) {
+      this.syncClient.disconnect();
+      this.syncClient = null;
+    }
+  }
+
+  /**
+   * Convert a raw Tick to a BoardTick with computed fields.
+   * For cloud mode, we compute column and is_blocked locally.
+   */
+  private tickToBoardTick(tick: Tick): BoardTick {
+    // Compute is_blocked based on blocked_by
+    const isBlocked = (tick.blocked_by && tick.blocked_by.length > 0) || false;
+
+    // Compute column based on status and awaiting
+    let column: TickColumn;
+    if (tick.status === 'closed') {
+      column = 'done';
+    } else if (isBlocked) {
+      column = 'blocked';
+    } else if (tick.awaiting) {
+      column = 'human';
+    } else if (tick.status === 'in_progress') {
+      column = 'agent';
+    } else {
+      column = 'ready';
+    }
+
+    return {
+      ...tick,
+      is_blocked: isBlocked,
+      column,
+    };
   }
 
   private async loadData() {
@@ -589,6 +748,7 @@ export class TickBoard extends LitElement {
     this.mediaQuery.removeEventListener('change', this.handleMediaChange);
     document.removeEventListener('keydown', this.handleKeyDown);
     this.disconnectSSE();
+    this.disconnectSyncClient();
     this.disconnectRunStream();
     this.stopRunStatusPolling();
   }

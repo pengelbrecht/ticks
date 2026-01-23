@@ -1,4 +1,4 @@
-# Tickboard UI
+# Ticks Board UI
 
 A Kanban-style board for managing ticks (issues), built with [Lit](https://lit.dev/) web components and [Shoelace](https://shoelace.style/) UI library.
 

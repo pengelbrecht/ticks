@@ -2,23 +2,51 @@
 
 This document defines the visual language shared across all ticks interfaces: `tk board` (web), `tk view` (TUI), and CLI commands (`tk show`, `tk list`, etc.).
 
+For full brand guidelines including logo assets, see `logos/brand.html`.
+
+## Typography
+
+| Role | Font | Fallback | Usage |
+|------|------|----------|-------|
+| Sans | Geist | system-ui, sans-serif | Headings, body text |
+| Mono | Geist Mono | ui-monospace, monospace | Code, CLI, logo |
+
+**Web font loading:**
+```html
+<link href="https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/style.css" rel="stylesheet">
+```
+
 ## Color Palette
 
 All interfaces use the **Catppuccin Mocha** color palette.
+
+### Background Colors
+
+| Name    | Hex       | Usage                              |
+|---------|-----------|-------------------------------------|
+| Crust   | `#11111b` | Deepest background                  |
+| Base    | `#1e1e2e` | Primary dark background             |
+| Mantle  | `#181825` | Elevated surfaces                   |
+| Surface | `#313244` | Cards, inputs, borders              |
+
+### Primary Brand Color
+
+| Name      | Hex       | Usage                                    |
+|-----------|-----------|------------------------------------------|
+| **Green** | `#A6E3A1` | Primary brand, logo, CTAs, success       |
 
 ### Accent Colors
 
 | Name      | Hex       | Usage                                    |
 |-----------|-----------|------------------------------------------|
-| Red       | `#f38ba8` | Blocked, bug type, P0/P1 priority, errors |
-| Peach     | `#fab387` | In-progress status, P1 priority (high)   |
-| Yellow    | `#f9e2af` | Awaiting human, epic type, P2 priority   |
-| Green     | `#a6e3a1` | Closed/done, open status, P3 priority    |
-| Teal      | `#94e2d5` | Feature type (terminal only)             |
-| Blue      | `#89b4fa` | Feature type (web), focused elements     |
-| Sky       | `#89dceb` | Selected/focused elements (terminal)     |
-| Mauve     | `#cba6f7` | Epic type (terminal), manual/human tasks |
-| Pink      | `#f5c2e7` | Section headers                          |
+| Red       | `#F38BA8` | Blocked, bug type, P0/P1 priority, errors |
+| Yellow    | `#F9E2AF` | Awaiting human, warnings, P2 priority    |
+| Blue      | `#89DCEB` | Info, links, focused elements            |
+| Peach     | `#FAB387` | In-progress status, P1 priority (high)   |
+| Teal      | `#94E2D5` | Feature type (terminal only)             |
+| Mauve     | `#CBA6F7` | Epic type (terminal), manual/human tasks |
+| Pink      | `#F5C2E7` | Section headers                          |
 
 ### Text Colors
 
@@ -155,18 +183,27 @@ Model
 ### Go (internal/styles/styles.go)
 
 ```go
-// Colors
+// Accent colors
 ColorRed     = "#F38BA8"
 ColorPeach   = "#FAB387"
 ColorYellow  = "#F9E2AF"
-ColorGreen   = "#A6E3A1"
+ColorGreen   = "#A6E3A1"  // Primary brand color
 ColorTeal    = "#94E2D5"
 ColorBlue    = "#89DCEB"
 ColorPurple  = "#CBA6F7"
 ColorPink    = "#F5C2E7"
-ColorGray    = "#6C7086"
+
+// Text colors
+ColorText    = "#CDD6F4"
 ColorSubtext = "#A6ADC8"
 ColorDim     = "#7F849C"
+ColorGray    = "#6C7086"
+
+// Background colors
+ColorSurface = "#313244"
+ColorBase    = "#1E1E2E"
+ColorMantle  = "#181825"
+ColorCrust   = "#11111B"
 
 // Icons
 IconOpen       = "○"
@@ -176,21 +213,39 @@ IconAwaiting   = "◐"
 IconBlocked    = "⊘"
 ```
 
-### CSS (catppuccin.css)
+### CSS (logos/colors.css)
 
 ```css
---red: #f38ba8;
---peach: #fab387;
---yellow: #f9e2af;
---green: #a6e3a1;
---teal: #94e2d5;
---blue: #89b4fa;
---mauve: #cba6f7;
---pink: #f5c2e7;
---overlay0: #6c7086;
---subtext0: #a6adc8;
---overlay1: #7f849c;
+/* Fonts */
+--ticks-font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+--ticks-font-mono: 'Geist Mono', ui-monospace, monospace;
+
+/* Primary */
+--ticks-green: #A6E3A1;
+
+/* Text */
+--ticks-text: #CDD6F4;
+--ticks-subtext: #A6ADC8;
+--ticks-overlay: #6C7086;
+
+/* Backgrounds */
+--ticks-surface: #313244;
+--ticks-base: #1E1E2E;
+--ticks-mantle: #181825;
+--ticks-crust: #11111B;
+
+/* Accents */
+--ticks-red: #F38BA8;
+--ticks-yellow: #F9E2AF;
+--ticks-blue: #89DCEB;
 ```
+
+## Voice & Tone
+
+- **Direct** — Get to the point, no marketing speak
+- **Technical** — Speak to developers, use precise terms
+- **Confident** — State facts, avoid hedging
+- **Lowercase** — Brand name is "ticks", not "Ticks"
 
 ## Design Principles
 
@@ -198,3 +253,4 @@ IconBlocked    = "⊘"
 2. **Accessibility**: Ensure sufficient contrast; icons supplement color (don't rely on color alone)
 3. **Information density**: Terminal output should be scannable; web can show more detail
 4. **Progressive disclosure**: List views show summary; detail views show full information
+5. **Dark-first**: All interfaces use dark backgrounds; logo requires dark background

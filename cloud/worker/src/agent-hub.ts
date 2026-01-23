@@ -1,12 +1,13 @@
 /**
  * AgentHub Durable Object
  *
- * Manages WebSocket connections from local tickboard agents.
+ * Manages WebSocket connections from local ticks agents.
  * Relays HTTP requests to connected agents and returns responses.
  */
 
 import type { Env } from "./index";
-import { validateToken, registerBoard } from "./auth";
+// Note: D1 operations (validateToken, registerBoard) are now done in the main worker
+// to avoid D1 calls inside Durable Objects which can cause DO resets on timeout
 
 interface AgentConnection {
   socket: WebSocket;
@@ -97,19 +98,22 @@ export class AgentHub {
         return new Response("Expected WebSocket", { status: 426 });
       }
 
+      // Get pre-validated userId from main worker (avoids D1 calls in DO)
+      const preValidatedUserId = request.headers.get("X-Validated-User-Id") || "";
+
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
 
       // Accept the WebSocket with hibernation
       this.state.acceptWebSocket(server);
 
-      // Initialize connection state (will be populated on register message)
+      // Initialize connection state with pre-validated userId
       const conn: AgentConnection = {
         socket: server,
         boardName: "",
         machineId: "",
         token: "",
-        userId: "",
+        userId: preValidatedUserId, // Pre-validated by main worker
         lastSeen: Date.now(),
         pendingRequests: new Map(),
       };
@@ -266,28 +270,19 @@ export class AgentHub {
     conn: AgentConnection,
     data: RegisterMessage
   ) {
-    // Validate token format
-    if (!data.token || data.token.length < 8) {
-      ws.send(JSON.stringify({ type: "error", data: "Invalid token format" }));
-      ws.close(4001, "Invalid token");
-      return;
-    }
-
-    // Validate token against database
-    const tokenInfo = await validateToken(this.env, data.token);
-    if (!tokenInfo) {
+    // Check if userId was pre-validated by main worker
+    if (!conn.userId) {
       ws.send(JSON.stringify({ type: "error", data: "Invalid or revoked token" }));
       ws.close(4001, "Invalid token");
       return;
     }
 
     conn.token = data.token;
-    conn.userId = tokenInfo.userId;
     conn.boardName = data.board_name;
     conn.machineId = data.machine_id;
 
-    // Register/update board in database
-    await registerBoard(this.env, tokenInfo.userId, data.board_name, data.machine_id);
+    // Note: Board registration is now done lazily or skipped
+    // The board will be registered when first accessed via the API
 
     // Serialize attachment for hibernation
     ws.serializeAttachment({

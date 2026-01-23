@@ -16,8 +16,9 @@ import (
 )
 
 var createCmd = &cobra.Command{
-	Use:   "create <title>",
-	Short: "Create a new tick (task or epic)",
+	Use:     "create <title>",
+	Aliases: []string{"new"},
+	Short:   "Create a new tick (task or epic)",
 	Long: `Create a new tick (task or epic).
 
 Supports full agent-human workflow with --requires and --awaiting flags.

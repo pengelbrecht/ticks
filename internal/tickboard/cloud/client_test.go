@@ -141,3 +141,177 @@ func TestNewClient_Success(t *testing.T) {
 		t.Errorf("expected default cloud URL, got '%s'", client.cloudURL)
 	}
 }
+
+// ============================================================================
+// Sync Mode Tests
+// ============================================================================
+
+func TestNewClient_SyncMode(t *testing.T) {
+	// Create temp tick dir
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	client, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+		TickDir:   tickDir,
+		Mode:      ModeSync,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client.mode != ModeSync {
+		t.Errorf("expected ModeSync, got %v", client.mode)
+	}
+	if client.tickDir != tickDir {
+		t.Errorf("expected tickDir %q, got %q", tickDir, client.tickDir)
+	}
+}
+
+func TestNewClient_SyncMode_RequiresTickDir(t *testing.T) {
+	_, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+		Mode:      ModeSync,
+		// TickDir not set
+	})
+	if err == nil {
+		t.Error("expected error when TickDir is empty in sync mode")
+	}
+}
+
+func TestSyncState_String(t *testing.T) {
+	tests := []struct {
+		state    SyncState
+		expected string
+	}{
+		{SyncDisconnected, "disconnected"},
+		{SyncConnecting, "connecting"},
+		{SyncConnected, "connected"},
+		{SyncError, "error"},
+		{SyncState(99), "unknown"},
+	}
+
+	for _, tt := range tests {
+		got := tt.state.String()
+		if got != tt.expected {
+			t.Errorf("SyncState(%d).String() = %q, want %q", tt.state, got, tt.expected)
+		}
+	}
+}
+
+func TestClient_SyncStateTracking(t *testing.T) {
+	client, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Initial state should be disconnected
+	if client.GetSyncState() != SyncDisconnected {
+		t.Errorf("expected initial state SyncDisconnected, got %v", client.GetSyncState())
+	}
+
+	// Track state changes via callback
+	var stateChanges []SyncState
+	client.OnStateChange = func(state SyncState) {
+		stateChanges = append(stateChanges, state)
+	}
+
+	// Simulate state changes
+	client.setSyncState(SyncConnecting)
+	client.setSyncState(SyncConnected)
+	client.setSyncState(SyncDisconnected)
+
+	if len(stateChanges) != 3 {
+		t.Errorf("expected 3 state changes, got %d", len(stateChanges))
+	}
+	if stateChanges[0] != SyncConnecting {
+		t.Errorf("expected first change to SyncConnecting, got %v", stateChanges[0])
+	}
+	if stateChanges[1] != SyncConnected {
+		t.Errorf("expected second change to SyncConnected, got %v", stateChanges[1])
+	}
+
+	// GetLastSync should be set when connected
+	if client.GetLastSync().IsZero() {
+		t.Error("expected lastSync to be set after SyncConnected")
+	}
+}
+
+func TestClient_OfflineQueue(t *testing.T) {
+	client, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Initially empty
+	if client.PendingCount() != 0 {
+		t.Errorf("expected 0 pending, got %d", client.PendingCount())
+	}
+
+	// Queue some messages
+	client.queueMessage([]byte(`{"type":"test1"}`))
+	client.queueMessage([]byte(`{"type":"test2"}`))
+	client.queueMessage([]byte(`{"type":"test3"}`))
+
+	if client.PendingCount() != 3 {
+		t.Errorf("expected 3 pending, got %d", client.PendingCount())
+	}
+}
+
+func TestClient_IsConnected(t *testing.T) {
+	client, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Not connected initially
+	if client.IsConnected() {
+		t.Error("expected IsConnected() to be false initially")
+	}
+}
+
+func TestLoadConfig_SyncMode(t *testing.T) {
+	os.Setenv(EnvToken, "test-token")
+	defer os.Unsetenv(EnvToken)
+
+	tickDir := "/tmp/myrepo/.tick"
+	cfg := LoadConfig(tickDir, 3000)
+	if cfg == nil {
+		t.Fatal("expected config")
+	}
+
+	// Default mode should be relay
+	if cfg.Mode != ModeRelay {
+		t.Errorf("expected default mode ModeRelay, got %v", cfg.Mode)
+	}
+
+	// TickDir should be set
+	if cfg.TickDir != tickDir {
+		t.Errorf("expected TickDir %q, got %q", tickDir, cfg.TickDir)
+	}
+
+	// Can switch to sync mode
+	cfg.Mode = ModeSync
+	client, err := NewClient(*cfg)
+	if err != nil {
+		// Expected error since tickDir doesn't exist
+		return
+	}
+	if client.mode != ModeSync {
+		t.Errorf("expected ModeSync, got %v", client.mode)
+	}
+}

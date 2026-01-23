@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/gc"
+	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tickboard/cloud"
 	"github.com/pengelbrecht/ticks/internal/tickboard/server"
 )
@@ -38,15 +40,26 @@ Examples:
 	RunE: runBoard,
 }
 
-var boardPort int
+var (
+	boardPort  int
+	boardQuiet bool
+)
 
 func init() {
 	boardCmd.Flags().IntVarP(&boardPort, "port", "p", 3000, "port to listen on")
+	boardCmd.Flags().BoolVarP(&boardQuiet, "quiet", "q", false, "suppress deprecation warning")
 
 	rootCmd.AddCommand(boardCmd)
 }
 
 func runBoard(cmd *cobra.Command, args []string) error {
+	// Show deprecation warning (unless --quiet)
+	if !boardQuiet {
+		fmt.Fprintln(os.Stderr, styles.Yellow.Render("Warning: 'tk board' is deprecated."))
+		fmt.Fprintln(os.Stderr, styles.Dim.Render("  Use instead: tk run --board"))
+		fmt.Fprintln(os.Stderr)
+	}
+
 	// Determine the path to serve
 	var repoPath string
 	if len(args) > 0 {
@@ -83,8 +96,14 @@ func runBoard(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Find an available port
+	actualPort, err := findAvailableBoardPort(boardPort)
+	if err != nil {
+		return NewExitError(ExitGeneric, "failed to find available port: %v", err)
+	}
+
 	// Create and start server
-	srv, err := server.New(tickDir, boardPort)
+	srv, err := server.New(tickDir, actualPort)
 	if err != nil {
 		return NewExitError(ExitGeneric, "failed to create server: %v", err)
 	}
@@ -102,11 +121,11 @@ func runBoard(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	fmt.Printf("Starting Tick Board server at http://localhost:%d\n", boardPort)
+	fmt.Printf("Starting Tick Board server at http://localhost:%d\n", actualPort)
 	fmt.Printf("Serving ticks from: %s\n", tickDir)
 
 	// Check for cloud configuration
-	cloudCfg := cloud.LoadConfig(tickDir, boardPort)
+	cloudCfg := cloud.LoadConfig(tickDir, actualPort)
 	var cloudClient *cloud.Client
 	if cloudCfg != nil {
 		var err error
@@ -156,4 +175,20 @@ func findTickDir(path string) (string, error) {
 		return "", NewExitError(ExitGeneric, ".tick exists but is not a directory")
 	}
 	return tickDir, nil
+}
+
+// findAvailableBoardPort finds an available port starting from the given port.
+// If the port is in use, it tries the next port, up to maxAttempts times.
+func findAvailableBoardPort(startPort int) (int, error) {
+	const maxAttempts = 100
+	for i := 0; i < maxAttempts; i++ {
+		port := startPort + i
+		addr := fmt.Sprintf(":%d", port)
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			listener.Close()
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
 }

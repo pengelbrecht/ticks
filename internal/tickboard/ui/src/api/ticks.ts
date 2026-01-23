@@ -1,5 +1,5 @@
 /**
- * Typed API fetch helpers for the tickboard UI.
+ * Typed API fetch helpers for the ticks board UI.
  *
  * All functions throw ApiError on HTTP failures.
  */

@@ -342,7 +342,7 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 	if e.OnContextGenerating != nil {
 		e.OnContextGenerating(epic.ID, len(tasks))
 	}
-	// Write epic status for tickboard SSE
+	// Write epic status for ticks board SSE
 	if e.runRecordStore != nil {
 		_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
 			EpicID:    epic.ID,
@@ -362,7 +362,7 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 		if e.OnContextFailed != nil {
 			e.OnContextFailed(epic.ID, err.Error())
 		}
-		// Write epic status for tickboard SSE
+		// Write epic status for ticks board SSE
 		if e.runRecordStore != nil {
 			_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
 				EpicID:  epic.ID,
@@ -381,7 +381,7 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 		if e.OnContextFailed != nil {
 			e.OnContextFailed(epic.ID, err.Error())
 		}
-		// Write epic status for tickboard SSE
+		// Write epic status for ticks board SSE
 		if e.runRecordStore != nil {
 			_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
 				EpicID:  epic.ID,
@@ -400,7 +400,7 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 	if e.OnContextGenerated != nil {
 		e.OnContextGenerated(epic.ID, tokenCount)
 	}
-	// Write epic status for tickboard SSE
+	// Write epic status for ticks board SSE
 	if e.runRecordStore != nil {
 		_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
 			EpicID:     epic.ID,
@@ -432,7 +432,7 @@ func (e *Engine) loadEpicContext(epicID string) string {
 		if e.OnContextLoaded != nil {
 			e.OnContextLoaded(epicID, content)
 		}
-		// Write epic status for tickboard SSE
+		// Write epic status for ticks board SSE
 		if e.runRecordStore != nil {
 			tokenCount := len(content) / 4 // rough estimate
 			_ = e.runRecordStore.WriteEpicStatus(epicID, &runrecord.EpicStatus{
@@ -1082,7 +1082,7 @@ func (e *Engine) runIteration(ctx context.Context, state *runState, task *ticks.
 			if e.OnAgentState != nil {
 				e.OnAgentState(snap)
 			}
-			// Write to .live.json file for external watchers (e.g., tickboard)
+			// Write to .live.json file for external watchers (e.g., ticks board)
 			if e.runRecordStore != nil {
 				// Ignore write errors - live tracking is best-effort
 				_ = e.runRecordStore.WriteLive(task.ID, snap)

@@ -1,11 +1,12 @@
-name = "tickboard-cloud"
+name = "ticks-cloud"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
 # Durable Objects bindings
 [durable_objects]
 bindings = [
-  { name = "AGENT_HUB", class_name = "AgentHub" }
+  { name = "AGENT_HUB", class_name = "AgentHub" },
+  { name = "PROJECT_ROOMS", class_name = "ProjectRoom" }
 ]
 
 # Migrations for Durable Objects
@@ -13,14 +14,15 @@ bindings = [
 tag = "v1"
 new_classes = ["AgentHub"]
 
+[[migrations]]
+tag = "v2"
+new_classes = ["ProjectRoom"]
+
 # D1 database for users, tokens, boards
 [[d1_databases]]
 binding = "DB"
 database_name = "tickboard"
 database_id = "cc15ca7e-a3b6-4f5d-85cf-42e94d536d6f"
-
-# Environment variables (set via wrangler secret)
-# TICKBOARD_SECRET - shared secret for token validation
 
 # Development settings
 [dev]
@@ -28,14 +30,27 @@ port = 8787
 
 # Custom domain configuration (auto-configures DNS)
 [[routes]]
-pattern = "tickboard.dev"
+pattern = "ticks.sh"
 custom_domain = true
 
 [[routes]]
-pattern = "www.tickboard.dev"
+pattern = "www.ticks.sh"
 custom_domain = true
+
+# Cron trigger to keep worker and D1 warm
+[triggers]
+crons = ["*/1 * * * *"]  # Every minute
 
 # KV namespace for session data (optional, for future use)
 # [[kv_namespaces]]
 # binding = "SESSIONS"
 # id = "xxx"
+
+# Static assets (UI)
+# html_handling: none - let worker handle HTML routing
+# not_found_handling: none - let worker handle 404s
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "none"
+not_found_handling = "none"

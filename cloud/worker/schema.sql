@@ -1,4 +1,4 @@
--- D1 schema for tickboard cloud
+-- D1 schema for ticks cloud
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (

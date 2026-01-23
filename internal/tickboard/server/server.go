@@ -30,10 +30,11 @@ type EventPusher interface {
 	PushEvent(eventType string, payload interface{}) error
 }
 
-// Server represents the tickboard HTTP server.
+// Server represents the ticks board HTTP server.
 type Server struct {
 	tickDir string
 	port    int
+	devMode bool // serve UI from disk instead of embedded
 	srv     *http.Server
 
 	// SSE client management
@@ -60,8 +61,18 @@ type RunStreamEvent struct {
 	Data interface{} `json:"data"`
 }
 
-// New creates a new tickboard server.
-func New(tickDir string, port int) (*Server, error) {
+// ServerOption configures the server.
+type ServerOption func(*Server)
+
+// WithDevMode enables dev mode, serving UI from disk instead of embedded.
+func WithDevMode(enabled bool) ServerOption {
+	return func(s *Server) {
+		s.devMode = enabled
+	}
+}
+
+// New creates a new ticks board server.
+func New(tickDir string, port int, opts ...ServerOption) (*Server, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
@@ -81,6 +92,11 @@ func New(tickDir string, port int) (*Server, error) {
 		watcher:          watcher,
 		recordsWatcher:   recordsWatcher,
 	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
 	return s, nil
 }
 
@@ -99,32 +115,56 @@ func (s *Server) pushCloudEvent(eventType string, payload interface{}) {
 	}
 }
 
+// uiDir returns the path to the UI dist directory for dev mode.
+func (s *Server) uiDir() string {
+	repoRoot := filepath.Dir(s.tickDir)
+	return filepath.Join(repoRoot, "internal", "tickboard", "ui", "dist")
+}
+
+// readUIFile reads a file from the UI, either from disk (dev) or embedded (release).
+func (s *Server) readUIFile(path string) ([]byte, error) {
+	if s.devMode {
+		return os.ReadFile(filepath.Join(s.uiDir(), path))
+	}
+	return staticFS.ReadFile("static/" + path)
+}
+
 // Run starts the HTTP server and blocks until the context is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 
-	// Serve static files from embedded filesystem
-	staticContent, err := fs.Sub(staticFS, "static")
-	if err != nil {
-		return fmt.Errorf("failed to access static files: %w", err)
-	}
+	if s.devMode {
+		// Dev mode: serve from disk for hot reload
+		uiDir := s.uiDir()
+		fmt.Fprintf(os.Stderr, "Dev mode: serving UI from %s\n", uiDir)
 
-	// Serve Vite-bundled assets at /assets/ (JS/CSS bundles with hashed names)
-	assetsContent, err := fs.Sub(staticFS, "static/assets")
-	if err != nil {
-		return fmt.Errorf("failed to access assets files: %w", err)
-	}
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetsContent))))
+		mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(uiDir, "assets")))))
+		mux.Handle("/shoelace/", http.StripPrefix("/shoelace/", http.FileServer(http.Dir(filepath.Join(uiDir, "shoelace")))))
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(uiDir))))
+	} else {
+		// Release mode: serve from embedded filesystem
+		staticContent, err := fs.Sub(staticFS, "static")
+		if err != nil {
+			return fmt.Errorf("failed to access static files: %w", err)
+		}
 
-	// Serve Shoelace icons at /shoelace/ (used by Shoelace components)
-	shoelaceContent, err := fs.Sub(staticFS, "static/shoelace")
-	if err != nil {
-		return fmt.Errorf("failed to access shoelace files: %w", err)
-	}
-	mux.Handle("/shoelace/", http.StripPrefix("/shoelace/", http.FileServer(http.FS(shoelaceContent))))
+		// Serve Vite-bundled assets at /assets/ (JS/CSS bundles with hashed names)
+		assetsContent, err := fs.Sub(staticFS, "static/assets")
+		if err != nil {
+			return fmt.Errorf("failed to access assets files: %w", err)
+		}
+		mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetsContent))))
 
-	// Serve remaining static files (PWA assets, favicons) at /static/
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))
+		// Serve Shoelace icons at /shoelace/ (used by Shoelace components)
+		shoelaceContent, err := fs.Sub(staticFS, "static/shoelace")
+		if err != nil {
+			return fmt.Errorf("failed to access shoelace files: %w", err)
+		}
+		mux.Handle("/shoelace/", http.StripPrefix("/shoelace/", http.FileServer(http.FS(shoelaceContent))))
+
+		// Serve remaining static files (PWA assets, favicons) at /static/
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))
+	}
 
 	// API endpoint: list ticks with filters
 	mux.HandleFunc("/api/ticks", s.handleListTicks)
@@ -159,7 +199,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Serve index.html for root path
 		if path == "/" {
-			data, err := staticFS.ReadFile("static/index.html")
+			data, err := s.readUIFile("index.html")
 			if err != nil {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
@@ -188,7 +228,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 
 		if contentType, ok := rootFiles[path]; ok {
-			data, err := staticFS.ReadFile("static" + path)
+			data, err := s.readUIFile(path[1:]) // strip leading /
 			if err != nil {
 				http.NotFound(w, r)
 				return
@@ -1854,8 +1894,8 @@ func (s *Server) handleCreateTick(w http.ResponseWriter, r *http.Request) {
 		Status:      tick.StatusOpen,
 		Priority:    priority,
 		Type:        tickType,
-		Owner:       "tickboard",
-		CreatedBy:   "tickboard",
+		Owner:       "ticks-board",
+		CreatedBy:   "ticks-board",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Parent:      req.Parent,

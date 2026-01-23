@@ -160,13 +160,23 @@ Walk the user through each blocking task, then close it:
 tk close <id> "Completed - connection string in .env"
 ```
 
-### Step 5: Run Agent
+### Step 5: Choose Execution Mode
+
+Ticks supports two execution approaches. Help the user choose:
+
+#### Option A: Native `tk run` (Recommended for most cases)
+
+**Best when:**
+- You want real-time monitoring via tickboard (local or remote via ticks.sh)
+- You need rich human-in-the-loop (HITL) functionality (approvals, input requests, checkpoints)
+- You're running long-lived epics that may need human intervention
+- You want detailed execution logs and cost tracking
 
 ```bash
 # Run on specific epic
 tk run <epic-id>
 
-# Run multiple epics in parallel
+# Run multiple epics in parallel (uses git worktrees for isolation)
 tk run <epic1> <epic2> --parallel 2
 
 # Auto-select next ready epic
@@ -176,10 +186,180 @@ tk run --auto
 tk run <epic-id> --worktree
 ```
 
-**Monitor progress with the web board:**
+**Monitor progress:**
 ```bash
-tk board  # Opens http://localhost:3000
+tk board              # Local web interface at http://localhost:3000
+# Or use ticks.sh for remote monitoring
 ```
+
+#### Option B: Claude Code Swarm Bridge
+
+**Best when:**
+- You want to leverage Claude Code's native subagent system
+- Tasks are highly independent and benefit from maximum parallelization
+- You're already in a Claude Code session and want seamless execution
+- The epic doesn't require human intervention mid-execution
+
+**How the bridge works:**
+1. Reads the Ticks epic and its dependency graph via `tk graph --json`
+2. Translates tasks to Claude Code's native Task system with dependencies
+3. Executes via Claude's swarm mechanism (parallel where dependencies allow)
+4. Syncs completion status back to Ticks
+
+**To use Swarm Bridge, execute these steps:**
+
+```bash
+# 1. Get the epic's dependency graph
+tk graph <epic-id> --json
+```
+
+Then translate to native Tasks:
+- Create a Task for each tick using TaskCreate
+- Map `blocked_by` relationships using TaskUpdate with `addBlockedBy`
+- Execute tasks respecting dependency waves
+- After completion, sync back to Ticks:
+
+```bash
+# Close completed ticks
+tk close <tick-id> --reason "Completed via Claude Swarm"
+
+# Close the epic when all tasks done
+tk close <epic-id> --reason "All tasks completed via Claude Swarm bridge"
+```
+
+#### Comparison Table
+
+| Aspect | `tk run` | Swarm Bridge |
+|--------|----------|--------------|
+| Monitoring | Tickboard (local + remote) | Claude Code UI |
+| HITL | Rich (approvals, input, checkpoints) | Limited (conversation only) |
+| Parallelization | Git worktrees | Native Claude subagents |
+| File isolation | Worktrees (proven) | Claude's swarm mechanism |
+| State persistence | Tick files (survives crashes) | Session-bound |
+| Cost tracking | Built-in (`--max-cost`) | Manual |
+| Best for | Production epics, HITL workflows | Quick parallel execution |
+
+#### Helping Users Choose
+
+When the user wants to run an epic, use AskUserQuestion:
+
+```
+Question: "How would you like to execute this epic?"
+Header: "Execution"
+Options:
+  - "tk run (Recommended)" - "Rich monitoring via tickboard, HITL support, cost tracking"
+  - "Claude Swarm" - "Native Claude Code parallelization, seamless session execution"
+```
+
+If user chooses Swarm Bridge, proceed with the bridge workflow below.
+
+#### Swarm Bridge Execution Workflow
+
+When executing via Claude Swarm, use Claude Code's native plan mode with `launchSwarm`:
+
+**1. Fetch the dependency graph and tick details:**
+```bash
+tk graph <epic-id> --json
+tk list --parent <epic-id> --json  # Get full tick details including HITL flags
+```
+
+**2. Identify HITL Requirements:**
+Check each tick for human-in-the-loop flags:
+- `--requires approval|review|content` - needs human sign-off after work
+- `--awaiting work` - human-only task (exclude from swarm!)
+- `--awaiting input` - needs human input (exclude from swarm!)
+
+Tasks with `--awaiting work` or `--awaiting input` should NOT be included in the swarm - they require human action before agent work.
+
+**3. Enter Plan Mode:**
+Use `EnterPlanMode` tool to begin planning. This is required to access swarm capabilities.
+
+**4. Write the Bridge Plan:**
+Create a plan file that:
+- Lists each tick as an implementation task
+- Preserves the dependency structure (waves)
+- Maps tick IDs to plan steps
+- **Specifies HITL-aware state transitions for each tick**
+
+Example plan structure:
+```markdown
+# Bridge Plan: Ticks Epic `<epic-id>` → Native Swarm
+
+## Task Mapping
+| Step | Tick ID | Title | Blocked By | Requires |
+|------|---------|-------|------------|----------|
+| 1 | abc | First task | - | - |
+| 2 | def | Second task | abc | approval |
+| 3 | ghi | Third task | abc | - |
+| 4 | jkl | Fourth task | def, ghi | review |
+
+## Execution Waves
+- Wave 1: Step 1 (sequential)
+- Wave 2: Steps 2, 3 (parallel)
+- Wave 3: Step 4 (sequential)
+
+## Swarm Configuration
+- teammateCount: <max parallelism from waves>
+
+## Post-Execution State Transitions (HITL-Aware)
+| Tick ID | Requires | After Swarm → Tick State |
+|---------|----------|--------------------------|
+| abc | - | `tk close abc --reason "Completed via Claude Swarm"` |
+| def | approval | `tk update def --awaiting approval` |
+| ghi | - | `tk close ghi --reason "Completed via Claude Swarm"` |
+| jkl | review | `tk update jkl --awaiting review` |
+
+## Epic Closure
+- If all ticks closed: `tk close <epic-id> --reason "All tasks completed"`
+- If ticks awaiting human: Epic stays open until human approvals complete
+```
+
+**5. Exit Plan Mode with launchSwarm:**
+Use `ExitPlanMode` with:
+- `launchSwarm: true`
+- `teammateCount: <N>` (based on max parallel tasks in any wave)
+
+This launches Claude Code's native swarm to execute the plan with parallel teammates.
+
+**6. Post-Swarm Sync (HITL-Aware):**
+After swarm completes, apply state transitions based on HITL requirements:
+
+```bash
+# For ticks WITHOUT approval gates - close them
+tk close <tick-id> --reason "Completed via Claude Swarm"
+
+# For ticks WITH approval gates - transition to awaiting state
+tk update <tick-id> --awaiting approval  # or review, content
+```
+
+**7. Notify User of Pending Human Actions:**
+If any ticks are awaiting human action, inform the user:
+
+```
+Swarm execution complete. The following ticks are awaiting human review:
+
+- def: Awaiting approval (use `tk approve def` or `tk reject def "feedback"`)
+- jkl: Awaiting review (use `tk approve jkl` or `tk reject jkl "feedback"`)
+
+Run `tk list --awaiting` to see all pending items.
+```
+
+#### HITL State Transition Reference
+
+| Tick has... | Swarm does work? | After Swarm → Tick state | Human action |
+|-------------|------------------|--------------------------|--------------|
+| No gates | ✅ Yes | `tk close` | None |
+| `--requires approval` | ✅ Yes | `tk update --awaiting approval` | `tk approve/reject` |
+| `--requires review` | ✅ Yes | `tk update --awaiting review` | `tk approve/reject` |
+| `--requires content` | ✅ Yes | `tk update --awaiting content` | `tk approve/reject` |
+| `--awaiting work` | ❌ No (skip) | Unchanged | Human does work |
+| `--awaiting input` | ❌ No (skip) | Unchanged | Human provides input |
+
+**Why HITL-Aware Bridge?**
+- Swarm handles parallelized execution of work
+- Ticks' approval gates are preserved
+- Humans still control quality gates and sign-offs
+- Best of both worlds: Claude's parallelization + Ticks' HITL workflow
 
 ## Quick Reference
 
@@ -218,16 +398,37 @@ tk approve <id>              # Approve awaiting tick
 tk reject <id> "feedback"    # Reject with feedback
 ```
 
-### Running Agent
+### Running Agent (Two Modes)
 
+**Mode A: Native tk run**
 ```bash
 tk run <epic-id>                      # Run on epic
 tk run --auto                         # Auto-select epic
 tk run <epic-id> --worktree           # Use git worktree
+tk run <epic-id> --parallel 3         # Parallel workers
 tk run <epic-id> --max-iterations 10  # Limit iterations
 tk run <epic-id> --max-cost 5.00      # Cost limit
 tk run <epic-id> --watch              # Restart when tasks ready
 tk board                              # Web interface
+```
+
+**Mode B: Claude Swarm Bridge (HITL-Aware)**
+```bash
+# 1. Get dependency graph and tick details
+tk graph <epic-id> --json
+tk list --parent <epic-id> --json  # Check for HITL flags
+
+# 2. Enter plan mode (EnterPlanMode tool)
+# 3. Write bridge plan with HITL state transitions
+# 4. Exit plan mode with launchSwarm:true, teammateCount:N
+
+# 5. After swarm completes, apply HITL-aware state transitions:
+#    - No gates:          tk close <id> --reason "Completed via Claude Swarm"
+#    - --requires approval: tk update <id> --awaiting approval
+#    - --requires review:   tk update <id> --awaiting review
+
+# 6. Notify user of pending human actions
+tk list --awaiting  # Show ticks needing human review
 ```
 
 ### Planning Parallel Execution

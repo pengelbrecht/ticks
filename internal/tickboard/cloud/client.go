@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,30 +16,78 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
+
+	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 const (
-	// DefaultCloudURL is the default tickboard.dev WebSocket endpoint.
-	DefaultCloudURL = "wss://tickboard.dev/agent"
+	// DefaultCloudURL is the default ticks.sh WebSocket endpoint (relay mode).
+	DefaultCloudURL = "wss://ticks.sh/agent"
+
+	// DefaultSyncURL is the default ticks.sh WebSocket endpoint (sync mode).
+	DefaultSyncURL = "wss://ticks.sh/api/projects"
 
 	// EnvToken is the environment variable for the cloud token.
-	EnvToken = "TICKBOARD_TOKEN"
+	EnvToken = "TICKS_TOKEN"
 
 	// EnvCloudURL is the environment variable to override the cloud URL.
-	EnvCloudURL = "TICKBOARD_URL"
+	EnvCloudURL = "TICKS_URL"
 
 	// ConfigFileName is the name of the config file in user's home directory.
-	ConfigFileName = ".tickboardrc"
+	ConfigFileName = ".ticksrc"
 )
 
-// Client manages the connection to tickboard.dev cloud.
+// ClientMode defines how the client communicates with the cloud.
+type ClientMode string
+
+const (
+	// ModeRelay uses the legacy relay protocol (proxy HTTP requests).
+	ModeRelay ClientMode = "relay"
+
+	// ModeSync uses the new DO sync protocol (real-time tick sync).
+	ModeSync ClientMode = "sync"
+)
+
+// SyncState represents the connection state for sync mode.
+type SyncState int
+
+const (
+	// SyncDisconnected means not connected to the cloud.
+	SyncDisconnected SyncState = iota
+	// SyncConnecting means attempting to connect.
+	SyncConnecting
+	// SyncConnected means connected and syncing.
+	SyncConnected
+	// SyncError means last connection attempt failed.
+	SyncError
+)
+
+func (s SyncState) String() string {
+	switch s {
+	case SyncDisconnected:
+		return "disconnected"
+	case SyncConnecting:
+		return "connecting"
+	case SyncConnected:
+		return "connected"
+	case SyncError:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
+// Client manages the connection to ticks.sh cloud.
 type Client struct {
 	token      string
 	cloudURL   string
 	boardName  string
 	machineID  string
 	localAddr  string // e.g., "http://localhost:3000"
+	tickDir    string // path to .tick directory
+	mode       ClientMode
 
 	conn   *websocket.Conn
 	connMu sync.Mutex
@@ -46,6 +95,28 @@ type Client struct {
 	// Reconnection state
 	reconnecting bool
 	stopChan     chan struct{}
+
+	// Sync state tracking
+	syncState   SyncState
+	syncStateMu sync.RWMutex
+	lastSync    time.Time
+
+	// Offline queue for pending changes (sync mode)
+	pendingMessages   []json.RawMessage
+	pendingMessagesMu sync.Mutex
+
+	// Sync mode: file watcher
+	watcher *fsnotify.Watcher
+
+	// Sync mode: callback for remote changes (optional)
+	OnRemoteChange func(t tick.Tick)
+
+	// Sync mode: state change callback (optional)
+	OnStateChange func(state SyncState)
+
+	// Sync mode: track pending files to avoid echo
+	pendingWrites   map[string]time.Time
+	pendingWritesMu sync.Mutex
 }
 
 // Config holds the cloud client configuration.
@@ -55,6 +126,8 @@ type Config struct {
 	BoardName string
 	MachineID string
 	LocalAddr string
+	TickDir   string     // path to .tick directory (required for sync mode)
+	Mode      ClientMode // relay or sync (default: relay)
 }
 
 // Message types for WebSocket communication.
@@ -93,24 +166,77 @@ type EventMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
+// SyncFullMessage sends all ticks to the DO for initial sync.
+type SyncFullMessage struct {
+	Type  string               `json:"type"` // "sync_full"
+	Ticks map[string]tick.Tick `json:"ticks"`
+}
+
+// TickUpdateMessage sends a single tick update to the DO.
+type TickUpdateMessage struct {
+	Type string    `json:"type"` // "tick_update" or "tick_create"
+	Tick tick.Tick `json:"tick"`
+}
+
+// TickDeleteMessage notifies DO of tick deletion.
+type TickDeleteMessage struct {
+	Type string `json:"type"` // "tick_delete"
+	ID   string `json:"id"`
+}
+
+// StateFullMessage is received from DO with full tick state.
+type StateFullMessage struct {
+	Type  string               `json:"type"` // "state_full"
+	Ticks map[string]tick.Tick `json:"ticks"`
+}
+
+// TickUpdatedMessage is received from DO when a tick is updated.
+type TickUpdatedMessage struct {
+	Type string    `json:"type"` // "tick_updated" or "tick_created"
+	Tick tick.Tick `json:"tick"`
+}
+
+// TickDeletedMessage is received from DO when a tick is deleted.
+type TickDeletedMessage struct {
+	Type string `json:"type"` // "tick_deleted"
+	ID   string `json:"id"`
+}
+
 // NewClient creates a new cloud client with the given configuration.
 func NewClient(cfg Config) (*Client, error) {
 	if cfg.Token == "" {
 		return nil, fmt.Errorf("token is required")
 	}
 
+	mode := cfg.Mode
+	if mode == "" {
+		mode = ModeRelay // default to relay for backward compatibility
+	}
+
 	cloudURL := cfg.CloudURL
 	if cloudURL == "" {
-		cloudURL = DefaultCloudURL
+		if mode == ModeSync {
+			cloudURL = DefaultSyncURL
+		} else {
+			cloudURL = DefaultCloudURL
+		}
+	}
+
+	// Sync mode requires tickDir
+	if mode == ModeSync && cfg.TickDir == "" {
+		return nil, fmt.Errorf("tickDir is required for sync mode")
 	}
 
 	return &Client{
-		token:     cfg.Token,
-		cloudURL:  cloudURL,
-		boardName: cfg.BoardName,
-		machineID: cfg.MachineID,
-		localAddr: cfg.LocalAddr,
-		stopChan:  make(chan struct{}),
+		token:         cfg.Token,
+		cloudURL:      cloudURL,
+		boardName:     cfg.BoardName,
+		machineID:     cfg.MachineID,
+		localAddr:     cfg.LocalAddr,
+		tickDir:       cfg.TickDir,
+		mode:          mode,
+		stopChan:      make(chan struct{}),
+		pendingWrites: make(map[string]time.Time),
 	}, nil
 }
 
@@ -155,16 +281,18 @@ func LoadConfig(tickDir string, localPort int) *Config {
 		BoardName: boardName,
 		MachineID: machineID,
 		LocalAddr: fmt.Sprintf("http://localhost:%d", localPort),
+		TickDir:   tickDir,
+		Mode:      ModeRelay, // default to relay; caller can change to ModeSync
 	}
 }
 
-// configFile holds values read from ~/.tickboardrc.
+// configFile holds values read from ~/.ticksrc.
 type configFile struct {
 	Token string
 	URL   string
 }
 
-// readConfigFile reads token and URL from ~/.tickboardrc.
+// readConfigFile reads token and URL from ~/.ticksrc.
 func readConfigFile() configFile {
 	var cfg configFile
 
@@ -278,8 +406,19 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
 
+	// Build the connection URL based on mode
+	var wsURL string
+	if c.mode == ModeSync {
+		// Sync mode: connect to /api/projects/:project/sync with token in query
+		wsURL = fmt.Sprintf("%s/%s/sync?token=%s&type=local", c.cloudURL, c.boardName, c.token)
+	} else {
+		// Relay mode: connect to /agent endpoint with auth info in URL
+		// This allows the main worker to validate before passing to DO
+		wsURL = fmt.Sprintf("%s?token=%s&board=%s&machine=%s", c.cloudURL, url.QueryEscape(c.token), url.QueryEscape(c.boardName), url.QueryEscape(c.machineID))
+	}
+
 	// Extract hostname for TLS ServerName (needed if connecting via IP)
-	cloudHost := "tickboard.dev"
+	cloudHost := "ticks.sh"
 	if strings.Contains(c.cloudURL, "://") {
 		parts := strings.SplitN(c.cloudURL, "://", 2)
 		if len(parts) == 2 {
@@ -316,27 +455,39 @@ func (c *Client) Connect(ctx context.Context) error {
 		},
 	}
 
-	conn, _, err := dialer.DialContext(ctx, c.cloudURL, nil)
+	conn, resp, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
+		// Check for specific auth errors from response
+		if resp != nil {
+			switch resp.StatusCode {
+			case 401:
+				return fmt.Errorf("authentication failed: missing or invalid token")
+			case 403:
+				return fmt.Errorf("access denied: token invalid, expired, or no access to project")
+			}
+		}
 		return fmt.Errorf("failed to connect to cloud: %w", err)
 	}
 
 	c.conn = conn
 
-	// Send registration message
-	regMsg := RegisterMessage{
-		Token:     c.token,
-		BoardName: c.boardName,
-		MachineID: c.machineID,
-	}
-	regData, _ := json.Marshal(regMsg)
-	msg := Message{Type: "register", Data: regData}
+	// Relay mode: send registration message
+	if c.mode == ModeRelay {
+		regMsg := RegisterMessage{
+			Token:     c.token,
+			BoardName: c.boardName,
+			MachineID: c.machineID,
+		}
+		regData, _ := json.Marshal(regMsg)
+		msg := Message{Type: "register", Data: regData}
 
-	if err := conn.WriteJSON(msg); err != nil {
-		conn.Close()
-		c.conn = nil
-		return fmt.Errorf("failed to register with cloud: %w", err)
+		if err := conn.WriteJSON(msg); err != nil {
+			conn.Close()
+			c.conn = nil
+			return fmt.Errorf("failed to register with cloud: %w", err)
+		}
 	}
+	// Sync mode: authentication is handled by token in URL query param
 
 	return nil
 }
@@ -345,22 +496,32 @@ func (c *Client) Connect(ctx context.Context) error {
 // It automatically reconnects with exponential backoff on disconnection.
 func (c *Client) Run(ctx context.Context) error {
 	backoff := time.Second
-	maxBackoff := 5 * time.Minute
+	maxBackoff := 30 * time.Second
 
 	for {
 		select {
 		case <-ctx.Done():
+			c.setSyncState(SyncDisconnected)
 			c.Close()
 			return ctx.Err()
 		case <-c.stopChan:
+			c.setSyncState(SyncDisconnected)
 			c.Close()
 			return nil
 		default:
 		}
 
+		c.setSyncState(SyncConnecting)
+
 		// Try to connect
 		if err := c.Connect(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "cloud: connection failed: %v (retrying in %v)\n", err, backoff)
+			c.setSyncState(SyncError)
+			pending := c.PendingCount()
+			if pending > 0 {
+				fmt.Fprintf(os.Stderr, "cloud: connection failed: %v (retrying in %v, %d pending)\n", err, backoff, pending)
+			} else {
+				fmt.Fprintf(os.Stderr, "cloud: connection failed: %v (retrying in %v)\n", err, backoff)
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -374,16 +535,40 @@ func (c *Client) Run(ctx context.Context) error {
 			continue
 		}
 
-		fmt.Fprintf(os.Stderr, "cloud: connected to %s as %s/%s\n", c.cloudURL, c.boardName, c.machineID)
+		c.setSyncState(SyncConnected)
+
+		if c.mode == ModeSync {
+			fmt.Fprintf(os.Stderr, "cloud: connected (sync mode) to %s as %s\n", c.cloudURL, c.boardName)
+		} else {
+			fmt.Fprintf(os.Stderr, "cloud: connected (relay mode) to %s as %s/%s\n", c.cloudURL, c.boardName, c.machineID)
+		}
 		backoff = time.Second // Reset backoff on successful connection
+
+		// Sync mode: start file watcher and send initial state
+		if c.mode == ModeSync {
+			if err := c.startSyncMode(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "cloud: sync setup failed: %v (reconnecting...)\n", err)
+				c.setSyncState(SyncError)
+				continue
+			}
+
+			// Flush any pending messages from offline queue
+			if err := c.flushPendingMessages(); err != nil {
+				fmt.Fprintf(os.Stderr, "cloud: flush failed: %v (will retry)\n", err)
+			}
+		}
 
 		// Handle messages until disconnection
 		if err := c.handleMessages(ctx); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			c.setSyncState(SyncDisconnected)
 			fmt.Fprintf(os.Stderr, "cloud: disconnected: %v (reconnecting...)\n", err)
 		}
+
+		// Stop file watcher on disconnect (will restart on reconnect)
+		c.stopFileWatcher()
 	}
 }
 
@@ -415,30 +600,80 @@ func (c *Client) handleMessages(ctx context.Context) error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
-		// Handle the message
-		switch msg.Type {
-		case "ping":
-			// Respond with pong
-			c.sendMessage(Message{Type: "pong"})
-
-		case "registered":
-			// Registration confirmed by server - no action needed
-
-		case "request":
-			// Handle relayed HTTP request
-			var req RequestMessage
-			if err := json.Unmarshal(msg.Data, &req); err != nil {
-				fmt.Fprintf(os.Stderr, "cloud: invalid request message: %v\n", err)
-				continue
-			}
-			go c.handleRequest(req)
-
-		case "error":
-			fmt.Fprintf(os.Stderr, "cloud: server error: %s\n", string(msg.Data))
-
-		default:
-			fmt.Fprintf(os.Stderr, "cloud: unknown message type: %s\n", msg.Type)
+		// Handle the message based on mode
+		if c.mode == ModeSync {
+			c.handleSyncMessage(msg)
+		} else {
+			c.handleRelayMessage(msg)
 		}
+	}
+}
+
+// handleRelayMessage handles messages in relay mode.
+func (c *Client) handleRelayMessage(msg Message) {
+	switch msg.Type {
+	case "ping":
+		// Respond with pong
+		c.sendMessage(Message{Type: "pong"})
+
+	case "registered":
+		// Registration confirmed by server - no action needed
+
+	case "request":
+		// Handle relayed HTTP request
+		var req RequestMessage
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: invalid request message: %v\n", err)
+			return
+		}
+		go c.handleRequest(req)
+
+	case "error":
+		fmt.Fprintf(os.Stderr, "cloud: server error: %s\n", string(msg.Data))
+
+	default:
+		fmt.Fprintf(os.Stderr, "cloud: unknown message type: %s\n", msg.Type)
+	}
+}
+
+// handleSyncMessage handles messages in sync mode.
+func (c *Client) handleSyncMessage(msg Message) {
+	switch msg.Type {
+	case "state_full":
+		// Full state received from DO (initial sync or after our sync_full)
+		var stateMsg StateFullMessage
+		if err := json.Unmarshal(msg.Data, &stateMsg); err != nil {
+			// Try unmarshaling the whole message
+			if err := json.Unmarshal([]byte(fmt.Sprintf(`{"type":"state_full","ticks":%s}`, msg.Data)), &stateMsg); err != nil {
+				fmt.Fprintf(os.Stderr, "cloud: invalid state_full message: %v\n", err)
+				return
+			}
+		}
+		c.applyRemoteState(stateMsg.Ticks)
+
+	case "tick_updated", "tick_created":
+		// Single tick update from DO
+		var tickMsg TickUpdatedMessage
+		if err := json.Unmarshal(msg.Data, &tickMsg); err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: invalid tick message: %v\n", err)
+			return
+		}
+		c.applyRemoteTick(tickMsg.Tick)
+
+	case "tick_deleted":
+		// Tick deleted notification from DO
+		var delMsg TickDeletedMessage
+		if err := json.Unmarshal(msg.Data, &delMsg); err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: invalid tick_deleted message: %v\n", err)
+			return
+		}
+		c.applyRemoteDelete(delMsg.ID)
+
+	case "error":
+		fmt.Fprintf(os.Stderr, "cloud: server error: %s\n", string(msg.Data))
+
+	default:
+		fmt.Fprintf(os.Stderr, "cloud: unknown sync message type: %s\n", msg.Type)
 	}
 }
 
@@ -542,6 +777,86 @@ func (c *Client) IsConnected() bool {
 	return c.conn != nil
 }
 
+// GetSyncState returns the current sync state.
+func (c *Client) GetSyncState() SyncState {
+	c.syncStateMu.RLock()
+	defer c.syncStateMu.RUnlock()
+	return c.syncState
+}
+
+// setSyncState updates the sync state and calls the callback if set.
+func (c *Client) setSyncState(state SyncState) {
+	c.syncStateMu.Lock()
+	c.syncState = state
+	if state == SyncConnected {
+		c.lastSync = time.Now()
+	}
+	c.syncStateMu.Unlock()
+
+	if c.OnStateChange != nil {
+		c.OnStateChange(state)
+	}
+}
+
+// GetLastSync returns the time of the last successful sync.
+func (c *Client) GetLastSync() time.Time {
+	c.syncStateMu.RLock()
+	defer c.syncStateMu.RUnlock()
+	return c.lastSync
+}
+
+// PendingCount returns the number of queued messages waiting to be sent.
+func (c *Client) PendingCount() int {
+	c.pendingMessagesMu.Lock()
+	defer c.pendingMessagesMu.Unlock()
+	return len(c.pendingMessages)
+}
+
+// queueMessage adds a message to the offline queue.
+func (c *Client) queueMessage(data json.RawMessage) {
+	c.pendingMessagesMu.Lock()
+	defer c.pendingMessagesMu.Unlock()
+	c.pendingMessages = append(c.pendingMessages, data)
+}
+
+// flushPendingMessages sends all queued messages.
+func (c *Client) flushPendingMessages() error {
+	c.pendingMessagesMu.Lock()
+	pending := c.pendingMessages
+	c.pendingMessages = nil
+	c.pendingMessagesMu.Unlock()
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "cloud: flushing %d pending messages\n", len(pending))
+
+	for _, data := range pending {
+		c.connMu.Lock()
+		conn := c.conn
+		c.connMu.Unlock()
+
+		if conn == nil {
+			// Re-queue and abort
+			c.pendingMessagesMu.Lock()
+			c.pendingMessages = append(pending, c.pendingMessages...)
+			c.pendingMessagesMu.Unlock()
+			return fmt.Errorf("connection closed while flushing")
+		}
+
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			// Re-queue remaining and abort
+			c.pendingMessagesMu.Lock()
+			c.pendingMessages = append(pending, c.pendingMessages...)
+			c.pendingMessagesMu.Unlock()
+			return fmt.Errorf("write failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // PushEvent sends an event to the cloud for SSE broadcast to connected clients.
 // eventType is the SSE event type (e.g., "tick_update", "tick_create").
 // payload is the event data to be JSON-serialized.
@@ -555,5 +870,317 @@ func (c *Client) PushEvent(eventType string, payload interface{}) error {
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 	return c.sendMessage(Message{Type: "event", Data: data})
+}
+
+// ============================================================================
+// Sync Mode Methods
+// ============================================================================
+
+// startSyncMode initializes sync mode: starts file watcher and sends initial state.
+func (c *Client) startSyncMode(ctx context.Context) error {
+	// Create file watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	c.watcher = watcher
+
+	// Watch the issues directory
+	issuesDir := filepath.Join(c.tickDir, "issues")
+	if err := watcher.Add(issuesDir); err != nil {
+		watcher.Close()
+		c.watcher = nil
+		return fmt.Errorf("failed to watch issues directory: %w", err)
+	}
+
+	// Load all ticks and send initial state
+	ticks, err := c.loadAllTicks()
+	if err != nil {
+		watcher.Close()
+		c.watcher = nil
+		return fmt.Errorf("failed to load ticks: %w", err)
+	}
+
+	if err := c.SyncFullState(ticks); err != nil {
+		watcher.Close()
+		c.watcher = nil
+		return fmt.Errorf("failed to send initial state: %w", err)
+	}
+
+	// Start watching for file changes in background
+	go c.watchFileChanges(ctx)
+
+	return nil
+}
+
+// stopFileWatcher stops the file watcher if running.
+func (c *Client) stopFileWatcher() {
+	if c.watcher != nil {
+		c.watcher.Close()
+		c.watcher = nil
+	}
+}
+
+// loadAllTicks loads all ticks from .tick/issues/.
+func (c *Client) loadAllTicks() (map[string]tick.Tick, error) {
+	store := tick.NewStore(c.tickDir)
+	allTicks, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]tick.Tick)
+	for _, t := range allTicks {
+		result[t.ID] = t
+	}
+	return result, nil
+}
+
+// watchFileChanges watches for changes in .tick/issues/ and syncs to DO.
+func (c *Client) watchFileChanges(ctx context.Context) {
+	debounce := make(map[string]time.Time)
+	const debounceDelay = 100 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-c.watcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only handle .json files
+			if !strings.HasSuffix(event.Name, ".json") {
+				continue
+			}
+
+			// Debounce: skip if we just processed this file
+			if lastTime, exists := debounce[event.Name]; exists {
+				if time.Since(lastTime) < debounceDelay {
+					continue
+				}
+			}
+			debounce[event.Name] = time.Now()
+
+			// Check if this is a file we just wrote (from remote change)
+			c.pendingWritesMu.Lock()
+			if writeTime, exists := c.pendingWrites[event.Name]; exists {
+				if time.Since(writeTime) < time.Second {
+					// Skip - this is an echo of our own write
+					delete(c.pendingWrites, event.Name)
+					c.pendingWritesMu.Unlock()
+					continue
+				}
+				delete(c.pendingWrites, event.Name)
+			}
+			c.pendingWritesMu.Unlock()
+
+			if event.Op&(fsnotify.Write|fsnotify.Create) != 0 {
+				// File created or modified - sync to DO
+				t, err := c.loadTickFromFile(event.Name)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "cloud: failed to load tick %s: %v\n", event.Name, err)
+					continue
+				}
+				if err := c.SyncTick(t); err != nil {
+					fmt.Fprintf(os.Stderr, "cloud: failed to sync tick %s: %v\n", t.ID, err)
+				}
+			} else if event.Op&fsnotify.Remove != 0 {
+				// File removed - notify DO
+				id := c.extractTickID(event.Name)
+				if id != "" {
+					if err := c.SyncDelete(id); err != nil {
+						fmt.Fprintf(os.Stderr, "cloud: failed to sync delete %s: %v\n", id, err)
+					}
+				}
+			}
+
+		case err, ok := <-c.watcher.Errors:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "cloud: file watcher error: %v\n", err)
+		}
+	}
+}
+
+// loadTickFromFile loads a tick from a .json file.
+func (c *Client) loadTickFromFile(path string) (tick.Tick, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return tick.Tick{}, err
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		return tick.Tick{}, err
+	}
+	return t, nil
+}
+
+// extractTickID extracts the tick ID from a file path.
+func (c *Client) extractTickID(path string) string {
+	base := filepath.Base(path)
+	if strings.HasSuffix(base, ".json") {
+		return strings.TrimSuffix(base, ".json")
+	}
+	return ""
+}
+
+// SyncTick sends a tick update to the DO.
+func (c *Client) SyncTick(t tick.Tick) error {
+	msg := TickUpdateMessage{
+		Type: "tick_update",
+		Tick: t,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	c.connMu.Lock()
+	conn := c.conn
+	c.connMu.Unlock()
+
+	if conn == nil {
+		// Queue for later when reconnected
+		c.queueMessage(data)
+		return nil
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		// Connection failed, queue for later
+		c.queueMessage(data)
+		return nil
+	}
+
+	return nil
+}
+
+// SyncFullState sends all ticks to the DO for initial sync.
+func (c *Client) SyncFullState(ticks map[string]tick.Tick) error {
+	msg := SyncFullMessage{
+		Type:  "sync_full",
+		Ticks: ticks,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+
+	if c.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	return c.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// SyncDelete notifies the DO of a tick deletion.
+func (c *Client) SyncDelete(id string) error {
+	msg := TickDeleteMessage{
+		Type: "tick_delete",
+		ID:   id,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	c.connMu.Lock()
+	conn := c.conn
+	c.connMu.Unlock()
+
+	if conn == nil {
+		// Queue for later when reconnected
+		c.queueMessage(data)
+		return nil
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		// Connection failed, queue for later
+		c.queueMessage(data)
+		return nil
+	}
+
+	return nil
+}
+
+// applyRemoteState applies full state from DO to local .tick/issues/.
+func (c *Client) applyRemoteState(ticks map[string]tick.Tick) {
+	store := tick.NewStore(c.tickDir)
+
+	for id, remoteTick := range ticks {
+		localTick, err := store.Read(id)
+		if err != nil {
+			// Tick doesn't exist locally - create it
+			c.writeTickLocally(remoteTick)
+			continue
+		}
+
+		// Only apply if remote is newer
+		if remoteTick.UpdatedAt.After(localTick.UpdatedAt) {
+			c.writeTickLocally(remoteTick)
+		}
+	}
+}
+
+// applyRemoteTick applies a single tick update from DO to local .tick/issues/.
+func (c *Client) applyRemoteTick(remoteTick tick.Tick) {
+	store := tick.NewStore(c.tickDir)
+
+	localTick, err := store.Read(remoteTick.ID)
+	if err != nil {
+		// Tick doesn't exist locally - create it
+		c.writeTickLocally(remoteTick)
+		return
+	}
+
+	// Only apply if remote is newer
+	if remoteTick.UpdatedAt.After(localTick.UpdatedAt) {
+		c.writeTickLocally(remoteTick)
+	}
+
+	// Call the callback if set
+	if c.OnRemoteChange != nil {
+		c.OnRemoteChange(remoteTick)
+	}
+}
+
+// applyRemoteDelete deletes a tick file locally.
+func (c *Client) applyRemoteDelete(id string) {
+	path := filepath.Join(c.tickDir, "issues", id+".json")
+
+	// Mark as pending to avoid echo
+	c.pendingWritesMu.Lock()
+	c.pendingWrites[path] = time.Now()
+	c.pendingWritesMu.Unlock()
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "cloud: failed to delete local tick %s: %v\n", id, err)
+	}
+}
+
+// writeTickLocally writes a tick to .tick/issues/, tracking as pending to avoid echo.
+func (c *Client) writeTickLocally(t tick.Tick) {
+	path := filepath.Join(c.tickDir, "issues", t.ID+".json")
+
+	// Mark as pending to avoid echo
+	c.pendingWritesMu.Lock()
+	c.pendingWrites[path] = time.Now()
+	c.pendingWritesMu.Unlock()
+
+	data, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: failed to marshal tick %s: %v\n", t.ID, err)
+		return
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: failed to write tick %s: %v\n", t.ID, err)
+	}
 }
 

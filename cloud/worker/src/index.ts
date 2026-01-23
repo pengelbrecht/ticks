@@ -1,8 +1,8 @@
 /**
- * Tickboard Cloud Worker
+ * Ticks Cloud Worker
  *
  * Routes:
- * - /agent - WebSocket endpoint for local tickboard agents
+ * - /agent - WebSocket endpoint for local ticks agents
  * - /b/:boardId/* - Proxy requests to connected agents
  * - /api/auth/* - Authentication endpoints
  * - /api/tokens/* - Token management
@@ -10,12 +10,13 @@
  */
 
 import * as auth from "./auth";
-import { landingPage } from "./landing";
+import { landingPage, appPage } from "./landing";
 
 export interface Env {
   AGENT_HUB: DurableObjectNamespace;
+  PROJECT_ROOMS: DurableObjectNamespace;
   DB: D1Database;
-  TICKBOARD_SECRET?: string;
+  ASSETS?: Fetcher; // Static UI assets
 }
 
 // CORS headers for API responses
@@ -46,6 +47,13 @@ export default {
       return jsonResponse({ error: "Internal server error", details: String(err) }, 500);
     }
   },
+
+  // Cron trigger to keep worker and D1 warm
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const t0 = Date.now();
+    await env.DB.prepare("SELECT 1").first();
+    console.log(`scheduled: D1 warmup took ${Date.now() - t0}ms`);
+  },
 };
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -56,12 +64,68 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // WebSocket endpoint for agents
+    // WebSocket endpoint for agents (legacy relay)
     if (url.pathname === "/agent") {
-      // Route to the global AgentHub instance
+      // Pre-validate token in main worker (not in DO) to avoid D1 calls inside DO
+      const token = url.searchParams.get("token");
+      const boardName = url.searchParams.get("board");
+      const machineId = url.searchParams.get("machine") || "unknown";
+      let userId = "";
+
+      if (token) {
+        const tokenInfo = await auth.validateToken(env, token);
+        if (tokenInfo) {
+          userId = tokenInfo.userId;
+          // Register/update board in D1 (done here, not in DO)
+          if (boardName) {
+            auth.registerBoard(env, userId, boardName, machineId).catch(() => {});
+          }
+        }
+      }
+
+      // Route to the global AgentHub instance, passing pre-validated userId
       const id = env.AGENT_HUB.idFromName("global");
       const hub = env.AGENT_HUB.get(id);
-      return hub.fetch(request);
+
+      // Pass userId via header so DO doesn't need to call D1
+      const headers = new Headers(request.headers);
+      headers.set("X-Validated-User-Id", userId);
+      const modifiedRequest = new Request(request.url, {
+        method: request.method,
+        headers,
+        body: request.body,
+      });
+
+      return hub.fetch(modifiedRequest);
+    }
+
+    // ProjectRoom sync endpoint: /api/projects/:project/sync
+    // Handles real-time WebSocket sync for tick state
+    const projectSyncMatch = url.pathname.match(/^\/api\/projects\/([^\/]+)\/sync/);
+    if (projectSyncMatch) {
+      const projectId = projectSyncMatch[1];
+      // Each project gets its own Durable Object instance
+      const doId = env.PROJECT_ROOMS.idFromName(projectId);
+      const room = env.PROJECT_ROOMS.get(doId);
+      return room.fetch(request);
+    }
+
+    // ProjectRoom state endpoint: /api/projects/:project/state (for debugging)
+    const projectStateMatch = url.pathname.match(/^\/api\/projects\/([^\/]+)\/state/);
+    if (projectStateMatch) {
+      const projectId = projectStateMatch[1];
+      const doId = env.PROJECT_ROOMS.idFromName(projectId);
+      const room = env.PROJECT_ROOMS.get(doId);
+      return room.fetch(request);
+    }
+
+    // ProjectRoom connections endpoint: /api/projects/:project/connections
+    const projectConnsMatch = url.pathname.match(/^\/api\/projects\/([^\/]+)\/connections/);
+    if (projectConnsMatch) {
+      const projectId = projectConnsMatch[1];
+      const doId = env.PROJECT_ROOMS.idFromName(projectId);
+      const room = env.PROJECT_ROOMS.get(doId);
+      return room.fetch(request);
     }
 
     // SSE events endpoint: /events/:boardName
@@ -226,20 +290,47 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return auth.deleteBoard(env, user.userId, boardId);
     }
 
-    // Health check
+    // Health check - also warms up D1 connection
     if (url.pathname === "/health") {
+      // Simple query to keep D1 connection warm
+      const t0 = Date.now();
+      await env.DB.prepare("SELECT 1").first();
+      console.log(`health: D1 warmup took ${Date.now() - t0}ms`);
       return new Response("ok", { status: 200 });
     }
 
-    // Landing page
+    // Landing page at root
     if (url.pathname === "/" || url.pathname === "") {
       return new Response(landingPage, {
         headers: { "Content-Type": "text/html" },
       });
     }
 
+    // App pages (login/dashboard) - served from worker, not assets
+    if (url.pathname === "/login" || url.pathname === "/app") {
+      return new Response(appPage, {
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    // Serve static assets for board UI
+    if (env.ASSETS) {
+      // Try to serve the exact file first (for assets, icons, etc.)
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.status !== 404) {
+        return assetResponse;
+      }
+
+      // Board routes get the board SPA
+      if (url.pathname.startsWith("/p/")) {
+        const indexRequest = new Request(new URL("/index.html", url.origin), request);
+        return env.ASSETS.fetch(indexRequest);
+      }
+    }
+
     return new Response("Not found", { status: 404 });
 }
 
-// Re-export the Durable Object
+// Re-export Durable Objects
 export { AgentHub } from "./agent-hub";
+export { ProjectRoom } from "./project-room";
