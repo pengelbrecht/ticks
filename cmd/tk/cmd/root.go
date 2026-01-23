@@ -306,9 +306,6 @@ func ResetFlags() {
 	// Reset init flags
 	importBeads = false
 
-	// Reset board flags
-	boardPort = 3000
-
 	// Reset gc flags
 	gcDryRun = false
 	gcMaxAge = "30d"
