@@ -2,8 +2,9 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { Tick, BoardTick } from '../types/tick.js';
 import type { Note, BlockerDetail, RunRecord, ToolRecord, VerificationRecord, VerifierResult } from '../api/ticks.js';
-import { approveTick, rejectTick, closeTick, reopenTick, addNote, fetchRecord, ApiError } from '../api/ticks.js';
+import { approveTick, rejectTick, closeTick, reopenTick, addNote, fetchRecord, getCloudProject, ApiError } from '../api/ticks.js';
 import './run-record.js';
+import './ticks-button.js';
 
 // Priority labels for display
 const PRIORITY_LABELS: Record<number, string> = {
@@ -934,6 +935,9 @@ export class TickDetailDrawer extends LitElement {
   @property({ type: String, attribute: 'parent-title' })
   parentTitle?: string;
 
+  @property({ type: Boolean, attribute: 'readonly-mode' })
+  readonlyMode = false;
+
   // Internal state for action buttons
   @state() private loading = false;
   @state() private errorMessage = '';
@@ -981,6 +985,12 @@ export class TickDetailDrawer extends LitElement {
 
   private async loadRunRecord() {
     if (!this.tick) return;
+
+    // Skip in cloud mode - run records are local only
+    if (getCloudProject()) {
+      this.loadingRunRecord = false;
+      return;
+    }
 
     this.loadingRunRecord = true;
     this.runRecordError = '';
@@ -1254,54 +1264,50 @@ export class TickDetailDrawer extends LitElement {
         <div class="actions-section">
           ${showApproveReject
             ? html`
-                <sl-button
-                  variant="success"
+                <ticks-button
+                  variant="primary"
                   size="small"
-                  ?loading=${this.loading}
-                  ?disabled=${this.loading}
+                  ?disabled=${this.loading || this.readonlyMode}
                   @click=${this.handleApprove}
                 >
                   <sl-icon slot="prefix" name="check-lg"></sl-icon>
-                  Approve
-                </sl-button>
-                <sl-button
+                  ${this.loading ? 'Approving...' : 'Approve'}
+                </ticks-button>
+                <ticks-button
                   variant="danger"
                   size="small"
-                  ?loading=${this.loading}
-                  ?disabled=${this.loading}
+                  ?disabled=${this.loading || this.readonlyMode}
                   @click=${this.handleRejectClick}
                 >
                   <sl-icon slot="prefix" name="x-lg"></sl-icon>
                   Reject
-                </sl-button>
+                </ticks-button>
               `
             : nothing}
           ${showClose
             ? html`
-                <sl-button
-                  variant="neutral"
+                <ticks-button
+                  variant="secondary"
                   size="small"
-                  ?loading=${this.loading}
-                  ?disabled=${this.loading}
+                  ?disabled=${this.loading || this.readonlyMode}
                   @click=${this.handleCloseClick}
                 >
                   <sl-icon slot="prefix" name="check-circle"></sl-icon>
                   Close
-                </sl-button>
+                </ticks-button>
               `
             : nothing}
           ${showReopen
             ? html`
-                <sl-button
+                <ticks-button
                   variant="primary"
                   size="small"
-                  ?loading=${this.loading}
-                  ?disabled=${this.loading}
+                  ?disabled=${this.loading || this.readonlyMode}
                   @click=${this.handleReopen}
                 >
                   <sl-icon slot="prefix" name="arrow-counterclockwise"></sl-icon>
-                  Reopen
-                </sl-button>
+                  ${this.loading ? 'Reopening...' : 'Reopen'}
+                </ticks-button>
               `
             : nothing}
         </div>
@@ -1319,23 +1325,22 @@ export class TickDetailDrawer extends LitElement {
                   }}
                 ></sl-textarea>
                 <div class="reason-buttons">
-                  <sl-button
+                  <ticks-button
                     variant="danger"
                     size="small"
-                    ?loading=${this.loading}
                     ?disabled=${this.loading || !this.rejectReason.trim()}
                     @click=${this.handleRejectConfirm}
                   >
-                    Confirm Reject
-                  </sl-button>
-                  <sl-button
-                    variant="neutral"
+                    ${this.loading ? 'Rejecting...' : 'Confirm Reject'}
+                  </ticks-button>
+                  <ticks-button
+                    variant="ghost"
                     size="small"
                     ?disabled=${this.loading}
                     @click=${this.handleRejectCancel}
                   >
                     Cancel
-                  </sl-button>
+                  </ticks-button>
                 </div>
               </div>
             `
@@ -1354,24 +1359,22 @@ export class TickDetailDrawer extends LitElement {
                   }}
                 ></sl-textarea>
                 <div class="reason-buttons">
-                  <sl-button
-                    variant="neutral"
+                  <ticks-button
+                    variant="secondary"
                     size="small"
-                    ?loading=${this.loading}
                     ?disabled=${this.loading}
                     @click=${this.handleCloseConfirm}
                   >
-                    Confirm Close
-                  </sl-button>
-                  <sl-button
-                    variant="neutral"
+                    ${this.loading ? 'Closing...' : 'Confirm Close'}
+                  </ticks-button>
+                  <ticks-button
+                    variant="ghost"
                     size="small"
-                    outline
                     ?disabled=${this.loading}
                     @click=${this.handleCloseCancel}
                   >
                     Cancel
-                  </sl-button>
+                  </ticks-button>
                 </div>
               </div>
             `
@@ -1504,17 +1507,16 @@ export class TickDetailDrawer extends LitElement {
           }}
         ></sl-textarea>
         <div class="add-note-actions">
-          <span class="add-note-hint">Ctrl+Enter to send</span>
-          <sl-button
+          <span class="add-note-hint">${this.readonlyMode ? 'Read-only mode' : 'Ctrl+Enter to send'}</span>
+          <ticks-button
             variant="primary"
             size="small"
-            ?loading=${this.addingNote}
-            ?disabled=${this.addingNote || !this.newNoteText.trim()}
+            ?disabled=${this.addingNote || !this.newNoteText.trim() || this.readonlyMode}
             @click=${this.handleAddNote}
           >
             <sl-icon slot="prefix" name="chat-left-text"></sl-icon>
-            Add Note
-          </sl-button>
+            ${this.addingNote ? 'Adding...' : 'Add Note'}
+          </ticks-button>
         </div>
       </div>
     `;

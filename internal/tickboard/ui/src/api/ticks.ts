@@ -56,6 +56,52 @@ export interface Note {
   text: string;
 }
 
+/**
+ * Parse notes from tick.notes string into Note objects.
+ * Format: "YYYY-MM-DD HH:MM - (from: author) text"
+ * Used in cloud mode where we don't have server-side parsing.
+ */
+export function parseNotes(notes: string | undefined): Note[] {
+  if (!notes) return [];
+
+  const result: Note[] = [];
+  const lines = notes.split('\n');
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const note: Note = { text: line };
+
+    // Try to parse timestamp: "YYYY-MM-DD HH:MM - "
+    if (line.length >= 18 && line[4] === '-' && line[7] === '-' && line[10] === ' ' && line[13] === ':') {
+      // Check for " - " separator after timestamp
+      const sepIdx = line.indexOf(' - ', 16);
+      if (sepIdx !== -1) {
+        note.timestamp = line.slice(0, 16);
+        let remainder = line.slice(sepIdx + 3); // Skip " - "
+
+        // Try to parse author: "(from: author) "
+        if (remainder.startsWith('(from: ')) {
+          const endIdx = remainder.indexOf(') ');
+          if (endIdx !== -1) {
+            note.author = remainder.slice(7, endIdx);
+            note.text = remainder.slice(endIdx + 2);
+          } else {
+            note.text = remainder;
+          }
+        } else {
+          note.text = remainder;
+        }
+      }
+    }
+
+    result.push(note);
+  }
+
+  return result;
+}
+
 /** Blocker tick info */
 export interface BlockerDetail {
   id: string;
@@ -200,6 +246,32 @@ export interface ListTicksParams {
 }
 
 // ============================================================================
+// Cloud Mode Configuration
+// ============================================================================
+
+/**
+ * Global project ID for cloud mode API calls.
+ * When set, tick operations will be routed to cloud endpoints.
+ */
+let cloudProjectId: string | null = null;
+
+/**
+ * Set the project ID for cloud mode.
+ * When set, tick operations (addNote, approve, reject, close, reopen)
+ * will use cloud endpoints: /api/projects/:project/ticks/:tickId/...
+ */
+export function setCloudProject(projectId: string | null): void {
+  cloudProjectId = projectId;
+}
+
+/**
+ * Get the current cloud project ID.
+ */
+export function getCloudProject(): string | null {
+  return cloudProjectId;
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -211,6 +283,25 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   // Convert absolute paths to relative for cloud proxy compatibility
   const relativeUrl = url.startsWith('/') ? './' + url.slice(1) : url;
   const response = await fetch(relativeUrl, options);
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new ApiError(
+      `API request failed: ${response.status} ${response.statusText}`,
+      response.status,
+      body
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Makes a fetch request to cloud endpoint (absolute URL).
+ * Used for tick operations in cloud mode.
+ */
+async function cloudRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
 
   if (!response.ok) {
     const body = await response.text();
@@ -296,8 +387,17 @@ export async function createTick(tick: NewTick): Promise<CreateTickResponse> {
 /**
  * Closes a tick with an optional reason.
  * Returns the closed tick.
+ * In cloud mode, routes to cloud endpoint.
  */
 export async function closeTick(id: string, reason?: string): Promise<CloseTickResponse> {
+  if (cloudProjectId) {
+    const url = `/api/projects/${encodeURIComponent(cloudProjectId)}/ticks/${encodeURIComponent(id)}/close`;
+    return cloudRequest<CloseTickResponse>(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+  }
   return request<CloseTickResponse>(`/api/ticks/${encodeURIComponent(id)}/close`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -307,8 +407,17 @@ export async function closeTick(id: string, reason?: string): Promise<CloseTickR
 
 /**
  * Adds a note to a tick.
+ * In cloud mode, routes to cloud endpoint.
  */
 export async function addNote(id: string, message: string): Promise<AddNoteResponse> {
+  if (cloudProjectId) {
+    const url = `/api/projects/${encodeURIComponent(cloudProjectId)}/ticks/${encodeURIComponent(id)}/note`;
+    return cloudRequest<AddNoteResponse>(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+  }
   return request<AddNoteResponse>(`/api/ticks/${encodeURIComponent(id)}/note`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -319,8 +428,15 @@ export async function addNote(id: string, message: string): Promise<AddNoteRespo
 /**
  * Approves a tick that is awaiting human action.
  * Returns the updated tick (may be closed if workflow gate was approval).
+ * In cloud mode, routes to cloud endpoint.
  */
 export async function approveTick(id: string): Promise<ApproveTickResponse> {
+  if (cloudProjectId) {
+    const url = `/api/projects/${encodeURIComponent(cloudProjectId)}/ticks/${encodeURIComponent(id)}/approve`;
+    return cloudRequest<ApproveTickResponse>(url, {
+      method: 'POST',
+    });
+  }
   return request<ApproveTickResponse>(`/api/ticks/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
   });
@@ -329,8 +445,17 @@ export async function approveTick(id: string): Promise<ApproveTickResponse> {
 /**
  * Rejects a tick with feedback.
  * Returns the updated tick.
+ * In cloud mode, routes to cloud endpoint.
  */
 export async function rejectTick(id: string, feedback: string): Promise<RejectTickResponse> {
+  if (cloudProjectId) {
+    const url = `/api/projects/${encodeURIComponent(cloudProjectId)}/ticks/${encodeURIComponent(id)}/reject`;
+    return cloudRequest<RejectTickResponse>(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: feedback }),  // Note: cloud API uses 'reason', not 'feedback'
+    });
+  }
   return request<RejectTickResponse>(`/api/ticks/${encodeURIComponent(id)}/reject`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -340,8 +465,15 @@ export async function rejectTick(id: string, feedback: string): Promise<RejectTi
 
 /**
  * Reopens a closed tick.
+ * In cloud mode, routes to cloud endpoint.
  */
 export async function reopenTick(id: string): Promise<GetTickResponse> {
+  if (cloudProjectId) {
+    const url = `/api/projects/${encodeURIComponent(cloudProjectId)}/ticks/${encodeURIComponent(id)}/reopen`;
+    return cloudRequest<GetTickResponse>(url, {
+      method: 'POST',
+    });
+  }
   return request<GetTickResponse>(`/api/ticks/${encodeURIComponent(id)}/reopen`, {
     method: 'POST',
   });

@@ -41,7 +41,13 @@ interface ErrorMessage {
   message: string;
 }
 
-type IncomingMessage = StateFullMessage | TickUpdatedMessage | TickDeletedMessage | ConnectedMessage | ErrorMessage;
+/** Local client connection status from DO */
+interface LocalStatusMessage {
+  type: 'local_status';
+  connected: boolean;
+}
+
+type IncomingMessage = StateFullMessage | TickUpdatedMessage | TickDeletedMessage | ConnectedMessage | LocalStatusMessage | ErrorMessage;
 
 /** Update tick request to DO */
 interface TickUpdateRequest {
@@ -68,6 +74,7 @@ export interface SyncClientCallbacks {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onError?: (error: string) => void;
+  onLocalStatusChange?: (connected: boolean) => void;
 }
 
 export class SyncClient {
@@ -202,6 +209,11 @@ export class SyncClient {
       case 'error':
         console.error('[SyncClient] Server error:', msg.message);
         this.callbacks.onError?.(msg.message);
+        break;
+
+      case 'local_status':
+        console.log('[SyncClient] Local client status:', msg.connected ? 'connected' : 'disconnected');
+        this.callbacks.onLocalStatusChange?.(msg.connected);
         break;
 
       default:

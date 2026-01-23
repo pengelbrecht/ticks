@@ -1,5 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import './ticks-logo.js';
+import './ticks-button.js';
 
 /** Epic info structure from the API */
 export interface EpicInfo {
@@ -45,11 +47,9 @@ export class TickHeader extends LitElement {
       gap: 1rem;
     }
 
-    .header-left h1 {
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: var(--rosewater);
-      margin: 0;
+    .header-left ticks-logo {
+      display: flex;
+      align-items: center;
     }
 
     .repo-badge {
@@ -59,6 +59,24 @@ export class TickHeader extends LitElement {
       border-radius: 4px;
       font-family: monospace;
       color: var(--subtext0);
+    }
+
+    .readonly-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.7rem;
+      padding: 0.25rem 0.5rem;
+      background: var(--yellow);
+      color: var(--base);
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .readonly-badge sl-icon {
+      font-size: 0.85rem;
     }
 
     .header-center {
@@ -127,8 +145,8 @@ export class TickHeader extends LitElement {
         display: none;
       }
 
-      .header-left h1 {
-        font-size: 1rem;
+      .header-left ticks-logo {
+        --logo-size: 20px;
       }
 
       /* Make buttons larger for touch */
@@ -144,6 +162,25 @@ export class TickHeader extends LitElement {
         align-items: center;
         justify-content: center;
       }
+    }
+
+    /* Style run panel button with green tones */
+    .header-right sl-button::part(base) {
+      color: var(--subtext0);
+    }
+
+    .header-right sl-button::part(base):hover {
+      color: var(--green, #a6e3a1);
+      background: var(--surface0);
+    }
+
+    .header-right sl-button[variant="primary"]::part(base) {
+      background: var(--green, #a6e3a1);
+      color: var(--crust, #11111b);
+    }
+
+    .header-right sl-button[variant="primary"]::part(base):hover {
+      background: #b8e8b3;
     }
 
     /* Pulsing animation for active run indicator */
@@ -180,6 +217,9 @@ export class TickHeader extends LitElement {
 
   @property({ type: Boolean, attribute: 'run-active' })
   runActive = false;
+
+  @property({ type: Boolean, attribute: 'readonly-mode' })
+  readonlyMode = false;
 
   @state()
   private debounceTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -271,9 +311,19 @@ export class TickHeader extends LitElement {
           >
             ☰
           </button>
-          <h1>Tick Board</h1>
+          <ticks-logo variant="logotype" .size=${24}></ticks-logo>
           ${this.repoName
             ? html`<span class="repo-badge">${this.repoName}</span>`
+            : null}
+          ${this.readonlyMode
+            ? html`
+              <sl-tooltip content="Local tk client is not connected. Actions will not sync back to tick files.">
+                <span class="readonly-badge">
+                  <sl-icon name="eye"></sl-icon>
+                  Read-only
+                </span>
+              </sl-tooltip>
+            `
             : null}
         </div>
 
@@ -323,14 +373,14 @@ export class TickHeader extends LitElement {
             ></tick-activity-feed>
           </sl-tooltip>
 
-          <sl-tooltip content="Create new tick">
-            <sl-button
+          <sl-tooltip content="Create new tick (n)">
+            <ticks-button
               variant="primary"
               size="small"
               @click=${this.handleCreateClick}
             >
               <sl-icon name="plus-lg"></sl-icon>
-            </sl-button>
+            </ticks-button>
           </sl-tooltip>
         </div>
       </header>

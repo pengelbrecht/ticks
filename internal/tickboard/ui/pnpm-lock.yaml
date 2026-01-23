@@ -11,6 +11,9 @@ importers:
       '@lit/context':
         specifier: ^1.1.6
         version: 1.1.6
+      '@nanostores/lit':
+        specifier: ^0.2.3
+        version: 0.2.3(lit@3.3.2)(nanostores@1.1.0)
       '@shoelace-style/shoelace':
         specifier: ^2.12.0
         version: 2.20.1(@floating-ui/utils@0.2.10)(@types/react@19.2.8)
@@ -20,6 +23,9 @@ importers:
       marked:
         specifier: ^17.0.1
         version: 17.0.1
+      nanostores:
+        specifier: ^1.1.0
+        version: 1.1.0
     devDependencies:
       typescript:
         specifier: ^5.3.0
@@ -197,6 +203,12 @@ packages:
 
   '@lit/reactive-element@2.1.2':
     resolution: {integrity: sha512-pbCDiVMnne1lYUIaYNN5wrwQXDtHaYtg7YEFPeW+hws6U47WeFvISGUWekPGKWOP1ygrs0ef0o1VJMk1exos5A==}
+
+  '@nanostores/lit@0.2.3':
+    resolution: {integrity: sha512-hIUKzdNrgKXkXCsppzQxmYYYMTn96cncijWhzcYZKn3Yimqj7B6YK94qN/KObjBNEe0xR3JLgMo96ew5fVtW2w==}
+    peerDependencies:
+      lit: ^2.6.0 || ^3.0.0
+      nanostores: '>=0.7 < 1.0.0 || ^1.0.0'
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -456,6 +468,10 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  nanostores@1.1.0:
+    resolution: {integrity: sha512-yJBmDJr18xy47dbNVlHcgdPrulSn1nhSE6Ns9vTG+Nx9VPT6iV1MD6aQFp/t52zpf82FhLLTXAXr30NuCnxvwA==}
+    engines: {node: ^20.0.0 || >=22.0.0}
+
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
     engines: {node: '>=0.10.0'}
@@ -644,6 +660,11 @@ snapshots:
   '@lit/reactive-element@2.1.2':
     dependencies:
       '@lit-labs/ssr-dom-shim': 1.5.1
+
+  '@nanostores/lit@0.2.3(lit@3.3.2)(nanostores@1.1.0)':
+    dependencies:
+      lit: 3.3.2
+      nanostores: 1.1.0
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -888,6 +909,8 @@ snapshots:
       picomatch: 2.3.1
 
   nanoid@3.3.11: {}
+
+  nanostores@1.1.0: {}
 
   normalize-path@3.0.0: {}
 

@@ -202,6 +202,27 @@ type TickDeletedMessage struct {
 	ID   string `json:"id"`
 }
 
+// TickOperationRequest is received from DO when cloud UI wants to perform an operation.
+type TickOperationRequest struct {
+	Type      string `json:"type"`       // "tick_operation"
+	RequestID string `json:"requestId"`  // Unique ID to correlate response
+	Operation string `json:"operation"`  // "add_note", "approve", "reject", "close", "reopen"
+	TickID    string `json:"tickId"`     // ID of the tick to operate on
+	Payload   struct {
+		Message string `json:"message,omitempty"` // For add_note
+		Reason  string `json:"reason,omitempty"`  // For reject, close
+	} `json:"payload,omitempty"`
+}
+
+// TickOperationResponse is sent back to DO after performing an operation.
+type TickOperationResponse struct {
+	Type      string     `json:"type"`              // "tick_operation_response"
+	RequestID string     `json:"requestId"`         // Matches the request ID
+	Success   bool       `json:"success"`           // Whether the operation succeeded
+	Tick      *tick.Tick `json:"tick,omitempty"`    // Updated tick on success
+	Error     string     `json:"error,omitempty"`   // Error message on failure
+}
+
 // NewClient creates a new cloud client with the given configuration.
 func NewClient(cfg Config) (*Client, error) {
 	if cfg.Token == "" {
@@ -257,14 +278,12 @@ func LoadConfig(tickDir string, localPort int) *Config {
 		return nil
 	}
 
-	// Get cloud URL: env var > config file > default
+	// Get cloud URL: env var > config file > let NewClient choose default based on mode
 	cloudURL := os.Getenv(EnvCloudURL)
 	if cloudURL == "" {
 		cloudURL = fileCfg.URL
 	}
-	if cloudURL == "" {
-		cloudURL = DefaultCloudURL
-	}
+	// Don't set default here - NewClient will choose based on mode
 
 	// Derive board name from .tick directory or parent directory name
 	boardName := deriveBoardName(tickDir)
@@ -408,9 +427,11 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	// Build the connection URL based on mode
 	var wsURL string
+	// URL-encode board name for path (encodes / as %2F)
+	encodedBoardName := url.PathEscape(c.boardName)
 	if c.mode == ModeSync {
 		// Sync mode: connect to /api/projects/:project/sync with token in query
-		wsURL = fmt.Sprintf("%s/%s/sync?token=%s&type=local", c.cloudURL, c.boardName, c.token)
+		wsURL = fmt.Sprintf("%s/%s/sync?token=%s&type=local", c.cloudURL, encodedBoardName, c.token)
 	} else {
 		// Relay mode: connect to /agent endpoint with auth info in URL
 		// This allows the main worker to validate before passing to DO
@@ -459,6 +480,8 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err != nil {
 		// Check for specific auth errors from response
 		if resp != nil {
+			// Debug: print full response info
+			fmt.Fprintf(os.Stderr, "cloud: WebSocket dial failed - status=%d url=%s\n", resp.StatusCode, wsURL)
 			switch resp.StatusCode {
 			case 401:
 				return fmt.Errorf("authentication failed: missing or invalid token")
@@ -574,6 +597,45 @@ func (c *Client) Run(ctx context.Context) error {
 
 // handleMessages reads and processes messages from the cloud.
 func (c *Client) handleMessages(ctx context.Context) error {
+	c.connMu.Lock()
+	conn := c.conn
+	c.connMu.Unlock()
+
+	if conn == nil {
+		return fmt.Errorf("connection closed")
+	}
+
+	// Set up pong handler to reset read deadline when pong received
+	conn.SetPongHandler(func(appData string) error {
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		return nil
+	})
+
+	// Start ping sender goroutine to keep connection alive
+	pingDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingDone:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				c.connMu.Lock()
+				conn := c.conn
+				c.connMu.Unlock()
+				if conn != nil {
+					if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+						return
+					}
+				}
+			}
+		}
+	}()
+	defer close(pingDone)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -589,11 +651,12 @@ func (c *Client) handleMessages(ctx context.Context) error {
 			return fmt.Errorf("connection closed")
 		}
 
-		// Set read deadline
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		// Set read deadline (extended by pong handler)
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
-		var msg Message
-		if err := conn.ReadJSON(&msg); err != nil {
+		// Read raw message
+		_, rawMsg, err := conn.ReadMessage()
+		if err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				return nil
 			}
@@ -602,8 +665,15 @@ func (c *Client) handleMessages(ctx context.Context) error {
 
 		// Handle the message based on mode
 		if c.mode == ModeSync {
-			c.handleSyncMessage(msg)
+			// Sync mode: messages are direct JSON (not wrapped in {type, data})
+			c.handleSyncMessageRaw(rawMsg)
 		} else {
+			// Relay mode: messages use {type, data} wrapper
+			var msg Message
+			if err := json.Unmarshal(rawMsg, &msg); err != nil {
+				fmt.Fprintf(os.Stderr, "cloud: invalid message: %v\n", err)
+				continue
+			}
 			c.handleRelayMessage(msg)
 		}
 	}
@@ -636,25 +706,32 @@ func (c *Client) handleRelayMessage(msg Message) {
 	}
 }
 
-// handleSyncMessage handles messages in sync mode.
-func (c *Client) handleSyncMessage(msg Message) {
-	switch msg.Type {
+// handleSyncMessageRaw handles raw JSON messages in sync mode.
+// Sync mode uses direct JSON format: {"type": "...", ...} without the relay wrapper.
+func (c *Client) handleSyncMessageRaw(data []byte) {
+	// First extract just the type field
+	var typeOnly struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &typeOnly); err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: invalid sync message: %v\n", err)
+		return
+	}
+
+	switch typeOnly.Type {
 	case "state_full":
 		// Full state received from DO (initial sync or after our sync_full)
 		var stateMsg StateFullMessage
-		if err := json.Unmarshal(msg.Data, &stateMsg); err != nil {
-			// Try unmarshaling the whole message
-			if err := json.Unmarshal([]byte(fmt.Sprintf(`{"type":"state_full","ticks":%s}`, msg.Data)), &stateMsg); err != nil {
-				fmt.Fprintf(os.Stderr, "cloud: invalid state_full message: %v\n", err)
-				return
-			}
+		if err := json.Unmarshal(data, &stateMsg); err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: invalid state_full message: %v\n", err)
+			return
 		}
 		c.applyRemoteState(stateMsg.Ticks)
 
 	case "tick_updated", "tick_created":
 		// Single tick update from DO
 		var tickMsg TickUpdatedMessage
-		if err := json.Unmarshal(msg.Data, &tickMsg); err != nil {
+		if err := json.Unmarshal(data, &tickMsg); err != nil {
 			fmt.Fprintf(os.Stderr, "cloud: invalid tick message: %v\n", err)
 			return
 		}
@@ -663,17 +740,30 @@ func (c *Client) handleSyncMessage(msg Message) {
 	case "tick_deleted":
 		// Tick deleted notification from DO
 		var delMsg TickDeletedMessage
-		if err := json.Unmarshal(msg.Data, &delMsg); err != nil {
+		if err := json.Unmarshal(data, &delMsg); err != nil {
 			fmt.Fprintf(os.Stderr, "cloud: invalid tick_deleted message: %v\n", err)
 			return
 		}
 		c.applyRemoteDelete(delMsg.ID)
 
+	case "tick_operation":
+		// Operation request from cloud UI (via DO)
+		var opMsg TickOperationRequest
+		if err := json.Unmarshal(data, &opMsg); err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: invalid tick_operation message: %v\n", err)
+			return
+		}
+		go c.handleTickOperation(opMsg)
+
 	case "error":
-		fmt.Fprintf(os.Stderr, "cloud: server error: %s\n", string(msg.Data))
+		var errMsg struct {
+			Message string `json:"message"`
+		}
+		json.Unmarshal(data, &errMsg)
+		fmt.Fprintf(os.Stderr, "cloud: server error: %s\n", errMsg.Message)
 
 	default:
-		fmt.Fprintf(os.Stderr, "cloud: unknown sync message type: %s\n", msg.Type)
+		fmt.Fprintf(os.Stderr, "cloud: unknown sync message type: %s\n", typeOnly.Type)
 	}
 }
 
@@ -752,12 +842,15 @@ func (c *Client) sendResponse(resp ResponseMessage) error {
 	return c.sendMessage(Message{Type: "response", Data: data})
 }
 
-// Close closes the connection to the cloud.
+// Close closes the connection to the cloud with a proper WebSocket close handshake.
 func (c *Client) Close() error {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
 
 	if c.conn != nil {
+		// Send proper WebSocket close frame so DO detects disconnect immediately
+		closeMsg := websocket.FormatCloseMessage(websocket.CloseGoingAway, "client shutting down")
+		c.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(5*time.Second))
 		err := c.conn.Close()
 		c.conn = nil
 		return err
@@ -921,7 +1014,8 @@ func (c *Client) stopFileWatcher() {
 	}
 }
 
-// loadAllTicks loads all ticks from .tick/issues/.
+// loadAllTicks loads ticks from .tick/issues/ for syncing.
+// Only syncs open ticks and recently closed ticks (within 24h) to reduce payload size.
 func (c *Client) loadAllTicks() (map[string]tick.Tick, error) {
 	store := tick.NewStore(c.tickDir)
 	allTicks, err := store.List()
@@ -929,9 +1023,14 @@ func (c *Client) loadAllTicks() (map[string]tick.Tick, error) {
 		return nil, err
 	}
 
+	// Include open ticks + ticks closed within the last 24 hours
+	closedCutoff := time.Now().Add(-24 * time.Hour)
 	result := make(map[string]tick.Tick)
 	for _, t := range allTicks {
-		result[t.ID] = t
+		// Include if: not closed (ClosedAt is nil) OR closed recently
+		if t.ClosedAt == nil || t.ClosedAt.After(closedCutoff) {
+			result[t.ID] = t
+		}
 	}
 	return result, nil
 }
@@ -942,6 +1041,11 @@ func (c *Client) watchFileChanges(ctx context.Context) {
 	const debounceDelay = 100 * time.Millisecond
 
 	for {
+		// Check if watcher is still valid
+		if c.watcher == nil {
+			return
+		}
+
 		select {
 		case <-ctx.Done():
 			return
@@ -1182,5 +1286,189 @@ func (c *Client) writeTickLocally(t tick.Tick) {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "cloud: failed to write tick %s: %v\n", t.ID, err)
 	}
+}
+
+// handleTickOperation handles operation requests from cloud UI via DO.
+func (c *Client) handleTickOperation(req TickOperationRequest) {
+	fmt.Printf("cloud: handling operation %s for tick %s (requestId: %s)\n",
+		req.Operation, req.TickID, req.RequestID)
+
+	// Load the tick
+	path := filepath.Join(c.tickDir, "issues", req.TickID+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		c.sendOperationResponse(req.RequestID, nil, fmt.Sprintf("tick not found: %v", err))
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		c.sendOperationResponse(req.RequestID, nil, fmt.Sprintf("failed to parse tick: %v", err))
+		return
+	}
+
+	// Perform the operation
+	now := time.Now()
+	switch req.Operation {
+	case "add_note":
+		if req.Payload.Message == "" {
+			c.sendOperationResponse(req.RequestID, nil, "message is required for add_note")
+			return
+		}
+		note := fmt.Sprintf("%s - (from: cloud) %s", now.Format("2006-01-02 15:04"), req.Payload.Message)
+		if t.Notes != "" {
+			t.Notes = t.Notes + "\n" + note
+		} else {
+			t.Notes = note
+		}
+		t.UpdatedAt = now
+
+	case "approve":
+		if t.Awaiting == nil || *t.Awaiting == "" {
+			c.sendOperationResponse(req.RequestID, nil, "tick is not awaiting human action")
+			return
+		}
+		verdict := tick.VerdictApproved
+		t.Verdict = &verdict
+		t.UpdatedAt = now
+		// Process the verdict (may close the tick)
+		tick.ProcessVerdict(&t)
+		// Add note
+		note := fmt.Sprintf("%s - (from: cloud) Approved", now.Format("2006-01-02 15:04"))
+		if t.Notes != "" {
+			t.Notes = t.Notes + "\n" + note
+		} else {
+			t.Notes = note
+		}
+
+	case "reject":
+		if t.Awaiting == nil || *t.Awaiting == "" {
+			c.sendOperationResponse(req.RequestID, nil, "tick is not awaiting human action")
+			return
+		}
+		if req.Payload.Reason == "" {
+			c.sendOperationResponse(req.RequestID, nil, "reason is required for reject")
+			return
+		}
+		verdict := tick.VerdictRejected
+		t.Verdict = &verdict
+		t.UpdatedAt = now
+		// Process the verdict
+		tick.ProcessVerdict(&t)
+		// Add note with reason
+		note := fmt.Sprintf("%s - (from: cloud) Rejected: %s", now.Format("2006-01-02 15:04"), req.Payload.Reason)
+		if t.Notes != "" {
+			t.Notes = t.Notes + "\n" + note
+		} else {
+			t.Notes = note
+		}
+
+	case "close":
+		if t.Status == tick.StatusClosed {
+			c.sendOperationResponse(req.RequestID, nil, "tick is already closed")
+			return
+		}
+		// Use HandleClose which respects requires gates
+		routed := tick.HandleClose(&t, req.Payload.Reason)
+		if routed {
+			// Tick was routed to awaiting state instead of closed
+			note := fmt.Sprintf("%s - (from: cloud) Close requested, awaiting %s", now.Format("2006-01-02 15:04"), *t.Awaiting)
+			if t.Notes != "" {
+				t.Notes = t.Notes + "\n" + note
+			} else {
+				t.Notes = note
+			}
+		} else {
+			// Tick was closed directly
+			note := fmt.Sprintf("%s - (from: cloud) Closed", now.Format("2006-01-02 15:04"))
+			if req.Payload.Reason != "" {
+				note += ": " + req.Payload.Reason
+			}
+			if t.Notes != "" {
+				t.Notes = t.Notes + "\n" + note
+			} else {
+				t.Notes = note
+			}
+		}
+
+	case "reopen":
+		if t.Status != tick.StatusClosed {
+			c.sendOperationResponse(req.RequestID, nil, "tick is not closed")
+			return
+		}
+		t.Status = tick.StatusOpen
+		t.ClosedAt = nil
+		t.ClosedReason = ""
+		t.Awaiting = nil
+		t.Verdict = nil
+		t.UpdatedAt = now
+		note := fmt.Sprintf("%s - (from: cloud) Reopened", now.Format("2006-01-02 15:04"))
+		if t.Notes != "" {
+			t.Notes = t.Notes + "\n" + note
+		} else {
+			t.Notes = note
+		}
+
+	default:
+		c.sendOperationResponse(req.RequestID, nil, fmt.Sprintf("unknown operation: %s", req.Operation))
+		return
+	}
+
+	// Save the tick using writeTickLocally (marks as pending to avoid echo)
+	c.writeTickLocally(t)
+
+	// Send success response
+	c.sendOperationResponse(req.RequestID, &t, "")
+
+	// Also send tick_update to DO to broadcast to other clients
+	updateMsg := TickUpdateMessage{
+		Type: "tick_update",
+		Tick: t,
+	}
+	c.sendSyncMessage(updateMsg)
+}
+
+// sendOperationResponse sends the operation response back to the DO.
+func (c *Client) sendOperationResponse(requestID string, t *tick.Tick, errMsg string) {
+	response := TickOperationResponse{
+		Type:      "tick_operation_response",
+		RequestID: requestID,
+		Success:   errMsg == "",
+		Tick:      t,
+		Error:     errMsg,
+	}
+
+	if errMsg != "" {
+		fmt.Fprintf(os.Stderr, "cloud: operation %s failed: %s\n", requestID, errMsg)
+	}
+
+	c.sendSyncMessage(response)
+}
+
+// sendSyncMessage sends a message in sync mode (direct JSON, no wrapper).
+func (c *Client) sendSyncMessage(msg interface{}) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: failed to marshal sync message: %v\n", err)
+		return err
+	}
+
+	c.connMu.Lock()
+	conn := c.conn
+	c.connMu.Unlock()
+
+	if conn == nil {
+		// Queue for later when reconnected
+		c.queueMessage(data)
+		return nil
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		// Connection failed, queue for later
+		c.queueMessage(data)
+		return nil
+	}
+
+	return nil
 }
 
