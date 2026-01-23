@@ -32,6 +32,7 @@ jobs:
           cd internal/tickboard/ui
           npm install
           npm run build
+          rm -f package-lock.json
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
