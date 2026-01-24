@@ -386,10 +386,7 @@ Get a token at https://ticks.sh/settings`)
 				if runWorktree && wt != nil && result.Success {
 					mergeManager, err := worktree.NewMergeManager(root)
 					if err == nil {
-						if !runJSONL {
-							fmt.Printf("🔀 Merging worktree to main...\n")
-						}
-						mergeResult, mergeErr := mergeManager.Merge(wt)
+						mergeResult, mergeErr := mergeManager.Merge(wt, worktree.MergeOptions{})
 						if mergeErr != nil {
 							fmt.Fprintf(os.Stderr, "Warning: merge failed: %v\n", mergeErr)
 						} else if !mergeResult.Success {
@@ -399,7 +396,7 @@ Get a token at https://ticks.sh/settings`)
 							// Cleanup worktree on successful merge
 							_ = wtManager.Remove(epicID)
 							if !runJSONL {
-								fmt.Printf("✅ Merged and cleaned up worktree\n")
+								fmt.Printf("✅ Merged to %s and cleaned up worktree\n", mergeResult.TargetBranch)
 							}
 						}
 					}
