@@ -1,3 +1,4 @@
+// Package worktree provides git worktree management for isolated feature development.
 package worktree
 
 import (
