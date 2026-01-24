@@ -3,7 +3,7 @@
  * Encapsulates all sync logic so components just subscribe to state.
  */
 import { atom, onMount, computed } from 'nanostores';
-import { SyncClient } from '../api/sync.js';
+import { SyncClient, type RunEventMessage } from '../api/sync.js';
 import type { Tick } from '../types/tick.js';
 import {
   $isCloudMode,
@@ -18,6 +18,7 @@ import {
   setRepoName,
   setLoading,
 } from './ticks.js';
+import { CloudOutputStreamAdapter } from '../streams/output-stream.js';
 
 // ============================================================================
 // Internal State
@@ -25,6 +26,33 @@ import {
 
 /** The sync client instance (internal, not exported) */
 let syncClient: SyncClient | null = null;
+
+/** Registry of CloudOutputStreamAdapter instances listening for run events */
+const runEventAdapters: Set<CloudOutputStreamAdapter> = new Set();
+
+// ============================================================================
+// Run Event Adapter Registry
+// ============================================================================
+
+/**
+ * Register a CloudOutputStreamAdapter to receive run events.
+ * Call this when a component creates an adapter in cloud mode.
+ * Returns an unregister function.
+ */
+export function registerRunEventAdapter(adapter: CloudOutputStreamAdapter): () => void {
+  runEventAdapters.add(adapter);
+  return () => runEventAdapters.delete(adapter);
+}
+
+/**
+ * Forward a run event to all registered adapters.
+ * Called by SyncClient's onRunEvent callback.
+ */
+function dispatchRunEvent(msg: RunEventMessage): void {
+  for (const adapter of runEventAdapters) {
+    adapter.handleRunEvent(msg);
+  }
+}
 
 // ============================================================================
 // Actions
@@ -77,6 +105,10 @@ export function connectSync() {
       console.log('[SyncStore] Local client status:', connected ? 'online' : 'offline');
       setLocalClientConnected(connected);
     },
+
+    onRunEvent: (msg: RunEventMessage) => {
+      dispatchRunEvent(msg);
+    },
   });
 
   syncClient.connect();
@@ -98,11 +130,18 @@ export function disconnectSync() {
 // Auto-connect when cloud mode is enabled
 // ============================================================================
 
+let initialized = false;
+
 /**
  * Initialize sync subscriptions.
- * Must be called explicitly to set up auto-connect behavior.
+ * Idempotent - safe to call multiple times.
  */
 export function initSync() {
+  if (initialized) {
+    console.log('[SyncStore] Already initialized, skipping');
+    return;
+  }
+  initialized = true;
   console.log('[SyncStore] Initializing sync subscriptions');
 
   // Watch for cloud mode changes and auto-connect/disconnect
@@ -123,6 +162,3 @@ export function initSync() {
     }
   });
 }
-
-// Auto-initialize when module loads
-initSync();

@@ -319,8 +319,21 @@ Get a token at https://ticks.sh/settings`)
 				}
 			}
 
+			// Set up run record store for live streaming (if board is running)
+			var runRecordStore *runrecord.Store
+			if runBoardEnabled {
+				runRecordStore = runrecord.NewStore(root)
+			}
+
 			// Run each epic with swarm
 			for _, epicID := range epicIDs {
+				// Set up OnState callback to write epic live records
+				if runRecordStore != nil {
+					currentEpicID := epicID // Capture for closure
+					swarmRunner.OnState = func(snap agent.AgentStateSnapshot) {
+						_ = runRecordStore.WriteEpicLive(currentEpicID, snap)
+					}
+				}
 				var workDir string
 
 				// Set up worktree if requested
@@ -354,6 +367,12 @@ Get a token at https://ticks.sh/settings`)
 
 				// Run swarm
 				result, err := swarmRunner.Run(ctx, epicID, workDir)
+
+				// Clean up epic live record after run (success or failure)
+				if runRecordStore != nil {
+					_ = runRecordStore.DeleteEpicLive(epicID)
+				}
+
 				if err != nil {
 					if ctx.Err() != nil {
 						break

@@ -391,3 +391,97 @@ func ParseEpicStatusFilename(name string) string {
 	// Remove "_epic-" prefix and ".status.json" suffix
 	return name[6 : len(name)-12]
 }
+
+// ============================================================================
+// Epic Live Records (for swarm orchestrator streaming)
+// ============================================================================
+
+// WriteEpicLive writes an in-progress swarm orchestrator state to a .live.json file.
+// This is used for real-time tracking during swarm runs.
+// The file is named _epic-<epicId>.live.json to distinguish from task records.
+func (s *Store) WriteEpicLive(epicID string, snap agent.AgentStateSnapshot) error {
+	if err := os.MkdirAll(s.dir, 0755); err != nil {
+		return fmt.Errorf("create runrecords dir: %w", err)
+	}
+
+	// Convert snapshot to a live record structure
+	liveRecord := snapshotToLiveRecord(snap)
+
+	data, err := json.MarshalIndent(liveRecord, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal epic live record: %w", err)
+	}
+
+	// Write atomically: temp file + rename
+	livePath := s.epicLivePath(epicID)
+	tempPath := livePath + ".tmp"
+
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		return fmt.Errorf("write epic live record temp: %w", err)
+	}
+
+	if err := os.Rename(tempPath, livePath); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("rename epic live record: %w", err)
+	}
+
+	return nil
+}
+
+// ReadEpicLive loads a live run record for the given epic ID.
+// Returns ErrNotFound if no live record exists.
+func (s *Store) ReadEpicLive(epicID string) (*LiveRecord, error) {
+	path := s.epicLivePath(epicID)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("read epic live record: %w", err)
+	}
+
+	var record LiveRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("unmarshal epic live record: %w", err)
+	}
+
+	return &record, nil
+}
+
+// DeleteEpicLive removes an epic live record file.
+// Returns nil if the file doesn't exist.
+func (s *Store) DeleteEpicLive(epicID string) error {
+	err := os.Remove(s.epicLivePath(epicID))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete epic live record: %w", err)
+	}
+	return nil
+}
+
+// EpicLiveExists checks if an epic live record file exists.
+func (s *Store) EpicLiveExists(epicID string) bool {
+	_, err := os.Stat(s.epicLivePath(epicID))
+	return err == nil
+}
+
+// epicLivePath returns the file path for an epic's live run record.
+func (s *Store) epicLivePath(epicID string) string {
+	return filepath.Join(s.dir, "_epic-"+epicID+".live.json")
+}
+
+// IsEpicLiveFile checks if a filename is an epic live file.
+func IsEpicLiveFile(name string) bool {
+	return len(name) > 16 && name[:6] == "_epic-" && name[len(name)-10:] == ".live.json"
+}
+
+// ParseEpicLiveFilename extracts the epic ID from an epic live filename.
+// Returns empty string if the filename is not an epic live file.
+func ParseEpicLiveFilename(name string) string {
+	if !IsEpicLiveFile(name) {
+		return ""
+	}
+	// _epic-<epicId>.live.json
+	// Remove "_epic-" prefix and ".live.json" suffix
+	return name[6 : len(name)-10]
+}

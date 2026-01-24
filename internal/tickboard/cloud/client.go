@@ -223,6 +223,46 @@ type TickOperationResponse struct {
 	Error     string     `json:"error,omitempty"`   // Error message on failure
 }
 
+// RunEventMessage sends live output events to the DO.
+type RunEventMessage struct {
+	Type   string        `json:"type"`            // "run_event"
+	EpicID string        `json:"epicId"`          // The epic being worked on
+	TaskID string        `json:"taskId,omitempty"` // Task ID (if task-level output)
+	Source string        `json:"source"`          // "ralph", "swarm-orchestrator", "swarm-subagent"
+	Event  RunEventData  `json:"event"`           // The event data
+}
+
+// RunEventData contains the details of a run event.
+type RunEventData struct {
+	Type       string                 `json:"type"`                 // Event type: task-started, task-update, etc.
+	Output     string                 `json:"output,omitempty"`     // Current output text
+	Status     string                 `json:"status,omitempty"`     // Status text
+	NumTurns   int                    `json:"numTurns,omitempty"`   // Number of turns
+	Iteration  int                    `json:"iteration,omitempty"`  // Iteration number
+	Success    bool                   `json:"success,omitempty"`    // Whether completed successfully
+	Metrics    *RunEventMetrics       `json:"metrics,omitempty"`    // Cost/token metrics
+	ActiveTool *RunEventTool          `json:"activeTool,omitempty"` // Currently active tool
+	Message    string                 `json:"message,omitempty"`    // Human-readable message
+	Timestamp  string                 `json:"timestamp"`            // ISO timestamp
+}
+
+// RunEventMetrics contains cost and token metrics.
+type RunEventMetrics struct {
+	InputTokens         int     `json:"inputTokens"`
+	OutputTokens        int     `json:"outputTokens"`
+	CacheReadTokens     int     `json:"cacheReadTokens"`
+	CacheCreationTokens int     `json:"cacheCreationTokens"`
+	CostUSD             float64 `json:"costUsd"`
+	DurationMS          int64   `json:"durationMs"`
+}
+
+// RunEventTool contains info about an active tool.
+type RunEventTool struct {
+	Name     string `json:"name"`
+	Input    string `json:"input,omitempty"`
+	Duration int64  `json:"duration,omitempty"`
+}
+
 // NewClient creates a new cloud client with the given configuration.
 func NewClient(cfg Config) (*Client, error) {
 	if cfg.Token == "" {
@@ -1466,6 +1506,37 @@ func (c *Client) sendSyncMessage(msg interface{}) error {
 	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		// Connection failed, queue for later
 		c.queueMessage(data)
+		return nil
+	}
+
+	return nil
+}
+
+// SendRunEvent sends a run event to the DO for broadcast to cloud clients.
+// Run events are transient (not queued when offline) since live output is ephemeral.
+func (c *Client) SendRunEvent(event RunEventMessage) error {
+	if c.mode != ModeSync {
+		return nil // Only supported in sync mode
+	}
+
+	event.Type = "run_event"
+
+	c.connMu.Lock()
+	conn := c.conn
+	c.connMu.Unlock()
+
+	if conn == nil {
+		// Not connected - skip since run events are ephemeral
+		return nil
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal run event: %w", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		// Connection failed - skip since run events are ephemeral
 		return nil
 	}
 

@@ -85,7 +85,38 @@ interface TickOperationResponse {
   error?: string;
 }
 
-type ClientMessage = SyncFullMessage | TickUpdateMessage | TickDeleteMessage | TickOperationResponse;
+// Run event from local client (live output streaming)
+interface RunEventMessage {
+  type: "run_event";
+  epicId: string;
+  taskId?: string;  // Present for ralph/subagent, absent for swarm orchestrator
+  source: "ralph" | "swarm-orchestrator" | "swarm-subagent";
+  event: {
+    type: "task-started" | "task-update" | "tool-activity" | "task-completed" | "epic-started" | "epic-completed";
+    output?: string;
+    status?: string;
+    numTurns?: number;
+    iteration?: number;
+    success?: boolean;
+    metrics?: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      costUsd: number;
+      durationMs: number;
+    };
+    activeTool?: {
+      name: string;
+      input?: string;
+      duration?: number;
+    };
+    message?: string;
+    timestamp: string;
+  };
+}
+
+type ClientMessage = SyncFullMessage | TickUpdateMessage | TickDeleteMessage | TickOperationResponse | RunEventMessage;
 
 // Message types to clients
 interface StateFullMessage {
@@ -126,6 +157,7 @@ type ServerMessage =
   | TickDeletedMessage
   | TickOperationRequest
   | LocalStatusMessage
+  | RunEventMessage
   | ErrorMessage;
 
 // Cleanup: delete DO storage after 30 days of inactivity
@@ -355,6 +387,14 @@ export class ProjectRoom extends DurableObject<Env> {
 
         case "tick_operation_response":
           this.handleOperationResponse(msg);
+          break;
+
+        case "run_event":
+          // Run events are transient - just broadcast to cloud clients, don't store
+          // Only local clients send run events, only cloud clients receive them
+          if (conn.type === "local") {
+            this.broadcastToCloudClients(msg);
+          }
           break;
 
         default:

@@ -30,6 +30,51 @@ type EventPusher interface {
 	PushEvent(eventType string, payload interface{}) error
 }
 
+// RunEventPusher interface for pushing run events to cloud (sync mode).
+type RunEventPusher interface {
+	SendRunEvent(event RunEventMessage) error
+}
+
+// RunEventMessage for cloud sync (matches cloud.RunEventMessage).
+type RunEventMessage struct {
+	Type   string       `json:"type"`
+	EpicID string       `json:"epicId"`
+	TaskID string       `json:"taskId,omitempty"`
+	Source string       `json:"source"`
+	Event  RunEventData `json:"event"`
+}
+
+// RunEventData contains the details of a run event.
+type RunEventData struct {
+	Type       string           `json:"type"`
+	Output     string           `json:"output,omitempty"`
+	Status     string           `json:"status,omitempty"`
+	NumTurns   int              `json:"numTurns,omitempty"`
+	Iteration  int              `json:"iteration,omitempty"`
+	Success    bool             `json:"success,omitempty"`
+	Metrics    *RunEventMetrics `json:"metrics,omitempty"`
+	ActiveTool *RunEventTool    `json:"activeTool,omitempty"`
+	Message    string           `json:"message,omitempty"`
+	Timestamp  string           `json:"timestamp"`
+}
+
+// RunEventMetrics contains cost and token metrics.
+type RunEventMetrics struct {
+	InputTokens         int     `json:"inputTokens"`
+	OutputTokens        int     `json:"outputTokens"`
+	CacheReadTokens     int     `json:"cacheReadTokens"`
+	CacheCreationTokens int     `json:"cacheCreationTokens"`
+	CostUSD             float64 `json:"costUsd"`
+	DurationMS          int64   `json:"durationMs"`
+}
+
+// RunEventTool contains info about an active tool.
+type RunEventTool struct {
+	Name     string `json:"name"`
+	Input    string `json:"input,omitempty"`
+	Duration int64  `json:"duration,omitempty"`
+}
+
 // Server represents the ticks board HTTP server.
 type Server struct {
 	tickDir string
@@ -2098,24 +2143,95 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 // broadcastRunStreamEvent sends an event to all connected run stream clients for an epic.
 func (s *Server) broadcastRunStreamEvent(epicID string, eventType string, data interface{}) {
 	s.runStreamClientsMu.RLock()
-	defer s.runStreamClientsMu.RUnlock()
-
 	clients, ok := s.runStreamClients[epicID]
+	s.runStreamClientsMu.RUnlock()
+
+	// Send to local SSE clients
+	if ok {
+		event := RunStreamEvent{
+			Type: eventType,
+			Data: data,
+		}
+
+		s.runStreamClientsMu.RLock()
+		for clientChan := range clients {
+			select {
+			case clientChan <- event:
+			default:
+				// Client buffer full, skip
+			}
+		}
+		s.runStreamClientsMu.RUnlock()
+	}
+
+	// Send to cloud if connected (sync mode)
+	s.pushRunEventToCloud(epicID, eventType, data)
+}
+
+// pushRunEventToCloud sends a run event to the cloud if connected.
+func (s *Server) pushRunEventToCloud(epicID string, eventType string, data interface{}) {
+	if s.cloudClient == nil {
+		return
+	}
+
+	// Check if cloud client supports run events (sync mode)
+	pusher, ok := s.cloudClient.(RunEventPusher)
 	if !ok {
 		return
 	}
 
-	event := RunStreamEvent{
-		Type: eventType,
-		Data: data,
+	// Extract taskId from data if present
+	var taskID string
+	if d, ok := data.(RunStreamEventData); ok {
+		taskID = d.TaskID
 	}
 
-	for clientChan := range clients {
-		select {
-		case clientChan <- event:
-		default:
-			// Client buffer full, skip
+	// Build the run event message
+	event := RunEventMessage{
+		Type:   "run_event",
+		EpicID: epicID,
+		TaskID: taskID,
+		Source: "ralph", // Default to ralph; swarm will set its own source
+	}
+
+	// Convert data to RunEventData
+	if d, ok := data.(RunStreamEventData); ok {
+		event.Event = RunEventData{
+			Type:      eventType,
+			Output:    d.Output,
+			Status:    d.Status,
+			NumTurns:  d.NumTurns,
+			Iteration: d.Iteration,
+			Success:   d.Success,
+			Message:   d.Message,
+			Timestamp: time.Now().Format(time.RFC3339),
 		}
+		if d.Metrics != nil {
+			event.Event.Metrics = &RunEventMetrics{
+				InputTokens:         d.Metrics.InputTokens,
+				OutputTokens:        d.Metrics.OutputTokens,
+				CacheReadTokens:     d.Metrics.CacheReadTokens,
+				CacheCreationTokens: d.Metrics.CacheCreationTokens,
+				CostUSD:             d.Metrics.CostUSD,
+				DurationMS:          int64(d.Metrics.DurationMS),
+			}
+		}
+		if d.ActiveTool != nil {
+			event.Event.ActiveTool = &RunEventTool{
+				Name:     d.ActiveTool.Name,
+				Input:    d.ActiveTool.Input,
+				Duration: int64(d.ActiveTool.Duration),
+			}
+		}
+	} else {
+		event.Event = RunEventData{
+			Type:      eventType,
+			Timestamp: time.Now().Format(time.RFC3339),
+		}
+	}
+
+	if err := pusher.SendRunEvent(event); err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: failed to push run event: %v\n", err)
 	}
 }
 
@@ -2141,7 +2257,28 @@ func (s *Server) watchRecords(ctx context.Context) {
 
 			filename := filepath.Base(event.Name)
 
-			// Handle .live.json files
+			// Handle epic live files (_epic-<epicId>.live.json) - for swarm orchestrator
+			if runrecord.IsEpicLiveFile(filename) {
+				epicID := runrecord.ParseEpicLiveFilename(filename)
+				if epicID == "" {
+					continue
+				}
+
+				// Debounce per epic
+				debounceKey := "epic_live_" + epicID
+				if timer, exists := debounceTimers[debounceKey]; exists {
+					timer.Stop()
+				}
+
+				capturedEpicID := epicID
+				capturedEvent := event
+				debounceTimers[debounceKey] = time.AfterFunc(debounceDelay, func() {
+					s.handleEpicLiveRecordChange(capturedEpicID, capturedEvent.Op, previousStates)
+				})
+				continue
+			}
+
+			// Handle task live files (<taskId>.live.json)
 			if strings.HasSuffix(filename, ".live.json") {
 				tickID := strings.TrimSuffix(filename, ".live.json")
 
@@ -2278,6 +2415,65 @@ func (s *Server) handleLiveRecordChange(tickID string, op fsnotify.Op, previousS
 
 	// Update previous state
 	previousStates[tickID] = currentStatus
+}
+
+// handleEpicLiveRecordChange processes a change to an epic live record (_epic-<id>.live.json).
+// This is used for swarm orchestrator output streaming.
+func (s *Server) handleEpicLiveRecordChange(epicID string, op fsnotify.Op, previousStates map[string]string) {
+	store := runrecord.NewStore(filepath.Dir(s.tickDir))
+	stateKey := "_epic_" + epicID // Use prefix to avoid collision with task states
+
+	// Check if live file was deleted (swarm ending)
+	if op&fsnotify.Remove == fsnotify.Remove {
+		delete(previousStates, stateKey)
+		return
+	}
+
+	// Read the epic live record
+	liveRecord, err := store.ReadEpicLive(epicID)
+	if err != nil {
+		return
+	}
+
+	// Determine event type based on status changes
+	prevStatus := previousStates[stateKey]
+	currentStatus := liveRecord.Status
+
+	eventData := RunStreamEventData{
+		EpicID:    epicID,
+		Status:    currentStatus,
+		NumTurns:  liveRecord.NumTurns,
+		Metrics:   &liveRecord.Metrics,
+		Timestamp: liveRecord.LastUpdated.Format(time.RFC3339),
+	}
+
+	// If this is a new run (no previous state), emit epic-started
+	if prevStatus == "" {
+		s.broadcastRunStreamEvent(epicID, "epic-started", RunStreamEventData{
+			EpicID:    epicID,
+			Status:    "running",
+			Message:   "Swarm orchestrator started",
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+
+	// Update with current output delta and tool activity
+	eventData.Output = liveRecord.Output
+	if liveRecord.ActiveTool != nil {
+		eventData.ActiveTool = liveRecord.ActiveTool
+		s.broadcastRunStreamEvent(epicID, "tool-activity", RunStreamEventData{
+			EpicID:    epicID,
+			Tool:      liveRecord.ActiveTool,
+			Status:    liveRecord.ActiveTool.Name,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+
+	// Broadcast general update (use task-update for compatibility with live panel)
+	s.broadcastRunStreamEvent(epicID, "task-update", eventData)
+
+	// Update previous state
+	previousStates[stateKey] = currentStatus
 }
 
 // handleRecordFinalized processes when a run record is finalized (task completed).

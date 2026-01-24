@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/pengelbrecht/ticks/internal/agent"
 )
 
 // Runner executes an epic using Claude Code's native Task tool for parallel subagent orchestration.
@@ -20,7 +22,8 @@ type Runner struct {
 	MaxAgents int
 
 	// Callbacks for status updates
-	OnOutput func(chunk string)
+	OnOutput func(chunk string)                   // Legacy: raw output chunks
+	OnState  func(snap agent.AgentStateSnapshot) // Structured state updates
 	OnStart  func(epicID string)
 	OnEnd    func(epicID string, result *Result)
 }
@@ -32,6 +35,8 @@ type Result struct {
 	Success  bool
 	Error    error
 	Output   string
+	Metrics  *agent.MetricsRecord // Token/cost metrics
+	Record   *agent.RunRecord     // Full run record
 }
 
 // NewRunner creates a new swarm runner with default settings.
@@ -64,11 +69,14 @@ func (r *Runner) Run(ctx context.Context, epicID string, workDir string) (*Resul
 	// Build the orchestration prompt
 	prompt := r.buildPrompt(epicID)
 
-	// Build command arguments
+	// Build command arguments - use structured streaming like ralph
 	args := []string{
 		"--dangerously-skip-permissions",
 		"--print",
+		"--output-format", "stream-json",
+		"--include-partial-messages",
 		"--verbose",
+		"--no-session-persistence",
 		prompt,
 	}
 
@@ -82,26 +90,65 @@ func (r *Runner) Run(ctx context.Context, epicID string, workDir string) (*Resul
 	// Set environment
 	cmd.Env = append(os.Environ(), "TICK_OWNER=swarm")
 
-	var stdout, stderr bytes.Buffer
+	var stderr bytes.Buffer
 
-	// Stream output if callback is set
-	if r.OnOutput != nil {
-		cmd.Stdout = &streamWriter{
-			buf:      &stdout,
-			callback: r.OnOutput,
-		}
-	} else {
-		cmd.Stdout = &stdout
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("create stdout pipe: %w", err)
 	}
 	cmd.Stderr = &stderr
 
-	// Run the command
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start claude: %w", err)
+	}
+
+	// Create state and parser for structured streaming
+	state := &agent.AgentState{}
+	var prevOutputLen int // Track output length for delta streaming
+
+	// Build update callback that notifies both OnState and legacy OnOutput
+	onUpdate := func() {
+		snap := state.Snapshot()
+
+		// Call OnState if set (structured state updates)
+		if r.OnState != nil {
+			r.OnState(snap)
+		}
+
+		// Stream output deltas to legacy OnOutput callback if set
+		if r.OnOutput != nil && len(snap.Output) > prevOutputLen {
+			delta := snap.Output[prevOutputLen:]
+			r.OnOutput(delta)
+			prevOutputLen = len(snap.Output)
+		}
+	}
+
+	parser := agent.NewStreamParser(state, onUpdate)
+
+	// Parse stream-json output
+	parseErr := parser.Parse(stdoutPipe)
+
+	// Wait for command to complete
+	waitErr := cmd.Wait()
 
 	result.Duration = time.Since(start)
-	result.Output = stdout.String()
 
-	if err != nil {
+	// Build result from parsed state
+	snap := state.Snapshot()
+	record := state.ToRecord()
+	result.Output = snap.Output
+	result.Metrics = &agent.MetricsRecord{
+		InputTokens:         snap.Metrics.InputTokens,
+		OutputTokens:        snap.Metrics.OutputTokens,
+		CacheReadTokens:     snap.Metrics.CacheReadTokens,
+		CacheCreationTokens: snap.Metrics.CacheCreationTokens,
+		CostUSD:             snap.Metrics.CostUSD,
+		DurationMS:          int(result.Duration.Milliseconds()),
+	}
+	result.Record = &record
+
+	// Handle errors
+	if waitErr != nil {
 		if ctx.Err() == context.Canceled {
 			result.Error = fmt.Errorf("swarm cancelled")
 			result.Success = false
@@ -109,9 +156,12 @@ func (r *Runner) Run(ctx context.Context, epicID string, workDir string) (*Resul
 			result.Error = fmt.Errorf("swarm timed out")
 			result.Success = false
 		} else {
-			result.Error = fmt.Errorf("swarm failed: %w\nstderr: %s", err, stderr.String())
+			result.Error = fmt.Errorf("swarm failed: %w\nstderr: %s", waitErr, stderr.String())
 			result.Success = false
 		}
+	} else if parseErr != nil {
+		result.Error = fmt.Errorf("parse stream output: %w", parseErr)
+		result.Success = false
 	} else {
 		result.Success = true
 	}

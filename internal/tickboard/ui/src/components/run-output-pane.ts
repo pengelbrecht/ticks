@@ -3,6 +3,14 @@ import { customElement, property, state, query } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import type { ShowToastOptions } from './tick-toast-stack.js';
 import type { ContextPane } from './context-pane.js';
+import {
+  LocalOutputStreamAdapter,
+  CloudOutputStreamAdapter,
+  type OutputStreamAdapter,
+  type RunEvent,
+} from '../streams/output-stream.js';
+import { $isCloudMode } from '../stores/connection.js';
+import { registerRunEventAdapter } from '../stores/sync.js';
 
 const TAB_STORAGE_KEY = 'run-output-pane-active-tab';
 
@@ -51,41 +59,6 @@ interface OutputLine {
   timestamp: Date;
   content: string;
   type: 'output' | 'status' | 'tool' | 'error';
-}
-
-/**
- * SSE event data for run stream.
- */
-interface RunStreamEventData {
-  taskId?: string;
-  epicId?: string;
-  status?: string;
-  output?: string;
-  numTurns?: number;
-  iteration?: number;
-  success?: boolean;
-  metrics?: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheCreationTokens: number;
-    costUsd: number;
-    durationMs: number;
-  };
-  activeTool?: {
-    name: string;
-    input?: string;
-    duration?: number;
-  };
-  tool?: {
-    name: string;
-    input?: string;
-    duration?: number;
-  };
-  timestamp?: string;
-  message?: string;    // Human-readable status message (for context events)
-  taskCount?: number;  // Number of tasks (for context_generating)
-  tokenCount?: number; // Estimated token count (for context_generated/context_loaded)
 }
 
 /**
@@ -478,10 +451,8 @@ export class RunOutputPane extends LitElement {
   @query('context-pane')
   private contextPane!: ContextPane;
 
-  private eventSource: EventSource | null = null;
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-  private reconnectDelay = 1000;
-  private maxReconnectDelay = 30000;
+  private adapter: OutputStreamAdapter | null = null;
+  private unregisterAdapter: (() => void) | null = null;
   private userScrolled = false;
 
   connectedCallback() {
@@ -512,203 +483,134 @@ export class RunOutputPane extends LitElement {
   }
 
   /**
-   * Connect to the SSE endpoint for run streaming.
+   * Connect to the output stream using the appropriate adapter.
    */
   private connect() {
-    if (this.eventSource) {
-      this.eventSource.close();
+    this.disconnect();
+    this.connectionStatus = 'connecting';
+
+    const callbacks = {
+      onEvent: (event: RunEvent) => this.handleRunEvent(event),
+      onConnected: () => {
+        this.connectionStatus = 'connected';
+        this.addStatusLine(`Connected to run stream for epic ${this.epicId}`);
+      },
+      onDisconnected: () => {
+        this.connectionStatus = 'disconnected';
+      },
+      onError: (error: string) => {
+        console.error('[RunOutputPane] Stream error:', error);
+      },
+    };
+
+    // Choose adapter based on mode
+    if ($isCloudMode.get()) {
+      const cloudAdapter = new CloudOutputStreamAdapter(callbacks);
+      this.adapter = cloudAdapter;
+      // Register with sync store to receive run events from DO
+      this.unregisterAdapter = registerRunEventAdapter(cloudAdapter);
+    } else {
+      this.adapter = new LocalOutputStreamAdapter(callbacks);
     }
 
-    this.connectionStatus = 'connecting';
-    this.eventSource = new EventSource(`/api/run-stream/${this.epicId}`);
+    this.adapter.connect(this.epicId);
+  }
 
-    // Handle connection established
-    this.eventSource.addEventListener('connected', (event) => {
-      this.connectionStatus = 'connected';
-      this.reconnectDelay = 1000;
+  /**
+   * Handle a unified run event from the adapter.
+   */
+  private handleRunEvent(event: RunEvent) {
+    switch (event.eventType) {
+      case 'connected':
+        // Already handled by onConnected callback
+        break;
 
-      try {
-        const data = JSON.parse(event.data) as { epicId: string };
-        this.addStatusLine(`Connected to run stream for epic ${data.epicId}`);
-      } catch {
-        this.addStatusLine('Connected to run stream');
-      }
-    });
-
-    // Handle task started
-    this.eventSource.addEventListener('task-started', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        this.activeTaskId = data.taskId || null;
+      case 'task-started':
+        this.activeTaskId = event.taskId || null;
         this.lastOutput = '';
-        this.addStatusLine(`Task ${data.taskId} started (iteration ${data.iteration ?? 1})`);
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse task-started:', err);
-      }
-    });
+        this.addStatusLine(`Task ${event.taskId} started (iteration ${event.iteration ?? 1})`);
+        break;
 
-    // Handle task update (main output stream)
-    this.eventSource.addEventListener('task-update', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-
+      case 'task-update':
         // Update active task if changed
-        if (data.taskId && data.taskId !== this.activeTaskId) {
-          this.activeTaskId = data.taskId;
+        if (event.taskId && event.taskId !== this.activeTaskId) {
+          this.activeTaskId = event.taskId;
         }
-
         // Update active tool
-        this.activeTool = data.activeTool?.name || null;
-
+        this.activeTool = event.activeTool?.name || null;
         // Compute output delta and add new lines
-        if (data.output && data.output !== this.lastOutput) {
-          const newContent = data.output.slice(this.lastOutput.length);
+        if (event.output && event.output !== this.lastOutput) {
+          const newContent = event.output.slice(this.lastOutput.length);
           if (newContent) {
             this.addOutputLines(newContent);
           }
-          this.lastOutput = data.output;
+          this.lastOutput = event.output;
         }
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse task-update:', err);
-      }
-    });
+        break;
 
-    // Handle tool activity
-    this.eventSource.addEventListener('tool-activity', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        const tool = data.tool || data.activeTool;
-        if (tool) {
-          this.activeTool = tool.name;
-          this.addToolLine(`⚙ ${tool.name}`);
+      case 'tool-activity':
+        if (event.activeTool) {
+          this.activeTool = event.activeTool.name;
+          this.addToolLine(`⚙ ${event.activeTool.name}`);
         }
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse tool-activity:', err);
-      }
-    });
+        break;
 
-    // Handle task completed
-    this.eventSource.addEventListener('task-completed', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        const status = data.success ? '✓ completed' : '✗ failed';
-        this.addStatusLine(`Task ${data.taskId} ${status}`);
-
+      case 'task-completed':
+        const status = event.success ? '✓ completed' : '✗ failed';
+        this.addStatusLine(`Task ${event.taskId} ${status}`);
         // Clear active state
-        if (this.activeTaskId === data.taskId) {
+        if (this.activeTaskId === event.taskId) {
           this.activeTaskId = null;
           this.activeTool = null;
           this.lastOutput = '';
         }
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse task-completed:', err);
-      }
-    });
+        break;
 
-    // Handle context generating
-    this.eventSource.addEventListener('context-generating', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        const taskCount = data.taskCount ?? 0;
-        this.addStatusLine(`📚 Generating epic context (${taskCount} tasks)...`);
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse context-generating:', err);
-      }
-    });
+      case 'epic-started':
+        this.addStatusLine(`Epic ${event.epicId} started (${event.source})`);
+        break;
 
-    // Handle context generated
-    this.eventSource.addEventListener('context-generated', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        const tokenCount = data.tokenCount ?? 0;
-        this.addStatusLine(`✓ Context generated (~${tokenCount} tokens)`);
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse context-generated:', err);
-      }
-    });
-
-    // Handle context loaded (from cache)
-    this.eventSource.addEventListener('context-loaded', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        const tokenCount = data.tokenCount ?? 0;
-        this.addStatusLine(`📖 Using existing context (~${tokenCount} tokens)`);
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse context-loaded:', err);
-      }
-    });
-
-    // Handle context failed
-    this.eventSource.addEventListener('context-failed', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        this.addStatusLine(`⚠ Context generation failed: ${data.message ?? 'unknown error'}`);
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse context-failed:', err);
-      }
-    });
-
-    // Handle context skipped
-    this.eventSource.addEventListener('context-skipped', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        this.addStatusLine(`⏭ Context skipped: ${data.message ?? 'single-task epic'}`);
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse context-skipped:', err);
-      }
-    });
-
-    // Handle epic completed
-    this.eventSource.addEventListener('epic-completed', (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunStreamEventData;
-        this.addStatusLine(`Epic completed: ${data.success ? 'success' : 'failed'}`);
+      case 'epic-completed':
+        this.addStatusLine(`Epic completed: ${event.success ? 'success' : 'failed'}`);
         this.activeTaskId = null;
         this.activeTool = null;
-      } catch (err) {
-        console.error('[RunOutputPane] Failed to parse epic-completed:', err);
-      }
-    });
+        break;
 
-    // Handle errors
-    this.eventSource.onerror = () => {
-      this.connectionStatus = 'disconnected';
-      this.eventSource?.close();
-      this.eventSource = null;
-      this.scheduleReconnect();
-    };
+      case 'context-generating':
+        this.addStatusLine(`📚 Generating epic context...`);
+        break;
+
+      case 'context-generated':
+        this.addStatusLine(`✓ Context generated`);
+        break;
+
+      case 'context-loaded':
+        this.addStatusLine(`📖 Using existing context`);
+        break;
+
+      case 'context-failed':
+        this.addStatusLine(`⚠ Context generation failed: ${event.message ?? 'unknown error'}`);
+        break;
+
+      case 'context-skipped':
+        this.addStatusLine(`⏭ Context skipped: ${event.message ?? 'single-task epic'}`);
+        break;
+    }
   }
 
   /**
-   * Disconnect from SSE and clean up.
+   * Disconnect from the output stream and clean up.
    */
   private disconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
+    if (this.unregisterAdapter) {
+      this.unregisterAdapter();
+      this.unregisterAdapter = null;
     }
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
+    if (this.adapter) {
+      this.adapter.disconnect();
+      this.adapter = null;
     }
     this.connectionStatus = 'disconnected';
-  }
-
-  /**
-   * Schedule a reconnection attempt with exponential backoff.
-   */
-  private scheduleReconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
-    this.reconnectTimeout = setTimeout(() => {
-      if (this.epicId) {
-        this.connect();
-      }
-    }, this.reconnectDelay);
-
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
   }
 
   /**

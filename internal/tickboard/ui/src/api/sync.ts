@@ -47,7 +47,38 @@ interface LocalStatusMessage {
   connected: boolean;
 }
 
-type IncomingMessage = StateFullMessage | TickUpdatedMessage | TickDeletedMessage | ConnectedMessage | LocalStatusMessage | ErrorMessage;
+/** Run event from local client (live output streaming) */
+export interface RunEventMessage {
+  type: 'run_event';
+  epicId: string;
+  taskId?: string;  // Present for ralph/subagent, absent for swarm orchestrator
+  source: 'ralph' | 'swarm-orchestrator' | 'swarm-subagent';
+  event: {
+    type: 'task-started' | 'task-update' | 'tool-activity' | 'task-completed' | 'epic-started' | 'epic-completed';
+    output?: string;
+    status?: string;
+    numTurns?: number;
+    iteration?: number;
+    success?: boolean;
+    metrics?: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      costUsd: number;
+      durationMs: number;
+    };
+    activeTool?: {
+      name: string;
+      input?: string;
+      duration?: number;
+    };
+    message?: string;
+    timestamp: string;
+  };
+}
+
+type IncomingMessage = StateFullMessage | TickUpdatedMessage | TickDeletedMessage | ConnectedMessage | LocalStatusMessage | RunEventMessage | ErrorMessage;
 
 /** Update tick request to DO */
 interface TickUpdateRequest {
@@ -75,6 +106,7 @@ export interface SyncClientCallbacks {
   onDisconnected?: () => void;
   onError?: (error: string) => void;
   onLocalStatusChange?: (connected: boolean) => void;
+  onRunEvent?: (event: RunEventMessage) => void;
 }
 
 export class SyncClient {
@@ -214,6 +246,10 @@ export class SyncClient {
       case 'local_status':
         console.log('[SyncClient] Local client status:', msg.connected ? 'connected' : 'disconnected');
         this.callbacks.onLocalStatusChange?.(msg.connected);
+        break;
+
+      case 'run_event':
+        this.callbacks.onRunEvent?.(msg);
         break;
 
       default:
