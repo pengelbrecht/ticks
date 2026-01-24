@@ -1,0 +1,13 @@
+{
+  "id": "rgn",
+  "title": "Fix hardcoded 'main' in conflict resolution instructions",
+  "description": "In internal/worktree/conflict.go:179, ConflictInfo() hardcodes 'git checkout main' in user instructions. Should use the actual target branch (ParentBranch or main). Users get wrong instructions when parent branch isn't main.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "morten@elk.dk",
+  "parent": "zl0",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:59:58.5376072Z",
+  "updated_at": "2026-01-24T13:59:58.5376072Z"
+}

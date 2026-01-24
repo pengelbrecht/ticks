@@ -1,0 +1,12 @@
+{
+  "id": "zl0",
+  "title": "Fix ParentBranch documentation blind spots",
+  "description": "Several places in the codebase still reference 'main' branch in comments, help text, and user-facing messages, when they should reference the dynamic target branch (ParentBranch or main fallback).",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:59:49.3372052Z",
+  "updated_at": "2026-01-24T13:59:49.3372052Z"
+}

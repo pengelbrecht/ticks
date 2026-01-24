@@ -1,0 +1,13 @@
+{
+  "id": "1r8",
+  "title": "Fix misleading comments about merge target",
+  "description": "Two comments incorrectly say 'to main': internal/parallel/runner.go:27 (MergeManager comment) and internal/worktree/merge.go:39 (MergeManager struct comment). Should say 'to target branch' or similar.",
+  "status": "open",
+  "priority": 3,
+  "type": "chore",
+  "owner": "morten@elk.dk",
+  "parent": "zl0",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T14:00:17.1027932Z",
+  "updated_at": "2026-01-24T14:00:17.1027932Z"
+}

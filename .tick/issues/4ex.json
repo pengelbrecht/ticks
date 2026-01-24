@@ -1,0 +1,13 @@
+{
+  "id": "4ex",
+  "title": "Update merge command help text to mention ParentBranch",
+  "description": "In cmd/tk/cmd/merge.go:20, the Long help text says 'merge into main branch' but doesn't mention that it respects ParentBranch for worktrees created from feature branches.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "zl0",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T14:00:07.6620681Z",
+  "updated_at": "2026-01-24T14:00:07.6620681Z"
+}
