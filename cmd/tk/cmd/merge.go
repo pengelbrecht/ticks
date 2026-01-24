@@ -16,14 +16,17 @@ import (
 
 var mergeCmd = &cobra.Command{
 	Use:   "merge <epic-id>",
-	Short: "Merge a completed epic branch into main",
-	Long: `Merge a completed epic's worktree branch into the main branch.
+	Short: "Merge a completed epic branch into its target branch",
+	Long: `Merge a completed epic's worktree branch into the target branch.
 
-This command merges changes made during an epic's development back into main.
+This command merges changes made during an epic's development back into the target
+branch. For worktrees created from a feature branch, this merges back to that
+feature branch (ParentBranch). Otherwise, it merges to main.
+
 If the epic used a worktree, it merges the worktree branch and removes the worktree.
 
 Examples:
-  tk merge abc123                 # Merge epic abc123 branch into main
+  tk merge abc123                 # Merge epic abc123 branch into target branch
   tk merge abc123 --force         # Merge even if epic not fully closed
   tk merge abc123 --dry-run       # Show what would be merged
   tk merge abc123 --no-delete-branch  # Keep branch after merge`,
