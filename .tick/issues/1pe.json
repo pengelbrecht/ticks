@@ -1,0 +1,15 @@
+{
+  "id": "1pe",
+  "title": "Add version constant comment",
+  "description": "Add a comment to version constant",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "wrq",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T14:19:05.4695832Z",
+  "updated_at": "2026-01-24T14:19:56.8658514Z",
+  "closed_at": "2026-01-24T14:19:56.8658514Z",
+  "closed_reason": "Added package comments to version.go"
+}

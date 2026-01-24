@@ -1,3 +1,6 @@
 /tk
 /tickboard
 .ticker/
+
+# tk worktrees
+.worktrees/
