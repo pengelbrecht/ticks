@@ -14,6 +14,7 @@ type ConflictState struct {
 	Conflicts    []string  // List of conflicting files
 	WorktreePath string    // Worktree path (preserved for inspection)
 	DetectedAt   time.Time // When conflict was detected
+	TargetBranch string    // Branch that was being merged into (e.g., main, feature/auth)
 }
 
 // ConflictHandler manages the conflict lifecycle.
@@ -38,7 +39,8 @@ func NewConflictHandler(repoRoot string, merge *MergeManager) *ConflictHandler {
 // HandleConflict is called when a merge fails due to conflict.
 // It aborts the merge (to clean up git state) but leaves the worktree intact
 // for user inspection. Returns ConflictState for tracking/display.
-func (h *ConflictHandler) HandleConflict(wt *Worktree, conflicts []string) *ConflictState {
+// The targetBranch parameter is the branch that was being merged into (from MergeResult.TargetBranch).
+func (h *ConflictHandler) HandleConflict(wt *Worktree, conflicts []string, targetBranch string) *ConflictState {
 	// Abort the in-progress merge to clean up git state
 	// Ignore errors - merge might have already been aborted
 	_ = h.merge.AbortMerge()
@@ -49,6 +51,7 @@ func (h *ConflictHandler) HandleConflict(wt *Worktree, conflicts []string) *Conf
 		Conflicts:    conflicts,
 		WorktreePath: wt.Path,
 		DetectedAt:   time.Now(),
+		TargetBranch: targetBranch,
 	}
 
 	h.mu.Lock()
@@ -156,6 +159,12 @@ func (h *ConflictHandler) isBranchMerged(branch string) bool {
 
 // ConflictInfo returns a human-readable summary of the conflict.
 func (s *ConflictState) ConflictInfo() string {
+	// Use target branch if set, otherwise default to "main" for backward compatibility
+	targetBranch := s.TargetBranch
+	if targetBranch == "" {
+		targetBranch = "main"
+	}
+
 	var sb strings.Builder
 	sb.WriteString("Merge conflict in epic ")
 	sb.WriteString(s.EpicID)
@@ -176,7 +185,9 @@ func (s *ConflictState) ConflictInfo() string {
 	sb.WriteString("  1. cd ")
 	sb.WriteString(s.WorktreePath)
 	sb.WriteString("  (inspect changes)\n")
-	sb.WriteString("  2. git checkout main  (from main repo)\n")
+	sb.WriteString("  2. git checkout ")
+	sb.WriteString(targetBranch)
+	sb.WriteString("  (from main repo)\n")
 	sb.WriteString("  3. git merge ")
 	sb.WriteString(s.Branch)
 	sb.WriteString("\n")
