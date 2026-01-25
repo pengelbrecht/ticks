@@ -311,7 +311,9 @@ export class TickHeader extends LitElement {
           >
             ☰
           </button>
-          <ticks-logo variant="logotype" .size=${24}></ticks-logo>
+          ${this.readonlyMode
+            ? html`<a href="/app" style="text-decoration: none;"><ticks-logo variant="logotype" .size=${24}></ticks-logo></a>`
+            : html`<ticks-logo variant="logotype" .size=${24}></ticks-logo>`}
           ${this.repoName
             ? html`<span class="repo-badge">${this.repoName}</span>`
             : null}

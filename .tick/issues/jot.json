@@ -1,0 +1,16 @@
+{
+  "id": "jot",
+  "title": "Add ticks-spinner component",
+  "description": "Loading spinner component with ticks green color.\n\nFeatures:\n- Configurable size (small, medium, large)\n- Uses CSS animation (no JS)\n- Accessible (aria-label)\n\nUsage:\n\u003cticks-spinner\u003e\u003c/ticks-spinner\u003e\n\u003cticks-spinner size=\"large\"\u003e\u003c/ticks-spinner\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly in preview page with all sizes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:17:23.789159Z",
+  "updated_at": "2026-01-23T07:30:29.96072Z",
+  "closed_at": "2026-01-23T07:30:29.96072Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

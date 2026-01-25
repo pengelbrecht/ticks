@@ -331,15 +331,23 @@ func (s *Server) Run(ctx context.Context) error {
 	// Wait for context cancellation or error
 	select {
 	case <-ctx.Done():
-		// Graceful shutdown with timeout
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		fmt.Fprintln(os.Stderr, "Shutting down...")
+		// Close watchers in background (don't block shutdown)
+		go s.watcher.Close()
+		go s.recordsWatcher.Close()
+		// Graceful shutdown with short timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		s.watcher.Close()
-		s.recordsWatcher.Close()
-		return s.srv.Shutdown(shutdownCtx)
+		err := s.srv.Shutdown(shutdownCtx)
+		if err == context.DeadlineExceeded {
+			// Force close if graceful shutdown times out
+			fmt.Fprintln(os.Stderr, "Force closing server...")
+			return s.srv.Close()
+		}
+		return err
 	case err := <-errChan:
-		s.watcher.Close()
-		s.recordsWatcher.Close()
+		go s.watcher.Close()
+		go s.recordsWatcher.Close()
 		return err
 	}
 }
@@ -363,14 +371,18 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// Register client
 	s.sseClientsMu.Lock()
 	s.sseClients[clientChan] = struct{}{}
+	clientCount := len(s.sseClients)
 	s.sseClientsMu.Unlock()
+	fmt.Fprintf(os.Stderr, "[DEBUG] SSE client connected, total clients: %d\n", clientCount)
 
 	// Unregister on disconnect
 	defer func() {
 		s.sseClientsMu.Lock()
 		delete(s.sseClients, clientChan)
 		close(clientChan)
+		clientCount := len(s.sseClients)
 		s.sseClientsMu.Unlock()
+		fmt.Fprintf(os.Stderr, "[DEBUG] SSE client disconnected, total clients: %d\n", clientCount)
 	}()
 
 	// Get flusher for streaming
@@ -404,11 +416,15 @@ func (s *Server) broadcast(msg string) {
 	s.sseClientsMu.RLock()
 	defer s.sseClientsMu.RUnlock()
 
+	clientCount := len(s.sseClients)
+	fmt.Fprintf(os.Stderr, "[DEBUG] broadcast: msg=%s clientCount=%d\n", msg, clientCount)
+
 	for clientChan := range s.sseClients {
 		select {
 		case clientChan <- msg:
+			fmt.Fprintf(os.Stderr, "[DEBUG] broadcast: sent to client\n")
 		default:
-			// Client buffer full, skip
+			fmt.Fprintf(os.Stderr, "[DEBUG] broadcast: client buffer full, skipped\n")
 		}
 	}
 }
@@ -422,6 +438,9 @@ func (s *Server) watchFiles(ctx context.Context) {
 
 	// Track the last tick event for the closure
 	var lastTickEvent fsnotify.Event
+
+	// Track file mtimes to filter spurious fsnotify events on macOS
+	fileMtimes := make(map[string]time.Time)
 
 	for {
 		select {
@@ -456,6 +475,40 @@ func (s *Server) watchFiles(ctx context.Context) {
 				continue
 			}
 
+			// Skip CHMOD events - we only care about content changes, not metadata
+			if event.Op == fsnotify.Chmod {
+				continue
+			}
+
+			fmt.Fprintf(os.Stderr, "[DEBUG] watchFiles: received event %s (op=%s)\n", filepath.Base(event.Name), event.Op)
+
+			// Skip temp files from atomic writes
+			if strings.Contains(event.Name, ".tmp") {
+				fmt.Fprintf(os.Stderr, "[DEBUG] watchFiles: skipping temp file\n")
+				continue
+			}
+
+			// Filter spurious events by checking mtime (macOS fsnotify can report
+			// events even when file hasn't changed)
+			if event.Op&fsnotify.Remove != fsnotify.Remove {
+				info, err := os.Stat(event.Name)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[DEBUG] watchFiles: stat error: %v\n", err)
+					continue
+				}
+				mtime := info.ModTime()
+				if lastMtime, exists := fileMtimes[event.Name]; exists && mtime.Equal(lastMtime) {
+					// File mtime hasn't changed, skip this spurious event
+					fmt.Fprintf(os.Stderr, "[DEBUG] watchFiles: skipping spurious event (mtime unchanged)\n")
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "[DEBUG] watchFiles: mtime changed, processing event\n")
+				fileMtimes[event.Name] = mtime
+			} else {
+				// On delete, remove from tracking
+				delete(fileMtimes, event.Name)
+			}
+
 			// Capture event for closure
 			lastTickEvent = event
 
@@ -465,10 +518,10 @@ func (s *Server) watchFiles(ctx context.Context) {
 			}
 			tickTimer = time.AfterFunc(debounceDelay, func() {
 				// Determine event type
+				// Note: atomic writes (write to temp, rename) may show as CREATE or RENAME
+				// Frontend handles both create/update the same way (fetch and update store)
 				eventType := "update"
-				if lastTickEvent.Op&fsnotify.Create == fsnotify.Create {
-					eventType = "create"
-				} else if lastTickEvent.Op&fsnotify.Remove == fsnotify.Remove {
+				if lastTickEvent.Op&fsnotify.Remove == fsnotify.Remove {
 					eventType = "delete"
 				}
 
@@ -477,6 +530,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 
 				// Broadcast the change locally
 				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
+				fmt.Fprintf(os.Stderr, "[DEBUG] watchFiles: broadcasting tick change: %s\n", msg)
 				s.broadcast(msg)
 
 				// Push to cloud
@@ -2071,7 +2125,9 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		s.runStreamClients[epicID] = make(map[chan RunStreamEvent]struct{})
 	}
 	s.runStreamClients[epicID][clientChan] = struct{}{}
+	clientCount := len(s.runStreamClients[epicID])
 	s.runStreamClientsMu.Unlock()
+	fmt.Fprintf(os.Stderr, "[DEBUG] handleRunStream: client connected for epic %s (total clients: %d)\n", epicID, clientCount)
 
 	// Unregister on disconnect
 	defer func() {
@@ -2144,7 +2200,10 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) broadcastRunStreamEvent(epicID string, eventType string, data interface{}) {
 	s.runStreamClientsMu.RLock()
 	clients, ok := s.runStreamClients[epicID]
+	clientCount := len(clients)
 	s.runStreamClientsMu.RUnlock()
+
+	fmt.Fprintf(os.Stderr, "[DEBUG] broadcastRunStreamEvent: epicID=%s eventType=%s clientCount=%d\n", epicID, eventType, clientCount)
 
 	// Send to local SSE clients
 	if ok {
@@ -2157,8 +2216,9 @@ func (s *Server) broadcastRunStreamEvent(epicID string, eventType string, data i
 		for clientChan := range clients {
 			select {
 			case clientChan <- event:
+				fmt.Fprintf(os.Stderr, "[DEBUG] broadcastRunStreamEvent: sent to client\n")
 			default:
-				// Client buffer full, skip
+				fmt.Fprintf(os.Stderr, "[DEBUG] broadcastRunStreamEvent: client buffer full, skipped\n")
 			}
 		}
 		s.runStreamClientsMu.RUnlock()
@@ -2256,6 +2316,7 @@ func (s *Server) watchRecords(ctx context.Context) {
 			}
 
 			filename := filepath.Base(event.Name)
+			fmt.Fprintf(os.Stderr, "[DEBUG] recordsWatcher: %s (%s)\n", filename, event.Op)
 
 			// Handle epic live files (_epic-<epicId>.live.json) - for swarm orchestrator
 			if runrecord.IsEpicLiveFile(filename) {
@@ -2347,6 +2408,7 @@ func (s *Server) watchRecords(ctx context.Context) {
 
 // handleLiveRecordChange processes a change to a .live.json file.
 func (s *Server) handleLiveRecordChange(tickID string, op fsnotify.Op, previousStates map[string]string) {
+	fmt.Fprintf(os.Stderr, "[DEBUG] handleLiveRecordChange: tickID=%s op=%s\n", tickID, op)
 	store := runrecord.NewStore(filepath.Dir(s.tickDir))
 
 	// Check if live file was deleted (task ending)
@@ -2358,8 +2420,10 @@ func (s *Server) handleLiveRecordChange(tickID string, op fsnotify.Op, previousS
 	// Read the live record
 	liveRecord, err := store.ReadLive(tickID)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] handleLiveRecordChange: failed to read live record: %v\n", err)
 		return
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] handleLiveRecordChange: read live record, status=%s numTurns=%d\n", liveRecord.Status, liveRecord.NumTurns)
 
 	// Find which epic this task belongs to
 	issuesDir := filepath.Join(s.tickDir, "issues")
@@ -2377,8 +2441,10 @@ func (s *Server) handleLiveRecordChange(tickID string, op fsnotify.Op, previousS
 	}
 
 	if parentEpicID == "" {
+		fmt.Fprintf(os.Stderr, "[DEBUG] handleLiveRecordChange: no parent epic found for tickID=%s\n", tickID)
 		return
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] handleLiveRecordChange: found parent epic=%s for tickID=%s\n", parentEpicID, tickID)
 
 	// Determine event type based on status changes
 	prevStatus := previousStates[tickID]

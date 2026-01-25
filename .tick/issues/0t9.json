@@ -1,0 +1,12 @@
+{
+  "id": "0t9",
+  "title": "epic picker in create new task should include id of epics (like header epic chooser drop down)",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "ticks-board",
+  "parent": "zfq",
+  "created_by": "ticks-board",
+  "created_at": "2026-01-24T18:54:18.84253+01:00",
+  "updated_at": "2026-01-24T18:54:18.84253+01:00"
+}

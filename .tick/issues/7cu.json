@@ -1,0 +1,13 @@
+{
+  "id": "7cu",
+  "title": "Live panel has too much spacing before text",
+  "description": "echo test",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T17:52:54.892454Z",
+  "updated_at": "2026-01-24T17:52:54.892454Z"
+}

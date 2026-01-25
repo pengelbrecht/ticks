@@ -1,0 +1,16 @@
+{
+  "id": "qvl",
+  "title": "Add v0.x.x changelog entry",
+  "description": "Document the new parallel execution feature in CHANGELOG.md",
+  "notes": "2026-01-23 14:56 - Work on this task was interrupted by user. May be partially complete.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "mod",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T13:54:39.58304Z",
+  "updated_at": "2026-01-23T14:03:13.637442Z",
+  "closed_at": "2026-01-23T14:03:13.637442Z",
+  "closed_reason": "Created CHANGELOG.md with v0.7.0 entry documenting parallel execution feature (--parallel flag, --worktree isolation, tk graph waves), plus retrospective entries for earlier versions"
+}

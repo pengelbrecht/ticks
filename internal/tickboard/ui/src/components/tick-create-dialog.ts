@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import type { TickType } from '../types/tick.js';
 import { createTick, type NewTick, type CreateTickResponse, ApiError } from '../api/ticks.js';
+import './ticks-button.js';
 
 // Type options with labels
 const TYPE_OPTIONS: { value: TickType; label: string }[] = [
@@ -408,20 +409,20 @@ export class TickCreateDialog extends LitElement {
         </div>
 
         <div slot="footer" class="footer-buttons">
-          <sl-button
-            variant="neutral"
+          <ticks-button
+            variant="secondary"
             @click=${this.handleClose}
             ?disabled=${this.loading}
           >
             Cancel
-          </sl-button>
-          <sl-button
+          </ticks-button>
+          <ticks-button
             variant="primary"
             @click=${this.handleSubmit}
-            ?loading=${this.loading}
+            ?disabled=${this.loading}
           >
-            Create
-          </sl-button>
+            ${this.loading ? 'Creating...' : 'Create'}
+          </ticks-button>
         </div>
       </sl-dialog>
     `;

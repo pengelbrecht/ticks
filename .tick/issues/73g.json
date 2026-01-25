@@ -1,0 +1,15 @@
+{
+  "id": "73g",
+  "title": "Test Epic A - Add README section",
+  "description": "Add a new section to the README about parallel execution",
+  "notes": "2026-01-23 14:56 - Iteration 1 error: agent run: claude cancelled\n2026-01-23 14:56 - Run interrupted by user at iteration 1 while working on task kgi (Write parallel execution section). Task may be partially complete - review before continuing.\n2026-01-23 15:03 - Completed task kgi: Added Parallel Execution section to README.md (lines 310-350). Section placed after Dependency Graph section since they're related. Documented --parallel flag usage, git worktree isolation, the 5-step process, planning guidance with tk graph, and examples combining flags. Note: The code at cmd/tk/cmd/run.go:178-180 shows --parallel \u003e1 returns 'not yet implemented' error, but the infrastructure exists in internal/parallel.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T13:54:21.141863Z",
+  "updated_at": "2026-01-23T14:29:10.212083Z",
+  "closed_at": "2026-01-23T14:29:10.212083Z",
+  "closed_reason": "no tasks found"
+}

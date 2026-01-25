@@ -1,0 +1,15 @@
+{
+  "id": "07f",
+  "title": "Print test",
+  "description": "Run: echo 'test output'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T13:51:23.118342Z",
+  "updated_at": "2026-01-24T13:54:24.670772Z",
+  "closed_at": "2026-01-24T13:54:24.670772Z",
+  "closed_reason": "Ran echo 'test output' - outputs 'test output' to stdout as expected"
+}

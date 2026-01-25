@@ -1,0 +1,15 @@
+{
+  "id": "wgg",
+  "title": "Test liverun display",
+  "description": "Run: echo 'testing liverun' \u0026\u0026 sleep 5 \u0026\u0026 echo 'done'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T16:45:11.894916Z",
+  "updated_at": "2026-01-24T17:07:31.756895Z",
+  "closed_at": "2026-01-24T17:07:31.756895Z",
+  "closed_reason": "Ran echo/sleep/echo command successfully - outputs 'testing liverun', waits 5 seconds, outputs 'done'. Validates liverun display handles sequential output with delays."
+}

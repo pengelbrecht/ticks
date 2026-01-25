@@ -1,0 +1,17 @@
+{
+  "id": "47o",
+  "title": "Broadcast task-status SSE events",
+  "description": "When a task status changes, broadcast a new SSE event type to connected clients.\n\nEvent schema:\n{\n  \"type\": \"task-status\",\n  \"tickId\": \"7o7\",\n  \"taskListId\": \"ece9240d-...\",\n  \"taskId\": \"1\",\n  \"status\": \"in_progress\",\n  \"activeForm\": \"Adding email validation\"\n}\n\nRequirements:\n- Add new event type to SSE broadcast\n- Include all relevant task info for UI rendering\n- Optionally push to cloud if connected (for remote board visibility)\n\nFiles:\n- internal/tickboard/server/server.go - Add broadcastTaskStatus method\n- internal/tickboard/server/tasks_watcher.go - Call broadcast on changes\n\nTest:\n- Connect SSE client, modify task file, verify event received",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "vl2"
+  ],
+  "parent": "fct",
+  "acceptance_criteria": "SSE clients receive task-status events when tasks change",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T11:39:19.074078Z",
+  "updated_at": "2026-01-23T11:39:19.074078Z"
+}

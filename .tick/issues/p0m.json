@@ -1,0 +1,14 @@
+{
+  "id": "p0m",
+  "title": "Ticks Design System Components",
+  "description": "Create a complete set of ticks-styled Lit web components for consistent UI across /login, /app, and board views. Components should match the existing Catppuccin Mocha + Geist design language.\n\nExisting components:\n- ticks-logo (logotype and icon variants)\n- ticks-button (primary/secondary/danger/ghost)\n- ticks-input (with labels, error states, sizes)\n- ticks-badge (colors, dot, pill variants)\n- ticks-card (with header/footer slots)\n\nComponents to add:\n- ticks-alert\n- ticks-spinner\n- ticks-dialog\n- ticks-empty-state\n- ticks-list-item\n- ticks-header\n- ticks-code\n\nPreview page: http://localhost:5173/preview.html",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:16:56.470235Z",
+  "updated_at": "2026-01-23T07:30:30.344534Z",
+  "closed_at": "2026-01-23T07:30:30.344534Z",
+  "closed_reason": "All tasks completed via Claude Swarm"
+}

@@ -1012,9 +1012,13 @@ func (e *Engine) runIteration(ctx context.Context, state *runState, task *ticks.
 	}
 
 	// Mark task as in_progress before starting (enables crash recovery)
+	fmt.Fprintf(os.Stderr, "[DEBUG] Setting task %s status to in_progress\n", task.ID)
 	if err := e.ticks.SetStatus(task.ID, "in_progress"); err != nil {
 		// Log but continue - status update is not critical
+		fmt.Fprintf(os.Stderr, "[DEBUG] Failed to set status: %v\n", err)
 		_ = e.ticks.AddNote(state.epicID, fmt.Sprintf("Warning: could not mark %s as in_progress: %v", task.ID, err))
+	} else {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Successfully set task %s to in_progress\n", task.ID)
 	}
 
 	// Refresh epic to get latest notes
@@ -1085,7 +1089,11 @@ func (e *Engine) runIteration(ctx context.Context, state *runState, task *ticks.
 			// Write to .live.json file for external watchers (e.g., ticks board)
 			if e.runRecordStore != nil {
 				// Ignore write errors - live tracking is best-effort
-				_ = e.runRecordStore.WriteLive(task.ID, snap)
+				if err := e.runRecordStore.WriteLive(task.ID, snap); err != nil {
+					fmt.Fprintf(os.Stderr, "[DEBUG] WriteLive error for %s: %v\n", task.ID, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "[DEBUG] WriteLive success for %s (output len=%d)\n", task.ID, len(snap.Output))
+				}
 			}
 		}
 	}

@@ -1,0 +1,15 @@
+{
+  "id": "dej",
+  "title": "Print hello",
+  "description": "Run: echo 'hello world'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T13:34:00.149897Z",
+  "updated_at": "2026-01-24T13:47:51.504628Z",
+  "closed_at": "2026-01-24T13:47:51.504628Z",
+  "closed_reason": "Executed echo 'hello world' - outputs 'hello world' to stdout as expected"
+}

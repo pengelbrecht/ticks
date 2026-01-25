@@ -1,0 +1,15 @@
+{
+  "id": "mod",
+  "title": "Test Epic B - Add CHANGELOG entry",
+  "description": "Add a CHANGELOG.md entry about the new parallel run feature",
+  "notes": "2026-01-23 14:56 - Iteration 1 error: agent run: claude cancelled\n2026-01-23 14:56 - Run interrupted by user at iteration 1 while working on task qvl (Add v0.x.x changelog entry). Task may be partially complete - review before continuing.\n2026-01-23 15:03 - Completed task qvl: Created CHANGELOG.md with comprehensive version history. The v0.7.0 entry documents the parallel execution feature (--parallel flag, --worktree isolation, tk graph waves, cloud sync). Added retrospective entries for v0.1.0-v0.6.0 based on git history analysis.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T13:54:28.858097Z",
+  "updated_at": "2026-01-23T14:12:17.447629Z",
+  "closed_at": "2026-01-23T14:12:17.447629Z",
+  "closed_reason": "no tasks found"
+}

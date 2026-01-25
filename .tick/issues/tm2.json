@@ -1,0 +1,16 @@
+{
+  "id": "tm2",
+  "title": "Add ticks-dialog component",
+  "description": "Modal dialog component for confirmations and forms.\n\nFeatures:\n- Title slot\n- Content slot\n- Footer slot for actions\n- Backdrop click to close (optional)\n- Escape key to close\n- Focus trap\n- Smooth open/close animation\n\nUsage:\n\u003cticks-dialog open\u003e\n  \u003cspan slot=\"title\"\u003eConfirm Delete\u003c/span\u003e\n  \u003cp\u003eAre you sure?\u003c/p\u003e\n  \u003cdiv slot=\"footer\"\u003e\n    \u003cticks-button variant=\"ghost\"\u003eCancel\u003c/ticks-button\u003e\n    \u003cticks-button variant=\"danger\"\u003eDelete\u003c/ticks-button\u003e\n  \u003c/div\u003e\n\u003c/ticks-dialog\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly with open/close animations",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:17:32.461458Z",
+  "updated_at": "2026-01-23T07:30:29.998119Z",
+  "closed_at": "2026-01-23T07:30:29.998119Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

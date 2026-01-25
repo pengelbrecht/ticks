@@ -1,6 +1,7 @@
 name = "ticks-cloud"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-04-03"
+compatibility_flags = ["nodejs_compat"]
 
 # Durable Objects bindings
 [durable_objects]
@@ -36,10 +37,6 @@ custom_domain = true
 [[routes]]
 pattern = "www.ticks.sh"
 custom_domain = true
-
-# Cron trigger to keep worker and D1 warm
-[triggers]
-crons = ["*/1 * * * *"]  # Every minute
 
 # KV namespace for session data (optional, for future use)
 # [[kv_namespaces]]

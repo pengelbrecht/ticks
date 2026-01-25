@@ -1,0 +1,16 @@
+{
+  "id": "tg3",
+  "title": "Add ticks-code component",
+  "description": "Code/monospace text display component.\n\nFeatures:\n- Monospace font (Geist Mono)\n- Optional copy button\n- Optional syntax highlighting (stretch)\n- Inline and block variants\n\nUsage:\n\u003cticks-code\u003enpm install ticks\u003c/ticks-code\u003e\n\u003cticks-code block copyable\u003e\nexport TICKS_TOKEN=your-token-here\ntk run --cloud\n\u003c/ticks-code\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly in preview page with copy functionality",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:18:09.672326Z",
+  "updated_at": "2026-01-23T07:30:30.145935Z",
+  "closed_at": "2026-01-23T07:30:30.145935Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

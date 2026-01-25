@@ -1,0 +1,16 @@
+{
+  "id": "l34",
+  "title": "Create wrangler dev test orchestration",
+  "description": "Create scripts to orchestrate wrangler dev for integration testing.\n\nRequirements:\n- Script to start wrangler dev in background\n- Wait for it to be ready (health check)\n- Script to stop wrangler dev\n- Handle port conflicts gracefully\n- Integrate with vitest setup/teardown\n\nLocation: internal/tickboard/ui/e2e/wrangler-helper.sh or similar",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "gv8",
+  "acceptance_criteria": "wrangler dev can be started/stopped programmatically for tests",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T09:25:30.193622Z",
+  "updated_at": "2026-01-25T09:33:10.946108Z",
+  "closed_at": "2026-01-25T09:33:10.946108Z",
+  "closed_reason": "Created wrangler-ctl.sh script with start/stop/status commands. Handles port conflicts by trying alternative ports, waits for /health endpoint to be ready, tracks PID and port in state files. Tested start, stop, status, and port conflict scenarios."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "cax",
+  "title": "Add ticks-empty-state component",
+  "description": "Empty state component for when lists have no items.\n\nFeatures:\n- Icon slot (optional)\n- Title\n- Description\n- Action slot (for button)\n\nUsage:\n\u003cticks-empty-state\u003e\n  \u003cspan slot=\"title\"\u003eNo boards yet\u003c/span\u003e\n  \u003cspan slot=\"description\"\u003eRun tk run --cloud to connect a board\u003c/span\u003e\n  \u003cticks-button slot=\"action\"\u003eGet Started\u003c/ticks-button\u003e\n\u003c/ticks-empty-state\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly in preview page",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:17:41.099569Z",
+  "updated_at": "2026-01-23T07:30:30.034511Z",
+  "closed_at": "2026-01-23T07:30:30.034511Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

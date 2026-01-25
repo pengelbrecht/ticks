@@ -2,6 +2,7 @@ package ticks
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -120,6 +121,7 @@ func convertTickToEpic(t tick.Tick) Epic {
 // NextTask returns the next open, unblocked task for the given epic that is ready for agent work.
 // Returns nil if no tasks are available.
 func (c *Client) NextTask(epicID string) (*Task, error) {
+	fmt.Fprintf(os.Stderr, "[DEBUG] NextTask called with epicID=%s\n", epicID)
 	allTicks, err := c.store.List()
 	if err != nil {
 		return nil, err
@@ -132,8 +134,15 @@ func (c *Client) NextTask(epicID string) (*Task, error) {
 			candidates = append(candidates, t)
 		}
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] NextTask found %d candidates under epic %s\n", len(candidates), epicID)
 
-	return c.findNextReadyTask(candidates, allTicks)
+	task, err := c.findNextReadyTask(candidates, allTicks)
+	if task != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] NextTask returning task %s (parent=%s)\n", task.ID, task.Parent)
+	} else {
+		fmt.Fprintf(os.Stderr, "[DEBUG] NextTask returning nil\n")
+	}
+	return task, err
 }
 
 // NextTaskWithOptions returns the next open, unblocked task ready for agent work.

@@ -1,0 +1,15 @@
+{
+  "id": "0c9",
+  "title": "Echo watch test",
+  "description": "Run: echo 'watch mode test'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T14:06:42.826573Z",
+  "updated_at": "2026-01-24T14:10:10.572004Z",
+  "closed_at": "2026-01-24T14:10:10.572004Z",
+  "closed_reason": "Executed 'echo watch mode test' - outputs correct string to stdout"
+}

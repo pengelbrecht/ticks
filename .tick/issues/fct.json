@@ -1,0 +1,12 @@
+{
+  "id": "fct",
+  "title": "Claude Tasks Integration - Phase 1",
+  "description": "Integrate Claude Code Tasks (~/.claude/tasks/) with tickboard to show real-time agent progress on ticks.\n\nGoals:\n- Watch ~/.claude/tasks/ for changes\n- Match tasks to ticks via globalTickId metadata\n- Broadcast virtual status updates to board UI\n- Show agent activity overlay on tick cards\n\nDesign doc: docs/design/claude-tasks-integration.md",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T11:38:44.772448Z",
+  "updated_at": "2026-01-23T11:38:44.772448Z"
+}

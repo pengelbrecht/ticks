@@ -1,0 +1,15 @@
+{
+  "id": "fpv",
+  "title": "Echo final test",
+  "description": "Run: echo 'final test'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T14:01:55.223033Z",
+  "updated_at": "2026-01-24T14:05:37.836941Z",
+  "closed_at": "2026-01-24T14:05:37.836941Z",
+  "closed_reason": "Echo test passed - 'echo final test' outputs correct string"
+}

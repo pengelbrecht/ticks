@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state, query } from 'lit/decorators.js';
 import type SlDropdown from '@shoelace-style/shoelace/dist/components/dropdown/dropdown.js';
-import { fetchActivity, type Activity } from '../api/ticks.js';
+import { fetchActivity, getCloudProject, type Activity } from '../api/ticks.js';
 
 /**
  * Activity feed dropdown component.
@@ -36,6 +36,18 @@ export class TickActivityFeed extends LitElement {
 
     .trigger-button {
       position: relative;
+    }
+
+    /* Style trigger and header buttons with green instead of blue */
+    .trigger-button sl-button::part(base),
+    .menu-header-actions sl-button::part(base) {
+      color: var(--subtext0);
+    }
+
+    .trigger-button sl-button::part(base):hover,
+    .menu-header-actions sl-button::part(base):hover {
+      color: var(--green, #a6e3a1);
+      background: var(--surface0);
     }
 
     .unread-badge {
@@ -231,6 +243,12 @@ export class TickActivityFeed extends LitElement {
   }
 
   private async loadActivities() {
+    // Skip in cloud mode - activity feed is local only
+    if (getCloudProject()) {
+      this.loading = false;
+      return;
+    }
+
     try {
       this.activities = await fetchActivity(20);
       this.updateUnreadCount();

@@ -1,0 +1,14 @@
+{
+  "id": "rx3",
+  "title": "Add fsnotify watcher for ~/.claude/tasks/",
+  "description": "Add a new fsnotify watcher in the tickboard server that watches ~/.claude/tasks/ directory for changes.\n\nRequirements:\n- Watch the tasks root directory for new task list folders (UUIDs)\n- Watch each task list folder for .json file changes\n- Handle task list folders being created/deleted\n- Debounce rapid changes (100ms like existing watchers)\n\nFiles:\n- internal/tickboard/server/server.go - Add tasksWatcher field and initialization\n- internal/tickboard/server/tasks_watcher.go (new) - Task watching logic\n\nTest:\n- Manually create/modify files in ~/.claude/tasks/ and verify events fire",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "fct",
+  "acceptance_criteria": "Watcher detects task file changes and logs them",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T11:39:00.777351Z",
+  "updated_at": "2026-01-23T11:43:04.544276Z"
+}

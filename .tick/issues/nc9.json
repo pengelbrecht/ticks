@@ -1,0 +1,16 @@
+{
+  "id": "nc9",
+  "title": "Add local agent WebSocket client to test rig",
+  "description": "Extend cmd/testrig to connect to a Cloudflare Worker DO as a local agent.\n\nRequirements:\n- Add --upstream flag to specify wrangler dev URL (e.g., ws://localhost:8787)\n- Add --project flag for project ID to connect to\n- Add --token flag for auth token\n- Implement WebSocket client that connects to /api/projects/:projectId/sync\n- Handle incoming messages: state_full, tick_operation, heartbeat\n- Send responses: sync_full, tick_operation_response, tick_update, tick_create\n\nThe test rig should:\n1. Continue serving its existing endpoints (for local tests)\n2. Additionally connect upstream as a local agent\n3. Sync state bidirectionally (local changes to DO, DO requests to local handling)\n\nTest: go run ./cmd/testrig --upstream ws://localhost:8787 --project test/repo --token xxx",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "gv8",
+  "acceptance_criteria": "Test rig connects to wrangler dev as local agent and responds to tick operations",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T09:24:51.563755Z",
+  "updated_at": "2026-01-25T09:32:46.028681Z",
+  "closed_at": "2026-01-25T09:32:46.028681Z",
+  "closed_reason": "Implemented upstream WebSocket client in cmd/testrig. Added --upstream, --project, and --token flags. The test rig now connects to a Cloudflare Worker DO as a local agent, handling state_full, tick_operation, heartbeat messages and sending sync_full, tick_operation_response, tick_update, tick_create messages. Local changes are propagated to upstream and vice versa with last-write-wins conflict resolution."
+}

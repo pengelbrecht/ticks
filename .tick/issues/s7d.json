@@ -1,0 +1,15 @@
+{
+  "id": "s7d",
+  "title": "Say hello",
+  "description": "Run: echo 'hello from watch mode'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T14:10:36.686278Z",
+  "updated_at": "2026-01-24T16:38:31.015107Z",
+  "closed_at": "2026-01-24T16:38:31.015107Z",
+  "closed_reason": "Echo test passed - 'echo hello from watch mode' outputs correct string"
+}

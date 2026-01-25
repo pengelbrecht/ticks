@@ -1,0 +1,15 @@
+{
+  "id": "7vo",
+  "title": "Test",
+  "description": "echo test",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T17:51:37.021315Z",
+  "updated_at": "2026-01-24T17:52:03.386077Z",
+  "closed_at": "2026-01-24T17:52:03.386077Z",
+  "closed_reason": "Echo test passed - 'echo test' outputs 'test' correctly"
+}

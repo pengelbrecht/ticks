@@ -1,0 +1,16 @@
+{
+  "id": "8d9",
+  "title": "Add ticks-header component",
+  "description": "App header component with logo and user info.\n\nFeatures:\n- Logo slot (left)\n- Nav slot (center, optional)\n- User info slot (right)\n- Sticky positioning option\n\nUsage:\n\u003cticks-header\u003e\n  \u003cticks-logo slot=\"logo\" variant=\"logotype\" href=\"/\"\u003e\u003c/ticks-logo\u003e\n  \u003cdiv slot=\"user\"\u003e\n    \u003cspan\u003euser@example.com\u003c/span\u003e\n    \u003cticks-button size=\"small\"\u003eLogout\u003c/ticks-button\u003e\n  \u003c/div\u003e\n\u003c/ticks-header\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly in preview page",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:18:00.188292Z",
+  "updated_at": "2026-01-23T07:30:30.108024Z",
+  "closed_at": "2026-01-23T07:30:30.108024Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

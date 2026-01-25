@@ -1,0 +1,16 @@
+{
+  "id": "kha",
+  "title": "Create cloud test auth setup",
+  "description": "Create script/helper to set up test authentication for wrangler dev testing.\n\nRequirements:\n- Script to create test user in D1 (via wrangler d1 execute)\n- Script to create test token\n- Script to create test board/project\n- Output auth token and project ID for use in tests\n\nShould work with wrangler dev's local D1 database.\n\nTest: ./scripts/setup-cloud-test.sh outputs valid token",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "gv8",
+  "acceptance_criteria": "Script creates test user/token/project in wrangler dev D1",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T09:24:57.720692Z",
+  "updated_at": "2026-01-25T09:31:07.320925Z",
+  "closed_at": "2026-01-25T09:31:07.320925Z",
+  "closed_reason": "Created setup-cloud-auth.sh script that creates test user, token, and board in local D1. Script is idempotent and generates .test-auth.env with credentials for tests."
+}

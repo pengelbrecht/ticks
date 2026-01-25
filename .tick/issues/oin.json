@@ -1,0 +1,15 @@
+{
+  "id": "oin",
+  "title": "Fix localhost board favicon",
+  "description": "The localhost tickboard server shows the wrong favicon. Update to use the correct ticks favicon from internal/tickboard/ui/public/favicon.svg",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T17:36:42.435429Z",
+  "updated_at": "2026-01-24T17:51:15.354167Z",
+  "closed_at": "2026-01-24T17:51:15.354167Z",
+  "closed_reason": "Copied correct favicon PNG and ICO files from logos/favicon/ to internal/tickboard/server/static/. The SVG was already correct but PNG/ICO had different content causing wrong favicon display."
+}

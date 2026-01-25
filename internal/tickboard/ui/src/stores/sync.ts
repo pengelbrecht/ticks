@@ -1,4 +1,7 @@
 /**
+ * @deprecated Use the new comms store (`./comms.ts`) instead.
+ * This module is kept for backward compatibility with CloudOutputStreamAdapter.
+ *
  * Sync store - manages WebSocket connection to DO.
  * Encapsulates all sync logic so components just subscribe to state.
  */

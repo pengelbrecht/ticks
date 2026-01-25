@@ -1,0 +1,15 @@
+{
+  "id": "e2y",
+  "title": "Simple echo test",
+  "description": "Write a bash one-liner that echoes 'liverun test success' to stdout",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T13:12:07.306604Z",
+  "updated_at": "2026-01-24T13:12:48.589301Z",
+  "closed_at": "2026-01-24T13:12:48.589301Z",
+  "closed_reason": "Executed bash one-liner 'echo liverun test success' - outputs exactly 'liverun test success' to stdout as specified"
+}

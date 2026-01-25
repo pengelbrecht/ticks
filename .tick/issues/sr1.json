@@ -1,0 +1,15 @@
+{
+  "id": "sr1",
+  "title": "Test tick update",
+  "description": "Run: echo 'testing SSE updates' \u0026\u0026 sleep 5",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T17:18:30.59739Z",
+  "updated_at": "2026-01-24T17:35:18.489171Z",
+  "closed_at": "2026-01-24T17:35:18.489171Z",
+  "closed_reason": "Executed echo 'testing SSE updates' \u0026\u0026 sleep 5 command - output displayed correctly before 5-second delay completed."
+}

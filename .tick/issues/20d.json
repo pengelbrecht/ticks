@@ -2,6 +2,7 @@
   "id": "20d",
   "title": "Update README and help texts for attachment commands",
   "description": "Update documentation for attachment feature.\n\n## README.md\n\nAdd section under Commands:\n\n```markdown\n### Attachments\n\nAttach screenshots or images to ticks for content review:\n\n\\`\\`\\`bash\n# Attach an image\ntk attach abc screenshot.png --description \"Login page redesign\"\n\n# List attachments\ntk attachments abc\n\n# Remove an attachment\ntk detach abc a1b2\n\\`\\`\\`\n\nAttachments are stored on tickboard.dev and require authentication.\nAdd your token to ~/.tickboardrc:\n\n\\`\\`\\`\ntoken=your-token-here\n\\`\\`\\`\n\\`\\`\\`\n\n## Command Help Texts\n\n### tk attach\n```\nAttach a file to a tick.\n\nUploads the file to tickboard.dev and adds it to the tick's attachments.\nRequires authentication via ~/.tickboardrc or TICKBOARD_TOKEN.\n\nUsage:\n  tk attach \u003ctick-id\u003e \u003cfile\u003e [flags]\n\nFlags:\n  -d, --description string   Caption for the attachment\n      --json                 Output as JSON\n\nExamples:\n  tk attach abc screenshot.png\n  tk attach abc mockup.png -d \"Updated header design\"\n```\n\n### tk detach\n```\nRemove an attachment from a tick.\n\nUsage:\n  tk detach \u003ctick-id\u003e \u003cattachment-id\u003e\n\nExamples:\n  tk detach abc a1b2\n```\n\n### tk attachments\n```\nList attachments for a tick.\n\nUsage:\n  tk attachments \u003ctick-id\u003e [flags]\n\nFlags:\n  --json    Output as JSON\n  --urls    Output only URLs (one per line)\n```",
+  "notes": "2026-01-23 19:01 - (from: cloud) test comment\n2026-01-23 19:15 - (from: cloud) another test comment\n2026-01-23 20:11 - (from: cloud) a 3rd test note",
   "status": "open",
   "priority": 3,
   "type": "task",
@@ -9,5 +10,5 @@
   "parent": "7ab",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-21T16:23:11.123335Z",
-  "updated_at": "2026-01-21T16:23:11.123335Z"
+  "updated_at": "2026-01-23T20:11:14.599503+01:00"
 }

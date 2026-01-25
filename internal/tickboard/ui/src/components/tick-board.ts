@@ -31,13 +31,19 @@ import {
   setLoading,
   setError,
   setTicks,
+  // Comms
+  initCommsAutoConnect,
+  initLocalComms,
+  initCloudComms,
+  disconnectComms,
+  subscribeRun,
+  onRunEvent,
 } from '../stores/index.js';
-// Import sync store and explicitly initialize
-import { initSync } from '../stores/sync.js';
+import type { RunEvent } from '../comms/types.js';
 
-// Ensure sync is initialized
-console.log('[TickBoard] Initializing sync module');
-initSync();
+// Initialize comms auto-connect (handles mode switching)
+console.log('[TickBoard] Initializing comms module');
+initCommsAutoConnect();
 import './ticks-button.js';
 import './ticks-alert.js';
 
@@ -597,15 +603,9 @@ export class TickBoard extends LitElement {
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
-  // SSE connection for real-time updates
-  private eventSource: EventSource | null = null;
-  private reconnectDelay = 1000; // Start with 1 second
-  private maxReconnectDelay = 30000; // Max 30 seconds
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // SSE connection for run stream
-  private runEventSource: EventSource | null = null;
-  private runReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Run stream subscription (via CommsClient)
+  private runStreamUnsubscribe: (() => void) | null = null;
+  private runEventUnsubscribe: (() => void) | null = null;
   private runPollInterval: ReturnType<typeof setInterval> | null = null;
 
   connectedCallback() {
@@ -613,13 +613,15 @@ export class TickBoard extends LitElement {
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
     document.addEventListener('keydown', this.handleKeyDown);
 
-    // Detect cloud mode from URL or config (sets store, auto-connects sync)
+    // Detect cloud mode from URL or config (sets store, auto-triggers comms connection)
     this.detectCloudMode();
 
-    // Load data (only needed in local mode - cloud mode uses sync store)
+    // Subscribe to run events via the comms store
+    this.runEventUnsubscribe = onRunEvent((event) => this.handleRunEvent(event));
+
+    // Load data and start polling (comms handles SSE/WebSocket connection automatically)
     if (!this.isCloudMode) {
       this.loadData();
-      this.connectSSE();
       this.startRunStatusPolling();
     }
   }
@@ -699,82 +701,16 @@ export class TickBoard extends LitElement {
     super.disconnectedCallback();
     this.mediaQuery.removeEventListener('change', this.handleMediaChange);
     document.removeEventListener('keydown', this.handleKeyDown);
-    this.disconnectSSE();
-    // Note: Sync client disconnect is handled automatically by store subscriptions
-    this.disconnectRunStream();
+
+    // Unsubscribe from run events
+    this.runEventUnsubscribe?.();
+    this.runEventUnsubscribe = null;
+
+    // Unsubscribe from run stream
+    this.unsubscribeRunStream();
+
     this.stopRunStatusPolling();
-  }
-
-  // ============================================================================
-  // SSE Real-time Updates
-  // ============================================================================
-
-  /**
-   * Connect to the SSE endpoint for real-time tick updates.
-   * Uses exponential backoff for reconnection on errors.
-   */
-  private connectSSE() {
-    // Clean up any existing connection
-    if (this.eventSource) {
-      this.eventSource.close();
-    }
-
-    this.eventSource = new EventSource('/api/events');
-
-    // Reset reconnect delay on successful connection
-    this.eventSource.addEventListener('connected', () => {
-      this.reconnectDelay = 1000;
-      console.log('[SSE] Connected to server');
-    });
-
-    // Handle tick updates
-    this.eventSource.addEventListener('update', (event) => {
-      try {
-        const data = JSON.parse(event.data) as { type: string; tickId?: string };
-        this.handleRealtimeUpdate(data);
-      } catch (err) {
-        console.error('[SSE] Failed to parse update:', err);
-      }
-    });
-
-    // Handle connection errors with exponential backoff
-    this.eventSource.onerror = () => {
-      console.log('[SSE] Connection error, will reconnect...');
-      this.eventSource?.close();
-      this.eventSource = null;
-      this.scheduleReconnect();
-    };
-  }
-
-  /**
-   * Disconnect from SSE and clean up timers.
-   */
-  private disconnectSSE() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
-  }
-
-  /**
-   * Schedule a reconnection attempt with exponential backoff.
-   */
-  private scheduleReconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
-    this.reconnectTimeout = setTimeout(() => {
-      console.log(`[SSE] Reconnecting after ${this.reconnectDelay}ms...`);
-      this.connectSSE();
-    }, this.reconnectDelay);
-
-    // Exponential backoff: double the delay for next time, up to max
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+    // Note: CommsClient disconnect is handled by the store when component unmounts
   }
 
   // ============================================================================
@@ -822,10 +758,10 @@ export class TickBoard extends LitElement {
           // Found an active run
           this.runStatus = status;
 
-          // If not already connected to this epic's stream, connect
+          // If not already subscribed to this epic's stream, subscribe
           if (this.runPanelEpicId !== epic.id) {
             this.runPanelEpicId = epic.id;
-            this.connectRunStream(epic.id);
+            this.subscribeToRunStream(epic.id);
           }
 
           // Note: Don't auto-show the run panel - let users toggle it manually
@@ -875,33 +811,57 @@ export class TickBoard extends LitElement {
   }
 
   /**
-   * Connect to the run stream SSE for a specific epic.
+   * Subscribe to run stream for a specific epic via CommsClient.
    */
-  private connectRunStream(epicId: string) {
-    // Clean up any existing connection
-    this.disconnectRunStream();
+  private subscribeToRunStream(epicId: string) {
+    // Clean up any existing subscription
+    this.unsubscribeRunStream();
 
-    this.runEventSource = new EventSource(`./api/run-stream/${epicId}`);
+    console.log('[RunStream] Subscribing to epic:', epicId);
+    this.runStreamUnsubscribe = subscribeRun(epicId);
+    this.runStreamConnected = true;
+  }
 
-    // Handle connection established
-    this.runEventSource.addEventListener('connected', () => {
-      this.runStreamConnected = true;
-      console.log('[RunStream] Connected to epic:', epicId);
-    });
+  /**
+   * Unsubscribe from run stream.
+   */
+  private unsubscribeRunStream() {
+    if (this.runStreamUnsubscribe) {
+      this.runStreamUnsubscribe();
+      this.runStreamUnsubscribe = null;
+    }
+    this.runStreamConnected = false;
+  }
 
-    // Handle task started
-    this.runEventSource.addEventListener('task-started', (event) => {
-      try {
-        const data = JSON.parse(event.data);
+  /**
+   * Handle run events from the comms store.
+   */
+  private handleRunEvent(event: RunEvent) {
+    const epicId = event.epicId;
+
+    // Only handle events for the epic we're monitoring
+    if (this.runPanelEpicId && epicId !== this.runPanelEpicId) {
+      return;
+    }
+
+    switch (event.type) {
+      case 'run:task-started':
         this.runStatus = {
           epicId,
           isRunning: true,
           activeTask: {
-            tickId: data.taskId,
-            title: data.title || '',
+            tickId: event.taskId,
+            title: '',
             status: 'running',
-            numTurns: data.numTurns || 0,
-            metrics: data.metrics || {
+            numTurns: event.numTurns || 0,
+            metrics: event.metrics ? {
+              input_tokens: event.metrics.inputTokens,
+              output_tokens: event.metrics.outputTokens,
+              cache_read_tokens: event.metrics.cacheReadTokens,
+              cache_creation_tokens: event.metrics.cacheCreationTokens,
+              cost_usd: event.metrics.costUsd,
+              duration_ms: event.metrics.durationMs,
+            } : {
               input_tokens: 0,
               output_tokens: 0,
               cache_read_tokens: 0,
@@ -909,32 +869,32 @@ export class TickBoard extends LitElement {
               cost_usd: 0,
               duration_ms: 0,
             },
-            lastUpdated: new Date().toISOString(),
+            lastUpdated: event.timestamp,
           },
         };
         this.activeToolInfo = null;
-      } catch (err) {
-        console.error('[RunStream] Failed to parse task-started:', err);
-      }
-    });
+        break;
 
-    // Handle task update
-    this.runEventSource.addEventListener('task-update', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
+      case 'run:task-update':
         // Update metrics
-        if (data.metrics) {
-          this.runMetrics = this.convertApiMetrics(data.metrics);
+        if (event.metrics) {
+          this.runMetrics = {
+            inputTokens: event.metrics.inputTokens,
+            outputTokens: event.metrics.outputTokens,
+            cacheReadTokens: event.metrics.cacheReadTokens,
+            cacheCreationTokens: event.metrics.cacheCreationTokens,
+            costUsd: event.metrics.costUsd,
+            durationMs: event.metrics.durationMs,
+          };
         }
 
         // Update active tool
-        if (data.activeTool) {
+        if (event.activeTool) {
           this.activeToolInfo = {
-            name: data.activeTool.name,
-            input: data.activeTool.input,
-            output: data.activeTool.output,
-            durationMs: data.activeTool.duration,
+            name: event.activeTool.name,
+            input: event.activeTool.input,
+            output: event.activeTool.output,
+            durationMs: event.activeTool.durationMs,
             isComplete: false,
           };
         }
@@ -945,45 +905,26 @@ export class TickBoard extends LitElement {
             ...this.runStatus,
             activeTask: {
               ...this.runStatus.activeTask,
-              numTurns: data.numTurns ?? this.runStatus.activeTask.numTurns,
-              lastUpdated: new Date().toISOString(),
+              numTurns: event.numTurns ?? this.runStatus.activeTask.numTurns,
+              lastUpdated: event.timestamp,
             },
           };
         }
-      } catch (err) {
-        console.error('[RunStream] Failed to parse task-update:', err);
-      }
-    });
+        break;
 
-    // Handle tool activity
-    this.runEventSource.addEventListener('tool-activity', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const tool = data.tool || data.activeTool;
-        if (tool) {
-          this.activeToolInfo = {
-            name: tool.name,
-            input: tool.input,
-            output: tool.output,
-            durationMs: tool.duration,
-            isComplete: false,
-          };
-        }
-      } catch (err) {
-        console.error('[RunStream] Failed to parse tool-activity:', err);
-      }
-    });
+      case 'run:tool-activity':
+        this.activeToolInfo = {
+          name: event.tool.name,
+          input: event.tool.input,
+          output: event.tool.output,
+          durationMs: event.tool.durationMs,
+          isComplete: false,
+        };
+        break;
 
-    // Handle task completed
-    this.runEventSource.addEventListener('task-completed', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('[RunStream] Task completed:', data.taskId);
-
-        // Clear active tool
+      case 'run:task-completed':
+        console.log('[RunStream] Task completed:', event.taskId);
         this.activeToolInfo = null;
-
-        // Update status
         if (this.runStatus) {
           this.runStatus = {
             ...this.runStatus,
@@ -991,41 +932,22 @@ export class TickBoard extends LitElement {
             activeTask: undefined,
           };
         }
-      } catch (err) {
-        console.error('[RunStream] Failed to parse task-completed:', err);
-      }
-    });
+        break;
 
-    // Handle epic completed
-    this.runEventSource.addEventListener('epic-completed', () => {
-      console.log('[RunStream] Epic completed:', epicId);
-      this.runStatus = { epicId, isRunning: false };
-      this.activeToolInfo = null;
-    });
+      case 'run:epic-started':
+        console.log('[RunStream] Epic started:', epicId);
+        this.runStatus = {
+          epicId,
+          isRunning: true,
+        };
+        break;
 
-    // Handle errors
-    this.runEventSource.onerror = () => {
-      console.log('[RunStream] Connection error');
-      this.runStreamConnected = false;
-      this.runEventSource?.close();
-      this.runEventSource = null;
-      // Don't auto-reconnect - let polling handle it
-    };
-  }
-
-  /**
-   * Disconnect from run stream SSE.
-   */
-  private disconnectRunStream() {
-    if (this.runReconnectTimeout) {
-      clearTimeout(this.runReconnectTimeout);
-      this.runReconnectTimeout = null;
+      case 'run:epic-completed':
+        console.log('[RunStream] Epic completed:', epicId);
+        this.runStatus = { epicId, isRunning: false };
+        this.activeToolInfo = null;
+        break;
     }
-    if (this.runEventSource) {
-      this.runEventSource.close();
-      this.runEventSource = null;
-    }
-    this.runStreamConnected = false;
   }
 
   /**
@@ -1034,11 +956,11 @@ export class TickBoard extends LitElement {
   private toggleRunPanel() {
     this.showRunPanel = !this.showRunPanel;
 
-    // If showing and we have an active run, connect to its stream
+    // If showing and we have an active run, subscribe to its stream
     if (this.showRunPanel && this.runStatus?.isRunning && this.runStatus.epicId) {
       if (this.runPanelEpicId !== this.runStatus.epicId) {
         this.runPanelEpicId = this.runStatus.epicId;
-        this.connectRunStream(this.runStatus.epicId);
+        this.subscribeToRunStream(this.runStatus.epicId);
       }
     }
   }
@@ -1048,54 +970,6 @@ export class TickBoard extends LitElement {
    */
   private closeRunPanel() {
     this.showRunPanel = false;
-  }
-
-  /**
-   * Handle a real-time update from the server.
-   * Fetches fresh tick data and updates local state.
-   */
-  private async handleRealtimeUpdate(data: { type: string; tickId?: string }) {
-    const { type, tickId } = data;
-
-    // Activity updates - dispatch event for activity feed component
-    if (type === 'activity') {
-      window.dispatchEvent(new CustomEvent('activity-update'));
-      return;
-    }
-
-    if (!tickId) {
-      console.warn('[SSE] Received update without tickId:', data);
-      return;
-    }
-
-    switch (type) {
-      case 'create':
-      case 'update': {
-        // Fetch the updated tick from the server
-        try {
-          const response = await fetchTick(tickId);
-          // Update store - tickToBoardTick is called inside updateTick
-          updateTick(response);
-          // Note: epics are computed from ticks, so no need to update separately
-          // Note: selectedTickNotes/blockers are computed from selectedTick, auto-updated
-          this.updateBoardState();
-        } catch (err) {
-          console.error(`[SSE] Failed to fetch tick ${tickId}:`, err);
-        }
-        break;
-      }
-
-      case 'delete': {
-        // Remove tick from store (also clears selection if deleted tick was selected)
-        removeTick(tickId);
-        // Note: epics are computed from ticks, so removing an epic tick updates the list
-        this.updateBoardState();
-        break;
-      }
-
-      default:
-        console.warn('[SSE] Unknown update type:', type);
-    }
   }
 
   // ============================================================================

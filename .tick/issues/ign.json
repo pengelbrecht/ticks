@@ -1,0 +1,16 @@
+{
+  "id": "ign",
+  "title": "Add ticks-list-item component",
+  "description": "Interactive list item component for boards, tokens, etc.\n\nFeatures:\n- Status dot slot (online/offline indicator)\n- Title and subtitle\n- Actions slot (for buttons)\n- Hover state\n- Click handler\n\nUsage:\n\u003cticks-list-item @click=\"handleClick\"\u003e\n  \u003cticks-badge slot=\"status\" variant=\"green\" dot\u003e\u003c/ticks-badge\u003e\n  \u003cspan slot=\"title\"\u003emy-project\u003c/span\u003e\n  \u003cspan slot=\"subtitle\"\u003eOnline\u003c/span\u003e\n  \u003cticks-button slot=\"actions\" size=\"small\" variant=\"ghost\"\u003eOpen\u003c/ticks-button\u003e\n\u003c/ticks-list-item\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly in preview page",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:17:51.063757Z",
+  "updated_at": "2026-01-23T07:30:30.071447Z",
+  "closed_at": "2026-01-23T07:30:30.071447Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

@@ -1171,12 +1171,18 @@ export const appPage = `<!DOCTYPE html>
       if (userEmail) {
         document.getElementById('user-email').textContent = userEmail;
       }
+      if (window.location.pathname !== '/app') {
+        history.replaceState(null, '', '/app');
+      }
     }
 
     function showAuth() {
       document.getElementById('auth-section').classList.remove('hidden');
       document.getElementById('dashboard-section').classList.add('hidden');
       document.getElementById('header-user').style.display = 'none';
+      if (window.location.pathname !== '/login') {
+        history.replaceState(null, '', '/login');
+      }
     }
 
     async function login() {
@@ -1185,13 +1191,37 @@ export const appPage = `<!DOCTYPE html>
       const errorEl = document.getElementById('login-error');
       errorEl.classList.add('hidden');
 
+      const t0 = performance.now();
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
         });
+        const tResponse = performance.now();
         const data = await res.json();
+        const tParsed = performance.now();
+
+        // Parse Server-Timing header for server-side breakdown
+        const serverTiming = res.headers.get('Server-Timing');
+        let serverTotal = 0;
+        if (serverTiming) {
+          const match = serverTiming.match(/total;dur=([\\d.]+)/);
+          if (match) serverTotal = parseFloat(match[1]);
+        }
+
+        const clientTotal = Math.round(tResponse - t0);
+        const networkTime = serverTotal > 0 ? clientTotal - serverTotal : 'unknown';
+        const parseTime = Math.round(tParsed - tResponse);
+
+        console.log('[login timing]', {
+          clientTotal: clientTotal + 'ms',
+          serverTotal: serverTotal + 'ms',
+          networkRoundTrip: networkTime + 'ms',
+          jsonParse: parseTime + 'ms',
+          serverBreakdown: data._timing || serverTiming
+        });
+
         if (!res.ok) throw new Error(data.error || 'Login failed');
 
         token = data.token;
@@ -1199,9 +1229,14 @@ export const appPage = `<!DOCTYPE html>
         localStorage.setItem('token', token);
         localStorage.setItem('userEmail', userEmail);
         showDashboard();
-        loadBoards();
-        loadTokens();
+
+        // Time the post-login API calls
+        const tBoards = performance.now();
+        loadBoards().then(() => console.log('[timing] loadBoards:', Math.round(performance.now() - tBoards) + 'ms'));
+        const tTokens = performance.now();
+        loadTokens().then(() => console.log('[timing] loadTokens:', Math.round(performance.now() - tTokens) + 'ms'));
       } catch (e) {
+        console.log('[login timing] failed after', Math.round(performance.now() - t0) + 'ms');
         errorEl.textContent = e.message;
         errorEl.classList.remove('hidden');
       }
@@ -1264,10 +1299,10 @@ export const appPage = `<!DOCTYPE html>
         <li class="board-item" onclick="openBoard('\${b.name}', \${b.online})">
           <span class="board-status \${b.online ? 'online' : 'offline'}"></span>
           <div class="board-info">
-            <div class="board-name">\${b.name.replace(/--/g, '/')}</div>
+            <div class="board-name">\${b.name.replace(/%2F/gi, '/')}</div>
             <div class="board-meta">\${b.online ? 'Online' : 'Offline'}</div>
           </div>
-          <button class="board-remove" onclick="event.stopPropagation(); removeBoard('\${b.id}', '\${b.name.replace(/--/g, '/')}')">Remove</button>
+          <button class="board-remove" onclick="event.stopPropagation(); removeBoard('\${b.id}', '\${b.name.replace(/%2F/gi, '/')}')">Remove</button>
         </li>
       \`).join('');
     }

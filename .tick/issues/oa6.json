@@ -1,0 +1,15 @@
+{
+  "id": "oa6",
+  "title": "Echo hello world test",
+  "description": "Create a simple shell script that prints 'Hello, World\\!' to stdout. Put it in /tmp/hello.sh",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T11:20:19.53216Z",
+  "updated_at": "2026-01-24T11:20:57.680023Z",
+  "closed_at": "2026-01-24T11:20:57.680023Z",
+  "closed_reason": "Created /tmp/hello.sh with shebang and echo command. Made executable and verified output."
+}

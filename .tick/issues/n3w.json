@@ -1,0 +1,19 @@
+{
+  "id": "n3w",
+  "title": "Create E2E browser tests against wrangler dev",
+  "description": "Extend E2E test suite to also run against wrangler dev with real DO.\n\nCreate: internal/tickboard/ui/e2e/cloud-e2e.sh\n\nTests should cover same scenarios as comms-e2e.sh but:\n- Connect to wrangler dev instead of test rig directly\n- Verify full round-trip through DO\n- Test rig acts as local agent\n\nScenarios:\n- SSE/WebSocket connections through Worker\n- Tick CRUD operations via DO\n- Local agent status updates\n- Run stream subscription",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "b97"
+  ],
+  "parent": "gv8",
+  "acceptance_criteria": "E2E tests pass against wrangler dev with test rig as local agent",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T09:25:53.33056Z",
+  "updated_at": "2026-01-25T09:39:35.259979Z",
+  "closed_at": "2026-01-25T09:39:35.259979Z",
+  "closed_reason": "Created cloud-e2e.sh that runs E2E tests against wrangler dev with real DOs. The script: (1) starts wrangler dev via wrangler-ctl.sh, (2) sets up test auth via setup-cloud-auth.sh, (3) starts test rig with --upstream pointing to wrangler dev, (4) waits for upstream connection, (5) runs cloud-specific tests including tick CRUD through DO, sync verification, and run stream subscription, (6) cleans up all processes on exit. Tests mirror comms-e2e.sh scenarios but verify full round-trip through the cloud stack."
+}

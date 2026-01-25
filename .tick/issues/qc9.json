@@ -1,0 +1,16 @@
+{
+  "id": "qc9",
+  "title": "Add ticks-alert component",
+  "description": "Alert/notification box component with variants: success (green), error (red), warning (yellow), info (blue).\n\nFeatures:\n- Colored left border or background tint based on variant\n- Optional icon slot\n- Optional close button\n- Matches existing badge color palette\n\nUsage:\n\u003cticks-alert variant=\"error\"\u003eInvalid email or password\u003c/ticks-alert\u003e\n\u003cticks-alert variant=\"success\" closable\u003eAccount created!\u003c/ticks-alert\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "p0m",
+  "acceptance_criteria": "Component renders correctly in preview page with all variants",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-23T07:17:15.206178Z",
+  "updated_at": "2026-01-23T07:30:29.9214Z",
+  "closed_at": "2026-01-23T07:30:29.9214Z",
+  "closed_reason": "Completed via Claude Swarm"
+}

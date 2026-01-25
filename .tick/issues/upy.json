@@ -1,0 +1,15 @@
+{
+  "id": "upy",
+  "title": "Another echo test",
+  "description": "Write a one-liner that echoes 'second liverun test' to stdout",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T13:16:52.477375Z",
+  "updated_at": "2026-01-24T13:24:41.048892Z",
+  "closed_at": "2026-01-24T13:24:41.048892Z",
+  "closed_reason": "Simple echo one-liner: 'echo second liverun test' outputs correct string to stdout"
+}

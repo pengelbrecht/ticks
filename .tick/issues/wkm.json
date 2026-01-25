@@ -1,0 +1,15 @@
+{
+  "id": "wkm",
+  "title": "Test SSE update",
+  "description": "Run: echo 'hello' \u0026\u0026 sleep 3 \u0026\u0026 echo 'done'",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T17:27:51.102032Z",
+  "updated_at": "2026-01-24T17:35:44.299213Z",
+  "closed_at": "2026-01-24T17:35:44.299213Z",
+  "closed_reason": "SSE update test passed - echo/sleep/echo command executed correctly, showing 'hello' then 3-second delay then 'done'"
+}

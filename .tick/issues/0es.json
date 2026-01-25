@@ -1,0 +1,16 @@
+{
+  "id": "0es",
+  "title": "Fix localhost board favicon",
+  "description": "The favicon shown for the localhost tickboard server is incorrect. Update to use the correct ticks favicon.",
+  "notes": "2026-01-24 17:59 - Work on this task was interrupted by user. May be partially complete.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zfq",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-24T16:45:46.645557Z",
+  "updated_at": "2026-01-24T17:06:56.374178Z",
+  "closed_at": "2026-01-24T17:06:56.374178Z",
+  "closed_reason": "Copied correct favicon files (PNG and ICO) from logos/favicon/ to internal/tickboard/server/static/. The server was using outdated PNG/ICO files that differed from the canonical versions. Now all favicon formats match the official ticks branding."
+}
