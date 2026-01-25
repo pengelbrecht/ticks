@@ -124,9 +124,13 @@ export class TickHeader extends LitElement {
     }
 
     .epic-id {
-      font-family: monospace;
-      font-size: 0.85em;
-      opacity: 0.7;
+      font-family: var(--sl-font-mono);
+      font-size: 0.75em;
+      padding: 0.15em 0.4em;
+      background: var(--surface1);
+      border-radius: 3px;
+      color: var(--subtext0);
+      margin-right: 0.5em;
     }
 
     .header-right {

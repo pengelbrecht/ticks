@@ -42,10 +42,21 @@ export const $error = atom<string | null>(null);
 /** All ticks as an array */
 export const $ticksList = computed($ticks, (ticks) => Object.values(ticks));
 
-/** Epics derived from ticks (type === 'epic') */
+/** Epics derived from ticks (type === 'epic', open or closed within 12 hours) */
 export const $epics = computed($ticks, (ticks): Epic[] => {
+  const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
   return Object.values(ticks)
-    .filter((t) => t.type === 'epic')
+    .filter((t) => {
+      if (t.type !== 'epic') return false;
+      // Include open/in_progress epics
+      if (t.status !== 'closed') return true;
+      // Include recently closed epics (last 12 hours)
+      if (t.closed_at) {
+        const closedTime = new Date(t.closed_at).getTime();
+        return closedTime > twelveHoursAgo;
+      }
+      return false;
+    })
     .map((t) => ({ id: t.id, title: t.title }));
 });
 
