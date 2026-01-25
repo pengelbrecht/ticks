@@ -1,0 +1,15 @@
+{
+  "id": "zwd",
+  "title": "Fix tk merge to use parent branch",
+  "description": "The tk merge command currently requires being on the main branch. It should use the ParentBranch from worktree metadata as the default merge target, enabling merges back to feature branches.",
+  "notes": "2026-01-24 14:46 - Task xr2 completed: Updated cmd/tk/cmd/merge.go to use worktree ParentBranch as the merge target. The internal worktree.MergeManager already supported parent branch merging - this change updates the CLI command to leverage that. Tests in internal/worktree/merge_test.go already cover the parent branch scenarios comprehensively.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:40:58.7891266Z",
+  "updated_at": "2026-01-24T13:48:41.9268553Z",
+  "closed_at": "2026-01-24T13:48:41.9268553Z",
+  "closed_reason": "Fixed merge command to use ParentBranch"
+}

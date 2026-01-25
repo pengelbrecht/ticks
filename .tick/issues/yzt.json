@@ -1,0 +1,19 @@
+{
+  "id": "yzt",
+  "title": "Update existing tests to use new Merge() signature",
+  "description": "Update all existing test files that call Merge() to use the new signature.\n\nFiles to modify:\n- internal/worktree/merge_test.go - 6 call sites\n- internal/worktree/conflict_test.go - 1 call site\n\nImplementation:\nChange all instances of:\n  mm.Merge(wt)\nto:\n  mm.Merge(wt, MergeOptions{})\n\nThese tests should continue to pass as-is because they were testing merge to main, and the worktrees were created from main (so ParentBranch will be main).",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "blocked_by": [
+    "2su"
+  ],
+  "parent": "n47",
+  "acceptance_criteria": "go test ./internal/worktree/... passes (all existing tests still work)",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:55:34.720815Z",
+  "updated_at": "2026-01-24T10:19:47.3577434Z",
+  "closed_at": "2026-01-24T10:19:47.3577434Z",
+  "closed_reason": "Test files already updated by 2su agent - all worktree tests pass"
+}

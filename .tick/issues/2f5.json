@@ -1,0 +1,19 @@
+{
+  "id": "2f5",
+  "title": "Update Manager.List() to populate ParentBranch with tests",
+  "description": "Update Manager.List() to read metadata and populate ParentBranch for each worktree.\n\nFiles to modify:\n- internal/worktree/worktree.go (implementation)\n- internal/worktree/worktree_test.go (tests)\n\nImplementation:\n1. After parseWorktreeList(), iterate through worktrees\n2. For each worktree, call readMetadata(wt.Path) to get ParentBranch\n3. Populate wt.ParentBranch field\n\nTests to write:\n1. TestManager_List_PopulatesParentBranch - create worktree, call List(), verify ParentBranch field is populated correctly\n2. TestManager_List_MissingMetadata - verify graceful handling when .tk-metadata doesn't exist (ParentBranch should be empty)\n\nWrite tests alongside implementation.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "blocked_by": [
+    "c64"
+  ],
+  "parent": "mqd",
+  "acceptance_criteria": "go test ./internal/worktree/... -run 'TestManager_List_PopulatesParentBranch|TestManager_List_MissingMetadata' -v passes with both test names visible",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:54:28.3776803Z",
+  "updated_at": "2026-01-24T10:11:50.149136Z",
+  "closed_at": "2026-01-24T10:11:50.149136Z",
+  "closed_reason": "Updated Manager.List() to populate ParentBranch from metadata. Added two tests: TestManager_List_PopulatesParentBranch and TestManager_List_MissingMetadata."
+}

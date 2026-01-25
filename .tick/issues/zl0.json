@@ -1,0 +1,15 @@
+{
+  "id": "zl0",
+  "title": "Fix ParentBranch documentation blind spots",
+  "description": "Several places in the codebase still reference 'main' branch in comments, help text, and user-facing messages, when they should reference the dynamic target branch (ParentBranch or main fallback).",
+  "notes": "2026-01-24 15:07 - Completed [rgn]: ConflictState now has TargetBranch field and ConflictInfo() uses it. HandleConflict signature changed to include targetBranch param - any future callers will need to pass MergeResult.TargetBranch.\n2026-01-24 15:10 - Completed [4ex]: Updated merge command help text (Short and Long) to reference 'target branch' instead of hardcoded 'main', and explained that worktrees created from feature branches merge back to their ParentBranch.\n2026-01-24 15:12 - 2026-01-24 15:12 - Completed [1r8]: Updated MergeManager comments in runner.go:27 and merge.go:39 from 'to main' to 'to their target branch'. All comment-related tasks in this epic are now complete.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:59:49.3372052Z",
+  "updated_at": "2026-01-24T14:12:44.2520921Z",
+  "closed_at": "2026-01-24T14:12:44.2520921Z",
+  "closed_reason": "all tasks completed"
+}

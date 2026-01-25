@@ -15,6 +15,17 @@ var ErrMergeConflict = errors.New("merge conflict")
 // ErrNoMergeInProgress is returned when trying to abort with no merge in progress.
 var ErrNoMergeInProgress = errors.New("no merge in progress")
 
+// ErrParentBranchNotFound is returned when the parent branch no longer exists.
+var ErrParentBranchNotFound = errors.New("parent branch no longer exists")
+
+// ErrNoTargetBranch is returned when no target branch is specified and no parent branch is recorded.
+var ErrNoTargetBranch = errors.New("no target branch specified and no parent branch recorded")
+
+// MergeOptions contains options for the Merge operation.
+type MergeOptions struct {
+	TargetBranch string // Target branch to merge into (overrides worktree's ParentBranch)
+}
+
 // MergeResult represents the outcome of a merge attempt.
 type MergeResult struct {
 	Success      bool     // True if merge completed successfully
@@ -22,9 +33,10 @@ type MergeResult struct {
 	Conflicts    []string // List of conflicting files if any
 	MergeCommit  string   // Commit hash of merge commit (if success)
 	ErrorMessage string   // Error details if failed
+	TargetBranch string   // The branch that was merged into
 }
 
-// MergeManager handles merging worktree branches to main.
+// MergeManager handles merging worktree branches to their target branch.
 type MergeManager struct {
 	repoRoot   string
 	mainBranch string // Usually "main" or "master"
@@ -49,15 +61,41 @@ func (m *MergeManager) MainBranch() string {
 	return m.mainBranch
 }
 
-// Merge merges the worktree branch into main.
+// Merge merges the worktree branch into the target branch.
 // Must be called from main repo (not worktree).
 // Returns MergeResult with conflict details if merge fails.
-func (m *MergeManager) Merge(wt *Worktree) (*MergeResult, error) {
-	// First, checkout main branch
-	if err := m.checkoutMain(); err != nil {
+//
+// Target branch resolution:
+// 1. If opts.TargetBranch is set, use it
+// 2. Else if wt.ParentBranch is set, use it
+// 3. Else return ErrNoTargetBranch
+func (m *MergeManager) Merge(wt *Worktree, opts MergeOptions) (*MergeResult, error) {
+	// Resolve target branch
+	var targetBranch string
+	var targetFromOpts bool
+	if opts.TargetBranch != "" {
+		targetBranch = opts.TargetBranch
+		targetFromOpts = true
+	} else if wt.ParentBranch != "" {
+		targetBranch = wt.ParentBranch
+	} else {
+		return nil, ErrNoTargetBranch
+	}
+
+	// Check if target branch exists
+	if !branchExists(m.repoRoot, targetBranch) {
+		if targetFromOpts {
+			return nil, fmt.Errorf("target branch %q does not exist", targetBranch)
+		}
+		return nil, ErrParentBranchNotFound
+	}
+
+	// First, checkout target branch
+	if err := m.checkoutBranch(targetBranch); err != nil {
 		return &MergeResult{
 			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to checkout %s: %v", m.mainBranch, err),
+			TargetBranch: targetBranch,
+			ErrorMessage: fmt.Sprintf("failed to checkout %s: %v", targetBranch, err),
 		}, nil
 	}
 
@@ -75,6 +113,7 @@ func (m *MergeManager) Merge(wt *Worktree) (*MergeResult, error) {
 				Success:      false,
 				Merged:       true, // Merge was attempted
 				Conflicts:    conflicts,
+				TargetBranch: targetBranch,
 				ErrorMessage: "merge conflict",
 			}, nil
 		}
@@ -82,6 +121,7 @@ func (m *MergeManager) Merge(wt *Worktree) (*MergeResult, error) {
 		// Some other error
 		return &MergeResult{
 			Success:      false,
+			TargetBranch: targetBranch,
 			ErrorMessage: fmt.Sprintf("merge failed: %s", strings.TrimSpace(string(output))),
 		}, nil
 	}
@@ -92,14 +132,16 @@ func (m *MergeManager) Merge(wt *Worktree) (*MergeResult, error) {
 		return &MergeResult{
 			Success:      true,
 			Merged:       true,
+			TargetBranch: targetBranch,
 			ErrorMessage: fmt.Sprintf("merge succeeded but failed to get commit hash: %v", err),
 		}, nil
 	}
 
 	return &MergeResult{
-		Success:     true,
-		Merged:      true,
-		MergeCommit: commitHash,
+		Success:      true,
+		Merged:       true,
+		MergeCommit:  commitHash,
+		TargetBranch: targetBranch,
 	}, nil
 }
 
@@ -128,9 +170,9 @@ func (m *MergeManager) HasConflict() bool {
 	return cmd.Run() == nil
 }
 
-// checkoutMain switches to the main branch.
-func (m *MergeManager) checkoutMain() error {
-	cmd := exec.Command("git", "checkout", m.mainBranch)
+// checkoutBranch switches to the specified branch.
+func (m *MergeManager) checkoutBranch(branch string) error {
+	cmd := exec.Command("git", "checkout", branch)
 	cmd.Dir = m.repoRoot
 
 	output, err := cmd.CombinedOutput()
@@ -184,6 +226,13 @@ func (m *MergeManager) getHeadCommit() (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// branchExists checks if a branch exists in the repository.
+func branchExists(repoRoot, branch string) bool {
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Dir = repoRoot
+	return cmd.Run() == nil
 }
 
 // detectMainBranch detects whether the repository uses 'main' or 'master'.

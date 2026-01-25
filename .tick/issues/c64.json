@@ -1,0 +1,16 @@
+{
+  "id": "c64",
+  "title": "Add ParentBranch field and metadata helpers with tests",
+  "description": "Add ParentBranch tracking infrastructure to worktree package.\n\nFiles to modify:\n- internal/worktree/worktree.go (implementation)\n- internal/worktree/worktree_test.go (tests)\n\nImplementation:\n1. Add ParentBranch field to Worktree struct\n2. Add metadataFileName constant (\".tk-metadata\")\n3. Add worktreeMetadata struct with ParentBranch and CreatedAt fields\n4. Add getCurrentBranch(repoRoot string) string helper - uses git rev-parse --abbrev-ref HEAD, returns empty string for detached HEAD\n5. Add writeMetadata(wtPath string, meta worktreeMetadata) error helper - writes JSON to .tk-metadata\n6. Add readMetadata(wtPath string) string helper - reads JSON, returns ParentBranch or empty string\n\nTests to write:\n1. TestGetCurrentBranch - verify returns current branch name\n2. TestGetCurrentBranch_DetachedHead - verify returns empty string when HEAD is detached\n3. TestWriteReadMetadata - verify round-trip of metadata JSON\n\nWrite tests alongside implementation.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "mqd",
+  "acceptance_criteria": "go test ./internal/worktree/... -run 'TestGetCurrentBranch|TestWriteReadMetadata' -v passes with all 3 test names visible",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:54:06.8302873Z",
+  "updated_at": "2026-01-24T10:06:19.202274Z",
+  "closed_at": "2026-01-24T10:06:19.202274Z",
+  "closed_reason": "Added ParentBranch field to Worktree struct, metadataFileName constant, worktreeMetadata struct, and helper functions getCurrentBranch, writeMetadata, readMetadata with tests"
+}

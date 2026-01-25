@@ -1,0 +1,15 @@
+{
+  "id": "mqd",
+  "title": "worktree-merge: Parent branch tracking",
+  "description": "Add ParentBranch tracking to Worktree struct and Manager\n\n## Context\n\n**Spec:** `docs/projects/2026-01-24-worktree-merge/2026-01-24-worktree-merge-spec.md`\n**GitHub Issue:** #4\n\n**Key files for this epic:**\n- `internal/worktree/worktree.go` - Worktree struct and Manager implementation\n- `internal/worktree/worktree_test.go` - Existing tests to extend\n\n**Changes:**\n1. Add ParentBranch field to Worktree struct\n2. Add metadata helpers (worktreeMetadata struct, writeMetadata, readMetadata, getCurrentBranch)\n3. Update Manager.Create() to detect and store parent branch\n4. Update Manager.List() to read metadata and populate ParentBranch",
+  "notes": "2026-01-24 11:06 - getCurrentBranch helper uses git rev-parse --abbrev-ref HEAD; returns empty string for detached HEAD (when result is 'HEAD'). Metadata helpers writeMetadata/readMetadata use .tk-metadata file with JSON format.\n2026-01-24 11:11 - Key insight: Manager.Create() records parent branch BEFORE calling git worktree add since the worktree will checkout a different branch. The metadata is written to .tk-metadata in the worktree directory after creation. Empty string indicates detached HEAD at creation time.\n2026-01-24 11:11 - List() now reads metadata for each worktree. The readMetadata helper returns empty string gracefully when file is missing or invalid JSON.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:53:54.2222793Z",
+  "updated_at": "2026-01-24T13:40:33.1483957Z",
+  "closed_at": "2026-01-24T13:40:33.1483957Z",
+  "closed_reason": "Implementation complete"
+}

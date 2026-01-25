@@ -1,0 +1,20 @@
+{
+  "id": "2su",
+  "title": "Update Merge() signature and implement target branch resolution with tests",
+  "description": "Update MergeManager.Merge() to use MergeOptions and resolve target branch.\n\nFiles to modify:\n- internal/worktree/merge.go (implementation)\n- internal/worktree/merge_test.go (tests)\n\nImplementation:\n1. Change Merge(wt *Worktree) to Merge(wt *Worktree, opts MergeOptions)\n2. Implement target branch resolution:\n   - If opts.TargetBranch is set, use it\n   - Else if wt.ParentBranch is set, use it\n   - Else return nil, ErrNoTargetBranch\n3. Check if target branch exists:\n   - If not and target came from opts, return error\n   - If not and target came from wt.ParentBranch, return nil, ErrParentBranchNotFound\n4. Rename checkoutMain() to checkoutBranch(branch string)\n5. Populate TargetBranch in all MergeResult returns\n\nTests to write:\n1. TestMerge_UsesParentBranch - create worktree from feature branch, merge with empty opts, verify merges to parent\n2. TestMerge_UsesOverride - merge with opts.TargetBranch set, verify uses override\n3. TestMerge_OverrideTakesPrecedence - create from feature/a, merge with TargetBranch: main, verify uses main\n4. TestMerge_ErrParentBranchNotFound - delete parent branch before merge, verify error\n5. TestMerge_ErrNoTargetBranch - create from detached HEAD, merge with empty opts, verify error\n6. TestMerge_TargetBranchPopulated - verify result.TargetBranch is set on success and conflict\n\nWrite tests alongside implementation.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "blocked_by": [
+    "2d2",
+    "l47"
+  ],
+  "parent": "qwk",
+  "acceptance_criteria": "go test ./internal/worktree/... -run 'TestMerge_UsesParentBranch|TestMerge_UsesOverride|TestMerge_OverrideTakesPrecedence|TestMerge_Err' -v passes with all test names visible",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:55:03.8373491Z",
+  "updated_at": "2026-01-24T10:18:10.100064Z",
+  "closed_at": "2026-01-24T10:18:10.100064Z",
+  "closed_reason": "Implemented target branch resolution in Merge(): uses opts.TargetBranch if set, else wt.ParentBranch, else returns ErrNoTargetBranch. Renamed checkoutMain to checkoutBranch. TargetBranch populated in all MergeResult returns. Added 6 tests covering all resolution scenarios."
+}

@@ -1,0 +1,14 @@
+{
+  "id": "zhs",
+  "title": "Add a comment to worktree.go",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "if2",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:31:18.395289Z",
+  "updated_at": "2026-01-24T13:35:54.8501447Z",
+  "closed_at": "2026-01-24T13:35:54.8501447Z",
+  "closed_reason": "Added package doc comment to worktree.go"
+}

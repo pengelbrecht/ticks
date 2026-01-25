@@ -1,0 +1,19 @@
+{
+  "id": "2qf",
+  "title": "Update parallel runner to use new Merge() signature",
+  "description": "Update the parallel runner to use the new Merge() signature and improve messaging.\n\nFiles to modify:\n- internal/parallel/runner.go\n\nImplementation:\n1. Change line 231 from Merge(wt) to Merge(wt, worktree.MergeOptions{})\n2. Update the message on line 230 from \"Merging to main...\" to use result.TargetBranch after merge\n   - e.g., \"Merged to \" + result.TargetBranch or similar\n\nNo new tests needed - existing parallel runner tests should still pass.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "blocked_by": [
+    "2su"
+  ],
+  "parent": "n47",
+  "acceptance_criteria": "go build ./internal/parallel/... succeeds; go test ./internal/parallel/... passes",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:55:24.2929679Z",
+  "updated_at": "2026-01-24T10:21:15.0475201Z",
+  "closed_at": "2026-01-24T10:21:15.0475201Z",
+  "closed_reason": "Updated Merge() call to use new signature with MergeOptions{} parameter. Improved messaging to show target branch after merge."
+}

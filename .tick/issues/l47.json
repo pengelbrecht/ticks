@@ -1,0 +1,16 @@
+{
+  "id": "l47",
+  "title": "Add MergeOptions, errors, and TargetBranch to MergeResult with tests",
+  "description": "Add new types and update MergeResult for parent branch support.\n\nFiles to modify:\n- internal/worktree/merge.go (implementation)\n- internal/worktree/merge_test.go (tests)\n\nImplementation:\n1. Add MergeOptions struct with TargetBranch string field\n2. Add ErrParentBranchNotFound = errors.New(\"parent branch no longer exists\")\n3. Add ErrNoTargetBranch = errors.New(\"no target branch specified and no parent branch recorded\")\n4. Add TargetBranch string field to MergeResult struct\n5. Add branchExists(repoRoot, branch string) bool helper function (extract from existing code or add new)\n\nTests to write:\n1. TestBranchExists - verify branchExists returns true for existing branch, false for nonexistent\n\nThis tick sets up the types; the next tick will update Merge() to use them.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "qwk",
+  "acceptance_criteria": "go build ./internal/worktree/... succeeds; go test ./internal/worktree/... -run TestBranchExists -v passes",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:54:48.8468918Z",
+  "updated_at": "2026-01-24T10:05:17.7803376Z",
+  "closed_at": "2026-01-24T10:05:17.7803376Z",
+  "closed_reason": "Added MergeOptions struct, ErrParentBranchNotFound and ErrNoTargetBranch errors, TargetBranch field to MergeResult, branchExists helper function, and TestBranchExists tests"
+}

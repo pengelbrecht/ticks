@@ -1,0 +1,14 @@
+{
+  "id": "vz3",
+  "title": "worktree-merge: Environment validation",
+  "description": "Verify environment is healthy before implementation\n\n## Context\n\n**Spec:** `docs/projects/2026-01-24-worktree-merge/2026-01-24-worktree-merge-spec.md`\n**GitHub Issue:** #4\n\n**Key files:** Project root, internal/worktree/",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:53:34.1779318Z",
+  "updated_at": "2026-01-24T13:40:33.0104799Z",
+  "closed_at": "2026-01-24T13:40:33.0104799Z",
+  "closed_reason": "Implementation complete"
+}

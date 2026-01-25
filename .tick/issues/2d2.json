@@ -1,0 +1,19 @@
+{
+  "id": "2d2",
+  "title": "Update Manager.Create() to record parent branch with tests",
+  "description": "Update Manager.Create() to detect and store parent branch in metadata.\n\nFiles to modify:\n- internal/worktree/worktree.go (implementation)\n- internal/worktree/worktree_test.go (tests)\n\nImplementation:\n1. In Create(), before calling git worktree add, call getCurrentBranch() to get parent\n2. After worktree is created, call writeMetadata() with parent branch and creation time\n3. Populate ParentBranch field in returned Worktree struct\n\nTests to write:\n1. TestManager_Create_RecordsParentBranch - create worktree while on a branch, verify .tk-metadata exists and contains correct parentBranch\n2. TestManager_Create_DetachedHead - create worktree from detached HEAD, verify parentBranch is empty string in metadata\n\nWrite tests alongside implementation.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "blocked_by": [
+    "c64"
+  ],
+  "parent": "mqd",
+  "acceptance_criteria": "go test ./internal/worktree/... -run 'TestManager_Create_RecordsParentBranch|TestManager_Create_DetachedHead' -v passes with both test names visible",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:54:17.8649689Z",
+  "updated_at": "2026-01-24T10:11:47.1881998Z",
+  "closed_at": "2026-01-24T10:11:47.1881998Z",
+  "closed_reason": "Implemented Manager.Create() to detect parent branch before worktree creation using getCurrentBranch(), write metadata after creation using writeMetadata(), and populate ParentBranch in returned Worktree struct. Added TestManager_Create_RecordsParentBranch and TestManager_Create_DetachedHead tests - both pass."
+}

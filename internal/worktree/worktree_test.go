@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewManager(t *testing.T) {
@@ -822,4 +823,274 @@ func createTempGitRepo(t *testing.T) string {
 	}
 
 	return dir
+}
+
+func TestGetCurrentBranch(t *testing.T) {
+	t.Run("returns current branch name", func(t *testing.T) {
+		dir := createTempGitRepo(t)
+
+		// The repo is on the default branch after init (usually main or master)
+		branch := getCurrentBranch(dir)
+		if branch == "" {
+			t.Error("getCurrentBranch() returned empty string, want branch name")
+		}
+
+		// Create and checkout a known branch
+		cmd := exec.Command("git", "checkout", "-b", "test-branch")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create branch: %v", err)
+		}
+
+		branch = getCurrentBranch(dir)
+		if branch != "test-branch" {
+			t.Errorf("getCurrentBranch() = %q, want %q", branch, "test-branch")
+		}
+	})
+}
+
+func TestGetCurrentBranch_DetachedHead(t *testing.T) {
+	t.Run("returns empty string when HEAD is detached", func(t *testing.T) {
+		dir := createTempGitRepo(t)
+
+		// Get commit hash
+		cmd := exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = dir
+		output, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("failed to get commit hash: %v", err)
+		}
+		commitHash := strings.TrimSpace(string(output))
+
+		// Checkout the commit hash (detached HEAD)
+		cmd = exec.Command("git", "checkout", commitHash)
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to checkout commit: %v", err)
+		}
+
+		branch := getCurrentBranch(dir)
+		if branch != "" {
+			t.Errorf("getCurrentBranch() = %q, want empty string for detached HEAD", branch)
+		}
+	})
+}
+
+func TestManager_Create_RecordsParentBranch(t *testing.T) {
+	t.Run("records parent branch in metadata when on a branch", func(t *testing.T) {
+		dir := createTempGitRepo(t)
+
+		// Create and checkout a known branch
+		runGit(t, dir, "checkout", "-b", "feature/test-parent")
+
+		m, err := NewManager(dir)
+		if err != nil {
+			t.Fatalf("NewManager() error = %v", err)
+		}
+
+		wt, err := m.Create("parent-test")
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+
+		// Verify ParentBranch field in returned struct
+		if wt.ParentBranch != "feature/test-parent" {
+			t.Errorf("Worktree.ParentBranch = %q, want %q", wt.ParentBranch, "feature/test-parent")
+		}
+
+		// Verify .tk-metadata file exists
+		metaPath := filepath.Join(wt.Path, metadataFileName)
+		if _, err := os.Stat(metaPath); os.IsNotExist(err) {
+			t.Fatal(".tk-metadata file should exist after Create()")
+		}
+
+		// Verify metadata contains correct parentBranch
+		parentBranch := readMetadata(wt.Path)
+		if parentBranch != "feature/test-parent" {
+			t.Errorf("readMetadata() = %q, want %q", parentBranch, "feature/test-parent")
+		}
+	})
+}
+
+func TestManager_Create_DetachedHead(t *testing.T) {
+	t.Run("records empty parent branch in metadata when HEAD is detached", func(t *testing.T) {
+		dir := createTempGitRepo(t)
+
+		// Get commit hash and checkout (detached HEAD)
+		cmd := exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = dir
+		output, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("failed to get commit hash: %v", err)
+		}
+		commitHash := strings.TrimSpace(string(output))
+
+		runGit(t, dir, "checkout", commitHash)
+
+		m, err := NewManager(dir)
+		if err != nil {
+			t.Fatalf("NewManager() error = %v", err)
+		}
+
+		wt, err := m.Create("detached-test")
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+
+		// Verify ParentBranch field is empty in returned struct
+		if wt.ParentBranch != "" {
+			t.Errorf("Worktree.ParentBranch = %q, want empty string for detached HEAD", wt.ParentBranch)
+		}
+
+		// Verify .tk-metadata file exists
+		metaPath := filepath.Join(wt.Path, metadataFileName)
+		if _, err := os.Stat(metaPath); os.IsNotExist(err) {
+			t.Fatal(".tk-metadata file should exist after Create()")
+		}
+
+		// Verify metadata contains empty parentBranch
+		parentBranch := readMetadata(wt.Path)
+		if parentBranch != "" {
+			t.Errorf("readMetadata() = %q, want empty string for detached HEAD", parentBranch)
+		}
+	})
+}
+
+func TestWriteReadMetadata(t *testing.T) {
+	t.Run("round-trip of metadata JSON", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Write metadata
+		meta := worktreeMetadata{
+			ParentBranch: "main",
+			CreatedAt:    time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		}
+		if err := writeMetadata(dir, meta); err != nil {
+			t.Fatalf("writeMetadata() error = %v", err)
+		}
+
+		// Verify file exists
+		metaPath := filepath.Join(dir, metadataFileName)
+		if _, err := os.Stat(metaPath); os.IsNotExist(err) {
+			t.Fatal("metadata file should exist after writeMetadata()")
+		}
+
+		// Read metadata back
+		parentBranch := readMetadata(dir)
+		if parentBranch != "main" {
+			t.Errorf("readMetadata() = %q, want %q", parentBranch, "main")
+		}
+	})
+
+	t.Run("readMetadata returns empty for nonexistent file", func(t *testing.T) {
+		dir := t.TempDir()
+
+		parentBranch := readMetadata(dir)
+		if parentBranch != "" {
+			t.Errorf("readMetadata() = %q, want empty string for nonexistent file", parentBranch)
+		}
+	})
+
+	t.Run("readMetadata returns empty for invalid JSON", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Write invalid JSON
+		metaPath := filepath.Join(dir, metadataFileName)
+		if err := os.WriteFile(metaPath, []byte("not valid json"), 0644); err != nil {
+			t.Fatalf("failed to write file: %v", err)
+		}
+
+		parentBranch := readMetadata(dir)
+		if parentBranch != "" {
+			t.Errorf("readMetadata() = %q, want empty string for invalid JSON", parentBranch)
+		}
+	})
+}
+
+func TestManager_List_PopulatesParentBranch(t *testing.T) {
+	t.Run("List populates ParentBranch from metadata", func(t *testing.T) {
+		dir := createTempGitRepo(t)
+
+		// Create and checkout a known branch to be the parent
+		runGit(t, dir, "checkout", "-b", "feature/parent-for-list")
+
+		m, err := NewManager(dir)
+		if err != nil {
+			t.Fatalf("NewManager() error = %v", err)
+		}
+
+		// Create a worktree (which writes metadata with the parent branch)
+		created, err := m.Create("list-parent-test")
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+
+		// Verify the worktree was created with the correct parent branch
+		if created.ParentBranch != "feature/parent-for-list" {
+			t.Fatalf("Created worktree ParentBranch = %q, want %q", created.ParentBranch, "feature/parent-for-list")
+		}
+
+		// Now use List() to retrieve the worktree and verify ParentBranch is populated
+		worktrees, err := m.List()
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+
+		if len(worktrees) != 1 {
+			t.Fatalf("List() returned %d worktrees, want 1", len(worktrees))
+		}
+
+		listed := worktrees[0]
+		if listed.EpicID != "list-parent-test" {
+			t.Errorf("List()[0].EpicID = %q, want %q", listed.EpicID, "list-parent-test")
+		}
+		if listed.ParentBranch != "feature/parent-for-list" {
+			t.Errorf("List()[0].ParentBranch = %q, want %q", listed.ParentBranch, "feature/parent-for-list")
+		}
+	})
+}
+
+func TestManager_List_MissingMetadata(t *testing.T) {
+	t.Run("List handles missing metadata gracefully", func(t *testing.T) {
+		dir := createTempGitRepo(t)
+		m, err := NewManager(dir)
+		if err != nil {
+			t.Fatalf("NewManager() error = %v", err)
+		}
+
+		// Create a worktree
+		wt, err := m.Create("no-meta-test")
+		if err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+
+		// Remove the metadata file to simulate a worktree without metadata
+		metaPath := filepath.Join(wt.Path, metadataFileName)
+		if err := os.Remove(metaPath); err != nil {
+			t.Fatalf("failed to remove metadata file: %v", err)
+		}
+
+		// Verify metadata file is gone
+		if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
+			t.Fatal("metadata file should not exist after removal")
+		}
+
+		// Call List() and verify it doesn't error and ParentBranch is empty
+		worktrees, err := m.List()
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+
+		if len(worktrees) != 1 {
+			t.Fatalf("List() returned %d worktrees, want 1", len(worktrees))
+		}
+
+		listed := worktrees[0]
+		if listed.EpicID != "no-meta-test" {
+			t.Errorf("List()[0].EpicID = %q, want %q", listed.EpicID, "no-meta-test")
+		}
+		if listed.ParentBranch != "" {
+			t.Errorf("List()[0].ParentBranch = %q, want empty string when metadata is missing", listed.ParentBranch)
+		}
+	})
 }

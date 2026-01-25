@@ -24,7 +24,7 @@ type RunnerConfig struct {
 	// WorktreeManager handles worktree creation/cleanup.
 	WorktreeManager *worktree.Manager
 
-	// MergeManager handles merging completed worktrees to main.
+	// MergeManager handles merging completed worktrees to their target branch.
 	MergeManager *worktree.MergeManager
 
 	// EngineFactory creates Engine instances for each epic.
@@ -227,9 +227,13 @@ func (r *Runner) runEpic(ctx context.Context, epicID string) {
 
 	// Try to merge if we have a worktree and merge manager
 	if wt != nil && r.config.MergeManager != nil {
-		r.sendMessage("Merging " + epicID + " to main...")
-		mergeResult, mergeErr := r.config.MergeManager.Merge(wt)
-		r.sendMessage("") // Clear status after merge attempt
+		r.sendMessage("Merging " + epicID + "...")
+		mergeResult, mergeErr := r.config.MergeManager.Merge(wt, worktree.MergeOptions{})
+		if mergeResult != nil && mergeResult.TargetBranch != "" {
+			r.sendMessage("Merged " + epicID + " to " + mergeResult.TargetBranch)
+		} else {
+			r.sendMessage("") // Clear status after merge attempt
+		}
 		if mergeErr != nil {
 			r.updateStatus(epicID, "failed", result, mergeErr, nil)
 			r.cleanupWorktree(epicID)

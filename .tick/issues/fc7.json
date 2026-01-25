@@ -1,0 +1,15 @@
+{
+  "id": "fc7",
+  "title": "Test worktree merge to feature branch",
+  "description": "Test that tk merge correctly merges back to the parent feature branch instead of main.",
+  "notes": "2026-01-24 15:18 - Task i7z completed: Added TODO comment to cmd/tk/cmd/merge.go about squash merge support. Build passes, pre-existing test failures on Windows are unrelated to this change.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T14:15:12.2591332Z",
+  "updated_at": "2026-01-24T14:18:32.4091311Z",
+  "closed_at": "2026-01-24T14:18:32.4091311Z",
+  "closed_reason": "all tasks completed"
+}

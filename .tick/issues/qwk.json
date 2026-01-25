@@ -1,0 +1,15 @@
+{
+  "id": "qwk",
+  "title": "worktree-merge: MergeManager changes",
+  "description": "Update MergeManager to use parent branch and support MergeOptions\n\n## Context\n\n**Spec:** `docs/projects/2026-01-24-worktree-merge/2026-01-24-worktree-merge-spec.md`\n**GitHub Issue:** #4\n\n**Key files for this epic:**\n- `internal/worktree/merge.go` - MergeManager implementation\n- `internal/worktree/merge_test.go` - Existing tests to extend\n\n**Changes:**\n1. Add MergeOptions struct\n2. Add ErrParentBranchNotFound and ErrNoTargetBranch errors\n3. Add TargetBranch field to MergeResult\n4. Update Merge() signature to accept MergeOptions\n5. Implement target branch resolution logic",
+  "notes": "2026-01-24 11:05 - Key insight: worktree.go was missing the encoding/json import for metadata functions - this was fixed as part of this tick\n2026-01-24 11:18 - Key insight: When updating Merge() signature, existing tests calling Merge(wt) must be updated to Merge(wt, MergeOptions{}) to compile. The existing tests were also updated as part of this task since they had to compile for the new tests to run.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:54:37.9223446Z",
+  "updated_at": "2026-01-24T13:40:33.2801018Z",
+  "closed_at": "2026-01-24T13:40:33.2801018Z",
+  "closed_reason": "Implementation complete"
+}

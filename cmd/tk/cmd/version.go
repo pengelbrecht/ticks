@@ -1,3 +1,5 @@
+// Package cmd implements tk CLI commands.
+// Version command displays the current tk version and checks for updates.
 package cmd
 
 import (

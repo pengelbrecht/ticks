@@ -1,0 +1,15 @@
+{
+  "id": "i7z",
+  "title": "Add TODO comment to merge.go",
+  "description": "Add a simple TODO comment to cmd/tk/cmd/merge.go as a trivial test change.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "fc7",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T14:15:24.9841378Z",
+  "updated_at": "2026-01-24T14:18:00.8822919Z",
+  "closed_at": "2026-01-24T14:18:00.8822919Z",
+  "closed_reason": "Added TODO comment about squash merge support to runMerge function in cmd/tk/cmd/merge.go"
+}

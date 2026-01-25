@@ -65,7 +65,7 @@ func TestConflictHandler_HandleConflict(t *testing.T) {
 		}
 
 		// Trigger conflict
-		result, err := mm.Merge(wt)
+		result, err := mm.Merge(wt, MergeOptions{})
 		if err != nil {
 			t.Fatalf("Merge() error = %v", err)
 		}
@@ -76,7 +76,7 @@ func TestConflictHandler_HandleConflict(t *testing.T) {
 		// Now handle the conflict
 		ch := NewConflictHandler(dir, mm)
 		beforeHandle := time.Now()
-		state := ch.HandleConflict(wt, result.Conflicts)
+		state := ch.HandleConflict(wt, result.Conflicts, result.TargetBranch)
 
 		// Verify state is populated correctly
 		if state.EpicID != wt.EpicID {
@@ -124,7 +124,7 @@ func TestConflictHandler_HandleConflict(t *testing.T) {
 		}
 		conflicts := []string{"file1.txt", "file2.txt"}
 
-		state := ch.HandleConflict(wt, conflicts)
+		state := ch.HandleConflict(wt, conflicts, "main")
 
 		// Verify we can retrieve the conflict
 		if !ch.HasConflict("test-epic") {
@@ -192,7 +192,7 @@ func TestConflictHandler_CheckResolved(t *testing.T) {
 		ch := NewConflictHandler(dir, mm)
 
 		// Register a "conflict" (simulating what would happen in real scenario)
-		ch.HandleConflict(wt, []string{"some-file.txt"})
+		ch.HandleConflict(wt, []string{"some-file.txt"}, mm.MainBranch())
 
 		// Verify conflict is registered
 		if !ch.HasConflict("manual-resolve") {
@@ -243,7 +243,7 @@ func TestConflictHandler_CheckResolved(t *testing.T) {
 		ch := NewConflictHandler(dir, mm)
 
 		// Register conflict
-		ch.HandleConflict(wt, []string{"some-file.txt"})
+		ch.HandleConflict(wt, []string{"some-file.txt"}, mm.MainBranch())
 
 		// Check without merging - should be false
 		if ch.CheckResolved("unresolved") {
@@ -289,9 +289,9 @@ func TestConflictHandler_GetActiveConflicts(t *testing.T) {
 		wt2 := &Worktree{EpicID: "epic2", Branch: "tick/epic2", Path: "/path/2"}
 		wt3 := &Worktree{EpicID: "epic3", Branch: "tick/epic3", Path: "/path/3"}
 
-		ch.HandleConflict(wt1, []string{"a.txt"})
-		ch.HandleConflict(wt2, []string{"b.txt", "c.txt"})
-		ch.HandleConflict(wt3, []string{"d.txt"})
+		ch.HandleConflict(wt1, []string{"a.txt"}, "main")
+		ch.HandleConflict(wt2, []string{"b.txt", "c.txt"}, "main")
+		ch.HandleConflict(wt3, []string{"d.txt"}, "main")
 
 		active := ch.GetActiveConflicts()
 		if len(active) != 3 {
@@ -321,7 +321,7 @@ func TestConflictHandler_GetActiveConflicts(t *testing.T) {
 		ch := NewConflictHandler(dir, mm)
 
 		wt := &Worktree{EpicID: "copy-test", Branch: "tick/copy-test", Path: "/path"}
-		ch.HandleConflict(wt, []string{"file.txt"})
+		ch.HandleConflict(wt, []string{"file.txt"}, "main")
 
 		// Get conflict and modify the returned slice
 		active := ch.GetActiveConflicts()
@@ -352,7 +352,7 @@ func TestConflictHandler_ClearConflict(t *testing.T) {
 		ch := NewConflictHandler(dir, mm)
 
 		wt := &Worktree{EpicID: "clear-test", Branch: "tick/clear-test", Path: "/path"}
-		ch.HandleConflict(wt, []string{"file.txt"})
+		ch.HandleConflict(wt, []string{"file.txt"}, "main")
 
 		if !ch.HasConflict("clear-test") {
 			t.Fatal("Conflict should exist before clear")
@@ -407,7 +407,7 @@ func TestConflictHandler_HasConflict(t *testing.T) {
 		ch := NewConflictHandler(dir, mm)
 
 		wt := &Worktree{EpicID: "has-test", Branch: "tick/has-test", Path: "/path"}
-		ch.HandleConflict(wt, []string{"file.txt"})
+		ch.HandleConflict(wt, []string{"file.txt"}, "main")
 
 		if !ch.HasConflict("has-test") {
 			t.Error("HasConflict() should return true for registered conflict")
@@ -445,6 +445,44 @@ func TestConflictState_ConflictInfo(t *testing.T) {
 		}
 		if !strings.Contains(info, "git merge") {
 			t.Error("ConflictInfo should contain resolution instructions")
+		}
+	})
+
+	t.Run("uses custom target branch in instructions", func(t *testing.T) {
+		state := &ConflictState{
+			EpicID:       "feature-epic",
+			Branch:       "tick/feature-epic",
+			Conflicts:    []string{"api.go"},
+			WorktreePath: "/path/to/worktree",
+			DetectedAt:   time.Now(),
+			TargetBranch: "feature/auth",
+		}
+
+		info := state.ConflictInfo()
+
+		// Verify it uses the target branch, not hardcoded "main"
+		if !strings.Contains(info, "git checkout feature/auth") {
+			t.Error("ConflictInfo should use TargetBranch in checkout instruction")
+		}
+		if strings.Contains(info, "git checkout main") {
+			t.Error("ConflictInfo should not hardcode 'main' when TargetBranch is set")
+		}
+	})
+
+	t.Run("defaults to main when TargetBranch is empty", func(t *testing.T) {
+		state := &ConflictState{
+			EpicID:       "default-epic",
+			Branch:       "tick/default-epic",
+			Conflicts:    []string{"file.go"},
+			WorktreePath: "/path/to/worktree",
+			DetectedAt:   time.Now(),
+			TargetBranch: "", // Empty - should default to main
+		}
+
+		info := state.ConflictInfo()
+
+		if !strings.Contains(info, "git checkout main") {
+			t.Error("ConflictInfo should default to 'main' when TargetBranch is empty")
 		}
 	})
 }

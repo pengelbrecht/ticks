@@ -16,14 +16,17 @@ import (
 
 var mergeCmd = &cobra.Command{
 	Use:   "merge <epic-id>",
-	Short: "Merge a completed epic branch into main",
-	Long: `Merge a completed epic's worktree branch into the main branch.
+	Short: "Merge a completed epic branch into its target branch",
+	Long: `Merge a completed epic's worktree branch into the target branch.
 
-This command merges changes made during an epic's development back into main.
+This command merges changes made during an epic's development back into the target
+branch. For worktrees created from a feature branch, this merges back to that
+feature branch (ParentBranch). Otherwise, it merges to main.
+
 If the epic used a worktree, it merges the worktree branch and removes the worktree.
 
 Examples:
-  tk merge abc123                 # Merge epic abc123 branch into main
+  tk merge abc123                 # Merge epic abc123 branch into target branch
   tk merge abc123 --force         # Merge even if epic not fully closed
   tk merge abc123 --dry-run       # Show what would be merged
   tk merge abc123 --no-delete-branch  # Keep branch after merge`,
@@ -105,10 +108,18 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get the main branch name
-	mainBranch, err := getMainBranch(root)
-	if err != nil {
-		return NewExitError(ExitGeneric, "failed to get main branch: %v", err)
+	// Determine the target branch for the merge
+	// Priority: worktree's ParentBranch > main branch
+	var targetBranch string
+	if wt != nil && wt.ParentBranch != "" {
+		targetBranch = wt.ParentBranch
+	} else {
+		// Fall back to main branch for non-worktree branches
+		mainBranch, err := getMainBranch(root)
+		if err != nil {
+			return NewExitError(ExitGeneric, "failed to get main branch: %v", err)
+		}
+		targetBranch = mainBranch
 	}
 
 	// Check current branch
@@ -117,9 +128,9 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitGeneric, "failed to get current branch: %v", err)
 	}
 
-	// Ensure we're on main branch
-	if currentBranch != mainBranch {
-		return NewExitError(ExitGeneric, "must be on %s branch to merge (currently on %s)", mainBranch, currentBranch)
+	// Ensure we're on the target branch
+	if currentBranch != targetBranch {
+		return NewExitError(ExitGeneric, "must be on %s branch to merge (currently on %s)", targetBranch, currentBranch)
 	}
 
 	// Check for uncommitted changes in main repo
@@ -138,7 +149,7 @@ func runMerge(cmd *cobra.Command, args []string) error {
 	// Show what will happen
 	fmt.Printf("Epic:   %s (%s)\n", epic.ID, epic.Title)
 	fmt.Printf("Branch: %s\n", branchToMerge)
-	fmt.Printf("Into:   %s\n", mainBranch)
+	fmt.Printf("Into:   %s\n", targetBranch)
 	if hasWorktree {
 		fmt.Printf("Worktree: %s (will be removed)\n", wt.Path)
 	}
@@ -146,7 +157,7 @@ func runMerge(cmd *cobra.Command, args []string) error {
 	if mergeDryRun {
 		// Show commits that would be merged
 		fmt.Println("\nCommits to merge:")
-		output, err := gitLog(root, mainBranch+".."+branchToMerge)
+		output, err := gitLog(root, targetBranch+".."+branchToMerge)
 		if err != nil {
 			return NewExitError(ExitGeneric, "failed to get commit log: %v", err)
 		}
@@ -175,7 +186,7 @@ func runMerge(cmd *cobra.Command, args []string) error {
 	}
 
 	// Perform the merge
-	fmt.Printf("\nMerging %s into %s...\n", branchToMerge, mainBranch)
+	fmt.Printf("\nMerging %s into %s...\n", branchToMerge, targetBranch)
 
 	mergeErr := gitMerge(root, branchToMerge, epic.Title)
 	if mergeErr != nil {

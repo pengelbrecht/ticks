@@ -1,0 +1,16 @@
+{
+  "id": "edj",
+  "title": "Run pre-flight checks",
+  "description": "Verify the codebase is in a healthy state before starting implementation.\n\nCommands to run:\n- go build ./...\n- go test ./internal/worktree/...\n\nNote: There are 2 pre-existing test failures in tickboard/cloud and tickboard/server packages. These are unrelated to this feature and should be ignored.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "morten@elk.dk",
+  "parent": "vz3",
+  "acceptance_criteria": "go build ./... succeeds; go test ./internal/worktree/... passes",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:53:44.4145889Z",
+  "updated_at": "2026-01-24T10:04:56.5507687Z",
+  "closed_at": "2026-01-24T10:04:56.5507687Z",
+  "closed_reason": "Build succeeds and all worktree tests pass. Fixed unused encoding/json import in worktree.go."
+}

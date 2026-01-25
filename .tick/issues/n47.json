@@ -1,0 +1,14 @@
+{
+  "id": "n47",
+  "title": "worktree-merge: Update callers",
+  "description": "Update all callers of Merge() to use new signature\n\n## Context\n\n**Spec:** `docs/projects/2026-01-24-worktree-merge/2026-01-24-worktree-merge-spec.md`\n**GitHub Issue:** #4\n\n**Key files for this epic:**\n- `internal/parallel/runner.go` - Production caller\n- `internal/worktree/merge_test.go` - Test callers (6 sites)\n- `internal/worktree/conflict_test.go` - Test caller (1 site)\n\n**Changes:**\nUpdate all Merge(wt) calls to Merge(wt, worktree.MergeOptions{})",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T09:55:13.7988643Z",
+  "updated_at": "2026-01-24T13:40:33.4246297Z",
+  "closed_at": "2026-01-24T13:40:33.4246297Z",
+  "closed_reason": "Implementation complete"
+}

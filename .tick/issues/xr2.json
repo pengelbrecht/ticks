@@ -1,0 +1,15 @@
+{
+  "id": "xr2",
+  "title": "Update merge command to use worktree parent branch",
+  "description": "In cmd/tk/cmd/merge.go, remove the hardcoded check for main branch. Instead, get the worktree's ParentBranch from metadata and use that as the merge target. Add tests to verify merge works when on a feature branch.",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "morten@elk.dk",
+  "parent": "zwd",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:41:07.698181Z",
+  "updated_at": "2026-01-24T13:46:07.7021723Z",
+  "closed_at": "2026-01-24T13:46:07.7021723Z",
+  "closed_reason": "Updated cmd/tk/cmd/merge.go to use worktree ParentBranch as merge target instead of hardcoded main branch. The code now checks wt.ParentBranch first and falls back to main branch only for non-worktree branches."
+}

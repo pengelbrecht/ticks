@@ -1,0 +1,14 @@
+{
+  "id": "if2",
+  "title": "Test worktree flow",
+  "notes": "2026-01-24 14:34 - Completed task [zhs]: Added package documentation comment to internal/worktree/worktree.go. The .tick symlink was not present in the worktree, so tk close could not be run from within the worktree. Commit c7e47e4 created.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "morten@elk.dk",
+  "created_by": "morten@elk.dk",
+  "created_at": "2026-01-24T13:31:03.8148288Z",
+  "updated_at": "2026-01-24T13:40:33.5642908Z",
+  "closed_at": "2026-01-24T13:40:33.5642908Z",
+  "closed_reason": "Test complete"
+}
