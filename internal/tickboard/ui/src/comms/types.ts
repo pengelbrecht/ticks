@@ -245,3 +245,32 @@ export interface ConnectionInfo {
   projectId?: string; // Cloud mode only
   baseUrl: string;
 }
+
+// =============================================================================
+// Re-exported API Types (for read operations)
+// =============================================================================
+
+// These types are re-exported from api/ticks.ts for use with CommsClient read operations
+
+export type {
+  // Info endpoint types
+  InfoResponse,
+  EpicInfo,
+  // Activity feed types
+  Activity,
+  // Run record types (completed runs)
+  RunRecord,
+  MetricsRecord,
+  ToolRecord,
+  VerificationRecord,
+  VerifierResult,
+  // Run status types (live runs)
+  RunStatusResponse,
+  ActiveTaskStatus,
+  ActiveToolRecord,
+  LiveRecord,
+  // Tick detail types
+  GetTickResponse as TickDetail,
+  Note,
+  BlockerDetail,
+} from '../api/ticks.js';

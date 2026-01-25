@@ -1,0 +1,19 @@
+{
+  "id": "r3h",
+  "title": "Implement read operations in LocalCommsClient",
+  "description": "Implement the 6 read operations in comms/local.ts:\n\n- fetchInfo() -\u003e GET /api/info\n- fetchTick(id) -\u003e GET /api/ticks/:id\n- fetchActivity(limit) -\u003e GET /api/activity?limit=N\n- fetchRecord(tickId) -\u003e GET /api/records/:tickId (return null on 404)\n- fetchRunStatus(epicId) -\u003e GET /api/run-status/:epicId\n- fetchContext(epicId) -\u003e GET /api/context/:epicId (return null on 404, returns text not JSON)\n\nAdd tests to local.test.ts for these operations.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "nsk"
+  ],
+  "parent": "pxm",
+  "acceptance_criteria": "All new local.test.ts tests pass",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T10:10:05.462249Z",
+  "updated_at": "2026-01-25T10:23:44.392167Z",
+  "closed_at": "2026-01-25T10:23:44.392167Z",
+  "closed_reason": "Implemented 6 read operations in LocalCommsClient + extended test rig, 30 tests passing"
+}

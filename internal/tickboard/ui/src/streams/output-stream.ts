@@ -1,18 +1,15 @@
 /**
  * Output stream adapter for live run output.
  *
- * Provides a unified interface for consuming live output in both local and cloud modes.
- * - Local mode: wraps EventSource (SSE)
- * - Cloud mode: uses SyncClient's onRunEvent callback
+ * Provides a unified interface for consuming live output in local mode via SSE.
+ * Cloud mode uses the comms store directly (see stores/comms.ts).
  */
-
-import type { RunEventMessage } from '../api/sync.js';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-/** Run event data (normalized from both SSE and WebSocket sources) */
+/** Run event data (normalized from SSE source) */
 export interface RunEvent {
   epicId: string;
   taskId?: string;
@@ -165,71 +162,5 @@ export class LocalOutputStreamAdapter implements OutputStreamAdapter {
       message: data.message,
       timestamp: data.timestamp || new Date().toISOString(),
     };
-  }
-}
-
-// ============================================================================
-// Cloud Output Stream (WebSocket via SyncClient)
-// ============================================================================
-
-/**
- * Cloud output stream adapter using WebSocket via SyncClient.
- * Receives run_event messages forwarded from DO.
- */
-export class CloudOutputStreamAdapter implements OutputStreamAdapter {
-  private callbacks: OutputStreamCallbacks;
-  private epicId: string = '';
-  private connected = false;
-
-  constructor(callbacks: OutputStreamCallbacks) {
-    this.callbacks = callbacks;
-  }
-
-  /**
-   * In cloud mode, the connection is managed by SyncClient.
-   * This just sets up filtering for the specific epic.
-   */
-  connect(epicId: string): void {
-    this.epicId = epicId;
-    this.connected = true;
-    this.callbacks.onConnected?.();
-  }
-
-  disconnect(): void {
-    this.epicId = '';
-    this.connected = false;
-  }
-
-  isConnected(): boolean {
-    return this.connected;
-  }
-
-  /**
-   * Called by sync store when a run_event arrives from SyncClient.
-   * Filters by epicId and forwards to callbacks.
-   */
-  handleRunEvent(msg: RunEventMessage): void {
-    // Filter by epicId if we're connected to a specific epic
-    if (this.epicId && msg.epicId !== this.epicId) {
-      return;
-    }
-
-    const event: RunEvent = {
-      epicId: msg.epicId,
-      taskId: msg.taskId,
-      source: msg.source,
-      eventType: msg.event.type,
-      output: msg.event.output,
-      status: msg.event.status,
-      numTurns: msg.event.numTurns,
-      iteration: msg.event.iteration,
-      success: msg.event.success,
-      metrics: msg.event.metrics,
-      activeTool: msg.event.activeTool,
-      message: msg.event.message,
-      timestamp: msg.event.timestamp,
-    };
-
-    this.callbacks.onEvent(event);
   }
 }

@@ -1,0 +1,19 @@
+{
+  "id": "ssv",
+  "title": "Refactor tick-detail-drawer.ts to use comms store",
+  "description": "Update tick-detail-drawer.ts to use comms store instead of api/ticks.ts:\n\n1. Remove imports: approveTick, rejectTick, closeTick, reopenTick, addNote, fetchRecord from api/ticks.ts\n2. Add imports from stores/comms.ts: approveTick, rejectTick, closeTick, reopenTick, addNote, fetchRecord\n\nKeep type imports from api/ticks.ts if needed.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "i69"
+  ],
+  "parent": "pxm",
+  "acceptance_criteria": "tick-detail-drawer.ts has no function imports from api/ticks.ts, pnpm build succeeds",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T10:10:54.245568Z",
+  "updated_at": "2026-01-25T10:31:37.664893Z",
+  "closed_at": "2026-01-25T10:31:37.664893Z",
+  "closed_reason": "Refactored tick-detail-drawer.ts: moved action functions to stores/comms.js, updated error handling"
+}

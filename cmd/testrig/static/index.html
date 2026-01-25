@@ -274,6 +274,19 @@
         <button onclick="closeTick()">Close Selected</button>
         <button onclick="addNote()">Add Note</button>
       </div>
+
+      <h2>Read Operations</h2>
+      <div class="button-group">
+        <button onclick="fetchInfo()">Fetch Info</button>
+        <button onclick="fetchActivity()">Fetch Activity</button>
+        <button onclick="fetchRunStatus()">Fetch Run Status</button>
+      </div>
+      <div class="button-group">
+        <button onclick="fetchRecord()">Fetch Record</button>
+        <button onclick="fetchContext()">Fetch Context</button>
+      </div>
+      <div id="read-result" class="log" style="max-height:100px;margin-top:0.5rem"></div>
+
       <div id="error-display"></div>
     </div>
 
@@ -634,6 +647,83 @@
           <span class="log-data">${w.tickId || ''}</span>
         </div>
       `).join('');
+    }
+
+    // Read Operations
+    function showReadResult(data) {
+      const el = document.getElementById('read-result');
+      el.innerHTML = `<pre style="margin:0;white-space:pre-wrap;word-break:break-all">${JSON.stringify(data, null, 2)}</pre>`;
+    }
+
+    async function fetchInfo() {
+      try {
+        const resp = await fetch('/api/info');
+        const data = await resp.json();
+        log('Read:info', data);
+        showReadResult(data);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    async function fetchActivity() {
+      try {
+        const resp = await fetch('/api/activity?limit=10');
+        const data = await resp.json();
+        log('Read:activity', { count: data.activities?.length || 0 });
+        showReadResult(data);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    async function fetchRunStatus() {
+      const epicId = document.getElementById('epic-id').value;
+      try {
+        const resp = await fetch(`/api/run-status/${epicId}`);
+        const data = await resp.json();
+        log('Read:run-status', data);
+        showReadResult(data);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    async function fetchRecord() {
+      if (!selectedTickId) {
+        showError('No tick selected');
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/records/${selectedTickId}`);
+        if (resp.status === 404) {
+          log('Read:record', { error: 'Not found' });
+          showReadResult({ error: 'Record not found' });
+          return;
+        }
+        const data = await resp.json();
+        log('Read:record', data);
+        showReadResult(data);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    async function fetchContext() {
+      const epicId = document.getElementById('epic-id').value;
+      try {
+        const resp = await fetch(`/api/context/${epicId}`);
+        if (resp.status === 404) {
+          log('Read:context', { error: 'Not found' });
+          showReadResult({ error: 'Context not found' });
+          return;
+        }
+        const text = await resp.text();
+        log('Read:context', { length: text.length });
+        showReadResult({ context: text });
+      } catch (e) {
+        showError(e.message);
+      }
     }
 
     // Initialize

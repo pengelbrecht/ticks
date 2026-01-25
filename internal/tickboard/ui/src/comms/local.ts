@@ -18,6 +18,11 @@ import type {
   TickCreate,
   TickUpdate,
   ConnectionInfo,
+  InfoResponse,
+  TickDetail,
+  Activity,
+  RunRecord,
+  RunStatusResponse,
 } from './types.js';
 import type {
   CommsClient,
@@ -396,6 +401,83 @@ export class LocalCommsClient implements CommsClient {
     }
 
     return response.json();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Read Operations
+  // ---------------------------------------------------------------------------
+
+  async fetchInfo(): Promise<InfoResponse> {
+    const response = await fetch(`${this.baseUrl}/api/info`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch info: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async fetchTick(id: string): Promise<TickDetail> {
+    const response = await fetch(`${this.baseUrl}/api/ticks/${id}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tick: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async fetchActivity(limit?: number): Promise<Activity[]> {
+    const url = limit !== undefined
+      ? `${this.baseUrl}/api/activity?limit=${limit}`
+      : `${this.baseUrl}/api/activity`;
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch activity: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.activities;
+  }
+
+  async fetchRecord(tickId: string): Promise<RunRecord | null> {
+    const response = await fetch(`${this.baseUrl}/api/records/${tickId}`);
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch record: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
+    const response = await fetch(`${this.baseUrl}/api/run-status/${epicId}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch run status: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  async fetchContext(epicId: string): Promise<string | null> {
+    const response = await fetch(`${this.baseUrl}/api/context/${epicId}`);
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch context: ${response.statusText}`);
+    }
+
+    return response.text();
   }
 
   // ---------------------------------------------------------------------------

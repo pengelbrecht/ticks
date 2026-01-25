@@ -12,6 +12,11 @@ import type {
   TickCreate,
   TickUpdate,
   ConnectionInfo,
+  InfoResponse,
+  TickDetail,
+  Activity,
+  RunRecord,
+  RunStatusResponse,
 } from './types.js';
 
 // =============================================================================
@@ -149,6 +154,47 @@ export interface CommsClient {
    * @throws Error if in read-only mode
    */
   reopenTick(id: string): Promise<Tick>;
+
+  // ===========================================================================
+  // Read Operations (Client → Server)
+  // ===========================================================================
+
+  /**
+   * Fetch server info including project metadata and epic list.
+   */
+  fetchInfo(): Promise<InfoResponse>;
+
+  /**
+   * Fetch detailed information about a specific tick.
+   * @param id - Tick ID
+   */
+  fetchTick(id: string): Promise<TickDetail>;
+
+  /**
+   * Fetch activity log entries.
+   * @param limit - Optional limit on number of entries to return
+   */
+  fetchActivity(limit?: number): Promise<Activity[]>;
+
+  /**
+   * Fetch the run record for a completed tick.
+   * @param tickId - Tick ID
+   * @returns Run record or null if no record exists
+   */
+  fetchRecord(tickId: string): Promise<RunRecord | null>;
+
+  /**
+   * Fetch the current run status for an epic.
+   * @param epicId - Epic ID
+   */
+  fetchRunStatus(epicId: string): Promise<RunStatusResponse>;
+
+  /**
+   * Fetch the generated context for an epic.
+   * @param epicId - Epic ID
+   * @returns Context string or null if not generated
+   */
+  fetchContext(epicId: string): Promise<string | null>;
 
   // ===========================================================================
   // State

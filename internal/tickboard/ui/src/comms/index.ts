@@ -55,6 +55,22 @@ export type {
   TickCreate,
   TickUpdate,
   ConnectionInfo,
+  // Read operation types (re-exported from api/ticks.ts)
+  InfoResponse,
+  EpicInfo,
+  Activity,
+  RunRecord,
+  MetricsRecord,
+  ToolRecord,
+  VerificationRecord,
+  VerifierResult,
+  RunStatusResponse,
+  ActiveTaskStatus,
+  ActiveToolRecord,
+  LiveRecord,
+  TickDetail,
+  Note,
+  BlockerDetail,
 } from './types.js';
 
 // Client interface and handler types

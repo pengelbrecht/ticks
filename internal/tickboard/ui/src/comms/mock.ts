@@ -13,6 +13,11 @@ import type {
   TickUpdate,
   ConnectionInfo,
   CommsEvent,
+  InfoResponse,
+  Activity,
+  RunRecord,
+  RunStatusResponse,
+  TickDetail,
 } from './types.js';
 import type {
   CommsClient,
@@ -98,6 +103,25 @@ export class MockCommsClient implements CommsClient {
 
   private writeResponses = new Map<WriteOperationType, WriteResponse>();
   private nextWriteFailure: Error | null = null;
+
+  // ---------------------------------------------------------------------------
+  // Mock Read Data
+  // ---------------------------------------------------------------------------
+
+  private mockInfo: InfoResponse = {
+    repoName: 'mock-repo',
+    epics: [],
+  };
+
+  private mockActivity: Activity[] = [];
+
+  private mockRecords = new Map<string, RunRecord>();
+
+  private mockRunStatus = new Map<string, RunStatusResponse>();
+
+  private mockContexts = new Map<string, string>();
+
+  private mockTicks = new Map<string, TickDetail>();
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -374,6 +398,119 @@ export class MockCommsClient implements CommsClient {
     this.writeLog = [];
     this.writeResponses.clear();
     this.nextWriteFailure = null;
+    // Reset mock read data
+    this.mockInfo = { repoName: 'mock-repo', epics: [] };
+    this.mockActivity = [];
+    this.mockRecords.clear();
+    this.mockRunStatus.clear();
+    this.mockContexts.clear();
+    this.mockTicks.clear();
+  }
+
+  // ===========================================================================
+  // Mock Read Data Setters
+  // ===========================================================================
+
+  /**
+   * Set the mock info response.
+   */
+  setMockInfo(info: InfoResponse): void {
+    this.mockInfo = info;
+  }
+
+  /**
+   * Set the mock activity feed.
+   */
+  setMockActivity(activities: Activity[]): void {
+    this.mockActivity = activities;
+  }
+
+  /**
+   * Set a mock run record for a specific tick.
+   */
+  setMockRecord(tickId: string, record: RunRecord): void {
+    this.mockRecords.set(tickId, record);
+  }
+
+  /**
+   * Set the mock run status for a specific epic.
+   */
+  setMockRunStatus(epicId: string, status: RunStatusResponse): void {
+    this.mockRunStatus.set(epicId, status);
+  }
+
+  /**
+   * Set the mock context for a specific epic.
+   */
+  setMockContext(epicId: string, context: string): void {
+    this.mockContexts.set(epicId, context);
+  }
+
+  /**
+   * Set the mock tick detail for a specific tick.
+   */
+  setMockTick(tickId: string, tick: TickDetail): void {
+    this.mockTicks.set(tickId, tick);
+  }
+
+  // ===========================================================================
+  // Read Operations
+  // ===========================================================================
+
+  /**
+   * Fetch server info.
+   * Returns the mock info configured via setMockInfo().
+   */
+  async fetchInfo(): Promise<InfoResponse> {
+    return this.mockInfo;
+  }
+
+  /**
+   * Fetch tick detail.
+   * Returns the mock tick configured via setMockTick(), or throws if not found.
+   */
+  async fetchTick(id: string): Promise<TickDetail> {
+    const tick = this.mockTicks.get(id);
+    if (!tick) {
+      throw new Error(`Tick not found: ${id}`);
+    }
+    return tick;
+  }
+
+  /**
+   * Fetch activity feed.
+   * Returns the mock activities configured via setMockActivity().
+   * Respects the limit parameter.
+   */
+  async fetchActivity(limit?: number): Promise<Activity[]> {
+    if (limit !== undefined) {
+      return this.mockActivity.slice(0, limit);
+    }
+    return this.mockActivity;
+  }
+
+  /**
+   * Fetch run record for a tick.
+   * Returns the mock record configured via setMockRecord(), or null if not found.
+   */
+  async fetchRecord(tickId: string): Promise<RunRecord | null> {
+    return this.mockRecords.get(tickId) ?? null;
+  }
+
+  /**
+   * Fetch run status for an epic.
+   * Returns the mock status configured via setMockRunStatus(), or a default not-running status.
+   */
+  async fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
+    return this.mockRunStatus.get(epicId) ?? { epicId, isRunning: false };
+  }
+
+  /**
+   * Fetch context for an epic.
+   * Returns the mock context configured via setMockContext(), or null if not found.
+   */
+  async fetchContext(epicId: string): Promise<string | null> {
+    return this.mockContexts.get(epicId) ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -438,6 +575,7 @@ export class MockCommsClient implements CommsClient {
       status: (updates.status as Tick['status']) || 'open',
       priority: tick.priority || updates.priority || 2,
       type: tick.type || 'task',
+      owner: tick.owner || updates.owner || '',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       created_by: 'mock@test.com',

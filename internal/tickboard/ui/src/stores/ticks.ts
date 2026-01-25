@@ -173,7 +173,7 @@ export function setTicks(ticks: Tick[]) {
   $error.set(null);
 }
 
-/** Set all ticks from a Map (e.g., from SyncClient) */
+/** Set all ticks from a Map (e.g., from CloudCommsClient) */
 export function setTicksFromMap(ticksMap: Map<string, Tick>) {
   // First pass: build raw tick map for blocker lookups
   const rawTickMap: Record<string, Tick> = {};

@@ -385,6 +385,60 @@ export async function reopenTick(id: string): Promise<Tick> {
 }
 
 // =============================================================================
+// Read Operations (convenience wrappers)
+// =============================================================================
+
+import type {
+  InfoResponse,
+  TickDetail,
+  Activity,
+  RunRecord,
+  RunStatusResponse,
+} from '../comms/index.js';
+
+/**
+ * Fetch server info including project metadata and epic list.
+ */
+export async function fetchInfo(): Promise<InfoResponse> {
+  return getCommsClient().fetchInfo();
+}
+
+/**
+ * Fetch detailed information about a specific tick.
+ */
+export async function fetchTickDetails(id: string): Promise<TickDetail> {
+  return getCommsClient().fetchTick(id);
+}
+
+/**
+ * Fetch activity log entries.
+ */
+export async function fetchActivity(limit?: number): Promise<Activity[]> {
+  return getCommsClient().fetchActivity(limit);
+}
+
+/**
+ * Fetch the run record for a completed tick.
+ */
+export async function fetchRecord(tickId: string): Promise<RunRecord | null> {
+  return getCommsClient().fetchRecord(tickId);
+}
+
+/**
+ * Fetch the current run status for an epic.
+ */
+export async function fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
+  return getCommsClient().fetchRunStatus(epicId);
+}
+
+/**
+ * Fetch the generated context for an epic.
+ */
+export async function fetchContext(epicId: string): Promise<string | null> {
+  return getCommsClient().fetchContext(epicId);
+}
+
+// =============================================================================
 // Auto-initialization (optional, can be disabled)
 // =============================================================================
 

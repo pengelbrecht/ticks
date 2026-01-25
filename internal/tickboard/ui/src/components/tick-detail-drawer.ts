@@ -2,7 +2,17 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { Tick, BoardTick } from '../types/tick.js';
 import type { Note, BlockerDetail, RunRecord, ToolRecord, VerificationRecord, VerifierResult } from '../api/ticks.js';
-import { approveTick, rejectTick, closeTick, reopenTick, addNote, fetchRecord, getCloudProject, ApiError } from '../api/ticks.js';
+import { getCloudProject, parseNotes } from '../api/ticks.js';
+// Note: Action functions (approveTick, rejectTick, etc.) are imported from stores/comms.js
+// which provides unified communication handling for both local and cloud modes.
+import {
+  approveTick,
+  rejectTick,
+  closeTick,
+  reopenTick,
+  addNote,
+  fetchRecord,
+} from '../stores/comms.js';
 import './run-record.js';
 import './ticks-button.js';
 
@@ -999,11 +1009,7 @@ export class TickDetailDrawer extends LitElement {
     try {
       this.runRecord = await fetchRecord(this.tick.id);
     } catch (error) {
-      if (error instanceof ApiError) {
-        this.runRecordError = error.body || error.message;
-      } else {
-        this.runRecordError = 'Failed to load run history';
-      }
+      this.runRecordError = error instanceof Error ? error.message : 'Failed to load run history';
     } finally {
       this.loadingRunRecord = false;
     }
@@ -1060,16 +1066,13 @@ export class TickDetailDrawer extends LitElement {
       // Convert response to BoardTick format
       const updatedTick: BoardTick = {
         ...response,
-        is_blocked: response.isBlocked,
+        is_blocked: (response.blocked_by?.length ?? 0) > 0,
+        column: 'ready', // Placeholder; actual column computed server-side
       };
       this.emitTickUpdated(updatedTick);
       this.resetActionState();
     } catch (error) {
-      if (error instanceof ApiError) {
-        this.errorMessage = error.body || error.message;
-      } else {
-        this.errorMessage = 'Failed to approve tick';
-      }
+      this.errorMessage = error instanceof Error ? error.message : 'Failed to approve tick';
     } finally {
       this.loading = false;
     }
@@ -1095,16 +1098,13 @@ export class TickDetailDrawer extends LitElement {
       const response = await rejectTick(this.tick.id, this.rejectReason.trim());
       const updatedTick: BoardTick = {
         ...response,
-        is_blocked: response.isBlocked,
+        is_blocked: (response.blocked_by?.length ?? 0) > 0,
+        column: 'ready', // Placeholder; actual column computed server-side
       };
       this.emitTickUpdated(updatedTick);
       this.resetActionState();
     } catch (error) {
-      if (error instanceof ApiError) {
-        this.errorMessage = error.body || error.message;
-      } else {
-        this.errorMessage = 'Failed to reject tick';
-      }
+      this.errorMessage = error instanceof Error ? error.message : 'Failed to reject tick';
     } finally {
       this.loading = false;
     }
@@ -1130,16 +1130,13 @@ export class TickDetailDrawer extends LitElement {
       const response = await closeTick(this.tick.id, this.closeReason.trim() || undefined);
       const updatedTick: BoardTick = {
         ...response,
-        is_blocked: response.isBlocked,
+        is_blocked: (response.blocked_by?.length ?? 0) > 0,
+        column: 'done', // Closed ticks go to done column
       };
       this.emitTickUpdated(updatedTick);
       this.resetActionState();
     } catch (error) {
-      if (error instanceof ApiError) {
-        this.errorMessage = error.body || error.message;
-      } else {
-        this.errorMessage = 'Failed to close tick';
-      }
+      this.errorMessage = error instanceof Error ? error.message : 'Failed to close tick';
     } finally {
       this.loading = false;
     }
@@ -1155,16 +1152,13 @@ export class TickDetailDrawer extends LitElement {
       const response = await reopenTick(this.tick.id);
       const updatedTick: BoardTick = {
         ...response,
-        is_blocked: response.isBlocked,
+        is_blocked: (response.blocked_by?.length ?? 0) > 0,
+        column: 'ready', // Placeholder; actual column computed server-side
       };
       this.emitTickUpdated(updatedTick);
       this.resetActionState();
     } catch (error) {
-      if (error instanceof ApiError) {
-        this.errorMessage = error.body || error.message;
-      } else {
-        this.errorMessage = 'Failed to reopen tick';
-      }
+      this.errorMessage = error instanceof Error ? error.message : 'Failed to reopen tick';
     } finally {
       this.loading = false;
     }
@@ -1192,19 +1186,16 @@ export class TickDetailDrawer extends LitElement {
       // Emit tick-updated with updated tick, including notesList for parent to update
       const updatedTick: BoardTick & { notesList: Note[] } = {
         ...response,
-        is_blocked: response.isBlocked,
-        notesList: response.notesList,
+        is_blocked: (response.blocked_by?.length ?? 0) > 0,
+        column: 'ready', // Placeholder; actual column computed server-side
+        notesList: parseNotes(response.notes),
       };
       this.emitTickUpdated(updatedTick);
     } catch (error) {
       // Revert optimistic update on error
       this.optimisticNote = null;
       this.newNoteText = noteText; // Restore the text so user can retry
-      if (error instanceof ApiError) {
-        this.addNoteError = error.body || error.message;
-      } else {
-        this.addNoteError = 'Failed to add note';
-      }
+      this.addNoteError = error instanceof Error ? error.message : 'Failed to add note';
     } finally {
       this.addingNote = false;
     }

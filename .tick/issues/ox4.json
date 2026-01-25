@@ -1,0 +1,19 @@
+{
+  "id": "ox4",
+  "title": "Remove or deprecate api/sync.ts",
+  "description": "The SyncClient in api/sync.ts is fully replaced by CloudCommsClient.\n\nEither:\n1. Delete api/sync.ts entirely if no remaining imports\n2. Or mark as @deprecated with a comment pointing to CloudCommsClient\n\nCheck for any remaining imports and remove them.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "aio"
+  ],
+  "parent": "pxm",
+  "acceptance_criteria": "No runtime code imports from api/sync.ts, pnpm build succeeds",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T10:11:26.956944Z",
+  "updated_at": "2026-01-25T10:44:52.822091Z",
+  "closed_at": "2026-01-25T10:44:52.822091Z",
+  "closed_reason": "Removed api/sync.ts and stores/sync.ts. Refactored run-output-pane.ts to use comms store directly for cloud mode. Build passes."
+}

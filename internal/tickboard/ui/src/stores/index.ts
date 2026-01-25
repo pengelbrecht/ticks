@@ -41,14 +41,6 @@ export {
   type Epic,
 } from './ticks.js';
 
-// Sync logic (auto-connects when cloud mode enabled)
-// @deprecated - Use comms store instead. Kept for backward compatibility.
-export {
-  connectSync,
-  disconnectSync,
-  initSync,
-} from './sync.js';
-
 // Comms - unified communication abstraction
 export {
   $commsClient,
@@ -72,4 +64,11 @@ export {
   rejectTick,
   closeTick,
   reopenTick,
+  // Read operations
+  fetchInfo,
+  fetchTickDetails,
+  fetchActivity,
+  fetchRecord,
+  fetchRunStatus,
+  fetchContext,
 } from './comms.js';

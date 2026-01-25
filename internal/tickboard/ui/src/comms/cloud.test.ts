@@ -446,6 +446,287 @@ describe('CloudCommsClient Integration', () => {
       expect(epic2Events.length).toBe(0);
     });
   });
+
+  // ===========================================================================
+  // Read Operations
+  // ===========================================================================
+
+  describe('read operations', () => {
+    beforeEach(async () => {
+      await client.connect();
+      await sleep(100); // Wait for connection and initial state
+    });
+
+    describe('fetchInfo', () => {
+      it('returns project ID as repoName', async () => {
+        const info = await client.fetchInfo();
+
+        expect(info.repoName).toBe('test-project');
+        expect(info.epics).toBeDefined();
+        expect(Array.isArray(info.epics)).toBe(true);
+      });
+
+      it('computes epics from tick cache', async () => {
+        // Create an epic tick via test rig
+        await fetch(`${TEST_RIG_URL}/api/ticks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Epic Tick', type: 'epic' }),
+        });
+
+        // Create a regular task
+        await fetch(`${TEST_RIG_URL}/api/ticks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Task Tick', type: 'task' }),
+        });
+
+        await sleep(150); // Wait for WebSocket updates to tick cache
+
+        const info = await client.fetchInfo();
+
+        // Should include the epic in the list
+        const epicIds = info.epics.map((e) => e.title);
+        expect(epicIds).toContain('Epic Tick');
+        // Should NOT include regular tasks
+        expect(epicIds).not.toContain('Task Tick');
+      });
+    });
+
+    describe('fetchTick', () => {
+      it('returns tick from cache with notesList', async () => {
+        // Create a tick with notes
+        const createResponse = await fetch(`${TEST_RIG_URL}/api/ticks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'Test Tick',
+            description: 'A test tick',
+            notes: '2024-01-15 10:30 - First note\n2024-01-15 11:00 - (from: user) Second note',
+          }),
+        });
+        const created = await createResponse.json();
+
+        await sleep(150); // Wait for WebSocket update
+
+        const tick = await client.fetchTick(created.id);
+
+        expect(tick.id).toBe(created.id);
+        expect(tick.title).toBe('Test Tick');
+        expect(tick.notesList).toBeDefined();
+        expect(Array.isArray(tick.notesList)).toBe(true);
+      });
+
+      it('computes blockerDetails from cache', async () => {
+        // Create a blocker tick
+        const blockerResponse = await fetch(`${TEST_RIG_URL}/api/ticks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Blocker Tick' }),
+        });
+        const blocker = await blockerResponse.json();
+
+        // Create a blocked tick
+        const blockedResponse = await fetch(`${TEST_RIG_URL}/api/ticks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'Blocked Tick',
+            blocked_by: [blocker.id],
+          }),
+        });
+        const blocked = await blockedResponse.json();
+
+        await sleep(150); // Wait for WebSocket updates
+
+        const tick = await client.fetchTick(blocked.id);
+
+        expect(tick.blockerDetails).toBeDefined();
+        expect(tick.blockerDetails.length).toBe(1);
+        expect(tick.blockerDetails[0].id).toBe(blocker.id);
+        expect(tick.blockerDetails[0].title).toBe('Blocker Tick');
+        expect(tick.isBlocked).toBe(true);
+      });
+
+      it('throws error for non-existent tick', async () => {
+        await expect(client.fetchTick('non-existent-id')).rejects.toThrow('Tick not found');
+      });
+
+      it('computes correct column based on status', async () => {
+        // Create a closed tick
+        const createResponse = await fetch(`${TEST_RIG_URL}/api/ticks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Closed Tick' }),
+        });
+        const created = await createResponse.json();
+
+        // Close the tick
+        await fetch(`${TEST_RIG_URL}/api/ticks/${created.id}/close`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Done' }),
+        });
+
+        await sleep(150); // Wait for WebSocket update
+
+        const tick = await client.fetchTick(created.id);
+
+        expect(tick.column).toBe('done');
+      });
+    });
+
+    describe('fetchActivity', () => {
+      it('returns empty array (not supported in cloud mode)', async () => {
+        const activities = await client.fetchActivity(10);
+
+        expect(activities).toEqual([]);
+      });
+    });
+
+    describe('fetchRecord', () => {
+      it('returns null (not supported in cloud mode)', async () => {
+        const record = await client.fetchRecord('any-tick-id');
+
+        expect(record).toBeNull();
+      });
+    });
+
+    describe('fetchRunStatus', () => {
+      it('returns not running when no run events received', async () => {
+        const status = await client.fetchRunStatus('unknown-epic');
+
+        expect(status.epicId).toBe('unknown-epic');
+        expect(status.isRunning).toBe(false);
+        expect(status.activeTask).toBeUndefined();
+      });
+
+      it('returns running after epic-started event', async () => {
+        // Subscribe to run events for the epic
+        client.subscribeRun('test-epic');
+
+        // Emit epic-started event
+        await fetch(`${TEST_RIG_URL}/test/emit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target: 'websocket',
+            data: {
+              type: 'run_event',
+              epicId: 'test-epic',
+              source: 'ralph',
+              event: {
+                type: 'epic-started',
+                status: 'running',
+                timestamp: new Date().toISOString(),
+              },
+            },
+          }),
+        });
+
+        await sleep(100);
+
+        const status = await client.fetchRunStatus('test-epic');
+
+        expect(status.epicId).toBe('test-epic');
+        expect(status.isRunning).toBe(true);
+      });
+
+      it('returns not running after epic-completed event', async () => {
+        // Subscribe to run events for the epic
+        client.subscribeRun('test-epic-2');
+
+        // Emit epic-started event
+        await fetch(`${TEST_RIG_URL}/test/emit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target: 'websocket',
+            data: {
+              type: 'run_event',
+              epicId: 'test-epic-2',
+              source: 'ralph',
+              event: {
+                type: 'epic-started',
+                status: 'running',
+                timestamp: new Date().toISOString(),
+              },
+            },
+          }),
+        });
+
+        await sleep(50);
+
+        // Emit epic-completed event
+        await fetch(`${TEST_RIG_URL}/test/emit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target: 'websocket',
+            data: {
+              type: 'run_event',
+              epicId: 'test-epic-2',
+              source: 'ralph',
+              event: {
+                type: 'epic-completed',
+                success: true,
+                timestamp: new Date().toISOString(),
+              },
+            },
+          }),
+        });
+
+        await sleep(100);
+
+        const status = await client.fetchRunStatus('test-epic-2');
+
+        expect(status.epicId).toBe('test-epic-2');
+        expect(status.isRunning).toBe(false);
+      });
+
+      it('tracks active task from task-started event', async () => {
+        // Subscribe to run events for the epic
+        client.subscribeRun('test-epic-3');
+
+        // Emit task-started event
+        await fetch(`${TEST_RIG_URL}/test/emit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target: 'websocket',
+            data: {
+              type: 'run_event',
+              epicId: 'test-epic-3',
+              taskId: 'task-123',
+              source: 'ralph',
+              event: {
+                type: 'task-started',
+                status: 'running',
+                numTurns: 0,
+                timestamp: new Date().toISOString(),
+              },
+            },
+          }),
+        });
+
+        await sleep(100);
+
+        const status = await client.fetchRunStatus('test-epic-3');
+
+        expect(status.isRunning).toBe(true);
+        expect(status.activeTask).toBeDefined();
+        expect(status.activeTask?.tickId).toBe('task-123');
+      });
+    });
+
+    describe('fetchContext', () => {
+      it('returns null (not supported in cloud mode)', async () => {
+        const context = await client.fetchContext('any-epic-id');
+
+        expect(context).toBeNull();
+      });
+    });
+  });
 });
 
 // =============================================================================

@@ -51,7 +51,8 @@ const wranglerHost = new URL(WRANGLER_URL).host;
 // Custom WebSocket that handles cloud protocol with real wrangler
 // CloudCommsClient constructs URLs like: ws://host/api/projects/:project/sync?type=cloud
 // and passes token via Sec-WebSocket-Protocol header
-class RealCloudWebSocket extends WebSocket {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+class RealCloudWebSocket extends (WebSocket as any) {
   constructor(url: string | URL, protocols?: string | string[]) {
     const actualUrl = url.toString();
 

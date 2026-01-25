@@ -1,0 +1,14 @@
+{
+  "id": "pxm",
+  "title": "Refactor Tickboard to use CommsClient for all communication",
+  "description": "Migrate all direct API calls in tickboard UI to use the unified CommsClient abstraction. Currently events and writes use CommsClient, but reads still use direct api/ticks.ts calls. This refactoring will add read operations to CommsClient and update all components to use it.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T10:09:26.409474Z",
+  "updated_at": "2026-01-25T10:44:59.465178Z",
+  "closed_at": "2026-01-25T10:44:59.465178Z",
+  "closed_reason": "All tasks completed. Tickboard UI now uses CommsClient for all communication (read and write operations)."
+}

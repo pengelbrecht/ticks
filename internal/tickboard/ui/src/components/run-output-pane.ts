@@ -5,12 +5,13 @@ import type { ShowToastOptions } from './tick-toast-stack.js';
 import type { ContextPane } from './context-pane.js';
 import {
   LocalOutputStreamAdapter,
-  CloudOutputStreamAdapter,
   type OutputStreamAdapter,
   type RunEvent,
 } from '../streams/output-stream.js';
 import { $isCloudMode } from '../stores/connection.js';
-import { registerRunEventAdapter } from '../stores/sync.js';
+import { onRunEvent, subscribeRun, $connectionStatus } from '../stores/comms.js';
+import type { RunEvent as CommsRunEvent, ContextEvent as CommsContextEvent } from '../comms/types.js';
+import { onContextEvent } from '../stores/comms.js';
 
 const TAB_STORAGE_KEY = 'run-output-pane-active-tab';
 
@@ -505,15 +506,193 @@ export class RunOutputPane extends LitElement {
 
     // Choose adapter based on mode
     if ($isCloudMode.get()) {
-      const cloudAdapter = new CloudOutputStreamAdapter(callbacks);
-      this.adapter = cloudAdapter;
-      // Register with sync store to receive run events from DO
-      this.unregisterAdapter = registerRunEventAdapter(cloudAdapter);
+      // Cloud mode: use comms store directly for run events
+      // Subscribe to run events for this epic
+      const unsubscribeRun = subscribeRun(this.epicId);
+
+      // Listen for run events and convert to local format
+      const unsubscribeRunEvents = onRunEvent((event: CommsRunEvent) => {
+        // Filter by epicId
+        if (event.epicId !== this.epicId) return;
+
+        // Convert comms RunEvent to local RunEvent format
+        const localEvent = this.convertCommsRunEvent(event);
+        if (localEvent) {
+          this.handleRunEvent(localEvent);
+        }
+      });
+
+      // Listen for context events
+      const unsubscribeContextEvents = onContextEvent((event: CommsContextEvent) => {
+        if (event.epicId !== this.epicId) return;
+
+        // Convert context events to local format
+        const localEvent = this.convertCommsContextEvent(event);
+        if (localEvent) {
+          this.handleRunEvent(localEvent);
+        }
+      });
+
+      // Track unsubscribers
+      this.unregisterAdapter = () => {
+        unsubscribeRun();
+        unsubscribeRunEvents();
+        unsubscribeContextEvents();
+      };
+
+      // Mark as connected (cloud connection is managed by comms store)
+      if ($connectionStatus.get() === 'connected') {
+        callbacks.onConnected();
+      } else {
+        // Subscribe to connection status changes
+        const unsubscribeStatus = $connectionStatus.subscribe((status) => {
+          if (status === 'connected') {
+            callbacks.onConnected();
+          } else if (status === 'disconnected') {
+            callbacks.onDisconnected();
+          }
+        });
+        // Add to cleanup
+        const originalUnregister = this.unregisterAdapter;
+        this.unregisterAdapter = () => {
+          originalUnregister?.();
+          unsubscribeStatus();
+        };
+      }
     } else {
       this.adapter = new LocalOutputStreamAdapter(callbacks);
+      this.adapter.connect(this.epicId);
     }
+  }
 
-    this.adapter.connect(this.epicId);
+  /**
+   * Convert a comms RunEvent to the local RunEvent format.
+   */
+  private convertCommsRunEvent(event: CommsRunEvent): RunEvent | null {
+    // Map comms event type to local eventType (remove 'run:' prefix)
+    const typeMap: Record<string, RunEvent['eventType']> = {
+      'run:task-started': 'task-started',
+      'run:task-update': 'task-update',
+      'run:task-completed': 'task-completed',
+      'run:tool-activity': 'tool-activity',
+      'run:epic-started': 'epic-started',
+      'run:epic-completed': 'epic-completed',
+    };
+
+    const eventType = typeMap[event.type];
+    if (!eventType) return null;
+
+    const base: Partial<RunEvent> = {
+      epicId: event.epicId,
+      taskId: event.taskId,
+      source: 'ralph', // Default source
+      eventType,
+      timestamp: event.timestamp,
+    };
+
+    switch (event.type) {
+      case 'run:task-started':
+        return {
+          ...base,
+          eventType: 'task-started',
+          status: event.status,
+          numTurns: event.numTurns,
+          metrics: event.metrics,
+        } as RunEvent;
+
+      case 'run:task-update':
+        return {
+          ...base,
+          eventType: 'task-update',
+          output: event.output,
+          status: event.status,
+          numTurns: event.numTurns,
+          metrics: event.metrics,
+          activeTool: event.activeTool,
+        } as RunEvent;
+
+      case 'run:task-completed':
+        return {
+          ...base,
+          eventType: 'task-completed',
+          success: event.success,
+          numTurns: event.numTurns,
+          metrics: event.metrics,
+        } as RunEvent;
+
+      case 'run:tool-activity':
+        return {
+          ...base,
+          eventType: 'tool-activity',
+          activeTool: event.tool,
+        } as RunEvent;
+
+      case 'run:epic-started':
+        return {
+          ...base,
+          eventType: 'epic-started',
+          status: event.status,
+          message: event.message,
+        } as RunEvent;
+
+      case 'run:epic-completed':
+        return {
+          ...base,
+          eventType: 'epic-completed',
+          success: event.success,
+        } as RunEvent;
+
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Convert a comms ContextEvent to the local RunEvent format.
+   */
+  private convertCommsContextEvent(event: CommsContextEvent): RunEvent | null {
+    const base: Partial<RunEvent> = {
+      epicId: event.epicId,
+      source: 'ralph',
+      timestamp: new Date().toISOString(),
+    };
+
+    switch (event.type) {
+      case 'context:generating':
+        return {
+          ...base,
+          eventType: 'context-generating',
+        } as RunEvent;
+
+      case 'context:generated':
+        return {
+          ...base,
+          eventType: 'context-generated',
+        } as RunEvent;
+
+      case 'context:loaded':
+        return {
+          ...base,
+          eventType: 'context-loaded',
+        } as RunEvent;
+
+      case 'context:failed':
+        return {
+          ...base,
+          eventType: 'context-failed',
+          message: event.message,
+        } as RunEvent;
+
+      case 'context:skipped':
+        return {
+          ...base,
+          eventType: 'context-skipped',
+          message: event.reason,
+        } as RunEvent;
+
+      default:
+        return null;
+    }
   }
 
   /**
@@ -610,7 +789,11 @@ export class RunOutputPane extends LitElement {
       this.adapter.disconnect();
       this.adapter = null;
     }
-    this.connectionStatus = 'disconnected';
+    // Note: Don't set connectionStatus to disconnected here for cloud mode
+    // as the connection is managed by the comms store
+    if (!$isCloudMode.get()) {
+      this.connectionStatus = 'disconnected';
+    }
   }
 
   /**

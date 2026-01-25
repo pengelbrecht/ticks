@@ -12,7 +12,9 @@ import type {
   ContextEvent,
   ConnectionEvent,
   CommsEvent,
+  TickDetail,
 } from './types.js';
+import type { Tick, TickStatus, TickType, TickColumn } from '../types/tick.js';
 
 describe('MockCommsClient', () => {
   let client: MockCommsClient;
@@ -681,6 +683,206 @@ describe('MockCommsClient', () => {
       await expect(client.createTick({ title: 'T2' })).resolves.toBeDefined();
     });
   });
+
+  // ===========================================================================
+  // Read Operations
+  // ===========================================================================
+
+  describe('read operations', () => {
+    describe('fetchInfo', () => {
+      it('returns default mock info', async () => {
+        const info = await client.fetchInfo();
+        expect(info.repoName).toBe('mock-repo');
+        expect(info.epics).toEqual([]);
+      });
+
+      it('returns configured mock info via setMockInfo', async () => {
+        const mockInfo = {
+          repoName: 'test-project',
+          epics: [
+            { id: 'epic-1', title: 'First Epic' },
+            { id: 'epic-2', title: 'Second Epic' },
+          ],
+        };
+        client.setMockInfo(mockInfo);
+
+        const info = await client.fetchInfo();
+        expect(info).toEqual(mockInfo);
+      });
+    });
+
+    describe('fetchTick', () => {
+      it('throws error for unconfigured tick', async () => {
+        await expect(client.fetchTick('unknown')).rejects.toThrow('Tick not found: unknown');
+      });
+
+      it('returns configured mock tick via setMockTick', async () => {
+        const mockTick = createMockTickDetail({ id: 't1', title: 'Test Task' });
+        client.setMockTick('t1', mockTick);
+
+        const tick = await client.fetchTick('t1');
+        expect(tick).toEqual(mockTick);
+      });
+
+      it('supports multiple configured ticks', async () => {
+        const tick1 = createMockTickDetail({ id: 't1', title: 'Task 1' });
+        const tick2 = createMockTickDetail({ id: 't2', title: 'Task 2' });
+        client.setMockTick('t1', tick1);
+        client.setMockTick('t2', tick2);
+
+        expect(await client.fetchTick('t1')).toEqual(tick1);
+        expect(await client.fetchTick('t2')).toEqual(tick2);
+      });
+    });
+
+    describe('fetchActivity', () => {
+      it('returns empty array by default', async () => {
+        const activities = await client.fetchActivity();
+        expect(activities).toEqual([]);
+      });
+
+      it('returns configured mock activities via setMockActivity', async () => {
+        const mockActivities = [
+          createMockActivity({ tick: 't1', action: 'create' }),
+          createMockActivity({ tick: 't2', action: 'update' }),
+        ];
+        client.setMockActivity(mockActivities);
+
+        const activities = await client.fetchActivity();
+        expect(activities).toEqual(mockActivities);
+      });
+
+      it('respects limit parameter', async () => {
+        const mockActivities = [
+          createMockActivity({ tick: 't1', action: 'create' }),
+          createMockActivity({ tick: 't2', action: 'update' }),
+          createMockActivity({ tick: 't3', action: 'close' }),
+        ];
+        client.setMockActivity(mockActivities);
+
+        const activities = await client.fetchActivity(2);
+        expect(activities).toHaveLength(2);
+        expect(activities[0].tick).toBe('t1');
+        expect(activities[1].tick).toBe('t2');
+      });
+
+      it('returns all when limit exceeds array length', async () => {
+        const mockActivities = [createMockActivity({ tick: 't1', action: 'create' })];
+        client.setMockActivity(mockActivities);
+
+        const activities = await client.fetchActivity(100);
+        expect(activities).toHaveLength(1);
+      });
+    });
+
+    describe('fetchRecord', () => {
+      it('returns null for unconfigured tick', async () => {
+        const record = await client.fetchRecord('unknown');
+        expect(record).toBeNull();
+      });
+
+      it('returns configured mock record via setMockRecord', async () => {
+        const mockRecord = createMockRunRecord();
+        client.setMockRecord('t1', mockRecord);
+
+        const record = await client.fetchRecord('t1');
+        expect(record).toEqual(mockRecord);
+      });
+
+      it('supports multiple configured records', async () => {
+        const record1 = createMockRunRecord({ session_id: 'session-1' });
+        const record2 = createMockRunRecord({ session_id: 'session-2' });
+        client.setMockRecord('t1', record1);
+        client.setMockRecord('t2', record2);
+
+        expect(await client.fetchRecord('t1')).toEqual(record1);
+        expect(await client.fetchRecord('t2')).toEqual(record2);
+      });
+    });
+
+    describe('fetchRunStatus', () => {
+      it('returns default not-running status for unconfigured epic', async () => {
+        const status = await client.fetchRunStatus('unknown');
+        expect(status).toEqual({ epicId: 'unknown', isRunning: false });
+      });
+
+      it('returns configured mock run status via setMockRunStatus', async () => {
+        const mockStatus = createMockRunStatus({ epicId: 'epic-1', isRunning: true });
+        client.setMockRunStatus('epic-1', mockStatus);
+
+        const status = await client.fetchRunStatus('epic-1');
+        expect(status).toEqual(mockStatus);
+      });
+
+      it('supports multiple configured statuses', async () => {
+        const status1 = createMockRunStatus({ epicId: 'epic-1', isRunning: true });
+        const status2 = createMockRunStatus({ epicId: 'epic-2', isRunning: false });
+        client.setMockRunStatus('epic-1', status1);
+        client.setMockRunStatus('epic-2', status2);
+
+        expect(await client.fetchRunStatus('epic-1')).toEqual(status1);
+        expect(await client.fetchRunStatus('epic-2')).toEqual(status2);
+      });
+    });
+
+    describe('fetchContext', () => {
+      it('returns null for unconfigured epic', async () => {
+        const context = await client.fetchContext('unknown');
+        expect(context).toBeNull();
+      });
+
+      it('returns configured mock context via setMockContext', async () => {
+        const mockContext = '# Epic Context\n\nThis is the generated context.';
+        client.setMockContext('epic-1', mockContext);
+
+        const context = await client.fetchContext('epic-1');
+        expect(context).toBe(mockContext);
+      });
+
+      it('supports multiple configured contexts', async () => {
+        client.setMockContext('epic-1', 'Context for epic 1');
+        client.setMockContext('epic-2', 'Context for epic 2');
+
+        expect(await client.fetchContext('epic-1')).toBe('Context for epic 1');
+        expect(await client.fetchContext('epic-2')).toBe('Context for epic 2');
+      });
+    });
+  });
+
+  // ===========================================================================
+  // Reset Clears Read Data
+  // ===========================================================================
+
+  describe('reset clears read data', () => {
+    it('reset clears all mock read data', async () => {
+      // Configure mock data
+      client.setMockInfo({ repoName: 'test', epics: [{ id: 'e1', title: 'Epic' }] });
+      client.setMockActivity([createMockActivity({ tick: 't1', action: 'create' })]);
+      client.setMockRecord('t1', createMockRunRecord());
+      client.setMockRunStatus('e1', createMockRunStatus({ epicId: 'e1', isRunning: true }));
+      client.setMockContext('e1', 'Context');
+      client.setMockTick('t1', createMockTickDetail({ id: 't1' }));
+
+      // Verify data is set
+      expect((await client.fetchInfo()).repoName).toBe('test');
+      expect(await client.fetchActivity()).toHaveLength(1);
+      expect(await client.fetchRecord('t1')).not.toBeNull();
+      expect((await client.fetchRunStatus('e1')).isRunning).toBe(true);
+      expect(await client.fetchContext('e1')).toBe('Context');
+      expect((await client.fetchTick('t1')).id).toBe('t1');
+
+      // Reset
+      client.reset();
+
+      // Verify data is cleared
+      expect((await client.fetchInfo()).repoName).toBe('mock-repo');
+      expect(await client.fetchActivity()).toHaveLength(0);
+      expect(await client.fetchRecord('t1')).toBeNull();
+      expect((await client.fetchRunStatus('e1')).isRunning).toBe(false);
+      expect(await client.fetchContext('e1')).toBeNull();
+      await expect(client.fetchTick('t1')).rejects.toThrow('Tick not found');
+    });
+  });
 });
 
 // =============================================================================
@@ -693,13 +895,13 @@ function createMockTick(overrides: Partial<{
   status: string;
   priority: number;
   type: string;
-}> = {}) {
+}> = {}): Tick {
   return {
     id: overrides.id || 'test-1',
     title: overrides.title || 'Test Tick',
-    status: overrides.status || 'open',
+    status: (overrides.status || 'open') as TickStatus,
     priority: overrides.priority || 2,
-    type: overrides.type || 'task',
+    type: (overrides.type || 'task') as TickType,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     created_by: 'test@user.com',
@@ -715,5 +917,81 @@ function createRunEvent(): RunEvent {
     status: 'running',
     numTurns: 0,
     timestamp: new Date().toISOString(),
+  };
+}
+
+function createMockTickDetail(overrides: Partial<{
+  id: string;
+  title: string;
+  status: string;
+  priority: number;
+  type: string;
+}> = {}): TickDetail {
+  return {
+    id: overrides.id || 'test-1',
+    title: overrides.title || 'Test Tick',
+    status: (overrides.status || 'open') as TickStatus,
+    priority: overrides.priority || 2,
+    type: (overrides.type || 'task') as TickType,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    created_by: 'test@user.com',
+    owner: '',
+    isBlocked: false,
+    column: 'ready' as TickColumn,
+    notesList: [],
+    blockerDetails: [],
+  };
+}
+
+function createMockActivity(overrides: Partial<{
+  ts: string;
+  tick: string;
+  action: string;
+  actor: string;
+  epic?: string;
+}> = {}) {
+  return {
+    ts: overrides.ts || new Date().toISOString(),
+    tick: overrides.tick || 'tick-1',
+    action: overrides.action || 'update',
+    actor: overrides.actor || 'test@user.com',
+    epic: overrides.epic,
+  };
+}
+
+function createMockRunRecord(overrides: Partial<{
+  session_id: string;
+  model: string;
+  output: string;
+  success: boolean;
+  num_turns: number;
+}> = {}) {
+  return {
+    session_id: overrides.session_id || 'session-123',
+    model: overrides.model || 'claude-opus-4-5-20251101',
+    started_at: new Date().toISOString(),
+    ended_at: new Date().toISOString(),
+    output: overrides.output || 'Task completed successfully.',
+    metrics: {
+      input_tokens: 1000,
+      output_tokens: 500,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      cost_usd: 0.05,
+      duration_ms: 10000,
+    },
+    success: overrides.success ?? true,
+    num_turns: overrides.num_turns ?? 3,
+  };
+}
+
+function createMockRunStatus(overrides: Partial<{
+  epicId: string;
+  isRunning: boolean;
+}> = {}) {
+  return {
+    epicId: overrides.epicId || 'epic-1',
+    isRunning: overrides.isRunning ?? false,
   };
 }

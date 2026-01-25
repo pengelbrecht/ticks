@@ -4,7 +4,7 @@ import { provide } from '@lit/context';
 import { StoreController } from '@nanostores/lit';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { fetchTicks, fetchTick, fetchInfo, fetchRunStatus, setCloudProject as setCloudProjectApi, type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord } from '../api/ticks.js';
+import { fetchTicks, setCloudProject as setCloudProjectApi, type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord } from '../api/ticks.js';
 import type { ToolActivityInfo } from './tool-activity.js';
 import type { MetricsRecord } from './run-metrics.js';
 import {
@@ -38,6 +38,10 @@ import {
   disconnectComms,
   subscribeRun,
   onRunEvent,
+  // Read operations (comms wrappers)
+  fetchInfo,
+  fetchTickDetails,
+  fetchRunStatus,
 } from '../stores/index.js';
 import type { RunEvent } from '../comms/types.js';
 
@@ -667,11 +671,11 @@ export class TickBoard extends LitElement {
   }
 
   private async loadData() {
-    // In cloud mode, data comes from SyncClient WebSocket, not local API
+    // In cloud mode, data comes from CloudCommsClient WebSocket, not local API
     if (this.isCloudMode) {
-      console.log('[TickBoard] Cloud mode: waiting for data from SyncClient');
+      console.log('[TickBoard] Cloud mode: waiting for data from CloudCommsClient');
       setLoading(true);
-      // Loading state will be cleared when SyncClient receives state
+      // Loading state will be cleared when CloudCommsClient receives state
       return;
     }
 
@@ -1364,7 +1368,7 @@ export class TickBoard extends LitElement {
     // (The computed store parseNotes works for both modes, but local API may have more detail)
     if (!this.isCloudMode) {
       try {
-        const details = await fetchTick(tick.id);
+        const details = await fetchTickDetails(tick.id);
         // Update the tick in store with full details
         updateTick(details);
       } catch (err) {

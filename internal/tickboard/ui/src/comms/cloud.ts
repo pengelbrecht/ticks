@@ -9,7 +9,7 @@
  * - WebSocket messages for tick updates/deletes (forwarded to local agent)
  */
 
-import type { Tick } from '../types/tick.js';
+import type { Tick, TickStatus } from '../types/tick.js';
 import type {
   TickEvent,
   RunEvent,
@@ -20,6 +20,12 @@ import type {
   ConnectionInfo,
   RunMetrics,
   ToolInfo,
+  InfoResponse,
+  TickDetail,
+  Activity,
+  RunRecord,
+  RunStatusResponse,
+  BlockerDetail,
 } from './types.js';
 import type {
   CommsClient,
@@ -30,6 +36,7 @@ import type {
   Unsubscribe,
 } from './client.js';
 import { ReadOnlyError, ConnectionError } from './client.js';
+import { parseNotes } from '../api/ticks.js';
 
 // =============================================================================
 // Configuration
@@ -170,6 +177,22 @@ export class CloudCommsClient implements CommsClient {
   // ---------------------------------------------------------------------------
 
   private runSubscriptions = new Set<string>();
+
+  // ---------------------------------------------------------------------------
+  // Tick Cache (for read operations)
+  // ---------------------------------------------------------------------------
+
+  private tickCache = new Map<string, Tick>();
+
+  // ---------------------------------------------------------------------------
+  // Run State (for fetchRunStatus)
+  // ---------------------------------------------------------------------------
+
+  private runStates = new Map<string, {
+    isRunning: boolean;
+    activeTaskId?: string;
+    lastEvent?: RunEvent;
+  }>();
 
   constructor(projectId: string) {
     this.projectId = projectId;
@@ -365,6 +388,7 @@ export class CloudCommsClient implements CommsClient {
       parent: tick.parent,
       labels: tick.labels,
       blocked_by: tick.blocked_by,
+      owner: '',
       created_by: 'cloud@user',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -385,11 +409,12 @@ export class CloudCommsClient implements CommsClient {
       id,
       title: updates.title || '',
       description: updates.description || '',
-      status: updates.status || 'open',
+      status: (updates.status || 'open') as TickStatus,
       priority: updates.priority ?? 2,
       labels: updates.labels,
       blocked_by: updates.blocked_by,
       type: 'task',
+      owner: '',
       created_by: 'cloud@user',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -455,6 +480,149 @@ export class CloudCommsClient implements CommsClient {
   }
 
   // ---------------------------------------------------------------------------
+  // Read Operations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch server info including project metadata and epic list.
+   * In cloud mode, returns project ID as repo name and computes epics from tick cache.
+   */
+  async fetchInfo(): Promise<InfoResponse> {
+    // Compute epics from tick cache
+    const epics: { id: string; title: string }[] = [];
+    for (const tick of this.tickCache.values()) {
+      if (tick.type === 'epic') {
+        epics.push({ id: tick.id, title: tick.title });
+      }
+    }
+
+    return {
+      repoName: this.projectId,
+      epics,
+    };
+  }
+
+  /**
+   * Fetch detailed information about a specific tick.
+   * In cloud mode, returns from cache with parsed notes and computed blocker details.
+   */
+  async fetchTick(id: string): Promise<TickDetail> {
+    const tick = this.tickCache.get(id);
+    if (!tick) {
+      throw new Error(`Tick not found: ${id}`);
+    }
+
+    // Compute blocker details from tick cache
+    const blockerDetails: BlockerDetail[] = [];
+    if (tick.blocked_by && tick.blocked_by.length > 0) {
+      for (const blockerId of tick.blocked_by) {
+        const blocker = this.tickCache.get(blockerId);
+        if (blocker) {
+          blockerDetails.push({
+            id: blocker.id,
+            title: blocker.title,
+            status: blocker.status,
+          });
+        } else {
+          // Blocker not in cache, add minimal info
+          blockerDetails.push({
+            id: blockerId,
+            title: `Tick ${blockerId}`,
+            status: 'unknown',
+          });
+        }
+      }
+    }
+
+    // Compute isBlocked - a tick is blocked if any of its blockers are not closed
+    const isBlocked = blockerDetails.some((b) => b.status !== 'closed');
+
+    // Compute column based on tick state
+    let column: 'blocked' | 'ready' | 'agent' | 'human' | 'done' = 'ready';
+    if (tick.status === 'closed') {
+      column = 'done';
+    } else if (isBlocked) {
+      column = 'blocked';
+    } else if (tick.awaiting) {
+      column = 'human';
+    } else if (tick.status === 'in_progress') {
+      column = 'agent';
+    }
+
+    return {
+      ...tick,
+      isBlocked,
+      column,
+      notesList: parseNotes(tick.notes),
+      blockerDetails,
+    };
+  }
+
+  /**
+   * Fetch activity log entries.
+   * In cloud mode, activity feed is not supported yet - returns empty array.
+   */
+  async fetchActivity(_limit?: number): Promise<Activity[]> {
+    // Activity feed not supported in cloud mode yet
+    return [];
+  }
+
+  /**
+   * Fetch the run record for a completed tick.
+   * In cloud mode, run records are not supported yet - returns null.
+   */
+  async fetchRecord(_tickId: string): Promise<RunRecord | null> {
+    // Run records not supported in cloud mode yet
+    return null;
+  }
+
+  /**
+   * Fetch the current run status for an epic.
+   * In cloud mode, derives status from tracked run events.
+   */
+  async fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
+    const state = this.runStates.get(epicId);
+
+    if (!state) {
+      return {
+        epicId,
+        isRunning: false,
+      };
+    }
+
+    return {
+      epicId,
+      isRunning: state.isRunning,
+      activeTask: state.activeTaskId
+        ? {
+            tickId: state.activeTaskId,
+            title: this.tickCache.get(state.activeTaskId)?.title || state.activeTaskId,
+            status: 'running',
+            numTurns: 0,
+            metrics: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_read_tokens: 0,
+              cache_creation_tokens: 0,
+              cost_usd: 0,
+              duration_ms: 0,
+            },
+            lastUpdated: state.lastEvent?.timestamp || new Date().toISOString(),
+          }
+        : undefined,
+    };
+  }
+
+  /**
+   * Fetch the generated context for an epic.
+   * In cloud mode, context is not supported yet - returns null.
+   */
+  async fetchContext(_epicId: string): Promise<string | null> {
+    // Context not supported in cloud mode yet
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
   // Message Handling
   // ---------------------------------------------------------------------------
 
@@ -503,17 +671,26 @@ export class CloudCommsClient implements CommsClient {
 
   private handleStateFullMessage(msg: StateFullMessage): void {
     console.log('[CloudComms] Received full state:', Object.keys(msg.ticks).length, 'ticks');
+    // Update tick cache
+    this.tickCache.clear();
+    for (const [id, tick] of Object.entries(msg.ticks)) {
+      this.tickCache.set(id, tick);
+    }
     const ticksMap = new Map(Object.entries(msg.ticks));
     this.emitTick({ type: 'tick:bulk', ticks: ticksMap });
   }
 
   private handleTickUpdateMessage(msg: TickUpdatedMessage): void {
     console.log('[CloudComms] Tick updated:', msg.tick.id);
+    // Update tick cache
+    this.tickCache.set(msg.tick.id, msg.tick);
     this.emitTick({ type: 'tick:updated', tick: msg.tick });
   }
 
   private handleTickDeleteMessage(msg: TickDeletedMessage): void {
     console.log('[CloudComms] Tick deleted:', msg.id);
+    // Update tick cache
+    this.tickCache.delete(msg.id);
     this.emitTick({ type: 'tick:deleted', tickId: msg.id });
   }
 
@@ -545,6 +722,12 @@ export class CloudCommsClient implements CommsClient {
           metrics: this.normalizeMetrics(event.metrics),
           timestamp,
         };
+        // Track run state
+        this.runStates.set(epicId, {
+          isRunning: true,
+          activeTaskId: taskId,
+          lastEvent: runEvent,
+        });
         break;
 
       case 'task-update':
@@ -559,6 +742,11 @@ export class CloudCommsClient implements CommsClient {
           activeTool: event.activeTool ? this.normalizeToolInfo(event.activeTool) : undefined,
           timestamp,
         };
+        // Update run state
+        const currentState = this.runStates.get(epicId);
+        if (currentState) {
+          currentState.lastEvent = runEvent;
+        }
         break;
 
       case 'task-completed':
@@ -571,6 +759,12 @@ export class CloudCommsClient implements CommsClient {
           metrics: this.normalizeMetrics(event.metrics),
           timestamp,
         };
+        // Update run state - task completed but epic may still be running
+        const taskCompleteState = this.runStates.get(epicId);
+        if (taskCompleteState) {
+          taskCompleteState.activeTaskId = undefined;
+          taskCompleteState.lastEvent = runEvent;
+        }
         break;
 
       case 'tool-activity':
@@ -591,6 +785,11 @@ export class CloudCommsClient implements CommsClient {
           message: event.message,
           timestamp,
         };
+        // Track run state
+        this.runStates.set(epicId, {
+          isRunning: true,
+          lastEvent: runEvent,
+        });
         break;
 
       case 'epic-completed':
@@ -600,6 +799,11 @@ export class CloudCommsClient implements CommsClient {
           success: event.success ?? true,
           timestamp,
         };
+        // Track run state - epic completed
+        this.runStates.set(epicId, {
+          isRunning: false,
+          lastEvent: runEvent,
+        });
         break;
 
       default:

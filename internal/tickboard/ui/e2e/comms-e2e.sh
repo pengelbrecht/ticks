@@ -409,6 +409,195 @@ test_run_unsubscribe() {
 }
 
 # ============================================================================
+# Read Operation Tests
+# ============================================================================
+
+test_fetch_info() {
+  log_test "Fetch Info"
+  reset_state
+
+  # Connect SSE first
+  click_by_onclick "connectSSE()"
+  sleep 0.5
+
+  # Fetch info
+  click_by_onclick "fetchInfo()"
+  sleep 0.5
+
+  # Check event log for Read:info entry
+  local snapshot=$(get_snapshot)
+  if echo "$snapshot" | grep -q "Read:info"; then
+    log_pass "Fetch info returned data"
+  else
+    log_fail "Fetch info not logged"
+    echo "Snapshot: $snapshot"
+  fi
+}
+
+test_fetch_activity() {
+  log_test "Fetch Activity"
+
+  # Create some ticks to generate activity
+  fill_by_id "tick-title" "Activity Test 1"
+  click_by_onclick "createTick()"
+  sleep 0.3
+  fill_by_id "tick-title" "Activity Test 2"
+  click_by_onclick "createTick()"
+  sleep 0.3
+
+  # Fetch activity
+  click_by_onclick "fetchActivity()"
+  sleep 0.5
+
+  # Check event log for Read:activity entry
+  local snapshot=$(get_snapshot)
+  if echo "$snapshot" | grep -q "Read:activity"; then
+    log_pass "Fetch activity returned data"
+  else
+    log_fail "Fetch activity not logged"
+    echo "Snapshot: $snapshot"
+  fi
+}
+
+test_fetch_run_status() {
+  log_test "Fetch Run Status"
+  reset_state
+
+  # Connect SSE first
+  click_by_onclick "connectSSE()"
+  sleep 0.5
+
+  # Fetch run status
+  click_by_onclick "fetchRunStatus()"
+  sleep 0.5
+
+  # Check event log for Read:run-status entry
+  local snapshot=$(get_snapshot)
+  if echo "$snapshot" | grep -q "Read:run-status"; then
+    log_pass "Fetch run status returned data"
+  else
+    log_fail "Fetch run status not logged"
+    echo "Snapshot: $snapshot"
+  fi
+}
+
+test_fetch_record_not_found() {
+  log_test "Fetch Record (Not Found)"
+  reset_state
+
+  # Connect SSE and create a tick
+  click_by_onclick "connectSSE()"
+  sleep 0.5
+  fill_by_id "tick-title" "Record Test Tick"
+  click_by_onclick "createTick()"
+  sleep 0.5
+
+  # Fetch record (should be not found)
+  click_by_onclick "fetchRecord()"
+  sleep 0.5
+
+  # Check event log shows not found
+  local snapshot=$(get_snapshot)
+  if echo "$snapshot" | grep -q "Read:record"; then
+    log_pass "Fetch record handles not found"
+  else
+    log_fail "Fetch record not logged"
+    echo "Snapshot: $snapshot"
+  fi
+}
+
+test_fetch_record_with_data() {
+  log_test "Fetch Record (With Data)"
+  reset_state
+
+  # Connect SSE and create a tick
+  click_by_onclick "connectSSE()"
+  sleep 0.5
+  fill_by_id "tick-title" "Record Test Tick 2"
+  click_by_onclick "createTick()"
+  sleep 0.5
+
+  # Get the first tick ID from the server
+  local tick_json=$(curl -s "${TEST_RIG_URL}/test/ticks")
+  # Extract first key using bash string manipulation (works without jq)
+  local tick_id=$(echo "$tick_json" | grep -o '"[^"]*":' | head -1 | tr -d '":')
+
+  if [ -n "$tick_id" ] && [ "$tick_id" != "{" ]; then
+    # Add a record via test endpoint
+    curl -s -X POST "${TEST_RIG_URL}/test/add-record" \
+      -H "Content-Type: application/json" \
+      -d "{\"tickId\":\"$tick_id\",\"record\":{\"session_id\":\"test-session-e2e\",\"model\":\"claude-3\",\"success\":true,\"num_turns\":5,\"output\":\"Test output\",\"metrics\":{\"input_tokens\":100,\"output_tokens\":50,\"cache_read_tokens\":0,\"cache_creation_tokens\":0,\"cost_usd\":0.01,\"duration_ms\":1000}}}" > /dev/null
+    sleep 0.3
+
+    # Select the tick in UI and fetch record
+    agent-browser eval "selectTick('$tick_id')" > /dev/null 2>&1
+    sleep 0.3
+    click_by_onclick "fetchRecord()"
+    sleep 0.5
+
+    local snapshot=$(get_snapshot)
+    if echo "$snapshot" | grep -q "test-session-e2e\|num_turns.*5"; then
+      log_pass "Fetch record returned data"
+    else
+      log_fail "Fetch record data not shown"
+      echo "Snapshot: $snapshot"
+    fi
+  else
+    log_fail "Could not get tick ID for record test (got: $tick_id)"
+  fi
+}
+
+test_fetch_context_not_found() {
+  log_test "Fetch Context (Not Found)"
+  reset_state
+
+  # Connect SSE
+  click_by_onclick "connectSSE()"
+  sleep 0.5
+
+  # Fetch context (should be not found)
+  click_by_onclick "fetchContext()"
+  sleep 0.5
+
+  # Check event log shows not found
+  local snapshot=$(get_snapshot)
+  if echo "$snapshot" | grep -q "Read:context"; then
+    log_pass "Fetch context handles not found"
+  else
+    log_fail "Fetch context not logged"
+    echo "Snapshot: $snapshot"
+  fi
+}
+
+test_fetch_context_with_data() {
+  log_test "Fetch Context (With Data)"
+  reset_state
+
+  # Use the default epic ID from the input
+  local epic_id="epic-test"
+
+  # Add context via test endpoint
+  curl -s -X POST "${TEST_RIG_URL}/test/add-context" \
+    -H "Content-Type: application/json" \
+    -d "{\"epicId\":\"$epic_id\",\"context\":\"This is test context for the epic.\"}" > /dev/null
+  sleep 0.3
+
+  # Connect SSE and fetch context
+  click_by_onclick "connectSSE()"
+  sleep 0.5
+  click_by_onclick "fetchContext()"
+  sleep 0.5
+
+  local snapshot=$(get_snapshot)
+  if echo "$snapshot" | grep -q "test context\|length"; then
+    log_pass "Fetch context returned data"
+  else
+    log_fail "Fetch context data not shown"
+    echo "Snapshot: $snapshot"
+  fi
+}
+
+# ============================================================================
 # Server Reset Test
 # ============================================================================
 
@@ -476,6 +665,16 @@ main() {
   test_run_unsubscribe
   test_tick_lifecycle_scenario
   test_run_complete_scenario
+
+  # Read operation tests
+  test_fetch_info
+  test_fetch_activity
+  test_fetch_run_status
+  test_fetch_record_not_found
+  test_fetch_record_with_data
+  test_fetch_context_not_found
+  test_fetch_context_with_data
+
   test_server_reset
 
   # Close browser

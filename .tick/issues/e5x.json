@@ -1,0 +1,16 @@
+{
+  "id": "e5x",
+  "title": "Add read operation types to comms/types.ts",
+  "description": "Add/re-export these types from api/ticks.ts to comms/types.ts:\n- InfoResponse (repo name, epics)\n- Activity (activity feed entry)\n- RunRecord (completed run data)\n- RunStatusResponse (live run status)\n- TickDetail (tick with notesList, blockerDetails)\n\nThese types are needed for the new read operations in CommsClient.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "pxm",
+  "acceptance_criteria": "Types compile and are exported from comms/index.ts",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T10:09:47.418408Z",
+  "updated_at": "2026-01-25T10:14:37.687703Z",
+  "closed_at": "2026-01-25T10:14:37.687703Z",
+  "closed_reason": "Types re-exported from api/ticks.ts to comms/types.ts and comms/index.ts. Build passes."
+}

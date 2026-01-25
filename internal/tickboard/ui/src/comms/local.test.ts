@@ -8,7 +8,7 @@
  * @vitest-environment node
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { EventSource as EventSourcePolyfill } from 'eventsource';
 import { LocalCommsClient } from './local.js';
 import type { TickEvent, RunEvent, ContextEvent, ConnectionEvent } from './types.js';
@@ -433,6 +433,155 @@ describe('LocalCommsClient Integration', () => {
       // Should have received run events
       expect(runEvents.some((e) => e.type === 'run:task-started')).toBe(true);
       expect(runEvents.some((e) => e.type === 'run:task-completed')).toBe(true);
+    });
+  });
+
+  // ===========================================================================
+  // Read Operations
+  // ===========================================================================
+
+  describe('read operations', () => {
+    beforeEach(async () => {
+      await client.connect();
+    });
+
+    afterEach(() => {
+      client.disconnect();
+    });
+
+    it('fetchInfo() returns server info', async () => {
+      const info = await client.fetchInfo();
+
+      expect(info).toBeDefined();
+      expect(info.repoName).toBeDefined();
+      expect(Array.isArray(info.epics)).toBe(true);
+    });
+
+    it('fetchTick() returns tick details', async () => {
+      // Create a tick first
+      const created = await client.createTick({
+        title: 'Test Tick for Fetch',
+        description: 'Testing fetchTick',
+      });
+
+      const tick = await client.fetchTick(created.id);
+
+      expect(tick).toBeDefined();
+      expect(tick.id).toBe(created.id);
+      expect(tick.title).toBe('Test Tick for Fetch');
+      expect(tick.description).toBe('Testing fetchTick');
+    });
+
+    it('fetchTick() throws on non-existent tick', async () => {
+      await expect(client.fetchTick('non-existent-tick')).rejects.toThrow();
+    });
+
+    it('fetchActivity() returns activity list', async () => {
+      // Create a tick to generate activity
+      await client.createTick({ title: 'Activity Test' });
+
+      const activities = await client.fetchActivity();
+
+      expect(Array.isArray(activities)).toBe(true);
+    });
+
+    it('fetchActivity() respects limit parameter', async () => {
+      // Create multiple ticks to generate activity
+      await client.createTick({ title: 'Activity Test 1' });
+      await client.createTick({ title: 'Activity Test 2' });
+      await client.createTick({ title: 'Activity Test 3' });
+
+      const activities = await client.fetchActivity(2);
+
+      expect(Array.isArray(activities)).toBe(true);
+      expect(activities.length).toBeLessThanOrEqual(2);
+    });
+
+    it('fetchRecord() returns null for non-existent record', async () => {
+      const record = await client.fetchRecord('non-existent-tick');
+
+      expect(record).toBeNull();
+    });
+
+    it('fetchRecord() returns record when it exists', async () => {
+      // Create a tick and set up a run record via test rig
+      const created = await client.createTick({ title: 'Record Test' });
+
+      // Add a run record via test rig
+      await fetch(`${TEST_RIG_URL}/test/add-record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tickId: created.id,
+          record: {
+            session_id: 'test-session',
+            model: 'test-model',
+            started_at: new Date().toISOString(),
+            ended_at: new Date().toISOString(),
+            output: 'Test output',
+            metrics: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_read_tokens: 0,
+              cache_creation_tokens: 0,
+              cost_usd: 0.001,
+              duration_ms: 1000,
+            },
+            success: true,
+            num_turns: 1,
+          },
+        }),
+      });
+
+      const record = await client.fetchRecord(created.id);
+
+      expect(record).not.toBeNull();
+      expect(record?.session_id).toBe('test-session');
+      expect(record?.model).toBe('test-model');
+      expect(record?.success).toBe(true);
+    });
+
+    it('fetchRunStatus() returns run status', async () => {
+      // Create an epic
+      const epic = await client.createTick({
+        title: 'Test Epic',
+        type: 'epic',
+      });
+
+      const status = await client.fetchRunStatus(epic.id);
+
+      expect(status).toBeDefined();
+      expect(status.epicId).toBe(epic.id);
+      expect(typeof status.isRunning).toBe('boolean');
+    });
+
+    it('fetchContext() returns null for non-existent context', async () => {
+      const context = await client.fetchContext('non-existent-epic');
+
+      expect(context).toBeNull();
+    });
+
+    it('fetchContext() returns context when it exists', async () => {
+      // Create an epic
+      const epic = await client.createTick({
+        title: 'Context Test Epic',
+        type: 'epic',
+      });
+
+      // Add context via test rig
+      await fetch(`${TEST_RIG_URL}/test/add-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          epicId: epic.id,
+          context: '# Test Context\n\nThis is test context content.',
+        }),
+      });
+
+      const context = await client.fetchContext(epic.id);
+
+      expect(context).not.toBeNull();
+      expect(context).toContain('Test Context');
     });
   });
 });

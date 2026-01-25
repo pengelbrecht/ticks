@@ -1,0 +1,19 @@
+{
+  "id": "6k7",
+  "title": "Refactor tick-board.ts to use comms store",
+  "description": "Update tick-board.ts to use comms store instead of api/ticks.ts:\n\n1. Remove imports: fetchTicks, fetchTick, fetchInfo, fetchRunStatus, setCloudProject from api/ticks.ts\n2. Add imports: fetchInfo, fetchTickDetails, fetchRunStatus from stores/comms.ts (or stores/index.ts)\n3. Update loadData() to use fetchInfo() from comms store\n4. Update handleTickSelected() to use fetchTickDetails() from comms store\n5. Update checkForActiveRuns() to use fetchRunStatus() from comms store\n6. Remove setCloudProjectApi() calls (handled by CommsClient internally)\n\nKeep type imports from api/ticks.ts (Note, BlockerDetail, etc.)",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "i69"
+  ],
+  "parent": "pxm",
+  "acceptance_criteria": "tick-board.ts has no function imports from api/ticks.ts, pnpm build succeeds",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-25T10:10:45.457987Z",
+  "updated_at": "2026-01-25T10:31:53.430859Z",
+  "closed_at": "2026-01-25T10:31:53.430859Z",
+  "closed_reason": "Refactored tick-board.ts to use fetchInfo, fetchTickDetails, fetchRunStatus from stores/comms.js"
+}

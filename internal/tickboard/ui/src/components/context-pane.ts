@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { marked } from 'marked';
-import { fetchContext } from '../api/ticks.js';
+import { fetchContext } from '../stores/comms.js';
 
 /**
  * Component for displaying epic context markdown.
