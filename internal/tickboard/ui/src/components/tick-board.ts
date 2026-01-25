@@ -157,9 +157,13 @@ export class TickBoard extends LitElement {
     }
 
     .epic-id {
-      font-family: monospace;
+      font-family: var(--sl-font-mono);
+      font-size: 0.75em;
+      padding: 0.15em 0.4em;
+      background: var(--surface1);
+      border-radius: 3px;
       color: var(--subtext0);
-      font-size: 0.85em;
+      margin-right: 0.5em;
     }
 
     /* Tablet - Horizontal scroll with snap (481-768px) */

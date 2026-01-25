@@ -4449,9 +4449,13 @@ var wr=Object.defineProperty;var xr=(e,t,s)=>t in e?wr(e,t,{enumerable:!0,config
     }
 
     .epic-id {
-      font-family: monospace;
+      font-family: var(--sl-font-mono);
+      font-size: 0.75em;
+      padding: 0.15em 0.4em;
+      background: var(--surface1);
+      border-radius: 3px;
       color: var(--subtext0);
-      font-size: 0.85em;
+      margin-right: 0.5em;
     }
 
     /* Tablet - Horizontal scroll with snap (481-768px) */
@@ -7530,7 +7534,9 @@ var wr=Object.defineProperty;var xr=(e,t,s)=>t in e?wr(e,t,{enumerable:!0,config
             ?disabled=${this.loading}
           >
             ${this.epics.map(e=>h`
-                <sl-option value=${e.id}>${e.title}</sl-option>
+                <sl-option value=${e.id}>
+                  <span class="epic-id">${e.id}</span> ${e.title}
+                </sl-option>
               `)}
           </sl-select>
         </div>
@@ -7635,6 +7641,16 @@ var wr=Object.defineProperty;var xr=(e,t,s)=>t in e?wr(e,t,{enumerable:!0,config
 
     .form-field .required {
       color: var(--red);
+    }
+
+    .epic-id {
+      font-family: var(--sl-font-mono);
+      font-size: 0.75em;
+      padding: 0.15em 0.4em;
+      background: var(--surface1);
+      border-radius: 3px;
+      color: var(--subtext0);
+      margin-right: 0.5em;
     }
 
     .form-row {

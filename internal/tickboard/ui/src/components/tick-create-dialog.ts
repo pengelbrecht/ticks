@@ -87,6 +87,16 @@ export class TickCreateDialog extends LitElement {
       color: var(--red);
     }
 
+    .epic-id {
+      font-family: var(--sl-font-mono);
+      font-size: 0.75em;
+      padding: 0.15em 0.4em;
+      background: var(--surface1);
+      border-radius: 3px;
+      color: var(--subtext0);
+      margin-right: 0.5em;
+    }
+
     .form-row {
       display: flex;
       gap: 1rem;
@@ -380,7 +390,9 @@ export class TickCreateDialog extends LitElement {
           >
             ${this.epics.map(
               epic => html`
-                <sl-option value=${epic.id}>${epic.title}</sl-option>
+                <sl-option value=${epic.id}>
+                  <span class="epic-id">${epic.id}</span> ${epic.title}
+                </sl-option>
               `
             )}
           </sl-select>
