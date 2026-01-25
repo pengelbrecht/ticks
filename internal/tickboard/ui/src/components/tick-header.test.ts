@@ -189,6 +189,10 @@ describe('tick-header mobile view', () => {
   // ===========================================================================
 
   describe('connection status', () => {
+    // -------------------------------------------------------------------------
+    // State Display
+    // -------------------------------------------------------------------------
+
     it('displays disconnected state by default', async () => {
       const dot = element.shadowRoot?.querySelector('.connection-status');
       expect(dot?.classList.contains('disconnected')).toBe(true);
@@ -210,9 +214,185 @@ describe('tick-header mobile view', () => {
       expect(dot?.classList.contains('connecting')).toBe(true);
     });
 
+    it('removes previous state class when state changes', async () => {
+      // Start disconnected (default)
+      let dot = element.shadowRoot?.querySelector('.connection-status');
+      expect(dot?.classList.contains('disconnected')).toBe(true);
+
+      // Change to connected
+      element.connectionStatus = 'connected';
+      await element.updateComplete;
+      dot = element.shadowRoot?.querySelector('.connection-status');
+      expect(dot?.classList.contains('connected')).toBe(true);
+      expect(dot?.classList.contains('disconnected')).toBe(false);
+
+      // Change to connecting
+      element.connectionStatus = 'connecting';
+      await element.updateComplete;
+      dot = element.shadowRoot?.querySelector('.connection-status');
+      expect(dot?.classList.contains('connecting')).toBe(true);
+      expect(dot?.classList.contains('connected')).toBe(false);
+
+      // Change back to disconnected
+      element.connectionStatus = 'disconnected';
+      await element.updateComplete;
+      dot = element.shadowRoot?.querySelector('.connection-status');
+      expect(dot?.classList.contains('disconnected')).toBe(true);
+      expect(dot?.classList.contains('connecting')).toBe(false);
+    });
+
+    // -------------------------------------------------------------------------
+    // Tooltip Content
+    // -------------------------------------------------------------------------
+
     it('connection status has tooltip', async () => {
       const tooltip = element.shadowRoot?.querySelector('sl-tooltip');
       expect(tooltip).not.toBeNull();
+    });
+
+    it('tooltip shows "Disconnected from server" for disconnected state', async () => {
+      element.connectionStatus = 'disconnected';
+      await element.updateComplete;
+
+      const tooltip = element.shadowRoot?.querySelector('sl-tooltip');
+      expect(tooltip?.getAttribute('content')).toBe('Disconnected from server');
+    });
+
+    it('tooltip shows "Connected to server" for connected state', async () => {
+      element.connectionStatus = 'connected';
+      await element.updateComplete;
+
+      const tooltip = element.shadowRoot?.querySelector('sl-tooltip');
+      expect(tooltip?.getAttribute('content')).toBe('Connected to server');
+    });
+
+    it('tooltip shows "Connecting..." for connecting state', async () => {
+      element.connectionStatus = 'connecting';
+      await element.updateComplete;
+
+      const tooltip = element.shadowRoot?.querySelector('sl-tooltip');
+      expect(tooltip?.getAttribute('content')).toBe('Connecting...');
+    });
+
+    it('tooltip updates when connection state changes', async () => {
+      const tooltip = element.shadowRoot?.querySelector('sl-tooltip');
+
+      element.connectionStatus = 'disconnected';
+      await element.updateComplete;
+      expect(tooltip?.getAttribute('content')).toBe('Disconnected from server');
+
+      element.connectionStatus = 'connecting';
+      await element.updateComplete;
+      expect(tooltip?.getAttribute('content')).toBe('Connecting...');
+
+      element.connectionStatus = 'connected';
+      await element.updateComplete;
+      expect(tooltip?.getAttribute('content')).toBe('Connected to server');
+    });
+
+    // -------------------------------------------------------------------------
+    // CSS Styles
+    // -------------------------------------------------------------------------
+
+    it('dot is circular (border-radius: 50%)', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('.connection-status');
+      expect(cssText).toContain('border-radius: 50%');
+    });
+
+    it('dot has 8x8px dimensions', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('width: 8px');
+      expect(cssText).toContain('height: 8px');
+    });
+
+    it('connected state uses green color from Catppuccin palette', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('.connection-status.connected');
+      expect(cssText).toContain('var(--green, #a6e3a1)');
+    });
+
+    it('connected state has glow effect (box-shadow)', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('.connection-status.connected');
+      expect(cssText).toContain('box-shadow');
+    });
+
+    it('connecting state uses yellow color from Catppuccin palette', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('.connection-status.connecting');
+      expect(cssText).toContain('var(--yellow, #f9e2af)');
+    });
+
+    it('connecting state has pulse animation', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('.connection-status.connecting');
+      expect(cssText).toContain('animation');
+      expect(cssText).toContain('pulse-status');
+    });
+
+    it('disconnected state uses red color from Catppuccin palette', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('.connection-status.disconnected');
+      expect(cssText).toContain('var(--red, #f38ba8)');
+    });
+
+    it('pulse animation keyframes are defined', () => {
+      const styles = (element.constructor as typeof LitElement).styles;
+      const cssText = Array.isArray(styles)
+        ? styles.map(s => s.cssText || s.toString()).join('')
+        : styles?.cssText || styles?.toString() || '';
+
+      expect(cssText).toContain('@keyframes pulse-status');
+    });
+
+    // -------------------------------------------------------------------------
+    // DOM Structure
+    // -------------------------------------------------------------------------
+
+    it('connection dot is inside header-left section', async () => {
+      const headerLeft = element.shadowRoot?.querySelector('.header-left');
+      const connectionStatus = headerLeft?.querySelector('.connection-status');
+      expect(connectionStatus).not.toBeNull();
+    });
+
+    it('connection dot is wrapped in sl-tooltip', async () => {
+      const tooltip = element.shadowRoot?.querySelector('sl-tooltip');
+      const dot = tooltip?.querySelector('.connection-status');
+      expect(dot).not.toBeNull();
+    });
+
+    it('connection dot is a span element', async () => {
+      const dot = element.shadowRoot?.querySelector('.connection-status');
+      expect(dot?.tagName).toBe('SPAN');
     });
   });
 
