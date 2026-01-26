@@ -47,12 +47,15 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ready", "next", "blocked", "label", "labels", "deps", "graph", "status", "rebuild", "merge-file", "stats", "view", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "run", "resume", "checkpoints", "merge":
+	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "status", "rebuild", "merge-file", "stats", "view", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "run", "resume", "checkpoints", "merge":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
-		// Handle "new" as alias for "create"
+		// Handle aliases
 		cmdArgs := args[1:]
 		if args[1] == "new" {
 			cmdArgs[0] = "create"
+		}
+		if args[1] == "ls" {
+			cmdArgs[0] = "list"
 		}
 		if err := cobracmd.ExecuteArgs(cmdArgs); err != nil {
 			return cobracmd.GetExitCode(err)
@@ -96,7 +99,7 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list, ready, next, blocked, rebuild, delete, label, labels, deps, graph, status, merge-file, stats, view, snippet, import, approve, reject, version, upgrade, migrate, gc, run, resume, checkpoints, merge")
+	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, status, merge-file, stats, view, snippet, import, approve, reject, version, upgrade, migrate, gc, run, resume, checkpoints, merge")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")

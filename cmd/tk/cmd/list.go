@@ -30,8 +30,9 @@ type listFilter struct {
 }
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List ticks with optional filters",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List ticks with optional filters",
 	Long: `List ticks with optional filters.
 
 By default, only shows ticks owned by the current user.
