@@ -862,18 +862,38 @@ func outputParallelResult(result *parallel.ParallelResult) {
 
 // findAvailablePort finds an available port starting from the given port.
 // If the port is in use, it tries the next port, up to maxAttempts times.
+// Checks both IPv4 and IPv6 localhost to avoid conflicts with apps bound to one or the other.
 func findAvailablePort(startPort int) (int, error) {
 	const maxAttempts = 100
 	for i := 0; i < maxAttempts; i++ {
 		port := startPort + i
-		addr := fmt.Sprintf(":%d", port)
-		listener, err := net.Listen("tcp", addr)
-		if err == nil {
-			listener.Close()
+		if isPortAvailable(port) {
 			return port, nil
 		}
 	}
 	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
+}
+
+// isPortAvailable checks if a port is available on all localhost interfaces.
+// This prevents conflicts where another app binds to IPv6 localhost only.
+func isPortAvailable(port int) bool {
+	// Check IPv4 localhost
+	addr4 := fmt.Sprintf("127.0.0.1:%d", port)
+	l4, err := net.Listen("tcp4", addr4)
+	if err != nil {
+		return false
+	}
+	l4.Close()
+
+	// Check IPv6 localhost
+	addr6 := fmt.Sprintf("[::1]:%d", port)
+	l6, err := net.Listen("tcp6", addr6)
+	if err != nil {
+		return false
+	}
+	l6.Close()
+
+	return true
 }
 
 // runEpicWithPool runs a single epic using pool mode with N parallel workers.
