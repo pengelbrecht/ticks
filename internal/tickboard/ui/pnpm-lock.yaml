@@ -17,6 +17,9 @@ importers:
       '@shoelace-style/shoelace':
         specifier: ^2.12.0
         version: 2.20.1(@floating-ui/utils@0.2.10)(@types/react@19.2.8)
+      date-fns:
+        specifier: ^4.1.0
+        version: 4.1.0
       lit:
         specifier: ^3.1.0
         version: 3.3.2
@@ -680,6 +683,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  date-fns@4.1.0:
+    resolution: {integrity: sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg==}
 
   entities@4.5.0:
     resolution: {integrity: sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==}
@@ -1529,6 +1535,8 @@ snapshots:
       '@floating-ui/utils': 0.2.10
 
   csstype@3.2.3: {}
+
+  date-fns@4.1.0: {}
 
   entities@4.5.0: {}
 

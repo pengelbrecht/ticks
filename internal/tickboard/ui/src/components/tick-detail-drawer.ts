@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { StoreController } from '@nanostores/lit';
+import { formatDistanceToNow, format } from 'date-fns';
 import type { Tick, BoardTick } from '../types/tick.js';
 import type { Note, BlockerDetail, RunRecord, ToolRecord, VerificationRecord, VerifierResult } from '../api/ticks.js';
 import { parseNotes } from '../api/ticks.js';
@@ -122,6 +123,12 @@ export class TickDetailDrawer extends LitElement {
       flex-wrap: wrap;
       gap: 0.5rem;
       margin-bottom: 0.75rem;
+    }
+
+    .started-time {
+      font-size: 0.8125rem;
+      color: var(--peach);
+      margin-top: 0.5rem;
     }
 
     .meta-badge {
@@ -1226,6 +1233,16 @@ export class TickDetailDrawer extends LitElement {
     return PRIORITY_COLORS[priority] ?? PRIORITY_COLORS[2];
   }
 
+  /**
+   * Format started_at time as "X minutes ago (HH:MM AM/PM)".
+   */
+  private formatStartedAt(isoString: string): string {
+    const date = new Date(isoString);
+    const relative = formatDistanceToNow(date, { addSuffix: true });
+    const absolute = format(date, 'h:mm a');
+    return `${relative} (${absolute})`;
+  }
+
   private renderActions() {
     const tick = this.tick;
     if (!tick) return nothing;
@@ -1991,6 +2008,15 @@ export class TickDetailDrawer extends LitElement {
               ? html`<span class="meta-badge blocked">⊘ Blocked</span>`
               : nothing}
           </div>
+
+          <!-- Started time for in_progress ticks -->
+          ${tick.status === 'in_progress' && tick.started_at
+            ? html`
+                <div class="started-time">
+                  Started: ${this.formatStartedAt(tick.started_at)}
+                </div>
+              `
+            : nothing}
         </div>
 
         <!-- Actions (approve/reject/close/reopen) -->

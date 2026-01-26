@@ -53,6 +53,7 @@ export interface Tick {
   created_by: string;
   created_at: string;
   updated_at: string;
+  started_at?: string;
   closed_at?: string;
   closed_reason?: string;
 }

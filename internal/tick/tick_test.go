@@ -865,3 +865,128 @@ func TestWorkflowFieldsJSONSerialization(t *testing.T) {
 		}
 	})
 }
+
+func TestStart(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 30, 0, 0, time.UTC)
+	base := Tick{
+		ID:        "a1b",
+		Title:     "Fix auth",
+		Status:    StatusOpen,
+		Priority:  2,
+		Type:      TypeBug,
+		Owner:     "petere",
+		CreatedBy: "petere",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	t.Run("start_sets_in_progress_and_started_at", func(t *testing.T) {
+		tick := base
+
+		tick.Start()
+
+		if tick.Status != StatusInProgress {
+			t.Errorf("expected Status=%q, got %q", StatusInProgress, tick.Status)
+		}
+		if tick.StartedAt == nil {
+			t.Error("expected StartedAt to be set")
+		}
+		if tick.UpdatedAt.Before(now) || tick.UpdatedAt.Equal(now) {
+			t.Error("expected UpdatedAt to be updated")
+		}
+	})
+
+	t.Run("start_from_closed", func(t *testing.T) {
+		tick := base
+		tick.Status = StatusClosed
+		closedTime := now.Add(-1 * time.Hour)
+		tick.ClosedAt = &closedTime
+
+		tick.Start()
+
+		if tick.Status != StatusInProgress {
+			t.Errorf("expected Status=%q, got %q", StatusInProgress, tick.Status)
+		}
+		if tick.StartedAt == nil {
+			t.Error("expected StartedAt to be set")
+		}
+	})
+
+	t.Run("start_overwrites_existing_started_at", func(t *testing.T) {
+		tick := base
+		oldStarted := now.Add(-2 * time.Hour)
+		tick.StartedAt = &oldStarted
+
+		tick.Start()
+
+		if tick.StartedAt == nil {
+			t.Fatal("expected StartedAt to be set")
+		}
+		if tick.StartedAt.Equal(oldStarted) {
+			t.Error("expected StartedAt to be updated to new time")
+		}
+	})
+}
+
+func TestRelease(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 30, 0, 0, time.UTC)
+	base := Tick{
+		ID:        "a1b",
+		Title:     "Fix auth",
+		Status:    StatusInProgress,
+		Priority:  2,
+		Type:      TypeBug,
+		Owner:     "petere",
+		CreatedBy: "petere",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	t.Run("release_sets_open_and_clears_started_at", func(t *testing.T) {
+		tick := base
+		startedTime := now.Add(-1 * time.Hour)
+		tick.StartedAt = &startedTime
+
+		tick.Release()
+
+		if tick.Status != StatusOpen {
+			t.Errorf("expected Status=%q, got %q", StatusOpen, tick.Status)
+		}
+		if tick.StartedAt != nil {
+			t.Error("expected StartedAt to be nil after release")
+		}
+		if tick.UpdatedAt.Before(now) || tick.UpdatedAt.Equal(now) {
+			t.Error("expected UpdatedAt to be updated")
+		}
+	})
+
+	t.Run("release_without_started_at", func(t *testing.T) {
+		tick := base
+		tick.StartedAt = nil
+
+		tick.Release()
+
+		if tick.Status != StatusOpen {
+			t.Errorf("expected Status=%q, got %q", StatusOpen, tick.Status)
+		}
+		if tick.StartedAt != nil {
+			t.Error("expected StartedAt to remain nil")
+		}
+	})
+
+	t.Run("release_from_closed", func(t *testing.T) {
+		tick := base
+		tick.Status = StatusClosed
+		closedTime := now.Add(-1 * time.Hour)
+		tick.ClosedAt = &closedTime
+
+		tick.Release()
+
+		if tick.Status != StatusOpen {
+			t.Errorf("expected Status=%q, got %q", StatusOpen, tick.Status)
+		}
+		if tick.StartedAt != nil {
+			t.Error("expected StartedAt to be nil")
+		}
+	})
+}

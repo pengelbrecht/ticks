@@ -47,6 +47,7 @@ func HandleClose(t *Tick, reason string) (routed bool) {
 	t.Status = StatusClosed
 	t.ClosedAt = &now
 	t.ClosedReason = strings.TrimSpace(reason)
+	t.StartedAt = nil // Clear started timestamp on close
 	t.UpdatedAt = now
 	return false
 }

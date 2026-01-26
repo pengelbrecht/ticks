@@ -2,11 +2,13 @@ package parallel
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/budget"
 	"github.com/pengelbrecht/ticks/internal/engine"
+	"github.com/pengelbrecht/ticks/internal/pool"
 	"github.com/pengelbrecht/ticks/internal/worktree"
 )
 
@@ -34,11 +36,24 @@ type RunnerConfig struct {
 	// EngineConfig is the base configuration for each engine run.
 	// EpicID will be set per-epic.
 	EngineConfig engine.RunConfig
+
+	// Pool mode configuration (optional).
+	// PoolSize is the number of parallel workers per epic (0=disabled, use engine).
+	PoolSize int
+	// StaleTimeout is the timeout for stale task recovery in pool mode.
+	StaleTimeout time.Duration
+	// PoolRunTaskFactory creates a RunTask function for pool workers.
+	// If nil and PoolSize > 0, a default implementation is used.
+	PoolRunTaskFactory PoolRunTaskFactory
 }
 
 // EngineFactory creates Engine instances for parallel runs.
 // Receives the epicID to allow setting up per-epic callbacks.
 type EngineFactory func(epicID string) *engine.Engine
+
+// PoolRunTaskFactory creates a RunTask function for pool workers.
+// Receives the epicID and worktree path (may be empty if not using worktrees).
+type PoolRunTaskFactory func(epicID string, workDir string) pool.RunTaskFunc
 
 // EpicStatus represents the status of a single epic in parallel run.
 type EpicStatus struct {
@@ -196,9 +211,50 @@ func (r *Runner) runEpic(ctx context.Context, epicID string) {
 		r.mu.Unlock()
 	}
 
-	// Run engine
+	// Run engine (or pool)
 	var result *engine.RunResult
-	if r.config.EngineFactory != nil {
+	var poolResult *pool.Result
+
+	if r.config.PoolSize > 0 {
+		// Pool mode: run with parallel workers
+		workDir := ""
+		if wt != nil {
+			workDir = wt.Path
+		}
+
+		// Determine tick dir
+		tickDir := filepath.Join(r.config.EngineConfig.RepoRoot, ".tick")
+
+		// Create pool config
+		poolCfg := pool.Config{
+			PoolSize:     r.config.PoolSize,
+			StaleTimeout: r.config.StaleTimeout,
+			EpicID:       epicID,
+			TickDir:      tickDir,
+		}
+
+		// Use factory if provided, otherwise pool will need RunTask set externally
+		if r.config.PoolRunTaskFactory != nil {
+			poolCfg.RunTask = r.config.PoolRunTaskFactory(epicID, workDir)
+		}
+
+		poolResult, err = pool.RunPool(ctx, poolCfg)
+		if poolResult != nil {
+			// Convert pool result to engine result for compatibility
+			result = &engine.RunResult{
+				EpicID:         epicID,
+				TotalCost:      poolResult.TotalCost,
+				TotalTokens:    poolResult.TotalTokens,
+				Duration:       poolResult.Duration,
+				CompletedTasks: make([]string, poolResult.TasksCompleted),
+				ExitReason:     "pool completed",
+			}
+			if poolResult.TasksFailed > 0 {
+				result.ExitReason = "pool completed with failures"
+			}
+		}
+	} else if r.config.EngineFactory != nil {
+		// Standard engine mode
 		eng := r.config.EngineFactory(epicID)
 
 		// Configure engine for this epic

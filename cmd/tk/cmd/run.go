@@ -23,8 +23,10 @@ import (
 	"github.com/pengelbrecht/ticks/internal/engine"
 	"github.com/pengelbrecht/ticks/internal/gc"
 	"github.com/pengelbrecht/ticks/internal/parallel"
+	"github.com/pengelbrecht/ticks/internal/pool"
 	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/swarm"
+	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/tickboard/cloud"
 	"github.com/pengelbrecht/ticks/internal/tickboard/server"
 	"github.com/pengelbrecht/ticks/internal/ticks"
@@ -42,13 +44,17 @@ or use --board to start the board UI without running an agent.
 Execution modes:
   --ralph (default)  Ralph iteration loop - orchestrates tasks via Go engine
   --swarm            Swarm mode - spawns Claude to orchestrate parallel subagents
+  --pool N           Pool mode - N concurrent workers processing tasks in parallel
 
 Examples:
   tk run abc123                     # Run agent on epic abc123 (ralph mode)
   tk run abc123 --swarm             # Run using swarm orchestration
   tk run abc123 --swarm --max-agents 3  # Swarm with max 3 parallel agents
+  tk run abc123 --pool 4            # Run with 4 parallel workers
+  tk run abc123 --pool 4 --stale-timeout 2h  # Pool with custom stale timeout
   tk run abc123 def456              # Run agent on multiple epics (sequential)
   tk run abc def --parallel 2       # Run 2 epics in parallel with worktrees
+  tk run abc def --parallel 2 --pool 4  # 2 epics, 4 workers each
   tk run --auto                     # Auto-select next ready epic
   tk run abc123 --max-iterations 10 # Limit to 10 iterations per task
   tk run abc123 --max-cost 5.00     # Stop if cost exceeds $5.00
@@ -89,6 +95,8 @@ var (
 	runSwarmMode         bool
 	runRalphMode         bool
 	runMaxAgents         int
+	runPoolSize          int
+	runStaleTimeout      time.Duration
 )
 
 func init() {
@@ -116,6 +124,8 @@ func init() {
 	runCmd.Flags().BoolVar(&runSwarmMode, "swarm", false, "use swarm mode (Claude orchestrates parallel subagents)")
 	runCmd.Flags().BoolVar(&runRalphMode, "ralph", false, "use ralph mode (Go engine iteration loop, default)")
 	runCmd.Flags().IntVar(&runMaxAgents, "max-agents", 5, "maximum parallel subagents per wave (swarm mode only)")
+	runCmd.Flags().IntVar(&runPoolSize, "pool", 0, "number of parallel workers (0=sequential, >0=pool mode)")
+	runCmd.Flags().DurationVar(&runStaleTimeout, "stale-timeout", time.Hour, "timeout for stale task recovery in pool mode")
 
 	rootCmd.AddCommand(runCmd)
 }
@@ -135,8 +145,18 @@ type runOutput struct {
 
 func runRun(cmd *cobra.Command, args []string) error {
 	// Validate mode flags
-	if runSwarmMode && runRalphMode {
-		return NewExitError(ExitUsage, "cannot use both --swarm and --ralph")
+	modeCount := 0
+	if runSwarmMode {
+		modeCount++
+	}
+	if runRalphMode {
+		modeCount++
+	}
+	if runPoolSize > 0 {
+		modeCount++
+	}
+	if modeCount > 1 {
+		return NewExitError(ExitUsage, "cannot combine --swarm, --ralph, and --pool flags")
 	}
 
 	// --cloud implies --board
@@ -418,6 +438,47 @@ Get a token at https://ticks.sh/settings`)
 
 				if ctx.Err() != nil {
 					break
+				}
+			}
+		} else if runPoolSize > 0 {
+			// Pool mode: parallel workers processing tasks within each epic
+			claudeAgent := agent.NewClaudeAgent()
+			if !claudeAgent.Available() {
+				cancel()
+				wg.Wait()
+				return NewExitError(ExitGeneric, "claude CLI not found - install from https://claude.ai/code")
+			}
+
+			// Parallel execution with worktrees (combined with pool)
+			if runParallel > 1 && len(epicIDs) > 1 {
+				parallelResult, err := runParallelEpicsWithPool(ctx, root, epicIDs, claudeAgent, runPoolSize, runStaleTimeout)
+				if err != nil {
+					cancel()
+					wg.Wait()
+					return NewExitError(ExitGeneric, "parallel pool run failed: %v", err)
+				}
+				outputParallelResult(parallelResult)
+			} else {
+				// Run each epic with pool
+				for _, epicID := range epicIDs {
+					result, err := runEpicWithPool(ctx, root, epicID, claudeAgent, runPoolSize, runStaleTimeout)
+					if err != nil {
+						if ctx.Err() != nil {
+							if result != nil {
+								outputPoolResult(result, epicID)
+							}
+							break
+						}
+						cancel()
+						wg.Wait()
+						return NewExitError(ExitGeneric, "pool run failed for epic %s: %v", epicID, err)
+					}
+
+					outputPoolResult(result, epicID)
+
+					if ctx.Err() != nil {
+						break
+					}
 				}
 			}
 		} else {
@@ -796,4 +857,255 @@ func findAvailablePort(startPort int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
+}
+
+// runEpicWithPool runs a single epic using pool mode with N parallel workers.
+func runEpicWithPool(ctx context.Context, root, epicID string, agentImpl agent.Agent, poolSize int, staleTimeout time.Duration) (*pool.Result, error) {
+	tickDir := filepath.Join(root, ".tick")
+
+	if !runJSONL {
+		fmt.Printf("Starting pool run with %d workers for epic %s\n", poolSize, epicID)
+	}
+
+	// Create pool config with a RunTask function that wraps the agent execution
+	cfg := pool.Config{
+		PoolSize:     poolSize,
+		StaleTimeout: staleTimeout,
+		EpicID:       epicID,
+		TickDir:      tickDir,
+		RunTask:      createPoolTaskRunner(ctx, root, agentImpl),
+	}
+
+	// Set up minimal status output (unless JSONL mode)
+	if !runJSONL {
+		cfg.OnStatus = func(event pool.TaskEvent) {
+			switch event.Status {
+			case "starting":
+				fmt.Printf("[Worker %d] Starting %s: %s\n", event.WorkerID, event.TaskID, event.Title)
+			case "completed":
+				fmt.Printf("[Worker %d] Completed %s: %s ($%.4f)\n", event.WorkerID, event.TaskID, event.Title, event.Cost)
+			case "failed":
+				if event.Error != "" {
+					fmt.Printf("[Worker %d] Failed %s: %s (%s)\n", event.WorkerID, event.TaskID, event.Title, event.Error)
+				} else {
+					fmt.Printf("[Worker %d] Failed %s: %s\n", event.WorkerID, event.TaskID, event.Title)
+				}
+			}
+		}
+	}
+
+	return pool.RunPool(ctx, cfg)
+}
+
+// createPoolTaskRunner creates a RunTask function for pool workers.
+// This wraps the agent execution logic to work with pool mode.
+// Output streaming is disabled - status updates come via OnStatus callback.
+func createPoolTaskRunner(ctx context.Context, root string, agentImpl agent.Agent) func(ctx context.Context, task *tick.Tick) (bool, float64, int) {
+	return func(ctx context.Context, task *tick.Tick) (success bool, cost float64, tokens int) {
+		// Build a simple prompt for the task
+		prompt := buildPoolTaskPrompt(task)
+
+		// Run the agent without streaming output (minimal mode)
+		opts := agent.RunOpts{
+			Timeout: runTimeout,
+		}
+
+		result, err := agentImpl.Run(ctx, prompt, opts)
+		if err != nil {
+			return false, 0, 0
+		}
+
+		return true, result.Cost, result.TokensIn + result.TokensOut
+	}
+}
+
+// buildPoolTaskPrompt builds a prompt for a pool task.
+// This is a simplified version of the engine prompt builder for pool mode.
+func buildPoolTaskPrompt(task *tick.Tick) string {
+	prompt := fmt.Sprintf(`You are working on the following task:
+
+Task ID: %s
+Title: %s
+`, task.ID, task.Title)
+
+	if task.Description != "" {
+		prompt += fmt.Sprintf("\nDescription:\n%s\n", task.Description)
+	}
+
+	prompt += `
+Instructions:
+1. Complete the task as described
+2. Make all necessary code changes
+3. When finished, use: ./tk close ` + task.ID + ` --reason "your completion message"
+
+Begin working on the task now.`
+
+	return prompt
+}
+
+// outputPoolResult outputs the results of a pool run.
+func outputPoolResult(result *pool.Result, epicID string) {
+	if runJSONL {
+		output := poolOutput{
+			EpicID:         epicID,
+			TasksCompleted: result.TasksCompleted,
+			TasksFailed:    result.TasksFailed,
+			TotalCost:      result.TotalCost,
+			TotalTokens:    result.TotalTokens,
+			DurationSec:    result.Duration.Seconds(),
+			StaleTasks:     result.StaleTasks,
+			WorkerCount:    len(result.WorkerResults),
+		}
+		enc := json.NewEncoder(os.Stdout)
+		_ = enc.Encode(output)
+	} else {
+		fmt.Printf("\n=== Pool Run Complete ===\n")
+		fmt.Printf("Epic: %s\n", epicID)
+		fmt.Printf("Tasks completed: %d\n", result.TasksCompleted)
+		fmt.Printf("Tasks failed: %d\n", result.TasksFailed)
+		fmt.Printf("Total cost: $%.4f\n", result.TotalCost)
+		fmt.Printf("Total tokens: %d\n", result.TotalTokens)
+		fmt.Printf("Duration: %v\n", result.Duration.Round(time.Second))
+		if result.StaleTasks > 0 {
+			fmt.Printf("Stale tasks recovered: %d\n", result.StaleTasks)
+		}
+		fmt.Printf("\nWorker breakdown:\n")
+		for _, wr := range result.WorkerResults {
+			fmt.Printf("  Worker %d: %d completed, %d failed, $%.4f\n",
+				wr.WorkerID, wr.TasksCompleted, wr.TasksFailed, wr.Cost)
+		}
+	}
+}
+
+// poolOutput is the JSONL output format for pool run results.
+type poolOutput struct {
+	EpicID         string  `json:"epic_id"`
+	TasksCompleted int     `json:"tasks_completed"`
+	TasksFailed    int     `json:"tasks_failed"`
+	TotalCost      float64 `json:"total_cost"`
+	TotalTokens    int     `json:"total_tokens"`
+	DurationSec    float64 `json:"duration_sec"`
+	StaleTasks     int     `json:"stale_tasks"`
+	WorkerCount    int     `json:"worker_count"`
+}
+
+// runParallelEpicsWithPool runs multiple epics in parallel worktrees, each with pool mode.
+func runParallelEpicsWithPool(ctx context.Context, root string, epicIDs []string, agentImpl agent.Agent, poolSize int, staleTimeout time.Duration) (*parallel.ParallelResult, error) {
+	tickDir := filepath.Join(root, ".tick")
+
+	// Create worktree manager
+	wtManager, err := worktree.NewManager(root)
+	if err != nil {
+		return nil, fmt.Errorf("creating worktree manager: %w", err)
+	}
+
+	// Create merge manager
+	mergeManager, err := worktree.NewMergeManager(root)
+	if err != nil {
+		return nil, fmt.Errorf("creating merge manager: %w", err)
+	}
+
+	// Create shared budget tracker
+	sharedBudget := budget.NewTracker(budget.Limits{
+		MaxIterations: runMaxIterations * len(epicIDs),
+		MaxCost:       runMaxCost,
+	})
+
+	// Run record store for live updates
+	runRecordStore := runrecord.NewStore(root)
+
+	// Engine factory that uses pool mode for each epic
+	engineFactory := func(epicID string) *engine.Engine {
+		ticksClient := ticks.NewClient(tickDir)
+		epicBudget := budget.NewTracker(budget.Limits{
+			MaxIterations: runMaxIterations,
+			MaxCost:       runMaxCost / float64(len(epicIDs)),
+		})
+		checkpointMgr := checkpoint.NewManager()
+
+		eng := engine.NewEngine(agentImpl, ticksClient, epicBudget, checkpointMgr)
+		eng.SetRunRecordStore(runRecordStore)
+
+		if !runSkipVerify {
+			eng.EnableVerification()
+		}
+
+		// Context generation for epics
+		contextStore := epiccontext.NewStoreWithDir(filepath.Join(tickDir, "logs", "context"))
+		contextGenerator, err := epiccontext.NewGenerator(agentImpl)
+		if err == nil {
+			eng.SetContextComponents(contextStore, contextGenerator)
+		}
+
+		if !runJSONL {
+			eng.OnOutput = func(chunk string) {
+				fmt.Printf("[%s] %s", epicID, chunk)
+			}
+			eng.OnIterationStart = func(ctx engine.IterationContext) {
+				fmt.Printf("\n=== [%s] Iteration %d: %s (%s) ===\n", epicID, ctx.Iteration, ctx.Task.ID, ctx.Task.Title)
+			}
+			eng.OnIterationEnd = func(result *engine.IterationResult) {
+				fmt.Printf("\n--- [%s] Iteration %d complete (tokens: %d, cost: $%.4f) ---\n",
+					epicID, result.Iteration, result.TokensIn+result.TokensOut, result.Cost)
+			}
+		}
+
+		return eng
+	}
+
+	// Create parallel runner config
+	// Note: For parallel + pool, we use the standard parallel runner with pool-aware execution
+	// Each epic will run its pool within its own worktree
+	runnerConfig := parallel.RunnerConfig{
+		EpicIDs:         epicIDs,
+		MaxParallel:     runParallel,
+		SharedBudget:    sharedBudget,
+		WorktreeManager: wtManager,
+		MergeManager:    mergeManager,
+		EngineFactory:   engineFactory,
+		EngineConfig: engine.RunConfig{
+			MaxIterations:     runMaxIterations,
+			MaxCost:           runMaxCost / float64(len(epicIDs)),
+			CheckpointEvery:   runCheckpointEvery,
+			MaxTaskRetries:    runMaxTaskRetries,
+			AgentTimeout:      runTimeout,
+			SkipVerify:        runSkipVerify,
+			RepoRoot:          root,
+			Watch:             runWatch,
+			WatchPollInterval: runPoll,
+			DebounceInterval:  runDebounce,
+		},
+		// Pass pool config to runner
+		PoolSize:     poolSize,
+		StaleTimeout: staleTimeout,
+	}
+
+	runner := parallel.NewRunner(runnerConfig)
+
+	// Set up callbacks
+	if !runJSONL {
+		runner.SetCallbacks(parallel.RunnerCallbacks{
+			OnEpicStart: func(epicID string) {
+				fmt.Printf("\nStarting epic %s with %d pool workers\n", epicID, poolSize)
+			},
+			OnEpicComplete: func(epicID string, result *engine.RunResult) {
+				fmt.Printf("\nEpic %s completed (%d tasks, $%.4f)\n", epicID, len(result.CompletedTasks), result.TotalCost)
+			},
+			OnEpicFailed: func(epicID string, err error) {
+				fmt.Printf("\nEpic %s failed: %v\n", epicID, err)
+			},
+			OnEpicConflict: func(epicID string, conflict *parallel.ConflictState) {
+				fmt.Printf("\nEpic %s has merge conflicts in: %v\n", epicID, conflict.Files)
+				fmt.Printf("   Worktree preserved at: %s\n", conflict.Worktree)
+			},
+			OnStatusChange: func(epicID string, status string) {},
+			OnMessage: func(message string) {
+				if message != "" {
+					fmt.Printf("%s\n", message)
+				}
+			},
+		})
+	}
+
+	return runner.Run(ctx)
 }

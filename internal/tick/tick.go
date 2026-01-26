@@ -78,6 +78,7 @@ type Tick struct {
 	CreatedBy          string     `json:"created_by"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
 	ClosedAt       *time.Time `json:"closed_at,omitempty"`
 	ClosedReason   string     `json:"closed_reason,omitempty"`
 }
@@ -227,4 +228,23 @@ func (t *Tick) SetAwaiting(value string) {
 func (t *Tick) ClearAwaiting() {
 	t.Awaiting = nil
 	t.Manual = false
+}
+
+// Start transitions the tick to in_progress status and records when work started.
+// Sets Status=in_progress, StartedAt=now, UpdatedAt=now.
+func (t *Tick) Start() {
+	now := time.Now().UTC()
+	t.Status = StatusInProgress
+	t.StartedAt = &now
+	t.UpdatedAt = now
+}
+
+// Release transitions the tick back to open status, clearing the started timestamp.
+// Used when work on a tick is abandoned or failed and needs to be picked up again.
+// Sets Status=open, StartedAt=nil, UpdatedAt=now.
+func (t *Tick) Release() {
+	now := time.Now().UTC()
+	t.Status = StatusOpen
+	t.StartedAt = nil
+	t.UpdatedAt = now
 }

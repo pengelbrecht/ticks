@@ -114,6 +114,11 @@
       "format": "date-time",
       "description": "ISO timestamp when the tick was closed"
     },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when the tick entered in_progress status"
+    },
     "closed_reason": {
       "type": "string",
       "description": "Reason for closing (e.g., completed, wont-fix, duplicate)"

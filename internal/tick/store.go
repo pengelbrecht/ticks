@@ -247,17 +247,19 @@ func (s *Store) tickPath(id string) string {
 
 // Activity actions
 const (
-	ActivityCreate   = "create"
-	ActivityUpdate   = "update"
-	ActivityClose    = "close"
-	ActivityReopen   = "reopen"
-	ActivityNote     = "note"
-	ActivityApprove  = "approve"
-	ActivityReject   = "reject"
-	ActivityBlock    = "block"
-	ActivityUnblock  = "unblock"
-	ActivityAssign   = "assign"
-	ActivityAwaiting = "awaiting"
+	ActivityCreate        = "create"
+	ActivityUpdate        = "update"
+	ActivityClose         = "close"
+	ActivityReopen        = "reopen"
+	ActivityNote          = "note"
+	ActivityApprove       = "approve"
+	ActivityReject        = "reject"
+	ActivityBlock         = "block"
+	ActivityUnblock       = "unblock"
+	ActivityAssign        = "assign"
+	ActivityAwaiting      = "awaiting"
+	ActivityStart         = "start"          // logged when task is claimed by pool worker
+	ActivityStaleRecovery = "stale_recovery" // logged when stale task is reset
 )
 
 // Activity represents a single activity log entry.

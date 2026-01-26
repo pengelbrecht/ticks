@@ -150,6 +150,9 @@ type AddNoteResponse struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
@@ -233,6 +236,9 @@ type ApproveTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -335,6 +341,9 @@ type CloseTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -447,6 +456,9 @@ type CreateTickResponse struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
@@ -551,6 +563,9 @@ type GetTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -752,6 +767,9 @@ type RejectTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -1136,6 +1154,9 @@ type TickResponse struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
@@ -1214,6 +1235,9 @@ type TickSchema struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
@@ -1288,6 +1312,9 @@ type TickSchema_1 struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// ISO timestamp when the tick entered in_progress status
+	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`

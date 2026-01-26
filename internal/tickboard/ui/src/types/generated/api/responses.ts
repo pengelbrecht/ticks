@@ -331,6 +331,10 @@ export interface Tick {
    */
   closed_at?: string;
   /**
+   * ISO timestamp when the tick entered in_progress status
+   */
+  started_at?: string;
+  /**
    * Reason for closing (e.g., completed, wont-fix, duplicate)
    */
   closed_reason?: string;

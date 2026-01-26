@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit';
-import { customElement, property, query } from 'lit/decorators.js';
+import { customElement, property, query, state } from 'lit/decorators.js';
+import { differenceInMinutes, differenceInHours } from 'date-fns';
 import type { BoardTick, TickType } from '../types/tick.js';
 
 // Priority colors: 0=critical→red, 1=high→peach, 2=medium→yellow, 3=low→green
@@ -224,6 +225,15 @@ export class TickCard extends LitElement {
     .verification-icon {
       font-size: 0.625rem;
     }
+
+    .working-time {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.625rem;
+      color: var(--peach);
+      margin-top: 0.375rem;
+    }
   `;
 
   @property({ attribute: false })
@@ -241,10 +251,53 @@ export class TickCard extends LitElement {
   @query('.card')
   private cardElement!: HTMLDivElement;
 
+  @state()
+  private elapsedTime = '';
+
+  private updateTimerId?: ReturnType<typeof setInterval>;
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.updateElapsedTime();
+    // Update elapsed time every 30 seconds
+    this.updateTimerId = setInterval(() => this.updateElapsedTime(), 30000);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this.updateTimerId) {
+      clearInterval(this.updateTimerId);
+      this.updateTimerId = undefined;
+    }
+  }
+
   updated(changedProperties: Map<string, unknown>) {
     // Scroll into view when becoming focused
     if (changedProperties.has('focused') && this.focused && this.cardElement) {
       this.cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    // Update elapsed time when tick changes
+    if (changedProperties.has('tick')) {
+      this.updateElapsedTime();
+    }
+  }
+
+  private updateElapsedTime() {
+    if (this.tick?.status !== 'in_progress' || !this.tick.started_at) {
+      this.elapsedTime = '';
+      return;
+    }
+
+    const startedAt = new Date(this.tick.started_at);
+    const now = new Date();
+    const totalMinutes = differenceInMinutes(now, startedAt);
+    const hours = differenceInHours(now, startedAt);
+    const minutes = totalMinutes % 60;
+
+    if (hours > 0) {
+      this.elapsedTime = `${hours}h ${minutes}m`;
+    } else {
+      this.elapsedTime = `${totalMinutes}m`;
     }
   }
 
@@ -325,6 +378,10 @@ export class TickCard extends LitElement {
 
         ${epicName
           ? html`<div class="epic-name">${epicName}</div>`
+          : null}
+
+        ${this.elapsedTime
+          ? html`<div class="working-time">⏱ Working for ${this.elapsedTime}</div>`
           : null}
       </div>
     `;

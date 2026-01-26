@@ -257,3 +257,64 @@ func TestHandleClose_WithRequires_UpdatedAtIsSet(t *testing.T) {
 		t.Error("expected UpdatedAt to be updated when routing")
 	}
 }
+
+func TestHandleClose_ClearsStartedAt(t *testing.T) {
+	oldTime := time.Now().UTC().Add(-1 * time.Hour)
+	startedTime := oldTime.Add(-30 * time.Minute)
+	tick := &Tick{
+		ID:        "abc",
+		Title:     "Test tick",
+		Status:    StatusInProgress,
+		Priority:  1,
+		Type:      TypeTask,
+		Owner:     "test@example.com",
+		CreatedBy: "test@example.com",
+		CreatedAt: oldTime.Add(-2 * time.Hour),
+		UpdatedAt: oldTime,
+		StartedAt: &startedTime,
+	}
+
+	routed := HandleClose(tick, "completed successfully")
+
+	if routed {
+		t.Error("expected routed=false when no requires field")
+	}
+	if tick.Status != StatusClosed {
+		t.Errorf("expected status=closed, got %s", tick.Status)
+	}
+	if tick.StartedAt != nil {
+		t.Error("expected StartedAt to be cleared on close")
+	}
+}
+
+func TestHandleClose_WithRequires_PreservesStartedAt(t *testing.T) {
+	oldTime := time.Now().UTC().Add(-1 * time.Hour)
+	startedTime := oldTime.Add(-30 * time.Minute)
+	requires := RequiresApproval
+	tick := &Tick{
+		ID:        "abc",
+		Title:     "Test tick",
+		Status:    StatusInProgress,
+		Priority:  1,
+		Type:      TypeTask,
+		Owner:     "test@example.com",
+		Requires:  &requires,
+		CreatedBy: "test@example.com",
+		CreatedAt: oldTime.Add(-2 * time.Hour),
+		UpdatedAt: oldTime,
+		StartedAt: &startedTime,
+	}
+
+	routed := HandleClose(tick, "done")
+
+	if !routed {
+		t.Error("expected routed=true when requires field is set")
+	}
+	// StartedAt should be preserved when routing to human (not actually closing)
+	if tick.StartedAt == nil {
+		t.Error("expected StartedAt to be preserved when routing to human")
+	}
+	if !tick.StartedAt.Equal(startedTime) {
+		t.Error("expected StartedAt to remain unchanged when routing")
+	}
+}
