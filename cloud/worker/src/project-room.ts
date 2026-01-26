@@ -558,6 +558,11 @@ export class ProjectRoom extends DurableObject<Env> {
     };
     conn.socket.send(JSON.stringify(stateMsg));
 
+    // Also broadcast full state to cloud clients (so they see ticks from local sync)
+    if (hasChanges && conn.type === "local") {
+      this.broadcastToCloudClients(stateMsg);
+    }
+
     console.log(
       `[ProjectRoom:${this.projectId}] Full sync from ${conn.id}: ${Object.keys(incomingTicks).length} ticks received, ${this.ticks.size} ticks total`
     );
