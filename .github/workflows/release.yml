@@ -27,12 +27,16 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Build UI bundle
         run: |
           cd internal/tickboard/ui
-          npm install
-          npm run build
-          rm -f package-lock.json
+          pnpm install
+          pnpm run build
 
       - name: Commit UI build artifacts
         run: |
