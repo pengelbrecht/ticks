@@ -120,6 +120,12 @@ Transform the spec into ticks organized by epic.
 2. Create tasks with dependencies using `-blocked-by`
 3. Mark human-required tasks with `--awaiting work`
 
+**Designing for parallel execution:**
+Tasks in the same wave (no blocking relationship) may run concurrently. To avoid file conflicts:
+- If two tasks edit the same file, make one block the other
+- Use `tk graph <epic>` to visualize waves and verify parallel tasks touch different files
+- Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A
+
 ```bash
 # Create epics
 tk create "Authentication" -t epic
