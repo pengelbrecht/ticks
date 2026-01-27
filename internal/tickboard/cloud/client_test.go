@@ -43,8 +43,9 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	if cfg.LocalAddr != "http://localhost:3000" {
 		t.Errorf("expected local addr 'http://localhost:3000', got '%s'", cfg.LocalAddr)
 	}
-	if cfg.CloudURL != DefaultCloudURL {
-		t.Errorf("expected default cloud URL, got '%s'", cfg.CloudURL)
+	// LoadConfig doesn't apply defaults - NewClient does based on mode
+	if cfg.CloudURL != "" {
+		t.Errorf("expected empty cloud URL (default applied by NewClient), got '%s'", cfg.CloudURL)
 	}
 }
 
