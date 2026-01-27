@@ -44,12 +44,13 @@ If no epic-id is specified, use --auto to auto-select the next ready epic,
 or use --board to start the board UI without running an agent.
 
 Execution modes:
-  --ralph (default)  Ralph iteration loop - orchestrates tasks via Go engine
-  --swarm            Swarm mode - spawns Claude to orchestrate parallel subagents
-  --pool [N]         Pool mode - N concurrent workers (auto from wave analysis if omitted)
+  --pool [N] (default)  Pool mode - N concurrent workers (auto from wave analysis if omitted)
+  --ralph               Ralph iteration loop - orchestrates tasks via Go engine
+  --swarm               Swarm mode - spawns Claude to orchestrate parallel subagents
 
 Examples:
-  tk run abc123                     # Run agent on epic abc123 (ralph mode)
+  tk run abc123                     # Run agent on epic abc123 (pool mode)
+  tk run abc123 --ralph             # Run using ralph iteration loop
   tk run abc123 --swarm             # Run using swarm orchestration
   tk run abc123 --swarm --max-agents 3  # Swarm with max 3 parallel agents
   tk run abc123 --pool              # Pool mode with auto workers (max wave width, cap 10)
@@ -124,7 +125,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runCloudEnabled, "cloud", false, "enable real-time cloud sync (implies --board)")
 	runCmd.Flags().BoolVar(&runDevMode, "dev", false, "serve UI from disk for hot reload (requires --board)")
 	runCmd.Flags().BoolVar(&runSwarmMode, "swarm", false, "use swarm mode (Claude orchestrates parallel subagents)")
-	runCmd.Flags().BoolVar(&runRalphMode, "ralph", false, "use ralph mode (Go engine iteration loop, default)")
+	runCmd.Flags().BoolVar(&runRalphMode, "ralph", false, "use ralph mode (Go engine iteration loop)")
 	runCmd.Flags().IntVar(&runMaxAgents, "max-agents", 5, "maximum parallel subagents per wave (swarm mode only)")
 	runCmd.Flags().StringVar(&runPoolMode, "pool", "", "pool mode: auto (from wave analysis) or N workers")
 	runCmd.Flags().Lookup("pool").NoOptDefVal = "auto" // --pool without value means auto
@@ -160,6 +161,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	if modeCount > 1 {
 		return NewExitError(ExitUsage, "cannot combine --swarm, --ralph, and --pool flags")
+	}
+
+	// Default to pool mode if no mode explicitly specified
+	if modeCount == 0 {
+		runPoolMode = "auto"
 	}
 
 	// --cloud implies --board
@@ -428,9 +434,9 @@ Get a token at https://ticks.sh/settings`)
 				// Output result in JSONL mode
 				if runJSONL {
 					output := runOutput{
-						EpicID:     epicID,
+						EpicID:      epicID,
 						DurationSec: result.Duration.Seconds(),
-						ExitReason: "swarm completed",
+						ExitReason:  "swarm completed",
 					}
 					if !result.Success {
 						output.ExitReason = fmt.Sprintf("swarm failed: %v", result.Error)
@@ -500,7 +506,7 @@ Get a token at https://ticks.sh/settings`)
 				}
 			}
 		} else {
-			// Ralph mode (default): use Go engine iteration loop
+			// Ralph mode: use Go engine iteration loop
 			claudeAgent := agent.NewClaudeAgent()
 			if !claudeAgent.Available() {
 				cancel() // Stop board server too
