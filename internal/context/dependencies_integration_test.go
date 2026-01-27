@@ -81,8 +81,8 @@ func TestDependencyAnalyzer_RealAgent(t *testing.T) {
 		}
 	}
 
-	// Create analyzer with real agent
-	da := NewDependencyAnalyzer(claudeAgent, store, WithDepTimeout(2*time.Minute))
+	// Create analyzer with real agent (4 min timeout for slower responses)
+	da := NewDependencyAnalyzer(claudeAgent, store, WithDepTimeout(4*time.Minute))
 
 	epic := &ticks.Epic{
 		ID:          "epic-models",
@@ -224,7 +224,7 @@ func TestDependencyAnalyzer_RealAgent_NewFiles(t *testing.T) {
 		store.Write(task)
 	}
 
-	da := NewDependencyAnalyzer(claudeAgent, store, WithDepTimeout(2*time.Minute))
+	da := NewDependencyAnalyzer(claudeAgent, store, WithDepTimeout(4*time.Minute))
 
 	epic := &ticks.Epic{
 		ID:          "epic-config",
