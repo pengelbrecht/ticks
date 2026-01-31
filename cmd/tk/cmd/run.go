@@ -49,27 +49,18 @@ Execution modes:
   --swarm               Swarm mode - spawns Claude to orchestrate parallel subagents
 
 Examples:
-  tk run abc123                     # Run agent on epic abc123 (pool mode)
+  tk run abc123                     # Run epic abc123 with pool workers
+  tk run --auto                     # Auto-select next ready epic
+  tk run --watch                    # Grind through all epics until Ctrl+C (implies --auto)
+  tk run abc123 --watch             # Run abc123, then keep finding more epics
+  tk run abc123 def456              # Run multiple epics sequentially
+  tk run abc def --parallel 2       # Run 2 epics in parallel with worktrees
   tk run abc123 --ralph             # Run using ralph iteration loop
   tk run abc123 --swarm             # Run using swarm orchestration
-  tk run abc123 --swarm --max-agents 3  # Swarm with max 3 parallel agents
-  tk run abc123 --pool              # Pool mode with auto workers (max wave width, cap 10)
   tk run abc123 --pool 4            # Pool mode with explicit 4 workers
-  tk run abc123 def456              # Run agent on multiple epics (sequential)
-  tk run abc def --parallel 2       # Run 2 epics in parallel with worktrees
-  tk run abc def --parallel 2 --pool  # 2 epics with auto pool workers each
-  tk run --auto                     # Auto-select next ready epic
-  tk run abc123 --max-iterations 10 # Limit to 10 iterations per task
-  tk run abc123 --max-cost 5.00     # Stop if cost exceeds $5.00
-  tk run abc123 --worktree          # Run in isolated git worktree
-  tk run abc123 --watch             # Watch mode - restart when tasks ready
-  tk run abc123 --jsonl             # Output JSONL format for parsing
-  tk run abc123 --board             # Run agent with board UI on :3000
-  tk run --board                    # Board UI only, no agent
-  tk run --board --port 8080        # Board UI on custom port
+  tk run abc123 --board             # Run with board UI on :3000
   tk run abc123 --cloud             # Run with real-time cloud sync (implies --board)
-  tk run --cloud                    # Board UI with cloud sync, no agent
-  tk run --board --dev              # Board with hot reload from disk`,
+  tk run --board                    # Board UI only, no agent`,
 	RunE: runRun,
 }
 
@@ -173,6 +164,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// --cloud implies --board
 	if runCloudEnabled {
 		runBoardEnabled = true
+	}
+
+	// --watch implies --auto (auto-select epics when watching)
+	if runWatch {
+		runAuto = true
 	}
 
 	// Start async garbage collection
@@ -464,30 +460,88 @@ Get a token at https://ticks.sh/settings`)
 				}
 				outputParallelResult(parallelResult)
 			} else {
-				// Run each epic with pool
-				for _, epicID := range epicIDs {
-					// Compute pool size for this epic (auto or explicit)
-					poolSize, err := resolvePoolSize(tickDir, epicID, runPoolMode)
-					if err != nil {
-						cancel()
-						wg.Wait()
-						return NewExitError(ExitGeneric, "failed to determine pool size for %s: %v", epicID, err)
-					}
+				// Run each epic with pool, optionally in watch mode
+				client := ticks.NewClient(tickDir)
+				epicQueue := make([]string, len(epicIDs))
+				copy(epicQueue, epicIDs)
 
-					result, err := runEpicWithPool(ctx, root, epicID, claudeAgent, poolSize, runStaleTimeout)
-					if err != nil {
-						if ctx.Err() != nil {
-							if result != nil {
-								outputPoolResult(result, epicID)
+				for {
+					// Process all epics in queue
+					for len(epicQueue) > 0 {
+						epicID := epicQueue[0]
+						epicQueue = epicQueue[1:]
+
+						// Compute pool size for this epic (auto or explicit)
+						poolSize, err := resolvePoolSize(tickDir, epicID, runPoolMode)
+						if err != nil {
+							cancel()
+							wg.Wait()
+							return NewExitError(ExitGeneric, "failed to determine pool size for %s: %v", epicID, err)
+						}
+
+						result, err := runEpicWithPool(ctx, root, epicID, claudeAgent, poolSize, runStaleTimeout)
+						if err != nil {
+							if ctx.Err() != nil {
+								if result != nil {
+									outputPoolResult(result, epicID)
+								}
+								break
 							}
+							cancel()
+							wg.Wait()
+							return NewExitError(ExitGeneric, "pool run failed for epic %s: %v", epicID, err)
+						}
+
+						outputPoolResult(result, epicID)
+
+						if ctx.Err() != nil {
 							break
 						}
-						cancel()
-						wg.Wait()
-						return NewExitError(ExitGeneric, "pool run failed for epic %s: %v", epicID, err)
 					}
 
-					outputPoolResult(result, epicID)
+					// Exit if not in watch mode or context cancelled
+					if !runWatch || ctx.Err() != nil {
+						break
+					}
+
+					// Watch mode: look for next ready epic
+					if !runJSONL {
+						fmt.Println("Watch mode: looking for next ready epic...")
+					}
+
+					for {
+						epic, err := client.NextReadyEpic()
+						if err != nil {
+							if !runJSONL {
+								fmt.Printf("Error finding ready epic: %v\n", err)
+							}
+						} else if epic != nil {
+							if !runJSONL {
+								fmt.Printf("Found ready epic: %s (%s)\n", epic.ID, epic.Title)
+							}
+							epicQueue = append(epicQueue, epic.ID)
+							break
+						}
+
+						// No epic ready, wait and poll
+						if !runJSONL {
+							fmt.Printf("No ready epics, polling in %v...\n", runPoll)
+						}
+
+						select {
+						case <-ctx.Done():
+							if !runJSONL {
+								fmt.Println("Watch mode: shutting down")
+							}
+							break
+						case <-time.After(runPoll):
+							// Continue polling
+						}
+
+						if ctx.Err() != nil {
+							break
+						}
+					}
 
 					if ctx.Err() != nil {
 						break
@@ -979,7 +1033,7 @@ func createPoolTaskRunner(ctx context.Context, root string, agentImpl agent.Agen
 }
 
 // buildPoolTaskPrompt builds a prompt for a pool task.
-// Includes shared epic context and predicted files if available.
+// Includes shared epic context, predicted files, and rich instructions.
 func buildPoolTaskPrompt(task *tick.Tick, epicContext string, predictedFiles []string) string {
 	var prompt string
 
@@ -1013,14 +1067,50 @@ The following context was generated for this epic. Use it to understand the code
 		prompt += "\nUse this as a starting point, but modify other files if needed.\n"
 	}
 
-	prompt += `
+	prompt += fmt.Sprintf(`
 ## Instructions
 
-1. Complete the task as described
-2. Make all necessary code changes
-3. When finished, use: ./tk close ` + task.ID + ` --reason "your completion message"
+1. **Complete the task** - Implement the required functionality as specified in the acceptance criteria.
+2. **Run tests** - Ensure all existing tests pass and add new tests if appropriate.
+3. **Commit your changes** - Create a commit with the task ID in the message (e.g., "feat(module): implement feature [%s]").
+4. **Close the task** - Run %s when complete. The reason should summarize HOW you solved the task.
+5. **Add a note** - Run %s to leave context about what you did, learnings, or gotchas.
 
-Begin working on the task now.`
+## If You Get Blocked
+
+If you cannot complete the task:
+- Use %s to signal the issue
+- Do NOT close tasks that aren't actually done
+
+## Handoff Signals
+
+When you need human involvement, emit a signal and the system will hand off the task:
+
+| Signal | When to Use |
+|--------|-------------|
+| %s | Need human to answer a question |
+| %s | Found unexpected issue needing direction |
+| %s | Cannot complete - requires human work |
+
+**IMPORTANT:** Include complete context in signals - the human only sees the signal reason.
+
+## Rules
+
+1. **One task only** - Focus only on your assigned task. Do not work on other tasks.
+2. **No questions** - You are autonomous. Make reasonable decisions based on the context provided.
+3. **Always leave notes** - Add a note summarizing what you did and any context.
+4. **Don't modify tick internals** - Never modify .tick/ unless explicitly required by the task.
+5. **Never revert other tasks' work** - Code in the repo was committed by other workers and is intentional. If you think existing code is wrong, leave a note or escalate.
+
+Begin working on the task now.`,
+		task.ID,
+		"`tk close "+task.ID+" --reason \"<solution summary>\"`",
+		"`tk note "+task.ID+" \"<message>\"`",
+		"`tk block "+task.ID+" --reason \"<what's blocking>\"`",
+		"`<promise>INPUT_NEEDED: question</promise>`",
+		"`<promise>ESCALATE: issue</promise>`",
+		"`<promise>EJECT: reason</promise>`",
+	)
 
 	return prompt
 }
