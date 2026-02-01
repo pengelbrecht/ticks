@@ -2,7 +2,6 @@
 package pool
 
 import (
-	"log"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/tick"
@@ -13,14 +12,14 @@ import (
 // for longer than the timeout duration, and releases them back to open status
 // so they can be picked up by another worker.
 //
-// Returns the count of recovered tasks and any error encountered.
-func RecoverStaleTasks(tickDir string, epicID string, timeout time.Duration) (int, error) {
+// Returns the count of recovered tasks, IDs of tasks that failed to recover, and any error.
+func RecoverStaleTasks(tickDir string, epicID string, timeout time.Duration) (int, []string, error) {
 	store := tick.NewStore(tickDir)
 
 	// Get all ticks
 	allTicks, err := store.List()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	// Filter to in_progress tasks under the given epic
@@ -32,13 +31,14 @@ func RecoverStaleTasks(tickDir string, epicID string, timeout time.Duration) (in
 	}
 
 	recovered := 0
+	var failedIDs []string
 	for _, t := range inProgressTasks {
 		if t.StartedAt == nil {
 			continue
 		}
 		if time.Since(*t.StartedAt) > timeout {
 			if err := ReleaseTask(tickDir, t.ID); err != nil {
-				log.Printf("failed to recover stale task %s: %v", t.ID, err)
+				failedIDs = append(failedIDs, t.ID)
 				continue
 			}
 
@@ -52,5 +52,5 @@ func RecoverStaleTasks(tickDir string, epicID string, timeout time.Duration) (in
 		}
 	}
 
-	return recovered, nil
+	return recovered, failedIDs, nil
 }

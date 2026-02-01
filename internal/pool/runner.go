@@ -3,6 +3,7 @@ package pool
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -22,10 +23,21 @@ type TaskEvent struct {
 	Error    string // only set when Status == "failed"
 	Cost     float64
 	Tokens   int
+	Duration time.Duration // task execution time, set on completed/failed
 }
 
 // StatusCallback is called when a worker's task status changes.
 type StatusCallback func(event TaskEvent)
+
+// PhaseEvent represents a phase status update during pool initialization.
+type PhaseEvent struct {
+	Phase  string // "stale_recovery", "context", "dependencies", "workers"
+	Status string // "starting", "done", "skipped"
+	Detail string // Human-readable detail (e.g., "2 recovered")
+}
+
+// PhaseCallback is called when a phase status changes.
+type PhaseCallback func(event PhaseEvent)
 
 // Config contains the configuration for running a pool of workers.
 type Config struct {
@@ -35,6 +47,7 @@ type Config struct {
 	TickDir      string
 	RunTask      RunTaskFunc
 	OnStatus     StatusCallback // optional callback for task status updates
+	OnPhase      PhaseCallback  // optional callback for phase status updates
 	EpicContext  string         // pre-computed context shared by all workers
 }
 
@@ -61,13 +74,27 @@ func RunPool(ctx context.Context, cfg Config) (*Result, error) {
 	}
 
 	// 1. Stale recovery - reset any abandoned tasks
-	staleTasks, err := RecoverStaleTasks(cfg.TickDir, cfg.EpicID, cfg.StaleTimeout)
+	if cfg.OnPhase != nil {
+		cfg.OnPhase(PhaseEvent{Phase: "stale_recovery", Status: "starting"})
+	}
+	staleTasks, failedRecoveries, err := RecoverStaleTasks(cfg.TickDir, cfg.EpicID, cfg.StaleTimeout)
 	if err != nil {
 		// Continue anyway - this is not fatal
 		staleTasks = 0
 	}
+	if cfg.OnPhase != nil {
+		detail := fmt.Sprintf("%d recovered", staleTasks)
+		if len(failedRecoveries) > 0 {
+			detail += fmt.Sprintf(", %d failed", len(failedRecoveries))
+		}
+		cfg.OnPhase(PhaseEvent{Phase: "stale_recovery", Status: "done", Detail: detail})
+	}
 
 	// 2. Spawn workers
+	if cfg.OnPhase != nil {
+		cfg.OnPhase(PhaseEvent{Phase: "workers", Status: "starting", Detail: fmt.Sprintf("%d workers", cfg.PoolSize)})
+	}
+
 	var wg sync.WaitGroup
 	results := make(chan WorkerResult, cfg.PoolSize)
 

@@ -23,6 +23,7 @@ type WorkerResult struct {
 	TasksFailed    int
 	Cost           float64
 	Tokens         int
+	Duration       time.Duration
 }
 
 // NewWorker creates a new worker with the given ID and epic configuration.
@@ -74,6 +75,7 @@ func (w *Worker) Run(ctx context.Context, runTask func(ctx context.Context, task
 		}
 
 		// Notify task starting
+		taskStart := time.Now()
 		if w.OnStatus != nil {
 			w.OnStatus(TaskEvent{
 				WorkerID: w.ID,
@@ -85,6 +87,7 @@ func (w *Worker) Run(ctx context.Context, runTask func(ctx context.Context, task
 
 		// Run the task
 		success, cost, tokens := runTask(ctx, task)
+		taskDuration := time.Since(taskStart)
 
 		if success {
 			// Close the task on success
@@ -101,6 +104,7 @@ func (w *Worker) Run(ctx context.Context, runTask func(ctx context.Context, task
 						Error:    "failed to close task: " + err.Error(),
 						Cost:     cost,
 						Tokens:   tokens,
+						Duration: taskDuration,
 					})
 				}
 			} else {
@@ -113,6 +117,7 @@ func (w *Worker) Run(ctx context.Context, runTask func(ctx context.Context, task
 						Status:   "completed",
 						Cost:     cost,
 						Tokens:   tokens,
+						Duration: taskDuration,
 					})
 				}
 			}
@@ -129,6 +134,7 @@ func (w *Worker) Run(ctx context.Context, runTask func(ctx context.Context, task
 					Error:    "task execution failed",
 					Cost:     cost,
 					Tokens:   tokens,
+					Duration: taskDuration,
 				})
 			}
 		}

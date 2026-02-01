@@ -482,17 +482,13 @@ Get a token at https://ticks.sh/settings`)
 						result, err := runEpicWithPool(ctx, root, epicID, claudeAgent, poolSize, runStaleTimeout)
 						if err != nil {
 							if ctx.Err() != nil {
-								if result != nil {
-									outputPoolResult(result, epicID)
-								}
 								break
 							}
 							cancel()
 							wg.Wait()
 							return NewExitError(ExitGeneric, "pool run failed for epic %s: %v", epicID, err)
 						}
-
-						outputPoolResult(result, epicID)
+						_ = result // result summary already printed by runEpicWithPool
 
 						if ctx.Err() != nil {
 							break
@@ -950,17 +946,26 @@ func isPortAvailable(port int) bool {
 func runEpicWithPool(ctx context.Context, root, epicID string, agentImpl agent.Agent, poolSize int, staleTimeout time.Duration) (*pool.Result, error) {
 	tickDir := filepath.Join(root, ".tick")
 
+	// Calculate total phases: context + dependencies (if enabled) + stale_recovery + workers
+	totalPhases := 4 // context, dependencies, stale_recovery, workers
+	if runSkipDepAnalysis || poolSize <= 1 {
+		totalPhases = 3 // context, stale_recovery, workers (skip dependencies)
+	}
+
+	// Create reporter
+	reporter := pool.NewPoolReporter(runJSONL, epicID, poolSize, totalPhases)
+
 	if !runJSONL {
-		fmt.Printf("Starting pool run with %d workers for epic %s\n", poolSize, epicID)
+		fmt.Printf("Starting pool run with %d workers for epic %s\n\n", poolSize, epicID)
 	}
 
 	// Generate/load epic context (shared by all workers)
-	epicContextContent := ensurePoolEpicContext(ctx, tickDir, epicID, agentImpl)
+	epicContextContent := ensurePoolEpicContext(ctx, tickDir, epicID, agentImpl, reporter)
 
 	// Run dependency analysis to detect file conflicts and get predictions
 	filePredictions := make(map[string][]string)
 	if !runSkipDepAnalysis && poolSize > 1 {
-		predictions := runDependencyAnalysis(ctx, tickDir, epicID, agentImpl)
+		predictions := runDependencyAnalysis(ctx, tickDir, epicID, agentImpl, reporter)
 		if predictions != nil {
 			filePredictions = predictions
 		}
@@ -976,25 +981,45 @@ func runEpicWithPool(ctx context.Context, root, epicID string, agentImpl agent.A
 		RunTask:      createPoolTaskRunner(ctx, root, agentImpl, epicContextContent, filePredictions),
 	}
 
-	// Set up minimal status output (unless JSONL mode)
-	if !runJSONL {
-		cfg.OnStatus = func(event pool.TaskEvent) {
-			switch event.Status {
-			case "starting":
-				fmt.Printf("[Worker %d] Starting %s: %s\n", event.WorkerID, event.TaskID, event.Title)
-			case "completed":
-				fmt.Printf("[Worker %d] Completed %s: %s ($%.4f)\n", event.WorkerID, event.TaskID, event.Title, event.Cost)
-			case "failed":
-				if event.Error != "" {
-					fmt.Printf("[Worker %d] Failed %s: %s (%s)\n", event.WorkerID, event.TaskID, event.Title, event.Error)
-				} else {
-					fmt.Printf("[Worker %d] Failed %s: %s\n", event.WorkerID, event.TaskID, event.Title)
+	// Set up phase callback for pool-internal phases
+	cfg.OnPhase = func(event pool.PhaseEvent) {
+		switch event.Phase {
+		case "stale_recovery":
+			if event.Status == "starting" {
+				reporter.PhaseStart("Recovering stale tasks")
+			} else {
+				reporter.PhaseDone(event.Detail)
+			}
+		case "workers":
+			if event.Status == "starting" {
+				reporter.PhaseStart(fmt.Sprintf("Running %s", event.Detail))
+				if !runJSONL {
+					fmt.Println() // newline after workers phase for cleaner output
 				}
 			}
+			// Workers phase doesn't have a "done" status - it runs until complete
 		}
 	}
 
-	return pool.RunPool(ctx, cfg)
+	// Set up task status callback
+	cfg.OnStatus = func(event pool.TaskEvent) {
+		switch event.Status {
+		case "starting":
+			reporter.TaskStart(event.WorkerID, event.TaskID, event.Title)
+		case "completed":
+			reporter.TaskDone(event.WorkerID, event.TaskID, event.Title, event.Cost, event.Duration)
+		case "failed":
+			reporter.TaskFail(event.WorkerID, event.TaskID, event.Title, event.Error)
+		}
+	}
+
+	result, err := pool.RunPool(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	reporter.Summary(result)
+	return result, nil
 }
 
 // createPoolTaskRunner creates a RunTask function for pool workers.
@@ -1227,7 +1252,7 @@ func computeMaxWaveWidth(tickDir, epicID string) int {
 // ensurePoolEpicContext generates or loads epic context for pool mode.
 // Uses the same context store as the engine for consistency.
 // Returns empty string if context generation fails (non-fatal).
-func ensurePoolEpicContext(ctx context.Context, tickDir, epicID string, agentImpl agent.Agent) string {
+func ensurePoolEpicContext(ctx context.Context, tickDir, epicID string, agentImpl agent.Agent, reporter *pool.PoolReporter) string {
 	// Create context store
 	contextStore := epiccontext.NewStoreWithDir(filepath.Join(tickDir, "logs", "context"))
 
@@ -1235,10 +1260,9 @@ func ensurePoolEpicContext(ctx context.Context, tickDir, epicID string, agentImp
 	if contextStore.Exists(epicID) {
 		content, err := contextStore.Load(epicID)
 		if err == nil && content != "" {
-			if !runJSONL {
-				tokenCount := len(content) / 4 // rough estimate
-				fmt.Printf("📖 Using existing context for %s (~%d tokens)\n", epicID, tokenCount)
-			}
+			tokenCount := len(content) / 4 // rough estimate
+			reporter.PhaseStart("Loading cached context")
+			reporter.PhaseDone(fmt.Sprintf("~%d tokens", tokenCount))
 			return content
 		}
 	}
@@ -1247,61 +1271,42 @@ func ensurePoolEpicContext(ctx context.Context, tickDir, epicID string, agentImp
 	ticksClient := ticks.NewClient(tickDir)
 	epic, err := ticksClient.GetEpic(epicID)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Context generation skipped: %v\n", err)
-		}
+		reporter.PhaseSkip("Generating epic context", err.Error())
 		return ""
 	}
 
 	tasks, err := ticksClient.ListTasks(epicID)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Context generation skipped: %v\n", err)
-		}
+		reporter.PhaseSkip("Generating epic context", err.Error())
 		return ""
 	}
 
 	// Skip for single-task epics (no benefit)
 	if len(tasks) <= 1 {
-		if !runJSONL {
-			fmt.Printf("⏭ Context skipped: single-task epic\n")
-		}
+		reporter.PhaseSkip("Generating epic context", "single-task epic")
 		return ""
 	}
 
 	// Generate context
-	if !runJSONL {
-		fmt.Printf("📚 Generating epic context for %s (%d tasks)...\n", epicID, len(tasks))
-	}
+	reporter.PhaseStart(fmt.Sprintf("Generating epic context (%d tasks)", len(tasks)))
 
 	contextGenerator, err := epiccontext.NewGenerator(agentImpl)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Context generation failed: %v\n", err)
-		}
+		reporter.PhaseDone(fmt.Sprintf("failed: %v", err))
 		return ""
 	}
 
 	content, err := contextGenerator.Generate(ctx, epic, tasks)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Context generation failed: %v\n", err)
-		}
+		reporter.PhaseDone(fmt.Sprintf("failed: %v", err))
 		return ""
 	}
 
 	// Save for future runs
-	if err := contextStore.Save(epicID, content); err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Context save failed: %v\n", err)
-		}
-		// Still return the content even if save failed
-	}
+	_ = contextStore.Save(epicID, content)
 
-	if !runJSONL {
-		tokenCount := len(content) / 4 // rough estimate
-		fmt.Printf("✓ Context generated (~%d tokens)\n", tokenCount)
-	}
+	tokenCount := len(content) / 4 // rough estimate
+	reporter.PhaseDone(fmt.Sprintf("~%d tokens", tokenCount))
 
 	return content
 }
@@ -1309,34 +1314,29 @@ func ensurePoolEpicContext(ctx context.Context, tickDir, epicID string, agentImp
 // runDependencyAnalysis analyzes tasks for file conflicts and adds dependencies.
 // Returns a map of task ID -> predicted files for use in task prompts.
 // Returns nil if analysis fails (non-fatal, pool continues without it).
-func runDependencyAnalysis(ctx context.Context, tickDir, epicID string, agentImpl agent.Agent) map[string][]string {
+func runDependencyAnalysis(ctx context.Context, tickDir, epicID string, agentImpl agent.Agent, reporter *pool.PoolReporter) map[string][]string {
 	ticksClient := ticks.NewClient(tickDir)
 
 	// Get epic and tasks
 	epic, err := ticksClient.GetEpic(epicID)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Dependency analysis skipped: %v\n", err)
-		}
+		reporter.PhaseSkip("Analyzing dependencies", err.Error())
 		return nil
 	}
 
 	tasks, err := ticksClient.ListTasks(epicID)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Dependency analysis skipped: %v\n", err)
-		}
+		reporter.PhaseSkip("Analyzing dependencies", err.Error())
 		return nil
 	}
 
 	// Skip for single-task epics (no conflicts possible)
 	if len(tasks) <= 1 {
+		reporter.PhaseSkip("Analyzing dependencies", "single-task epic")
 		return nil
 	}
 
-	if !runJSONL {
-		fmt.Printf("🔍 Analyzing dependencies for %d tasks...\n", len(tasks))
-	}
+	reporter.PhaseStart(fmt.Sprintf("Analyzing dependencies (%d tasks)", len(tasks)))
 
 	// Create analyzer and run
 	store := tick.NewStore(tickDir)
@@ -1344,24 +1344,17 @@ func runDependencyAnalysis(ctx context.Context, tickDir, epicID string, agentImp
 
 	result, err := analyzer.Analyze(ctx, epic, tasks)
 	if err != nil {
-		if !runJSONL {
-			fmt.Printf("⚠ Dependency analysis failed: %v\n", err)
-		}
+		reporter.PhaseDone(fmt.Sprintf("failed: %v", err))
 		return nil
 	}
 
 	// Report results
-	if !runJSONL {
-		if len(result.AddedDeps) > 0 {
-			fmt.Printf("✓ Added %d dependencies to prevent file conflicts\n", len(result.AddedDeps))
-			for taskID, blockers := range result.AddedDeps {
-				fmt.Printf("  %s now blocked by: %v\n", taskID, blockers)
-			}
-		} else if len(result.ConflictingPairs) > 0 {
-			fmt.Printf("✓ Found %d potential conflicts (already have dependencies)\n", len(result.ConflictingPairs))
-		} else {
-			fmt.Printf("✓ No file conflicts detected\n")
-		}
+	if len(result.AddedDeps) > 0 {
+		reporter.PhaseDone(fmt.Sprintf("%d dependencies added", len(result.AddedDeps)))
+	} else if len(result.ConflictingPairs) > 0 {
+		reporter.PhaseDone(fmt.Sprintf("%d conflicts (already handled)", len(result.ConflictingPairs)))
+	} else {
+		reporter.PhaseDone("no conflicts")
 	}
 
 	// Build predictions map for task prompts
@@ -1371,52 +1364,6 @@ func runDependencyAnalysis(ctx context.Context, tickDir, epicID string, agentImp
 	}
 
 	return predictions
-}
-
-// outputPoolResult outputs the results of a pool run.
-func outputPoolResult(result *pool.Result, epicID string) {
-	if runJSONL {
-		output := poolOutput{
-			EpicID:         epicID,
-			TasksCompleted: result.TasksCompleted,
-			TasksFailed:    result.TasksFailed,
-			TotalCost:      result.TotalCost,
-			TotalTokens:    result.TotalTokens,
-			DurationSec:    result.Duration.Seconds(),
-			StaleTasks:     result.StaleTasks,
-			WorkerCount:    len(result.WorkerResults),
-		}
-		enc := json.NewEncoder(os.Stdout)
-		_ = enc.Encode(output)
-	} else {
-		fmt.Printf("\n=== Pool Run Complete ===\n")
-		fmt.Printf("Epic: %s\n", epicID)
-		fmt.Printf("Tasks completed: %d\n", result.TasksCompleted)
-		fmt.Printf("Tasks failed: %d\n", result.TasksFailed)
-		fmt.Printf("Total cost: $%.4f\n", result.TotalCost)
-		fmt.Printf("Total tokens: %d\n", result.TotalTokens)
-		fmt.Printf("Duration: %v\n", result.Duration.Round(time.Second))
-		if result.StaleTasks > 0 {
-			fmt.Printf("Stale tasks recovered: %d\n", result.StaleTasks)
-		}
-		fmt.Printf("\nWorker breakdown:\n")
-		for _, wr := range result.WorkerResults {
-			fmt.Printf("  Worker %d: %d completed, %d failed, $%.4f\n",
-				wr.WorkerID, wr.TasksCompleted, wr.TasksFailed, wr.Cost)
-		}
-	}
-}
-
-// poolOutput is the JSONL output format for pool run results.
-type poolOutput struct {
-	EpicID         string  `json:"epic_id"`
-	TasksCompleted int     `json:"tasks_completed"`
-	TasksFailed    int     `json:"tasks_failed"`
-	TotalCost      float64 `json:"total_cost"`
-	TotalTokens    int     `json:"total_tokens"`
-	DurationSec    float64 `json:"duration_sec"`
-	StaleTasks     int     `json:"stale_tasks"`
-	WorkerCount    int     `json:"worker_count"`
 }
 
 // runParallelEpicsWithPool runs multiple epics in parallel worktrees, each with pool mode.
