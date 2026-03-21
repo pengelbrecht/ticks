@@ -2,7 +2,11 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +108,84 @@ func TestClaudeAgent_Run_Timeout(t *testing.T) {
 	// Should timeout before 1 second
 	if elapsed > 1*time.Second {
 		t.Errorf("Run() took %v, expected timeout around 100ms", elapsed)
+	}
+}
+
+func TestClaudeAgent_Run_UsesNativeWorktree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture uses POSIX sh")
+	}
+
+	tmpDir := t.TempDir()
+	argsFile := filepath.Join(tmpDir, "args.txt")
+	cwdFile := filepath.Join(tmpDir, "cwd.txt")
+	scriptPath := filepath.Join(tmpDir, "fake-claude.sh")
+
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = "--help" ]; then
+  echo "--worktree [name]"
+  exit 0
+fi
+
+printf '%%s\n' "$@" > %q
+pwd > %q
+
+cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"test-session","model":"sonnet"}
+{"type":"result","subtype":"success","result":"ok","duration_ms":1,"num_turns":1,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+EOF
+`, argsFile, cwdFile)
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("failed to write fake claude script: %v", err)
+	}
+
+	agent := &ClaudeAgent{Command: scriptPath}
+	repoRoot := filepath.Join(tmpDir, "repo")
+	workDir := filepath.Join(repoRoot, ".claude", "worktrees", "tk-epic1")
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		t.Fatalf("failed to create fake repo/worktree dirs: %v", err)
+	}
+	opts := RunOpts{
+		WorkDir:      workDir,
+		WorktreeName: "tk-epic1",
+		RepoRoot:     repoRoot,
+	}
+
+	result, err := agent.Run(context.Background(), "say ok", opts)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Run() returned nil result")
+	}
+
+	argsData, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("failed to read args file: %v", err)
+	}
+	argsText := string(argsData)
+	if !strings.Contains(argsText, "--worktree") {
+		t.Fatalf("expected --worktree in args, got:\n%s", argsText)
+	}
+	if !strings.Contains(argsText, "tk-epic1") {
+		t.Fatalf("expected worktree name in args, got:\n%s", argsText)
+	}
+	if !strings.Contains(argsText, "say ok") {
+		t.Fatalf("expected prompt in args, got:\n%s", argsText)
+	}
+
+	cwdData, err := os.ReadFile(cwdFile)
+	if err != nil {
+		t.Fatalf("failed to read cwd file: %v", err)
+	}
+	gotCwd := strings.TrimSpace(string(cwdData))
+	wantCwd, err := filepath.EvalSymlinks(repoRoot)
+	if err != nil {
+		wantCwd = repoRoot
+	}
+	if gotCwd != wantCwd {
+		t.Errorf("cwd = %q, want %q", gotCwd, wantCwd)
 	}
 }
 

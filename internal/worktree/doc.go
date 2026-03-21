@@ -6,9 +6,9 @@
 //
 // # Worktree Lifecycle
 //
-// Each epic gets its own worktree under .worktrees/<epic-id>/ with a
-// corresponding branch named tick/<epic-id>. The branch is created from
-// the current HEAD (usually main) when the worktree is created.
+// Each epic gets its own worktree under .claude/worktrees/tk-<epic-id>/ with a
+// corresponding branch named worktree-tk-<epic-id>. The branch is created
+// from the current HEAD (usually main) when the worktree is created.
 //
 // After an epic completes successfully, its worktree can be merged back
 // to main and then cleaned up.

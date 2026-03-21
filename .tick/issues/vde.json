@@ -1,0 +1,14 @@
+{
+  "id": "vde",
+  "title": "Migrate runner to Claude CLI native worktrees",
+  "notes": "2026-03-21 18:04 - Migrated tk-managed worktrees to Claude Code native layout and invocation: .claude/worktrees/tk-\u003cepic\u003e, worktree-tk-\u003cepic\u003e branches, native --worktree launch, checkpoint metadata, and updated tests. Verified with focused go test suites plus cmd/tk and taskrunner.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-21T16:49:02.095753Z",
+  "updated_at": "2026-03-21T17:04:33.490634Z",
+  "closed_at": "2026-03-21T17:04:33.490634Z",
+  "closed_reason": "Migrated runner to Claude Code native worktree invocation and layout"
+}

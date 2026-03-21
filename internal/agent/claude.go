@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,9 @@ import (
 type ClaudeAgent struct {
 	// Command is the path to the claude binary. Defaults to "claude".
 	Command string
+
+	nativeWorktreeOnce      sync.Once
+	nativeWorktreeSupported bool
 }
 
 // NewClaudeAgent creates a new Claude Code agent with default settings.
@@ -51,13 +55,21 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts RunOpts) (*Re
 		"--include-partial-messages",
 		"--verbose",
 		"--no-session-persistence",
-		prompt,
 	}
+
+	useNativeWorktree := opts.WorktreeName != "" && a.supportsNativeWorktree()
+	if useNativeWorktree {
+		args = append(args, "--worktree", opts.WorktreeName)
+	}
+	args = append(args, prompt)
 
 	cmd := exec.CommandContext(ctx, a.command(), args...)
 
-	// Set working directory if specified
-	if opts.WorkDir != "" {
+	// When using Claude's native worktree support, Claude must be launched
+	// from the main repository root so it can enter the named worktree itself.
+	if useNativeWorktree && opts.RepoRoot != "" {
+		cmd.Dir = opts.RepoRoot
+	} else if opts.WorkDir != "" {
 		cmd.Dir = opts.WorkDir
 	}
 
@@ -158,4 +170,17 @@ func (a *ClaudeAgent) command() string {
 		return a.Command
 	}
 	return "claude"
+}
+
+func (a *ClaudeAgent) supportsNativeWorktree() bool {
+	a.nativeWorktreeOnce.Do(func() {
+		cmd := exec.Command(a.command(), "--help")
+		output, err := cmd.Output()
+		if err != nil {
+			return
+		}
+		a.nativeWorktreeSupported = bytes.Contains(output, []byte("--worktree"))
+	})
+
+	return a.nativeWorktreeSupported
 }

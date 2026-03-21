@@ -181,7 +181,7 @@ func TestWorktree_PreservedOnHandoff(t *testing.T) {
 	if len(agentMock.lastWorkDirs) == 0 {
 		t.Fatal("agent was never called")
 	}
-	expectedWorktreePath := filepath.Join(repoRoot, ".worktrees", "epic1")
+	expectedWorktreePath := worktree.Path(repoRoot, "epic1")
 	if agentMock.lastWorkDirs[0] != expectedWorktreePath {
 		t.Errorf("agent WorkDir = %q, want %q", agentMock.lastWorkDirs[0], expectedWorktreePath)
 	}
@@ -542,11 +542,11 @@ func TestWorktree_ParallelEpicsIsolated(t *testing.T) {
 	if wt1.Branch == wt2.Branch {
 		t.Error("epic1 and epic2 should have different branches")
 	}
-	if wt1.Branch != "tick/epic1" {
-		t.Errorf("wt1.Branch = %q, want %q", wt1.Branch, "tick/epic1")
+	if wt1.Branch != worktree.Branch("epic1") {
+		t.Errorf("wt1.Branch = %q, want %q", wt1.Branch, worktree.Branch("epic1"))
 	}
-	if wt2.Branch != "tick/epic2" {
-		t.Errorf("wt2.Branch = %q, want %q", wt2.Branch, "tick/epic2")
+	if wt2.Branch != worktree.Branch("epic2") {
+		t.Errorf("wt2.Branch = %q, want %q", wt2.Branch, worktree.Branch("epic2"))
 	}
 }
 
@@ -773,15 +773,15 @@ func TestWorktree_WorkDirPassedToAgent(t *testing.T) {
 
 	workDir := agentMock.lastWorkDirs[0]
 
-	// WorkDir should be under .worktrees
-	worktreesDir := filepath.Join(repoRoot, ".worktrees")
+	// WorkDir should be under the native Claude worktree directory.
+	worktreesDir := filepath.Join(repoRoot, worktree.DefaultWorktreeDir)
 	if !strings.HasPrefix(workDir, worktreesDir) {
 		t.Errorf("WorkDir = %q, should be under %q", workDir, worktreesDir)
 	}
 
-	// WorkDir should contain epic1
-	if filepath.Base(workDir) != "epic1" {
-		t.Errorf("WorkDir base = %q, want %q", filepath.Base(workDir), "epic1")
+	// WorkDir should contain the tk-managed native worktree name.
+	if filepath.Base(workDir) != worktree.Name("epic1") {
+		t.Errorf("WorkDir base = %q, want %q", filepath.Base(workDir), worktree.Name("epic1"))
 	}
 
 	// WorkDir should exist and be a git worktree

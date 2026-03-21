@@ -8,16 +8,17 @@ import (
 )
 
 // gitignoreEntry is the pattern added to .gitignore.
-const gitignoreEntry = ".worktrees/"
+const gitignoreEntry = ".claude/worktrees/"
 
 // gitignoreComment is the comment added before the entry.
-const gitignoreComment = "# tk worktrees"
+const gitignoreComment = "# tk Claude worktrees"
 
-// EnsureGitignore checks if .worktrees/ is in .gitignore and adds it if not.
+// EnsureGitignore checks if .claude/worktrees/ is in .gitignore and adds it if not.
 // Creates .gitignore if it doesn't exist.
 // Returns true if .gitignore was modified.
 func EnsureGitignore(repoRoot string) (bool, error) {
-	// First check if .worktrees/ is already ignored (handles complex .gitignore patterns)
+	// First check if .claude/worktrees/ is already ignored
+	// (handles complex .gitignore patterns).
 	ignored, err := isIgnored(repoRoot, DefaultWorktreeDir)
 	if err != nil {
 		return false, err
@@ -26,7 +27,7 @@ func EnsureGitignore(repoRoot string) (bool, error) {
 		return false, nil
 	}
 
-	// Need to add .worktrees/ to .gitignore
+	// Need to add .claude/worktrees/ to .gitignore
 	gitignorePath := filepath.Join(repoRoot, ".gitignore")
 
 	// Read existing content if file exists
@@ -69,7 +70,7 @@ func EnsureGitignore(repoRoot string) (bool, error) {
 // Adds trailing slash to check as directory since worktrees dir may not exist yet.
 func isIgnored(repoRoot, path string) (bool, error) {
 	// Add trailing slash to indicate we're checking for a directory
-	// This allows git check-ignore to match patterns like ".worktrees/"
+	// This allows git check-ignore to match patterns like ".claude/worktrees/"
 	// even when the directory doesn't exist yet
 	checkPath := strings.TrimSuffix(path, "/") + "/"
 

@@ -632,7 +632,7 @@ func TestMerge_ErrNoTargetBranch(t *testing.T) {
 	// Create a worktree struct with no ParentBranch (simulating detached HEAD scenario)
 	wt := &Worktree{
 		Path:         dir,
-		Branch:       "tick/no-parent",
+		Branch:       Branch("no-parent"),
 		EpicID:       "no-parent",
 		ParentBranch: "", // Empty - simulating detached HEAD
 	}

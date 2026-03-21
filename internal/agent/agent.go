@@ -45,6 +45,15 @@ type RunOpts struct {
 	// WorkDir is the working directory for the agent.
 	// If empty, the current working directory is used.
 	WorkDir string
+
+	// WorktreeName is the Claude-native worktree name to enter.
+	// When set, Claude agents may use native worktree support instead of
+	// running directly with WorkDir as the process cwd.
+	WorktreeName string
+
+	// RepoRoot is the main repository root for native worktree invocation.
+	// Claude agents use this as the process cwd when WorktreeName is set.
+	RepoRoot string
 }
 
 // Result contains the output and metrics from an agent run.

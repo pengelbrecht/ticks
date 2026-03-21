@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pengelbrecht/ticks/internal/worktree"
 )
 
 // Checkpoint represents a saved state of a tk run that can be resumed.
@@ -277,7 +279,7 @@ func branchExists(branch, repoRoot string) bool {
 // recreateWorktreeFromBranch creates a worktree at the standard location for an epic
 // using an existing branch.
 func recreateWorktreeFromBranch(epicID, branch, repoRoot string) (string, error) {
-	worktreePath := filepath.Join(repoRoot, ".worktrees", epicID)
+	worktreePath := worktree.Path(repoRoot, epicID)
 
 	// Ensure parent directory exists
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {

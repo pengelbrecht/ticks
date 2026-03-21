@@ -516,6 +516,7 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		epicID:         config.EpicID,
 		iteration:      0,
 		completedTasks: []string{},
+		repoRoot:       config.RepoRoot,
 		startTime:      time.Now(),
 	}
 
@@ -946,13 +947,26 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		// Checkpoint if at interval
 		if config.CheckpointEvery > 0 && state.iteration%config.CheckpointEvery == 0 {
 			usage := e.budget.Usage()
-			cp := checkpoint.NewCheckpoint(
-				config.EpicID,
-				state.iteration,
-				usage.TotalTokens(),
-				usage.Cost,
-				state.completedTasks,
-			)
+			var cp *checkpoint.Checkpoint
+			if state.workDir != "" {
+				cp = checkpoint.NewCheckpointWithWorktree(
+					config.EpicID,
+					state.iteration,
+					usage.TotalTokens(),
+					usage.Cost,
+					state.completedTasks,
+					state.workDir,
+					worktree.Branch(config.EpicID),
+				)
+			} else {
+				cp = checkpoint.NewCheckpoint(
+					config.EpicID,
+					state.iteration,
+					usage.TotalTokens(),
+					usage.Cost,
+					state.completedTasks,
+				)
+			}
 			if err := e.checkpoint.Save(cp); err != nil {
 				// Log but don't fail on checkpoint error
 				_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Checkpoint error at iteration %d: %v", state.iteration, err))
@@ -982,7 +996,8 @@ type runState struct {
 	currentTaskTitle string
 
 	// Worktree support
-	workDir string // Working directory for agent (worktree path or empty for current dir)
+	workDir  string // Working directory for agent (worktree path or empty for current dir)
+	repoRoot string // Main repository root for native Claude worktree invocation
 
 	// Epic context (pre-computed context for the epic, loaded once at start)
 	epicContext string
@@ -1074,8 +1089,12 @@ func (e *Engine) runIteration(ctx context.Context, state *runState, task *ticks.
 	startTime := time.Now()
 
 	opts := agent.RunOpts{
-		Timeout: timeout,
-		WorkDir: state.workDir,
+		Timeout:  timeout,
+		WorkDir:  state.workDir,
+		RepoRoot: state.repoRoot,
+	}
+	if state.workDir != "" {
+		opts.WorktreeName = worktree.Name(state.epicID)
 	}
 
 	// Set up rich streaming callback with live file tracking

@@ -62,10 +62,10 @@ func TestManager_Create(t *testing.T) {
 		if wt.EpicID != "abc123" {
 			t.Errorf("Worktree.EpicID = %q, want %q", wt.EpicID, "abc123")
 		}
-		if wt.Branch != "tick/abc123" {
-			t.Errorf("Worktree.Branch = %q, want %q", wt.Branch, "tick/abc123")
+		if wt.Branch != Branch("abc123") {
+			t.Errorf("Worktree.Branch = %q, want %q", wt.Branch, Branch("abc123"))
 		}
-		expectedPath := filepath.Join(dir, DefaultWorktreeDir, "abc123")
+		expectedPath := Path(dir, "abc123")
 		if wt.Path != expectedPath {
 			t.Errorf("Worktree.Path = %q, want %q", wt.Path, expectedPath)
 		}
@@ -79,8 +79,8 @@ func TestManager_Create(t *testing.T) {
 		}
 
 		// Verify branch exists
-		if !m.branchExists("tick/abc123") {
-			t.Error("Branch tick/abc123 should exist")
+		if !m.branchExists(Branch("abc123")) {
+			t.Errorf("Branch %s should exist", Branch("abc123"))
 		}
 	})
 
@@ -92,7 +92,7 @@ func TestManager_Create(t *testing.T) {
 		}
 
 		// Create branch first
-		cmd := exec.Command("git", "branch", "tick/existing")
+		cmd := exec.Command("git", "branch", Branch("existing"))
 		cmd.Dir = dir
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("failed to create branch: %v", err)
@@ -103,8 +103,8 @@ func TestManager_Create(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 
-		if wt.Branch != "tick/existing" {
-			t.Errorf("Worktree.Branch = %q, want %q", wt.Branch, "tick/existing")
+		if wt.Branch != Branch("existing") {
+			t.Errorf("Worktree.Branch = %q, want %q", wt.Branch, Branch("existing"))
 		}
 	})
 
@@ -128,7 +128,7 @@ func TestManager_Create(t *testing.T) {
 		}
 	})
 
-	t.Run("creates .worktrees directory if not exists", func(t *testing.T) {
+	t.Run("creates native worktree directory if not exists", func(t *testing.T) {
 		dir := createTempGitRepo(t)
 		m, err := NewManager(dir)
 		if err != nil {
@@ -137,7 +137,7 @@ func TestManager_Create(t *testing.T) {
 
 		worktreesDir := filepath.Join(dir, DefaultWorktreeDir)
 		if _, err := os.Stat(worktreesDir); !os.IsNotExist(err) {
-			t.Fatal(".worktrees directory should not exist yet")
+			t.Fatalf("%s directory should not exist yet", DefaultWorktreeDir)
 		}
 
 		_, err = m.Create("new123")
@@ -146,7 +146,7 @@ func TestManager_Create(t *testing.T) {
 		}
 
 		if _, err := os.Stat(worktreesDir); os.IsNotExist(err) {
-			t.Error(".worktrees directory should exist after Create()")
+			t.Errorf("%s directory should exist after Create()", DefaultWorktreeDir)
 		}
 	})
 }
@@ -181,8 +181,8 @@ func TestManager_Remove(t *testing.T) {
 		}
 
 		// Verify branch is deleted
-		if m.branchExists("tick/rem123") {
-			t.Error("Branch tick/rem123 should not exist after Remove()")
+		if m.branchExists(Branch("rem123")) {
+			t.Errorf("Branch %s should not exist after Remove()", Branch("rem123"))
 		}
 	})
 
@@ -355,7 +355,7 @@ func TestManager_List(t *testing.T) {
 		}
 
 		// Create a non-tick worktree directly
-		otherPath := filepath.Join(dir, ".worktrees", "other")
+		otherPath := filepath.Join(dir, DefaultWorktreeDir, "other")
 		cmd := exec.Command("git", "worktree", "add", otherPath, "-b", "feature/other")
 		cmd.Dir = dir
 		if err := cmd.Run(); err != nil {
@@ -475,8 +475,8 @@ func TestBranchNaming(t *testing.T) {
 		if !strings.HasPrefix(wt.Branch, BranchPrefix) {
 			t.Errorf("Branch %q should have prefix %q", wt.Branch, BranchPrefix)
 		}
-		if wt.Branch != "tick/abc123" {
-			t.Errorf("Branch = %q, want %q", wt.Branch, "tick/abc123")
+		if wt.Branch != Branch("abc123") {
+			t.Errorf("Branch = %q, want %q", wt.Branch, Branch("abc123"))
 		}
 	})
 }
@@ -549,17 +549,17 @@ func TestManager_IsDirty(t *testing.T) {
 		}
 	})
 
-	t.Run("ignores .worktrees/ directory", func(t *testing.T) {
+	t.Run("ignores native worktree directory", func(t *testing.T) {
 		dir := createTempGitRepo(t)
 		m, err := NewManager(dir)
 		if err != nil {
 			t.Fatalf("NewManager() error = %v", err)
 		}
 
-		// Create .worktrees/ directory with file
-		wtDir := filepath.Join(dir, ".worktrees")
+		// Create native worktree directory with file
+		wtDir := filepath.Join(dir, DefaultWorktreeDir)
 		if err := os.MkdirAll(wtDir, 0755); err != nil {
-			t.Fatalf("failed to create .worktrees: %v", err)
+			t.Fatalf("failed to create %s: %v", DefaultWorktreeDir, err)
 		}
 		if err := os.WriteFile(filepath.Join(wtDir, "test.txt"), []byte("ignored"), 0644); err != nil {
 			t.Fatalf("failed to create file: %v", err)
@@ -570,7 +570,7 @@ func TestManager_IsDirty(t *testing.T) {
 			t.Fatalf("IsDirty() error = %v", err)
 		}
 		if isDirty {
-			t.Errorf("IsDirty() = true, want false (should ignore .worktrees/)")
+			t.Errorf("IsDirty() = true, want false (should ignore %s/)", DefaultWorktreeDir)
 		}
 		if len(files) != 0 {
 			t.Errorf("IsDirty() files = %v, want empty", files)

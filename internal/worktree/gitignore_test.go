@@ -46,7 +46,7 @@ func TestEnsureGitignore(t *testing.T) {
 			t.Error(".gitignore should contain tk comment")
 		}
 		if !strings.Contains(contentStr, gitignoreEntry) {
-			t.Error(".gitignore should contain .worktrees/ entry")
+			t.Errorf(".gitignore should contain %s entry", gitignoreEntry)
 		}
 	})
 
@@ -79,7 +79,7 @@ func TestEnsureGitignore(t *testing.T) {
 			t.Error(".gitignore should contain tk comment")
 		}
 		if !strings.Contains(contentStr, gitignoreEntry) {
-			t.Error(".gitignore should contain .worktrees/ entry")
+			t.Errorf(".gitignore should contain %s entry", gitignoreEntry)
 		}
 	})
 
@@ -113,7 +113,7 @@ func TestEnsureGitignore(t *testing.T) {
 			t.Error(".gitignore should have newline added after existing content without trailing newline")
 		}
 		if !strings.Contains(contentStr, gitignoreEntry) {
-			t.Error(".gitignore should contain .worktrees/ entry")
+			t.Errorf(".gitignore should contain %s entry", gitignoreEntry)
 		}
 	})
 
@@ -156,16 +156,16 @@ func TestEnsureGitignore(t *testing.T) {
 
 		// Verify only one entry
 		if strings.Count(string(content2), gitignoreEntry) != 1 {
-			t.Errorf("Should have exactly one .worktrees/ entry, got content:\n%s", content2)
+			t.Errorf("Should have exactly one %s entry, got content:\n%s", gitignoreEntry, content2)
 		}
 	})
 
 	t.Run("detects existing coverage", func(t *testing.T) {
 		dir := createTempGitRepo(t)
 
-		// Create .gitignore that already covers .worktrees/
+		// Create .gitignore that already covers the native Claude worktree path.
 		gitignorePath := filepath.Join(dir, ".gitignore")
-		existingContent := ".worktrees/\n"
+		existingContent := gitignoreEntry + "\n"
 		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
 			t.Fatalf("failed to create .gitignore: %v", err)
 		}
@@ -191,7 +191,7 @@ func TestEnsureGitignore(t *testing.T) {
 	t.Run("detects wildcard coverage", func(t *testing.T) {
 		dir := createTempGitRepo(t)
 
-		// Create .gitignore with pattern that covers .worktrees
+		// Create .gitignore with pattern that covers the native worktree path.
 		gitignorePath := filepath.Join(dir, ".gitignore")
 		existingContent := ".*\n" // Ignores all dotfiles/directories
 		if err := os.WriteFile(gitignorePath, []byte(existingContent), 0644); err != nil {
@@ -268,7 +268,7 @@ func TestIsIgnored(t *testing.T) {
 	t.Run("returns false when no .gitignore exists", func(t *testing.T) {
 		dir := createTempGitRepo(t)
 
-		ignored, err := isIgnored(dir, ".worktrees")
+		ignored, err := isIgnored(dir, DefaultWorktreeDir)
 		if err != nil {
 			t.Fatalf("isIgnored() error = %v", err)
 		}

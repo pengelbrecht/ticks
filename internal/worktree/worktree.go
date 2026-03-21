@@ -15,10 +15,14 @@ import (
 )
 
 // DefaultWorktreeDir is the default directory name for storing worktrees.
-const DefaultWorktreeDir = ".worktrees"
+const DefaultWorktreeDir = ".claude/worktrees"
+
+// WorktreeNamePrefix keeps tk-managed Claude worktrees isolated from unrelated
+// native Claude worktrees the user may create manually.
+const WorktreeNamePrefix = "tk-"
 
 // BranchPrefix is the prefix for worktree branch names.
-const BranchPrefix = "tick/"
+const BranchPrefix = "worktree-" + WorktreeNamePrefix
 
 // metadataFileName is the name of the metadata file stored in each worktree.
 const metadataFileName = ".tk-metadata"
@@ -35,7 +39,7 @@ var ErrWorktreeNotFound = errors.New("worktree not found")
 // Worktree represents an active git worktree.
 type Worktree struct {
 	Path         string    // Absolute path to worktree directory
-	Branch       string    // Branch name (e.g., tick/abc123)
+	Branch       string    // Branch name (e.g., worktree-tk-abc123)
 	EpicID       string    // Associated epic ID
 	Created      time.Time // When worktree was created
 	ParentBranch string    // Branch from which this worktree was created
@@ -50,7 +54,7 @@ type worktreeMetadata struct {
 // Manager handles git worktree lifecycle.
 type Manager struct {
 	repoRoot    string // Root of main repository
-	worktreeDir string // Base directory for worktrees (default: .worktrees)
+	worktreeDir string // Base directory for worktrees (default: .claude/worktrees)
 }
 
 // NewManager creates a worktree manager for the given repository.
@@ -87,8 +91,8 @@ func (m *Manager) Prune() error {
 }
 
 // Create creates a new worktree for an epic.
-// Branch name: tick/<epic-id>
-// Path: <repoRoot>/.worktrees/<epic-id>
+// Branch name: worktree-tk-<epic-id>
+// Path: <repoRoot>/.claude/worktrees/tk-<epic-id>
 // Creates branch from current HEAD if it doesn't exist.
 func (m *Manager) Create(epicID string) (*Worktree, error) {
 	wtPath := m.worktreePath(epicID)
@@ -108,7 +112,8 @@ func (m *Manager) Create(epicID string) (*Worktree, error) {
 		return nil, ErrWorktreeExists
 	}
 
-	// Ensure .worktrees/ is gitignored before creating any worktrees
+	// Ensure the native Claude worktree directory is gitignored before creating
+	// any worktrees.
 	if _, err := EnsureGitignore(m.repoRoot); err != nil {
 		return nil, fmt.Errorf("ensuring gitignore: %w", err)
 	}
@@ -266,12 +271,27 @@ func (m *Manager) Exists(epicID string) bool {
 
 // worktreePath returns the path for an epic's worktree.
 func (m *Manager) worktreePath(epicID string) string {
-	return filepath.Join(m.worktreeDir, epicID)
+	return filepath.Join(m.worktreeDir, Name(epicID))
 }
 
 // branchName returns the branch name for an epic.
 func (m *Manager) branchName(epicID string) string {
+	return Branch(epicID)
+}
+
+// Name returns the native Claude worktree name for an epic.
+func Name(epicID string) string {
+	return WorktreeNamePrefix + epicID
+}
+
+// Branch returns the native Claude worktree branch name for an epic.
+func Branch(epicID string) string {
 	return BranchPrefix + epicID
+}
+
+// Path returns the native Claude worktree path for an epic.
+func Path(repoRoot, epicID string) string {
+	return filepath.Join(repoRoot, DefaultWorktreeDir, Name(epicID))
 }
 
 // branchExists checks if a branch exists.
@@ -305,7 +325,7 @@ func (m *Manager) parseWorktreeList(output []byte) ([]*Worktree, error) {
 			branch := strings.TrimPrefix(line, "branch refs/heads/")
 			current.Branch = branch
 
-			// Check if this is a tick worktree
+			// Check if this is a tk-managed Claude worktree
 			if strings.HasPrefix(branch, BranchPrefix) {
 				current.EpicID = strings.TrimPrefix(branch, BranchPrefix)
 				worktrees = append(worktrees, current)
@@ -325,7 +345,8 @@ func (m *Manager) parseWorktreeList(output []byte) ([]*Worktree, error) {
 }
 
 // IsDirty checks if the main repository has uncommitted changes.
-// Returns true if there are modified, staged, or untracked files (excluding .worktrees/).
+// Returns true if there are modified, staged, or untracked files
+// (excluding .claude/worktrees/).
 func (m *Manager) IsDirty() (bool, []string, error) {
 	cmd := exec.Command("git", "status", "--porcelain")
 	cmd.Dir = m.repoRoot
@@ -339,7 +360,7 @@ func (m *Manager) IsDirty() (bool, []string, error) {
 		return false, nil, nil
 	}
 
-	// Parse output and filter out .worktrees/ and .tick/ (expected to be dirty)
+	// Parse output and filter out .claude/worktrees/ and .tick/ (expected to be dirty)
 	var dirtyFiles []string
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
@@ -349,8 +370,11 @@ func (m *Manager) IsDirty() (bool, []string, error) {
 		}
 		// Format: "XY filename" where XY is 2-char status
 		filename := strings.TrimSpace(line[2:])
-		// Skip .worktrees/ and .tick/ directories
-		if strings.HasPrefix(filename, ".worktrees/") || strings.HasPrefix(filename, ".tick/") {
+		// Skip both native and legacy worktree directories, plus .tick/.
+		if strings.HasPrefix(filename, DefaultWorktreeDir+"/") ||
+			strings.HasPrefix(filename, ".worktrees/") ||
+			isWorktreeContainerDir(m.repoRoot, filename) ||
+			strings.HasPrefix(filename, ".tick/") {
 			continue
 		}
 		dirtyFiles = append(dirtyFiles, filename)
@@ -361,6 +385,22 @@ func (m *Manager) IsDirty() (bool, []string, error) {
 	}
 
 	return len(dirtyFiles) > 0, dirtyFiles, nil
+}
+
+func isWorktreeContainerDir(repoRoot, filename string) bool {
+	if filename != ".claude" && filename != ".claude/" {
+		return false
+	}
+
+	entries, err := os.ReadDir(filepath.Join(repoRoot, ".claude"))
+	if err != nil {
+		return false
+	}
+	if len(entries) != 1 {
+		return false
+	}
+
+	return entries[0].IsDir() && entries[0].Name() == "worktrees"
 }
 
 // IsOnlyTickFilesDirty checks if only .tick/ files are dirty.
