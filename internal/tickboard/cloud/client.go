@@ -148,10 +148,10 @@ type TickDeletedMessage struct {
 
 // TickOperationRequest is received from DO when cloud UI wants to perform an operation.
 type TickOperationRequest struct {
-	Type      string `json:"type"`       // "tick_operation"
-	RequestID string `json:"requestId"`  // Unique ID to correlate response
-	Operation string `json:"operation"`  // "add_note", "approve", "reject", "close", "reopen"
-	TickID    string `json:"tickId"`     // ID of the tick to operate on
+	Type      string `json:"type"`      // "tick_operation"
+	RequestID string `json:"requestId"` // Unique ID to correlate response
+	Operation string `json:"operation"` // "add_note", "approve", "reject", "close", "reopen"
+	TickID    string `json:"tickId"`    // ID of the tick to operate on
 	Payload   struct {
 		Message string `json:"message,omitempty"` // For add_note
 		Reason  string `json:"reason,omitempty"`  // For reject, close
@@ -160,34 +160,34 @@ type TickOperationRequest struct {
 
 // TickOperationResponse is sent back to DO after performing an operation.
 type TickOperationResponse struct {
-	Type      string     `json:"type"`              // "tick_operation_response"
-	RequestID string     `json:"requestId"`         // Matches the request ID
-	Success   bool       `json:"success"`           // Whether the operation succeeded
-	Tick      *tick.Tick `json:"tick,omitempty"`    // Updated tick on success
-	Error     string     `json:"error,omitempty"`   // Error message on failure
+	Type      string     `json:"type"`            // "tick_operation_response"
+	RequestID string     `json:"requestId"`       // Matches the request ID
+	Success   bool       `json:"success"`         // Whether the operation succeeded
+	Tick      *tick.Tick `json:"tick,omitempty"`  // Updated tick on success
+	Error     string     `json:"error,omitempty"` // Error message on failure
 }
 
 // RunEventMessage sends live output events to the DO.
 type RunEventMessage struct {
-	Type   string        `json:"type"`            // "run_event"
-	EpicID string        `json:"epicId"`          // The epic being worked on
-	TaskID string        `json:"taskId,omitempty"` // Task ID (if task-level output)
-	Source string        `json:"source"`          // "ralph", "swarm-orchestrator", "swarm-subagent"
-	Event  RunEventData  `json:"event"`           // The event data
+	Type   string       `json:"type"`             // "run_event"
+	EpicID string       `json:"epicId"`           // The epic being worked on
+	TaskID string       `json:"taskId,omitempty"` // Task ID (if task-level output)
+	Source string       `json:"source"`           // "ralph", "swarm-orchestrator", "swarm-subagent"
+	Event  RunEventData `json:"event"`            // The event data
 }
 
 // RunEventData contains the details of a run event.
 type RunEventData struct {
-	Type       string                 `json:"type"`                 // Event type: task-started, task-update, etc.
-	Output     string                 `json:"output,omitempty"`     // Current output text
-	Status     string                 `json:"status,omitempty"`     // Status text
-	NumTurns   int                    `json:"numTurns,omitempty"`   // Number of turns
-	Iteration  int                    `json:"iteration,omitempty"`  // Iteration number
-	Success    bool                   `json:"success,omitempty"`    // Whether completed successfully
-	Metrics    *RunEventMetrics       `json:"metrics,omitempty"`    // Cost/token metrics
-	ActiveTool *RunEventTool          `json:"activeTool,omitempty"` // Currently active tool
-	Message    string                 `json:"message,omitempty"`    // Human-readable message
-	Timestamp  string                 `json:"timestamp"`            // ISO timestamp
+	Type       string           `json:"type"`                 // Event type: task-started, task-update, etc.
+	Output     string           `json:"output,omitempty"`     // Current output text
+	Status     string           `json:"status,omitempty"`     // Status text
+	NumTurns   int              `json:"numTurns,omitempty"`   // Number of turns
+	Iteration  int              `json:"iteration,omitempty"`  // Iteration number
+	Success    bool             `json:"success,omitempty"`    // Whether completed successfully
+	Metrics    *RunEventMetrics `json:"metrics,omitempty"`    // Cost/token metrics
+	ActiveTool *RunEventTool    `json:"activeTool,omitempty"` // Currently active tool
+	Message    string           `json:"message,omitempty"`    // Human-readable message
+	Timestamp  string           `json:"timestamp"`            // ISO timestamp
 }
 
 // RunEventMetrics contains cost and token metrics.
@@ -641,6 +641,16 @@ func (c *Client) handleSyncMessageRaw(data []byte) {
 			return
 		}
 		go c.handleTickOperation(opMsg)
+
+	case "request_sync":
+		ticks, err := c.loadAllTicks()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: failed to reload ticks for request_sync: %v\n", err)
+			return
+		}
+		if err := c.SyncFullState(ticks); err != nil {
+			fmt.Fprintf(os.Stderr, "cloud: failed to respond to request_sync: %v\n", err)
+		}
 
 	case "error":
 		var errMsg struct {
@@ -1317,4 +1327,3 @@ func (c *Client) SendRunEventAny(event interface{}) error {
 	}
 	return c.SendRunEvent(msg)
 }
-

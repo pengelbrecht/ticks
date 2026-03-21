@@ -429,17 +429,11 @@ export class CloudCommsClient implements CommsClient {
     const result: import('../types/tick.js').BoardTick[] = [];
 
     for (const tick of this.tickCache.values()) {
-      // Compute isBlocked - a tick is blocked if any of its blockers are not closed
-      let isBlocked = false;
-      if (tick.blocked_by && tick.blocked_by.length > 0) {
-        for (const blockerId of tick.blocked_by) {
-          const blocker = this.tickCache.get(blockerId);
-          if (!blocker || blocker.status !== 'closed') {
-            isBlocked = true;
-            break;
-          }
-        }
-      }
+      // Match local server behavior: missing blockers are treated as non-blocking.
+      const isBlocked = (tick.blocked_by || []).some((blockerId) => {
+        const blocker = this.tickCache.get(blockerId);
+        return blocker ? blocker.status !== 'closed' : false;
+      });
 
       // Compute column based on tick state
       let column: 'blocked' | 'ready' | 'agent' | 'human' | 'done' = 'ready';
@@ -514,8 +508,9 @@ export class CloudCommsClient implements CommsClient {
       }
     }
 
-    // Compute isBlocked - a tick is blocked if any of its blockers are not closed
-    const isBlocked = blockerDetails.some((b) => b.status !== 'closed');
+    // Match local server behavior: blockers missing from the snapshot are treated
+    // as non-blocking, even if we still surface them as "unknown" in the detail UI.
+    const isBlocked = blockerDetails.some((b) => b.status !== 'closed' && b.status !== 'unknown');
 
     // Compute column based on tick state
     let column: 'blocked' | 'ready' | 'agent' | 'human' | 'done' = 'ready';

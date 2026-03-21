@@ -1,0 +1,15 @@
+{
+  "id": "y6k",
+  "title": "Fix remote board cloud sync drift",
+  "description": "Fix three remote board sync bugs:\n- restore or re-request tick state after ProjectRoom hibernation\n- make sync_full authoritative so removed ticks disappear remotely\n- align cloud blocker handling with local board semantics for missing blockers\n\nAcceptance:\n- remote board reconnect after DO wake shows full tick set\n- sync_full removes stale remote-only ticks\n- tasks with missing blockers match local board columning",
+  "notes": "2026-03-21 17:02 - Implementing cloud sync fixes for DO wakeup, authoritative full sync, and remote blocker semantics.\n2026-03-21 17:11 - Implemented ProjectRoom rehydration requests, authoritative sync_full replacement, cloud request_sync handling, and blocker parity fixes. Verified with go test ./internal/tickboard/cloud ./internal/tickboard/server, pnpm exec vitest run test/project-room-sync.test.ts, and pnpm exec vitest run src/comms/cloud-unit.test.ts.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-21T16:02:29.566151Z",
+  "updated_at": "2026-03-21T16:11:00.410636Z",
+  "closed_at": "2026-03-21T16:11:00.410636Z",
+  "closed_reason": "Implemented and verified"
+}

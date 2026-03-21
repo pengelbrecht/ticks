@@ -1,9 +1,17 @@
 package cloud
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 func TestLoadConfig_NoToken(t *testing.T) {
@@ -40,7 +48,7 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	if cfg.BoardName != "myrepo" {
 		t.Errorf("expected board name 'myrepo', got '%s'", cfg.BoardName)
 	}
-// CloudURL should be empty (NewClient will use default)
+	// CloudURL should be empty (NewClient will use default)
 	if cfg.CloudURL != "" {
 		t.Errorf("expected empty cloud URL, got '%s'", cfg.CloudURL)
 	}
@@ -275,5 +283,92 @@ func TestClient_IsConnected(t *testing.T) {
 	// Not connected initially
 	if client.IsConnected() {
 		t.Error("expected IsConnected() to be false initially")
+	}
+}
+
+func TestHandleSyncMessageRaw_RequestSyncSendsAuthoritativeSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	now := time.Now().UTC().Round(time.Second)
+	task := tick.Tick{
+		ID:        "abc",
+		Title:     "Authoritative sync",
+		Status:    tick.StatusOpen,
+		Priority:  2,
+		Type:      tick.TypeTask,
+		Owner:     "peter",
+		CreatedBy: "peter",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	data, err := json.Marshal(task)
+	if err != nil {
+		t.Fatalf("marshal tick: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(issuesDir, task.ID+".json"), data, 0644); err != nil {
+		t.Fatalf("write tick: %v", err)
+	}
+
+	received := make(chan SyncFullMessage, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+		if err != nil {
+			t.Errorf("upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("read message: %v", err)
+			return
+		}
+
+		var msg SyncFullMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			t.Errorf("unmarshal sync_full: %v", err)
+			return
+		}
+		received <- msg
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + server.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	defer conn.Close()
+
+	client, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+		TickDir:   tickDir,
+	})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	client.conn = conn
+
+	client.handleSyncMessageRaw([]byte(`{"type":"request_sync"}`))
+
+	select {
+	case msg := <-received:
+		if msg.Type != "sync_full" {
+			t.Fatalf("expected sync_full, got %q", msg.Type)
+		}
+		if got, ok := msg.Ticks[task.ID]; !ok {
+			t.Fatalf("expected tick %q in sync payload", task.ID)
+		} else if got.Title != task.Title {
+			t.Fatalf("expected tick title %q, got %q", task.Title, got.Title)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync_full")
 	}
 }

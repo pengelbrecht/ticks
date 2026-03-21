@@ -153,6 +153,12 @@ interface TickDeletedMessage {
   id: string;
 }
 
+// Request a local client to resend its full authoritative snapshot.
+interface RequestSyncMessage {
+  type: "request_sync";
+  reason?: string;
+}
+
 interface ErrorMessage {
   type: "error";
   message: string;
@@ -169,6 +175,7 @@ type ServerMessage =
   | TickUpdatedMessage
   | TickCreatedMessage
   | TickDeletedMessage
+  | RequestSyncMessage
   | TickOperationRequest
   | LocalStatusMessage
   | RunEventMessage
@@ -187,12 +194,15 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+const SYNC_REQUEST_DEBOUNCE_MS = 1000;
+
 export class ProjectRoom extends DurableObject<Env> {
   private ticks: Map<string, Tick> = new Map();
   private connections: Map<string, Connection> = new Map();
   private projectId: string = "";
   private lastActivity: number = 0;
   private pendingRequests: Map<string, PendingRequest> = new Map();
+  private lastSyncRequestAt: number = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -230,6 +240,10 @@ export class ProjectRoom extends DurableObject<Env> {
         this.notifyAgentHub("register").catch((err) => {
           console.error(`[ProjectRoom:${this.projectId}] Failed to re-register with AgentHub:`, err);
         });
+
+        if (this.ticks.size === 0) {
+          this.requestFullSyncFromLocal("rehydrate-after-hibernation");
+        }
       }
 
       // Schedule cleanup alarm if we have stored data
@@ -343,13 +357,6 @@ export class ProjectRoom extends DurableObject<Env> {
         }
       }
 
-      // Send current state to new connection
-      const stateMsg: StateFullMessage = {
-        type: "state_full",
-        ticks: Object.fromEntries(this.ticks),
-      };
-      server.send(JSON.stringify(stateMsg));
-
       // For cloud clients, also send local client connection status
       if (connType === "cloud") {
         const statusMsg: LocalStatusMessage = {
@@ -362,6 +369,21 @@ export class ProjectRoom extends DurableObject<Env> {
       // For local clients, broadcast their connection to cloud clients
       if (connType === "local") {
         this.broadcastLocalStatus(true);
+      }
+
+      // If a cloud viewer connected while we have a local agent but no in-memory
+      // snapshot, ask the local agent to rehydrate before we serve state.
+      const waitingForHydration =
+        connType === "cloud" &&
+        this.ticks.size === 0 &&
+        this.hasLocalConnections();
+      if (waitingForHydration) {
+        const requested = this.requestFullSyncFromLocal("cloud-viewer-connected");
+        if (!requested) {
+          this.sendStateFull(server);
+        }
+      } else {
+        this.sendStateFull(server);
       }
 
       console.log(
@@ -535,16 +557,8 @@ export class ProjectRoom extends DurableObject<Env> {
   }
 
   private async handleFullSync(conn: Connection, incomingTicks: Record<string, Tick>) {
-    let hasChanges = false;
-
-    // Merge incoming ticks with existing (newer wins)
-    for (const [id, tick] of Object.entries(incomingTicks)) {
-      const existing = this.ticks.get(id);
-      if (!existing || this.isNewer(tick, existing)) {
-        this.ticks.set(id, tick);
-        hasChanges = true;
-      }
-    }
+    const hasChanges = this.authoritativeSyncChanged(incomingTicks);
+    this.ticks = new Map(Object.entries(incomingTicks));
 
     // Persist state if changed
     if (hasChanges) {
@@ -552,14 +566,12 @@ export class ProjectRoom extends DurableObject<Env> {
     }
 
     // Send merged state back to the source connection
-    const stateMsg: StateFullMessage = {
-      type: "state_full",
-      ticks: Object.fromEntries(this.ticks),
-    };
+    const stateMsg = this.currentStateMessage();
     conn.socket.send(JSON.stringify(stateMsg));
 
-    // Also broadcast full state to cloud clients (so they see ticks from local sync)
-    if (hasChanges && conn.type === "local") {
+    // Local sync is authoritative for the full board snapshot, so always fan it
+    // out to cloud viewers even when the contents are unchanged.
+    if (conn.type === "local") {
       this.broadcastToCloudClients(stateMsg);
     }
 
@@ -677,6 +689,36 @@ export class ProjectRoom extends DurableObject<Env> {
     // Only persist activity timestamp - ticks are ephemeral (re-synced from local client)
     // This avoids the 128KB DO storage limit
     await this.ctx.storage.put("lastActivity", this.lastActivity);
+  }
+
+  private currentStateMessage(): StateFullMessage {
+    return {
+      type: "state_full",
+      ticks: Object.fromEntries(this.ticks),
+    };
+  }
+
+  private sendStateFull(socket: WebSocket): void {
+    socket.send(JSON.stringify(this.currentStateMessage()));
+  }
+
+  private authoritativeSyncChanged(incomingTicks: Record<string, Tick>): boolean {
+    const incomingEntries = Object.entries(incomingTicks);
+    if (this.ticks.size !== incomingEntries.length) {
+      return true;
+    }
+
+    for (const [id, incoming] of incomingEntries) {
+      const existing = this.ticks.get(id);
+      if (!existing) {
+        return true;
+      }
+      if (existing.updated_at !== incoming.updated_at) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // Periodic alarm for keepalive, state persistence, and cleanup
@@ -896,6 +938,32 @@ export class ProjectRoom extends DurableObject<Env> {
       }
     }
     return best;
+  }
+
+  private requestFullSyncFromLocal(reason: string): boolean {
+    const localConn = this.getLocalConnection();
+    if (!localConn) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (now - this.lastSyncRequestAt < SYNC_REQUEST_DEBOUNCE_MS) {
+      return true;
+    }
+
+    const request: RequestSyncMessage = {
+      type: "request_sync",
+      reason,
+    };
+
+    try {
+      localConn.socket.send(JSON.stringify(request));
+      this.lastSyncRequestAt = now;
+      return true;
+    } catch (err) {
+      console.error(`[ProjectRoom:${this.projectId}] Failed to request sync from local client:`, err);
+      return false;
+    }
   }
 
   /**

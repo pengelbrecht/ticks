@@ -233,6 +233,8 @@ describe('CloudCommsClient Read Operations', () => {
         title: 'Tick missing-blocker',
         status: 'unknown',
       });
+      expect(tick.isBlocked).toBe(false);
+      expect(tick.column).toBe('ready');
     });
 
     it('computes isBlocked correctly when blockers are open', async () => {
