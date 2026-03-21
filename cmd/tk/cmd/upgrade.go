@@ -18,7 +18,7 @@ var upgradeCmd = &cobra.Command{
 		method := update.DetectInstallMethod()
 		if method == update.InstallHomebrew {
 			fmt.Println("\ntk was installed via Homebrew.")
-			fmt.Println("Run: brew upgrade ticks")
+			fmt.Println("Run: brew upgrade pengelbrecht/tap/ticks")
 			return
 		}
 

@@ -42,9 +42,13 @@ In `cloud/worker/wrangler.toml`, uncomment the routes section and update with yo
 
 ### 4. Deploy the Worker
 
+For routine releases, production deploys are handled by the tag-driven GitHub Actions workflow described in [`docs/releasing.md`](../docs/releasing.md).
+
+Use the command below for initial setup, manual recovery, or testing:
+
 ```bash
 cd cloud/worker
-npm run deploy
+pnpm deploy
 ```
 
 ### 5. Configure SSL/TLS

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build UI for both local embedding and CF Pages deployment
+# Build UI for both local embedding and Cloudflare deployment
 #
 # Outputs:
 #   - internal/tickboard/server/static/    → For go:embed in tk binary (vite outputs here)
-#   - internal/tickboard/ui/dist/          → For CF Pages deployment (copied)
+#   - internal/tickboard/ui/dist/          → For Cloudflare deployment (copied)
 
 set -e
 
@@ -31,12 +31,12 @@ echo "Building UI version $VERSION..."
 # Build (vite.config.ts outputs to ../server/static/)
 pnpm run build
 
-# Copy to dist/ for CF Pages deployment
-echo "Copying to $UI_DIR/dist/ for CF Pages..."
+# Copy to dist/ for Cloudflare deployment
+echo "Copying to $UI_DIR/dist/ for Cloudflare deployment..."
 rm -rf "$UI_DIR/dist"
 cp -r "$STATIC_DIR" "$UI_DIR/dist"
 
 echo ""
 echo "UI built successfully:"
 echo "  - $STATIC_DIR/    → go:embed in tk binary"
-echo "  - $UI_DIR/dist/   → CF Pages deployment"
+echo "  - $UI_DIR/dist/   → Cloudflare deployment"

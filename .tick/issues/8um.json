@@ -1,0 +1,14 @@
+{
+  "id": "8um",
+  "title": "Unify release workflow across CLI and cloud",
+  "notes": "2026-03-21 17:47 - Implemented tag-driven release workflow for cloud deploy, added release checklist doc, and aligned Homebrew upgrade messaging. Verified with go test, bash -n, YAML parse, and git diff --check.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-21T16:44:27.365137Z",
+  "updated_at": "2026-03-21T16:47:42.0868Z",
+  "closed_at": "2026-03-21T16:47:42.0868Z",
+  "closed_reason": "Implemented unified tag-driven release workflow and checklist"
+}

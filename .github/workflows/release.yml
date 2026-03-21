@@ -9,7 +9,36 @@ permissions:
   contents: write
 
 jobs:
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Build shared UI bundle
+        run: |
+          ./scripts/build-ui.sh
+
+      - name: Upload UI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tickboard-static
+          path: internal/tickboard/server/static/
+
   release:
+    needs: build-ui
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,21 +51,16 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Build UI bundle
+      - name: Prepare UI artifact directory
         run: |
-          cd internal/tickboard/ui
-          pnpm install
-          pnpm run build
+          rm -rf internal/tickboard/server/static
+          mkdir -p internal/tickboard/server/static
+
+      - name: Download UI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tickboard-static
+          path: internal/tickboard/server/static
 
       - name: Commit UI build artifacts
         run: |
@@ -61,6 +85,64 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/checksums.txt
+
+  deploy-cloud:
+    needs:
+      - build-ui
+      - release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref_name, '-') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Prepare UI artifact directory
+        run: |
+          rm -rf internal/tickboard/server/static
+          mkdir -p internal/tickboard/server/static
+
+      - name: Download UI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tickboard-static
+          path: internal/tickboard/server/static
+
+      - name: Check Cloudflare credentials
+        id: cloudflare-creds
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Cloudflare credentials are not configured; skipping worker deploy."
+          fi
+
+      - name: Install worker dependencies
+        if: steps.cloudflare-creds.outputs.configured == 'true'
+        working-directory: cloud/worker
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy cloud worker
+        if: steps.cloudflare-creds.outputs.configured == 'true'
+        working-directory: cloud/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
 
   update-homebrew:
     needs: release
