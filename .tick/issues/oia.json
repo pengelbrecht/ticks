@@ -1,0 +1,12 @@
+{
+  "id": "oia",
+  "title": "Update GitHub Actions release workflow dependencies for Node 24 compatibility",
+  "notes": "2026-03-21 20:57 - Release run 23387439182 emitted Node.js 20 deprecation warnings for actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4, actions/download-artifact@v4, actions/setup-go@v5, and goreleaser/goreleaser-action@v6. Update the workflow/actions for Node 24 compatibility before June 2, 2026.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-21T19:56:55.184394Z",
+  "updated_at": "2026-03-21T19:57:08.433143Z"
+}
