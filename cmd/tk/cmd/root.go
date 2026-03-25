@@ -313,14 +313,10 @@ func ResetFlags() {
 	// Reset run flags
 	runMaxIterations = 50
 	runMaxCost = 0
-	runCheckpointEvery = 5
 	runMaxTaskRetries = 3
 	runAuto = false
 	runJSONL = false
-	runSkipVerify = false
 	runVerifyOnly = false
-	runWorktree = false
-	runParallel = 1
 	runWatch = false
 	runTimeout = 30 * time.Minute
 	runPoll = 10 * time.Second
@@ -328,15 +324,9 @@ func ResetFlags() {
 	runIncludeStandalone = false
 	runIncludeOrphans = false
 	runAll = false
-
-	// Reset resume flags
-	resumeMaxIterations = 50
-	resumeMaxCost = 0
-	resumeSkipVerify = false
-	resumeJSONL = false
-
-	// Reset checkpoints flags
-	checkpointsJSON = false
+	runSkipWrapUp = false
+	runNoMerge = false
+	runPR = false
 
 	// Reset merge flags
 	mergeForce = false

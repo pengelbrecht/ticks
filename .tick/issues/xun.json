@@ -1,0 +1,20 @@
+{
+  "id": "xun",
+  "title": "Update tests for rearchitected tk run",
+  "description": "Update and add tests for the rearchitected tk run:\n\nRemove:\n- Pool-specific tests (worker claiming, stale recovery, mutex)\n- Swarm-specific tests (orchestration prompt, swarm runner)\n- Parallel runner tests (multi-epic, per-epic worktrees)\n- Checkpoint tests\n- Verify tests\n- Mode-specific engine tests\n\nUpdate:\n- Engine tests to use wave loop instead of ralph iteration loop\n- Worktree handoff tests to work with always-worktree model\n- Agent tests to only use WorkDir (no WorktreeName/RepoRoot)\n\nAdd:\n- Wave runner tests (parallel spawning, signal collection, cancellation)\n- Wrap-up phase tests (config parsing, report generation, merge/preserve)\n- Integration test: full three-phase run with mock agent\n- Resume test: existing worktree detected and reused",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "hct",
+    "akb"
+  ],
+  "parent": "757",
+  "acceptance_criteria": "All tests pass. No references to pool, swarm, parallel, checkpoint, or verify in test files. New tests cover wave execution, wrap-up, and resume.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-25T07:54:39.155097Z",
+  "updated_at": "2026-03-25T08:35:02.005636Z",
+  "closed_at": "2026-03-25T08:35:02.005636Z",
+  "closed_reason": "All tests updated and passing. Stale references removed."
+}

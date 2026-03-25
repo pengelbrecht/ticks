@@ -1,0 +1,16 @@
+{
+  "id": "c1k",
+  "title": "Revert --worktree flag in agent invocation",
+  "description": "Revert the native --worktree flag adoption from commit a86e376. Drop WorktreeName and RepoRoot from RunOpts. Remove supportsNativeWorktree() detection. Agent invocation should only use cmd.Dir = opts.WorkDir.\n\nKeep from a86e376:\n- Path convention: .claude/worktrees/tk-\u003cepic-id\u003e/\n- Branch convention: worktree-tk-\u003cepic-id\u003e\n- Name(), Branch(), Path() helpers\n- WorktreeNamePrefix (tk-) namespace isolation\n- isWorktreeContainerDir() for dirty-check filtering\n- Legacy .worktrees/ path in dirty-check filter\n\nFiles to modify:\n- internal/agent/agent.go: remove WorktreeName, RepoRoot from RunOpts\n- internal/agent/claude.go: remove supportsNativeWorktree(), simplify Run() to only use WorkDir\n- internal/agent/agent_test.go: remove native worktree test\n- internal/engine/engine.go: remove WorktreeName/RepoRoot usage, only set WorkDir",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "757",
+  "acceptance_criteria": "Agent invocation uses cmd.Dir = opts.WorkDir only. No --worktree flag passed to Claude CLI. WorktreeName and RepoRoot removed from RunOpts. All existing tests pass.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-25T07:53:20.114265Z",
+  "updated_at": "2026-03-25T07:58:39.334352Z",
+  "closed_at": "2026-03-25T07:58:39.334352Z",
+  "closed_reason": "Reverted native --worktree flag. Agent uses cmd.Dir = opts.WorkDir only."
+}

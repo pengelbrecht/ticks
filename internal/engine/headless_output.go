@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/pengelbrecht/ticks/internal/ticks"
-	"github.com/pengelbrecht/ticks/internal/verify"
 )
 
 // HeadlessOutput formats output for headless mode, optimized for LLM consumption.
@@ -164,42 +163,6 @@ func (h *HeadlessOutput) TaskComplete(taskID string, passed bool) {
 			status = "reopened (verification failed)"
 		}
 		fmt.Fprintf(h.writer, "%s[TASK_COMPLETE] %s - %s\n", h.prefix(), taskID, status)
-	}
-}
-
-// VerifyStart outputs the start of verification.
-func (h *HeadlessOutput) VerifyStart(taskID string) {
-	h.flushOutput()
-	if h.jsonl {
-		h.writeJSON(map[string]interface{}{
-			"type":    "verify_start",
-			"task_id": taskID,
-		})
-	} else {
-		fmt.Fprintf(h.writer, "%s[VERIFY] Running verification for %s...\n", h.prefix(), taskID)
-	}
-}
-
-// VerifyEnd outputs verification results.
-func (h *HeadlessOutput) VerifyEnd(taskID string, results *verify.Results) {
-	if results == nil {
-		return
-	}
-	h.flushOutput()
-	if h.jsonl {
-		h.writeJSON(map[string]interface{}{
-			"type":    "verify_end",
-			"task_id": taskID,
-			"passed":  results.AllPassed,
-			"summary": results.Summary(),
-		})
-	} else {
-		if results.AllPassed {
-			fmt.Fprintf(h.writer, "%s[VERIFY] %s - passed\n", h.prefix(), taskID)
-		} else {
-			fmt.Fprintf(h.writer, "%s[VERIFY] %s - failed\n", h.prefix(), taskID)
-			fmt.Fprintf(h.writer, "%s[VERIFY] %s\n", h.prefix(), results.Summary())
-		}
 	}
 }
 

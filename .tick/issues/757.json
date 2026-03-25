@@ -1,0 +1,12 @@
+{
+  "id": "757",
+  "title": "tk run rearchitecture",
+  "description": "Rearchitect tk run into a three-phase model (setup, implementation, wrap-up) with always-worktree, wave-based Go orchestration, and single-epic scope. See docs/projects/2026-03-25-tk-run-rearchitecture/SPEC.md for full specification.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-25T07:53:03.281508Z",
+  "updated_at": "2026-03-25T07:53:03.281508Z"
+}

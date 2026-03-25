@@ -348,6 +348,26 @@ func (c *Client) ListTasks(epicID string) ([]Task, error) {
 	return tasks, nil
 }
 
+// ListTickTasks returns raw tick.Tick pointers for all tasks under the given epic.
+// This is used by wave.Compute which needs the full tick.Tick struct for
+// dependency analysis (BlockedBy, Status, Awaiting, Priority, etc).
+func (c *Client) ListTickTasks(epicID string) ([]*tick.Tick, error) {
+	allTicks, err := c.store.List()
+	if err != nil {
+		return nil, err
+	}
+
+	var tasks []*tick.Tick
+	for _, t := range allTicks {
+		if t.Type != tick.TypeEpic && t.Parent == epicID {
+			t := t // capture loop variable
+			tasks = append(tasks, &t)
+		}
+	}
+
+	return tasks, nil
+}
+
 // ListAllTasks returns all tasks regardless of parent epic.
 func (c *Client) ListAllTasks() ([]Task, error) {
 	allTicks, err := c.store.List()
