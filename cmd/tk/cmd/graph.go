@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
+	"github.com/pengelbrecht/ticks/internal/wave"
 )
 
 var graphCmd = &cobra.Command{
@@ -46,12 +46,6 @@ func init() {
 	graphCmd.Flags().BoolVarP(&graphAll, "all", "a", false, "include closed tasks")
 	graphCmd.Flags().BoolVar(&graphJSON, "json", false, "output as JSON (agent-optimized)")
 	rootCmd.AddCommand(graphCmd)
-}
-
-// wave represents a group of tasks that can be executed in parallel.
-type wave struct {
-	level int
-	ticks []tick.Tick
 }
 
 // graphOutput is the JSON output structure for agents.
@@ -146,11 +140,10 @@ func runGraph(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Build dependency graph
-	// For each task, find which tasks in this epic block it
-	blockedBy := make(map[string][]string)   // task -> tasks that block it
-	blocks := make(map[string][]string)      // task -> tasks it blocks
-	inDegree := make(map[string]int)         // number of open blockers
+	// Build dependency display maps (for rendering blockedBy/blocks info).
+	blockedBy := make(map[string][]string) // task -> tasks that block it
+	blocks := make(map[string][]string)    // task -> tasks it blocks
+	inDegree := make(map[string]int)       // number of open blockers
 
 	taskSet := make(map[string]bool)
 	for _, t := range tasks {
@@ -160,7 +153,6 @@ func runGraph(cmd *cobra.Command, args []string) error {
 
 	for _, t := range tasks {
 		for _, blockerID := range t.BlockedBy {
-			// Only count blockers that are in this epic and not closed
 			if taskSet[blockerID] {
 				blocker, exists := tickMap[blockerID]
 				if exists && blocker.Status != tick.StatusClosed {
@@ -172,56 +164,65 @@ func runGraph(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Compute waves using Kahn's algorithm (topological sort by levels)
-	var waves []wave
-	remaining := make(map[string]bool)
-	for _, t := range tasks {
-		remaining[t.ID] = true
+	// Compute waves using the wave package (Kahn's algorithm).
+	// wave.Compute filters out closed and awaiting-human tasks, so we pass
+	// all tasks and let it handle eligibility. For --all mode we still want
+	// closed tasks visible in the graph; we'll merge them back below.
+	taskPtrs := make([]*tick.Tick, len(tasks))
+	for i := range tasks {
+		taskPtrs[i] = &tasks[i]
+	}
+	waveResult := wave.Compute(taskPtrs)
+
+	if len(waveResult.CycleIDs) > 0 {
+		fmt.Printf("\n%s Circular dependency detected among: %s\n",
+			styles.StatusBlockedStyle.Render("!"),
+			strings.Join(waveResult.CycleIDs, ", "))
 	}
 
-	waveNum := 1
-	for len(remaining) > 0 {
-		// Find all tasks with no remaining blockers
-		var ready []tick.Tick
+	// Convert wave.Wave to the local representation used for display.
+	// Also reinsert closed/awaiting tasks into the wave they would belong to
+	// (based on dependency depth) when --all is set.
+	type localWave struct {
+		level int
+		ticks []tick.Tick
+	}
+	var waves []localWave
+	placed := make(map[string]bool)
+	for _, w := range waveResult.Waves {
+		lw := localWave{level: w.Number}
+		for _, tp := range w.Tasks {
+			lw.ticks = append(lw.ticks, *tp)
+			placed[tp.ID] = true
+		}
+		waves = append(waves, lw)
+	}
+
+	// Place tasks excluded by wave.Compute (closed, awaiting) into the
+	// appropriate wave for display when --all is set.
+	if graphAll {
 		for _, t := range tasks {
-			if remaining[t.ID] && inDegree[t.ID] == 0 {
-				ready = append(ready, t)
+			if placed[t.ID] {
+				continue
 			}
-		}
-
-		if len(ready) == 0 {
-			// Cycle detected - remaining tasks have circular dependencies
-			var cycleIDs []string
-			for id := range remaining {
-				cycleIDs = append(cycleIDs, id)
-			}
-			sort.Strings(cycleIDs)
-			fmt.Printf("\n%s Circular dependency detected among: %s\n",
-				styles.StatusBlockedStyle.Render("!"),
-				strings.Join(cycleIDs, ", "))
-			break
-		}
-
-		// Sort by priority within wave
-		sort.Slice(ready, func(i, j int) bool {
-			if ready[i].Priority != ready[j].Priority {
-				return ready[i].Priority < ready[j].Priority
-			}
-			return ready[i].ID < ready[j].ID
-		})
-
-		waves = append(waves, wave{level: waveNum, ticks: ready})
-
-		// Remove ready tasks and update inDegree
-		for _, t := range ready {
-			delete(remaining, t.ID)
-			for _, dependentID := range blocks[t.ID] {
-				if remaining[dependentID] {
-					inDegree[dependentID]--
+			// Find which wave this task's deepest blocker is in, then +1.
+			bestWave := 1
+			for _, bID := range t.BlockedBy {
+				for wi, w := range waves {
+					for _, wt := range w.ticks {
+						if wt.ID == bID && wi+2 > bestWave {
+							bestWave = wi + 2
+						}
+					}
 				}
 			}
+			// Ensure we have enough waves.
+			for len(waves) < bestWave {
+				waves = append(waves, localWave{level: len(waves) + 1})
+			}
+			waves[bestWave-1].ticks = append(waves[bestWave-1].ticks, t)
+			placed[t.ID] = true
 		}
-		waveNum++
 	}
 
 	// Calculate stats

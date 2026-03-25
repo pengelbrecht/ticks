@@ -9,8 +9,8 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
-	"github.com/pengelbrecht/ticks/internal/checkpoint"
 	epiccontext "github.com/pengelbrecht/ticks/internal/context"
+	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/ticks"
 )
 
@@ -177,6 +177,19 @@ func (m *mockTicksClientForContext) GetRunRecord(taskID string) (*agent.RunRecor
 	return nil, nil
 }
 
+func (m *mockTicksClientForContext) ListTickTasks(epicID string) ([]*tick.Tick, error) {
+	var result []*tick.Tick
+	for _, t := range m.tasks {
+		result = append(result, &tick.Tick{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      t.Status,
+		})
+	}
+	return result, nil
+}
+
 // =============================================================================
 // Integration Tests for Engine Context Generation
 // =============================================================================
@@ -185,7 +198,7 @@ func TestEngine_ContextGeneration_ThreeTasks(t *testing.T) {
 	// Test: Epic with 3 tasks - context generated before first task
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "context")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	mockTicks := newMockTicksClientForContext()
 	mockTicks.epic = &ticks.Epic{
@@ -208,13 +221,13 @@ func TestEngine_ContextGeneration_ThreeTasks(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -262,7 +275,7 @@ func TestEngine_ContextGeneration_SingleTask(t *testing.T) {
 	// Test: Epic with 1 task - context generation skipped
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "context")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	mockTicks := newMockTicksClientForContext()
 	mockTicks.epic = &ticks.Epic{
@@ -283,13 +296,13 @@ func TestEngine_ContextGeneration_SingleTask(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -327,7 +340,7 @@ func TestEngine_ContextGeneration_AlreadyExists(t *testing.T) {
 	// Test: Context already exists - generation skipped
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "context")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	// Pre-create the context file
 	store := epiccontext.NewStoreWithDir(contextDir)
@@ -355,13 +368,13 @@ func TestEngine_ContextGeneration_AlreadyExists(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -393,9 +406,10 @@ func TestEngine_ContextGeneration_AlreadyExists(t *testing.T) {
 		t.Errorf("context was overwritten, got %q, want %q", content, existingContext)
 	}
 
-	// Agent should be called only once (for the task, not for context)
-	if mockAg.runCallCount != 1 {
-		t.Errorf("agent.Run() called %d times, want 1 (context should be skipped)", mockAg.runCallCount)
+	// Agent should be called for tasks in the wave (not for context generation).
+	// With 2 tasks in the same wave, the agent is called twice.
+	if mockAg.runCallCount != 2 {
+		t.Errorf("agent.Run() called %d times, want 2 (context should be skipped, 2 tasks in wave)", mockAg.runCallCount)
 	}
 }
 
@@ -403,7 +417,7 @@ func TestEngine_ContextGeneration_GeneratorFails(t *testing.T) {
 	// Test: Generation fails - run proceeds without context
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "context")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	mockTicks := newMockTicksClientForContext()
 	mockTicks.epic = &ticks.Epic{
@@ -430,13 +444,13 @@ func TestEngine_ContextGeneration_GeneratorFails(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      customAgent,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -501,7 +515,7 @@ func TestEngine_ContextInjectedIntoPrompt(t *testing.T) {
 	// Test: Context injected into prompt correctly
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "context")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	// Pre-create context that we expect to see in the prompt
 	store := epiccontext.NewStoreWithDir(contextDir)
@@ -531,13 +545,13 @@ func TestEngine_ContextInjectedIntoPrompt(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -574,7 +588,7 @@ func TestEngine_ContextOmittedWhenEmpty(t *testing.T) {
 	// Test: Context section omitted from prompt when no context exists
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "context")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	mockTicks := newMockTicksClientForContext()
 	mockTicks.epic = &ticks.Epic{
@@ -596,13 +610,13 @@ func TestEngine_ContextOmittedWhenEmpty(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -655,8 +669,6 @@ func (m *mockAgentCapture) Run(ctx context.Context, prompt string, opts agent.Ru
 
 func TestEngine_ContextComponentsNil(t *testing.T) {
 	// Test: Engine works fine when context components are not set
-	dir := t.TempDir()
-	checkpointDir := filepath.Join(dir, "checkpoints")
 
 	mockTicks := newMockTicksClientForContext()
 	mockTicks.epic = &ticks.Epic{
@@ -675,13 +687,13 @@ func TestEngine_ContextComponentsNil(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -699,9 +711,9 @@ func TestEngine_ContextComponentsNil(t *testing.T) {
 		t.Fatalf("Run() error = %v (should work without context components)", err)
 	}
 
-	// Agent should have been called for the task
-	if mockAg.runCallCount != 1 {
-		t.Errorf("agent.Run() called %d times, want 1", mockAg.runCallCount)
+	// Agent should have been called for both tasks in the wave
+	if mockAg.runCallCount != 2 {
+		t.Errorf("agent.Run() called %d times, want 2 (2 tasks in wave)", mockAg.runCallCount)
 	}
 }
 
@@ -743,7 +755,7 @@ func TestEngine_ContextFilePath(t *testing.T) {
 	// Test: Context file is created at the correct path
 	dir := t.TempDir()
 	contextDir := filepath.Join(dir, "custom-context-dir")
-	checkpointDir := filepath.Join(dir, "checkpoints")
+
 
 	mockTicks := newMockTicksClientForContext()
 	mockTicks.epic = &ticks.Epic{
@@ -764,13 +776,13 @@ func TestEngine_ContextFilePath(t *testing.T) {
 	}
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 1})
-	c := checkpoint.NewManagerWithDir(checkpointDir)
+
 
 	engine := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 

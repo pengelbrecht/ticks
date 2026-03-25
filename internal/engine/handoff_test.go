@@ -9,7 +9,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
-	"github.com/pengelbrecht/ticks/internal/checkpoint"
+	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/ticks"
 )
 
@@ -276,6 +276,32 @@ func (m *handoffMockTicksClient) GetRunRecord(taskID string) (*agent.RunRecord, 
 	return nil, nil
 }
 
+func (m *handoffMockTicksClient) ListTickTasks(epicID string) ([]*tick.Tick, error) {
+	var result []*tick.Tick
+	for _, t := range m.tasks {
+		status := m.taskStatus[t.ID]
+		if status == "" {
+			status = t.Status
+		}
+		if m.closedTasks[t.ID] {
+			status = "closed"
+		}
+		awaiting := m.awaitingState[t.ID]
+		var awaitPtr *string
+		if awaiting != "" {
+			awaitPtr = &awaiting
+		}
+		result = append(result, &tick.Tick{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      status,
+			Awaiting:    awaitPtr,
+		})
+	}
+	return result, nil
+}
+
 // SimulateHumanApproval simulates a human approving a task that is awaiting.
 func (m *handoffMockTicksClient) SimulateHumanApproval(taskID string) {
 	m.verdictState[taskID] = "approved"
@@ -345,11 +371,8 @@ func TestEngine_FullHandoffFlow_ApprovalNeeded(t *testing.T) {
 	agent := newHandoffMockAgent()
 	agent.queueResponse("Done! <promise>APPROVAL_NEEDED: security change</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agent, mock, b, c)
+	engine := NewEngine(agent, mock, b)
 
 	// Act: Run engine
 	ctx := context.Background()
@@ -387,11 +410,8 @@ func TestEngine_FullHandoffFlow_RejectionLoop(t *testing.T) {
 	agentMock := newHandoffMockAgent()
 	agentMock.queueResponse("Done! <promise>CONTENT_REVIEW: error messages</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agentMock, mock, b, c)
+	engine := NewEngine(agentMock, mock, b)
 
 	// First run: hands off to human
 	ctx := context.Background()
@@ -454,11 +474,8 @@ func TestEngine_FullHandoffFlow_HumanFeedbackPassedToAgent(t *testing.T) {
 	agentMock := newHandoffMockAgent()
 	agentMock.queueResponse("Documentation updated! <promise>COMPLETE</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agentMock, mock, b, c)
+	engine := NewEngine(agentMock, mock, b)
 
 	// Run engine
 	ctx := context.Background()
@@ -495,11 +512,8 @@ func TestEngine_FullHandoffFlow_MultipleHandoffs(t *testing.T) {
 	// Third: after approval, completes
 	agentMock.queueResponse("All done! <promise>COMPLETE</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 20})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agentMock, mock, b, c)
+	engine := NewEngine(agentMock, mock, b)
 	ctx := context.Background()
 
 	// First run: agent asks for input
@@ -551,11 +565,8 @@ func TestEngine_FullHandoffFlow_RequiresField(t *testing.T) {
 	// Agent signals COMPLETE (but task has requires=approval)
 	agentMock.queueResponse("Work done! <promise>COMPLETE</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agentMock, mock, b, c)
+	engine := NewEngine(agentMock, mock, b)
 	ctx := context.Background()
 
 	// Run engine
@@ -620,11 +631,8 @@ func TestEngine_FullHandoffFlow_RequiresFieldRejectionCycle(t *testing.T) {
 	task := mock.addTaskWithRequires("task1", "Work needing review", "review")
 
 	// Manually call handleSignal to simulate COMPLETE with requires
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(nil, mock, b, c)
+	engine := NewEngine(nil, mock, b)
 
 	// Step 1: Agent completes, but task requires review
 	err := engine.handleSignal(task, SignalComplete, "")
@@ -682,11 +690,8 @@ func TestEngine_FullHandoffFlow_EjectSignal(t *testing.T) {
 	agentMock := newHandoffMockAgent()
 	agentMock.queueResponse("Can't do this. <promise>EJECT: Need to install 10GB SDK</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agentMock, mock, b, c)
+	engine := NewEngine(agentMock, mock, b)
 	ctx := context.Background()
 
 	_, err := engine.Run(ctx, RunConfig{EpicID: "epic1"})
@@ -726,11 +731,8 @@ func TestEngine_FullHandoffFlow_CheckpointNeverCloses(t *testing.T) {
 	agentMock.queueResponse("Phase 1 done. <promise>CHECKPOINT: Database migration complete</promise>")
 	agentMock.queueResponse("Phase 2 done. <promise>COMPLETE</promise>")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(agentMock, mock, b, c)
+	engine := NewEngine(agentMock, mock, b)
 	ctx := context.Background()
 
 	// First run: checkpoint
@@ -768,11 +770,8 @@ func TestEngine_FullHandoffFlow_EscalationApproved(t *testing.T) {
 	mock.addTask("task1", "Security work")
 
 	// Manually call handleSignal to test escalation
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(nil, mock, b, c)
+	engine := NewEngine(nil, mock, b)
 
 	task := &ticks.Task{ID: "task1"}
 	err := engine.handleSignal(task, SignalEscalate, "Found potential security issue")
@@ -799,11 +798,8 @@ func TestEngine_FullHandoffFlow_EscalationRejected(t *testing.T) {
 	mock.setEpic("epic1", "Test Epic")
 	mock.addTask("task1", "Security work")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(nil, mock, b, c)
+	engine := NewEngine(nil, mock, b)
 
 	task := &ticks.Task{ID: "task1"}
 	err := engine.handleSignal(task, SignalEscalate, "Found potential security issue")
@@ -826,11 +822,8 @@ func TestEngine_FullHandoffFlow_InputRejected(t *testing.T) {
 	mock.setEpic("epic1", "Test Epic")
 	mock.addTask("task1", "Need clarification")
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := NewEngine(nil, mock, b, c)
+	engine := NewEngine(nil, mock, b)
 
 	task := &ticks.Task{ID: "task1"}
 	err := engine.handleSignal(task, SignalInputNeeded, "What color scheme?")
@@ -873,11 +866,9 @@ func TestEngine_FullHandoffFlow_AllSignalTypes(t *testing.T) {
 			mock.setEpic("epic1", "Test")
 			mock.addTask("task1", "Test task")
 
-			dir := t.TempDir()
 			b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-			c := checkpoint.NewManagerWithDir(dir)
 
-			engine := NewEngine(nil, mock, b, c)
+			engine := NewEngine(nil, mock, b)
 
 			task := &ticks.Task{ID: "task1"}
 			err := engine.handleSignal(task, tt.signal, "test context")

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/ticks"
-	"github.com/pengelbrecht/ticks/internal/verify"
 )
 
 func TestHeadlessOutput_Start(t *testing.T) {
@@ -376,54 +375,6 @@ func TestHeadlessOutput_TaskComplete(t *testing.T) {
 		output := buf.String()
 		if !strings.Contains(output, "reopened") {
 			t.Error("expected 'reopened' for failed verification")
-		}
-	})
-}
-
-func TestHeadlessOutput_Verify(t *testing.T) {
-	t.Run("verify start", func(t *testing.T) {
-		var buf bytes.Buffer
-		out := NewHeadlessOutput(false, "")
-		out.SetWriter(&buf)
-
-		out.VerifyStart("task1")
-
-		output := buf.String()
-		if !strings.Contains(output, "[VERIFY]") {
-			t.Error("expected [VERIFY] prefix")
-		}
-	})
-
-	t.Run("verify end passed", func(t *testing.T) {
-		var buf bytes.Buffer
-		out := NewHeadlessOutput(false, "")
-		out.SetWriter(&buf)
-
-		results := &verify.Results{AllPassed: true}
-		out.VerifyEnd("task1", results)
-
-		output := buf.String()
-		if !strings.Contains(output, "passed") {
-			t.Error("expected 'passed' in output")
-		}
-	})
-
-	t.Run("verify end failed", func(t *testing.T) {
-		var buf bytes.Buffer
-		out := NewHeadlessOutput(false, "")
-		out.SetWriter(&buf)
-
-		results := &verify.Results{
-			AllPassed: false,
-			Results: []*verify.Result{
-				{Verifier: "git", Passed: false, Output: "uncommitted changes"},
-			},
-		}
-		out.VerifyEnd("task1", results)
-
-		output := buf.String()
-		if !strings.Contains(output, "failed") {
-			t.Error("expected 'failed' in output")
 		}
 	})
 }

@@ -1,0 +1,16 @@
+{
+  "id": "o58",
+  "title": "Extract wave computation into reusable package",
+  "description": "Extract the wave computation logic from tk graph (cmd/tk/cmd/graph.go) and computeMaxWaveWidth (cmd/tk/cmd/run.go) into a new internal/wave/ package.\n\nThe package should expose:\n- Wave struct: { Number int, Tasks []tick.Tick }\n- ComputeWaves(epicID string, tasks []tick.Tick) []Wave\n- Uses Kahn's algorithm on BlockedBy relationships\n- Filters to open, non-awaiting tasks only\n- Returns waves in execution order\n\nThis is the same algorithm already in graph.go lines 175-225 and run.go lines 1171-1250, just extracted into a shared package that both tk graph and the new engine can use.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "757",
+  "acceptance_criteria": "internal/wave/ package exists with ComputeWaves(). tk graph uses it. Unit tests cover: linear deps, parallel tasks, diamond deps, cycles, mixed awaiting/open tasks.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-25T07:53:29.426408Z",
+  "updated_at": "2026-03-25T08:00:28.528654Z",
+  "closed_at": "2026-03-25T08:00:28.528654Z",
+  "closed_reason": "Extracted wave computation to internal/wave/ package with tests."
+}

@@ -9,9 +9,8 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
-	"github.com/pengelbrecht/ticks/internal/checkpoint"
+	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/ticks"
-	"github.com/pengelbrecht/ticks/internal/verify"
 )
 
 // mockAgent implements agent.Agent for testing.
@@ -319,14 +318,30 @@ func (m *mockTicksClient) GetRunRecord(taskID string) (*agent.RunRecord, error) 
 	return nil, nil
 }
 
+func (m *mockTicksClient) ListTickTasks(epicID string) ([]*tick.Tick, error) {
+	var result []*tick.Tick
+	for _, t := range m.tasks {
+		status := t.Status
+		if m.closedTasks[t.ID] {
+			status = "closed"
+		}
+		result = append(result, &tick.Tick{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      status,
+		})
+	}
+	return result, nil
+}
+
 func TestNewEngine(t *testing.T) {
 	a := &mockAgent{name: "test", available: true}
 	tmpDir := t.TempDir()
 	tc := ticks.NewClient(tmpDir)
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManager()
 
-	e := NewEngine(a, tc, b, c)
+	e := NewEngine(a, tc, b)
 
 	if e == nil {
 		t.Fatal("NewEngine returned nil")
@@ -356,16 +371,15 @@ func TestEngine_Run_NoTasks(t *testing.T) {
 
 	mockAg := &mockAgent{name: "test", available: true}
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 
 	// Create engine with mock ticks
 	e := &Engine{
 		agent:      mockAg,
 		ticks:      mockTicks, // Use the mock client
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -379,9 +393,8 @@ func TestEngine_Run_SingleTask_Complete(t *testing.T) {
 	// This test verifies the basic flow with mocked components
 	// In a real scenario, we'd use interfaces for all dependencies
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 
 	mockAg := &mockAgent{
 		name:      "test",
@@ -399,7 +412,7 @@ func TestEngine_Run_SingleTask_Complete(t *testing.T) {
 	e := &Engine{
 		agent:      mockAg,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 	}
 
@@ -505,9 +518,8 @@ func TestRunState_ToResult(t *testing.T) {
 }
 
 func TestEngine_Callbacks(t *testing.T) {
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 	mockAg := &mockAgent{name: "test", available: true}
 
 	iterStartCalled := false
@@ -518,7 +530,7 @@ func TestEngine_Callbacks(t *testing.T) {
 	e := &Engine{
 		agent:      mockAg,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 		OnIterationStart: func(ctx IterationContext) {
 			iterStartCalled = true
@@ -574,9 +586,6 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	if DefaultMaxCost != 0 {
 		t.Errorf("DefaultMaxCost = %v, want 0 (disabled)", DefaultMaxCost)
-	}
-	if DefaultCheckpointEvery != 5 {
-		t.Errorf("DefaultCheckpointEvery = %d, want 5", DefaultCheckpointEvery)
 	}
 	if DefaultAgentTimeout != 30*time.Minute {
 		t.Errorf("DefaultAgentTimeout = %v, want 30m", DefaultAgentTimeout)
@@ -680,232 +689,14 @@ func TestIterationResult_IsTimeout(t *testing.T) {
 	}
 }
 
-func TestEnableVerification(t *testing.T) {
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-	mockAg := &mockAgent{name: "test", available: true}
-
-	e := &Engine{
-		agent:      mockAg,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-	}
-
-	// Initially disabled
-	if e.verifyEnabled {
-		t.Error("verifyEnabled should be false initially")
-	}
-
-	// Enable verification
-	e.EnableVerification()
-
-	if !e.verifyEnabled {
-		t.Error("verifyEnabled should be true after EnableVerification()")
-	}
-}
-
-func TestEngine_VerificationCallbacks(t *testing.T) {
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-	mockAg := &mockAgent{name: "test", available: true}
-
-	verifyStartCalled := false
-	verifyEndCalled := false
-	var verifyStartTaskID string
-	var verifyEndTaskID string
-	var verifyEndResults *verify.Results
-
-	e := &Engine{
-		agent:      mockAg,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-		OnVerificationStart: func(taskID string) {
-			verifyStartCalled = true
-			verifyStartTaskID = taskID
-		},
-		OnVerificationEnd: func(taskID string, results *verify.Results) {
-			verifyEndCalled = true
-			verifyEndTaskID = taskID
-			verifyEndResults = results
-		},
-	}
-
-	// Verify callbacks are set
-	if e.OnVerificationStart == nil {
-		t.Error("OnVerificationStart not set")
-	}
-	if e.OnVerificationEnd == nil {
-		t.Error("OnVerificationEnd not set")
-	}
-
-	// Call the callbacks directly to verify they work
-	e.OnVerificationStart("task-123")
-	testResults := verify.NewResults([]*verify.Result{
-		{Verifier: "test", Passed: true},
-	})
-	e.OnVerificationEnd("task-123", testResults)
-
-	if !verifyStartCalled {
-		t.Error("OnVerificationStart was not called")
-	}
-	if verifyStartTaskID != "task-123" {
-		t.Errorf("OnVerificationStart taskID = %q, want %q", verifyStartTaskID, "task-123")
-	}
-	if !verifyEndCalled {
-		t.Error("OnVerificationEnd was not called")
-	}
-	if verifyEndTaskID != "task-123" {
-		t.Errorf("OnVerificationEnd taskID = %q, want %q", verifyEndTaskID, "task-123")
-	}
-	if verifyEndResults == nil {
-		t.Error("OnVerificationEnd results should not be nil")
-	}
-}
-
-func TestBuildVerificationFailureNote(t *testing.T) {
-	tests := []struct {
-		name         string
-		iteration    int
-		taskID       string
-		results      *verify.Results
-		wantContains []string
-	}{
-		{
-			name:      "single verifier failure",
-			iteration: 3,
-			taskID:    "abc123",
-			results: verify.NewResults([]*verify.Result{
-				{
-					Verifier: "git",
-					Passed:   false,
-					Output:   "M  file1.go\nM  file2.go",
-				},
-			}),
-			wantContains: []string{
-				"Iteration 3",
-				"task abc123",
-				"[git]",
-				"file1.go",
-				"file2.go",
-				"Please fix and close the task again",
-			},
-		},
-		{
-			name:      "multiple verifier failures",
-			iteration: 5,
-			taskID:    "def456",
-			results: verify.NewResults([]*verify.Result{
-				{
-					Verifier: "git",
-					Passed:   false,
-					Output:   "M  modified.go",
-				},
-				{
-					Verifier: "test",
-					Passed:   false,
-					Output:   "FAIL: TestSomething",
-				},
-			}),
-			wantContains: []string{
-				"Iteration 5",
-				"task def456",
-				"[git]",
-				"modified.go",
-				"[test]",
-				"FAIL",
-			},
-		},
-		{
-			name:      "long output truncated",
-			iteration: 1,
-			taskID:    "xyz789",
-			results: verify.NewResults([]*verify.Result{
-				{
-					Verifier: "git",
-					Passed:   false,
-					Output:   strings.Repeat("M  file.go\n", 100), // Very long output
-				},
-			}),
-			wantContains: []string{
-				"Iteration 1",
-				"task xyz789",
-				"[git]",
-				"...", // truncation indicator
-			},
-		},
-		{
-			name:      "no output",
-			iteration: 2,
-			taskID:    "task1",
-			results: verify.NewResults([]*verify.Result{
-				{
-					Verifier: "git",
-					Passed:   false,
-					Output:   "",
-				},
-			}),
-			wantContains: []string{
-				"Iteration 2",
-				"task task1",
-				"[git]",
-				"Please fix",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			note := buildVerificationFailureNote(tt.iteration, tt.taskID, tt.results)
-			for _, want := range tt.wantContains {
-				if !strings.Contains(note, want) {
-					t.Errorf("buildVerificationFailureNote() = %q, want to contain %q", note, want)
-				}
-			}
-		})
-	}
-}
-
-func TestRunConfig_SkipVerify(t *testing.T) {
-	// Test that SkipVerify field exists and defaults to false
+func TestRunConfig_WorkDir(t *testing.T) {
 	config := RunConfig{
-		EpicID: "test-epic",
+		EpicID:  "test-epic",
+		WorkDir: "/some/path",
 	}
 
-	if config.SkipVerify {
-		t.Error("SkipVerify should default to false")
-	}
-
-	// Test that it can be set to true
-	config.SkipVerify = true
-	if !config.SkipVerify {
-		t.Error("SkipVerify should be true after being set")
-	}
-}
-
-func TestRunConfig_UseWorktree(t *testing.T) {
-	// Test that UseWorktree field exists and defaults to false
-	config := RunConfig{
-		EpicID: "test-epic",
-	}
-
-	if config.UseWorktree {
-		t.Error("UseWorktree should default to false")
-	}
-
-	// Test that it can be set to true
-	config.UseWorktree = true
-	if !config.UseWorktree {
-		t.Error("UseWorktree should be true after being set")
-	}
-
-	// Test RepoRoot can be set
-	config.RepoRoot = "/some/path"
-	if config.RepoRoot != "/some/path" {
-		t.Errorf("RepoRoot = %q, want %q", config.RepoRoot, "/some/path")
+	if config.WorkDir != "/some/path" {
+		t.Errorf("WorkDir = %q, want %q", config.WorkDir, "/some/path")
 	}
 }
 
@@ -1675,7 +1466,7 @@ func TestEngine_HandleSignal(t *testing.T) {
 			mock := newMockTicksClient()
 
 			// Create engine with mock client
-			engine := NewEngine(nil, mock, nil, nil)
+			engine := NewEngine(nil, mock, nil)
 
 			// Build task with optional Requires field
 			task := &ticks.Task{ID: "test-task"}
@@ -1727,7 +1518,7 @@ func TestEngine_HandleSignal_ContextPassedToSetAwaiting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := newMockTicksClient()
-			engine := NewEngine(nil, mock, nil, nil)
+			engine := NewEngine(nil, mock, nil)
 			task := &ticks.Task{ID: "ctx-task"}
 
 			err := engine.handleSignal(task, tt.signal, tt.context)
@@ -1767,7 +1558,7 @@ func TestEngine_HandleSignal_CompleteWithRequiresUsesCorrectNote(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.requires, func(t *testing.T) {
 			mock := newMockTicksClient()
-			engine := NewEngine(nil, mock, nil, nil)
+			engine := NewEngine(nil, mock, nil)
 
 			requires := tt.requires
 			task := &ticks.Task{ID: "gate-task", Requires: &requires}
@@ -1799,7 +1590,7 @@ func TestEngine_HandleSignal_AllSignalToAwaitingMappings(t *testing.T) {
 	for signal, expectedAwaiting := range signalToAwaiting {
 		t.Run(signal.String(), func(t *testing.T) {
 			mock := newMockTicksClient()
-			engine := NewEngine(nil, mock, nil, nil)
+			engine := NewEngine(nil, mock, nil)
 			task := &ticks.Task{ID: "map-test"}
 
 			err := engine.handleSignal(task, signal, "test context")
@@ -1824,7 +1615,7 @@ func TestEngine_HandleSignal_AllSignalToAwaitingMappings(t *testing.T) {
 // are gracefully ignored (return nil, no state changes).
 func TestEngine_HandleSignal_UnknownSignalIsNoOp(t *testing.T) {
 	mock := newMockTicksClient()
-	engine := NewEngine(nil, mock, nil, nil)
+	engine := NewEngine(nil, mock, nil)
 	task := &ticks.Task{ID: "unknown-test"}
 
 	// Signal(999) is an unknown signal value
@@ -1907,9 +1698,8 @@ func TestRunConfig_WatchDefaults(t *testing.T) {
 }
 
 func TestEngine_OnIdleCallback(t *testing.T) {
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 	mockAg := &mockAgent{name: "test", available: true}
 
 	idleCalled := false
@@ -1918,7 +1708,7 @@ func TestEngine_OnIdleCallback(t *testing.T) {
 	e := &Engine{
 		agent:      mockAg,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 		OnIdle: func() {
 			idleCalled = true
@@ -2003,15 +1793,14 @@ func TestHandleWatchIdle_CallsOnIdle(t *testing.T) {
 	mock.tasksAvailable = []bool{false, true}
 	mock.hasOpenReturns = []bool{true, true}
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 
 	idleCallCount := 0
 	engine := &Engine{
 		ticks:      mock,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 		OnIdle: func() {
 			idleCallCount++
@@ -2049,14 +1838,13 @@ func TestHandleWatchIdle_WatchTimeout(t *testing.T) {
 	mock.tasksAvailable = []bool{false, false, false, false, false}
 	mock.hasOpenReturns = []bool{true, true, true, true, true}
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 
 	engine := &Engine{
 		ticks:      mock,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 		OnIdle:     func() {},
 	}
@@ -2092,14 +1880,13 @@ func TestHandleWatchIdle_ContextCancelled(t *testing.T) {
 	mock.tasksAvailable = []bool{false, false, false, false, false}
 	mock.hasOpenReturns = []bool{true, true, true, true, true}
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 
 	engine := &Engine{
 		ticks:      mock,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 		OnIdle:     func() {},
 	}
@@ -2140,14 +1927,13 @@ func TestHandleWatchIdle_EpicCompletes(t *testing.T) {
 	mock.tasksAvailable = []bool{false, false}
 	mock.hasOpenReturns = []bool{true, false} // Second call: no open tasks
 
-	dir := t.TempDir()
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
+
 
 	engine := &Engine{
 		ticks:      mock,
 		budget:     b,
-		checkpoint: c,
+
 		prompt:     NewPromptBuilder(),
 		OnIdle:     func() {},
 	}
@@ -2178,289 +1964,3 @@ func TestHandleWatchIdle_EpicCompletes(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Debounce Tests
-// =============================================================================
-
-func TestRunConfig_DebounceInterval(t *testing.T) {
-	// Test that DebounceInterval field exists and defaults to zero
-	config := RunConfig{
-		EpicID: "test-epic",
-	}
-
-	if config.DebounceInterval != 0 {
-		t.Errorf("DebounceInterval should default to 0, got %v", config.DebounceInterval)
-	}
-
-	// Test that it can be set
-	config.DebounceInterval = 2 * time.Second
-	if config.DebounceInterval != 2*time.Second {
-		t.Errorf("DebounceInterval = %v, want 2s", config.DebounceInterval)
-	}
-}
-
-// mockTicksClientForDebounce tracks GetTask calls for debounce testing.
-type mockTicksClientForDebounce struct {
-	*mockTicksClient
-	getTaskCalls []string               // track taskIDs passed to GetTask
-	taskUpdates  map[string]*ticks.Task // taskID -> updated task (simulates edits during debounce)
-}
-
-func newMockTicksClientForDebounce() *mockTicksClientForDebounce {
-	return &mockTicksClientForDebounce{
-		mockTicksClient: newMockTicksClient(),
-		getTaskCalls:    []string{},
-		taskUpdates:     make(map[string]*ticks.Task),
-	}
-}
-
-func (m *mockTicksClientForDebounce) GetTask(taskID string) (*ticks.Task, error) {
-	m.getTaskCalls = append(m.getTaskCalls, taskID)
-
-	// If there's an updated version of this task, return it
-	if updated, ok := m.taskUpdates[taskID]; ok {
-		return updated, nil
-	}
-
-	// Fall back to base implementation
-	return m.mockTicksClient.GetTask(taskID)
-}
-
-func TestGetNextTaskWithDebounce_NoDebounce(t *testing.T) {
-	// When DebounceInterval is 0, should return task immediately without re-fetch
-	mock := newMockTicksClientForDebounce()
-	mock.tasks = []*ticks.Task{
-		{ID: "task-1", Title: "Test Task"},
-	}
-	mock.epic = &ticks.Epic{ID: "test-epic", Title: "Test Epic", Type: "epic"}
-
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-	}
-
-	config := RunConfig{
-		EpicID:           "test-epic",
-		DebounceInterval: 0, // No debounce
-	}
-
-	ctx := context.Background()
-	task, err := engine.getNextTaskWithDebounce(ctx, config)
-
-	if err != nil {
-		t.Fatalf("getNextTaskWithDebounce returned error: %v", err)
-	}
-	if task == nil {
-		t.Fatal("expected task, got nil")
-	}
-	if task.ID != "task-1" {
-		t.Errorf("task.ID = %q, want %q", task.ID, "task-1")
-	}
-
-	// Should NOT have called GetTask (no re-fetch without debounce)
-	if len(mock.getTaskCalls) != 0 {
-		t.Errorf("GetTask called %d times, want 0 (no debounce)", len(mock.getTaskCalls))
-	}
-}
-
-func TestGetNextTaskWithDebounce_WithDebounce(t *testing.T) {
-	// When DebounceInterval is set, should wait and then re-fetch task
-	mock := newMockTicksClientForDebounce()
-	mock.tasks = []*ticks.Task{
-		{ID: "task-1", Title: "Original Title"},
-	}
-	mock.epic = &ticks.Epic{ID: "test-epic", Title: "Test Epic", Type: "epic"}
-
-	// Simulate human updating the task during debounce
-	mock.taskUpdates["task-1"] = &ticks.Task{
-		ID:    "task-1",
-		Title: "Updated Title After Debounce",
-	}
-
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-	}
-
-	config := RunConfig{
-		EpicID:           "test-epic",
-		DebounceInterval: 10 * time.Millisecond, // Short for testing
-	}
-
-	ctx := context.Background()
-	start := time.Now()
-	task, err := engine.getNextTaskWithDebounce(ctx, config)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("getNextTaskWithDebounce returned error: %v", err)
-	}
-	if task == nil {
-		t.Fatal("expected task, got nil")
-	}
-
-	// Should have waited approximately the debounce interval
-	if elapsed < config.DebounceInterval {
-		t.Errorf("elapsed time %v < debounce interval %v", elapsed, config.DebounceInterval)
-	}
-
-	// Should have called GetTask to re-fetch the task
-	if len(mock.getTaskCalls) != 1 {
-		t.Errorf("GetTask called %d times, want 1", len(mock.getTaskCalls))
-	}
-	if mock.getTaskCalls[0] != "task-1" {
-		t.Errorf("GetTask called with %q, want %q", mock.getTaskCalls[0], "task-1")
-	}
-
-	// Should have the updated task data
-	if task.Title != "Updated Title After Debounce" {
-		t.Errorf("task.Title = %q, want %q (updated version)", task.Title, "Updated Title After Debounce")
-	}
-}
-
-func TestGetNextTaskWithDebounce_NoTask(t *testing.T) {
-	// When NextTask returns nil, should return nil immediately (no debounce)
-	mock := newMockTicksClientForDebounce()
-	mock.tasks = []*ticks.Task{} // No tasks
-	mock.epic = &ticks.Epic{ID: "test-epic", Title: "Test Epic", Type: "epic"}
-
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-	}
-
-	config := RunConfig{
-		EpicID:           "test-epic",
-		DebounceInterval: time.Second, // Would be long if debounce happened
-	}
-
-	ctx := context.Background()
-	start := time.Now()
-	task, err := engine.getNextTaskWithDebounce(ctx, config)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("getNextTaskWithDebounce returned error: %v", err)
-	}
-	if task != nil {
-		t.Errorf("expected nil task, got %+v", task)
-	}
-
-	// Should return immediately, not wait for debounce
-	if elapsed >= config.DebounceInterval {
-		t.Errorf("elapsed time %v >= debounce interval (should be immediate for nil task)", elapsed)
-	}
-
-	// Should NOT have called GetTask
-	if len(mock.getTaskCalls) != 0 {
-		t.Errorf("GetTask called %d times, want 0", len(mock.getTaskCalls))
-	}
-}
-
-func TestGetNextTaskWithDebounce_ContextCancelled(t *testing.T) {
-	// When context is cancelled during debounce wait, should return error
-	mock := newMockTicksClientForDebounce()
-	mock.tasks = []*ticks.Task{
-		{ID: "task-1", Title: "Test Task"},
-	}
-	mock.epic = &ticks.Epic{ID: "test-epic", Title: "Test Epic", Type: "epic"}
-
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-	}
-
-	config := RunConfig{
-		EpicID:           "test-epic",
-		DebounceInterval: time.Second, // Long debounce
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Cancel context after a short delay
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
-	}()
-
-	task, err := engine.getNextTaskWithDebounce(ctx, config)
-
-	if err == nil {
-		t.Error("expected error when context cancelled")
-	}
-	if task != nil {
-		t.Errorf("expected nil task on cancellation, got %+v", task)
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("error = %v, want context.Canceled", err)
-	}
-
-	// Should NOT have called GetTask (cancelled before debounce completed)
-	if len(mock.getTaskCalls) != 0 {
-		t.Errorf("GetTask called %d times, want 0 (cancelled before re-fetch)", len(mock.getTaskCalls))
-	}
-}
-
-func TestGetNextTaskWithDebounce_NegativeDebounce(t *testing.T) {
-	// Negative DebounceInterval should be treated as no debounce
-	mock := newMockTicksClientForDebounce()
-	mock.tasks = []*ticks.Task{
-		{ID: "task-1", Title: "Test Task"},
-	}
-	mock.epic = &ticks.Epic{ID: "test-epic", Title: "Test Epic", Type: "epic"}
-
-	dir := t.TempDir()
-	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
-	c := checkpoint.NewManagerWithDir(dir)
-
-	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-		checkpoint: c,
-		prompt:     NewPromptBuilder(),
-	}
-
-	config := RunConfig{
-		EpicID:           "test-epic",
-		DebounceInterval: -1 * time.Second, // Negative
-	}
-
-	ctx := context.Background()
-	task, err := engine.getNextTaskWithDebounce(ctx, config)
-
-	if err != nil {
-		t.Fatalf("getNextTaskWithDebounce returned error: %v", err)
-	}
-	if task == nil {
-		t.Fatal("expected task, got nil")
-	}
-
-	// Should NOT have called GetTask (negative treated as no debounce)
-	if len(mock.getTaskCalls) != 0 {
-		t.Errorf("GetTask called %d times, want 0 (negative debounce = no debounce)", len(mock.getTaskCalls))
-	}
-}

@@ -1,0 +1,19 @@
+{
+  "id": "aga",
+  "title": "Always-worktree in run.go and remove mode flags",
+  "description": "Simplify cmd/tk/cmd/run.go to always create a worktree and remove all mode flags.\n\nChanges:\n- Remove flags: --worktree, --pool, --ralph, --swarm, --parallel, --checkpoint-interval, --skip-dep-analysis, --stale-timeout\n- Add flags: --skip-wrap-up, --no-merge, --pr\n- Remove runWorktree, runParallel, runSwarmMode, runRalphMode, runPoolMode variables\n- Remove all mode dispatch logic (if swarm / else if pool / else ralph)\n- Remove multi-epic sequential loop (only accept one epic-id argument)\n- Remove runParallelEpics, runParallelEpicsWithPool, runEpicWithPool functions\n- Remove resolvePoolSize, computeMaxWaveWidth (moved to wave package)\n\nNew flow:\n1. Parse single epic-id (or --auto)\n2. Create worktree (or reuse existing)\n3. Run engine (wave loop)\n4. Run wrap-up phase (unless --skip-wrap-up)\n5. Merge or preserve worktree\n\nUpdate command help text and usage examples.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "qwh"
+  ],
+  "parent": "757",
+  "acceptance_criteria": "tk run accepts single epic-id. Always creates worktree. No mode flags. --skip-wrap-up, --no-merge, --pr flags work. Old flags produce helpful error message.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-03-25T07:54:05.272578Z",
+  "updated_at": "2026-03-25T08:26:12.460848Z",
+  "closed_at": "2026-03-25T08:26:12.460848Z",
+  "closed_reason": "Simplified run.go to always-worktree, single epic, no mode flags."
+}
