@@ -481,6 +481,14 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return jsonResponse(result);
     }
 
+    // Install script redirect
+    if (url.pathname === "/install") {
+      return Response.redirect(
+        "https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh",
+        302
+      );
+    }
+
     // Landing page at root
     if (url.pathname === "/" || url.pathname === "") {
       return new Response(landingPage, {
