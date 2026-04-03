@@ -29,12 +29,17 @@ type Config struct {
 
 // AgentConfig holds agent selection and configuration.
 type AgentConfig struct {
-	// Backend selects the agent backend: "claude" (default) or "acpx".
+	// Backend selects the agent backend: "claude" (default, direct CLI) or "acp".
+	// When "acp", the agent is launched as an ACP subprocess using the Name field.
 	Backend *string `json:"backend,omitempty"`
 
-	// Name is the agent name for acpx (e.g., "claude", "codex", "gemini").
-	// Only used when Backend is "acpx". Defaults to "claude".
+	// Name is the ACP agent name (e.g., "claude", "codex", "gemini").
+	// Only used when Backend is "acp". Defaults to "claude".
 	Name *string `json:"name,omitempty"`
+
+	// Command overrides the default ACP launch command for the agent.
+	// Only used when Backend is "acp". Example: ["npx", "my-custom-acp-agent"].
+	Command []string `json:"command,omitempty"`
 }
 
 // GetBackend returns the agent backend (default "claude").
@@ -45,12 +50,20 @@ func (c *AgentConfig) GetBackend() string {
 	return *c.Backend
 }
 
-// GetName returns the agent name for acpx (default "claude").
+// GetName returns the ACP agent name (default "claude").
 func (c *AgentConfig) GetName() string {
 	if c == nil || c.Name == nil {
 		return "claude"
 	}
 	return *c.Name
+}
+
+// GetCommand returns the custom ACP launch command, or nil for default.
+func (c *AgentConfig) GetCommand() []string {
+	if c == nil {
+		return nil
+	}
+	return c.Command
 }
 
 // VerificationConfig holds verification settings.

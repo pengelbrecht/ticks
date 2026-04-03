@@ -96,7 +96,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runSkipWrapUp, "skip-wrap-up", false, "skip wrap-up phase")
 	runCmd.Flags().BoolVar(&runNoMerge, "no-merge", false, "don't merge worktree branch on completion")
 	runCmd.Flags().BoolVar(&runPR, "pr", false, "create draft PR after successful run")
-	runCmd.Flags().StringVar(&runAgent, "agent", "", `agent backend: "claude" (direct CLI), or "acpx:<name>" for acpx (e.g., "acpx:codex", "acpx:gemini")`)
+	runCmd.Flags().StringVar(&runAgent, "agent", "", `agent backend: "claude" (direct CLI), or "acp:<name>" for ACP (e.g., "acp:codex", "acp:gemini")`)
 
 	rootCmd.AddCommand(runCmd)
 }
@@ -492,43 +492,53 @@ func findAvailablePort(startPort int) (int, error) {
 
 // resolveAgent determines which agent to use based on --agent flag and config.
 // Flag takes precedence over config. Format:
-//   - "claude" or "" → direct Claude CLI
-//   - "acpx:<name>"  → acpx with the given agent (e.g., "acpx:codex", "acpx:claude")
-//   - "acpx"         → acpx with agent name from config (default "claude")
+//   - "claude" or "" → direct Claude CLI (fallback, no ACP dependency)
+//   - "acp:<name>"   → ACP agent (e.g., "acp:codex", "acp:gemini", "acp:claude")
+//   - "acp"          → ACP agent with name from config (default "claude")
 func resolveAgent(tickDir string) (agent.Agent, error) {
 	agentSpec := runAgent
 
 	// Fall back to config if no flag
+	var agentCfg *config.AgentConfig
 	if agentSpec == "" {
 		cfg, err := config.LoadOrDefault(filepath.Join(tickDir, "config.json"))
 		if err == nil && cfg.Agent != nil {
-			backend := cfg.Agent.GetBackend()
-			if backend == "acpx" {
-				agentSpec = "acpx:" + cfg.Agent.GetName()
+			agentCfg = cfg.Agent
+			backend := agentCfg.GetBackend()
+			if backend == "acp" {
+				agentSpec = "acp:" + agentCfg.GetName()
 			} else {
 				agentSpec = backend
 			}
 		}
 	}
 
-	// Default to claude
+	// Default to direct Claude CLI
 	if agentSpec == "" || agentSpec == "claude" {
 		return agent.NewClaudeAgent(), nil
 	}
 
-	// Parse acpx:<name> format
-	if agentSpec == "acpx" {
-		return agent.NewAcpxAgent("claude"), nil
-	}
-	if len(agentSpec) > 5 && agentSpec[:5] == "acpx:" {
-		name := agentSpec[5:]
+	// Parse acp:<name> format
+	var name string
+	if agentSpec == "acp" {
+		name = "claude"
+	} else if len(agentSpec) > 4 && agentSpec[:4] == "acp:" {
+		name = agentSpec[4:]
 		if name == "" {
-			return nil, fmt.Errorf("agent name required after 'acpx:' (e.g., acpx:codex)")
+			return nil, fmt.Errorf("agent name required after 'acp:' (e.g., acp:codex)")
 		}
-		return agent.NewAcpxAgent(name), nil
+	} else {
+		return nil, fmt.Errorf("unknown agent %q (use 'claude' or 'acp:<name>')", agentSpec)
 	}
 
-	return nil, fmt.Errorf("unknown agent %q (use 'claude' or 'acpx:<name>')", agentSpec)
+	a := agent.NewAcpAgent(name)
+
+	// Apply custom command from config if present
+	if agentCfg != nil && len(agentCfg.GetCommand()) > 0 {
+		a.Command = agentCfg.GetCommand()
+	}
+
+	return a, nil
 }
 
 // isPortAvailable checks if a port is available on all localhost interfaces.
