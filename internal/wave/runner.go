@@ -15,9 +15,10 @@ import (
 // When set on a Runner, it overrides the default simple prompt builder.
 type PromptFunc func(t *tick.Tick) string
 
-// Runner executes waves by spawning parallel Claude agents.
+// Runner executes waves by spawning parallel agents.
 type Runner struct {
 	Agent       agent.Agent
+	Session     agent.Session    // If set, prompts go to this persistent session instead of Agent.Run
 	WorkDir     string           // Worktree path
 	RecordStore *runrecord.Store // For writing live records (optional)
 	Timeout     time.Duration    // Per-task timeout
@@ -80,7 +81,14 @@ func (r *Runner) runTask(ctx context.Context, t *tick.Tick) TaskResult {
 		}
 	}
 
-	res, err := r.Agent.Run(ctx, prompt, opts)
+	// Use persistent session if available, otherwise one-shot Run.
+	var res *agent.Result
+	var err error
+	if r.Session != nil {
+		res, err = r.Session.Prompt(ctx, prompt, opts)
+	} else {
+		res, err = r.Agent.Run(ctx, prompt, opts)
+	}
 	duration := time.Since(start)
 
 	if err != nil {

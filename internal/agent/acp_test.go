@@ -96,6 +96,25 @@ func TestNewAcpAgent(t *testing.T) {
 	}
 }
 
+func TestAcpAgent_ImplementsSessionAgent(t *testing.T) {
+	var a Agent = NewAcpAgent("claude")
+	sa, ok := a.(SessionAgent)
+	if !ok {
+		t.Fatal("AcpAgent should implement SessionAgent")
+	}
+	if sa.Name() != "acp:claude" {
+		t.Errorf("Name() = %q, want %q", sa.Name(), "acp:claude")
+	}
+}
+
+func TestClaudeAgent_DoesNotImplementSessionAgent(t *testing.T) {
+	var a Agent = NewClaudeAgent()
+	_, ok := a.(SessionAgent)
+	if ok {
+		t.Fatal("ClaudeAgent should NOT implement SessionAgent")
+	}
+}
+
 func TestDefaultAgentCommands(t *testing.T) {
 	// Verify all expected agents are registered
 	expected := []string{"claude", "codex", "gemini"}

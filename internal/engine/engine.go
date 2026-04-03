@@ -477,9 +477,26 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 	// Load epic context for use in prompts
 	state.epicContext = e.loadEpicContext(epic.ID)
 
+	// Open a persistent session if the agent supports it.
+	// This keeps the subprocess alive across waves so the agent retains
+	// context (file reads, edits, thinking) between tasks.
+	var session agent.Session
+	if sa, ok := e.agent.(agent.SessionAgent); ok {
+		s, err := sa.Open(ctx, agent.RunOpts{
+			WorkDir: config.WorkDir,
+			Timeout: config.AgentTimeout,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("open agent session: %w", err)
+		}
+		session = s
+		defer session.Close()
+	}
+
 	// Create wave runner with engine prompt builder
 	runner := &wave.Runner{
 		Agent:       e.agent,
+		Session:     session, // nil for non-session agents (falls back to Agent.Run)
 		WorkDir:     config.WorkDir,
 		RecordStore: e.runRecordStore,
 		Timeout:     config.AgentTimeout,
