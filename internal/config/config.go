@@ -22,8 +22,35 @@ const (
 type Config struct {
 	Version      int               `json:"version"`
 	IDLength     int               `json:"id_length"`
+	Agent        *AgentConfig        `json:"agent,omitempty"`
 	Verification *VerificationConfig `json:"verification,omitempty"`
 	Context      *ContextConfig      `json:"context,omitempty"`
+}
+
+// AgentConfig holds agent selection and configuration.
+type AgentConfig struct {
+	// Backend selects the agent backend: "claude" (default) or "acpx".
+	Backend *string `json:"backend,omitempty"`
+
+	// Name is the agent name for acpx (e.g., "claude", "codex", "gemini").
+	// Only used when Backend is "acpx". Defaults to "claude".
+	Name *string `json:"name,omitempty"`
+}
+
+// GetBackend returns the agent backend (default "claude").
+func (c *AgentConfig) GetBackend() string {
+	if c == nil || c.Backend == nil {
+		return "claude"
+	}
+	return *c.Backend
+}
+
+// GetName returns the agent name for acpx (default "claude").
+func (c *AgentConfig) GetName() string {
+	if c == nil || c.Name == nil {
+		return "claude"
+	}
+	return *c.Name
 }
 
 // VerificationConfig holds verification settings.
