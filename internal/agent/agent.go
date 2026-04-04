@@ -20,7 +20,38 @@ type Agent interface {
 
 	// Run executes the agent with the given prompt and options.
 	// The context can be used for cancellation and timeout.
+	// For agents that also implement SessionAgent, prefer using Open/Prompt/Close
+	// to maintain context across multiple prompts.
 	Run(ctx context.Context, prompt string, opts RunOpts) (*Result, error)
+}
+
+// SessionAgent is an optional interface for agents that support persistent sessions.
+// When an agent implements SessionAgent, the engine can keep the subprocess alive
+// across multiple prompts, allowing the agent to retain context (file reads, edits,
+// thinking) between tasks in the same epic.
+//
+// Lifecycle: Open → Prompt → Prompt → ... → Close
+//
+// Agents that don't implement this interface fall back to one-shot Run() per task.
+type SessionAgent interface {
+	Agent
+
+	// Open spawns the agent subprocess and initializes an ACP session.
+	// The returned Session must be closed when done.
+	Open(ctx context.Context, opts RunOpts) (Session, error)
+}
+
+// Session represents a persistent conversation with an agent.
+// Multiple prompts can be sent to the same session, and the agent
+// retains full context across them.
+type Session interface {
+	// Prompt sends a prompt to the active session and returns the result.
+	// The agent retains all context from previous prompts in this session.
+	Prompt(ctx context.Context, prompt string, opts RunOpts) (*Result, error)
+
+	// Close terminates the session and cleans up the subprocess.
+	// After Close, the session must not be used.
+	Close() error
 }
 
 // RunOpts configures an agent run.

@@ -15,7 +15,10 @@ import (
 // When set on a Runner, it overrides the default simple prompt builder.
 type PromptFunc func(t *tick.Tick) string
 
-// Runner executes waves by spawning parallel Claude agents.
+// Runner executes waves by spawning parallel agents.
+// When the agent implements SessionAgent, each task in a wave gets its own
+// ACP session (subprocess), running fully in parallel. Within a session,
+// multiple prompts can be sent sequentially if needed.
 type Runner struct {
 	Agent       agent.Agent
 	WorkDir     string           // Worktree path
@@ -56,7 +59,10 @@ func (r *Runner) RunWave(ctx context.Context, w Wave) []TaskResult {
 	return results
 }
 
-// runTask executes a single task by building a prompt and calling the agent.
+// runTask executes a single task. If the agent implements SessionAgent,
+// it opens a dedicated session for this task (its own subprocess), enabling
+// persistent context within the task and parallel execution across tasks.
+// Otherwise, it falls back to one-shot Agent.Run().
 func (r *Runner) runTask(ctx context.Context, t *tick.Tick) TaskResult {
 	start := time.Now()
 
@@ -80,7 +86,28 @@ func (r *Runner) runTask(ctx context.Context, t *tick.Tick) TaskResult {
 		}
 	}
 
-	res, err := r.Agent.Run(ctx, prompt, opts)
+	var res *agent.Result
+	var err error
+
+	if sa, ok := r.Agent.(agent.SessionAgent); ok {
+		// Open a dedicated session for this task. Each task in the wave
+		// gets its own subprocess, so they run fully in parallel.
+		session, openErr := sa.Open(ctx, opts)
+		if openErr != nil {
+			return TaskResult{
+				TaskID:   t.ID,
+				Success:  false,
+				Duration: time.Since(start),
+				Error:    fmt.Errorf("open session: %w", openErr),
+			}
+		}
+		defer session.Close()
+
+		res, err = session.Prompt(ctx, prompt, opts)
+	} else {
+		res, err = r.Agent.Run(ctx, prompt, opts)
+	}
+
 	duration := time.Since(start)
 
 	if err != nil {

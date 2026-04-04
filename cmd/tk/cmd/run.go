@@ -18,6 +18,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
+	"github.com/pengelbrecht/ticks/internal/config"
 	epiccontext "github.com/pengelbrecht/ticks/internal/context"
 	"github.com/pengelbrecht/ticks/internal/engine"
 	"github.com/pengelbrecht/ticks/internal/gc"
@@ -71,6 +72,7 @@ var (
 	runSkipWrapUp        bool
 	runNoMerge           bool
 	runPR                bool
+	runAgent             string
 )
 
 func init() {
@@ -94,6 +96,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runSkipWrapUp, "skip-wrap-up", false, "skip wrap-up phase")
 	runCmd.Flags().BoolVar(&runNoMerge, "no-merge", false, "don't merge worktree branch on completion")
 	runCmd.Flags().BoolVar(&runPR, "pr", false, "create draft PR after successful run")
+	runCmd.Flags().StringVar(&runAgent, "agent", "", `agent backend: "claude" (direct CLI), or "acp:<name>" for ACP (e.g., "acp:codex", "acp:gemini")`)
 
 	rootCmd.AddCommand(runCmd)
 }
@@ -257,11 +260,16 @@ Get a token at https://ticks.sh/settings`)
 
 	// Run agent if we have an epic
 	if runningAgent {
-		claudeAgent := agent.NewClaudeAgent()
-		if !claudeAgent.Available() {
+		agentImpl, err := resolveAgent(tickDir)
+		if err != nil {
 			cancel()
 			wg.Wait()
-			return NewExitError(ExitGeneric, "claude CLI not found - install from https://claude.ai/code")
+			return NewExitError(ExitGeneric, "%v", err)
+		}
+		if !agentImpl.Available() {
+			cancel()
+			wg.Wait()
+			return NewExitError(ExitGeneric, "agent %q not found - ensure the CLI is installed and on your PATH", agentImpl.Name())
 		}
 
 		// Always create/reuse worktree
@@ -285,11 +293,12 @@ Get a token at https://ticks.sh/settings`)
 		}
 
 		if !runJSONL {
+			fmt.Printf("Agent: %s\n", agentImpl.Name())
 			fmt.Printf("Worktree: %s\n", wt.Path)
 		}
 
 		// Run engine with wave loop
-		result, err := runEpic(ctx, root, epicID, claudeAgent, wt.Path)
+		result, err := runEpic(ctx, root, epicID, agentImpl, wt.Path)
 		if err != nil {
 			if ctx.Err() != nil {
 				// Context cancelled - output partial result if we have one
@@ -479,6 +488,57 @@ func findAvailablePort(startPort int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
+}
+
+// resolveAgent determines which agent to use based on --agent flag and config.
+// Flag takes precedence over config. Format:
+//   - "claude" or "" → direct Claude CLI (fallback, no ACP dependency)
+//   - "acp:<name>"   → ACP agent (e.g., "acp:codex", "acp:gemini", "acp:claude")
+//   - "acp"          → ACP agent with name from config (default "claude")
+func resolveAgent(tickDir string) (agent.Agent, error) {
+	agentSpec := runAgent
+
+	// Fall back to config if no flag
+	var agentCfg *config.AgentConfig
+	if agentSpec == "" {
+		cfg, err := config.LoadOrDefault(filepath.Join(tickDir, "config.json"))
+		if err == nil && cfg.Agent != nil {
+			agentCfg = cfg.Agent
+			backend := agentCfg.GetBackend()
+			if backend == "acp" {
+				agentSpec = "acp:" + agentCfg.GetName()
+			} else {
+				agentSpec = backend
+			}
+		}
+	}
+
+	// Default to direct Claude CLI
+	if agentSpec == "" || agentSpec == "claude" {
+		return agent.NewClaudeAgent(), nil
+	}
+
+	// Parse acp:<name> format
+	var name string
+	if agentSpec == "acp" {
+		name = "claude"
+	} else if len(agentSpec) > 4 && agentSpec[:4] == "acp:" {
+		name = agentSpec[4:]
+		if name == "" {
+			return nil, fmt.Errorf("agent name required after 'acp:' (e.g., acp:codex)")
+		}
+	} else {
+		return nil, fmt.Errorf("unknown agent %q (use 'claude' or 'acp:<name>')", agentSpec)
+	}
+
+	a := agent.NewAcpAgent(name)
+
+	// Apply custom command from config if present
+	if agentCfg != nil && len(agentCfg.GetCommand()) > 0 {
+		a.Command = agentCfg.GetCommand()
+	}
+
+	return a, nil
 }
 
 // isPortAvailable checks if a port is available on all localhost interfaces.
