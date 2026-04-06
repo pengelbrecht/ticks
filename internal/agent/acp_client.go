@@ -25,6 +25,10 @@ type acpClient struct {
 
 	// onNotification is called for each JSON-RPC notification received.
 	onNotification func(method string, params json.RawMessage)
+
+	// onRequest is called for incoming JSON-RPC requests from the agent (e.g. permission requests).
+	// It should return the result to send back. If nil, requests are auto-acknowledged.
+	onRequest func(method string, params json.RawMessage) (json.RawMessage, error)
 }
 
 // rpcRequest is a JSON-RPC 2.0 request.
@@ -160,7 +164,32 @@ func (c *acpClient) ReadLoop(r io.Reader) error {
 			continue // skip malformed lines
 		}
 
-		if peek.ID != nil {
+		if peek.ID != nil && peek.Method != "" {
+			// Incoming request from agent (e.g. permission request).
+			// Agent is the caller, we must respond.
+			var result json.RawMessage
+			var reqErr error
+			if c.onRequest != nil {
+				result, reqErr = c.onRequest(peek.Method, peek.Params)
+			}
+			// Send response back
+			resp := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      *peek.ID,
+			}
+			if reqErr != nil {
+				resp["error"] = map[string]any{
+					"code":    -32000,
+					"message": reqErr.Error(),
+				}
+			} else {
+				if result == nil {
+					result = json.RawMessage(`{}`)
+				}
+				resp["result"] = result
+			}
+			_ = c.send(resp)
+		} else if peek.ID != nil {
 			// Response to a pending request.
 			resp := &rpcResponse{
 				ID:     peek.ID,

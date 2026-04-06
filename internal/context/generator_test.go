@@ -86,7 +86,7 @@ func TestNewGenerator_WithMaxTokens_InPrompt(t *testing.T) {
 		name: "test",
 		runFunc: func(ctx context.Context, prompt string, opts agent.RunOpts) (*agent.Result, error) {
 			// Verify the custom max tokens is in the prompt
-			if !strings.Contains(prompt, "under 8000 tokens") {
+			if !strings.Contains(prompt, "8000 tokens") {
 				return nil, errors.New("prompt should contain custom max tokens")
 			}
 			return &agent.Result{Output: "ok"}, nil

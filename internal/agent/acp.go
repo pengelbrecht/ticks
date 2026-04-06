@@ -14,9 +14,9 @@ import (
 // DefaultAgentCommands maps agent names to their ACP launch commands.
 // Each entry is a command + args that spawns an ACP-speaking subprocess.
 var DefaultAgentCommands = map[string][]string{
-	"claude": {"npx", "claude-code-acp"},
-	"codex":  {"npx", "codex-acp"},
-	"gemini": {"gemini"},
+	"claude": {"npx", "-y", "@agentclientprotocol/claude-agent-acp"},
+	"codex":  {"npx", "-y", "@zed-industries/codex-acp"},
+	"gemini": {"gemini", "--acp"},
 }
 
 // AcpAgent implements Agent and SessionAgent by speaking the Agent Client Protocol
@@ -153,6 +153,17 @@ func (a *AcpAgent) Open(ctx context.Context, opts RunOpts) (Session, error) {
 		return nil, fmt.Errorf("parse session/new: %w", err)
 	}
 
+	// 3. Set mode to bypass permissions (equivalent to --dangerously-skip-permissions)
+	_, err = client.Call(ctx, "session/set_mode", map[string]any{
+		"sessionId": sessionResp.SessionID,
+		"modeId":    "bypassPermissions",
+	})
+	if err != nil {
+		// Non-fatal: some agents may not support this mode.
+		// Fall back to handling permission requests in the read loop.
+		fmt.Fprintf(os.Stderr, "[ACP] Warning: could not set bypassPermissions mode: %v\n", err)
+	}
+
 	return &acpSession{
 		client:    client,
 		proc:      proc,
@@ -224,6 +235,8 @@ func (s *acpSession) Prompt(ctx context.Context, prompt string, opts RunOpts) (*
 
 	handler := newAcpUpdateHandler(state, onUpdate)
 	s.client.onNotification = handler.Handle
+	// Auto-approve any permission requests that bypass mode didn't cover.
+	s.client.onRequest = s.handleAgentRequest
 
 	// Send prompt
 	promptResult, err := s.client.Call(ctx, "session/prompt", map[string]any{
@@ -299,10 +312,36 @@ func (s *acpSession) Prompt(ctx context.Context, prompt string, opts RunOpts) (*
 	}, nil
 }
 
+// handleAgentRequest handles incoming JSON-RPC requests from the agent.
+// Currently auto-approves all permission requests.
+func (s *acpSession) handleAgentRequest(method string, params json.RawMessage) (json.RawMessage, error) {
+	if method == "session/request_permission" {
+		// Auto-approve: return the first "allow" option, or just approve.
+		return json.RawMessage(`{"outcome":{"optionId":"allow_always"}}`), nil
+	}
+	// Unknown request — return empty result
+	return json.RawMessage(`{}`), nil
+}
+
 // Close terminates the session and cleans up the subprocess.
+// It closes stdin, waits briefly for a graceful exit, then kills the process.
 func (s *acpSession) Close() error {
 	s.stdin.Close()
-	err := s.proc.Wait()
-	<-s.readDone
-	return err
+
+	// Wait up to 5 seconds for graceful exit, then force kill.
+	done := make(chan error, 1)
+	go func() {
+		done <- s.proc.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		<-s.readDone
+		return err
+	case <-time.After(5 * time.Second):
+		_ = s.proc.Process.Kill()
+		err := <-done
+		<-s.readDone
+		return err
+	}
 }

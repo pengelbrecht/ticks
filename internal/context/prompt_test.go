@@ -43,7 +43,7 @@ func TestNewPromptBuilder_WithMaxTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if !strings.Contains(result, "under 8000 tokens") {
+	if !strings.Contains(result, "8000 tokens") {
 		t.Error("Build() result should contain custom token limit")
 	}
 }
@@ -110,15 +110,13 @@ func TestPromptBuilder_Build(t *testing.T) {
 	sections := []string{
 		"# Generate Epic Context",
 		"## Epic",
-		"## Tasks in this Epic",
+		"## Tasks",
 		"## Instructions",
-		"1. **Relevant Code**",
-		"2. **Architecture Notes**",
-		"3. **External References**",
-		"4. **Testing Patterns**",
-		"5. **Conventions**",
+		"**Key types and interfaces**",
+		"**Patterns to follow**",
+		"**Integration points**",
 		"## Constraints",
-		"under 4000 tokens", // default max tokens
+		"4000 tokens", // default max tokens
 	}
 
 	for _, section := range sections {
@@ -152,7 +150,7 @@ func TestPromptBuilder_Build_EmptyTasks(t *testing.T) {
 		t.Error("Build() result missing epic title")
 	}
 	// Should still have the tasks section header even if empty
-	if !strings.Contains(result, "## Tasks in this Epic") {
+	if !strings.Contains(result, "## Tasks") {
 		t.Error("Build() result missing tasks section")
 	}
 }
@@ -309,5 +307,73 @@ func TestPromptBuilder_Build_ManyTasks(t *testing.T) {
 		if !strings.Contains(result, taskTitle) {
 			t.Errorf("Build() result missing task: %q", taskTitle)
 		}
+	}
+}
+
+func TestExtractFileHints(t *testing.T) {
+	tasks := []ticks.Task{
+		{
+			ID:          "t1",
+			Title:       "Update internal/engine/signals.go",
+			Description: "Modify internal/wrapup/wrapup.go and internal/wrapup/parse.go",
+		},
+		{
+			ID:          "t2",
+			Title:       "Fix bug",
+			Description: "Check cmd/tk/cmd/run.go for the issue. Also see config.yaml.",
+		},
+	}
+
+	hints := extractFileHints(tasks)
+
+	expected := []string{
+		"cmd/tk/cmd/run.go",
+		"config.yaml",
+		"internal/engine/signals.go",
+		"internal/wrapup/parse.go",
+		"internal/wrapup/wrapup.go",
+	}
+
+	if len(hints) != len(expected) {
+		t.Fatalf("extractFileHints() got %d hints, want %d: %v", len(hints), len(expected), hints)
+	}
+	for i, want := range expected {
+		if hints[i] != want {
+			t.Errorf("extractFileHints()[%d] = %q, want %q", i, hints[i], want)
+		}
+	}
+}
+
+func TestExtractFileHints_NoFiles(t *testing.T) {
+	tasks := []ticks.Task{
+		{ID: "t1", Title: "Do something", Description: "No file paths here"},
+	}
+	hints := extractFileHints(tasks)
+	if len(hints) != 0 {
+		t.Errorf("extractFileHints() got %v, want empty", hints)
+	}
+}
+
+func TestPromptBuilder_Build_IncludesFileHints(t *testing.T) {
+	pb, err := NewPromptBuilder()
+	if err != nil {
+		t.Fatalf("NewPromptBuilder() error = %v", err)
+	}
+
+	epic := &ticks.Epic{ID: "fh1", Title: "File hints test"}
+	tasks := []ticks.Task{
+		{ID: "t1", Title: "Edit signals", Description: "Modify internal/engine/signals.go"},
+	}
+
+	result, err := pb.Build(epic, tasks)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if !strings.Contains(result, "## Start Here") {
+		t.Error("Build() should include Start Here section when file hints exist")
+	}
+	if !strings.Contains(result, "internal/engine/signals.go") {
+		t.Error("Build() should include extracted file path in hints")
 	}
 }

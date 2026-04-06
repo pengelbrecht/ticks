@@ -75,10 +75,18 @@ func NewGenerator(a agent.Agent, opts ...GeneratorOption) (*Generator, error) {
 	return g, nil
 }
 
+// ProgressFunc is called periodically during context generation with elapsed time and token counts.
+type ProgressFunc func(elapsed time.Duration, tokensIn, tokensOut int)
+
 // Generate runs the AI agent to generate context for an epic.
 // It builds a prompt from the epic and tasks, runs the agent, and returns
 // the generated context document as markdown.
 func (g *Generator) Generate(ctx context.Context, epic *ticks.Epic, tasks []ticks.Task) (string, error) {
+	return g.GenerateWithProgress(ctx, epic, tasks, nil)
+}
+
+// GenerateWithProgress is like Generate but accepts an optional progress callback.
+func (g *Generator) GenerateWithProgress(ctx context.Context, epic *ticks.Epic, tasks []ticks.Task, onProgress ProgressFunc) (string, error) {
 	if epic == nil {
 		return "", fmt.Errorf("epic is required")
 	}
@@ -97,10 +105,18 @@ func (g *Generator) Generate(ctx context.Context, epic *ticks.Epic, tasks []tick
 		return "", fmt.Errorf("building prompt: %w", err)
 	}
 
-	// Run the agent with timeout
-	result, err := g.agent.Run(ctx, prompt, agent.RunOpts{
+	// Set up progress callback
+	opts := agent.RunOpts{
 		Timeout: g.timeout,
-	})
+	}
+	if onProgress != nil {
+		opts.StateCallback = func(snap agent.AgentStateSnapshot) {
+			onProgress(time.Since(startTime), snap.Metrics.InputTokens, snap.Metrics.OutputTokens)
+		}
+	}
+
+	// Run the agent with timeout
+	result, err := g.agent.Run(ctx, prompt, opts)
 	if err != nil {
 		// Log the failure
 		g.logger.Error("context generation failed",

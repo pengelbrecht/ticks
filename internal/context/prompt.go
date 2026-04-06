@@ -2,10 +2,16 @@ package context
 
 import (
 	"bytes"
+	"regexp"
+	"sort"
+	"strings"
 	"text/template"
 
 	"github.com/pengelbrecht/ticks/internal/ticks"
 )
+
+// filePathPattern matches common source file paths in task descriptions.
+var filePathPattern = regexp.MustCompile(`(?:^|\s|` + "`" + `)([a-zA-Z0-9_./-]+\.(?:go|ts|tsx|js|jsx|py|rs|yaml|yml|json|toml|md))(?:\s|` + "`" + `|[,.):]|$)`)
 
 // PromptBuilder builds prompts for generating epic context documents.
 type PromptBuilder struct {
@@ -20,6 +26,7 @@ type promptData struct {
 	EpicDescription string
 	Tasks           []taskData
 	MaxTokens       int
+	FileHints       []string // file paths extracted from task descriptions
 }
 
 // taskData holds task information for the template.
@@ -30,17 +37,25 @@ type taskData struct {
 }
 
 // contextGenerationTemplate is the prompt template for generating epic context.
-// It instructs the agent to analyze the codebase and produce a structured context document.
+// It instructs the agent to read specific files and produce a focused context document.
 const contextGenerationTemplate = `# Generate Epic Context
 
-You are preparing context for an AI coding agent that will work on tasks in this epic.
+Prepare a concise context document for AI agents working on this epic's tasks.
+{{if .FileHints}}
+## Start Here
+
+These files are referenced in the task descriptions. Read them first:
+{{range .FileHints}}
+- {{.}}
+{{- end}}
+{{end}}
 
 ## Epic
 **[{{.EpicID}}] {{.EpicTitle}}**
 
 {{.EpicDescription}}
 
-## Tasks in this Epic
+## Tasks
 {{range .Tasks}}
 ### [{{.ID}}] {{.Title}}
 
@@ -49,49 +64,24 @@ You are preparing context for an AI coding agent that will work on tasks in this
 
 ## Instructions
 
-Analyze the codebase and generate a context document that will help complete these tasks.
+Read the files listed above (and any closely related files they import/reference), then produce a context document covering:
 
-Include:
+1. **Key types and interfaces** the tasks will use or implement
+2. **Patterns to follow** — how similar code in this area is structured (error handling, naming, test style)
+3. **Integration points** — where new code connects to existing code
 
-1. **Relevant Code** - Files and functions that tasks will likely need to read or modify
-   - List file paths with brief descriptions
-   - Note key types, interfaces, and functions
-   - Identify patterns and conventions used
-
-2. **Architecture Notes** - How the relevant parts of the system work together
-   - Data flow
-   - Key abstractions
-   - Integration points
-
-3. **External References** - Documentation for libraries/frameworks in use
-   - Don't fetch full docs, just note what's relevant
-   - Include links if helpful
-
-4. **Testing Patterns** - How tests are structured in this area
-   - Test file locations
-   - Mocking patterns
-   - Coverage expectations
-
-5. **Conventions** - Code style and patterns to follow
-   - Error handling approach
-   - Logging conventions
-   - Naming patterns
+Do NOT explore broadly. Stay focused on what these specific tasks need.
 
 ## Constraints
 
-- Keep the document under {{.MaxTokens}} tokens
-- Focus on what's RELEVANT to the epic's tasks
-- Summarize, don't copy entire files
-- Be specific (file:line references) not vague
+- Under {{.MaxTokens}} tokens
+- Be specific: file paths, function names, line numbers
+- Summarize, don't copy file contents
 
-## Output Format
-
-Wrap your context document in <epic_context> tags:
+## Output
 
 <epic_context>
-# Epic Context: [epic-id] Epic Title
-
-(your markdown content here)
+(your markdown context document)
 </epic_context>
 `
 
@@ -142,10 +132,37 @@ func (p *PromptBuilder) Build(epic *ticks.Epic, tasks []ticks.Task) (string, err
 		}
 	}
 
+	// Extract file path hints from task descriptions
+	data.FileHints = extractFileHints(tasks)
+
 	var buf bytes.Buffer
 	if err := p.tmpl.Execute(&buf, data); err != nil {
 		return "", err
 	}
 
 	return buf.String(), nil
+}
+
+// extractFileHints scans task descriptions for file paths and returns a deduplicated, sorted list.
+func extractFileHints(tasks []ticks.Task) []string {
+	seen := make(map[string]bool)
+	for _, t := range tasks {
+		text := t.Title + "\n" + t.Description
+		matches := filePathPattern.FindAllStringSubmatch(text, -1)
+		for _, m := range matches {
+			if len(m) >= 2 {
+				path := strings.TrimSpace(m[1])
+				if !seen[path] {
+					seen[path] = true
+				}
+			}
+		}
+	}
+
+	hints := make([]string, 0, len(seen))
+	for path := range seen {
+		hints = append(hints, path)
+	}
+	sort.Strings(hints)
+	return hints
 }

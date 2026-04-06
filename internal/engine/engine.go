@@ -68,7 +68,8 @@ type Engine struct {
 	OnContextLoaded     func(epicID string, content string) // content passed for preview/token display
 	OnContextSkipped    func(epicID string, reason string)
 	OnContextFailed     func(epicID string, errMsg string)
-	OnContextActive     func(epicID string) // called at start of each wave when context is in use
+	OnContextActive     func(epicID string)                          // called at start of each wave when context is in use
+	OnContextProgress   func(epicID string, elapsed time.Duration, tokensIn, tokensOut int) // periodic progress during generation
 
 	// Watch mode callback - called when no tasks available and entering idle state.
 	OnIdle func()
@@ -302,7 +303,14 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 	}
 
 	// Generate context using the AI agent
-	content, err := e.contextGenerator.Generate(ctx, epic, tasks)
+	var progressFn epiccontext.ProgressFunc
+	if e.OnContextProgress != nil {
+		epicID := epic.ID
+		progressFn = func(elapsed time.Duration, tokensIn, tokensOut int) {
+			e.OnContextProgress(epicID, elapsed, tokensIn, tokensOut)
+		}
+	}
+	content, err := e.contextGenerator.GenerateWithProgress(ctx, epic, tasks, progressFn)
 	if err != nil {
 		// Log warning but don't abort - context is optional
 		if e.runLog != nil {

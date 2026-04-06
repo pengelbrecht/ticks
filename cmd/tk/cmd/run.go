@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -412,7 +413,7 @@ func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, wo
 			fmt.Printf("\nGenerating epic context for %s (%d tasks)...\n", epicID, taskCount)
 		}
 		eng.OnContextGenerated = func(epicID string, tokenCount int) {
-			fmt.Printf("Context generated (~%d tokens)\n", tokenCount)
+			fmt.Printf("\rContext generated (~%d tokens)%s\n", tokenCount, strings.Repeat(" ", 40))
 		}
 		eng.OnContextLoaded = func(epicID string, content string) {
 			fmt.Printf("Using existing context for %s\n", epicID)
@@ -422,6 +423,17 @@ func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, wo
 		}
 		eng.OnContextFailed = func(epicID string, errMsg string) {
 			fmt.Printf("Context generation failed: %s\n", errMsg)
+		}
+		var lastProgressLine int
+		eng.OnContextProgress = func(epicID string, elapsed time.Duration, tokensIn, tokensOut int) {
+			line := fmt.Sprintf("\r  Context: %s elapsed, %d tokens in, %d tokens out",
+				elapsed.Truncate(time.Second), tokensIn, tokensOut)
+			lineLen := len(line)
+			if lineLen < lastProgressLine {
+				line += strings.Repeat(" ", lastProgressLine-lineLen)
+			}
+			lastProgressLine = lineLen
+			fmt.Print(line)
 		}
 	}
 

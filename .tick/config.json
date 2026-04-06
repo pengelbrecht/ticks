@@ -1,4 +1,8 @@
 {
   "version": 1,
-  "id_length": 3
+  "id_length": 3,
+  "agent": {
+    "backend": "acp",
+    "name": "claude"
+  }
 }
