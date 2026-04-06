@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -23,6 +22,8 @@ import (
 	epiccontext "github.com/pengelbrecht/ticks/internal/context"
 	"github.com/pengelbrecht/ticks/internal/engine"
 	"github.com/pengelbrecht/ticks/internal/gc"
+	"github.com/pengelbrecht/ticks/internal/output"
+	"github.com/pengelbrecht/ticks/internal/runlog"
 	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tickboard/cloud"
 	"github.com/pengelbrecht/ticks/internal/tickboard/server"
@@ -102,18 +103,6 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 }
 
-// runOutput is the JSONL output format for run results.
-type runOutput struct {
-	EpicID         string   `json:"epic_id"`
-	Iterations     int      `json:"iterations"`
-	TotalTokens    int      `json:"total_tokens"`
-	TotalCost      float64  `json:"total_cost"`
-	DurationSec    float64  `json:"duration_sec"`
-	CompletedTasks []string `json:"completed_tasks"`
-	ExitReason     string   `json:"exit_reason"`
-	Signal         string   `json:"signal,omitempty"`
-	SignalReason   string   `json:"signal_reason,omitempty"`
-}
 
 func runRun(cmd *cobra.Command, args []string) error {
 	// --cloud implies --board
@@ -161,9 +150,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 		if epic == nil {
 			if runJSONL {
-				output := runOutput{ExitReason: "no ready epics"}
 				enc := json.NewEncoder(os.Stdout)
-				_ = enc.Encode(output)
+				_ = enc.Encode(map[string]string{"exit_reason": "no ready epics"})
 				return nil
 			}
 			fmt.Println("No ready epics")
@@ -197,14 +185,23 @@ func runRun(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
+	// Build RunOutput options — sinks are added as they become available.
+	outOpts := []output.Option{
+		output.WithStdout(os.Stdout),
+		output.WithStderr(os.Stderr),
+		output.WithJSONL(runJSONL),
+	}
+
 	var wg sync.WaitGroup
 	var boardServer *server.Server
 	var cloudClient *cloud.Client
+	var boardPort int
 
 	// Start board server if requested
 	if runBoardEnabled {
 		// Find an available port
-		actualPort, err := findAvailablePort(runBoardPort)
+		var err error
+		boardPort, err = findAvailablePort(runBoardPort)
 		if err != nil {
 			return NewExitError(ExitGeneric, "failed to find available port: %v", err)
 		}
@@ -213,10 +210,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 		if runDevMode {
 			serverOpts = append(serverOpts, server.WithDevMode(true))
 		}
-		boardServer, err = server.New(tickDir, actualPort, serverOpts...)
+		boardServer, err = server.New(tickDir, boardPort, serverOpts...)
 		if err != nil {
 			return NewExitError(ExitGeneric, "failed to create board server: %v", err)
 		}
+
+		// Wire board sink (run record store created here for the adapter)
+		runRecordStore := runrecord.NewStore(root)
+		outOpts = append(outOpts, output.WithBoard(output.NewBoardSink(boardServer, runRecordStore)))
 
 		// Check for cloud configuration (only if --cloud specified)
 		if runCloudEnabled {
@@ -244,7 +245,6 @@ Get a token at https://ticks.sh/settings`)
 					fmt.Fprintf(os.Stderr, "Cloud client error: %v\n", err)
 				}
 			}()
-			fmt.Printf("Cloud: syncing as %s\n", cloudCfg.BoardName)
 		}
 
 		// Start board server in background
@@ -255,8 +255,20 @@ Get a token at https://ticks.sh/settings`)
 				fmt.Fprintf(os.Stderr, "Board server error: %v\n", err)
 			}
 		}()
+	}
 
-		fmt.Printf("Board: http://localhost:%d\n", actualPort)
+	// Construct RunOutput now that all sinks are wired.
+	out := output.New(outOpts...)
+
+	// Print setup info via RunOutput
+	if runBoardEnabled {
+		out.BoardURL(boardPort)
+	}
+	if cloudClient != nil {
+		cloudCfg := cloud.LoadConfig(tickDir)
+		if cloudCfg != nil {
+			out.CloudInfo(cloudCfg.BoardName)
+		}
 	}
 
 	// Run agent if we have an epic
@@ -293,18 +305,24 @@ Get a token at https://ticks.sh/settings`)
 			}
 		}
 
-		if !runJSONL {
-			fmt.Printf("Agent: %s\n", agentImpl.Name())
-			fmt.Printf("Worktree: %s\n", wt.Path)
+		// Wire run log sink now that we have the workdir
+		logger, logErr := runlog.NewWithWorkDir(epicID, wt.Path)
+		if logErr == nil {
+			outOpts = append(outOpts, output.WithRunLog(output.NewRunLogSink(logger)))
 		}
 
+		// Reconstruct RunOutput with all sinks including runlog
+		out = output.New(outOpts...)
+
+		out.AgentInfo(agentImpl.Name(), wt.Path)
+
 		// Run engine with wave loop
-		result, err := runEpic(ctx, root, epicID, agentImpl, wt.Path)
+		result, err := runEpic(ctx, root, epicID, agentImpl, wt.Path, out)
 		if err != nil {
 			if ctx.Err() != nil {
 				// Context cancelled - output partial result if we have one
 				if result != nil {
-					outputResult(result)
+					emitRunComplete(out, result)
 				}
 			} else {
 				cancel()
@@ -312,7 +330,7 @@ Get a token at https://ticks.sh/settings`)
 				return NewExitError(ExitGeneric, "run failed for epic %s: %v", epicID, err)
 			}
 		} else {
-			outputResult(result)
+			emitRunComplete(out, result)
 		}
 
 		// Phase 3: wrap-up (steps, report, merge/preserve, PR)
@@ -327,11 +345,11 @@ Get a token at https://ticks.sh/settings`)
 				Worktree:  wt,
 				NoMerge:   runNoMerge,
 				CreatePR:  runPR,
-				JSONL:     runJSONL,
+				Output:    out,
 			}
 			report, wrapErr := runner.Run(ctx, wrapupConfig, result)
 			if wrapErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: wrap-up failed: %v\n", wrapErr)
+				out.Warn("wrap-up failed: %v", wrapErr)
 			}
 			_ = report
 		} else if result != nil && !runSkipWrapUp {
@@ -343,20 +361,18 @@ Get a token at https://ticks.sh/settings`)
 				if mergeErr == nil {
 					mergeResult, mergeErr := mergeManager.Merge(wt, worktree.MergeOptions{})
 					if mergeErr != nil {
-						fmt.Fprintf(os.Stderr, "Warning: merge failed: %v\n", mergeErr)
-						fmt.Fprintf(os.Stderr, "Worktree preserved at: %s\n", wt.Path)
+						out.Warn("merge failed: %v", mergeErr)
+						out.WorktreePreserved(wt.Path, "merge failed")
 					} else if !mergeResult.Success {
-						fmt.Fprintf(os.Stderr, "Warning: merge conflicts in: %v\n", mergeResult.Conflicts)
-						fmt.Fprintf(os.Stderr, "Worktree preserved at: %s\n", wt.Path)
+						out.Warn("merge conflicts in: %v", mergeResult.Conflicts)
+						out.WorktreePreserved(wt.Path, "merge conflicts")
 					} else {
 						_ = wtManager.Remove(epicID)
-						if !runJSONL {
-							fmt.Printf("Merged to %s and cleaned up worktree\n", mergeResult.TargetBranch)
-						}
+						out.MergeSuccess(mergeResult.TargetBranch)
 					}
 				}
-			} else if !runJSONL {
-				fmt.Printf("Worktree preserved for resumption: %s\n", wt.Path)
+			} else {
+				out.WorktreePreserved(wt.Path, "resumption")
 			}
 		}
 	} else {
@@ -374,7 +390,7 @@ Get a token at https://ticks.sh/settings`)
 	return nil
 }
 
-func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, workDir string) (*engine.RunResult, error) {
+func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, workDir string, out *output.RunOutput) (*engine.RunResult, error) {
 	// Create dependencies
 	ticksClient := ticks.NewClient(filepath.Join(root, ".tick"))
 	budgetTracker := budget.NewTracker(budget.Limits{
@@ -385,56 +401,18 @@ func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, wo
 	// Create engine
 	eng := engine.NewEngine(agentImpl, ticksClient, budgetTracker)
 
-	// Enable live run record streaming for ticks board
+	// Enable live run record streaming for ticks board (still needed by wave.Runner)
 	runRecordStore := runrecord.NewStore(root)
 	eng.SetRunRecordStore(runRecordStore)
+
+	// Set the unified output on the engine
+	eng.Output = out
 
 	// Enable context generation for epics
 	contextStore := epiccontext.NewStoreWithDir(filepath.Join(root, ".tick", "logs", "context"))
 	contextGenerator, err := epiccontext.NewGenerator(agentImpl)
 	if err == nil {
 		eng.SetContextComponents(contextStore, contextGenerator)
-	}
-
-	// Set up output streaming for non-JSONL mode
-	if !runJSONL {
-		eng.OnOutput = func(chunk string) {
-			fmt.Print(chunk)
-		}
-		eng.OnIterationStart = func(ctx engine.IterationContext) {
-			fmt.Printf("\n=== Iteration %d: %s (%s) ===\n", ctx.Iteration, ctx.Task.ID, ctx.Task.Title)
-		}
-		eng.OnIterationEnd = func(result *engine.IterationResult) {
-			fmt.Printf("\n--- Iteration %d complete (tokens: %d in, %d out, cost: $%.4f) ---\n",
-				result.Iteration, result.TokensIn, result.TokensOut, result.Cost)
-		}
-		// Context generation status callbacks
-		eng.OnContextGenerating = func(epicID string, taskCount int) {
-			fmt.Printf("\nGenerating epic context for %s (%d tasks)...\n", epicID, taskCount)
-		}
-		eng.OnContextGenerated = func(epicID string, tokenCount int) {
-			fmt.Printf("\rContext generated (~%d tokens)%s\n", tokenCount, strings.Repeat(" ", 40))
-		}
-		eng.OnContextLoaded = func(epicID string, content string) {
-			fmt.Printf("Using existing context for %s\n", epicID)
-		}
-		eng.OnContextSkipped = func(epicID string, reason string) {
-			fmt.Printf("Context skipped: %s\n", reason)
-		}
-		eng.OnContextFailed = func(epicID string, errMsg string) {
-			fmt.Printf("Context generation failed: %s\n", errMsg)
-		}
-		var lastProgressLine int
-		eng.OnContextProgress = func(epicID string, elapsed time.Duration, tokensIn, tokensOut int) {
-			line := fmt.Sprintf("\r  Context: %s elapsed, %d tokens in, %d tokens out",
-				elapsed.Truncate(time.Second), tokensIn, tokensOut)
-			lineLen := len(line)
-			if lineLen < lastProgressLine {
-				line += strings.Repeat(" ", lastProgressLine-lineLen)
-			}
-			lastProgressLine = lineLen
-			fmt.Print(line)
-		}
 	}
 
 	// Build run config
@@ -453,39 +431,23 @@ func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, wo
 	return eng.Run(ctx, config)
 }
 
-func outputResult(result *engine.RunResult) {
-	if runJSONL {
-		output := runOutput{
-			EpicID:         result.EpicID,
-			Iterations:     result.Iterations,
-			TotalTokens:    result.TotalTokens,
-			TotalCost:      result.TotalCost,
-			DurationSec:    result.Duration.Seconds(),
-			CompletedTasks: result.CompletedTasks,
-			ExitReason:     result.ExitReason,
-		}
-		if result.Signal != engine.SignalNone {
-			output.Signal = result.Signal.String()
-			output.SignalReason = result.SignalReason
-		}
-		enc := json.NewEncoder(os.Stdout)
-		_ = enc.Encode(output)
-	} else {
-		fmt.Printf("\n=== Run Complete ===\n")
-		fmt.Printf("Epic: %s\n", result.EpicID)
-		fmt.Printf("Iterations: %d\n", result.Iterations)
-		fmt.Printf("Tokens: %d\n", result.TotalTokens)
-		fmt.Printf("Cost: $%.4f\n", result.TotalCost)
-		fmt.Printf("Duration: %v\n", result.Duration.Round(time.Second))
-		fmt.Printf("Completed tasks: %d\n", len(result.CompletedTasks))
-		fmt.Printf("Exit reason: %s\n", result.ExitReason)
-		if result.Signal != engine.SignalNone {
-			fmt.Printf("Signal: %s\n", result.Signal)
-			if result.SignalReason != "" {
-				fmt.Printf("Signal reason: %s\n", result.SignalReason)
-			}
-		}
+func emitRunComplete(out *output.RunOutput, result *engine.RunResult) {
+	var sig, sigReason string
+	if result.Signal != engine.SignalNone {
+		sig = result.Signal.String()
+		sigReason = result.SignalReason
 	}
+	out.RunComplete(output.RunResult{
+		EpicID:         result.EpicID,
+		Iterations:     result.Iterations,
+		TotalTokens:    result.TotalTokens,
+		TotalCost:      result.TotalCost,
+		Duration:       result.Duration,
+		CompletedTasks: result.CompletedTasks,
+		Signal:         sig,
+		SignalReason:   sigReason,
+		ExitReason:     result.ExitReason,
+	})
 }
 
 // findAvailablePort finds an available port starting from the given port.

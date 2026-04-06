@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/engine"
+	"github.com/pengelbrecht/ticks/internal/output"
 	"github.com/pengelbrecht/ticks/internal/ticks"
 	"github.com/pengelbrecht/ticks/internal/worktree"
 
@@ -96,7 +97,7 @@ type Runner struct {
 	Worktree     *worktree.Worktree
 	NoMerge      bool
 	CreatePR     bool
-	JSONL        bool // suppress non-machine output
+	Output       *output.RunOutput
 }
 
 // Run executes the wrap-up phase: steps, report, merge/preserve, PR.
@@ -109,13 +110,8 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 
 	// Print step summary
 	for _, sr := range stepResults {
-		status := "PASS"
-		if !sr.Success {
-			status = "FAIL"
-		}
-		fmt.Printf("  [%s] %s\n", status, sr.Name)
-		if !sr.Success && sr.Error != nil {
-			fmt.Fprintf(os.Stderr, "    error: %v\n", sr.Error)
+		if r.Output != nil {
+			r.Output.WrapupStepResult(sr.Name, sr.Success, sr.Error)
 		}
 	}
 
@@ -123,7 +119,9 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 	report, err := r.generateReport(result)
 	if err != nil {
 		// Non-fatal: proceed with merge even if report fails
-		fmt.Fprintf(os.Stderr, "Warning: report generation failed: %v\n", err)
+		if r.Output != nil {
+			r.Output.Warn("report generation failed: %v", err)
+		}
 	}
 
 	// 3. Handle merge/preserve
@@ -132,35 +130,42 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 	if result != nil && engine.ShouldCleanupWorktree(result.ExitReason) && !r.NoMerge {
 		mergeResult, err = r.handleMerge()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: merge failed: %v\n", err)
-			fmt.Fprintf(os.Stderr, "Worktree preserved at: %s\n", r.WorkDir)
+			if r.Output != nil {
+				r.Output.Warn("merge failed: %v", err)
+				r.Output.WorktreePreserved(r.WorkDir, "merge failed")
+			}
 		} else if mergeResult != nil && mergeResult.Success {
 			merged = true
 			_ = r.WtManager.Remove(r.EpicID)
-			if !r.JSONL {
-				fmt.Printf("Merged to %s and cleaned up worktree\n", mergeResult.TargetBranch)
+			if r.Output != nil {
+				r.Output.MergeSuccess(mergeResult.TargetBranch)
 			}
 		} else if mergeResult != nil && !mergeResult.Success {
-			if len(mergeResult.Conflicts) > 0 {
-				fmt.Fprintf(os.Stderr, "Warning: merge conflicts in: %v\n", mergeResult.Conflicts)
-			} else {
-				fmt.Fprintf(os.Stderr, "Warning: merge failed: %s\n", mergeResult.ErrorMessage)
+			if r.Output != nil {
+				if len(mergeResult.Conflicts) > 0 {
+					r.Output.Warn("merge conflicts in: %v", mergeResult.Conflicts)
+				} else {
+					r.Output.Warn("merge failed: %s", mergeResult.ErrorMessage)
+				}
+				r.Output.WorktreePreserved(r.WorkDir, "merge conflicts")
 			}
-			fmt.Fprintf(os.Stderr, "Worktree preserved at: %s\n", r.WorkDir)
 		}
 	} else if r.NoMerge {
-		if !r.JSONL {
-			fmt.Printf("Worktree preserved (--no-merge): %s\n", r.WorkDir)
-			fmt.Printf("Branch: %s\n", r.Worktree.Branch)
+		if r.Output != nil {
+			r.Output.WorktreeInfo(r.WorkDir, r.Worktree.Branch)
 		}
-	} else if result != nil && !r.JSONL {
-		fmt.Printf("Worktree preserved for resumption: %s\n", r.WorkDir)
+	} else if result != nil {
+		if r.Output != nil {
+			r.Output.WorktreePreserved(r.WorkDir, "resumption")
+		}
 	}
 
 	// 4. Create PR if requested and merge succeeded
 	if r.CreatePR && merged && report != nil {
 		if err := r.createPR(report, mergeResult); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: PR creation failed: %v\n", err)
+			if r.Output != nil {
+				r.Output.Warn("PR creation failed: %v", err)
+			}
 		}
 	}
 
@@ -388,7 +393,9 @@ func (r *Runner) createPR(report *Report, mergeResult *worktree.MergeResult) err
 		return fmt.Errorf("gh pr create failed: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
-	fmt.Printf("PR created: %s\n", strings.TrimSpace(string(output)))
+	if r.Output != nil {
+		r.Output.PRCreated(strings.TrimSpace(string(output)))
+	}
 	return nil
 }
 

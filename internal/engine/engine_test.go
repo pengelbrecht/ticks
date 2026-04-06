@@ -9,6 +9,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
+	"github.com/pengelbrecht/ticks/internal/output"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/ticks"
 )
@@ -517,67 +518,39 @@ func TestRunState_ToResult(t *testing.T) {
 	}
 }
 
-func TestEngine_Callbacks(t *testing.T) {
+func TestEngine_OutputRouting(t *testing.T) {
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
 
 	mockAg := &mockAgent{name: "test", available: true}
 
-	iterStartCalled := false
-	iterEndCalled := false
-	outputCalled := false
-	signalCalled := false
-
+	// Engine with nil Output should not panic
 	e := &Engine{
-		agent:      mockAg,
-		budget:     b,
-
-		prompt:     NewPromptBuilder(),
-		OnIterationStart: func(ctx IterationContext) {
-			iterStartCalled = true
-		},
-		OnIterationEnd: func(result *IterationResult) {
-			iterEndCalled = true
-		},
-		OnOutput: func(chunk string) {
-			outputCalled = true
-		},
-		OnSignal: func(signal Signal, reason string) {
-			signalCalled = true
-		},
+		agent:  mockAg,
+		budget: b,
+		prompt: NewPromptBuilder(),
 	}
 
-	// Verify callbacks are set
-	if e.OnIterationStart == nil {
-		t.Error("OnIterationStart not set")
-	}
-	if e.OnIterationEnd == nil {
-		t.Error("OnIterationEnd not set")
-	}
-	if e.OnOutput == nil {
-		t.Error("OnOutput not set")
-	}
-	if e.OnSignal == nil {
-		t.Error("OnSignal not set")
+	if e.Output != nil {
+		t.Error("Output should be nil by default")
 	}
 
-	// Call the callbacks directly to verify they work
-	e.OnIterationStart(IterationContext{})
-	e.OnIterationEnd(&IterationResult{})
-	e.OnOutput("test")
-	e.OnSignal(SignalComplete, "")
+	// Engine with Output set should be usable
+	out := output.New()
+	e.Output = out
 
-	if !iterStartCalled {
-		t.Error("OnIterationStart was not called")
+	if e.Output == nil {
+		t.Error("Output should be set after assignment")
 	}
-	if !iterEndCalled {
-		t.Error("OnIterationEnd was not called")
-	}
-	if !outputCalled {
-		t.Error("OnOutput was not called")
-	}
-	if !signalCalled {
-		t.Error("OnSignal was not called")
-	}
+
+	// Calling Output methods should not panic
+	e.Output.TaskStarted(1, "test-task", "Test Task")
+	e.Output.TaskCompleted(output.IterationResult{
+		Iteration: 1,
+		TaskID:    "test-task",
+		TaskTitle: "Test Task",
+	})
+	e.Output.AgentOutput("test chunk")
+	e.Output.Signal("COMPLETE", "", "test-task")
 }
 
 func TestDefaultConstants(t *testing.T) {
@@ -1697,45 +1670,28 @@ func TestRunConfig_WatchDefaults(t *testing.T) {
 	}
 }
 
-func TestEngine_OnIdleCallback(t *testing.T) {
+func TestEngine_NilOutputSafe(t *testing.T) {
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
 
 	mockAg := &mockAgent{name: "test", available: true}
 
-	idleCalled := false
-	idleCallCount := 0
-
 	e := &Engine{
-		agent:      mockAg,
-		budget:     b,
-
-		prompt:     NewPromptBuilder(),
-		OnIdle: func() {
-			idleCalled = true
-			idleCallCount++
-		},
+		agent:  mockAg,
+		budget: b,
+		prompt: NewPromptBuilder(),
 	}
 
-	// Verify callback is set
-	if e.OnIdle == nil {
-		t.Error("OnIdle not set")
+	// Engine with nil Output should not panic during any operation
+	if e.Output != nil {
+		t.Error("Output should be nil by default")
 	}
 
-	// Call the callback directly to verify it works
-	e.OnIdle()
-
-	if !idleCalled {
-		t.Error("OnIdle was not called")
-	}
-	if idleCallCount != 1 {
-		t.Errorf("OnIdle call count = %d, want 1", idleCallCount)
-	}
-
-	// Call again to verify counter increments
-	e.OnIdle()
-	if idleCallCount != 2 {
-		t.Errorf("OnIdle call count = %d, want 2", idleCallCount)
-	}
+	// Engine with Output set routes events safely
+	out := output.New()
+	e.Output = out
+	e.Output.Idle()
+	e.Output.Idle()
+	// No panic means success
 }
 
 func TestShouldCleanupWorktree_WatchTimeout(t *testing.T) {
@@ -1786,7 +1742,7 @@ func (m *mockTicksClientForWatch) HasOpenTasks(epicID string) (bool, error) {
 	return true, nil
 }
 
-func TestHandleWatchIdle_CallsOnIdle(t *testing.T) {
+func TestHandleWatchIdle_CallsOutput(t *testing.T) {
 	mock := newMockTicksClientForWatch()
 	mock.epic = &ticks.Epic{ID: "test-epic", Title: "Test Epic", Type: "epic"}
 	// Configure: first poll returns no task, second poll returns a task
@@ -1795,16 +1751,11 @@ func TestHandleWatchIdle_CallsOnIdle(t *testing.T) {
 
 	b := budget.NewTracker(budget.Limits{MaxIterations: 10})
 
-
-	idleCallCount := 0
 	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-
-		prompt:     NewPromptBuilder(),
-		OnIdle: func() {
-			idleCallCount++
-		},
+		ticks:  mock,
+		budget: b,
+		prompt: NewPromptBuilder(),
+		Output: output.New(),
 	}
 
 	state := &runState{
@@ -1820,14 +1771,11 @@ func TestHandleWatchIdle_CallsOnIdle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	// handleWatchIdle should call OnIdle at least once and then return nil when tasks become available
+	// handleWatchIdle should return nil when tasks become available
 	result := engine.handleWatchIdle(ctx, config, state, time.Time{})
 
 	if result != nil {
 		t.Errorf("handleWatchIdle returned result %+v, want nil (tasks became available)", result)
-	}
-	if idleCallCount < 1 {
-		t.Errorf("OnIdle called %d times, want at least 1", idleCallCount)
 	}
 }
 
@@ -1842,11 +1790,9 @@ func TestHandleWatchIdle_WatchTimeout(t *testing.T) {
 
 
 	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-
-		prompt:     NewPromptBuilder(),
-		OnIdle:     func() {},
+		ticks:  mock,
+		budget: b,
+		prompt: NewPromptBuilder(),
 	}
 
 	state := &runState{
@@ -1884,11 +1830,9 @@ func TestHandleWatchIdle_ContextCancelled(t *testing.T) {
 
 
 	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-
-		prompt:     NewPromptBuilder(),
-		OnIdle:     func() {},
+		ticks:  mock,
+		budget: b,
+		prompt: NewPromptBuilder(),
 	}
 
 	state := &runState{
@@ -1931,11 +1875,9 @@ func TestHandleWatchIdle_EpicCompletes(t *testing.T) {
 
 
 	engine := &Engine{
-		ticks:      mock,
-		budget:     b,
-
-		prompt:     NewPromptBuilder(),
-		OnIdle:     func() {},
+		ticks:  mock,
+		budget: b,
+		prompt: NewPromptBuilder(),
 	}
 
 	state := &runState{
