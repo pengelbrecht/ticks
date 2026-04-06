@@ -277,58 +277,101 @@ func TestWrapupStepResult_SuppressedInJSONL(t *testing.T) {
 	}
 }
 
-func TestWrapupAgentStep_TerminalOutput(t *testing.T) {
+func TestWrapupAgentStepStarted_TerminalOutput(t *testing.T) {
 	var stdout bytes.Buffer
 	o := New(WithStdout(&stdout))
 
-	o.WrapupAgentStep(2, 3, "Review changes", "done")
+	o.WrapupAgentStepStarted(2, 3, "Review changes")
 
 	got := stdout.String()
-	expected := "  [2/3] Review changes... done\n"
+	expected := "  [2/3] Review changes...\n"
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
 }
 
-func TestWrapupAgentStep_Failed(t *testing.T) {
-	var stdout bytes.Buffer
-	o := New(WithStdout(&stdout))
-
-	o.WrapupAgentStep(1, 3, "Run tests", "failed")
-
-	got := stdout.String()
-	expected := "  [1/3] Run tests... failed\n"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
-func TestWrapupAgentStep_SuppressedInJSONL(t *testing.T) {
+func TestWrapupAgentStepStarted_SuppressedInJSONL(t *testing.T) {
 	var stdout bytes.Buffer
 	o := New(WithStdout(&stdout), WithJSONL(true))
 
-	o.WrapupAgentStep(1, 2, "Review changes", "done")
+	o.WrapupAgentStepStarted(1, 2, "Review changes")
 
 	if stdout.Len() != 0 {
 		t.Error("expected no output in JSONL mode")
 	}
 }
 
-func TestWrapupAgentStep_BroadcastsToBoard(t *testing.T) {
+func TestWrapupAgentStepStarted_BroadcastsToBoard(t *testing.T) {
 	board := &mockBoardSink{}
 	o := New(WithBoard(board))
 
-	o.WrapupAgentStep(2, 3, "Review changes", "done")
+	o.WrapupAgentStepStarted(2, 3, "Review changes")
 
 	if len(board.events) != 1 {
 		t.Fatalf("expected 1 board event, got %d", len(board.events))
 	}
 	ev := board.events[0]
-	if ev.eventType != "wrapup_agent_step" {
-		t.Errorf("event type = %q, want %q", ev.eventType, "wrapup_agent_step")
+	if ev.eventType != "wrapup_agent_step_started" {
+		t.Errorf("event type = %q, want %q", ev.eventType, "wrapup_agent_step_started")
 	}
 	data := ev.data.(map[string]any)
-	if data["index"] != 2 || data["total"] != 3 || data["title"] != "Review changes" || data["status"] != "done" {
+	if data["index"] != 2 || data["total"] != 3 || data["title"] != "Review changes" {
+		t.Errorf("unexpected event data: %v", data)
+	}
+}
+
+func TestWrapupAgentStepCompleted_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.WrapupAgentStepCompleted(2, 3, "Review changes", "completed", 1500*time.Millisecond)
+
+	got := stdout.String()
+	expected := "  [2/3] Review changes — completed (1.5s)\n"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestWrapupAgentStepCompleted_Failed(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.WrapupAgentStepCompleted(1, 3, "Run tests", "failed", 250*time.Millisecond)
+
+	got := stdout.String()
+	expected := "  [1/3] Run tests — failed (250ms)\n"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestWrapupAgentStepCompleted_SuppressedInJSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.WrapupAgentStepCompleted(1, 2, "Review changes", "completed", time.Second)
+
+	if stdout.Len() != 0 {
+		t.Error("expected no output in JSONL mode")
+	}
+}
+
+func TestWrapupAgentStepCompleted_BroadcastsToBoard(t *testing.T) {
+	board := &mockBoardSink{}
+	o := New(WithBoard(board))
+
+	o.WrapupAgentStepCompleted(2, 3, "Review changes", "completed", 2*time.Second)
+
+	if len(board.events) != 1 {
+		t.Fatalf("expected 1 board event, got %d", len(board.events))
+	}
+	ev := board.events[0]
+	if ev.eventType != "wrapup_agent_step_completed" {
+		t.Errorf("event type = %q, want %q", ev.eventType, "wrapup_agent_step_completed")
+	}
+	data := ev.data.(map[string]any)
+	if data["index"] != 2 || data["total"] != 3 || data["title"] != "Review changes" || data["status"] != "completed" {
 		t.Errorf("unexpected event data: %v", data)
 	}
 }
@@ -365,7 +408,8 @@ func TestNilSinks_NoPanic(t *testing.T) {
 	o.AgentOutput("chunk")
 	o.RunComplete(RunResult{})
 	o.WrapupStepResult("step", true, nil)
-	o.WrapupAgentStep(1, 2, "step", "done")
+	o.WrapupAgentStepStarted(1, 2, "step")
+	o.WrapupAgentStepCompleted(1, 2, "step", "done", time.Second)
 	o.MergeSuccess("branch")
 	o.WorktreePreserved("/tmp", "reason")
 	o.Warn("test")

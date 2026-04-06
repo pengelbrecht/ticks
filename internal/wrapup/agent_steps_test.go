@@ -435,17 +435,17 @@ func TestRunAgentSteps_OutputCalls(t *testing.T) {
 	}
 
 	got := stdout.String()
-	// Should have "running" and "completed" output for each step
-	if !strings.Contains(got, "[1/2] Step 1... running") {
-		t.Errorf("expected running output for step 1, got: %s", got)
+	// Should have "started" and "completed" output for each step
+	if !strings.Contains(got, "[1/2] Step 1...") {
+		t.Errorf("expected started output for step 1, got: %s", got)
 	}
-	if !strings.Contains(got, "[1/2] Step 1... completed") {
+	if !strings.Contains(got, "[1/2] Step 1 — completed") {
 		t.Errorf("expected completed output for step 1, got: %s", got)
 	}
-	if !strings.Contains(got, "[2/2] Step 2... running") {
-		t.Errorf("expected running output for step 2, got: %s", got)
+	if !strings.Contains(got, "[2/2] Step 2...") {
+		t.Errorf("expected started output for step 2, got: %s", got)
 	}
-	if !strings.Contains(got, "[2/2] Step 2... completed") {
+	if !strings.Contains(got, "[2/2] Step 2 — completed") {
 		t.Errorf("expected completed output for step 2, got: %s", got)
 	}
 }

@@ -509,25 +509,32 @@ func (o *RunOutput) WrapupStepResult(name string, success bool, err error) {
 	}
 }
 
-// WrapupAgentStep reports progress of an agent wrapup step.
-// It prints a numbered progress line to the terminal and broadcasts a
-// "wrapup_agent_step" event to the board if connected.
-//
-// Parameters:
-//   - index: the 1-based step number (e.g. 2 in "[2/3]")
-//   - total: the total number of wrapup steps
-//   - title: short description of the step (e.g. "Review changes")
-//   - status: current state of the step (e.g. "done", "running", "failed")
-func (o *RunOutput) WrapupAgentStep(index, total int, title, status string) {
+// WrapupAgentStepStarted signals that an agent wrapup step has started.
+func (o *RunOutput) WrapupAgentStepStarted(index, total int, title string) {
 	if !o.jsonl {
-		o.printf("  [%d/%d] %s... %s\n", index, total, title, status)
+		o.printf("  [%d/%d] %s...\n", index, total, title)
 	}
 	if o.board != nil {
-		o.board.BroadcastRunEvent("", "wrapup_agent_step", map[string]any{
-			"index":  index,
-			"total":  total,
-			"title":  title,
-			"status": status,
+		o.board.BroadcastRunEvent("", "wrapup_agent_step_started", map[string]any{
+			"index": index,
+			"total": total,
+			"title": title,
+		})
+	}
+}
+
+// WrapupAgentStepCompleted signals that an agent wrapup step has finished.
+func (o *RunOutput) WrapupAgentStepCompleted(index, total int, title, status string, duration time.Duration) {
+	if !o.jsonl {
+		o.printf("  [%d/%d] %s — %s (%s)\n", index, total, title, status, duration.Truncate(time.Millisecond))
+	}
+	if o.board != nil {
+		o.board.BroadcastRunEvent("", "wrapup_agent_step_completed", map[string]any{
+			"index":    index,
+			"total":    total,
+			"title":    title,
+			"status":   status,
+			"duration": duration.String(),
 		})
 	}
 }
