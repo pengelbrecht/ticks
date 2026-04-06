@@ -1,0 +1,17 @@
+{
+  "id": "vux",
+  "title": "Test wrapup harness",
+  "notes": "2026-04-06 15:44 - j32 done: Added WrapupAgentStep to RunOutput. Follows same pattern as WrapupStepResult — terminal output + board broadcast, JSONL suppression. No runLog sink method added since RunLogSink doesn't have a wrapup step logger.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "test"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:43:27.730558Z",
+  "updated_at": "2026-04-06T13:45:00.392901Z",
+  "closed_at": "2026-04-06T13:45:00.392901Z",
+  "closed_reason": "all tasks completed"
+}

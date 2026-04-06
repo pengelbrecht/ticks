@@ -3,11 +3,13 @@
   "title": "Calculator Test Epic",
   "description": "Test epic with trivial calculator tasks for validating tickboard UI features.",
   "notes": "2026-01-21 07:50 - Iteration 1 [9rk]: Created internal/calculator/calc.go with Add function. Package follows existing patterns with doc comment. Build passes. Next task should add Subtract and Multiply to the same file.\n2026-01-21 07:51 - Iteration 2 [rvs]: Added Subtract and Multiply functions to internal/calculator/calc.go. All three arithmetic functions now available (Add, Subtract, Multiply). Build passes. Next task should add tests for all three functions.\n2026-01-21 07:51 - Iteration 3 [zan]: Created internal/calculator/calc_test.go with table-driven tests for all three functions. 9 test cases total (3 per function). All tests pass. Next task should clean up by removing the calculator package.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-21T06:48:26.381727Z",
-  "updated_at": "2026-01-21T06:51:54.012218Z"
+  "updated_at": "2026-04-06T13:42:34.195976Z",
+  "closed_at": "2026-04-06T13:42:34.195976Z",
+  "closed_reason": "Test epic, no longer needed"
 }

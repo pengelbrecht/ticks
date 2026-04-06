@@ -1,0 +1,15 @@
+{
+  "id": "j32",
+  "title": "Add RunOutput.WrapupAgentStep method for agent wrapup step progress",
+  "description": "Add a method to internal/output/output.go for reporting agent wrapup step progress:\n\nfunc (o *RunOutput) WrapupAgentStep(index, total int, title, status string)\n\nTerminal output: '  [2/3] Review changes... done' or '  [2/3] Review changes... failed'\nBoard: broadcast as wrapup_agent_step event.\n\nThis is a small, real gap — the agent wrapup steps currently have no output method in RunOutput.\n\nFiles: internal/output/output.go, internal/output/output_test.go",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "vux",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:43:37.887357Z",
+  "updated_at": "2026-04-06T13:44:40.78341Z",
+  "closed_at": "2026-04-06T13:44:40.78341Z",
+  "closed_reason": "Added WrapupAgentStep(index, total, title, status) method to RunOutput. Terminal prints '  [2/3] Review changes... done' format, suppressed in JSONL mode. Board broadcasts as wrapup_agent_step event with index/total/title/status data. Added 4 tests covering terminal output, JSONL suppression, board broadcast, and nil-sink safety."
+}

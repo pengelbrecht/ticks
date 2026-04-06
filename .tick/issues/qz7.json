@@ -1,0 +1,16 @@
+{
+  "id": "qz7",
+  "title": "Handle merge failures gracefully — detect dirty worktree, stash or warn",
+  "description": "When tk run completes and attempts to merge the worktree branch back to the parent, it can fail silently if the parent branch has uncommitted changes ('local changes would be overwritten by merge'). This caused lost work in practice — the worktree code was never merged and the user wasn't clearly informed.\n\nCurrent behavior: merge fails, a warning is printed to stderr, worktree is 'preserved' but the user may not notice among other output.\n\nExpected behavior:\n1. Before merge: check if parent branch working tree is dirty (git status --porcelain)\n2. If dirty: warn clearly and skip merge, preserving worktree with explicit instructions ('run git stash \u0026\u0026 tk merge \u003cepic-id\u003e' or similar)\n3. If merge conflicts: same — preserve worktree, print clear instructions for manual resolution\n4. Consider: auto-stash before merge, merge, then stash pop (like git pull --autostash)\n5. The worktree branch name and path must be clearly communicated so the user can recover\n\nFiles: internal/worktree/merge.go, internal/wrapup/wrapup.go",
+  "status": "open",
+  "priority": 2,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "reliability",
+    "merge"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:42:00.438711Z",
+  "updated_at": "2026-04-06T13:42:00.438711Z"
+}

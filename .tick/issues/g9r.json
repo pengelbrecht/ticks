@@ -1,0 +1,15 @@
+{
+  "id": "g9r",
+  "title": "Add doc comment to RunOutput.WrapupAgentStep",
+  "description": "The WrapupAgentStep method in internal/output/output.go (added by j32) is missing a doc comment. Add a standard Go doc comment explaining the method's purpose and parameters.\n\nFiles: internal/output/output.go",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "7dm",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:51:50.333307Z",
+  "updated_at": "2026-04-06T13:52:36.117319Z",
+  "closed_at": "2026-04-06T13:52:36.117319Z",
+  "closed_reason": "Added comprehensive Go doc comment to RunOutput.WrapupAgentStep explaining the method's purpose (progress reporting and board event broadcasting) and documenting all four parameters (index, total, title, status) with examples."
+}

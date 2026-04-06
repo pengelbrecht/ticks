@@ -2,7 +2,7 @@
   "id": "rqh",
   "title": "Add task status types to UI",
   "description": "Add TypeScript types for task status events and update sync handler.\n\nRequirements:\n- Add TaskStatusEvent type matching server schema\n- Add taskStatuses state to board context (Map\u003ctickId, TaskStatus\u003e)\n- Handle 'task-status' SSE events in sync handler\n- Merge task status into tick display data\n\nFiles:\n- internal/tickboard/ui/src/types/tick.ts - Add TaskStatus types\n- internal/tickboard/ui/src/api/sync.ts - Handle task-status events\n- internal/tickboard/ui/src/contexts/board-context.ts - Add taskStatuses state\n\nTest:\n- Verify TypeScript compiles\n- Console.log task events when received",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "UI receives and stores task status events",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-23T11:39:28.148293Z",
-  "updated_at": "2026-01-23T11:39:28.148293Z"
+  "updated_at": "2026-04-06T13:42:47.471518Z",
+  "closed_at": "2026-04-06T13:42:47.471518Z",
+  "closed_reason": "closed with parent epic (--force)"
 }

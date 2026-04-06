@@ -1,0 +1,17 @@
+{
+  "id": "7dm",
+  "title": "Test wrapup flow",
+  "notes": "2026-04-06 15:52 - g9r: Added comprehensive doc comment to WrapupAgentStep with parameter docs. Method was added by j32.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "test"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:51:37.389639Z",
+  "updated_at": "2026-04-06T13:52:49.049536Z",
+  "closed_at": "2026-04-06T13:52:49.049536Z",
+  "closed_reason": "all tasks completed"
+}
