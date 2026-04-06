@@ -6,10 +6,13 @@ import (
 )
 
 // WrapupStep is a single agent-driven wrapup step parsed from .tick/wrapup.md.
+// Steps with the same Group number run in parallel; groups execute sequentially
+// (group 1 before group 2). Group 0 means sequential (no parallelism).
 type WrapupStep struct {
 	Title  string `json:"title"`
 	Prompt string `json:"prompt"`
 	Verify string `json:"verify"`
+	Group  int    `json:"group"`
 }
 
 // BuildStepPrompt generates the prompt sent to the agent for a wrapup step.

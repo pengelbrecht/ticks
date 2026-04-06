@@ -31,6 +31,14 @@ Return a JSON array where each element has:
 - "title": short name for the step (under 60 chars)
 - "prompt": the full instructions the agent should follow to complete this step
 - "verify": what "done" looks like — how to verify the step is complete
+- "group": integer for parallel execution grouping
+
+Group assignment rules:
+- Steps that are independent of each other get the same group number (they will run in parallel)
+- Steps that depend on the output of earlier steps get a higher group number
+- Groups execute sequentially: all group 1 steps complete before group 2 starts
+- Start numbering from 1
+- Example: "review code" (group 1), "codex review" (group 1), "simplify based on reviews" (group 2)
 
 Return ONLY valid JSON — no markdown fences, no commentary, no explanation.
 
@@ -41,7 +49,7 @@ Wrap-up instructions:
 const strictRetryPrompt = `Your previous response was not valid JSON. You MUST return ONLY a JSON array.
 
 Do not include markdown code fences, explanatory text, or anything else.
-The array elements must have exactly these keys: "title", "prompt", "verify".
+The array elements must have exactly these keys: "title", "prompt", "verify", "group".
 
 Here are the original instructions again:
 %s`
