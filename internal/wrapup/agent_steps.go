@@ -10,6 +10,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/engine"
+	"github.com/pengelbrecht/ticks/internal/output"
 )
 
 // AgentStepResult holds the outcome and metrics of a single agent-driven wrapup step.
@@ -45,10 +46,11 @@ type StepProgress struct {
 
 // WrapupRunner executes agent-driven wrapup steps.
 type WrapupRunner struct {
-	WorkDir          string
-	TickDir          string
-	Timeout          time.Duration
+	WorkDir           string
+	TickDir           string
+	Timeout           time.Duration
 	MaxRetriesPerStep int
+	Output            *output.RunOutput
 }
 
 const defaultMaxRetries = 2
@@ -182,6 +184,10 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 		step := steps[i]
 		stepStart := time.Now()
 
+		if wr.Output != nil {
+			wr.Output.WrapupAgentStep(i+1, len(steps), step.Title, "running")
+		}
+
 		prompt := BuildStepPrompt(step, i, len(steps), completedTitles)
 
 		var stepResult AgentStepResult
@@ -192,6 +198,10 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			stepResult.Attempts = attempt + 1
+
+			if attempt > 0 && wr.Output != nil {
+				wr.Output.Warn("Retrying step %d: %s (attempt %d)", i+1, step.Title, attempt+1)
+			}
 
 			var result *agent.Result
 			var err error
@@ -243,6 +253,10 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 			stepResult.Duration = time.Since(stepStart)
 		}
 
+		if wr.Output != nil {
+			wr.Output.WrapupAgentStep(i+1, len(steps), step.Title, stepResult.Status)
+		}
+
 		results = append(results, stepResult)
 
 		if stepResult.Status == "completed" {
@@ -251,7 +265,11 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 
 		// Save progress after each step
 		if err := saveProgress(logsDir, epicID, results, startedAt); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save wrapup progress: %v\n", err)
+			if wr.Output != nil {
+				wr.Output.Warn("failed to save wrapup progress: %v", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save wrapup progress: %v\n", err)
+			}
 		}
 	}
 

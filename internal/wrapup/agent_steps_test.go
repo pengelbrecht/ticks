@@ -1,15 +1,18 @@
 package wrapup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/agent"
+	"github.com/pengelbrecht/ticks/internal/output"
 )
 
 // stepMockAgent implements agent.Agent for testing one-shot execution.
@@ -392,5 +395,97 @@ func TestRunAgentSteps_ProgressPersistence(t *testing.T) {
 	}
 	if saved.Steps[0].Status != "completed" {
 		t.Errorf("expected completed in progress, got %s", saved.Steps[0].Status)
+	}
+}
+
+func TestRunAgentSteps_OutputCalls(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	out := output.New(output.WithStdout(&stdout), output.WithStderr(&stderr))
+
+	session := &stepMockSession{
+		responses: []string{
+			"Done step 1 <promise>STEP_DONE</promise>",
+			"Done step 2 <promise>STEP_DONE</promise>",
+		},
+	}
+	ag := &stepMockSessionAgent{
+		stepMockAgent: stepMockAgent{name: "test"},
+		session:       session,
+	}
+
+	steps := []WrapupStep{
+		{Title: "Step 1", Prompt: "Do step 1"},
+		{Title: "Step 2", Prompt: "Do step 2"},
+	}
+
+	dir := t.TempDir()
+	runner := &WrapupRunner{
+		WorkDir: dir,
+		TickDir: filepath.Join(dir, ".tick"),
+		Output:  out,
+	}
+
+	results, err := runner.RunAgentSteps(context.Background(), steps, "test-epic", ag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	got := stdout.String()
+	// Should have "running" and "completed" output for each step
+	if !strings.Contains(got, "[1/2] Step 1... running") {
+		t.Errorf("expected running output for step 1, got: %s", got)
+	}
+	if !strings.Contains(got, "[1/2] Step 1... completed") {
+		t.Errorf("expected completed output for step 1, got: %s", got)
+	}
+	if !strings.Contains(got, "[2/2] Step 2... running") {
+		t.Errorf("expected running output for step 2, got: %s", got)
+	}
+	if !strings.Contains(got, "[2/2] Step 2... completed") {
+		t.Errorf("expected completed output for step 2, got: %s", got)
+	}
+}
+
+func TestRunAgentSteps_OutputRetryWarning(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	out := output.New(output.WithStdout(&stdout), output.WithStderr(&stderr))
+
+	session := &stepMockSession{
+		responses: []string{
+			"I did some work but forgot the signal",
+			"OK here it is <promise>STEP_DONE</promise>",
+		},
+	}
+	ag := &stepMockSessionAgent{
+		stepMockAgent: stepMockAgent{name: "test"},
+		session:       session,
+	}
+
+	steps := []WrapupStep{
+		{Title: "Step 1", Prompt: "Do step 1", Verify: "Check 1"},
+	}
+
+	dir := t.TempDir()
+	runner := &WrapupRunner{
+		WorkDir: dir,
+		TickDir: filepath.Join(dir, ".tick"),
+		Output:  out,
+	}
+
+	results, err := runner.RunAgentSteps(context.Background(), steps, "test-epic", ag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results[0].Status != "completed" {
+		t.Errorf("expected completed, got %s", results[0].Status)
+	}
+
+	// Should have a retry warning on stderr
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "Retrying step 1: Step 1 (attempt 2)") {
+		t.Errorf("expected retry warning, got: %s", errOut)
 	}
 }

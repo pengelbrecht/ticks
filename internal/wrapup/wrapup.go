@@ -210,7 +210,11 @@ func (r *Runner) runAgentWrapupSteps(ctx context.Context) ([]AgentStepResult, er
 			return nil, fmt.Errorf("parsing wrapup steps: %w", err)
 		}
 		if cacheErr := CacheSteps(logsDir, r.EpicID, steps); cacheErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to cache wrapup steps: %v\n", cacheErr)
+			if r.Output != nil {
+				r.Output.Warn("failed to cache wrapup steps: %v", cacheErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: failed to cache wrapup steps: %v\n", cacheErr)
+			}
 		}
 	}
 
@@ -225,6 +229,7 @@ func (r *Runner) runAgentWrapupSteps(ctx context.Context) ([]AgentStepResult, er
 	wr := &WrapupRunner{
 		WorkDir: r.WorkDir,
 		TickDir: r.TickDir,
+		Output:  r.Output,
 	}
 
 	return wr.RunAgentSteps(ctx, steps, r.EpicID, r.Agent)
