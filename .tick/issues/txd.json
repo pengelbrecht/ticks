@@ -1,0 +1,14 @@
+{
+  "id": "txd",
+  "title": "Test wrapup with skills and parallel groups",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "test"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T14:43:58.399355Z",
+  "updated_at": "2026-04-06T14:43:58.399355Z"
+}

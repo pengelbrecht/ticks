@@ -1,0 +1,13 @@
+{
+  "id": "afu",
+  "title": "Add WrapupAgentStepStarted and WrapupAgentStepCompleted methods to RunOutput",
+  "description": "RunOutput has WrapupStepResult for shell steps but no equivalent for agent wrapup steps. Add two methods:\n\nfunc (o *RunOutput) WrapupAgentStepStarted(index, total int, title string)\n  Terminal: '  [%d/%d] %s...'\n  Board: broadcast wrapup_agent_step_started event\n\nfunc (o *RunOutput) WrapupAgentStepCompleted(index, total int, title, status string, duration time.Duration)\n  Terminal: '  [%d/%d] %s — %s (%s)'\n  Board: broadcast wrapup_agent_step_completed event\n\nFiles: internal/output/output.go",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "txd",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T14:44:07.612228Z",
+  "updated_at": "2026-04-06T14:44:07.612228Z"
+}
