@@ -277,6 +277,62 @@ func TestWrapupStepResult_SuppressedInJSONL(t *testing.T) {
 	}
 }
 
+func TestWrapupAgentStep_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.WrapupAgentStep(2, 3, "Review changes", "done")
+
+	got := stdout.String()
+	expected := "  [2/3] Review changes... done\n"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestWrapupAgentStep_Failed(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.WrapupAgentStep(1, 3, "Run tests", "failed")
+
+	got := stdout.String()
+	expected := "  [1/3] Run tests... failed\n"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestWrapupAgentStep_SuppressedInJSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.WrapupAgentStep(1, 2, "Review changes", "done")
+
+	if stdout.Len() != 0 {
+		t.Error("expected no output in JSONL mode")
+	}
+}
+
+func TestWrapupAgentStep_BroadcastsToBoard(t *testing.T) {
+	board := &mockBoardSink{}
+	o := New(WithBoard(board))
+
+	o.WrapupAgentStep(2, 3, "Review changes", "done")
+
+	if len(board.events) != 1 {
+		t.Fatalf("expected 1 board event, got %d", len(board.events))
+	}
+	ev := board.events[0]
+	if ev.eventType != "wrapup_agent_step" {
+		t.Errorf("event type = %q, want %q", ev.eventType, "wrapup_agent_step")
+	}
+	data := ev.data.(map[string]any)
+	if data["index"] != 2 || data["total"] != 3 || data["title"] != "Review changes" || data["status"] != "done" {
+		t.Errorf("unexpected event data: %v", data)
+	}
+}
+
 func TestWarnError_WriteToStderr(t *testing.T) {
 	var stderr bytes.Buffer
 	o := New(WithStderr(&stderr))
@@ -309,6 +365,7 @@ func TestNilSinks_NoPanic(t *testing.T) {
 	o.AgentOutput("chunk")
 	o.RunComplete(RunResult{})
 	o.WrapupStepResult("step", true, nil)
+	o.WrapupAgentStep(1, 2, "step", "done")
 	o.MergeSuccess("branch")
 	o.WorktreePreserved("/tmp", "reason")
 	o.Warn("test")

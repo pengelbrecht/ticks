@@ -509,6 +509,22 @@ func (o *RunOutput) WrapupStepResult(name string, success bool, err error) {
 	}
 }
 
+// WrapupAgentStep reports progress of an agent wrapup step.
+// Terminal output: '  [2/3] Review changes... done'
+func (o *RunOutput) WrapupAgentStep(index, total int, title, status string) {
+	if !o.jsonl {
+		o.printf("  [%d/%d] %s... %s\n", index, total, title, status)
+	}
+	if o.board != nil {
+		o.board.BroadcastRunEvent("", "wrapup_agent_step", map[string]any{
+			"index":  index,
+			"total":  total,
+			"title":  title,
+			"status": status,
+		})
+	}
+}
+
 // MergeSuccess reports a successful merge and worktree cleanup.
 func (o *RunOutput) MergeSuccess(targetBranch string) {
 	if o.jsonl {
