@@ -510,7 +510,14 @@ func (o *RunOutput) WrapupStepResult(name string, success bool, err error) {
 }
 
 // WrapupAgentStep reports progress of an agent wrapup step.
-// Terminal output: '  [2/3] Review changes... done'
+// It prints a numbered progress line to the terminal and broadcasts a
+// "wrapup_agent_step" event to the board if connected.
+//
+// Parameters:
+//   - index: the 1-based step number (e.g. 2 in "[2/3]")
+//   - total: the total number of wrapup steps
+//   - title: short description of the step (e.g. "Review changes")
+//   - status: current state of the step (e.g. "done", "running", "failed")
 func (o *RunOutput) WrapupAgentStep(index, total int, title, status string) {
 	if !o.jsonl {
 		o.printf("  [%d/%d] %s... %s\n", index, total, title, status)
