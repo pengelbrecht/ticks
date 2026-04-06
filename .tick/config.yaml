@@ -1,0 +1,10 @@
+wrap_up:
+  - run: "go build ./..."
+    name: "Build"
+
+  - run: "go vet ./..."
+    name: "Vet"
+
+  - run: "go test ./..."
+    name: "Tests"
+    continue_on_failure: true

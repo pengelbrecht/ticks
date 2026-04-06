@@ -2,7 +2,7 @@
   "id": "zal",
   "title": "Implement terminal sink formatting",
   "description": "Implement the terminal output formatting in RunOutput methods.\n\nEach event method writes human-readable output to stdout/stderr:\n- AgentInfo: 'Agent: %s\\nWorktree: %s'\n- ContextGenerating: 'Generating epic context for %s (%d tasks)...'\n- ContextProgress: '\\r  Context: %s elapsed, %d tokens in, %d tokens out' (carriage return overwrite)\n- ContextGenerated: 'Context generated (~%d tokens)'\n- TaskStarted: '\\n=== Iteration %d: %s (%s) ==='\n- TaskCompleted: '\\n--- Iteration %d complete (tokens: %d in, %d out, cost: $%.4f) ---'\n- RunComplete: '=== Run Complete ===\\nEpic: ...\\nIterations: ...' etc\n- WrapupStepResult: '  [PASS/FAIL] %s'\n- MergeResult: 'Merged to %s...' or 'Warning: merge failed...'\n- Warn/Error: to stderr\n\nWhen JSONL mode is enabled, suppress all human output. RunComplete emits JSON to stdout instead.\n\nFiles: internal/output/output.go (method implementations)\nTests: capture stdout/stderr via buffers, verify formatting, verify JSONL suppression.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "a2j",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T12:45:57.459839Z",
-  "updated_at": "2026-04-06T12:45:57.459839Z"
+  "updated_at": "2026-04-06T12:56:34.597081Z",
+  "closed_at": "2026-04-06T12:56:34.597081Z",
+  "closed_reason": "Implemented terminal sink formatting in all RunOutput event methods. Added human-readable output for ContextGenerating/Progress/Generated/Loaded/Skipped/Failed, TaskStarted/Completed, and RunComplete (with signal support). ContextProgress uses carriage-return overwrite with lastProgressLen tracking. RunComplete emits JSONL via json.Encoder when jsonl mode enabled, suppressing all human output. Also fixed pre-existing build error in board_sink_test.go (removed nonexistent TaskID field). All 40 tests pass."
 }

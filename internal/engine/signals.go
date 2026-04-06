@@ -39,6 +39,9 @@ const (
 
 	// SignalCheckpoint indicates the agent has reached a checkpoint and is saving state.
 	SignalCheckpoint
+
+	// SignalStepDone indicates the agent has completed a wrapup step.
+	SignalStepDone
 )
 
 // String returns the string representation of the signal.
@@ -62,6 +65,8 @@ func (s Signal) String() string {
 		return "ESCALATE"
 	case SignalCheckpoint:
 		return "CHECKPOINT"
+	case SignalStepDone:
+		return "STEP_DONE"
 	default:
 		return "NONE"
 	}
@@ -78,6 +83,7 @@ var signalPatterns = map[string]Signal{
 	"CONTENT_REVIEW":   SignalContentReview,
 	"ESCALATE":         SignalEscalate,
 	"CHECKPOINT":       SignalCheckpoint,
+	"STEP_DONE":        SignalStepDone,
 }
 
 // signalPriority defines the order in which signals are checked.
@@ -92,6 +98,7 @@ var signalPriority = []string{
 	"CONTENT_REVIEW",
 	"ESCALATE",
 	"CHECKPOINT",
+	"STEP_DONE",
 }
 
 // signalPattern matches <promise>SIGNAL_TYPE</promise> or <promise>SIGNAL_TYPE: context</promise>

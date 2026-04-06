@@ -2,7 +2,7 @@
   "id": "jpw",
   "title": "Remove board server DEBUG prints, use RunOutput for server lifecycle",
   "description": "Clean up the board server's debug output.\n\n1. Remove or gate all [DEBUG] fmt.Fprintf lines in internal/tickboard/server/ behind a debug flag or log level.\n2. The board server should be silent on stderr by default. Debug output only when --dev flag is set.\n3. Server lifecycle events (SSE client connect/disconnect, file watcher events) should go through RunOutput.Warn() or be suppressed entirely in production.\n\nThis is the final cleanup — after this, tk run output is fully controlled by RunOutput.\n\nFiles: internal/tickboard/server/server.go (and any other server files with debug prints)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "a2j",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T12:46:54.245805Z",
-  "updated_at": "2026-04-06T12:46:54.245805Z"
+  "updated_at": "2026-04-06T13:24:48.141711Z",
+  "closed_at": "2026-04-06T13:24:48.141711Z",
+  "closed_reason": "Added debugf() helper method on Server that gates output behind devMode flag. Replaced all 25 [DEBUG] fmt.Fprintf(os.Stderr, ...) calls with s.debugf(...) calls. Non-debug stderr output (warnings, errors) left unchanged. Server is now silent on stderr by default; debug output only appears when --dev flag is set."
 }

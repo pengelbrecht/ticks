@@ -2,7 +2,7 @@
   "id": "wbq",
   "title": "Implement board and runlog sink adapters",
   "description": "Create adapters that implement BoardSink and RunLogSink, wrapping the existing board server and runlog packages.\n\nBoardSinkAdapter wraps *server.Server:\n- BroadcastRunEvent maps to server's existing broadcastRunStreamEvent\n- WriteEpicStatus maps to runrecord.Store.WriteEpicStatus\n- WriteLiveRecord maps to runrecord.Store.WriteLive\n\nRunLogSinkAdapter wraps *runlog.Logger:\n- Maps event methods to existing runlog calls (LogIterationStart, LogIterationEnd, LogContextGenerationStarted, etc.)\n\nThese are thin adapters — no new logic, just bridging the RunOutput sink interfaces to existing implementations.\n\nFiles: internal/output/board_sink.go, internal/output/runlog_sink.go\nTests: verify adapter methods call through to wrapped types.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "a2j",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T12:46:16.300788Z",
-  "updated_at": "2026-04-06T12:46:16.300788Z"
+  "updated_at": "2026-04-06T12:55:59.89129Z",
+  "closed_at": "2026-04-06T12:55:59.89129Z",
+  "closed_reason": "Created BoardSinkAdapter (board_sink.go) wrapping *server.Server and *runrecord.Store, and RunLogSinkAdapter (runlog_sink.go) wrapping *runlog.Logger. Added public BroadcastRunStreamEvent method on Server to expose the unexported broadcastRunStreamEvent. RunLogSinkAdapter maps flat interface args to runlog's data structs (IterationEndData, RunEndData). BoardSinkAdapter uses type assertions for any-typed params. All 29 output tests pass."
 }

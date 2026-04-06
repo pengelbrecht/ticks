@@ -2,7 +2,7 @@
   "id": "coh",
   "title": "Wire RunOutput into run.go and wrapup.go replacing direct output",
   "description": "Replace all direct fmt.Printf/Fprintf calls in run.go and wrapup.go with RunOutput calls.\n\nChanges to cmd/tk/cmd/run.go:\n1. Construct RunOutput early in runRun() with terminal, board, cloud, runlog sinks as available.\n2. Remove all eng.On* callback assignments — engine now uses RunOutput directly.\n3. Replace setup prints (Agent, Worktree, Board URL) with output.AgentInfo(), output.BoardURL().\n4. Replace the iteration header/footer prints with output methods.\n5. Replace the run complete summary with output.RunComplete().\n6. Pass RunOutput to wrapup.Runner.\n\nChanges to internal/wrapup/wrapup.go:\n1. Add Output *output.RunOutput field to Runner.\n2. Replace fmt.Printf for step results with output.WrapupStepResult().\n3. Replace merge status prints with output.MergeResult() / output.WorktreePreserved().\n4. Replace warning prints with output.Warn().\n\nAfter this change, run.go should have zero fmt.Printf calls related to run progress (only cobra command setup and error exits).\n\nFiles: cmd/tk/cmd/run.go, internal/wrapup/wrapup.go\nTests: end-to-end verify run.go constructs RunOutput correctly.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "a2j",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T12:46:38.932494Z",
-  "updated_at": "2026-04-06T12:46:38.932494Z"
+  "updated_at": "2026-04-06T13:21:03.250718Z",
+  "closed_at": "2026-04-06T13:21:03.250718Z",
+  "closed_reason": "Wired RunOutput into run.go and wrapup.go. run.go constructs RunOutput with terminal, board, and runlog sinks, passes it to engine and wrapup.Runner. Removed all eng.On* callback assignments (already deleted by x51). Replaced outputResult() with emitRunComplete() using output.RunComplete(). Replaced all fmt.Printf status output in wrapup.go with Output methods (WrapupStepResult, MergeSuccess, WorktreePreserved, WorktreeInfo, Warn, PRCreated). Added CloudInfo, MergeSuccess, PRCreated, WorktreeInfo methods to output.go. Removed JSONL field from wrapup.Runner (RunOutput handles JSONL suppression). Updated tests."
 }

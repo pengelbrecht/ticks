@@ -19,6 +19,7 @@ func TestSignal_String(t *testing.T) {
 		{SignalContentReview, "CONTENT_REVIEW"},
 		{SignalEscalate, "ESCALATE"},
 		{SignalCheckpoint, "CHECKPOINT"},
+		{SignalStepDone, "STEP_DONE"},
 	}
 
 	for _, tt := range tests {
@@ -341,6 +342,24 @@ func TestParseSignals(t *testing.T) {
 			wantReason: "found security vuln",
 		},
 		{
+			name:       "step done signal with context",
+			output:     "<promise>STEP_DONE: updated changelog</promise>",
+			wantSignal: SignalStepDone,
+			wantReason: "updated changelog",
+		},
+		{
+			name:       "step done signal without context",
+			output:     "<promise>STEP_DONE</promise>",
+			wantSignal: SignalStepDone,
+			wantReason: "",
+		},
+		{
+			name:       "step done signal with summary",
+			output:     "I've finished the step. <promise>STEP_DONE: ran linter and fixed 3 issues</promise>",
+			wantSignal: SignalStepDone,
+			wantReason: "ran linter and fixed 3 issues",
+		},
+		{
 			name:       "signal with very long context",
 			output:     "<promise>BLOCKED: This is a very long context string that contains multiple sentences explaining the blocking reason. It includes details about what went wrong and what needs to happen next.</promise>",
 			wantSignal: SignalBlocked,
@@ -409,6 +428,7 @@ func TestParseSignals_AllTypes(t *testing.T) {
 		{"content", "<promise>CONTENT_REVIEW: error messages</promise>", SignalContentReview, "error messages"},
 		{"escalate", "<promise>ESCALATE: found security vuln</promise>", SignalEscalate, "found security vuln"},
 		{"checkpoint", "<promise>CHECKPOINT: phase 1 done</promise>", SignalCheckpoint, "phase 1 done"},
+		{"step_done", "<promise>STEP_DONE: updated changelog</promise>", SignalStepDone, "updated changelog"},
 		{"no_signal", "just some text", SignalNone, ""},
 		{"no_context", "<promise>COMPLETE</promise>", SignalComplete, ""},
 	}
@@ -474,9 +494,14 @@ func TestParseSignals_SignalPriority(t *testing.T) {
 			wantSig: SignalEscalate,
 		},
 		{
-			name:    "checkpoint is lowest priority signal",
-			output:  "<promise>CHECKPOINT: only signal</promise>",
+			name:    "checkpoint over step done",
+			output:  "<promise>STEP_DONE: x</promise><promise>CHECKPOINT: y</promise>",
 			wantSig: SignalCheckpoint,
+		},
+		{
+			name:    "step done is lowest priority signal",
+			output:  "<promise>STEP_DONE: only signal</promise>",
+			wantSig: SignalStepDone,
 		},
 	}
 

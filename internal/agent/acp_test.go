@@ -47,17 +47,17 @@ func TestAcpAgent_command(t *testing.T) {
 		{
 			name:  "default claude command",
 			agent: &AcpAgent{AgentName: "claude"},
-			want:  []string{"npx", "claude-code-acp"},
+			want:  []string{"npx", "-y", "@agentclientprotocol/claude-agent-acp"},
 		},
 		{
 			name:  "default codex command",
 			agent: &AcpAgent{AgentName: "codex"},
-			want:  []string{"npx", "codex-acp"},
+			want:  []string{"npx", "-y", "@zed-industries/codex-acp"},
 		},
 		{
 			name:  "default gemini command",
 			agent: &AcpAgent{AgentName: "gemini"},
-			want:  []string{"gemini"},
+			want:  []string{"gemini", "--acp"},
 		},
 		{
 			name:  "custom command override",

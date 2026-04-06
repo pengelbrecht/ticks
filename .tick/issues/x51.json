@@ -2,7 +2,7 @@
   "id": "x51",
   "title": "Wire RunOutput into engine replacing callbacks",
   "description": "Replace the engine's individual On* callbacks with a single RunOutput dependency.\n\nChanges to internal/engine/engine.go:\n1. Add Output *output.RunOutput field to Engine struct.\n2. Replace all On* callback fields (OnContextGenerating, OnContextGenerated, OnContextLoaded, OnContextSkipped, OnContextFailed, OnContextActive, OnContextProgress, OnIterationStart, OnIterationEnd, OnOutput, OnSignal, OnIdle, OnAgentState) with calls to e.Output methods.\n3. Replace direct runlog calls with RunOutput routing (RunOutput forwards to runlog sink).\n4. Replace direct runrecord.WriteEpicStatus calls with RunOutput routing.\n5. Keep Output as optional (nil check) for backwards compat during migration.\n\nThe engine should have zero fmt.Printf/Fprintf calls after this change — all output goes through RunOutput.\n\nFiles: internal/engine/engine.go\nTests: existing engine tests should pass with RunOutput set to nil (no output).",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "a2j",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T12:46:28.263405Z",
-  "updated_at": "2026-04-06T12:46:28.263405Z"
+  "updated_at": "2026-04-06T13:12:15.450506Z",
+  "closed_at": "2026-04-06T13:12:15.450506Z",
+  "closed_reason": "Replaced all On* callback fields on Engine with single Output *output.RunOutput field. Expanded RunLogSink interface with 15 additional methods covering all engine logging needs (budget, signals, idle, agent events). Added corresponding RunOutput methods that route to appropriate sinks. Engine now has zero fmt.Printf/Fprintf calls. Kept runRecordStore field for wave.Runner use only. All engine and output tests pass with Output=nil (safe no-op)."
 }
