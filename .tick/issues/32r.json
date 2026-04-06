@@ -1,0 +1,16 @@
+{
+  "id": "32r",
+  "title": "ACP zombie processes — Close() doesn't reliably kill subprocesses",
+  "description": "ACP agent subprocesses accumulate across runs. The 5s kill timeout in acpSession.Close() doesn't clean up all processes. After several tk run sessions, dozens of orphaned node claude-agent-acp processes remain.\n\nRoot cause: Close() sends SIGKILL after 5s, but the npm parent process and child node process are separate PIDs. Killing the node process may leave the npm wrapper alive, or vice versa.\n\nFix: kill the entire process group (negative PID to kill) or use proc.Process.Signal + process group kill.",
+  "status": "open",
+  "priority": 2,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "acp",
+    "reliability"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T15:02:53.67502Z",
+  "updated_at": "2026-04-06T15:02:53.67502Z"
+}

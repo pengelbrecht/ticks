@@ -1,7 +1,8 @@
 {
   "id": "txd",
   "title": "Test wrapup with skills and parallel groups",
-  "status": "open",
+  "notes": "2026-04-06 16:46 - Task afu: Replaced WrapupAgentStep with two methods (WrapupAgentStepStarted/Completed). The old method combined both states; now started prints '[i/n] title...' and completed prints '[i/n] title — status (duration)' with em-dash separator. Board events are wrapup_agent_step_started and wrapup_agent_step_completed. Duration is truncated to milliseconds for terminal display.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +11,7 @@
   ],
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T14:43:58.399355Z",
-  "updated_at": "2026-04-06T14:43:58.399355Z"
+  "updated_at": "2026-04-06T14:46:49.36499Z",
+  "closed_at": "2026-04-06T14:46:49.36499Z",
+  "closed_reason": "all tasks completed"
 }
