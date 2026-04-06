@@ -1,0 +1,13 @@
+{
+  "id": "u75",
+  "title": "Add parallel group support to WrapupStep and decomposition prompt",
+  "description": "Extend the wrapup step model and parsing to support parallel execution groups.\n\nChanges to internal/wrapup/step_prompt.go:\n1. Add Group int field to WrapupStep struct (json:\"group\"). Steps with the same group number run in parallel. Groups execute sequentially (group 1 before group 2).\n\nChanges to internal/wrapup/parse.go:\n2. Update decompositionPrompt to instruct the agent to assign group numbers:\n   - Steps that are independent (e.g. two different reviews) get the same group\n   - Steps that depend on earlier results (e.g. simplify after review) get a higher group\n   - Example: review (group 1), codex review (group 1), simplify (group 2)\n3. Update parseStepsJSON to handle the new group field. Default group=0 if omitted (treated as sequential).\n\nChanges to internal/wrapup/parse_test.go:\n4. Add test for group assignment in parsed output.\n\nFiles: internal/wrapup/step_prompt.go, internal/wrapup/parse.go, internal/wrapup/parse_test.go",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "6k0",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:58:24.292147Z",
+  "updated_at": "2026-04-06T13:58:24.292147Z"
+}

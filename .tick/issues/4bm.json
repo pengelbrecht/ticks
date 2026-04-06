@@ -1,0 +1,17 @@
+{
+  "id": "4bm",
+  "title": "Implement parallel step execution in WrapupRunner",
+  "description": "Update RunAgentSteps in internal/wrapup/agent_steps.go to execute steps in parallel groups.\n\nCurrent: sequential for loop over all steps.\nNew: group steps by Group field, execute each group's steps in parallel (separate ACP sessions), groups run sequentially.\n\nAlgorithm:\n1. Sort/group steps by Group number (0 = ungrouped, runs sequentially as group of 1).\n2. For each group:\n   a. If group has 1 step: run sequentially as today (reuse existing session if SessionAgent).\n   b. If group has N\u003e1 steps: launch N goroutines, each opens its own ACP session via SessionAgent.Open(), runs the step, closes session. Collect results via sync.WaitGroup.\n3. Save progress after each group completes (not after each step within a parallel group).\n4. Crash recovery: skip completed groups, resume from first incomplete group.\n\nFor non-SessionAgent agents: parallel groups fall back to sequential (can't open multiple sessions).\n\nThe step prompt for parallel steps should NOT include a progress checklist of other steps in the same group (they haven't completed yet). Only show completed groups.\n\nFiles: internal/wrapup/agent_steps.go, internal/wrapup/agent_steps_test.go\nTests: mock SessionAgent with 2 parallel steps, verify both run concurrently (timing check), verify sequential fallback for non-SessionAgent.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "3iy",
+    "u75"
+  ],
+  "parent": "6k0",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:58:38.39324Z",
+  "updated_at": "2026-04-06T13:58:38.39324Z"
+}

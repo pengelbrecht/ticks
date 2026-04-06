@@ -1,0 +1,13 @@
+{
+  "id": "3iy",
+  "title": "Wire per-step output into WrapupRunner",
+  "description": "The WrapupRunner in internal/wrapup/agent_steps.go executes agent wrapup steps but produces no per-step output. Wire RunOutput calls into the execution loop.\n\nChanges to internal/wrapup/agent_steps.go:\n1. Add Output *output.RunOutput field to WrapupRunner struct.\n2. Before each step: call Output.WrapupAgentStep(index, total, title, 'running').\n3. After each step: call Output.WrapupAgentStep(index, total, title, status) where status is completed/failed/escalated.\n4. On retry: call Output.Warn('Retrying step %d: %s (attempt %d)', ...).\n5. Replace fmt.Fprintf(os.Stderr) in saveProgress warning with Output.Warn().\n\nChanges to internal/wrapup/wrapup.go:\n1. Pass r.Output to WrapupRunner when constructing it in runAgentWrapupSteps().\n2. Replace the bare fmt.Fprintf for 'Running %d agent wrapup steps' with Output call.\n\nFiles: internal/wrapup/agent_steps.go, internal/wrapup/wrapup.go\nTests: verify Output methods are called during step execution.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "6k0",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:58:13.765163Z",
+  "updated_at": "2026-04-06T13:58:13.765163Z"
+}

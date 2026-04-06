@@ -1,0 +1,15 @@
+{
+  "id": "6k0",
+  "title": "Wrapup per-step output and parallel step support",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "wrapup",
+    "output"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T13:58:02.245871Z",
+  "updated_at": "2026-04-06T13:58:02.245871Z"
+}
