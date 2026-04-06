@@ -269,6 +269,9 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 			var wg sync.WaitGroup
 
 			for _, is := range grp.steps {
+				if is.index < recoveredCount {
+					continue // already recovered from previous run
+				}
 				wg.Add(1)
 				go func(is indexedStep) {
 					defer wg.Done()
