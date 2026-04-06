@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -446,6 +447,185 @@ func TestRunAgentSteps_OutputCalls(t *testing.T) {
 	}
 	if !strings.Contains(got, "[2/2] Step 2... completed") {
 		t.Errorf("expected completed output for step 2, got: %s", got)
+	}
+}
+
+// parallelMockSessionAgent supports opening multiple independent sessions.
+type parallelMockSessionAgent struct {
+	stepMockAgent
+	mu       sync.Mutex
+	sessions []*stepMockSession
+	openIdx  int
+}
+
+func (m *parallelMockSessionAgent) Open(_ context.Context, _ agent.RunOpts) (agent.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.openIdx >= len(m.sessions) {
+		return nil, fmt.Errorf("no more sessions")
+	}
+	s := m.sessions[m.openIdx]
+	m.openIdx++
+	return s, nil
+}
+
+func TestRunAgentSteps_ParallelGroup(t *testing.T) {
+	// Two steps in group 1 should run in parallel with separate sessions.
+	session1 := &stepMockSession{
+		responses: []string{"Done step 1 <promise>STEP_DONE</promise>"},
+	}
+	session2 := &stepMockSession{
+		responses: []string{"Done step 2 <promise>STEP_DONE</promise>"},
+	}
+	// Third session is the shared session opened by RunAgentSteps.
+	sharedSession := &stepMockSession{}
+
+	ag := &parallelMockSessionAgent{
+		stepMockAgent: stepMockAgent{name: "test"},
+		sessions:      []*stepMockSession{sharedSession, session1, session2},
+	}
+
+	steps := []WrapupStep{
+		{Title: "Step 1", Prompt: "Do step 1", Group: 1},
+		{Title: "Step 2", Prompt: "Do step 2", Group: 1},
+	}
+
+	dir := t.TempDir()
+	runner := &WrapupRunner{
+		WorkDir: dir,
+		TickDir: filepath.Join(dir, ".tick"),
+	}
+
+	results, err := runner.RunAgentSteps(context.Background(), steps, "test-epic", ag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	for i, r := range results {
+		if r.Status != "completed" {
+			t.Errorf("step %d: expected completed, got %s", i, r.Status)
+		}
+	}
+
+	// Both parallel sessions should have been used
+	if session1.callCount != 1 {
+		t.Errorf("session1: expected 1 call, got %d", session1.callCount)
+	}
+	if session2.callCount != 1 {
+		t.Errorf("session2: expected 1 call, got %d", session2.callCount)
+	}
+	// Both parallel sessions should be closed
+	if !session1.closed {
+		t.Error("session1 was not closed")
+	}
+	if !session2.closed {
+		t.Error("session2 was not closed")
+	}
+	// Shared session should NOT have been used for parallel steps
+	if sharedSession.callCount != 0 {
+		t.Errorf("shared session: expected 0 calls, got %d", sharedSession.callCount)
+	}
+}
+
+func TestRunAgentSteps_ParallelFallbackForNonSession(t *testing.T) {
+	// Non-SessionAgent should fall back to sequential even with group > 0.
+	ag := &stepMockAgent{
+		name: "test",
+		responses: []string{
+			"Done step 1 <promise>STEP_DONE</promise>",
+			"Done step 2 <promise>STEP_DONE</promise>",
+		},
+	}
+
+	steps := []WrapupStep{
+		{Title: "Step 1", Prompt: "Do step 1", Group: 1},
+		{Title: "Step 2", Prompt: "Do step 2", Group: 1},
+	}
+
+	dir := t.TempDir()
+	runner := &WrapupRunner{
+		WorkDir: dir,
+		TickDir: filepath.Join(dir, ".tick"),
+	}
+
+	results, err := runner.RunAgentSteps(context.Background(), steps, "test-epic", ag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	for i, r := range results {
+		if r.Status != "completed" {
+			t.Errorf("step %d: expected completed, got %s", i, r.Status)
+		}
+	}
+	if ag.callCount != 2 {
+		t.Errorf("expected 2 one-shot calls, got %d", ag.callCount)
+	}
+}
+
+func TestRunAgentSteps_MixedSequentialAndParallel(t *testing.T) {
+	// Step 1 (group 0, sequential), Steps 2+3 (group 1, parallel), Step 4 (group 0, sequential).
+	session1 := &stepMockSession{
+		responses: []string{"Done step 2 <promise>STEP_DONE</promise>"},
+	}
+	session2 := &stepMockSession{
+		responses: []string{"Done step 3 <promise>STEP_DONE</promise>"},
+	}
+	sharedSession := &stepMockSession{
+		responses: []string{
+			"Done step 1 <promise>STEP_DONE</promise>",
+			"Done step 4 <promise>STEP_DONE</promise>",
+		},
+	}
+
+	ag := &parallelMockSessionAgent{
+		stepMockAgent: stepMockAgent{name: "test"},
+		sessions:      []*stepMockSession{sharedSession, session1, session2},
+	}
+
+	steps := []WrapupStep{
+		{Title: "Step 1", Prompt: "Do step 1", Group: 0},
+		{Title: "Step 2", Prompt: "Do step 2", Group: 1},
+		{Title: "Step 3", Prompt: "Do step 3", Group: 1},
+		{Title: "Step 4", Prompt: "Do step 4", Group: 0},
+	}
+
+	dir := t.TempDir()
+	runner := &WrapupRunner{
+		WorkDir: dir,
+		TickDir: filepath.Join(dir, ".tick"),
+	}
+
+	results, err := runner.RunAgentSteps(context.Background(), steps, "test-epic", ag)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(results))
+	}
+	for i, r := range results {
+		if r.Status != "completed" {
+			t.Errorf("step %d: expected completed, got %s", i+1, r.Status)
+		}
+	}
+
+	// Shared session handles steps 1 and 4
+	if sharedSession.callCount != 2 {
+		t.Errorf("shared session: expected 2 calls, got %d", sharedSession.callCount)
+	}
+	// Parallel sessions handle steps 2 and 3
+	if session1.callCount != 1 {
+		t.Errorf("parallel session1: expected 1 call, got %d", session1.callCount)
+	}
+	if session2.callCount != 1 {
+		t.Errorf("parallel session2: expected 1 call, got %d", session2.callCount)
 	}
 }
 
