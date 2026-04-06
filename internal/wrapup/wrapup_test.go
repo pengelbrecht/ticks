@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/engine"
 	"github.com/pengelbrecht/ticks/internal/worktree"
 )
@@ -168,6 +169,161 @@ func TestReportMarkdown(t *testing.T) {
 	if !strings.Contains(md, "3m0s") {
 		t.Error("missing duration")
 	}
+}
+
+func TestReportMarkdown_WithWrapupSteps(t *testing.T) {
+	report := &Report{
+		EpicID:    "abc",
+		EpicTitle: "Test Epic",
+		Metrics: MetricsSummary{
+			TotalCost:   0.5,
+			TotalTokens: 1000,
+			Duration:    1 * time.Minute,
+			WaveCount:   1,
+		},
+		WrapupSteps: []AgentStepResult{
+			{Title: "Run linter", Status: "completed", Duration: 10 * time.Second, Cost: 0.01},
+			{Title: "Update docs", Status: "escalated", Duration: 5 * time.Second, Cost: 0.005},
+			{Title: "Cleanup", Status: "failed", Duration: 3 * time.Second, Cost: 0.002},
+		},
+	}
+
+	md := report.Markdown()
+
+	if !strings.Contains(md, "### Wrapup Steps") {
+		t.Error("missing wrapup steps section")
+	}
+	if !strings.Contains(md, "[x] Run linter") {
+		t.Error("missing completed step checkbox")
+	}
+	if !strings.Contains(md, "[ ] Update docs") {
+		t.Error("escalated step should not be checked")
+	}
+	if !strings.Contains(md, "(escalated)") {
+		t.Error("missing escalated annotation")
+	}
+	if !strings.Contains(md, "[ ] Cleanup") {
+		t.Error("failed step should not be checked")
+	}
+	if !strings.Contains(md, "(failed)") {
+		t.Error("missing failed annotation")
+	}
+}
+
+func TestReportMarkdown_NoWrapupSteps(t *testing.T) {
+	report := &Report{
+		EpicID:    "abc",
+		EpicTitle: "Test Epic",
+		Metrics: MetricsSummary{
+			TotalCost:   0.5,
+			TotalTokens: 1000,
+			Duration:    1 * time.Minute,
+			WaveCount:   1,
+		},
+	}
+
+	md := report.Markdown()
+	if strings.Contains(md, "### Wrapup Steps") {
+		t.Error("should not render wrapup steps section when empty")
+	}
+}
+
+func TestRunAgentWrapupSteps_NoWrapupFile(t *testing.T) {
+	tickDir := t.TempDir()
+
+	r := &Runner{
+		WorkDir: t.TempDir(),
+		TickDir: tickDir,
+		EpicID:  "test",
+		Agent:   &wrapupTestMockAgent{},
+	}
+
+	results, err := r.runAgentWrapupSteps(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results != nil {
+		t.Errorf("expected nil results for missing wrapup.md, got %d", len(results))
+	}
+}
+
+func TestRunAgentWrapupSteps_EmptyWrapupFile(t *testing.T) {
+	tickDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tickDir, "wrapup.md"), []byte("  \n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Runner{
+		WorkDir: t.TempDir(),
+		TickDir: tickDir,
+		EpicID:  "test",
+		Agent:   &wrapupTestMockAgent{},
+	}
+
+	results, err := r.runAgentWrapupSteps(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results != nil {
+		t.Errorf("expected nil results for empty wrapup.md, got %d", len(results))
+	}
+}
+
+func TestRunAgentWrapupSteps_WithCachedSteps(t *testing.T) {
+	tickDir := t.TempDir()
+
+	// Write wrapup.md
+	if err := os.WriteFile(filepath.Join(tickDir, "wrapup.md"), []byte("# Do stuff"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-cache steps so the agent is only used for execution, not parsing
+	logsDir := filepath.Join(tickDir, "logs")
+	steps := []WrapupStep{{Title: "Step 1", Prompt: "Do it", Verify: "It is done"}}
+	if err := CacheSteps(logsDir, "test", steps); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock agent that returns STEP_DONE
+	mock := &wrapupTestMockAgent{
+		responses: []string{"Done! <promise>STEP_DONE</promise>"},
+	}
+
+	r := &Runner{
+		WorkDir: t.TempDir(),
+		TickDir: tickDir,
+		EpicID:  "test",
+		Agent:   mock,
+		JSONL:   true,
+	}
+
+	results, err := r.runAgentWrapupSteps(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Status != "completed" {
+		t.Errorf("step status = %q, want completed", results[0].Status)
+	}
+}
+
+// wrapupTestMockAgent is a simple mock agent for wrapup_test.go.
+type wrapupTestMockAgent struct {
+	responses []string
+	callCount int
+}
+
+func (m *wrapupTestMockAgent) Name() string    { return "mock" }
+func (m *wrapupTestMockAgent) Available() bool  { return true }
+func (m *wrapupTestMockAgent) Run(_ context.Context, _ string, _ agent.RunOpts) (*agent.Result, error) {
+	if m.callCount >= len(m.responses) {
+		return &agent.Result{Output: "<promise>STEP_DONE</promise>"}, nil
+	}
+	resp := m.responses[m.callCount]
+	m.callCount++
+	return &agent.Result{Output: resp, Cost: 0.01, TokensIn: 100, TokensOut: 50}, nil
 }
 
 func TestRunShellStep_Success(t *testing.T) {

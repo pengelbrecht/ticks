@@ -327,6 +327,7 @@ Get a token at https://ticks.sh/settings`)
 				NoMerge:   runNoMerge,
 				CreatePR:  runPR,
 				JSONL:     runJSONL,
+				Agent:     agentImpl,
 			}
 			report, wrapErr := runner.Run(ctx, wrapupConfig, result)
 			if wrapErr != nil {

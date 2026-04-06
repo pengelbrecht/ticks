@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/engine"
 	"github.com/pengelbrecht/ticks/internal/ticks"
 	"github.com/pengelbrecht/ticks/internal/worktree"
@@ -53,11 +54,12 @@ type StepResult struct {
 
 // Report is the run summary.
 type Report struct {
-	EpicID    string
-	EpicTitle string
-	Tasks     []TaskSummary
-	Files     []FileSummary
-	Metrics   MetricsSummary
+	EpicID      string
+	EpicTitle   string
+	Tasks       []TaskSummary
+	Files       []FileSummary
+	Metrics     MetricsSummary
+	WrapupSteps []AgentStepResult
 }
 
 // TaskSummary summarises one task's outcome.
@@ -97,6 +99,7 @@ type Runner struct {
 	NoMerge      bool
 	CreatePR     bool
 	JSONL        bool // suppress non-machine output
+	Agent        agent.Agent
 }
 
 // Run executes the wrap-up phase: steps, report, merge/preserve, PR.
@@ -119,11 +122,25 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 		}
 	}
 
+	// 1b. Run agent wrapup steps from .tick/wrapup.md
+	var agentStepResults []AgentStepResult
+	if r.Agent != nil {
+		agentStepResults, err = r.runAgentWrapupSteps(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: agent wrapup steps failed: %v\n", err)
+		}
+	}
+
 	// 2. Generate report
 	report, err := r.generateReport(result)
 	if err != nil {
 		// Non-fatal: proceed with merge even if report fails
 		fmt.Fprintf(os.Stderr, "Warning: report generation failed: %v\n", err)
+	}
+
+	// Attach agent step results to report
+	if report != nil && len(agentStepResults) > 0 {
+		report.WrapupSteps = agentStepResults
 	}
 
 	// 3. Handle merge/preserve
@@ -165,6 +182,47 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 	}
 
 	return report, nil
+}
+
+// runAgentWrapupSteps parses .tick/wrapup.md and runs agent-driven steps.
+func (r *Runner) runAgentWrapupSteps(ctx context.Context) ([]AgentStepResult, error) {
+	content, err := ParseWrapupFile(r.TickDir)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil, nil
+	}
+
+	logsDir := filepath.Join(r.TickDir, "logs")
+
+	// Load cached steps or parse via agent
+	steps, cached := LoadCachedSteps(logsDir, r.EpicID)
+	if !cached {
+		opts := agent.RunOpts{WorkDir: r.WorkDir}
+		steps, err = ParseWrapupSteps(ctx, r.Agent, content, opts)
+		if err != nil {
+			return nil, fmt.Errorf("parsing wrapup steps: %w", err)
+		}
+		if cacheErr := CacheSteps(logsDir, r.EpicID, steps); cacheErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to cache wrapup steps: %v\n", cacheErr)
+		}
+	}
+
+	if len(steps) == 0 {
+		return nil, nil
+	}
+
+	if !r.JSONL {
+		fmt.Printf("Running %d agent wrapup steps...\n", len(steps))
+	}
+
+	wr := &WrapupRunner{
+		WorkDir: r.WorkDir,
+		TickDir: r.TickDir,
+	}
+
+	return wr.RunAgentSteps(ctx, steps, r.EpicID, r.Agent)
 }
 
 // runSteps executes each configured step in order.
@@ -423,6 +481,25 @@ func (r *Report) Markdown() string {
 			totalDel += f.Deletions
 		}
 		b.WriteString(fmt.Sprintf("\n**Total**: %d files, +%d/-%d lines\n\n", len(r.Files), totalAdd, totalDel))
+	}
+
+	// Wrapup steps section
+	if len(r.WrapupSteps) > 0 {
+		b.WriteString("### Wrapup Steps\n\n")
+		for _, s := range r.WrapupSteps {
+			check := "x"
+			if s.Status != "completed" {
+				check = " "
+			}
+			detail := fmt.Sprintf("%.1fs, $%.4f", s.Duration.Seconds(), s.Cost)
+			if s.Status == "escalated" {
+				detail += " (escalated)"
+			} else if s.Status == "failed" {
+				detail += " (failed)"
+			}
+			b.WriteString(fmt.Sprintf("- [%s] %s — %s\n", check, s.Title, detail))
+		}
+		b.WriteString("\n")
 	}
 
 	// Metrics section
