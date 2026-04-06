@@ -191,6 +191,46 @@ func TestCacheRoundTrip(t *testing.T) {
 	})
 }
 
+func TestParseStepsJSONWithGroups(t *testing.T) {
+	input := `[
+		{"title": "Review code", "prompt": "Review the code", "verify": "Review complete", "group": 1},
+		{"title": "Codex review", "prompt": "Run codex review", "verify": "Codex review complete", "group": 1},
+		{"title": "Simplify", "prompt": "Simplify based on reviews", "verify": "Code simplified", "group": 2}
+	]`
+
+	steps, err := parseStepsJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(steps))
+	}
+	if steps[0].Group != 1 {
+		t.Errorf("step 0 group = %d, want 1", steps[0].Group)
+	}
+	if steps[1].Group != 1 {
+		t.Errorf("step 1 group = %d, want 1", steps[1].Group)
+	}
+	if steps[2].Group != 2 {
+		t.Errorf("step 2 group = %d, want 2", steps[2].Group)
+	}
+}
+
+func TestParseStepsJSONGroupDefaultsToZero(t *testing.T) {
+	input := `[{"title": "Run tests", "prompt": "Run the test suite", "verify": "All tests pass"}]`
+
+	steps, err := parseStepsJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(steps))
+	}
+	if steps[0].Group != 0 {
+		t.Errorf("step 0 group = %d, want 0 (default)", steps[0].Group)
+	}
+}
+
 func TestParseStepsJSON(t *testing.T) {
 	tests := []struct {
 		name    string
