@@ -2,7 +2,6 @@ package output
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -65,7 +64,7 @@ func TestRunLogSinkAdapter_LogIterationEnd(t *testing.T) {
 	logger := newTestLogger(t)
 	a := NewRunLogSink(logger)
 
-	a.LogIterationEnd(1, "task-1", 5*time.Second, 100, 50, 0.01, nil)
+	a.LogIterationEnd(1, "task-1", 5*time.Second, 100, 50, 0.01, "", "", false)
 
 	events := readLogEvents(t, logger)
 	if len(events) != 1 {
@@ -80,7 +79,7 @@ func TestRunLogSinkAdapter_LogIterationEnd_WithError(t *testing.T) {
 	logger := newTestLogger(t)
 	a := NewRunLogSink(logger)
 
-	a.LogIterationEnd(1, "task-1", 5*time.Second, 100, 50, 0.01, errors.New("timeout"))
+	a.LogIterationEnd(1, "task-1", 5*time.Second, 100, 50, 0.01, "", "timeout", true)
 
 	events := readLogEvents(t, logger)
 	if len(events) != 1 {

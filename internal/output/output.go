@@ -23,13 +23,41 @@ type CloudSink interface {
 
 // RunLogSink handles structured run logging.
 type RunLogSink interface {
+	// Iteration events
 	LogIterationStart(iteration int, taskID, taskTitle string)
-	LogIterationEnd(iteration int, taskID string, duration time.Duration, tokensIn, tokensOut int, cost float64, err error)
+	LogIterationEnd(iteration int, taskID string, duration time.Duration, tokensIn, tokensOut int, cost float64, signal, errStr string, isTimeout bool)
+
+	// Context events
 	LogContextGenerationStarted(epicID string, taskCount int)
-	LogContextGenerationCompleted(epicID string, tokenCount int)
-	LogContextSkipped(epicID string, reason string, tokenCount int)
-	LogContextLoadFailed(epicID string, err string)
+	LogContextGenerationCompleted(epicID string, contentLength int)
+	LogContextGenerationFailed(epicID string, errMsg string)
+	LogContextSkipped(epicID string, reason string, taskCount int)
+	LogContextLoadFailed(epicID string, errMsg string)
+	LogContextSaveFailed(epicID string, errMsg string)
+	LogContextError(epicID string, errMsg string, phase string)
+
+	// Run lifecycle
+	LogRunConfig(maxIter int, maxCost float64, maxDuration, agentTimeout time.Duration, maxTaskRetries int, watch bool, watchTimeout, watchPollInterval time.Duration)
 	LogRunEnd(epicID string, iterations int, totalTokens int, totalCost float64, duration time.Duration, signal, exitReason string)
+
+	// Task/agent events
+	LogAgentTimeout(taskID string, timeout time.Duration, partialOutputLen int)
+	LogAgentError(taskID string, errMsg string)
+	LogTaskCompleted(taskID string, verificationPassed bool)
+	LogNoTaskAvailable(reason string, hasOpen bool, watchMode bool)
+	LogEpicCompleted(reason string, completedTasks []string)
+
+	// Budget events
+	LogBudgetCheck(limitType string, shouldStop bool, stopReason string, iteration, totalTokens int, totalCost float64)
+
+	// Signal events
+	LogSignalDetected(signal string, reason string, taskID string)
+	LogSignalHandled(signal string, taskID string, action string, awaitingState string)
+
+	// Watch/idle events
+	LogIdleEntered(reason string, pollInterval time.Duration)
+	LogIdleFileChange(path string)
+	LogIdleTaskCheck(taskFound bool, taskID string)
 }
 
 // RunOutput is the single funnel for all tk run status updates.
@@ -220,7 +248,7 @@ func (o *RunOutput) TaskCompleted(result IterationResult) {
 			result.Iteration, result.TokensIn, result.TokensOut, result.Cost)
 	}
 	if o.runLog != nil {
-		o.runLog.LogIterationEnd(result.Iteration, result.TaskID, result.Duration, result.TokensIn, result.TokensOut, result.Cost, result.Error)
+		o.runLog.LogIterationEnd(result.Iteration, result.TaskID, result.Duration, result.TokensIn, result.TokensOut, result.Cost, result.Signal, errorString(result.Error), result.IsTimeout)
 	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent("", "task_completed", map[string]any{
@@ -244,6 +272,164 @@ func (o *RunOutput) AgentOutput(chunk string) {
 		o.board.BroadcastRunEvent("", "agent_output", map[string]any{
 			"chunk": chunk,
 		})
+	}
+}
+
+// AgentState forwards a structured agent state snapshot.
+func (o *RunOutput) AgentState(taskID string, snap any) {
+	if o.board != nil {
+		o.board.WriteLiveRecord(taskID, snap) //nolint:errcheck
+	}
+}
+
+// Signal reports a detected signal from agent output.
+func (o *RunOutput) Signal(signal, reason, taskID string) {
+	if o.runLog != nil {
+		o.runLog.LogSignalDetected(signal, reason, taskID)
+	}
+	if o.board != nil {
+		o.board.BroadcastRunEvent("", "signal_detected", map[string]any{
+			"signal":  signal,
+			"reason":  reason,
+			"task_id": taskID,
+		})
+	}
+}
+
+// SignalHandled reports how a signal was processed.
+func (o *RunOutput) SignalHandled(signal, taskID, action, awaitingState string) {
+	if o.runLog != nil {
+		o.runLog.LogSignalHandled(signal, taskID, action, awaitingState)
+	}
+}
+
+// Idle signals that the engine entered idle state (watch mode).
+func (o *RunOutput) Idle() {
+	if o.board != nil {
+		o.board.BroadcastRunEvent("", "idle", nil)
+	}
+}
+
+// ContextActive signals that existing context is being used for a wave.
+func (o *RunOutput) ContextActive(epicID string) {
+	if o.board != nil {
+		o.board.BroadcastRunEvent(epicID, "context_active", nil)
+	}
+}
+
+// ContextError reports a context-related error during a specific phase.
+func (o *RunOutput) ContextError(epicID, errMsg, phase string) {
+	if o.runLog != nil {
+		o.runLog.LogContextError(epicID, errMsg, phase)
+	}
+}
+
+// ContextGenerationFailed reports that context generation failed.
+func (o *RunOutput) ContextGenerationFailed(epicID, errMsg string) {
+	if !o.jsonl {
+		o.printf("Context generation failed: %s\n", errMsg)
+	}
+	if o.runLog != nil {
+		o.runLog.LogContextGenerationFailed(epicID, errMsg)
+	}
+	if o.board != nil {
+		o.board.BroadcastRunEvent(epicID, "context_failed", map[string]any{
+			"error": errMsg,
+		})
+	}
+}
+
+// ContextSaveFailed reports that saving generated context failed.
+func (o *RunOutput) ContextSaveFailed(epicID, errMsg string) {
+	if !o.jsonl {
+		o.printf("Context save failed: %s\n", errMsg)
+	}
+	if o.runLog != nil {
+		o.runLog.LogContextSaveFailed(epicID, errMsg)
+	}
+	if o.board != nil {
+		o.board.BroadcastRunEvent(epicID, "context_failed", map[string]any{
+			"error": errMsg,
+		})
+	}
+}
+
+// EpicStatus writes an epic status update to the board sink.
+func (o *RunOutput) EpicStatus(epicID string, status any) {
+	if o.board != nil {
+		o.board.WriteEpicStatus(epicID, status) //nolint:errcheck
+	}
+}
+
+// --- Run lifecycle logging (runlog-only) ---
+
+// RunConfig logs the applied run configuration.
+func (o *RunOutput) RunConfig(maxIter int, maxCost float64, maxDuration, agentTimeout time.Duration, maxTaskRetries int, watch bool, watchTimeout, watchPollInterval time.Duration) {
+	if o.runLog != nil {
+		o.runLog.LogRunConfig(maxIter, maxCost, maxDuration, agentTimeout, maxTaskRetries, watch, watchTimeout, watchPollInterval)
+	}
+}
+
+// BudgetExceeded logs a budget limit check.
+func (o *RunOutput) BudgetExceeded(limitType string, shouldStop bool, stopReason string, iteration, totalTokens int, totalCost float64) {
+	if o.runLog != nil {
+		o.runLog.LogBudgetCheck(limitType, shouldStop, stopReason, iteration, totalTokens, totalCost)
+	}
+}
+
+// NoTaskAvailable logs when no tasks are available.
+func (o *RunOutput) NoTaskAvailable(reason string, hasOpen, watchMode bool) {
+	if o.runLog != nil {
+		o.runLog.LogNoTaskAvailable(reason, hasOpen, watchMode)
+	}
+}
+
+// EpicCompleted logs that an epic has been completed.
+func (o *RunOutput) EpicCompleted(reason string, completedTasks []string) {
+	if o.runLog != nil {
+		o.runLog.LogEpicCompleted(reason, completedTasks)
+	}
+}
+
+// AgentTimeout logs that an agent timed out.
+func (o *RunOutput) AgentTimeout(taskID string, timeout time.Duration, partialOutputLen int) {
+	if o.runLog != nil {
+		o.runLog.LogAgentTimeout(taskID, timeout, partialOutputLen)
+	}
+}
+
+// AgentError logs an agent error.
+func (o *RunOutput) AgentError(taskID, errMsg string) {
+	if o.runLog != nil {
+		o.runLog.LogAgentError(taskID, errMsg)
+	}
+}
+
+// TaskClosed logs that a task was closed by the agent.
+func (o *RunOutput) TaskClosed(taskID string, verificationPassed bool) {
+	if o.runLog != nil {
+		o.runLog.LogTaskCompleted(taskID, verificationPassed)
+	}
+}
+
+// IdleEntered logs entering idle/watch state.
+func (o *RunOutput) IdleEntered(reason string, pollInterval time.Duration) {
+	if o.runLog != nil {
+		o.runLog.LogIdleEntered(reason, pollInterval)
+	}
+}
+
+// IdleFileChange logs a file change detected during idle.
+func (o *RunOutput) IdleFileChange(path string) {
+	if o.runLog != nil {
+		o.runLog.LogIdleFileChange(path)
+	}
+}
+
+// IdleTaskCheck logs an idle task availability check.
+func (o *RunOutput) IdleTaskCheck(found bool, taskID string) {
+	if o.runLog != nil {
+		o.runLog.LogIdleTaskCheck(found, taskID)
 	}
 }
 

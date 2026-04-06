@@ -40,23 +40,68 @@ type logCall struct {
 func (m *mockRunLogSink) LogIterationStart(iteration int, taskID, taskTitle string) {
 	m.calls = append(m.calls, logCall{"LogIterationStart", []any{iteration, taskID, taskTitle}})
 }
-func (m *mockRunLogSink) LogIterationEnd(iteration int, taskID string, duration time.Duration, tokensIn, tokensOut int, cost float64, err error) {
+func (m *mockRunLogSink) LogIterationEnd(iteration int, taskID string, duration time.Duration, tokensIn, tokensOut int, cost float64, signal, errStr string, isTimeout bool) {
 	m.calls = append(m.calls, logCall{"LogIterationEnd", []any{iteration, taskID}})
 }
 func (m *mockRunLogSink) LogContextGenerationStarted(epicID string, taskCount int) {
 	m.calls = append(m.calls, logCall{"LogContextGenerationStarted", []any{epicID, taskCount}})
 }
-func (m *mockRunLogSink) LogContextGenerationCompleted(epicID string, tokenCount int) {
-	m.calls = append(m.calls, logCall{"LogContextGenerationCompleted", []any{epicID, tokenCount}})
+func (m *mockRunLogSink) LogContextGenerationCompleted(epicID string, contentLength int) {
+	m.calls = append(m.calls, logCall{"LogContextGenerationCompleted", []any{epicID, contentLength}})
 }
-func (m *mockRunLogSink) LogContextSkipped(epicID string, reason string, tokenCount int) {
+func (m *mockRunLogSink) LogContextGenerationFailed(epicID string, errMsg string) {
+	m.calls = append(m.calls, logCall{"LogContextGenerationFailed", []any{epicID, errMsg}})
+}
+func (m *mockRunLogSink) LogContextSkipped(epicID string, reason string, taskCount int) {
 	m.calls = append(m.calls, logCall{"LogContextSkipped", []any{epicID, reason}})
 }
-func (m *mockRunLogSink) LogContextLoadFailed(epicID string, err string) {
-	m.calls = append(m.calls, logCall{"LogContextLoadFailed", []any{epicID, err}})
+func (m *mockRunLogSink) LogContextLoadFailed(epicID string, errMsg string) {
+	m.calls = append(m.calls, logCall{"LogContextLoadFailed", []any{epicID, errMsg}})
+}
+func (m *mockRunLogSink) LogContextSaveFailed(epicID string, errMsg string) {
+	m.calls = append(m.calls, logCall{"LogContextSaveFailed", []any{epicID, errMsg}})
+}
+func (m *mockRunLogSink) LogContextError(epicID string, errMsg string, phase string) {
+	m.calls = append(m.calls, logCall{"LogContextError", []any{epicID, errMsg, phase}})
+}
+func (m *mockRunLogSink) LogRunConfig(maxIter int, maxCost float64, maxDuration, agentTimeout time.Duration, maxTaskRetries int, watch bool, watchTimeout, watchPollInterval time.Duration) {
+	m.calls = append(m.calls, logCall{"LogRunConfig", nil})
 }
 func (m *mockRunLogSink) LogRunEnd(epicID string, iterations int, totalTokens int, totalCost float64, duration time.Duration, signal, exitReason string) {
 	m.calls = append(m.calls, logCall{"LogRunEnd", []any{epicID, iterations}})
+}
+func (m *mockRunLogSink) LogAgentTimeout(taskID string, timeout time.Duration, partialOutputLen int) {
+	m.calls = append(m.calls, logCall{"LogAgentTimeout", []any{taskID}})
+}
+func (m *mockRunLogSink) LogAgentError(taskID string, errMsg string) {
+	m.calls = append(m.calls, logCall{"LogAgentError", []any{taskID, errMsg}})
+}
+func (m *mockRunLogSink) LogTaskCompleted(taskID string, verificationPassed bool) {
+	m.calls = append(m.calls, logCall{"LogTaskCompleted", []any{taskID}})
+}
+func (m *mockRunLogSink) LogNoTaskAvailable(reason string, hasOpen bool, watchMode bool) {
+	m.calls = append(m.calls, logCall{"LogNoTaskAvailable", []any{reason}})
+}
+func (m *mockRunLogSink) LogEpicCompleted(reason string, completedTasks []string) {
+	m.calls = append(m.calls, logCall{"LogEpicCompleted", []any{reason}})
+}
+func (m *mockRunLogSink) LogBudgetCheck(limitType string, shouldStop bool, stopReason string, iteration, totalTokens int, totalCost float64) {
+	m.calls = append(m.calls, logCall{"LogBudgetCheck", []any{limitType}})
+}
+func (m *mockRunLogSink) LogSignalDetected(signal string, reason string, taskID string) {
+	m.calls = append(m.calls, logCall{"LogSignalDetected", []any{signal, taskID}})
+}
+func (m *mockRunLogSink) LogSignalHandled(signal string, taskID string, action string, awaitingState string) {
+	m.calls = append(m.calls, logCall{"LogSignalHandled", []any{signal, taskID}})
+}
+func (m *mockRunLogSink) LogIdleEntered(reason string, pollInterval time.Duration) {
+	m.calls = append(m.calls, logCall{"LogIdleEntered", []any{reason}})
+}
+func (m *mockRunLogSink) LogIdleFileChange(path string) {
+	m.calls = append(m.calls, logCall{"LogIdleFileChange", []any{path}})
+}
+func (m *mockRunLogSink) LogIdleTaskCheck(taskFound bool, taskID string) {
+	m.calls = append(m.calls, logCall{"LogIdleTaskCheck", []any{taskFound, taskID}})
 }
 
 func TestNew_Defaults(t *testing.T) {

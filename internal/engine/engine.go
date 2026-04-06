@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
 	epiccontext "github.com/pengelbrecht/ticks/internal/context"
-	"github.com/pengelbrecht/ticks/internal/runlog"
+	"github.com/pengelbrecht/ticks/internal/output"
 	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/ticks"
@@ -50,34 +49,12 @@ type Engine struct {
 	contextStore     *epiccontext.Store
 	contextGenerator *epiccontext.Generator
 
-	// Run record store for live file tracking (optional)
+	// Run record store for live file tracking (optional, used by wave.Runner)
 	runRecordStore *runrecord.Store
 
-	// Run logger for control flow events (optional)
-	runLog *runlog.Logger
-
-	// Callbacks for TUI integration (optional)
-	OnIterationStart func(ctx IterationContext)
-	OnIterationEnd   func(result *IterationResult)
-	OnOutput         func(chunk string)
-	OnSignal         func(signal Signal, reason string)
-
-	// Context generation callbacks for TUI status display (optional)
-	OnContextGenerating func(epicID string, taskCount int)
-	OnContextGenerated  func(epicID string, tokenCount int)
-	OnContextLoaded     func(epicID string, content string) // content passed for preview/token display
-	OnContextSkipped    func(epicID string, reason string)
-	OnContextFailed     func(epicID string, errMsg string)
-	OnContextActive     func(epicID string)                          // called at start of each wave when context is in use
-	OnContextProgress   func(epicID string, elapsed time.Duration, tokensIn, tokensOut int) // periodic progress during generation
-
-	// Watch mode callback - called when no tasks available and entering idle state.
-	OnIdle func()
-
-	// Rich streaming callback for real-time agent state updates.
-	// Called whenever agent state changes (text, thinking, tools, metrics).
-	// If set, this provides structured updates; OnOutput is still called for backward compat.
-	OnAgentState func(snap agent.AgentStateSnapshot)
+	// Output is the unified output sink for all run events.
+	// When nil, all output is silently discarded (safe for tests).
+	Output *output.RunOutput
 }
 
 // RunConfig configures an engine run.
@@ -259,8 +236,8 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 
 	// Skip if context already exists - will be loaded in loadEpicContext
 	if e.contextStore.Exists(epic.ID) {
-		if e.runLog != nil {
-			e.runLog.LogContextSkipped(epic.ID, "already exists", 0)
+		if e.Output != nil {
+			e.Output.ContextSkipped(epic.ID, "already exists")
 		}
 		return
 	}
@@ -268,33 +245,24 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 	// Get epic tasks to check count and for generation
 	tasks, err := e.ticks.ListTasks(epic.ID)
 	if err != nil {
-		if e.runLog != nil {
-			e.runLog.LogContextError(epic.ID, err.Error(), "list_tasks")
+		if e.Output != nil {
+			e.Output.ContextError(epic.ID, err.Error(), "list_tasks")
 		}
 		return
 	}
 
 	// Skip for epics with ≤1 children (no amortization benefit)
 	if len(tasks) <= 1 {
-		if e.runLog != nil {
-			e.runLog.LogContextSkipped(epic.ID, "too few tasks", len(tasks))
-		}
-		if e.OnContextSkipped != nil {
-			e.OnContextSkipped(epic.ID, "single-task epic")
+		if e.Output != nil {
+			e.Output.ContextSkipped(epic.ID, "single-task epic")
 		}
 		return
 	}
 
-	// Log context generation start
-	if e.runLog != nil {
-		e.runLog.LogContextGenerationStarted(epic.ID, len(tasks))
-	}
-	if e.OnContextGenerating != nil {
-		e.OnContextGenerating(epic.ID, len(tasks))
-	}
-	// Write epic status for ticks board SSE
-	if e.runRecordStore != nil {
-		_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+	// Signal context generation start
+	if e.Output != nil {
+		e.Output.ContextGenerating(epic.ID, len(tasks))
+		e.Output.EpicStatus(epic.ID, &runrecord.EpicStatus{
 			EpicID:    epic.ID,
 			Status:    "context_generating",
 			Message:   fmt.Sprintf("Generating epic context (%d tasks)...", len(tasks)),
@@ -304,23 +272,18 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 
 	// Generate context using the AI agent
 	var progressFn epiccontext.ProgressFunc
-	if e.OnContextProgress != nil {
+	if e.Output != nil {
 		epicID := epic.ID
+		out := e.Output
 		progressFn = func(elapsed time.Duration, tokensIn, tokensOut int) {
-			e.OnContextProgress(epicID, elapsed, tokensIn, tokensOut)
+			out.ContextProgress(epicID, elapsed, tokensIn, tokensOut)
 		}
 	}
 	content, err := e.contextGenerator.GenerateWithProgress(ctx, epic, tasks, progressFn)
 	if err != nil {
-		// Log warning but don't abort - context is optional
-		if e.runLog != nil {
-			e.runLog.LogContextGenerationFailed(epic.ID, err.Error())
-		}
-		if e.OnContextFailed != nil {
-			e.OnContextFailed(epic.ID, err.Error())
-		}
-		if e.runRecordStore != nil {
-			_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+		if e.Output != nil {
+			e.Output.ContextGenerationFailed(epic.ID, err.Error())
+			e.Output.EpicStatus(epic.ID, &runrecord.EpicStatus{
 				EpicID:  epic.ID,
 				Status:  "context_failed",
 				Message: fmt.Sprintf("Context generation failed: %s", err.Error()),
@@ -331,14 +294,9 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 
 	// Save the generated context
 	if err := e.contextStore.Save(epic.ID, content); err != nil {
-		if e.runLog != nil {
-			e.runLog.LogContextSaveFailed(epic.ID, err.Error())
-		}
-		if e.OnContextFailed != nil {
-			e.OnContextFailed(epic.ID, err.Error())
-		}
-		if e.runRecordStore != nil {
-			_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+		if e.Output != nil {
+			e.Output.ContextSaveFailed(epic.ID, err.Error())
+			e.Output.EpicStatus(epic.ID, &runrecord.EpicStatus{
 				EpicID:  epic.ID,
 				Status:  "context_failed",
 				Message: fmt.Sprintf("Context save failed: %s", err.Error()),
@@ -347,15 +305,10 @@ func (e *Engine) ensureEpicContext(ctx context.Context, epic *ticks.Epic) {
 		return
 	}
 
-	if e.runLog != nil {
-		e.runLog.LogContextGenerationCompleted(epic.ID, len(content))
-	}
 	tokenCount := len(content) / 4
-	if e.OnContextGenerated != nil {
-		e.OnContextGenerated(epic.ID, tokenCount)
-	}
-	if e.runRecordStore != nil {
-		_ = e.runRecordStore.WriteEpicStatus(epic.ID, &runrecord.EpicStatus{
+	if e.Output != nil {
+		e.Output.ContextGenerated(epic.ID, tokenCount)
+		e.Output.EpicStatus(epic.ID, &runrecord.EpicStatus{
 			EpicID:     epic.ID,
 			Status:     "context_generated",
 			Message:    fmt.Sprintf("Context generated (~%d tokens)", tokenCount),
@@ -373,43 +326,29 @@ func (e *Engine) loadEpicContext(epicID string) string {
 
 	content, err := e.contextStore.Load(epicID)
 	if err != nil {
-		if e.runLog != nil {
-			e.runLog.LogContextLoadFailed(epicID, err.Error())
+		if e.Output != nil {
+			e.Output.ContextFailed(epicID, err.Error())
 		}
 		return ""
 	}
 
-	if content != "" {
-		if e.OnContextLoaded != nil {
-			e.OnContextLoaded(epicID, content)
-		}
-		if e.runRecordStore != nil {
-			tokenCount := len(content) / 4
-			_ = e.runRecordStore.WriteEpicStatus(epicID, &runrecord.EpicStatus{
-				EpicID:     epicID,
-				Status:     "context_loaded",
-				Message:    fmt.Sprintf("Using existing context (~%d tokens)", tokenCount),
-				TokenCount: tokenCount,
-			})
-		}
+	if content != "" && e.Output != nil {
+		e.Output.ContextLoaded(epicID)
+		tokenCount := len(content) / 4
+		e.Output.EpicStatus(epicID, &runrecord.EpicStatus{
+			EpicID:     epicID,
+			Status:     "context_loaded",
+			Message:    fmt.Sprintf("Using existing context (~%d tokens)", tokenCount),
+			TokenCount: tokenCount,
+		})
 	}
 
 	return content
 }
 
-// SetRunLog sets the run logger for control flow events.
-func (e *Engine) SetRunLog(l *runlog.Logger) {
-	e.runLog = l
-}
-
 // SetRunRecordStore sets the run record store for live file tracking.
 func (e *Engine) SetRunRecordStore(s *runrecord.Store) {
 	e.runRecordStore = s
-}
-
-// RunLog returns the current run logger (may be nil).
-func (e *Engine) RunLog() *runlog.Logger {
-	return e.runLog
 }
 
 // Run executes the wave-based engine loop until completion, signal, or budget exceeded.
@@ -429,17 +368,8 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 	}
 
 	// Log configuration after defaults applied
-	if e.runLog != nil {
-		e.runLog.LogRunConfig(runlog.RunConfigData{
-			MaxIterations:     config.MaxIterations,
-			MaxCost:           config.MaxCost,
-			MaxDuration:       config.MaxDuration,
-			AgentTimeout:      config.AgentTimeout,
-			MaxTaskRetries:    config.MaxTaskRetries,
-			Watch:             config.Watch,
-			WatchTimeout:      config.WatchTimeout,
-			WatchPollInterval: config.WatchPollInterval,
-		})
+	if e.Output != nil {
+		e.Output.RunConfig(config.MaxIterations, config.MaxCost, config.MaxDuration, config.AgentTimeout, config.MaxTaskRetries, config.Watch, config.WatchTimeout, config.WatchPollInterval)
 	}
 
 	// Calculate watch deadline (0 = unlimited)
@@ -504,16 +434,9 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 
 		// Check budget limits before starting wave
 		if shouldStop, reason := e.budget.ShouldStop(); shouldStop {
-			if e.runLog != nil {
+			if e.Output != nil {
 				usage := e.budget.Usage()
-				e.runLog.LogBudgetCheck(runlog.BudgetCheckData{
-					LimitType:   "budget",
-					ShouldStop:  true,
-					StopReason:  reason,
-					Iteration:   state.iteration,
-					TotalTokens: usage.TotalTokens(),
-					TotalCost:   usage.Cost,
-				})
+				e.Output.BudgetExceeded("budget", true, reason, state.iteration, usage.TotalTokens(), usage.Cost)
 			}
 			return state.toResult(reason, e.budget.Usage()), nil
 		}
@@ -536,8 +459,8 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 
 			if hasOpen {
 				// Tasks exist but are all blocked or awaiting human
-				if e.runLog != nil {
-					e.runLog.LogNoTaskAvailable("all tasks blocked or awaiting human", hasOpen, config.Watch)
+				if e.Output != nil {
+					e.Output.NoTaskAvailable("all tasks blocked or awaiting human", hasOpen, config.Watch)
 				}
 				if config.Watch {
 					// Watch mode: enter idle state and wait for changes
@@ -558,12 +481,14 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 			if state.iteration == 0 {
 				reason = ExitReasonNoTasksFound
 			}
-			if e.runLog != nil {
-				e.runLog.LogNoTaskAvailable(reason, hasOpen, config.Watch)
-				e.runLog.LogEpicCompleted(reason, state.completedTasks)
+			if e.Output != nil {
+				e.Output.NoTaskAvailable(reason, hasOpen, config.Watch)
+				e.Output.EpicCompleted(reason, state.completedTasks)
 			}
 			if err := e.ticks.CloseEpic(config.EpicID, reason); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to close epic %s: %v\n", config.EpicID, err)
+				if e.Output != nil {
+					e.Output.Warn("failed to close epic %s: %v", config.EpicID, err)
+				}
 			}
 			return state.toResult(reason, e.budget.Usage()), nil
 		}
@@ -572,17 +497,17 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		firstWave := waveResult.Waves[0]
 		state.iteration++
 
-		if e.runLog != nil {
+		if e.Output != nil {
 			taskIDs := make([]string, len(firstWave.Tasks))
 			for i, t := range firstWave.Tasks {
 				taskIDs[i] = t.ID
 			}
-			e.runLog.LogIterationStart(state.iteration, strings.Join(taskIDs, ","), fmt.Sprintf("wave %d (%d tasks)", firstWave.Number, len(firstWave.Tasks)))
-		}
+			e.Output.WaveStarted(state.iteration, taskIDs)
 
-		// Notify that context is active for this wave (if context exists)
-		if state.epicContext != "" && e.OnContextActive != nil {
-			e.OnContextActive(state.epicID)
+			// Notify that context is active for this wave (if context exists)
+			if state.epicContext != "" {
+				e.Output.ContextActive(state.epicID)
+			}
 		}
 
 		// Mark tasks as in_progress
@@ -602,7 +527,11 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 			// Parse signals from output
 			sig, sigCtx := ParseSignals(tr.Output)
 
-			// Build an IterationResult for callback compatibility
+			signalStr := ""
+			if sig != SignalNone {
+				signalStr = sig.String()
+			}
+
 			iterResult := &IterationResult{
 				Iteration:    state.iteration,
 				TaskID:       tr.TaskID,
@@ -621,38 +550,28 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 			// Update budget
 			e.budget.Add(tr.TokensIn, tr.TokensOut, tr.Cost)
 
-			// Call iteration end callback
-			if e.OnIterationEnd != nil {
-				e.OnIterationEnd(iterResult)
-			}
-
-			// Log iteration end
-			if e.runLog != nil {
-				errStr := ""
-				if tr.Error != nil {
-					errStr = tr.Error.Error()
-				}
-				signalStr := ""
-				if sig != SignalNone {
-					signalStr = sig.String()
-				}
-				e.runLog.LogIterationEnd(runlog.IterationEndData{
-					Iteration: state.iteration,
-					TaskID:    tr.TaskID,
-					Duration:  tr.Duration,
-					TokensIn:  tr.TokensIn,
-					TokensOut: tr.TokensOut,
-					Cost:      tr.Cost,
-					Signal:    signalStr,
-					Error:     errStr,
-					IsTimeout: iterResult.IsTimeout,
+			// Report task completion to output
+			if e.Output != nil {
+				e.Output.TaskCompleted(output.IterationResult{
+					Iteration:    state.iteration,
+					TaskID:       tr.TaskID,
+					TaskTitle:    taskTick.Title,
+					Output:       tr.Output,
+					TokensIn:     tr.TokensIn,
+					TokensOut:    tr.TokensOut,
+					Cost:         tr.Cost,
+					Duration:     tr.Duration,
+					Signal:       signalStr,
+					SignalReason: sigCtx,
+					Error:        tr.Error,
+					IsTimeout:    iterResult.IsTimeout,
 				})
 			}
 
 			// Handle timeout
 			if iterResult.IsTimeout {
-				if e.runLog != nil {
-					e.runLog.LogAgentTimeout(tr.TaskID, config.AgentTimeout, len(tr.Output))
+				if e.Output != nil {
+					e.Output.AgentTimeout(tr.TaskID, config.AgentTimeout, len(tr.Output))
 				}
 				note := buildTimeoutNote(state.iteration, tr.TaskID, config.AgentTimeout, tr.Output)
 				_ = e.ticks.AddNote(config.EpicID, note)
@@ -661,8 +580,8 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 
 			// Handle errors
 			if tr.Error != nil {
-				if e.runLog != nil {
-					e.runLog.LogAgentError(tr.TaskID, tr.Error.Error())
+				if e.Output != nil {
+					e.Output.AgentError(tr.TaskID, tr.Error.Error())
 				}
 				_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Wave %d error on task %s: %v", state.iteration, tr.TaskID, tr.Error))
 				continue
@@ -674,8 +593,8 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 				if err != nil {
 					_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Warning: could not check task status: %v", err))
 				} else if taskClosed {
-					if e.runLog != nil {
-						e.runLog.LogTaskCompleted(tr.TaskID, true)
+					if e.Output != nil {
+						e.Output.TaskClosed(tr.TaskID, true)
 					}
 					state.completedTasks = append(state.completedTasks, tr.TaskID)
 				}
@@ -686,18 +605,13 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 				state.signal = sig
 				state.signalReason = sigCtx
 
-				if e.runLog != nil {
-					e.runLog.LogSignalDetected(sig.String(), sigCtx, tr.TaskID)
-				}
-
-				if e.OnSignal != nil {
-					e.OnSignal(sig, sigCtx)
+				if e.Output != nil {
+					e.Output.Signal(signalStr, sigCtx, tr.TaskID)
 				}
 
 				if sig == SignalComplete {
-					// COMPLETE signal is ignored (tk run handles completion via tk next)
-					if e.runLog != nil {
-						e.runLog.LogSignalHandled(sig.String(), tr.TaskID, "ignored (tk run handles completion automatically)", "")
+					if e.Output != nil {
+						e.Output.SignalHandled(signalStr, tr.TaskID, "ignored (tk run handles completion automatically)", "")
 					}
 				} else {
 					// All other signals set the task to awaiting state
@@ -710,8 +624,8 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 							_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Warning: could not update task %s awaiting state: %v", tr.TaskID, err))
 						}
 					}
-					if e.runLog != nil {
-						e.runLog.LogSignalHandled(sig.String(), tr.TaskID, "set task awaiting", awaitingState)
+					if e.Output != nil {
+						e.Output.SignalHandled(signalStr, tr.TaskID, "set task awaiting", awaitingState)
 					}
 				}
 			}
@@ -789,8 +703,8 @@ func (e *Engine) makePromptFunc(state *runState) wave.PromptFunc {
 			EpicContext:   state.epicContext,
 		}
 
-		if e.OnIterationStart != nil {
-			e.OnIterationStart(iterCtx)
+		if e.Output != nil {
+			e.Output.TaskStarted(state.iteration, task.ID, task.Title)
 		}
 
 		return e.prompt.Build(iterCtx)
@@ -883,12 +797,9 @@ func truncateOutput(s string, max int) string {
 
 // handleWatchIdle enters idle state and watches for new tasks.
 func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *runState, watchDeadline time.Time) *RunResult {
-	if e.runLog != nil {
-		e.runLog.LogIdleEntered("tasks blocked or awaiting human", config.WatchPollInterval)
-	}
-
-	if e.OnIdle != nil {
-		e.OnIdle()
+	if e.Output != nil {
+		e.Output.IdleEntered("tasks blocked or awaiting human", config.WatchPollInterval)
+		e.Output.Idle()
 	}
 
 	watcher := NewTicksWatcher(state.workDir)
@@ -907,21 +818,21 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 			return state.toResult("context cancelled while idle", e.budget.Usage())
 
 		case <-fileChanges:
-			if e.runLog != nil {
-				e.runLog.LogIdleFileChange(".tick/issues")
+			if e.Output != nil {
+				e.Output.IdleFileChange(".tick/issues")
 			}
 			task, err := e.ticks.NextTask(config.EpicID)
 			if err != nil {
 				continue
 			}
 			if task != nil {
-				if e.runLog != nil {
-					e.runLog.LogIdleTaskCheck(true, task.ID)
+				if e.Output != nil {
+					e.Output.IdleTaskCheck(true, task.ID)
 				}
 				return nil
 			}
-			if e.runLog != nil {
-				e.runLog.LogIdleTaskCheck(false, "")
+			if e.Output != nil {
+				e.Output.IdleTaskCheck(false, "")
 			}
 			select {
 			case <-ctx.Done():
@@ -931,8 +842,8 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 			}
 			task, err = e.ticks.NextTask(config.EpicID)
 			if err == nil && task != nil {
-				if e.runLog != nil {
-					e.runLog.LogIdleTaskCheck(true, task.ID)
+				if e.Output != nil {
+					e.Output.IdleTaskCheck(true, task.ID)
 				}
 				return nil
 			}
@@ -944,13 +855,13 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 		case <-time.After(config.WatchPollInterval):
 			task, err := e.ticks.NextTask(config.EpicID)
 			if err == nil && task != nil {
-				if e.runLog != nil {
-					e.runLog.LogIdleTaskCheck(true, task.ID)
+				if e.Output != nil {
+					e.Output.IdleTaskCheck(true, task.ID)
 				}
 				return nil
 			}
-			if e.runLog != nil {
-				e.runLog.LogIdleTaskCheck(false, "")
+			if e.Output != nil {
+				e.Output.IdleTaskCheck(false, "")
 			}
 
 			result := e.checkForEpicCompletion(config, state)
@@ -958,8 +869,8 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 				return result
 			}
 
-			if e.OnIdle != nil {
-				e.OnIdle()
+			if e.Output != nil {
+				e.Output.Idle()
 			}
 		}
 	}
@@ -976,7 +887,9 @@ func (e *Engine) checkForEpicCompletion(config RunConfig, state *runState) *RunR
 		state.signal = SignalComplete
 		reason := ExitReasonAllTasksCompleted
 		if err := e.ticks.CloseEpic(config.EpicID, reason); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to close epic %s: %v\n", config.EpicID, err)
+			if e.Output != nil {
+				e.Output.Warn("failed to close epic %s: %v", config.EpicID, err)
+			}
 		}
 		return state.toResult(reason, e.budget.Usage())
 	}
