@@ -477,12 +477,10 @@ func TestRunAgentSteps_ParallelGroup(t *testing.T) {
 	session2 := &stepMockSession{
 		responses: []string{"Done step 2 <promise>STEP_DONE</promise>"},
 	}
-	// Third session is the shared session opened by RunAgentSteps.
-	sharedSession := &stepMockSession{}
-
+	// No shared session needed — all steps are parallel, so lazy open is never triggered.
 	ag := &parallelMockSessionAgent{
 		stepMockAgent: stepMockAgent{name: "test"},
-		sessions:      []*stepMockSession{sharedSession, session1, session2},
+		sessions:      []*stepMockSession{session1, session2},
 	}
 
 	steps := []WrapupStep{
@@ -523,10 +521,6 @@ func TestRunAgentSteps_ParallelGroup(t *testing.T) {
 	}
 	if !session2.closed {
 		t.Error("session2 was not closed")
-	}
-	// Shared session should NOT have been used for parallel steps
-	if sharedSession.callCount != 0 {
-		t.Errorf("shared session: expected 0 calls, got %d", sharedSession.callCount)
 	}
 }
 

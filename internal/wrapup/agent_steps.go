@@ -148,15 +148,9 @@ func groupSteps(steps []WrapupStep) []stepGroup {
 		delete(byGroup, 0)
 	}
 
-	// Remaining groups sorted by group number.
-	var groupNums []int
-	for g := range byGroup {
-		groupNums = append(groupNums, g)
-	}
-	sort.Ints(groupNums)
-
-	for _, g := range groupNums {
-		groups = append(groups, stepGroup{groupNum: g, steps: byGroup[g]})
+	// Collect remaining groups (ordering handled by final sort below).
+	for g, steps := range byGroup {
+		groups = append(groups, stepGroup{groupNum: g, steps: steps})
 	}
 
 	// Sort all groups by the minimum step index to preserve original ordering.
@@ -189,7 +183,6 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 	existing := loadProgress(logsDir, epicID)
 	results := make([]AgentStepResult, len(steps))
 
-	// Build list of completed step titles for progress display
 	var completedTitles []string
 
 	// Recover already-completed steps from previous run
@@ -246,16 +239,28 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 		groupStartIdx++
 	}
 
-	// For sequential execution (non-SessionAgent or single-step groups),
-	// open one shared session if SessionAgent.
+	// Lazily opened shared session for sequential steps.
 	var sharedSession agent.Session
-	if useSession {
+	openSharedSession := func() (agent.Session, error) {
+		if sharedSession != nil {
+			return sharedSession, nil
+		}
 		var err error
 		sharedSession, err = sa.Open(ctx, opts)
-		if err != nil {
-			return nil, fmt.Errorf("open session: %w", err)
+		return sharedSession, err
+	}
+	defer func() {
+		if sharedSession != nil {
+			sharedSession.Close()
 		}
-		defer sharedSession.Close()
+	}()
+
+	// Incremental progress accumulator for saving after each group.
+	var progressResults []AgentStepResult
+	for _, g := range groups[:groupStartIdx] {
+		for _, is := range g.steps {
+			progressResults = append(progressResults, results[is.index])
+		}
 	}
 
 	for gi := groupStartIdx; gi < len(groups); gi++ {
@@ -264,13 +269,12 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 		canParallel := useSession && len(grp.steps) > 1
 
 		if canParallel {
-			// Parallel execution: each step gets its own session.
 			var mu sync.Mutex
 			var wg sync.WaitGroup
 
 			for _, is := range grp.steps {
 				if is.index < recoveredCount {
-					continue // already recovered from previous run
+					continue
 				}
 				wg.Add(1)
 				go func(is indexedStep) {
@@ -283,12 +287,19 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 			}
 			wg.Wait()
 		} else {
-			// Sequential execution: reuse shared session (or one-shot).
 			for _, is := range grp.steps {
 				if is.index < recoveredCount {
 					continue
 				}
-				result := wr.runSingleStep(ctx, is.step, is.index, len(steps), completedTitles, agentImpl, sharedSession, opts, maxRetries, false)
+				var sess agent.Session
+				if useSession {
+					var err error
+					sess, err = openSharedSession()
+					if err != nil {
+						return nil, fmt.Errorf("open session: %w", err)
+					}
+				}
+				result := wr.runSingleStep(ctx, is.step, is.index, len(steps), completedTitles, agentImpl, sess, opts, maxRetries, false)
 				results[is.index] = result
 				if result.Status == "completed" {
 					completedTitles = append(completedTitles, result.Title)
@@ -296,7 +307,7 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 			}
 		}
 
-		// After parallel group, collect completed titles
+		// Collect completed titles after parallel group
 		if canParallel {
 			for _, is := range grp.steps {
 				if results[is.index].Status == "completed" {
@@ -305,19 +316,13 @@ func (wr *WrapupRunner) RunAgentSteps(ctx context.Context, steps []WrapupStep, e
 			}
 		}
 
-		// Save progress after each group
-		// Collect results in order up to and including this group
-		var progressResults []AgentStepResult
-		for _, g := range groups[:gi+1] {
-			for _, is := range g.steps {
-				progressResults = append(progressResults, results[is.index])
-			}
+		// Append this group's results and save progress
+		for _, is := range grp.steps {
+			progressResults = append(progressResults, results[is.index])
 		}
 		if err := saveProgress(logsDir, epicID, progressResults, startedAt); err != nil {
 			if wr.Output != nil {
 				wr.Output.Warn("failed to save wrapup progress: %v", err)
-			} else {
-				fmt.Fprintf(os.Stderr, "Warning: failed to save wrapup progress: %v\n", err)
 			}
 		}
 	}
@@ -350,7 +355,6 @@ func (wr *WrapupRunner) runSingleStep(
 	var stepResult AgentStepResult
 	stepResult.Title = step.Title
 
-	// Open a dedicated session for parallel execution
 	var ownSession agent.Session
 	if openOwnSession {
 		sa := agentImpl.(agent.SessionAgent)
