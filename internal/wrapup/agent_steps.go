@@ -419,7 +419,7 @@ func (wr *WrapupRunner) runSingleStep(
 		}
 
 		if attempt < maxRetries {
-			prompt = BuildRetryPrompt(step, result.Output)
+			prompt = BuildRetryPrompt(step)
 		} else {
 			stepResult.Status = "failed"
 			stepResult.ErrorMsg = "max retries exceeded without STEP_DONE signal"

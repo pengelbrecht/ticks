@@ -120,11 +120,10 @@ func TestBuildStepPrompt(t *testing.T) {
 
 func TestBuildRetryPrompt(t *testing.T) {
 	tests := []struct {
-		name           string
-		step           WrapupStep
-		previousOutput string
-		wantIn         []string
-		wantOut        []string
+		name    string
+		step    WrapupStep
+		wantIn  []string
+		wantOut []string
 	}{
 		{
 			name: "retry with verify",
@@ -133,7 +132,6 @@ func TestBuildRetryPrompt(t *testing.T) {
 				Prompt: "Run all tests.",
 				Verify: "All tests pass.",
 			},
-			previousOutput: "I ran some tests but got distracted.",
 			wantIn: []string{
 				"Retry: Run tests",
 				"did not include a STEP_DONE signal",
@@ -149,7 +147,6 @@ func TestBuildRetryPrompt(t *testing.T) {
 				Prompt: "Remove temp files.",
 				Verify: "",
 			},
-			previousOutput: "working on it...",
 			wantIn: []string{
 				"Retry: Clean up",
 				"STEP_DONE",
@@ -162,7 +159,7 @@ func TestBuildRetryPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := BuildRetryPrompt(tt.step, tt.previousOutput)
+			got := BuildRetryPrompt(tt.step)
 
 			for _, want := range tt.wantIn {
 				if !strings.Contains(got, want) {

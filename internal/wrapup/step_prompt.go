@@ -58,7 +58,7 @@ func BuildStepPrompt(step WrapupStep, index int, total int, completed []string) 
 }
 
 // BuildRetryPrompt generates a re-prompt when the agent did not emit STEP_DONE.
-func BuildRetryPrompt(step WrapupStep, previousOutput string) string {
+func BuildRetryPrompt(step WrapupStep) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "# Retry: %s\n\n", step.Title)

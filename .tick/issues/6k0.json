@@ -1,7 +1,8 @@
 {
   "id": "6k0",
   "title": "Wrapup per-step output and parallel step support",
-  "status": "open",
+  "notes": "2026-04-06 16:01 - Task u75 done: Added Group int (json:\"group\") to WrapupStep. Group 0 = sequential (zero-value default). decompositionPrompt now instructs agent to assign group numbers starting from 1. strictRetryPrompt updated to list group as required key. Two new tests added for group parsing. Note: BuildStepPrompt not yet updated to handle parallel group context (omitting same-group steps from checklist) — that's part of the task description for 4bm.\n2026-04-06 16:03 - Task 3iy done: WrapupRunner now has Output field, wired into step loop. Output calls are nil-guarded so existing callers without Output still work. Tests use output.New(WithStdout, WithStderr) with buffers to capture and assert output. The fmt.Fprintf fallback is kept when Output is nil for backwards compat in saveProgress warning.\n2026-04-06 16:06 - Task 4bm done: RunAgentSteps now groups steps by Group field using groupSteps() helper. Group 0 steps each form their own single-step group (sequential). Group N\u003e0 steps run in parallel — each goroutine opens its own session via SessionAgent.Open(). Shared session is reused for sequential groups. Non-SessionAgent falls back to sequential for all groups. Progress saved per-group. Extracted runSingleStep() method for reuse between sequential and parallel paths. Three new tests: parallel group, non-session fallback, mixed sequential+parallel.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +12,7 @@
   ],
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T13:58:02.245871Z",
-  "updated_at": "2026-04-06T13:58:02.245871Z"
+  "updated_at": "2026-04-06T14:06:19.788415Z",
+  "closed_at": "2026-04-06T14:06:19.788415Z",
+  "closed_reason": "all tasks completed"
 }
