@@ -347,7 +347,7 @@ func (wr *WrapupRunner) runSingleStep(
 	stepStart := time.Now()
 
 	if wr.Output != nil {
-		wr.Output.WrapupAgentStep(index+1, total, step.Title, "running")
+		wr.Output.WrapupAgentStepStarted(index+1, total, step.Title)
 	}
 
 	prompt := BuildStepPrompt(step, index, total, completedTitles)
@@ -366,7 +366,7 @@ func (wr *WrapupRunner) runSingleStep(
 			stepResult.ErrorMsg = err.Error()
 			stepResult.Duration = time.Since(stepStart)
 			if wr.Output != nil {
-				wr.Output.WrapupAgentStep(index+1, total, step.Title, stepResult.Status)
+				wr.Output.WrapupAgentStepCompleted(index+1, total, step.Title, stepResult.Status, stepResult.Duration)
 			}
 			return stepResult
 		}
@@ -434,7 +434,7 @@ func (wr *WrapupRunner) runSingleStep(
 	}
 
 	if wr.Output != nil {
-		wr.Output.WrapupAgentStep(index+1, total, step.Title, stepResult.Status)
+		wr.Output.WrapupAgentStepCompleted(index+1, total, step.Title, stepResult.Status, stepResult.Duration)
 	}
 
 	return stepResult
