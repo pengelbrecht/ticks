@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -79,6 +80,8 @@ func (a *AcpAgent) Open(ctx context.Context, opts RunOpts) (Session, error) {
 	proc := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
 	proc.Env = append(os.Environ(), "TICK_OWNER=ticker")
 	proc.Stderr = os.Stderr
+	// Create a new process group so we can kill the entire tree on Close().
+	proc.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdin, err := proc.StdinPipe()
 	if err != nil {
@@ -324,7 +327,8 @@ func (s *acpSession) handleAgentRequest(method string, params json.RawMessage) (
 }
 
 // Close terminates the session and cleans up the subprocess.
-// It closes stdin, waits briefly for a graceful exit, then kills the process.
+// It closes stdin, waits briefly for a graceful exit, then kills the
+// entire process group (npm + node children).
 func (s *acpSession) Close() error {
 	s.stdin.Close()
 
@@ -339,7 +343,10 @@ func (s *acpSession) Close() error {
 		<-s.readDone
 		return err
 	case <-time.After(5 * time.Second):
-		_ = s.proc.Process.Kill()
+		// Kill the entire process group (negative PID).
+		if s.proc.Process != nil {
+			_ = syscall.Kill(-s.proc.Process.Pid, syscall.SIGKILL)
+		}
 		err := <-done
 		<-s.readDone
 		return err
