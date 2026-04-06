@@ -248,16 +248,21 @@ func TestRunComplete_RoutesToAllSinks(t *testing.T) {
 }
 
 func TestWrapupStepResult_Output(t *testing.T) {
-	var stdout bytes.Buffer
-	o := New(WithStdout(&stdout))
+	var stdout, stderr bytes.Buffer
+	o := New(WithStdout(&stdout), WithStderr(&stderr))
 
 	o.WrapupStepResult("verify", true, nil)
 	o.WrapupStepResult("merge", false, errors.New("conflict"))
 
 	got := stdout.String()
-	expected := "[PASS] verify\n[FAIL] merge: conflict\n"
+	expected := "  [PASS] verify\n  [FAIL] merge\n"
 	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
+		t.Errorf("stdout: got %q, want %q", got, expected)
+	}
+	gotErr := stderr.String()
+	expectedErr := "    error: conflict\n"
+	if gotErr != expectedErr {
+		t.Errorf("stderr: got %q, want %q", gotErr, expectedErr)
 	}
 }
 
@@ -304,21 +309,20 @@ func TestNilSinks_NoPanic(t *testing.T) {
 	o.AgentOutput("chunk")
 	o.RunComplete(RunResult{})
 	o.WrapupStepResult("step", true, nil)
-	o.MergeResult("branch", true, nil)
+	o.MergeSuccess("branch")
 	o.WorktreePreserved("/tmp", "reason")
 	o.Warn("test")
 	o.Error("test")
 }
 
-func TestMergeResult_Output(t *testing.T) {
+func TestMergeSuccess_Output(t *testing.T) {
 	var stdout bytes.Buffer
 	o := New(WithStdout(&stdout))
 
-	o.MergeResult("feature-1", true, nil)
-	o.MergeResult("feature-2", false, errors.New("conflict"))
+	o.MergeSuccess("main")
 
 	got := stdout.String()
-	expected := "Merged branch feature-1\nMerge failed for feature-2: conflict\n"
+	expected := "Merged to main and cleaned up worktree\n"
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -331,7 +335,7 @@ func TestWorktreePreserved_Output(t *testing.T) {
 	o.WorktreePreserved("/tmp/wt", "tasks awaiting")
 
 	got := stdout.String()
-	expected := "Worktree preserved at /tmp/wt (tasks awaiting)\n"
+	expected := "Worktree preserved (tasks awaiting): /tmp/wt\n"
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}

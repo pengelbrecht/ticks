@@ -103,6 +103,14 @@ func (o *RunOutput) BoardURL(port int) {
 	o.printf("Board: http://localhost:%d\n", port)
 }
 
+// CloudInfo prints the cloud sync status.
+func (o *RunOutput) CloudInfo(boardName string) {
+	if o.jsonl {
+		return
+	}
+	o.printf("Cloud: syncing as %s\n", boardName)
+}
+
 // --- Context events ---
 
 // ContextGenerating signals that context generation has started.
@@ -495,23 +503,23 @@ func (o *RunOutput) WrapupStepResult(name string, success bool, err error) {
 	if !success {
 		status = "FAIL"
 	}
-	if err != nil {
-		o.printf("[%s] %s: %v\n", status, name, err)
-	} else {
-		o.printf("[%s] %s\n", status, name)
+	o.printf("  [%s] %s\n", status, name)
+	if !success && err != nil {
+		o.eprintf("    error: %v\n", err)
 	}
 }
 
-// MergeResult reports the outcome of a branch merge attempt.
-func (o *RunOutput) MergeResult(branch string, success bool, err error) {
+// MergeSuccess reports a successful merge and worktree cleanup.
+func (o *RunOutput) MergeSuccess(targetBranch string) {
 	if o.jsonl {
 		return
 	}
-	if success {
-		o.printf("Merged branch %s\n", branch)
-	} else {
-		o.printf("Merge failed for %s: %v\n", branch, err)
-	}
+	o.printf("Merged to %s and cleaned up worktree\n", targetBranch)
+}
+
+// PRCreated reports a successfully created pull request.
+func (o *RunOutput) PRCreated(url string) {
+	o.printf("PR created: %s\n", url)
 }
 
 // WorktreePreserved reports that a worktree was kept instead of cleaned up.
@@ -519,7 +527,16 @@ func (o *RunOutput) WorktreePreserved(path, reason string) {
 	if o.jsonl {
 		return
 	}
-	o.printf("Worktree preserved at %s (%s)\n", path, reason)
+	o.printf("Worktree preserved (%s): %s\n", reason, path)
+}
+
+// WorktreeInfo prints worktree path and branch info (e.g. for --no-merge).
+func (o *RunOutput) WorktreeInfo(path, branch string) {
+	if o.jsonl {
+		return
+	}
+	o.printf("Worktree preserved (--no-merge): %s\n", path)
+	o.printf("Branch: %s\n", branch)
 }
 
 // --- Error/warning events ---
