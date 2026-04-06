@@ -1,8 +1,10 @@
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,8 +41,9 @@ type RunOutput struct {
 	board  BoardSink
 	cloud  CloudSink
 	runLog RunLogSink
-	jsonl  bool // suppress human output, emit JSONL only
-	mu     sync.Mutex
+	jsonl           bool // suppress human output, emit JSONL only
+	mu              sync.Mutex
+	lastProgressLen int // length of last progress line for carriage-return clearing
 }
 
 // New creates a RunOutput with the given options.
@@ -76,6 +79,9 @@ func (o *RunOutput) BoardURL(port int) {
 
 // ContextGenerating signals that context generation has started.
 func (o *RunOutput) ContextGenerating(epicID string, taskCount int) {
+	if !o.jsonl {
+		o.printf("\nGenerating epic context for %s (%d tasks)...\n", epicID, taskCount)
+	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_generating", map[string]any{
 			"task_count": taskCount,
@@ -88,6 +94,16 @@ func (o *RunOutput) ContextGenerating(epicID string, taskCount int) {
 
 // ContextProgress reports periodic progress during context generation.
 func (o *RunOutput) ContextProgress(epicID string, elapsed time.Duration, tokensIn, tokensOut int) {
+	if !o.jsonl {
+		line := fmt.Sprintf("\r  Context: %s elapsed, %d tokens in, %d tokens out",
+			elapsed.Truncate(time.Second), tokensIn, tokensOut)
+		lineLen := len(line)
+		if lineLen < o.lastProgressLen {
+			line += strings.Repeat(" ", o.lastProgressLen-lineLen)
+		}
+		o.lastProgressLen = lineLen
+		o.printf("%s", line)
+	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_progress", map[string]any{
 			"elapsed_ms": elapsed.Milliseconds(),
@@ -99,6 +115,9 @@ func (o *RunOutput) ContextProgress(epicID string, elapsed time.Duration, tokens
 
 // ContextGenerated signals that context generation completed successfully.
 func (o *RunOutput) ContextGenerated(epicID string, tokenCount int) {
+	if !o.jsonl {
+		o.printf("\rContext generated (~%d tokens)%s\n", tokenCount, strings.Repeat(" ", 40))
+	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_generated", map[string]any{
 			"token_count": tokenCount,
@@ -111,6 +130,9 @@ func (o *RunOutput) ContextGenerated(epicID string, tokenCount int) {
 
 // ContextLoaded signals that existing context was loaded.
 func (o *RunOutput) ContextLoaded(epicID string) {
+	if !o.jsonl {
+		o.printf("Using existing context for %s\n", epicID)
+	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_loaded", nil)
 	}
@@ -118,6 +140,9 @@ func (o *RunOutput) ContextLoaded(epicID string) {
 
 // ContextSkipped signals that context generation was skipped.
 func (o *RunOutput) ContextSkipped(epicID string, reason string) {
+	if !o.jsonl {
+		o.printf("Context skipped: %s\n", reason)
+	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_skipped", map[string]any{
 			"reason": reason,
@@ -130,6 +155,9 @@ func (o *RunOutput) ContextSkipped(epicID string, reason string) {
 
 // ContextFailed signals that context generation failed.
 func (o *RunOutput) ContextFailed(epicID string, err string) {
+	if !o.jsonl {
+		o.printf("Context generation failed: %s\n", err)
+	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_failed", map[string]any{
 			"error": err,
@@ -154,6 +182,9 @@ func (o *RunOutput) WaveStarted(iteration int, taskIDs []string) {
 
 // TaskStarted signals that a task has begun execution.
 func (o *RunOutput) TaskStarted(iteration int, taskID, title string) {
+	if !o.jsonl {
+		o.printf("\n=== Iteration %d: %s (%s) ===\n", iteration, taskID, title)
+	}
 	if o.runLog != nil {
 		o.runLog.LogIterationStart(iteration, taskID, title)
 	}
@@ -184,6 +215,10 @@ type IterationResult struct {
 
 // TaskCompleted signals that a task has finished execution.
 func (o *RunOutput) TaskCompleted(result IterationResult) {
+	if !o.jsonl {
+		o.printf("\n--- Iteration %d complete (tokens: %d in, %d out, cost: $%.4f) ---\n",
+			result.Iteration, result.TokensIn, result.TokensOut, result.Cost)
+	}
 	if o.runLog != nil {
 		o.runLog.LogIterationEnd(result.Iteration, result.TaskID, result.Duration, result.TokensIn, result.TokensOut, result.Cost, result.Error)
 	}
@@ -229,6 +264,24 @@ type RunResult struct {
 
 // RunComplete signals that the entire run has finished.
 func (o *RunOutput) RunComplete(result RunResult) {
+	if o.jsonl {
+		o.writeJSONL(result)
+	} else {
+		o.printf("\n=== Run Complete ===\n")
+		o.printf("Epic: %s\n", result.EpicID)
+		o.printf("Iterations: %d\n", result.Iterations)
+		o.printf("Tokens: %d\n", result.TotalTokens)
+		o.printf("Cost: $%.4f\n", result.TotalCost)
+		o.printf("Duration: %v\n", result.Duration.Round(time.Second))
+		o.printf("Completed tasks: %d\n", len(result.CompletedTasks))
+		o.printf("Exit reason: %s\n", result.ExitReason)
+		if result.Signal != "" {
+			o.printf("Signal: %s\n", result.Signal)
+			if result.SignalReason != "" {
+				o.printf("Signal reason: %s\n", result.SignalReason)
+			}
+		}
+	}
 	if o.runLog != nil {
 		o.runLog.LogRunEnd(result.EpicID, result.Iterations, result.TotalTokens, result.TotalCost, result.Duration, result.Signal, result.ExitReason)
 	}
@@ -295,7 +348,41 @@ func (o *RunOutput) Error(msg string, args ...any) {
 	o.eprintf("Error: "+msg+"\n", args...)
 }
 
+// jsonlRunOutput is the JSONL output format for run results.
+type jsonlRunOutput struct {
+	EpicID         string   `json:"epic_id"`
+	Iterations     int      `json:"iterations"`
+	TotalTokens    int      `json:"total_tokens"`
+	TotalCost      float64  `json:"total_cost"`
+	DurationSec    float64  `json:"duration_sec"`
+	CompletedTasks []string `json:"completed_tasks"`
+	ExitReason     string   `json:"exit_reason"`
+	Signal         string   `json:"signal,omitempty"`
+	SignalReason   string   `json:"signal_reason,omitempty"`
+}
+
 // --- internal helpers ---
+
+func (o *RunOutput) writeJSONL(result RunResult) {
+	if o.w == nil {
+		return
+	}
+	out := jsonlRunOutput{
+		EpicID:         result.EpicID,
+		Iterations:     result.Iterations,
+		TotalTokens:    result.TotalTokens,
+		TotalCost:      result.TotalCost,
+		DurationSec:    result.Duration.Seconds(),
+		CompletedTasks: result.CompletedTasks,
+		ExitReason:     result.ExitReason,
+		Signal:         result.Signal,
+		SignalReason:   result.SignalReason,
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	enc := json.NewEncoder(o.w)
+	_ = enc.Encode(out)
+}
 
 func (o *RunOutput) printf(format string, args ...any) {
 	if o.w == nil {

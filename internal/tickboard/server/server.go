@@ -2178,6 +2178,12 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// BroadcastRunStreamEvent sends an event to all connected run stream clients for an epic.
+// This is the public entry point used by output sink adapters.
+func (s *Server) BroadcastRunStreamEvent(epicID string, eventType string, data interface{}) {
+	s.broadcastRunStreamEvent(epicID, eventType, data)
+}
+
 // broadcastRunStreamEvent sends an event to all connected run stream clients for an epic.
 func (s *Server) broadcastRunStreamEvent(epicID string, eventType string, data interface{}) {
 	s.runStreamClientsMu.RLock()
