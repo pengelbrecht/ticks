@@ -2,7 +2,9 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -287,5 +289,292 @@ func TestWorktreePreserved_Output(t *testing.T) {
 	expected := "Worktree preserved at /tmp/wt (tasks awaiting)\n"
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestContextGenerating_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.ContextGenerating("epic-1", 5)
+
+	got := stdout.String()
+	expected := "\nGenerating epic context for epic-1 (5 tasks)...\n"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestContextGenerating_SuppressedInJSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.ContextGenerating("epic-1", 5)
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected no output in JSONL mode, got: %q", stdout.String())
+	}
+}
+
+func TestContextProgress_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.ContextProgress("epic-1", 5*time.Second, 100, 50)
+
+	got := stdout.String()
+	if got != "\r  Context: 5s elapsed, 100 tokens in, 50 tokens out" {
+		t.Errorf("unexpected output: %q", got)
+	}
+}
+
+func TestContextProgress_ClearsLongerPreviousLine(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	// First call with longer output
+	o.ContextProgress("epic-1", 100*time.Second, 10000, 5000)
+	stdout.Reset()
+
+	// Second call with shorter output — should pad with spaces
+	o.ContextProgress("epic-1", 5*time.Second, 10, 5)
+	got := stdout.String()
+	if got == "\r  Context: 5s elapsed, 10 tokens in, 5 tokens out" {
+		t.Error("expected padding spaces to clear previous longer line")
+	}
+	if !strings.HasPrefix(got, "\r  Context: 5s elapsed, 10 tokens in, 5 tokens out") {
+		t.Errorf("unexpected prefix: %q", got)
+	}
+}
+
+func TestContextProgress_SuppressedInJSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.ContextProgress("epic-1", 5*time.Second, 100, 50)
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected no output in JSONL mode, got: %q", stdout.String())
+	}
+}
+
+func TestContextGenerated_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.ContextGenerated("epic-1", 5000)
+
+	got := stdout.String()
+	if !strings.HasPrefix(got, "\rContext generated (~5000 tokens)") {
+		t.Errorf("unexpected output: %q", got)
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Error("expected trailing newline")
+	}
+}
+
+func TestContextLoaded_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.ContextLoaded("epic-1")
+
+	if got := stdout.String(); got != "Using existing context for epic-1\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestContextSkipped_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.ContextSkipped("epic-1", "no tasks need context")
+
+	if got := stdout.String(); got != "Context skipped: no tasks need context\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestContextFailed_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.ContextFailed("epic-1", "timeout")
+
+	if got := stdout.String(); got != "Context generation failed: timeout\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestTaskStarted_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.TaskStarted(1, "task-1", "Do the thing")
+
+	if got := stdout.String(); got != "\n=== Iteration 1: task-1 (Do the thing) ===\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestTaskStarted_SuppressedInJSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.TaskStarted(1, "task-1", "Do the thing")
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected no output in JSONL mode, got: %q", stdout.String())
+	}
+}
+
+func TestTaskCompleted_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.TaskCompleted(IterationResult{
+		Iteration: 2,
+		TaskID:    "task-1",
+		TokensIn:  1000,
+		TokensOut: 500,
+		Cost:      0.0123,
+	})
+
+	expected := "\n--- Iteration 2 complete (tokens: 1000 in, 500 out, cost: $0.0123) ---\n"
+	if got := stdout.String(); got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestTaskCompleted_SuppressedInJSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.TaskCompleted(IterationResult{Iteration: 1, TokensIn: 100, TokensOut: 50, Cost: 0.01})
+
+	if stdout.Len() != 0 {
+		t.Errorf("expected no output in JSONL mode, got: %q", stdout.String())
+	}
+}
+
+func TestRunComplete_TerminalOutput(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.RunComplete(RunResult{
+		EpicID:         "epic-1",
+		Iterations:     3,
+		TotalTokens:    5000,
+		TotalCost:      0.1234,
+		Duration:       2*time.Minute + 30*time.Second,
+		CompletedTasks: []string{"t1", "t2", "t3"},
+		ExitReason:     "all tasks completed",
+	})
+
+	got := stdout.String()
+	if !strings.Contains(got, "=== Run Complete ===") {
+		t.Error("missing header")
+	}
+	if !strings.Contains(got, "Epic: epic-1") {
+		t.Error("missing epic ID")
+	}
+	if !strings.Contains(got, "Iterations: 3") {
+		t.Error("missing iterations")
+	}
+	if !strings.Contains(got, "Tokens: 5000") {
+		t.Error("missing tokens")
+	}
+	if !strings.Contains(got, "Cost: $0.1234") {
+		t.Error("missing cost")
+	}
+	if !strings.Contains(got, "Duration: 2m30s") {
+		t.Error("missing duration")
+	}
+	if !strings.Contains(got, "Completed tasks: 3") {
+		t.Error("missing completed tasks count")
+	}
+	if !strings.Contains(got, "Exit reason: all tasks completed") {
+		t.Error("missing exit reason")
+	}
+	// Should NOT contain signal lines when signal is empty
+	if strings.Contains(got, "Signal:") {
+		t.Error("signal line should not appear when signal is empty")
+	}
+}
+
+func TestRunComplete_TerminalOutput_WithSignal(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout))
+
+	o.RunComplete(RunResult{
+		EpicID:       "epic-1",
+		Iterations:   1,
+		ExitReason:   "signal received",
+		Signal:       "stop",
+		SignalReason: "user requested",
+	})
+
+	got := stdout.String()
+	if !strings.Contains(got, "Signal: stop") {
+		t.Errorf("missing signal, got: %q", got)
+	}
+	if !strings.Contains(got, "Signal reason: user requested") {
+		t.Errorf("missing signal reason, got: %q", got)
+	}
+}
+
+func TestRunComplete_JSONL(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.RunComplete(RunResult{
+		EpicID:         "epic-1",
+		Iterations:     3,
+		TotalTokens:    5000,
+		TotalCost:      0.1234,
+		Duration:       150 * time.Second,
+		CompletedTasks: []string{"t1", "t2"},
+		ExitReason:     "done",
+		Signal:         "stop",
+		SignalReason:   "user",
+	})
+
+	got := stdout.String()
+	// Should be valid JSON
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\noutput: %q", err, got)
+	}
+	if parsed["epic_id"] != "epic-1" {
+		t.Errorf("epic_id = %v", parsed["epic_id"])
+	}
+	if parsed["iterations"].(float64) != 3 {
+		t.Errorf("iterations = %v", parsed["iterations"])
+	}
+	if parsed["exit_reason"] != "done" {
+		t.Errorf("exit_reason = %v", parsed["exit_reason"])
+	}
+	if parsed["signal"] != "stop" {
+		t.Errorf("signal = %v", parsed["signal"])
+	}
+	// Should NOT contain human-readable output
+	if strings.Contains(got, "=== Run Complete ===") {
+		t.Error("human output should be suppressed in JSONL mode")
+	}
+}
+
+func TestRunComplete_JSONL_OmitsEmptySignal(t *testing.T) {
+	var stdout bytes.Buffer
+	o := New(WithStdout(&stdout), WithJSONL(true))
+
+	o.RunComplete(RunResult{
+		EpicID:     "epic-1",
+		Iterations: 1,
+		ExitReason: "done",
+	})
+
+	got := stdout.String()
+	if strings.Contains(got, `"signal"`) {
+		t.Errorf("empty signal should be omitted from JSONL: %s", got)
 	}
 }
