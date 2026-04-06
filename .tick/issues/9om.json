@@ -2,7 +2,7 @@
   "id": "9om",
   "title": "Investigate /codex:review hanging in ACP wrapup step",
   "description": "During wrapup, the /codex:review step starts but hangs indefinitely. The ACP agent appears to invoke the skill but no codex subprocess is spawned. The step never completes or times out (inherits 30min default timeout).\n\nPossible causes:\n1. codex:review tries to use AskUserQuestion for foreground/background choice — ACP can't answer interactive prompts\n2. codex CLI not found or auth issue inside ACP subprocess\n3. The skill's disable-model-invocation: true flag may affect behavior in ACP context\n\nThe /agent-skills:review step (which runs Claude natively, no external CLI) works fine in the same parallel group.\n\nWorkaround: use /codex:rescue instead, or set a shorter wrapup step timeout.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   ],
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-04-06T15:03:04.121816Z",
-  "updated_at": "2026-04-06T15:03:04.121816Z"
+  "updated_at": "2026-04-06T15:36:01.009416Z",
+  "closed_at": "2026-04-06T15:36:01.009416Z",
+  "closed_reason": "Root cause: codex companion script retries extensively before falling back to rescue. Fix: pass --wait flag in wrapup.md to skip interactive prompt. Companion retry behavior is a codex plugin issue, not ticks."
 }
