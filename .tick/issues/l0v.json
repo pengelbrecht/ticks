@@ -1,0 +1,18 @@
+{
+  "id": "l0v",
+  "title": "Build step prompt template with progress checklist",
+  "description": "Create internal/wrapup/step_prompt.go with:\n\n1. BuildStepPrompt(step WrapupStep, index int, total int, completed []string) string\n   Generates a prompt with:\n   - Header: 'Epic Wrapup — Step N of M: \u003ctitle\u003e'\n   - Progress checklist showing completed/current/pending steps\n   - The step's prompt text\n   - Completion criteria from the verify field\n   - Signal instructions: emit \u003cpromise\u003eSTEP_DONE\u003c/promise\u003e when done, \u003cpromise\u003eESCALATE: reason\u003c/promise\u003e if cannot complete\n\n2. BuildRetryPrompt(step WrapupStep, previousOutput string) string\n   Generates re-prompt when STEP_DONE was not detected:\n   - References what the agent was working on\n   - Reminds of completion criteria\n   - Asks to complete and emit STEP_DONE\n\nFiles: internal/wrapup/step_prompt.go, internal/wrapup/step_prompt_test.go\nTests: verify prompt includes progress checklist, correct step numbering, retry prompt references step title.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "6np"
+  ],
+  "parent": "t2h",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-05T19:18:30.170443Z",
+  "updated_at": "2026-04-06T12:32:13.649264Z",
+  "closed_at": "2026-04-06T12:32:13.649264Z",
+  "closed_reason": "Created step_prompt.go with BuildStepPrompt and BuildRetryPrompt functions, plus WrapupStep type. BuildStepPrompt generates prompts with header, progress checklist, task prompt, verify criteria, and signal instructions. BuildRetryPrompt generates re-prompts when STEP_DONE was missing. Added comprehensive table-driven tests in step_prompt_test.go."
+}

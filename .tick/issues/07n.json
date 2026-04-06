@@ -1,0 +1,18 @@
+{
+  "id": "07n",
+  "title": "Integrate agent wrapup into wrapup.Runner and tk run",
+  "description": "Wire the agent wrapup steps into the existing wrapup phase.\n\nChanges to internal/wrapup/wrapup.go:\n  1. Add Agent agent.Agent field to Runner struct.\n  2. In Runner.Run(), after runSteps() (shell steps from config.yaml) completes successfully:\n     - Call ParseWrapupFile(tickDir) to check for .tick/wrapup.md\n     - If content exists: LoadCachedSteps() or ParseWrapupSteps() via agent\n     - Create WrapupRunner, call RunAgentSteps()\n     - Append step results to report\n  3. Add WrapupSteps []StepResult field to Report struct.\n  4. Update Report.Markdown() to render wrapup step results as checklist with timing/cost.\n\nChanges to cmd/tk/cmd/run.go:\n  1. Pass the resolved agentImpl to wrapup.Runner when constructing it (add Agent field).\n  2. No new flags needed — behavior driven by .tick/wrapup.md file presence.\n  3. --skip-wrap-up continues to skip both shell and agent steps.\n\nFiles: internal/wrapup/wrapup.go, cmd/tk/cmd/run.go\nTests: integration test verifying agent steps run after shell steps, report includes wrapup section.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "451"
+  ],
+  "parent": "t2h",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-05T19:18:51.260973Z",
+  "updated_at": "2026-04-06T12:40:05.929688Z",
+  "closed_at": "2026-04-06T12:40:05.929688Z",
+  "closed_reason": "Added Agent field to wrapup.Runner and WrapupSteps to Report. Wired runAgentWrapupSteps() into Runner.Run() after shell steps — it reads .tick/wrapup.md, uses cached or agent-parsed steps, creates WrapupRunner, and appends results to report. Updated Markdown() to render wrapup steps as checklist with timing/cost/status. Passed agentImpl to Runner in run.go. Added 5 new tests."
+}

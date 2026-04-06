@@ -1,0 +1,15 @@
+{
+  "id": "6np",
+  "title": "Add STEP_DONE signal to engine signals",
+  "description": "Add SignalStepDone to the signal constants and pattern maps in internal/engine/signals.go. Add it to signalPatterns, signalPriority (low priority — after CHECKPOINT), and the String() method.\n\nThis signal is used by the wrapup harness to detect when an agent has completed a wrapup step.\n\nFiles: internal/engine/signals.go, internal/engine/signals_test.go\n\nTest: verify ParseSignals detects \u003cpromise\u003eSTEP_DONE\u003c/promise\u003e and \u003cpromise\u003eSTEP_DONE: summary\u003c/promise\u003e",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "t2h",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-05T19:18:10.29505Z",
+  "updated_at": "2026-04-05T20:53:33.290603Z",
+  "closed_at": "2026-04-05T20:53:33.290603Z",
+  "closed_reason": "Added SignalStepDone constant after SignalCheckpoint in signals.go. Added to signalPatterns map, signalPriority slice (lowest priority, after CHECKPOINT), and String() method. Added tests for parsing with/without context and priority ordering."
+}

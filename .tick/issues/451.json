@@ -1,0 +1,19 @@
+{
+  "id": "451",
+  "title": "Implement agent step execution loop with ACP session support",
+  "description": "Create internal/wrapup/agent_steps.go with the step-checked execution loop.\n\nCore type:\n  type StepResult struct {\n      Title     string\n      Status    string  // completed, failed, escalated\n      Cost      float64\n      TokensIn  int\n      TokensOut int\n      Duration  time.Duration\n      Attempts  int\n      Error     error\n  }\n\nProgress persistence:\n  type StepProgress struct {\n      EpicID    string\n      StartedAt time.Time\n      Steps     []StepProgressEntry  // status, attempts, metrics per step\n  }\n  - saveProgress(logsDir, epicID, results) — writes to .tick/logs/wrapup-progress/\u003cepic-id\u003e.json after each step\n  - loadProgress(logsDir, epicID) — loads for crash recovery, skips completed steps\n\nWrapupRunner struct with:\n  WorkDir, TickDir, Timeout, MaxRetriesPerStep (default 2)\n\nMethods:\n  RunAgentSteps(ctx, steps []WrapupStep, agentImpl agent.Agent) ([]StepResult, error)\n    - If agent implements SessionAgent: open one ACP session, send each step as a Prompt() call. Agent retains context across steps.\n    - If not SessionAgent: fall back to one-shot Run() per step (loses cross-step context but still enforces completion).\n    - For each step: build prompt via BuildStepPrompt, send to agent, parse output for STEP_DONE signal. If missing, re-prompt via BuildRetryPrompt up to MaxRetriesPerStep times. On ESCALATE signal, mark escalated and continue. Save progress after each step.\n\nFiles: internal/wrapup/agent_steps.go, internal/wrapup/agent_steps_test.go\nTests: mock SessionAgent, verify retry on missing STEP_DONE, verify ESCALATE handling, verify one-shot fallback, verify crash recovery from progress file.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "nh9",
+    "l0v"
+  ],
+  "parent": "t2h",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-05T19:18:42.794207Z",
+  "updated_at": "2026-04-06T12:37:16.762666Z",
+  "closed_at": "2026-04-06T12:37:16.762666Z",
+  "closed_reason": "Implemented agent step execution loop in internal/wrapup/agent_steps.go with AgentStepResult, StepProgress types, WrapupRunner.RunAgentSteps method. Supports SessionAgent (single ACP session across steps) and one-shot fallback. Retry logic on missing STEP_DONE signal, ESCALATE handling, crash recovery via progress persistence in .tick/logs/wrapup-progress/. 8 tests covering all paths."
+}

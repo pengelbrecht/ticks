@@ -1,0 +1,18 @@
+{
+  "id": "nod",
+  "title": "Unified run output module — single funnel for terminal, board, cloud, and logs",
+  "description": "Currently tk run output goes through multiple disconnected paths:\n1. fmt.Printf in run.go — terminal only\n2. slog in generator/engine — stderr only\n3. SSE events from board server — board only (reconstructed from file watchers)\n4. [DEBUG] lines — board server stderr only\n\nThe board live panel misses progress output visible in the terminal, and vice versa. Create a RunOutput module that all status updates flow through, routing to terminal, board SSE, cloud sync, and run logs from a single source of truth.\n\nInterface sketch:\n  type RunOutput struct { ... }\n  func (o *RunOutput) Status(msg string, fields ...any)\n  func (o *RunOutput) TaskStarted(taskID, title string)\n  func (o *RunOutput) TaskCompleted(taskID string, result IterationResult)\n  func (o *RunOutput) ContextProgress(elapsed time.Duration, tokens int)\n  func (o *RunOutput) WaveStarted(wave int, taskCount int)\n  etc.\n\nFiles: new internal/output/ package, then refactor run.go and engine callbacks to use it.",
+  "status": "closed",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "architecture",
+    "output"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-04-06T12:28:56.255553Z",
+  "updated_at": "2026-04-06T12:45:25.659423Z",
+  "closed_at": "2026-04-06T12:45:25.659423Z",
+  "closed_reason": "Converted to epic"
+}
