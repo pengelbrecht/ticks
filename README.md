@@ -278,6 +278,14 @@ Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
 - Project isolation enforced
 - No telemetry or analytics
 
+## Wrapup Steps
+
+When an epic completes, `tk run` executes a wrap-up phase. Shell-based steps are configured in `.tick/config.yaml` under `wrap_up`.
+
+For agent-driven wrapup, create `.tick/wrapup.md` with a markdown description of post-epic tasks (e.g., update changelog, run linters, write migration notes). The agent decomposes these into steps and executes them automatically after the shell steps.
+
+Use `--skip-wrap-up` to skip both shell and agent wrapup steps.
+
 ## Dependency Graph
 
 See parallelization opportunities for an epic:

@@ -47,7 +47,9 @@ Examples:
   tk run abc123 --watch             # Watch mode
   tk run abc123 --board             # With board UI
   tk run abc123 --pr                # Auto-create draft PR
-  tk run abc123 --no-merge          # Don't merge, leave branch`,
+  tk run abc123 --no-merge          # Don't merge, leave branch
+
+If .tick/wrapup.md exists, agent-driven wrapup steps run after shell steps from config.yaml.`,
 	RunE: runRun,
 }
 
