@@ -103,6 +103,13 @@ function query(el: TickflowDashboard, selector: string) {
   return el.shadowRoot?.querySelector(selector);
 }
 
+/** Wait for async tasks and a Lit render cycle. */
+async function settled(el: TickflowDashboard) {
+  // Flush microtasks (e.g. async _openDetailPane)
+  await new Promise(r => setTimeout(r, 0));
+  await el.updateComplete;
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -650,33 +657,38 @@ describe('tickflow-dashboard', () => {
       expect(closeHandler).toHaveBeenCalledTimes(1);
     });
 
-    it('fires tick-select and close on attention item click', () => {
-      const closeHandler = vi.fn();
+    it('opens inline detail pane on attention item click (not tick-select)', async () => {
       const tickHandler = vi.fn();
-      element.addEventListener('close', closeHandler);
       element.addEventListener('tick-select', tickHandler);
 
       const attentionItem = query(element, '.attention-item') as HTMLElement;
       attentionItem?.click();
+      await element.updateComplete;
 
-      expect(tickHandler).toHaveBeenCalledTimes(1);
-      // First human tick is t3
-      expect(tickHandler.mock.calls[0][0].detail.tickId).toBe('t3');
-      expect(closeHandler).toHaveBeenCalledTimes(1);
+      // Should NOT fire tick-select (inline detail instead)
+      expect(tickHandler).not.toHaveBeenCalled();
+      // Should show detail pane for t3
+      const detailPane = query(element, '.detail-pane');
+      expect(detailPane).not.toBeNull();
+      const detailId = query(element, '.detail-pane-id');
+      expect(detailId?.textContent).toBe('t3');
     });
 
-    it('fires tick-select and close on activity item click', () => {
-      const closeHandler = vi.fn();
+    it('opens inline detail pane on activity item click (not tick-select)', async () => {
       const tickHandler = vi.fn();
-      element.addEventListener('close', closeHandler);
       element.addEventListener('tick-select', tickHandler);
 
       const activityItem = query(element, '.activity-item') as HTMLElement;
       activityItem?.click();
+      await element.updateComplete;
 
-      expect(tickHandler).toHaveBeenCalledTimes(1);
-      expect(tickHandler.mock.calls[0][0].detail.tickId).toBe('t1');
-      expect(closeHandler).toHaveBeenCalledTimes(1);
+      // Should NOT fire tick-select (inline detail instead)
+      expect(tickHandler).not.toHaveBeenCalled();
+      // Should show detail pane for t1
+      const detailPane = query(element, '.detail-pane');
+      expect(detailPane).not.toBeNull();
+      const detailId = query(element, '.detail-pane-id');
+      expect(detailId?.textContent).toBe('t1');
     });
   });
 
@@ -742,26 +754,26 @@ describe('tickflow-dashboard', () => {
       expect(items[1]?.classList.contains('focused')).toBe(true);
     });
 
-    it('Enter fires tick-select for focused item', async () => {
-      const handler = vi.fn();
-      element.addEventListener('tick-select', handler);
-
+    it('Enter opens inline detail pane for focused item', async () => {
       element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
       element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await element.updateComplete;
 
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler.mock.calls[0][0].detail.tickId).toBe('t3');
+      const detailPane = query(element, '.detail-pane');
+      expect(detailPane).not.toBeNull();
+      const detailId = query(element, '.detail-pane-id');
+      expect(detailId?.textContent).toBe('t3');
     });
 
-    it('i key fires tick-select for focused item (inspect)', async () => {
-      const handler = vi.fn();
-      element.addEventListener('tick-select', handler);
-
+    it('i key opens inline detail pane for focused item (inspect)', async () => {
       element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
       element.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }));
+      await element.updateComplete;
 
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler.mock.calls[0][0].detail.tickId).toBe('t3');
+      const detailPane = query(element, '.detail-pane');
+      expect(detailPane).not.toBeNull();
+      const detailId = query(element, '.detail-pane-id');
+      expect(detailId?.textContent).toBe('t3');
     });
 
     it('a key fires tick-resume for focused item', async () => {
@@ -848,6 +860,183 @@ describe('tickflow-dashboard', () => {
   });
 
   // ===========================================================================
+  // Detail Pane
+  // ===========================================================================
+
+  describe('detail pane', () => {
+    beforeEach(async () => {
+      element.open = true;
+      element.ticks = SAMPLE_TICKS;
+      element.epics = SAMPLE_EPICS;
+      element.activities = SAMPLE_ACTIVITIES;
+      await element.updateComplete;
+    });
+
+    it('does not show detail pane by default', () => {
+      expect(query(element, '.detail-pane')).toBeNull();
+    });
+
+    it('shows detail pane when attention item is clicked', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+
+      const pane = query(element, '.detail-pane');
+      expect(pane).not.toBeNull();
+    });
+
+    it('shows correct tick ID and title in detail pane header', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+
+      expect(query(element, '.detail-pane-id')?.textContent).toBe('t3');
+      expect(query(element, '.detail-pane-title')?.textContent).toBe('Review tokens');
+    });
+
+    it('shows overview tab with meta badges', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await settled(element);
+
+      const badges = queryAll(element, '.detail-meta-badge');
+      expect(badges.length).toBeGreaterThan(0);
+
+      // Should include type and status badges
+      const badgeTexts = Array.from(badges).map(b => b.textContent?.trim());
+      expect(badgeTexts).toContain('task');
+    });
+
+    it('shows overview tab as default', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+
+      const activeTab = query(element, '.detail-tab.active');
+      expect(activeTab?.textContent).toBe('Overview');
+    });
+
+    it('has Open on Board button that fires tick-select and closes dashboard', async () => {
+      const tickHandler = vi.fn();
+      const closeHandler = vi.fn();
+      element.addEventListener('tick-select', tickHandler);
+      element.addEventListener('close', closeHandler);
+
+      // Open detail pane
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+
+      // Click "Open on Board" button
+      const openBtn = query(element, '.detail-pane-btn.primary') as HTMLElement;
+      expect(openBtn).not.toBeNull();
+      openBtn?.click();
+
+      expect(tickHandler).toHaveBeenCalledTimes(1);
+      expect(tickHandler.mock.calls[0][0].detail.tickId).toBe('t3');
+      expect(closeHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes detail pane when close button clicked', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+      expect(query(element, '.detail-pane')).not.toBeNull();
+
+      const closeBtn = query(element, '.detail-pane-close') as HTMLElement;
+      closeBtn?.click();
+      await element.updateComplete;
+
+      expect(query(element, '.detail-pane')).toBeNull();
+    });
+
+    it('closes detail pane on Escape before closing dashboard', async () => {
+      const closeHandler = vi.fn();
+      element.addEventListener('close', closeHandler);
+
+      // Open detail pane
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+      expect(query(element, '.detail-pane')).not.toBeNull();
+
+      // First Escape closes detail pane
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await element.updateComplete;
+      expect(query(element, '.detail-pane')).toBeNull();
+      expect(closeHandler).not.toHaveBeenCalled();
+
+      // Second Escape closes dashboard
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(closeHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('resets detail pane when dashboard is re-opened', async () => {
+      // Open detail pane
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await settled(element);
+      expect(query(element, '.detail-pane')).not.toBeNull();
+
+      // Close and re-open
+      element.open = false;
+      await element.updateComplete;
+      element.open = true;
+      await settled(element);
+
+      expect(query(element, '.detail-pane')).toBeNull();
+    });
+
+    it('shows Attempts tab for task-type ticks', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await element.updateComplete;
+
+      const tabs = queryAll(element, '.detail-tab');
+      const tabTexts = Array.from(tabs).map(t => t.textContent);
+      expect(tabTexts).toContain('Attempts');
+    });
+
+    it('switches to activity item detail on click', async () => {
+      const activityItem = query(element, '.activity-item') as HTMLElement;
+      activityItem?.click();
+      await element.updateComplete;
+
+      const pane = query(element, '.detail-pane');
+      expect(pane).not.toBeNull();
+      expect(query(element, '.detail-pane-id')?.textContent).toBe('t1');
+    });
+
+    it('shows description when tick has one', async () => {
+      // Add a tick with a description
+      element.ticks = [
+        ...SAMPLE_TICKS,
+        makeTick({ id: 'td1', title: 'Described task', column: 'human', awaiting: 'approval', description: 'Some details here' }),
+      ];
+      await element.updateComplete;
+
+      // Click the last attention item (td1)
+      const items = queryAll(element, '.attention-item');
+      const lastItem = items[items.length - 1] as HTMLElement;
+      lastItem?.click();
+      await settled(element);
+
+      const desc = query(element, '.detail-description');
+      expect(desc?.textContent).toBe('Some details here');
+    });
+
+    it('shows "No description" for tick without description', async () => {
+      const attentionItem = query(element, '.attention-item') as HTMLElement;
+      attentionItem?.click();
+      await settled(element);
+
+      const empty = query(element, '.detail-field-empty');
+      expect(empty).not.toBeNull();
+      expect(empty!.textContent).toContain('No description');
+    });
+  });
+
+  // ===========================================================================
   // CSS Smoke Checks
   // ===========================================================================
 
@@ -891,6 +1080,14 @@ describe('tickflow-dashboard', () => {
     it('includes backdrop-filter blur', () => {
       const cssText = getCssText(element);
       expect(cssText).toContain('backdrop-filter: blur');
+    });
+
+    it('includes detail pane styles', () => {
+      const cssText = getCssText(element);
+      expect(cssText).toContain('.detail-pane');
+      expect(cssText).toContain('.detail-tab');
+      expect(cssText).toContain('.detail-meta-badge');
+      expect(cssText).toContain('.run-summary');
     });
   });
 
