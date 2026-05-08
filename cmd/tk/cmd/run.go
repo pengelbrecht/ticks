@@ -418,8 +418,15 @@ func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, wo
 		eng.SetContextComponents(contextStore, contextGenerator)
 	}
 
+	// Load policy from config
+	cfg, cfgErr := config.LoadOrDefault(filepath.Join(root, ".tick", "config.json"))
+	var policyConfig *config.PolicyConfig
+	if cfgErr == nil && cfg.Policy != nil {
+		policyConfig = cfg.Policy
+	}
+
 	// Build run config
-	config := engine.RunConfig{
+	runCfg := engine.RunConfig{
 		EpicID:            epicID,
 		MaxIterations:     runMaxIterations,
 		MaxCost:           runMaxCost,
@@ -428,10 +435,11 @@ func runEpic(ctx context.Context, root, epicID string, agentImpl agent.Agent, wo
 		WorkDir:           workDir,
 		Watch:             runWatch,
 		WatchPollInterval: runPoll,
+		Policy:            policyConfig,
 	}
 
 	// Run the engine
-	return eng.Run(ctx, config)
+	return eng.Run(ctx, runCfg)
 }
 
 func emitRunComplete(out *output.RunOutput, result *engine.RunResult) {
