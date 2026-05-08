@@ -681,6 +681,173 @@ describe('tickflow-dashboard', () => {
   });
 
   // ===========================================================================
+  // Keyboard Navigation & Actions
+  // ===========================================================================
+
+  describe('keyboard navigation and actions', () => {
+    beforeEach(async () => {
+      element.open = true;
+      element.ticks = SAMPLE_TICKS;
+      element.epics = SAMPLE_EPICS;
+      element.activities = SAMPLE_ACTIVITIES;
+      await element.updateComplete;
+    });
+
+    it('j key moves focus down in attention list', async () => {
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      await element.updateComplete;
+
+      const items = queryAll(element, '.attention-item');
+      expect(items[0]?.classList.contains('focused')).toBe(true);
+    });
+
+    it('k key moves focus up in attention list', async () => {
+      // Move down twice, then up once → index 0
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
+      await element.updateComplete;
+
+      const items = queryAll(element, '.attention-item');
+      expect(items[0]?.classList.contains('focused')).toBe(true);
+      expect(items[1]?.classList.contains('focused')).toBe(false);
+    });
+
+    it('ArrowDown moves focus down', async () => {
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+      await element.updateComplete;
+
+      const items = queryAll(element, '.attention-item');
+      expect(items[0]?.classList.contains('focused')).toBe(true);
+    });
+
+    it('ArrowUp moves focus up, clamped at 0', async () => {
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+      await element.updateComplete;
+
+      const items = queryAll(element, '.attention-item');
+      expect(items[0]?.classList.contains('focused')).toBe(true);
+    });
+
+    it('j does not exceed max index', async () => {
+      // 2 human ticks: max index = 1
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      await element.updateComplete;
+
+      const items = queryAll(element, '.attention-item');
+      expect(items[0]?.classList.contains('focused')).toBe(false);
+      expect(items[1]?.classList.contains('focused')).toBe(true);
+    });
+
+    it('Enter fires tick-select for focused item', async () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-select', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].detail.tickId).toBe('t3');
+    });
+
+    it('i key fires tick-select for focused item (inspect)', async () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-select', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].detail.tickId).toBe('t3');
+    });
+
+    it('a key fires tick-resume for focused item', async () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-resume', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].detail.tickId).toBe('t3');
+    });
+
+    it('t key fires tick-retry for focused item', async () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-retry', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler.mock.calls[0][0].detail.tickId).toBe('t3');
+    });
+
+    it('Enter does nothing when no item focused', () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-select', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('a does nothing when no item focused', () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-resume', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('t does nothing when no item focused', () => {
+      const handler = vi.fn();
+      element.addEventListener('tick-retry', handler);
+
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('resets focused index when dashboard re-opens', async () => {
+      // Focus first item
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+      await element.updateComplete;
+      expect(queryAll(element, '.attention-item')[0]?.classList.contains('focused')).toBe(true);
+
+      // Close and reopen
+      element.open = false;
+      await element.updateComplete;
+      element.open = true;
+      await element.updateComplete;
+      // Wait for the re-render triggered by _focusedAttentionIndex reset in updated()
+      await element.updateComplete;
+
+      // Focus should be reset
+      const items = queryAll(element, '.attention-item');
+      expect(items[0]?.classList.contains('focused')).toBe(false);
+      expect(items[1]?.classList.contains('focused')).toBe(false);
+    });
+
+    it('renders action hints when human ticks exist', async () => {
+      const hints = queryAll(element, '.action-hint');
+      expect(hints.length).toBe(4);
+    });
+
+    it('does not render action hints when no human ticks', async () => {
+      element.ticks = [makeTick({ id: 'x1', column: 'ready' })];
+      await element.updateComplete;
+
+      const hints = queryAll(element, '.action-hint');
+      expect(hints.length).toBe(0);
+    });
+  });
+
+  // ===========================================================================
   // CSS Smoke Checks
   // ===========================================================================
 

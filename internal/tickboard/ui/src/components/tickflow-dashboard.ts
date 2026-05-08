@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
+import { classMap } from 'lit/directives/class-map.js';
 import type { BoardTick, TickColumn } from '../types/tick.js';
 import type { EpicInfo, RunStatusResponse, Activity } from '../api/ticks.js';
 
@@ -515,8 +516,14 @@ export class TickflowDashboard extends LitElement {
       transition: background 0.15s;
     }
 
-    .attention-item:hover {
+    .attention-item:hover,
+    .attention-item.focused {
       background: var(--surface1, #45475a);
+    }
+
+    .attention-item.focused {
+      outline: 2px solid var(--blue, #89b4fa);
+      outline-offset: -2px;
     }
 
     .attention-icon {
@@ -549,6 +556,36 @@ export class TickflowDashboard extends LitElement {
       font-size: 0.6875rem;
       color: var(--blue, #89b4fa);
       white-space: nowrap;
+    }
+
+    .attention-actions-hint {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--surface1, #45475a);
+    }
+
+    .action-hint {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.6875rem;
+      color: var(--overlay0, #6c7086);
+    }
+
+    .action-hint kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.25rem;
+      padding: 0.125rem 0.375rem;
+      font-family: monospace;
+      font-size: 0.6875rem;
+      background: var(--surface1, #45475a);
+      border: 1px solid var(--surface2, #585b70);
+      border-radius: 3px;
+      color: var(--subtext1, #bac2de);
     }
 
     /* Two-column layout for lower sections */
@@ -620,9 +657,21 @@ export class TickflowDashboard extends LitElement {
   @property({ type: String, attribute: 'repo-name' })
   repoName = '';
 
+  /** Index of the focused item in the Needs Attention list (-1 = none). */
+  @state()
+  private _focusedAttentionIndex = -1;
+
   connectedCallback() {
     super.connectedCallback();
     this.addEventListener('keydown', this._handleKeyDown);
+  }
+
+  updated(changed: Map<string, unknown>) {
+    super.updated(changed);
+    // Reset focused attention index when dashboard opens
+    if (changed.has('open') && this.open) {
+      this._focusedAttentionIndex = -1;
+    }
   }
 
   disconnectedCallback() {
@@ -634,6 +683,62 @@ export class TickflowDashboard extends LitElement {
     if (e.key === 'Escape') {
       e.stopPropagation();
       this._close();
+      return;
+    }
+
+    const humanTicks = this._getHumanTicks();
+    const maxIndex = Math.min(humanTicks.length, 6) - 1; // matches slice(0,6) in render
+
+    switch (e.key) {
+      // Navigate down in attention list
+      case 'j':
+      case 'ArrowDown':
+        e.preventDefault();
+        e.stopPropagation();
+        if (maxIndex >= 0) {
+          this._focusedAttentionIndex = Math.min(this._focusedAttentionIndex + 1, maxIndex);
+        }
+        break;
+
+      // Navigate up in attention list
+      case 'k':
+      case 'ArrowUp':
+        e.preventDefault();
+        e.stopPropagation();
+        if (maxIndex >= 0) {
+          this._focusedAttentionIndex = Math.max(this._focusedAttentionIndex - 1, 0);
+        }
+        break;
+
+      // Inspect: open detail drawer for focused tick
+      case 'Enter':
+      case 'i':
+        if (this._focusedAttentionIndex >= 0 && this._focusedAttentionIndex <= maxIndex) {
+          e.preventDefault();
+          e.stopPropagation();
+          this._handleTickClick(humanTicks[this._focusedAttentionIndex].id);
+        }
+        break;
+
+      // Resume: approve the focused awaiting tick
+      case 'a':
+        if (this._focusedAttentionIndex >= 0 && this._focusedAttentionIndex <= maxIndex) {
+          e.preventDefault();
+          e.stopPropagation();
+          const tick = humanTicks[this._focusedAttentionIndex];
+          this.dispatchEvent(new CustomEvent('tick-resume', { detail: { tickId: tick.id } }));
+        }
+        break;
+
+      // Retry: reopen the focused tick so the agent retries
+      case 't':
+        if (this._focusedAttentionIndex >= 0 && this._focusedAttentionIndex <= maxIndex) {
+          e.preventDefault();
+          e.stopPropagation();
+          const tick = humanTicks[this._focusedAttentionIndex];
+          this.dispatchEvent(new CustomEvent('tick-retry', { detail: { tickId: tick.id } }));
+        }
+        break;
     }
   };
 
@@ -906,8 +1011,11 @@ export class TickflowDashboard extends LitElement {
           ? html`<div class="empty-section">No ticks need human attention</div>`
           : html`
               <div class="attention-list">
-                ${humanTicks.slice(0, 6).map(t => html`
-                  <div class="attention-item" @click=${() => this._handleTickClick(t.id)}>
+                ${humanTicks.slice(0, 6).map((t, idx) => html`
+                  <div
+                    class="attention-item ${classMap({ focused: this._focusedAttentionIndex === idx })}"
+                    @click=${() => this._handleTickClick(t.id)}
+                  >
                     <span class="attention-icon">👤</span>
                     <div class="attention-info">
                       <div class="attention-title">${t.title}</div>
@@ -920,6 +1028,14 @@ export class TickflowDashboard extends LitElement {
                   ? html`<div class="empty-section">+${humanTicks.length - 6} more</div>`
                   : nothing}
               </div>
+              ${humanTicks.length > 0 ? html`
+                <div class="attention-actions-hint">
+                  <span class="action-hint"><kbd>j</kbd><kbd>k</kbd> navigate</span>
+                  <span class="action-hint"><kbd>Enter</kbd> inspect</span>
+                  <span class="action-hint"><kbd>a</kbd> resume</span>
+                  <span class="action-hint"><kbd>t</kbd> retry</span>
+                </div>
+              ` : nothing}
             `}
       </div>
     `;

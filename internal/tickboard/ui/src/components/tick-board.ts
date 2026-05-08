@@ -1205,6 +1205,12 @@ export class TickBoard extends LitElement {
       return;
     }
 
+    // When dashboard is open, let the dashboard handle navigation/action keys.
+    // Only handle Escape and 'd' (to close the dashboard) at the board level.
+    if (this.showDashboard && e.key !== 'Escape' && e.key !== 'd' && e.key !== '?') {
+      return;
+    }
+
     // Close keyboard help on any key
     if (this.showKeyboardHelp && e.key !== '?') {
       this.showKeyboardHelp = false;
@@ -1409,6 +1415,38 @@ export class TickBoard extends LitElement {
   private handleDashboardTickSelect(e: CustomEvent<{ tickId: string }>) {
     selectTick(e.detail.tickId);
     this.showDashboard = false;
+  }
+
+  /**
+   * Handle resume (approve) action from dashboard.
+   * Approves the awaiting tick so the agent can continue.
+   */
+  private async handleDashboardTickResume(e: CustomEvent<{ tickId: string }>) {
+    const { tickId } = e.detail;
+    try {
+      const response = await import('../stores/comms.js').then(m => m.approveTick(tickId));
+      updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
+      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tickId);
+      window.showToast?.({ message: `Resumed tick ${tickId}`, variant: 'success' });
+    } catch (err) {
+      window.showToast?.({ message: `Failed to resume ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
+    }
+  }
+
+  /**
+   * Handle retry action from dashboard.
+   * Reopens the tick so the agent picks it up again.
+   */
+  private async handleDashboardTickRetry(e: CustomEvent<{ tickId: string }>) {
+    const { tickId } = e.detail;
+    try {
+      const response = await import('../stores/comms.js').then(m => m.reopenTick(tickId));
+      updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
+      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tickId);
+      window.showToast?.({ message: `Retrying tick ${tickId}`, variant: 'success' });
+    } catch (err) {
+      window.showToast?.({ message: `Failed to retry ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
+    }
   }
 
   /**
@@ -1934,6 +1972,8 @@ export class TickBoard extends LitElement {
         @close=${() => { this.showDashboard = false; }}
         @epic-select=${this.handleDashboardEpicSelect}
         @tick-select=${this.handleDashboardTickSelect}
+        @tick-resume=${this.handleDashboardTickResume}
+        @tick-retry=${this.handleDashboardTickRetry}
       ></tickflow-dashboard>
 
       <!-- Keyboard shortcuts help dialog -->
@@ -1992,6 +2032,25 @@ export class TickBoard extends LitElement {
             <div class="shortcut-row">
               <kbd>?</kbd>
               <span>Show this help</span>
+            </div>
+          </div>
+          <div class="shortcut-group">
+            <h4>Dashboard (when open)</h4>
+            <div class="shortcut-row">
+              <kbd>j</kbd> <kbd>k</kbd>
+              <span>Navigate attention list</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>Enter</kbd> <kbd>i</kbd>
+              <span>Inspect tick</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>a</kbd>
+              <span>Resume (approve) tick</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>t</kbd>
+              <span>Retry (reopen) tick</span>
             </div>
           </div>
         </div>
