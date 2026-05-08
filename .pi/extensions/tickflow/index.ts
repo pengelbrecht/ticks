@@ -677,7 +677,7 @@ async function createWorktree(pi: ExtensionAPI, run: TickflowRunContext, plan: W
 	const exists = await branchExists(pi, run.repoRoot, plan.branchName);
 	const args = exists
 		? ["worktree", "add", plan.worktreePath, plan.branchName]
-		: ["worktree", "add", plan.worktreePath, "-b", plan.branchName, "HEAD"];
+		: ["worktree", "add", "-b", plan.branchName, plan.worktreePath, "HEAD"];
 	const result = await pi.exec("git", args, { cwd: run.repoRoot, timeout: 60_000 });
 	if (result.code !== 0) throw new Error(result.stderr || result.stdout || `git ${args.join(" ")} failed`);
 	return { ...plan, runId: run.runId, repoRoot: run.repoRoot, reused: false };
@@ -706,7 +706,7 @@ async function resolveSandboxMode(pi: ExtensionAPI, cwd: string, requested: Tick
 	return "readonly-dot-tick";
 }
 
-async function installTkWrapper(worktreePath: string, controllerRepo: string): Promise<void> {
+async function installTkWrapper(worktreePath: string, controllerRepo: string, realTkPath: string): Promise<void> {
 	const binDir = path.join(worktreePath, ".tickflow-bin");
 	await fs.promises.mkdir(binDir, { recursive: true });
 	const wrapper = path.join(binDir, "tk");
@@ -716,7 +716,7 @@ cmd="\${1:-}"
 case "$cmd" in
   show|list|ls|graph|ready|next|blocked|deps|notes|status|version)
     cd ${JSON.stringify(controllerRepo)}
-    exec tk "$@"
+    exec ${JSON.stringify(realTkPath)} "$@"
     ;;
   *)
     echo "tk mutations are disabled in Tickflow worktrees. Emit a <promise>COMPLETE|INPUT_NEEDED|ESCALATE|...> signal instead." >&2
@@ -730,7 +730,9 @@ esac
 
 async function provisionRuntimeResources(pi: ExtensionAPI, run: TickflowRunContext, handle: WorktreeHandle, config: TickflowConfig): Promise<string[]> {
 	const resources: string[] = [];
-	await installTkWrapper(handle.worktreePath, run.repoRoot);
+	const tkPathResult = await pi.exec("bash", ["-lc", "command -v tk"], { cwd: run.repoRoot, timeout: 10_000 });
+	if (tkPathResult.code !== 0 || !tkPathResult.stdout.trim()) throw new Error("could not find tk executable for worktree wrapper");
+	await installTkWrapper(handle.worktreePath, run.repoRoot, tkPathResult.stdout.trim());
 	resources.push("tk wrapper installed: read-only tk commands proxy to controller; mutations are blocked");
 
 	if (config.worktrees.secretsMode !== "none") {
@@ -775,10 +777,22 @@ async function protectDotTick(pi: ExtensionAPI, handle: WorktreeHandle, config: 
 	return mode;
 }
 
+async function restoreWritable(target: string): Promise<void> {
+	if (!(await pathExists(target))) return;
+	await fs.promises.chmod(target, 0o755).catch(() => undefined);
+	const entries = await fs.promises.readdir(target, { withFileTypes: true }).catch(() => []);
+	for (const entry of entries) {
+		const child = path.join(target, entry.name);
+		if (entry.isDirectory()) await restoreWritable(child);
+		else await fs.promises.chmod(child, 0o644).catch(() => undefined);
+	}
+}
+
 async function removeWorktree(pi: ExtensionAPI, handle: WorktreeHandle): Promise<void> {
 	if (!handle.worktreePath.includes(`${path.sep}.tickflow-worktrees${path.sep}`)) {
 		throw new Error(`refusing to remove non-Tickflow worktree: ${handle.worktreePath}`);
 	}
+	await restoreWritable(path.join(handle.worktreePath, ".tick"));
 	const result = await pi.exec("git", ["worktree", "remove", handle.worktreePath, "--force"], { cwd: handle.repoRoot, timeout: 60_000 });
 	if (result.code !== 0) throw new Error(result.stderr || result.stdout || `failed to remove worktree ${handle.worktreePath}`);
 }
