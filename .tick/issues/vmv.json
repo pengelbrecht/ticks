@@ -4,11 +4,11 @@
   "description": "Post-MVP follow-up: run each tickflow subagent in an isolated git worktree/branch, run verifiers before merge, merge accepted ticks back into an integration branch, and route merge conflicts to awaiting escalation with conflict details.",
   "status": "open",
   "priority": 2,
-  "type": "task",
+  "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "discovered_from": "bha",
   "acceptance_criteria": "Tickflow supports --worktrees mode; parallel tasks do not share a working tree; accepted work is merged or preserved with conflict notes.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T06:53:45.804691Z",
-  "updated_at": "2026-05-08T06:53:45.804691Z"
+  "updated_at": "2026-05-08T08:27:28.480631Z"
 }
