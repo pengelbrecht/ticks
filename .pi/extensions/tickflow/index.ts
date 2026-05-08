@@ -120,6 +120,22 @@ type WorktreePlan = {
 	branchName: string;
 };
 
+type WorktreeHandle = WorktreePlan & {
+	runId: string;
+	repoRoot: string;
+	reused: boolean;
+};
+
+type TickflowLease = {
+	runner: "pi-tickflow";
+	session_id: string;
+	attempt: number;
+	worktree: string;
+	owner: string;
+	acquired_at: string;
+	expires_at?: string;
+};
+
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -418,6 +434,69 @@ function formatWorktreePlan(run: TickflowRunContext, plans: WorktreePlan[]): str
 	].join("\n");
 }
 
+async function pathExists(filePath: string): Promise<boolean> {
+	try {
+		await fs.promises.access(filePath);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function branchExists(pi: ExtensionAPI, repoRoot: string, branchName: string): Promise<boolean> {
+	const result = await pi.exec("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], { cwd: repoRoot, timeout: 10_000 });
+	return result.code === 0;
+}
+
+async function createWorktree(pi: ExtensionAPI, run: TickflowRunContext, plan: WorktreePlan): Promise<WorktreeHandle> {
+	await fs.promises.mkdir(path.dirname(plan.worktreePath), { recursive: true });
+	if (await pathExists(plan.worktreePath)) {
+		if (!(await pathExists(path.join(plan.worktreePath, ".git")))) {
+			throw new Error(`worktree path exists but is not a git worktree: ${plan.worktreePath}`);
+		}
+		return { ...plan, runId: run.runId, repoRoot: run.repoRoot, reused: true };
+	}
+
+	const exists = await branchExists(pi, run.repoRoot, plan.branchName);
+	const args = exists
+		? ["worktree", "add", plan.worktreePath, plan.branchName]
+		: ["worktree", "add", plan.worktreePath, "-b", plan.branchName, "HEAD"];
+	const result = await pi.exec("git", args, { cwd: run.repoRoot, timeout: 60_000 });
+	if (result.code !== 0) throw new Error(result.stderr || result.stdout || `git ${args.join(" ")} failed`);
+	return { ...plan, runId: run.runId, repoRoot: run.repoRoot, reused: false };
+}
+
+async function removeWorktree(pi: ExtensionAPI, handle: WorktreeHandle): Promise<void> {
+	if (!handle.worktreePath.includes(`${path.sep}.tickflow-worktrees${path.sep}`)) {
+		throw new Error(`refusing to remove non-Tickflow worktree: ${handle.worktreePath}`);
+	}
+	const result = await pi.exec("git", ["worktree", "remove", handle.worktreePath, "--force"], { cwd: handle.repoRoot, timeout: 60_000 });
+	if (result.code !== 0) throw new Error(result.stderr || result.stdout || `failed to remove worktree ${handle.worktreePath}`);
+}
+
+async function setTickflowLease(cwd: string, tickId: string, lease: TickflowLease | undefined): Promise<void> {
+	const issuePath = path.join(cwd, ".tick", "issues", `${tickId}.json`);
+	const raw = await fs.promises.readFile(issuePath, "utf8");
+	const data = JSON.parse(raw);
+	if (lease) data.tickflow_lease = lease;
+	else delete data.tickflow_lease;
+	await fs.promises.writeFile(issuePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function buildLease(run: TickflowRunContext, handle: WorktreeHandle, attempt: number): TickflowLease {
+	const acquired = new Date();
+	const expires = new Date(acquired.getTime() + DEFAULT_SUBAGENT_TIMEOUT_MS + 10 * 60 * 1000);
+	return {
+		runner: "pi-tickflow",
+		session_id: run.runId,
+		attempt,
+		worktree: handle.worktreePath,
+		owner: `agent-${handle.tickId}`,
+		acquired_at: acquired.toISOString(),
+		expires_at: expires.toISOString(),
+	};
+}
+
 async function mapWithConcurrencyLimit<T, U>(items: T[], concurrency: number, fn: (item: T) => Promise<U>): Promise<U[]> {
 	const results: U[] = new Array(items.length);
 	let next = 0;
@@ -448,20 +527,21 @@ function parseRunArgs(args: string): { epicId: string; agents: number; dryRun: b
 
 async function runAttempt(
 	pi: ExtensionAPI,
-	cwd: string,
+	controllerCwd: string,
+	agentCwd: string,
 	contract: TickContract,
 	prompt: string,
 	signal?: AbortSignal,
 ): Promise<{ evidence: AttemptEvidence; artifactPath: string }> {
-	const tickBefore = await loadTick(pi, cwd, contract.id);
-	const attempt = await nextAttemptNumber(cwd, contract.id);
+	const tickBefore = await loadTick(pi, controllerCwd, contract.id);
+	const attempt = await nextAttemptNumber(controllerCwd, contract.id);
 	const startedAt = new Date().toISOString();
-	const statusBefore = await execText(pi, cwd, "git", ["status", "--porcelain"]);
-	const subagent = await runSubagent(cwd, prompt, signal);
-	const tickAfter = await loadTick(pi, cwd, contract.id);
-	const statusAfter = await execText(pi, cwd, "git", ["status", "--porcelain"]);
-	const diffStat = await execText(pi, cwd, "git", ["diff", "--stat"]);
-	const verifiers = await runVerifiers(pi, cwd, contract.verifiers);
+	const statusBefore = await execText(pi, agentCwd, "git", ["status", "--porcelain"]);
+	const subagent = await runSubagent(agentCwd, prompt, signal);
+	const tickAfter = await loadTick(pi, controllerCwd, contract.id);
+	const statusAfter = await execText(pi, agentCwd, "git", ["status", "--porcelain"]);
+	const diffStat = await execText(pi, agentCwd, "git", ["diff", "--stat"]);
+	const verifiers = await runVerifiers(pi, agentCwd, contract.verifiers);
 	const evidence: AttemptEvidence = {
 		tickId: contract.id,
 		attempt,
@@ -474,7 +554,7 @@ async function runAttempt(
 		git: { statusBefore, statusAfter, diffStat, changedFiles: parseChangedFiles(statusAfter) },
 		verifiers,
 	};
-	const artifactPath = await persistEvidence(cwd, evidence);
+	const artifactPath = await persistEvidence(controllerCwd, evidence);
 	return { evidence, artifactPath };
 }
 
@@ -484,6 +564,7 @@ async function superviseTick(
 	tickId: string,
 	signal: AbortSignal | undefined,
 	onUpdate?: (message: string) => void,
+	agentCwd = cwd,
 ): Promise<SupervisorOutcome> {
 	const contract = compileContract(await loadTick(pi, cwd, tickId));
 	await markInProgress(pi, cwd, contract.id);
@@ -495,7 +576,7 @@ async function superviseTick(
 
 	for (let attemptIndex = 0; attemptIndex < contract.maxAttempts; attemptIndex++) {
 		onUpdate?.(`Running tickflow attempt ${attemptIndex + 1}/${contract.maxAttempts} for ${contract.id}...`);
-		const { evidence, artifactPath } = await runAttempt(pi, cwd, contract, prompt, signal);
+		const { evidence, artifactPath } = await runAttempt(pi, cwd, agentCwd, contract, prompt, signal);
 		finalEvidence = evidence;
 		finalArtifact = artifactPath;
 		const decision = decide(contract, evidence, contract.maxAttempts - attemptIndex - 1);
@@ -797,9 +878,17 @@ export default function tickflow(pi: ExtensionAPI) {
 						break;
 					}
 
-					const outcomes = await mapWithConcurrencyLimit(tasks, agents, async (task) =>
-						superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info")),
-					);
+					const outcomes = await mapWithConcurrencyLimit(tasks, agents, async (task) => {
+						let agentCwd = ctx.cwd;
+						if (runContext) {
+							const plan = planWorktree(runContext, task.id);
+							const handle = await createWorktree(pi, runContext, plan);
+							agentCwd = handle.worktreePath;
+							await setTickflowLease(ctx.cwd, task.id, buildLease(runContext, handle, await nextAttemptNumber(ctx.cwd, task.id)));
+							ctx.ui.notify(`[${task.id}] worktree ${handle.reused ? "reused" : "created"}: ${handle.worktreePath}`, "info");
+						}
+						return superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info"), agentCwd);
+					});
 					summaries.push(
 						`Wave ${readyWave.wave}: ${outcomes.map((outcome) => `${outcome.tickId}=${outcome.decision.action}`).join(", ")}`,
 					);

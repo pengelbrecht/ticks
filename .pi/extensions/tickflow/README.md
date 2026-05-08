@@ -56,7 +56,9 @@ worktreePath = ../.tickflow-worktrees/<repoSlug>/<runId>/<tick-id>
 branchName = tf/<runId>/<tick-id>
 ```
 
-The absolute worktree path is intended to be stored in `tickflow_lease.worktree` when worktree lifecycle support claims a tick.
+When `--worktrees` runs without `--dry-run`, Tickflow creates the planned git worktree with branch `tf/<runId>/<tick-id>` and records a `tickflow_lease` on the controller tick before spawning the child agent. Existing worktree paths with a `.git` file are treated as reusable for future resume flows; non-worktree path collisions fail safely.
+
+The absolute worktree path is stored in `tickflow_lease.worktree` when worktree lifecycle support claims a tick.
 
 ## Supervisor outcomes
 

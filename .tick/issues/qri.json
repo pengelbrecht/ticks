@@ -2,7 +2,7 @@
   "id": "qri",
   "title": "Implement Tickflow worktree lifecycle helpers",
   "description": "Add helpers to create, reuse for resume, inspect, preserve, and remove per-tick git worktrees. Create branches with tf/\u003crun-id\u003e/\u003ctick-id\u003e, detect existing path/branch safely, and record absolute worktree paths in tickflow_lease.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Worktree creation succeeds for a disposable tick; existing paths/branches are handled safely; terminal cleanup removes only worktrees owned by the current run; tickflow_lease contains absolute worktree path and run id.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:27:38.211851Z",
-  "updated_at": "2026-05-08T08:28:02.20132Z"
+  "updated_at": "2026-05-08T09:39:54.88279Z",
+  "closed_at": "2026-05-08T09:39:54.88279Z",
+  "closed_reason": "Implemented Tickflow worktree lifecycle helpers: create/reuse worktree, safe path collision checks, branch existence handling, guarded remove helper, tickflow_lease writer with absolute path/run id, and --worktrees execution wiring."
 }
