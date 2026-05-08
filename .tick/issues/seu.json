@@ -2,7 +2,7 @@
   "id": "seu",
   "title": "Implement Pi subagent process runner for tickflow",
   "description": "Add a SubagentRuntime that spawns child pi in JSON print mode for a single tick attempt, captures assistant output, tool events when available, exit code, duration, and usage if present. Use temp prompt files where useful and support abort signals.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "A test/manual run can spawn a child pi process for a trivial prompt and capture final output plus exit status without hanging.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T06:41:25.901922Z",
-  "updated_at": "2026-05-08T06:41:25.901922Z"
+  "updated_at": "2026-05-08T06:47:25.684099Z",
+  "closed_at": "2026-05-08T06:47:25.684099Z",
+  "closed_reason": "Implemented child Pi subagent runtime using pi --mode json -p --no-session, JSON event parsing, assistant output/usage/exit capture, timeout/abort handling, and /tickflow-run-tick --smoke."
 }

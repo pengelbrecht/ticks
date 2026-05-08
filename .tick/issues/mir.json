@@ -1,0 +1,14 @@
+{
+  "id": "mir",
+  "title": "Add tickflow explicit verifier config and resume UX",
+  "description": "Post-MVP follow-up: add .tick/pi-runner.yaml for explicit verifiers/policies and implement /tickflow resume using attempt artifacts plus tickflow_lease metadata for stale recovery.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "discovered_from": "bha",
+  "acceptance_criteria": "Project config can define verifiers and policy; interrupted runs can be resumed or safely recovered from stale leases.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T06:53:45.804708Z",
+  "updated_at": "2026-05-08T06:53:45.804708Z"
+}

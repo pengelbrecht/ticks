@@ -2,7 +2,7 @@
   "id": "1eh",
   "title": "Implement tickflow supervisor decision loop",
   "description": "Add the per-tick supervisor loop with decisions accept, continue, repair, handoff, and escalate. Do not accept subagent prose alone; accept only closed/awaiting tick state plus passing verifiers. Generate sharp continuation/repair prompts when the tick remains open or verifiers fail.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -15,5 +15,7 @@
   "acceptance_criteria": "A tick that remains open after a subagent attempt is retried with a continuation prompt until closed/awaiting/max attempts; a failed verifier triggers a repair prompt; max attempts routes to awaiting escalation with a note.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T06:41:36.632937Z",
-  "updated_at": "2026-05-08T06:41:45.191851Z"
+  "updated_at": "2026-05-08T06:49:25.575038Z",
+  "closed_at": "2026-05-08T06:49:25.575038Z",
+  "closed_reason": "Implemented supervised per-tick decision loop with accept/handoff/repair/continue/escalate decisions, continuation prompts, max attempts, verifier-aware repair, and escalation notes."
 }
