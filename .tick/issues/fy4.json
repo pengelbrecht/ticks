@@ -2,7 +2,7 @@
   "id": "fy4",
   "title": "Implement Tickflow stale lease recovery",
   "description": "Use tickflow_lease metadata plus git worktree list to identify stale in_progress ticks, expired leases, missing worktrees, and dirty preserved worktrees. Add recovery decisions: continue, preserve/escalate, or release back to open only when safe.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Expired leases are detected; recovery never deletes dirty work; safe abandoned claims can be released; recovery notes explain what happened and where preserved work lives.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:30:32.876631Z",
-  "updated_at": "2026-05-08T08:30:32.876631Z"
+  "updated_at": "2026-05-08T13:41:58.136184Z",
+  "closed_at": "2026-05-08T13:41:58.136184Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-mir-20260508t132018z-0833/fy4"
 }

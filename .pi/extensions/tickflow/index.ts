@@ -1021,9 +1021,10 @@ async function commitWorktreeChanges(pi: ExtensionAPI, handle: WorktreeHandle, m
 
 async function mergeWorktreeBranch(pi: ExtensionAPI, handle: WorktreeHandle): Promise<MergeResult> {
 	const commitResult = await commitWorktreeChanges(pi, handle, `tick ${handle.tickId}: tickflow worktree changes`);
-	if (!commitResult.committed) return { committed: false, merged: true, conflicts: [] };
+	const alreadyMerged = await pi.exec("git", ["merge-base", "--is-ancestor", handle.branchName, "HEAD"], { cwd: handle.repoRoot, timeout: 10_000 });
+	if (alreadyMerged.code === 0) return { committed: commitResult.committed, commit: commitResult.commit, merged: true, conflicts: [] };
 	const merge = await pi.exec("git", ["merge", "--no-ff", handle.branchName, "-m", `merge tickflow ${handle.tickId}`], { cwd: handle.repoRoot, timeout: 60_000 });
-	if (merge.code === 0) return { committed: true, commit: commitResult.commit, merged: true, conflicts: [] };
+	if (merge.code === 0) return { committed: commitResult.committed, commit: commitResult.commit, merged: true, conflicts: [] };
 	const conflictResult = await pi.exec("git", ["diff", "--name-only", "--diff-filter=U"], { cwd: handle.repoRoot, timeout: 10_000 });
 	const conflicts = (conflictResult.stdout ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
 	await pi.exec("git", ["merge", "--abort"], { cwd: handle.repoRoot, timeout: 30_000 });

@@ -2,7 +2,7 @@
   "id": "z1e",
   "title": "Add Tickflow policy controls for persistence and retries",
   "description": "Wire config policies into supervisor decisions: max_attempts, max_no_progress_attempts, max_same_verifier_failures, require_commit, require_verifiers_for_priority, sandbox default, and secrets exposure behavior.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Supervisor honors configured max attempts and verifier failure limits; policy choices appear in contract/status output; unsafe secret exposure defaults to none or explicit confirmation/config.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:30:32.876675Z",
-  "updated_at": "2026-05-08T08:30:32.876675Z"
+  "updated_at": "2026-05-08T13:37:33.526181Z",
+  "closed_at": "2026-05-08T13:37:33.526181Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-mir-20260508t132018z-0833/z1e (7e624aaa)"
 }

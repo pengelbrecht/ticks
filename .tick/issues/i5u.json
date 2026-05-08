@@ -1,8 +1,8 @@
 {
   "id": "i5u",
   "title": "Implement Tickflow status and resume commands",
-  "description": "Add /tickflow-status and /tickflow-resume \u003crun-id\u003e. Status lists active/recoverable runs, leases, worktrees, and last decisions. Resume reloads run records, skips closed/awaiting ticks, reconnects to existing worktrees, and continues safe pending work.",
-  "status": "open",
+  "description": "Add /tickflow-status and /tickflow-resume <run-id>. Status lists active/recoverable runs, leases, worktrees, and last decisions. Resume reloads run records, skips closed/awaiting ticks, reconnects to existing worktrees, and continues safe pending work.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,8 +11,10 @@
     "fy4"
   ],
   "parent": "mir",
-  "acceptance_criteria": "/tickflow-status lists persisted runs; /tickflow-resume \u003crun-id\u003e can resume an interrupted dry/manual run without deleting work; closed/awaiting ticks are skipped.",
+  "acceptance_criteria": "/tickflow-status lists persisted runs; /tickflow-resume <run-id> can resume an interrupted dry/manual run without deleting work; closed/awaiting ticks are skipped.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:28:33.860013Z",
-  "updated_at": "2026-05-08T08:31:13.673726Z"
+  "updated_at": "2026-05-08T13:46:02.407235Z",
+  "closed_at": "2026-05-08T13:46:02.407235Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-mir-20260508t132018z-0833/i5u"
 }
