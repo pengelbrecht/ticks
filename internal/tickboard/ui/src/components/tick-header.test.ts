@@ -446,7 +446,9 @@ describe('tick-header mobile view', () => {
       const handler = vi.fn();
       element.addEventListener('run-panel-toggle', handler);
 
-      const runButton = element.shadowRoot?.querySelector('.header-right sl-button') as HTMLElement;
+      // The run panel button is the second sl-button in header-right (after the dashboard button)
+      const buttons = element.shadowRoot?.querySelectorAll('.header-right sl-button');
+      const runButton = buttons?.[1] as HTMLElement;
       runButton?.click();
 
       expect(handler).toHaveBeenCalledTimes(1);

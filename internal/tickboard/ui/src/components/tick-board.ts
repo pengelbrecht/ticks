@@ -44,8 +44,10 @@ import {
   fetchInfo,
   fetchTickDetails,
   fetchRunStatus,
+  fetchActivity,
 } from '../stores/index.js';
 import type { RunEvent } from '../comms/types.js';
+import type { Activity } from '../api/ticks.js';
 
 // Initialize comms auto-connect (handles mode switching)
 console.log('[TickBoard] Initializing comms module');
@@ -700,6 +702,8 @@ export class TickBoard extends LitElement {
   @state() private showMobileFilterDrawer = false;
 
   // Run monitoring state
+  @state() private showDashboard = false;
+  @state() private dashboardActivities: Activity[] = [];
   @state() private showRunPanel = false;
   @state() private runStatus: RunStatusResponse | null = null;
   @state() private runPanelEpicId: string | null = null;
@@ -1272,6 +1276,14 @@ export class TickBoard extends LitElement {
           this.toggleRunPanel();
         }
         break;
+
+      // Toggle dashboard overlay: d
+      case 'd':
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          this.toggleDashboard();
+        }
+        break;
     }
   };
 
@@ -1354,7 +1366,9 @@ export class TickBoard extends LitElement {
    * Handle escape key: close dialogs/drawers or clear focus.
    */
   private handleEscape() {
-    if (this.showKeyboardHelp) {
+    if (this.showDashboard) {
+      this.showDashboard = false;
+    } else if (this.showKeyboardHelp) {
       this.showKeyboardHelp = false;
     } else if (this.selectedTick) {
       selectTick(null);
@@ -1363,6 +1377,38 @@ export class TickBoard extends LitElement {
     } else {
       this.clearFocus();
     }
+  }
+
+  /**
+   * Toggle the dashboard overlay.
+   */
+  private async toggleDashboard() {
+    this.showDashboard = !this.showDashboard;
+    if (this.showDashboard) {
+      // Fetch recent activity when opening
+      try {
+        this.dashboardActivities = await fetchActivity(20);
+      } catch {
+        this.dashboardActivities = [];
+      }
+    }
+  }
+
+  /**
+   * Handle epic selection from dashboard.
+   */
+  private handleDashboardEpicSelect(e: CustomEvent<{ epicId: string }>) {
+    this.selectedEpic = e.detail.epicId;
+    this.showDashboard = false;
+    this.updateBoardState();
+  }
+
+  /**
+   * Handle tick selection from dashboard.
+   */
+  private handleDashboardTickSelect(e: CustomEvent<{ tickId: string }>) {
+    selectTick(e.detail.tickId);
+    this.showDashboard = false;
   }
 
   /**
@@ -1750,6 +1796,7 @@ export class TickBoard extends LitElement {
         @menu-toggle=${this.handleMobileMenuToggle}
         @activity-click=${this.handleActivityClick}
         @run-panel-toggle=${this.toggleRunPanel}
+        @dashboard-toggle=${this.toggleDashboard}
       ></tick-header>
 
       <!-- Toast notification stack -->
@@ -1876,6 +1923,19 @@ export class TickBoard extends LitElement {
         </ticks-button>
       </sl-drawer>
 
+      <!-- Tickflow Dashboard overlay -->
+      <tickflow-dashboard
+        ?open=${this.showDashboard}
+        .ticks=${this.ticks}
+        .epics=${this.epics}
+        .runStatus=${this.runStatus}
+        .activities=${this.dashboardActivities}
+        repo-name=${this.repoName}
+        @close=${() => { this.showDashboard = false; }}
+        @epic-select=${this.handleDashboardEpicSelect}
+        @tick-select=${this.handleDashboardTickSelect}
+      ></tickflow-dashboard>
+
       <!-- Keyboard shortcuts help dialog -->
       <sl-dialog
         label="Keyboard Shortcuts"
@@ -1924,6 +1984,10 @@ export class TickBoard extends LitElement {
             <div class="shortcut-row">
               <kbd>r</kbd>
               <span>Toggle run panel</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>d</kbd>
+              <span>Toggle dashboard</span>
             </div>
             <div class="shortcut-row">
               <kbd>?</kbd>

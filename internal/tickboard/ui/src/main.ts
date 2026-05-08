@@ -49,6 +49,7 @@ import './components/tool-activity.js';
 import './components/run-metrics.js';
 import './components/run-record.js';
 import './components/context-pane.js';
+import './components/tickflow-dashboard.js';
 
 // Register service worker for PWA support
 if ('serviceWorker' in navigator) {
