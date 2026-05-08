@@ -38,6 +38,9 @@ type Builder struct {
 	// Signals (most recent first)
 	signals []SignalEvent
 
+	// Lifecycle events (most recent first)
+	events []LifecycleEvent
+
 	// Terminal state
 	exitReason string
 	err        string
@@ -250,6 +253,29 @@ func (b *Builder) RecordSignal(signal, reason, taskID string) {
 	b.mu.Unlock()
 }
 
+// --- Lifecycle events ---
+
+// maxLifecycleEvents is the maximum number of lifecycle events retained.
+const maxLifecycleEvents = 50
+
+// RecordLifecycleEvent records a human-readable lifecycle status event.
+// Events are stored most-recent-first, capped at maxLifecycleEvents.
+func (b *Builder) RecordLifecycleEvent(category LifecycleCategory, message, detail string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	evt := LifecycleEvent{
+		Category: category,
+		Message:  message,
+		Detail:   detail,
+		At:       time.Now(),
+	}
+	b.events = append([]LifecycleEvent{evt}, b.events...)
+	if len(b.events) > maxLifecycleEvents {
+		b.events = b.events[:maxLifecycleEvents]
+	}
+}
+
 // --- Context events ---
 
 // SetContextGenerating marks context generation as started.
@@ -377,6 +403,9 @@ func (b *Builder) Snapshot() *ViewModel {
 	signals := make([]SignalEvent, len(b.signals))
 	copy(signals, b.signals)
 
+	events := make([]LifecycleEvent, len(b.events))
+	copy(events, b.events)
+
 	return &ViewModel{
 		EpicID:        b.epicID,
 		EpicTitle:     b.epicTitle,
@@ -404,6 +433,7 @@ func (b *Builder) Snapshot() *ViewModel {
 		},
 		Context:        b.context,
 		Signals:        signals,
+		Events:         events,
 		ExitReason:     b.exitReason,
 		Error:          b.err,
 		StartedAt:      b.startedAt,

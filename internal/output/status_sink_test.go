@@ -129,3 +129,34 @@ func TestStatusSink_BudgetConfig(t *testing.T) {
 		t.Errorf("expected 10.0 max cost, got %f", vm.Budget.MaxCost)
 	}
 }
+
+func TestStatusSink_LifecycleEvents(t *testing.T) {
+	var buf bytes.Buffer
+	sink := NewStatusSink("test-epic", &buf, 60)
+
+	sink.OnLifecycleEvent("worktree", "Worktree created", "/tmp/wt")
+	sink.OnLifecycleEvent("tick", "Tick launched: Fix bug", "t1")
+	sink.OnLifecycleEvent("merge", "Merged to main", "")
+
+	vm := sink.Builder().Snapshot()
+	if len(vm.Events) != 3 {
+		t.Fatalf("expected 3 lifecycle events, got %d", len(vm.Events))
+	}
+
+	// Most recent first
+	if vm.Events[0].Category != runstate.LifecycleMerge {
+		t.Errorf("expected merge category, got %s", vm.Events[0].Category)
+	}
+	if vm.Events[0].Message != "Merged to main" {
+		t.Errorf("expected 'Merged to main', got %s", vm.Events[0].Message)
+	}
+	if vm.Events[2].Detail != "/tmp/wt" {
+		t.Errorf("expected detail '/tmp/wt', got %s", vm.Events[2].Detail)
+	}
+
+	// Check that widget output includes lifecycle events
+	output := buf.String()
+	if !strings.Contains(output, "Merged to main") {
+		t.Error("expected lifecycle event in rendered widget output")
+	}
+}

@@ -158,3 +158,8 @@ func (a *RunLogSinkAdapter) LogIdleFileChange(path string) {
 func (a *RunLogSinkAdapter) LogIdleTaskCheck(taskFound bool, taskID string) {
 	a.logger.LogIdleTaskCheck(taskFound, taskID)
 }
+
+// LogLifecycleEvent delegates to Logger.LogLifecycleEvent.
+func (a *RunLogSinkAdapter) LogLifecycleEvent(eventType, message string) {
+	a.logger.LogLifecycleEvent(eventType, message)
+}

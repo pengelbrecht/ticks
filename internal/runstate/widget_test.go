@@ -164,6 +164,35 @@ func TestRenderWidget_NarrowWidth(t *testing.T) {
 	}
 }
 
+func TestRenderWidget_LifecycleEvents(t *testing.T) {
+	vm := &ViewModel{
+		EpicID: "evt-epic",
+		Phase:  PhaseRunning,
+		Events: []LifecycleEvent{
+			{Category: LifecycleMerge, Message: "Merged to main"},
+			{Category: LifecycleTick, Message: "Tick closed: abc", Detail: "completed"},
+			{Category: LifecycleWorktree, Message: "Worktree created", Detail: "/tmp/wt"},
+			{Category: LifecycleVerifier, Message: "Verification passed"},
+		},
+	}
+
+	result := RenderWidget(vm, 70)
+	// Should show at most 3 events
+	if !strings.Contains(result, "Merged to main") {
+		t.Error("expected most recent lifecycle event")
+	}
+	if !strings.Contains(result, "Tick closed") {
+		t.Error("expected second lifecycle event")
+	}
+	if !strings.Contains(result, "Worktree created") {
+		t.Error("expected third lifecycle event")
+	}
+	// 4th should NOT appear (max 3)
+	if strings.Contains(result, "Verification passed") {
+		t.Error("should not show more than 3 lifecycle events")
+	}
+}
+
 func TestRenderWidget_BudgetWarning(t *testing.T) {
 	vm := &ViewModel{
 		EpicID: "budget-epic",

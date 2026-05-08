@@ -78,6 +78,10 @@ type ViewModel struct {
 	// Signals lists signals emitted during the run, most recent first.
 	Signals []SignalEvent `json:"signals,omitempty"`
 
+	// Events lists lifecycle events in chronological order (most recent first).
+	// Persisted in run state for dashboard display after interruption.
+	Events []LifecycleEvent `json:"events,omitempty"`
+
 	// ExitReason is set when Phase == PhaseDone.
 	ExitReason string `json:"exit_reason,omitempty"`
 
@@ -258,6 +262,44 @@ type SignalEvent struct {
 	Wave int `json:"wave"`
 
 	// At is when the signal was detected.
+	At time.Time `json:"at"`
+}
+
+// LifecycleCategory groups related lifecycle events.
+type LifecycleCategory string
+
+const (
+	// LifecycleWorktree covers worktree planning, creation, reuse, protection, teardown.
+	LifecycleWorktree LifecycleCategory = "worktree"
+
+	// LifecycleLease covers lease acquisition and release.
+	LifecycleLease LifecycleCategory = "lease"
+
+	// LifecycleTick covers tick launch, close, handoff, and escalation.
+	LifecycleTick LifecycleCategory = "tick"
+
+	// LifecycleVerifier covers verifier start and end.
+	LifecycleVerifier LifecycleCategory = "verifier"
+
+	// LifecycleMerge covers merge start, success, and conflict.
+	LifecycleMerge LifecycleCategory = "merge"
+
+	// LifecycleEngine covers engine-level events (wave start, context, budget).
+	LifecycleEngine LifecycleCategory = "engine"
+)
+
+// LifecycleEvent records a human-readable lifecycle event for the TUI and dashboard.
+type LifecycleEvent struct {
+	// Category groups the event (worktree, tick, merge, etc.).
+	Category LifecycleCategory `json:"category"`
+
+	// Message is the primary human-readable status message.
+	Message string `json:"message"`
+
+	// Detail provides optional additional context.
+	Detail string `json:"detail,omitempty"`
+
+	// At is when the event occurred.
 	At time.Time `json:"at"`
 }
 

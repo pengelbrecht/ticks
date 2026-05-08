@@ -153,6 +153,29 @@ func RenderWidget(vm *ViewModel, width int) string {
 			wDim.Render(fmt.Sprintf(" [%s] %s", sig.TaskID, reason)))
 	}
 
+	// Recent lifecycle events (show last 3)
+	maxEvents := 3
+	if len(vm.Events) < maxEvents {
+		maxEvents = len(vm.Events)
+	}
+	for i := 0; i < maxEvents; i++ {
+		evt := vm.Events[i]
+		icon := lifecycleIcon(evt.Category)
+		msg := evt.Message
+		if len(msg) > inner-4 {
+			msg = msg[:inner-7] + "..."
+		}
+		line := wDim.Render(icon+" ") + wDim.Render(msg)
+		if evt.Detail != "" {
+			detail := evt.Detail
+			if len(detail) > 30 {
+				detail = detail[:27] + "..."
+			}
+			line += wDim.Render(" "+detail)
+		}
+		lines = append(lines, line)
+	}
+
 	// Exit info
 	if vm.Phase == PhaseDone {
 		if vm.Error != "" {
@@ -230,6 +253,26 @@ func renderBudget(b BudgetView) string {
 		return ""
 	}
 	return wLabel.Render("Budget: ") + strings.Join(parts, "  ")
+}
+
+// lifecycleIcon returns a unicode icon for a lifecycle event category.
+func lifecycleIcon(cat LifecycleCategory) string {
+	switch cat {
+	case LifecycleWorktree:
+		return "\U0001f333" // tree
+	case LifecycleLease:
+		return "\U0001f512" // lock
+	case LifecycleTick:
+		return "✔" // check
+	case LifecycleVerifier:
+		return "\U0001f50d" // magnifying glass
+	case LifecycleMerge:
+		return "↔" // merge arrows
+	case LifecycleEngine:
+		return "⚙" // gear
+	default:
+		return "•"
+	}
 }
 
 // countTasks counts tasks in a given state.

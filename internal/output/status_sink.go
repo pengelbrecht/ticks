@@ -147,6 +147,12 @@ func (s *StatusSink) OnAgentState(taskID string, numTurns int, activeTool *runst
 	s.render()
 }
 
+// OnLifecycleEvent records a lifecycle event in the builder.
+func (s *StatusSink) OnLifecycleEvent(category, message, detail string) {
+	s.builder.RecordLifecycleEvent(runstate.LifecycleCategory(category), message, detail)
+	s.render()
+}
+
 // OnBudgetConfig sets budget limits for display.
 func (s *StatusSink) OnBudgetConfig(maxIterations int, maxCost float64) {
 	s.builder.SetBudget(maxIterations, maxCost)

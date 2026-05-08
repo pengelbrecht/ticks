@@ -297,6 +297,7 @@ Get a token at https://ticks.sh/settings`)
 		}
 
 		// Always create/reuse worktree
+		out.WorktreePlanning(epicID)
 		wtManager, err := worktree.NewManager(root)
 		if err != nil {
 			cancel()
@@ -304,16 +305,22 @@ Get a token at https://ticks.sh/settings`)
 			return NewExitError(ExitGeneric, "failed to create worktree manager: %v", err)
 		}
 
+		out.WorktreeCreating(epicID)
 		wt, err := wtManager.Create(epicID)
 		if err != nil {
 			if err == worktree.ErrWorktreeExists {
 				wt, err = wtManager.Get(epicID)
+				if err == nil {
+					out.WorktreeReused(epicID, wt.Path)
+				}
 			}
 			if err != nil {
 				cancel()
 				wg.Wait()
 				return NewExitError(ExitGeneric, "failed to create worktree: %v", err)
 			}
+		} else {
+			out.WorktreeCreated(epicID, wt.Path)
 		}
 
 		// Wire run log sink now that we have the workdir
@@ -371,20 +378,31 @@ Get a token at https://ticks.sh/settings`)
 			if engine.ShouldCleanupWorktree(result.ExitReason) && !runNoMerge {
 				mergeManager, mergeErr := worktree.NewMergeManager(root)
 				if mergeErr == nil {
+					targetBranch := wt.ParentBranch
+					if targetBranch == "" {
+						targetBranch = "main"
+					}
+					out.MergeStarting(targetBranch)
 					mergeResult, mergeErr := mergeManager.Merge(wt, worktree.MergeOptions{})
 					if mergeErr != nil {
 						out.Warn("merge failed: %v", mergeErr)
 						out.WorktreePreserved(wt.Path, "merge failed")
+						out.WorktreeProtected(wt.Path, "merge failed")
 					} else if !mergeResult.Success {
+						out.MergeConflict(mergeResult.TargetBranch, mergeResult.Conflicts)
 						out.Warn("merge conflicts in: %v", mergeResult.Conflicts)
 						out.WorktreePreserved(wt.Path, "merge conflicts")
+						out.WorktreeProtected(wt.Path, "merge conflicts")
 					} else {
+						out.MergeCompleted(mergeResult.TargetBranch)
+						out.WorktreeTeardown(wt.Path)
 						_ = wtManager.Remove(epicID)
 						out.MergeSuccess(mergeResult.TargetBranch)
 					}
 				}
 			} else {
 				out.WorktreePreserved(wt.Path, "resumption")
+				out.WorktreeProtected(wt.Path, "resumption")
 			}
 		}
 	} else {

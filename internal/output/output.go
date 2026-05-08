@@ -60,6 +60,9 @@ type RunLogSink interface {
 	LogIdleEntered(reason string, pollInterval time.Duration)
 	LogIdleFileChange(path string)
 	LogIdleTaskCheck(taskFound bool, taskID string)
+
+	// Lifecycle events
+	LogLifecycleEvent(eventType, message string)
 }
 
 // RunOutput is the single funnel for all tk run status updates.
@@ -522,6 +525,199 @@ func (o *RunOutput) IdleFileChange(path string) {
 func (o *RunOutput) IdleTaskCheck(found bool, taskID string) {
 	if o.runLog != nil {
 		o.runLog.LogIdleTaskCheck(found, taskID)
+	}
+}
+
+// --- Lifecycle status events ---
+// These methods emit human-readable lifecycle messages to all sinks.
+// They are persisted in the ViewModel's Events list for dashboard display
+// after interruption.
+
+// WorktreePlanning signals that worktree setup is being planned.
+func (o *RunOutput) WorktreePlanning(epicID string) {
+	if !o.jsonl {
+		o.printf("Planning worktree for epic %s...\n", epicID)
+	}
+	o.lifecycleEvent("worktree", fmt.Sprintf("Planning worktree for epic %s", epicID), "")
+	o.broadcastLifecycle(epicID, "worktree_planning", map[string]any{"epic_id": epicID})
+}
+
+// WorktreeCreating signals that a new worktree is being created.
+func (o *RunOutput) WorktreeCreating(epicID string) {
+	if !o.jsonl {
+		o.printf("Creating worktree for epic %s...\n", epicID)
+	}
+	o.lifecycleEvent("worktree", fmt.Sprintf("Creating worktree for epic %s", epicID), "")
+	o.broadcastLifecycle(epicID, "worktree_creating", map[string]any{"epic_id": epicID})
+}
+
+// WorktreeCreated signals that a new worktree was created.
+func (o *RunOutput) WorktreeCreated(epicID, path string) {
+	if !o.jsonl {
+		o.printf("Worktree created: %s\n", path)
+	}
+	o.lifecycleEvent("worktree", "Worktree created", path)
+	o.broadcastLifecycle(epicID, "worktree_created", map[string]any{"epic_id": epicID, "path": path})
+	o.logLifecycleEvent("worktree_created", fmt.Sprintf("Worktree created at %s", path))
+}
+
+// WorktreeReused signals that an existing worktree is being reused.
+func (o *RunOutput) WorktreeReused(epicID, path string) {
+	if !o.jsonl {
+		o.printf("Reusing existing worktree: %s\n", path)
+	}
+	o.lifecycleEvent("worktree", "Reusing existing worktree", path)
+	o.broadcastLifecycle(epicID, "worktree_reused", map[string]any{"epic_id": epicID, "path": path})
+	o.logLifecycleEvent("worktree_reused", fmt.Sprintf("Reusing worktree at %s", path))
+}
+
+// WorktreeProtected signals that a worktree is being preserved (not cleaned up).
+func (o *RunOutput) WorktreeProtected(path, reason string) {
+	o.lifecycleEvent("worktree", "Worktree protected", fmt.Sprintf("%s (%s)", path, reason))
+	o.broadcastLifecycle("", "worktree_protected", map[string]any{"path": path, "reason": reason})
+	o.logLifecycleEvent("worktree_protected", fmt.Sprintf("Worktree protected: %s (%s)", path, reason))
+}
+
+// WorktreeProvisioning signals that the worktree environment is being set up.
+func (o *RunOutput) WorktreeProvisioning(path string) {
+	if !o.jsonl {
+		o.printf("Provisioning worktree environment...\n")
+	}
+	o.lifecycleEvent("worktree", "Provisioning worktree environment", path)
+	o.broadcastLifecycle("", "worktree_provisioning", map[string]any{"path": path})
+}
+
+// WorktreeTeardown signals that a worktree is being removed.
+func (o *RunOutput) WorktreeTeardown(path string) {
+	if !o.jsonl {
+		o.printf("Removing worktree: %s\n", path)
+	}
+	o.lifecycleEvent("worktree", "Worktree teardown", path)
+	o.broadcastLifecycle("", "worktree_teardown", map[string]any{"path": path})
+	o.logLifecycleEvent("worktree_teardown", fmt.Sprintf("Removing worktree at %s", path))
+}
+
+// LeaseAcquired signals that a run lease was acquired for an epic.
+func (o *RunOutput) LeaseAcquired(epicID string) {
+	o.lifecycleEvent("lease", fmt.Sprintf("Lease acquired for epic %s", epicID), "")
+	o.broadcastLifecycle(epicID, "lease_acquired", map[string]any{"epic_id": epicID})
+	o.logLifecycleEvent("lease_acquired", fmt.Sprintf("Lease acquired for epic %s", epicID))
+}
+
+// LeaseReleased signals that a run lease was released.
+func (o *RunOutput) LeaseReleased(epicID string) {
+	o.lifecycleEvent("lease", fmt.Sprintf("Lease released for epic %s", epicID), "")
+	o.broadcastLifecycle(epicID, "lease_released", map[string]any{"epic_id": epicID})
+	o.logLifecycleEvent("lease_released", fmt.Sprintf("Lease released for epic %s", epicID))
+}
+
+// TickLaunched signals that a tick/task agent has been launched.
+func (o *RunOutput) TickLaunched(taskID, title string) {
+	if !o.jsonl {
+		o.printf("Launching tick %s: %s\n", taskID, title)
+	}
+	o.lifecycleEvent("tick", fmt.Sprintf("Tick launched: %s", title), taskID)
+	o.broadcastLifecycle("", "tick_launched", map[string]any{"task_id": taskID, "title": title})
+	o.logLifecycleEvent("tick_launched", fmt.Sprintf("Tick %s launched: %s", taskID, title))
+}
+
+// TickClose signals that a tick has been closed.
+func (o *RunOutput) TickClose(taskID, reason string) {
+	if !o.jsonl {
+		o.printf("Tick %s closed: %s\n", taskID, reason)
+	}
+	o.lifecycleEvent("tick", fmt.Sprintf("Tick closed: %s", taskID), reason)
+	o.broadcastLifecycle("", "tick_closed", map[string]any{"task_id": taskID, "reason": reason})
+	o.logLifecycleEvent("tick_closed", fmt.Sprintf("Tick %s closed: %s", taskID, reason))
+}
+
+// TickHandoff signals that a tick is being handed off to a human.
+func (o *RunOutput) TickHandoff(taskID, awaitingType, reason string) {
+	if !o.jsonl {
+		o.printf("Tick %s → awaiting %s: %s\n", taskID, awaitingType, reason)
+	}
+	o.lifecycleEvent("tick", fmt.Sprintf("Tick %s → awaiting %s", taskID, awaitingType), reason)
+	o.broadcastLifecycle("", "tick_handoff", map[string]any{"task_id": taskID, "awaiting_type": awaitingType, "reason": reason})
+	o.logLifecycleEvent("tick_handoff", fmt.Sprintf("Tick %s handed off: awaiting %s", taskID, awaitingType))
+}
+
+// TickEscalation signals that a tick has been escalated.
+func (o *RunOutput) TickEscalation(taskID, reason string) {
+	if !o.jsonl {
+		o.printf("⚠ Tick %s escalated: %s\n", taskID, reason)
+	}
+	o.lifecycleEvent("tick", fmt.Sprintf("Tick %s escalated", taskID), reason)
+	o.broadcastLifecycle("", "tick_escalation", map[string]any{"task_id": taskID, "reason": reason})
+	o.logLifecycleEvent("tick_escalation", fmt.Sprintf("Tick %s escalated: %s", taskID, reason))
+}
+
+// VerifierStart signals that verification has started for a task.
+func (o *RunOutput) VerifierStart(taskID string, verifiers []string) {
+	if !o.jsonl {
+		o.printf("Verifying tick %s (%d verifiers)...\n", taskID, len(verifiers))
+	}
+	o.lifecycleEvent("verifier", fmt.Sprintf("Verification started for %s", taskID), fmt.Sprintf("%d verifiers", len(verifiers)))
+	o.broadcastLifecycle("", "verifier_started", map[string]any{"task_id": taskID, "verifiers": verifiers})
+	o.logLifecycleEvent("verifier_started", fmt.Sprintf("Verification started for %s with %d verifiers", taskID, len(verifiers)))
+}
+
+// VerifierEnd signals that verification has completed for a task.
+func (o *RunOutput) VerifierEnd(taskID string, passed bool, failed []string) {
+	result := "passed"
+	if !passed {
+		result = fmt.Sprintf("failed (%s)", strings.Join(failed, ", "))
+	}
+	if !o.jsonl {
+		o.printf("Verification %s for tick %s\n", result, taskID)
+	}
+	o.lifecycleEvent("verifier", fmt.Sprintf("Verification %s for %s", result, taskID), "")
+	o.broadcastLifecycle("", "verifier_ended", map[string]any{"task_id": taskID, "passed": passed, "failed": failed})
+	o.logLifecycleEvent("verifier_ended", fmt.Sprintf("Verification %s for %s", result, taskID))
+}
+
+// MergeStarting signals that a merge is starting.
+func (o *RunOutput) MergeStarting(branch string) {
+	if !o.jsonl {
+		o.printf("Merging to %s...\n", branch)
+	}
+	o.lifecycleEvent("merge", fmt.Sprintf("Merging to %s", branch), "")
+	o.broadcastLifecycle("", "merge_starting", map[string]any{"branch": branch})
+	o.logLifecycleEvent("merge_starting", fmt.Sprintf("Merge starting to %s", branch))
+}
+
+// MergeCompleted signals that a merge succeeded.
+func (o *RunOutput) MergeCompleted(branch string) {
+	o.lifecycleEvent("merge", fmt.Sprintf("Merged to %s", branch), "")
+	o.broadcastLifecycle("", "merge_completed", map[string]any{"branch": branch})
+	o.logLifecycleEvent("merge_completed", fmt.Sprintf("Merge succeeded to %s", branch))
+}
+
+// MergeConflict signals that a merge had conflicts.
+func (o *RunOutput) MergeConflict(branch string, conflicts []string) {
+	detail := strings.Join(conflicts, ", ")
+	o.lifecycleEvent("merge", fmt.Sprintf("Merge conflicts on %s", branch), detail)
+	o.broadcastLifecycle("", "merge_conflict", map[string]any{"branch": branch, "conflicts": conflicts})
+	o.logLifecycleEvent("merge_conflict", fmt.Sprintf("Merge conflicts on %s: %s", branch, detail))
+}
+
+// lifecycleEvent records a lifecycle event in the status sink's builder.
+func (o *RunOutput) lifecycleEvent(category, message, detail string) {
+	if o.status != nil {
+		o.status.OnLifecycleEvent(category, message, detail)
+	}
+}
+
+// broadcastLifecycle sends a lifecycle event to the board sink.
+func (o *RunOutput) broadcastLifecycle(epicID, eventType string, data map[string]any) {
+	if o.board != nil {
+		o.board.BroadcastRunEvent(epicID, eventType, data)
+	}
+}
+
+// logLifecycleEvent logs a lifecycle event to the run log.
+func (o *RunOutput) logLifecycleEvent(eventType, message string) {
+	if o.runLog != nil {
+		o.runLog.LogLifecycleEvent(eventType, message)
 	}
 }
 

@@ -548,10 +548,13 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 			}
 		}
 
-		// Mark tasks as in_progress
+		// Mark tasks as in_progress and emit lifecycle events
 		for _, t := range firstWave.Tasks {
 			if err := e.ticks.SetStatus(t.ID, "in_progress"); err != nil {
 				_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Warning: could not mark %s as in_progress: %v", t.ID, err))
+			}
+			if e.Output != nil {
+				e.Output.TickLaunched(t.ID, t.Title)
 			}
 		}
 
@@ -636,6 +639,7 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 				} else if taskClosed {
 					if e.Output != nil {
 						e.Output.TaskClosed(tr.TaskID, true)
+						e.Output.TickClose(tr.TaskID, "completed by agent")
 					}
 					state.completedTasks = append(state.completedTasks, tr.TaskID)
 				}
@@ -667,6 +671,12 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 					}
 					if e.Output != nil {
 						e.Output.SignalHandled(signalStr, tr.TaskID, "set task awaiting", awaitingState)
+						// Emit specific lifecycle events for handoff and escalation
+						if sig == SignalEscalate {
+							e.Output.TickEscalation(tr.TaskID, sigCtx)
+						} else {
+							e.Output.TickHandoff(tr.TaskID, awaitingState, sigCtx)
+						}
 					}
 				}
 			}

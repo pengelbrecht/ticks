@@ -606,3 +606,96 @@ func TestSetEpicTitle(t *testing.T) {
 		t.Errorf("EpicTitle = %q, want 'My Epic Title'", vm.EpicTitle)
 	}
 }
+
+func TestLifecycleEvents(t *testing.T) {
+	b := NewBuilder("e1")
+
+	// Record a few lifecycle events
+	b.RecordLifecycleEvent(LifecycleWorktree, "Worktree created", "/tmp/wt")
+	b.RecordLifecycleEvent(LifecycleTick, "Tick launched: Fix bug", "t1")
+	b.RecordLifecycleEvent(LifecycleMerge, "Merged to main", "")
+
+	vm := b.Snapshot()
+	if len(vm.Events) != 3 {
+		t.Fatalf("Events = %d, want 3", len(vm.Events))
+	}
+
+	// Most recent first
+	if vm.Events[0].Category != LifecycleMerge {
+		t.Errorf("Events[0].Category = %q, want %q", vm.Events[0].Category, LifecycleMerge)
+	}
+	if vm.Events[0].Message != "Merged to main" {
+		t.Errorf("Events[0].Message = %q, want 'Merged to main'", vm.Events[0].Message)
+	}
+	if vm.Events[1].Category != LifecycleTick {
+		t.Errorf("Events[1].Category = %q, want %q", vm.Events[1].Category, LifecycleTick)
+	}
+	if vm.Events[2].Category != LifecycleWorktree {
+		t.Errorf("Events[2].Category = %q, want %q", vm.Events[2].Category, LifecycleWorktree)
+	}
+	if vm.Events[2].Detail != "/tmp/wt" {
+		t.Errorf("Events[2].Detail = %q, want '/tmp/wt'", vm.Events[2].Detail)
+	}
+}
+
+func TestLifecycleEventsCapped(t *testing.T) {
+	b := NewBuilder("e1")
+
+	// Record more than maxLifecycleEvents
+	for i := 0; i < maxLifecycleEvents+20; i++ {
+		b.RecordLifecycleEvent(LifecycleEngine, "event", "")
+	}
+
+	vm := b.Snapshot()
+	if len(vm.Events) != maxLifecycleEvents {
+		t.Errorf("Events = %d, want %d (capped)", len(vm.Events), maxLifecycleEvents)
+	}
+}
+
+func TestLifecycleEventsImmutable(t *testing.T) {
+	b := NewBuilder("e1")
+	b.RecordLifecycleEvent(LifecycleWorktree, "first", "")
+
+	vm1 := b.Snapshot()
+
+	b.RecordLifecycleEvent(LifecycleMerge, "second", "")
+
+	// vm1 should still have only 1 event
+	if len(vm1.Events) != 1 {
+		t.Errorf("Snapshot should be immutable: Events = %d, want 1", len(vm1.Events))
+	}
+
+	vm2 := b.Snapshot()
+	if len(vm2.Events) != 2 {
+		t.Errorf("New snapshot should have 2 events, got %d", len(vm2.Events))
+	}
+}
+
+func TestLifecycleEventsJSON(t *testing.T) {
+	b := NewBuilder("e1")
+	b.RecordLifecycleEvent(LifecycleWorktree, "Worktree created", "/tmp/wt")
+
+	vm := b.Snapshot()
+	data, err := vm.JSON()
+	if err != nil {
+		t.Fatalf("JSON() error: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("JSON output is invalid: %v", err)
+	}
+
+	events, ok := parsed["events"].([]interface{})
+	if !ok || len(events) != 1 {
+		t.Fatalf("Expected 1 event in JSON, got %v", parsed["events"])
+	}
+
+	evt := events[0].(map[string]interface{})
+	if evt["category"] != "worktree" {
+		t.Errorf("event category = %v, want worktree", evt["category"])
+	}
+	if evt["message"] != "Worktree created" {
+		t.Errorf("event message = %v, want 'Worktree created'", evt["message"])
+	}
+}
