@@ -1,0 +1,13 @@
+{
+  "id": "5ld",
+  "title": "Soak Tickflow with interactive dashboard hardening",
+  "description": "Combine real soak testing of Tickflow with improvements to the interactive dashboard. Use progressively larger/realistic epics to validate worktree lifecycle, merge policy, leases, resume, run records, verifier evidence, awaiting-human surfacing, and TUI lifecycle messages. Feed issues found during soak back into the dashboard and supervisor UX.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Tickflow has been exercised on at least two representative multi-wave epics in interactive Pi, with dashboard observations recorded. The dashboard supports enough interactive inspection/actions to diagnose active runs without leaving Pi. Any bugs found during soak are either fixed or filed with reproduction notes.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T18:28:09.815469Z",
+  "updated_at": "2026-05-08T18:28:17.387091Z"
+}
