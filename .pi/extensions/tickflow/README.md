@@ -36,12 +36,27 @@ Smoke test:
 ```
 
 ```text
-/tickflow-run <epic-id> [--agents N] [--dry-run]
+/tickflow-run <epic-id> [--agents N] [--dry-run] [--worktrees]
 ```
 
 Loads `tk graph <epic-id> --json`, selects the ready wave, and supervises ready ticks with configurable concurrency. The scheduler recomputes the graph after each wave and advances only after each tick reaches a supervised outcome.
 
-Use `--dry-run` to inspect the first ready wave without running subagents.
+Use `--dry-run` to inspect the first ready wave without running subagents. With `--worktrees --dry-run`, Tickflow also prints the planned repo-namespaced worktree paths and branch names.
+
+Before launching a graph candidate, Tickflow re-loads each tick and its `blocked_by` dependencies with `tk show`. This authoritative state guard prevents cross-epic blockers from being bypassed when `tk graph <epic>` omits blockers outside the current epic.
+
+## Worktree path planning
+
+Worktree mode uses a collision-resistant namespace because tick IDs are only repo-local. The planner computes:
+
+```text
+repoSlug = <repo-basename>-<sha256(remote-url-or-repo-root)[0:8]>
+runId = run-<epic-id>-<timestamp>-<random>
+worktreePath = ../.tickflow-worktrees/<repoSlug>/<runId>/<tick-id>
+branchName = tf/<runId>/<tick-id>
+```
+
+The absolute worktree path is intended to be stored in `tickflow_lease.worktree` when worktree lifecycle support claims a tick.
 
 ## Supervisor outcomes
 

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -103,6 +104,21 @@ type SupervisorOutcome = {
 type GraphTask = { id: string; title: string; agent_ready?: boolean; status?: string };
 type GraphWave = { wave: number; ready?: boolean; tasks: GraphTask[] };
 type GraphResult = { waves?: GraphWave[]; stats?: { total_tasks?: number; wave_count?: number; max_parallel?: number } };
+
+type TickflowRunContext = {
+	repoRoot: string;
+	repoSlug: string;
+	repoIdentity: string;
+	epicId: string;
+	runId: string;
+	worktreeRoot: string;
+};
+
+type WorktreePlan = {
+	tickId: string;
+	worktreePath: string;
+	branchName: string;
+};
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
@@ -317,10 +333,89 @@ async function markInProgress(pi: ExtensionAPI, cwd: string, tickId: string): Pr
 	await pi.exec("tk", ["update", tickId, "--status", "in_progress"], { cwd, timeout: 10_000 });
 }
 
+async function isRunnableByAuthoritativeTickState(pi: ExtensionAPI, cwd: string, tickId: string): Promise<{ runnable: boolean; reason?: string }> {
+	const tick = await loadTick(pi, cwd, tickId);
+	if (tick.status === "closed") return { runnable: false, reason: "closed" };
+	if (tick.awaiting) return { runnable: false, reason: `awaiting ${tick.awaiting}` };
+	for (const blockerId of tick.blocked_by ?? []) {
+		const blocker = await loadTick(pi, cwd, blockerId);
+		if (blocker.status !== "closed") return { runnable: false, reason: `blocked by ${blockerId} (${blocker.status ?? "unknown"})` };
+	}
+	return { runnable: true };
+}
+
+async function filterRunnableTasks(pi: ExtensionAPI, cwd: string, tasks: GraphTask[]): Promise<{ runnable: GraphTask[]; skipped: Array<{ task: GraphTask; reason: string }> }> {
+	const runnable: GraphTask[] = [];
+	const skipped: Array<{ task: GraphTask; reason: string }> = [];
+	for (const task of tasks) {
+		const state = await isRunnableByAuthoritativeTickState(pi, cwd, task.id);
+		if (state.runnable) runnable.push(task);
+		else skipped.push({ task, reason: state.reason ?? "not runnable" });
+	}
+	return { runnable, skipped };
+}
+
 async function loadGraph(pi: ExtensionAPI, cwd: string, epicId: string): Promise<GraphResult> {
 	const result = await pi.exec("tk", ["graph", epicId, "--json"], { cwd, timeout: 10_000 });
 	if (result.code !== 0) throw new Error(result.stderr || result.stdout || `tk graph ${epicId} failed`);
 	return JSON.parse(result.stdout) as GraphResult;
+}
+
+function shortHash(value: string): string {
+	return createHash("sha256").update(value).digest("hex").slice(0, 8);
+}
+
+function sanitizePathPart(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 64) || "repo";
+}
+
+function sanitizeBranchPart(value: string): string {
+	return sanitizePathPart(value).replace(/\.+/g, ".").replace(/^\.|\.$/g, "") || "x";
+}
+
+async function getRepoRoot(pi: ExtensionAPI, cwd: string): Promise<string> {
+	const result = await pi.exec("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: 10_000 });
+	if (result.code !== 0) throw new Error(result.stderr || result.stdout || "not inside a git repository");
+	return result.stdout.trim();
+}
+
+async function getRepoIdentity(pi: ExtensionAPI, repoRoot: string): Promise<string> {
+	const remote = await pi.exec("git", ["remote", "get-url", "origin"], { cwd: repoRoot, timeout: 10_000 });
+	return remote.code === 0 && remote.stdout.trim() ? remote.stdout.trim() : repoRoot;
+}
+
+async function createRunContext(pi: ExtensionAPI, cwd: string, epicId: string): Promise<TickflowRunContext> {
+	const repoRoot = await getRepoRoot(pi, cwd);
+	const repoIdentity = await getRepoIdentity(pi, repoRoot);
+	const repoSlug = `${sanitizePathPart(path.basename(repoRoot))}-${shortHash(repoIdentity)}`;
+	const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+	const runId = `run-${sanitizePathPart(epicId)}-${timestamp}-${randomBytes(2).toString("hex")}`;
+	const worktreeRoot = path.resolve(path.dirname(repoRoot), ".tickflow-worktrees", repoSlug, runId);
+	return { repoRoot, repoSlug, repoIdentity, epicId, runId, worktreeRoot };
+}
+
+function planWorktree(run: TickflowRunContext, tickId: string): WorktreePlan {
+	const safeTick = sanitizePathPart(tickId);
+	return {
+		tickId,
+		worktreePath: path.join(run.worktreeRoot, safeTick),
+		branchName: `tf/${sanitizeBranchPart(run.runId)}/${sanitizeBranchPart(tickId)}`,
+	};
+}
+
+function formatWorktreePlan(run: TickflowRunContext, plans: WorktreePlan[]): string {
+	return [
+		`Repo: ${run.repoRoot}`,
+		`Repo slug: ${run.repoSlug}`,
+		`Run ID: ${run.runId}`,
+		`Worktree root: ${run.worktreeRoot}`,
+		"",
+		...plans.map((plan) => [`- ${plan.tickId}`, `  path: ${plan.worktreePath}`, `  branch: ${plan.branchName}`].join("\n")),
+	].join("\n");
 }
 
 async function mapWithConcurrencyLimit<T, U>(items: T[], concurrency: number, fn: (item: T) => Promise<U>): Promise<U[]> {
@@ -337,16 +432,18 @@ async function mapWithConcurrencyLimit<T, U>(items: T[], concurrency: number, fn
 	return results;
 }
 
-function parseRunArgs(args: string): { epicId: string; agents: number; dryRun: boolean } {
+function parseRunArgs(args: string): { epicId: string; agents: number; dryRun: boolean; worktrees: boolean } {
 	const parts = args.trim().split(/\s+/).filter(Boolean);
 	const epicId = parts[0] ?? "";
 	let agents = 1;
 	let dryRun = false;
+	let worktrees = false;
 	for (let i = 1; i < parts.length; i++) {
 		if (parts[i] === "--agents" || parts[i] === "-j") agents = Math.max(1, Number.parseInt(parts[++i] ?? "1", 10) || 1);
 		else if (parts[i] === "--dry-run") dryRun = true;
+		else if (parts[i] === "--worktrees") worktrees = true;
 	}
-	return { epicId, agents, dryRun };
+	return { epicId, agents, dryRun, worktrees };
 }
 
 async function runAttempt(
@@ -668,11 +765,12 @@ export default function tickflow(pi: ExtensionAPI) {
 	pi.registerCommand("tickflow-run", {
 		description: "Run a Ticks epic in supervised waves",
 		handler: async (args, ctx) => {
-			const { epicId, agents, dryRun } = parseRunArgs(args);
-			if (!epicId) return ctx.ui.notify("Usage: /tickflow-run <epic-id> [--agents N] [--dry-run]", "error");
+			const { epicId, agents, dryRun, worktrees } = parseRunArgs(args);
+			if (!epicId) return ctx.ui.notify("Usage: /tickflow-run <epic-id> [--agents N] [--dry-run] [--worktrees]", "error");
 
 			try {
 				const summaries: string[] = [];
+				const runContext = worktrees ? await createRunContext(pi, ctx.cwd, epicId) : undefined;
 				let waveCount = 0;
 				for (let guard = 0; guard < 50; guard++) {
 					const graph = await loadGraph(pi, ctx.cwd, epicId);
@@ -682,13 +780,20 @@ export default function tickflow(pi: ExtensionAPI) {
 						break;
 					}
 
-					const tasks = readyWave.tasks.filter((task) => task.agent_ready !== false && task.status !== "closed");
+					const graphReadyTasks = readyWave.tasks.filter((task) => task.agent_ready !== false && task.status !== "closed");
+					const { runnable: tasks, skipped } = await filterRunnableTasks(pi, ctx.cwd, graphReadyTasks);
+					if (tasks.length === 0) {
+						summaries.push(`Wave ${readyWave.wave}: no authoritatively runnable tasks (${skipped.map((s) => `${s.task.id}: ${s.reason}`).join("; ")})`);
+						break;
+					}
 					waveCount++;
 					ctx.ui.setStatus("tickflow", `tickflow: wave ${readyWave.wave}, ${tasks.length} task(s)`);
 					ctx.ui.notify(`Tickflow wave ${readyWave.wave}: ${tasks.map((task) => task.id).join(", ")} (agents=${agents})`, "info");
 
 					if (dryRun) {
-						summaries.push(`Wave ${readyWave.wave} dry-run: ${tasks.map((task) => `${task.id} ${task.title}`).join("; ")}`);
+						const worktreePlan = runContext ? `\n\n## Worktree plan\n${formatWorktreePlan(runContext, tasks.map((task) => planWorktree(runContext, task.id)))}` : "";
+						const skippedText = skipped.length ? `\nSkipped by authoritative state: ${skipped.map((s) => `${s.task.id} (${s.reason})`).join(", ")}` : "";
+						summaries.push(`Wave ${readyWave.wave} dry-run: ${tasks.map((task) => `${task.id} ${task.title}`).join("; ")}${skippedText}${worktreePlan}`);
 						break;
 					}
 
@@ -703,7 +808,7 @@ export default function tickflow(pi: ExtensionAPI) {
 				pi.sendMessage(
 					{
 						customType: "tickflow",
-						content: [`# Tickflow run: ${epicId}`, `Agents: ${agents}`, `Waves executed: ${waveCount}`, "", ...summaries].join("\n"),
+						content: [`# Tickflow run: ${epicId}`, `Agents: ${agents}`, `Worktrees: ${worktrees ? "yes" : "no"}`, `Waves executed: ${waveCount}`, "", ...summaries].join("\n"),
 						display: true,
 					},
 					{ deliverAs: "nextTurn" },
