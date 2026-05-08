@@ -71,6 +71,14 @@ Tickflow also applies filesystem-level friction to `.tick` in child worktrees. I
 
 Worktree prompts are stricter than shared-workspace prompts: agents are told not to run `tk close/update/note/create` or edit `.tick`; completion should be reported with `<promise>COMPLETE: ...</promise>` and the controller updates ticks.
 
+## Merge policy
+
+When a worktree agent is accepted, Tickflow verifies that `.tick` is clean in the child worktree, stages only non-`.tick` paths, refuses staged `.tick` files, commits the worktree branch, and merges it back into the controller branch with `--no-ff`.
+
+If `.tick` was modified, commit fails, merge is skipped, the worktree is preserved, and the controller routes the tick to `awaiting=escalation` with a note. If the merge conflicts, Tickflow aborts the merge, preserves the worktree, and routes the tick to `awaiting=escalation` with conflict files.
+
+Cleanup only happens after durable success: commit/merge succeeds, the controller closes or routes the tick through its required gate, the lease is cleared, and the worktree is removed.
+
 ## Runtime resources
 
 `.tick/pi-runner.yaml` can declare local files, bootstrap commands, and dev server descriptors for worktree agents. Secrets are not exposed by default (`secrets_mode: none`). With `secrets_mode: copy`, configured `local_files` are copied into the worktree with `0600` permissions; with `symlink`, Tickflow creates symlinks. Bootstrap commands run in the child worktree before the agent starts. Runtime resources are injected into the child prompt and environment so agents know about shared dev servers and should not start duplicates.

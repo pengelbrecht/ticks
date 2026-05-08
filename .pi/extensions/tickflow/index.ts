@@ -78,6 +78,7 @@ type AttemptEvidence = {
 	tickAfter: Tick;
 	subagent: SubagentResult;
 	signals: PromiseSignal[];
+	worktreeMode: boolean;
 	sandboxMode: TickflowConfig["defaults"]["sandbox"] | "readonly-dot-tick";
 	runtimeResources: string[];
 	git: {
@@ -151,6 +152,13 @@ type WorktreeHandle = WorktreePlan & {
 	sandboxMode?: TickflowConfig["defaults"]["sandbox"] | "readonly-dot-tick";
 	env?: Record<string, string>;
 	runtimeResources?: string[];
+};
+
+type MergeResult = {
+	committed: boolean;
+	commit?: string;
+	merged: boolean;
+	conflicts: string[];
 };
 
 type TickflowLease = {
@@ -775,6 +783,46 @@ async function removeWorktree(pi: ExtensionAPI, handle: WorktreeHandle): Promise
 	if (result.code !== 0) throw new Error(result.stderr || result.stdout || `failed to remove worktree ${handle.worktreePath}`);
 }
 
+async function ensureNoDotTickChanges(pi: ExtensionAPI, handle: WorktreeHandle): Promise<void> {
+	const status = await pi.exec("git", ["status", "--porcelain", "--", ".tick"], { cwd: handle.worktreePath, timeout: 10_000 });
+	if ((status.stdout ?? "").trim()) {
+		throw new Error(`child worktree modified .tick; refusing to merge:\n${status.stdout.trim()}`);
+	}
+}
+
+async function commitWorktreeChanges(pi: ExtensionAPI, handle: WorktreeHandle, message: string): Promise<{ committed: boolean; commit?: string }> {
+	await ensureNoDotTickChanges(pi, handle);
+	const add = await pi.exec("git", ["add", "-A", "--", ".", ":!.tick"], { cwd: handle.worktreePath, timeout: 60_000 });
+	if (add.code !== 0) throw new Error(add.stderr || add.stdout || "git add failed");
+	const stagedDotTick = await pi.exec("bash", ["-lc", "git diff --cached --name-only | grep '^.tick/' || true"], { cwd: handle.worktreePath, timeout: 10_000 });
+	if ((stagedDotTick.stdout ?? "").trim()) throw new Error(`refusing to commit staged .tick changes:\n${stagedDotTick.stdout.trim()}`);
+	const diff = await pi.exec("git", ["diff", "--cached", "--quiet"], { cwd: handle.worktreePath, timeout: 10_000 });
+	if (diff.code === 0) return { committed: false };
+	const commit = await pi.exec("git", ["commit", "-m", message], { cwd: handle.worktreePath, timeout: 60_000 });
+	if (commit.code !== 0) throw new Error(commit.stderr || commit.stdout || "git commit failed");
+	const rev = await pi.exec("git", ["rev-parse", "HEAD"], { cwd: handle.worktreePath, timeout: 10_000 });
+	return { committed: true, commit: rev.stdout.trim() };
+}
+
+async function mergeWorktreeBranch(pi: ExtensionAPI, handle: WorktreeHandle): Promise<MergeResult> {
+	const commitResult = await commitWorktreeChanges(pi, handle, `tick ${handle.tickId}: tickflow worktree changes`);
+	if (!commitResult.committed) return { committed: false, merged: true, conflicts: [] };
+	const merge = await pi.exec("git", ["merge", "--no-ff", handle.branchName, "-m", `merge tickflow ${handle.tickId}`], { cwd: handle.repoRoot, timeout: 60_000 });
+	if (merge.code === 0) return { committed: true, commit: commitResult.commit, merged: true, conflicts: [] };
+	const conflictResult = await pi.exec("git", ["diff", "--name-only", "--diff-filter=U"], { cwd: handle.repoRoot, timeout: 10_000 });
+	const conflicts = (conflictResult.stdout ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+	await pi.exec("git", ["merge", "--abort"], { cwd: handle.repoRoot, timeout: 30_000 });
+	return { committed: true, commit: commitResult.commit, merged: false, conflicts };
+}
+
+async function closeControllerTick(pi: ExtensionAPI, cwd: string, tickId: string, reason: string): Promise<void> {
+	const result = await pi.exec("tk", ["close", tickId, "--reason", reason], { cwd, timeout: 10_000 });
+	if (result.code === 0) return;
+	const tick = await loadTick(pi, cwd, tickId);
+	if (tick.awaiting) return;
+	throw new Error(result.stderr || result.stdout || `tk close ${tickId} failed`);
+}
+
 async function setTickflowLease(cwd: string, tickId: string, lease: TickflowLease | undefined): Promise<void> {
 	const issuePath = path.join(cwd, ".tick", "issues", `${tickId}.json`);
 	const raw = await fs.promises.readFile(issuePath, "utf8");
@@ -836,6 +884,7 @@ async function runAttempt(
 	agentEnv: Record<string, string> = {},
 	sandboxMode: AttemptEvidence["sandboxMode"] = "none",
 	runtimeResources: string[] = [],
+	worktreeMode = false,
 ): Promise<{ evidence: AttemptEvidence; artifactPath: string }> {
 	const tickBefore = await loadTick(pi, controllerCwd, contract.id);
 	const attempt = await nextAttemptNumber(controllerCwd, contract.id);
@@ -855,6 +904,7 @@ async function runAttempt(
 		tickAfter,
 		subagent,
 		signals: parsePromiseSignals(subagent.output),
+		worktreeMode,
 		sandboxMode,
 		runtimeResources,
 		git: { statusBefore, statusAfter, diffStat, changedFiles: parseChangedFiles(statusAfter) },
@@ -885,7 +935,7 @@ async function superviseTick(
 
 	for (let attemptIndex = 0; attemptIndex < contract.maxAttempts; attemptIndex++) {
 		onUpdate?.(`Running tickflow attempt ${attemptIndex + 1}/${contract.maxAttempts} for ${contract.id}...`);
-		const { evidence, artifactPath } = await runAttempt(pi, cwd, agentCwd, contract, prompt, signal, agentEnv, sandboxMode, runtimeResources);
+		const { evidence, artifactPath } = await runAttempt(pi, cwd, agentCwd, contract, prompt, signal, agentEnv, sandboxMode, runtimeResources, agentCwd !== cwd);
 		finalEvidence = evidence;
 		finalArtifact = artifactPath;
 		const decision = decide(contract, evidence, contract.maxAttempts - attemptIndex - 1);
@@ -927,6 +977,16 @@ function decide(contract: TickContract, evidence: AttemptEvidence, attemptsRemai
 			return { action: "repair", reason, prompt: buildContinuationPrompt(contract, evidence, reason) };
 		}
 		return { action: "escalate", reason: "closed tick has failing verifiers", note: "Tickflow could not accept the closed tick because verifier commands failed after all attempts." };
+	}
+
+	const completeSignal = evidence.signals.find((s) => s.type === "COMPLETE");
+	if (evidence.worktreeMode && completeSignal) {
+		if (failedVerifiers.length === 0) return { action: "accept", reason: `worktree agent emitted COMPLETE${completeSignal.context ? `: ${completeSignal.context}` : ""}` };
+		if (attemptsRemaining > 0) {
+			const reason = `worktree agent emitted COMPLETE but ${failedVerifiers.length} verifier(s) failed`;
+			return { action: "repair", reason, prompt: buildContinuationPrompt(contract, evidence, reason) };
+		}
+		return { action: "escalate", reason: "worktree COMPLETE has failing verifiers", note: "Tickflow could not accept the worktree because verifier commands failed after all attempts." };
 	}
 
 	const handoffSignal = evidence.signals.find((s) => s.type !== "COMPLETE");
@@ -1092,6 +1152,7 @@ function formatEvidenceSummary(evidence: AttemptEvidence, artifactPath: string):
 		signalLines,
 		"",
 		"## Worktree Runtime",
+		`Worktree mode: ${evidence.worktreeMode ? "yes" : "no"}`,
 		`Sandbox: ${evidence.sandboxMode}`,
 		evidence.runtimeResources.length ? evidence.runtimeResources.map((r) => `- ${r}`).join("\n") : "(none)",
 		"",
@@ -1196,10 +1257,11 @@ export default function tickflow(pi: ExtensionAPI) {
 						let agentEnv: Record<string, string> = {};
 						let sandboxMode: AttemptEvidence["sandboxMode"] = "none";
 						let runtimeResources: string[] = [];
+						let handle: WorktreeHandle | undefined;
 						if (runContext) {
 							const config = await loadConfig(ctx.cwd);
 							const plan = planWorktree(runContext, task.id);
-							const handle = await createWorktree(pi, runContext, plan);
+							handle = await createWorktree(pi, runContext, plan);
 							agentCwd = handle.worktreePath;
 							runtimeResources = await provisionRuntimeResources(pi, runContext, handle, config);
 							sandboxMode = await protectDotTick(pi, handle, config);
@@ -1213,7 +1275,24 @@ export default function tickflow(pi: ExtensionAPI) {
 							await setTickflowLease(ctx.cwd, task.id, buildLease(runContext, handle, await nextAttemptNumber(ctx.cwd, task.id)));
 							ctx.ui.notify(`[${task.id}] worktree ${handle.reused ? "reused" : "created"}: ${handle.worktreePath} (${sandboxMode})`, "info");
 						}
-						return superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info"), agentCwd, agentEnv, sandboxMode, runtimeResources);
+						const outcome = await superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info"), agentCwd, agentEnv, sandboxMode, runtimeResources);
+						if (handle && outcome.decision.action === "accept") {
+							try {
+								const merge = await mergeWorktreeBranch(pi, handle);
+								if (!merge.merged) {
+									await setAwaiting(pi, ctx.cwd, task.id, "escalation");
+									await addTickNote(pi, ctx.cwd, task.id, `Tickflow merge conflict in preserved worktree ${handle.worktreePath}. Conflicts: ${merge.conflicts.join(", ") || "unknown"}`);
+								} else {
+									await closeControllerTick(pi, ctx.cwd, task.id, `Merged Tickflow worktree ${handle.branchName}${merge.commit ? ` (${merge.commit.slice(0, 8)})` : ""}`);
+									await setTickflowLease(ctx.cwd, task.id, undefined);
+									await removeWorktree(pi, handle);
+								}
+							} catch (error) {
+								await setAwaiting(pi, ctx.cwd, task.id, "escalation");
+								await addTickNote(pi, ctx.cwd, task.id, `Tickflow preserved worktree ${handle.worktreePath}: ${error instanceof Error ? error.message : String(error)}`);
+							}
+						}
+						return outcome;
 					});
 					summaries.push(
 						`Wave ${readyWave.wave}: ${outcomes.map((outcome) => `${outcome.tickId}=${outcome.decision.action}`).join(", ")}`,
