@@ -1330,6 +1330,338 @@ export default function tickflow(pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("tickflow-status", {
+		description: "List active/recoverable Tickflow runs, leases, worktrees, and last decisions",
+		handler: async (_args, ctx) => {
+			try {
+				const repoRoot = await getRepoRoot(pi, ctx.cwd);
+				const repoIdentity = await getRepoIdentity(pi, repoRoot);
+				const repoSlug = `${sanitizePathPart(path.basename(repoRoot))}-${shortHash(repoIdentity)}`;
+				const worktreeBase = path.resolve(path.dirname(repoRoot), ".tickflow-worktrees", repoSlug);
+
+				// 1. Discover persisted runs from worktree directories
+				type RunInfo = {
+					runId: string;
+					runPath: string;
+					tickDirs: string[];
+				};
+				const runs: RunInfo[] = [];
+				if (await pathExists(worktreeBase)) {
+					const entries = await fs.promises.readdir(worktreeBase, { withFileTypes: true });
+					for (const entry of entries) {
+						if (!entry.isDirectory() || !entry.name.startsWith("run-")) continue;
+						const runPath = path.join(worktreeBase, entry.name);
+						const tickEntries = await fs.promises.readdir(runPath, { withFileTypes: true }).catch(() => []);
+						const tickDirs = tickEntries.filter((e) => e.isDirectory()).map((e) => e.name);
+						runs.push({ runId: entry.name, runPath, tickDirs });
+					}
+				}
+
+				// 2. Discover all active leases from tick files
+				type LeaseInfo = {
+					tickId: string;
+					tick: Tick;
+					lease: TickflowLease;
+					expired: boolean;
+					worktreeExists: boolean;
+				};
+				const leases: LeaseInfo[] = [];
+				const issuesDir = path.join(ctx.cwd, ".tick", "issues");
+				if (await pathExists(issuesDir)) {
+					const issueFiles = await fs.promises.readdir(issuesDir);
+					for (const file of issueFiles) {
+						if (!file.endsWith(".json")) continue;
+						try {
+							const raw = await fs.promises.readFile(path.join(issuesDir, file), "utf8");
+							const data = JSON.parse(raw);
+							if (!data.tickflow_lease) continue;
+							const lease = data.tickflow_lease as TickflowLease;
+							const expired = lease.expires_at ? new Date(lease.expires_at) < new Date() : false;
+							const worktreeExists = lease.worktree ? await pathExists(lease.worktree) : false;
+							leases.push({ tickId: data.id, tick: data as Tick, lease, expired, worktreeExists });
+						} catch {
+							// skip unparseable files
+						}
+					}
+				}
+
+				// 3. Load last decisions from attempt evidence
+				type LastDecisionInfo = {
+					tickId: string;
+					attempt: number;
+					finishedAt: string;
+					signals: PromiseSignal[];
+					ticketStatus: string;
+					awaiting?: string;
+				};
+				const lastDecisions: LastDecisionInfo[] = [];
+				const logsDir = path.join(ctx.cwd, ".tick", "logs", "pi-runner");
+				if (await pathExists(logsDir)) {
+					const tickLogDirs = await fs.promises.readdir(logsDir, { withFileTypes: true }).catch(() => []);
+					for (const dir of tickLogDirs) {
+						if (!dir.isDirectory()) continue;
+						const attemptDir = path.join(logsDir, dir.name);
+						const attemptFiles = await fs.promises.readdir(attemptDir).catch(() => []);
+						const sorted = attemptFiles.filter((f) => f.match(/^attempt-\d+\.json$/)).sort();
+						if (sorted.length === 0) continue;
+						try {
+							const raw = await fs.promises.readFile(path.join(attemptDir, sorted[sorted.length - 1]), "utf8");
+							const evidence = JSON.parse(raw) as AttemptEvidence;
+							lastDecisions.push({
+								tickId: dir.name,
+								attempt: evidence.attempt,
+								finishedAt: evidence.finishedAt,
+								signals: evidence.signals,
+								ticketStatus: evidence.tickAfter.status ?? "unknown",
+								awaiting: evidence.tickAfter.awaiting,
+							});
+						} catch {
+							// skip
+						}
+					}
+				}
+
+				// 4. Get git worktree list
+				const worktreeListRaw = await execText(pi, repoRoot, "git", ["worktree", "list", "--porcelain"]);
+				const tickflowWorktrees: Array<{ path: string; branch: string }> = [];
+				let currentWtPath = "";
+				let currentWtBranch = "";
+				for (const line of worktreeListRaw.split("\n")) {
+					if (line.startsWith("worktree ")) currentWtPath = line.slice(9).trim();
+					else if (line.startsWith("branch ")) currentWtBranch = line.slice(7).trim();
+					else if (line.trim() === "" && currentWtPath) {
+						if (currentWtBranch.includes("tf/")) tickflowWorktrees.push({ path: currentWtPath, branch: currentWtBranch });
+						currentWtPath = "";
+						currentWtBranch = "";
+					}
+				}
+				if (currentWtPath && currentWtBranch.includes("tf/")) tickflowWorktrees.push({ path: currentWtPath, branch: currentWtBranch });
+
+				// Format output
+				const lines: string[] = ["# Tickflow Status", ""];
+
+				lines.push(`## Repo`);
+				lines.push(`Root: ${repoRoot}`);
+				lines.push(`Slug: ${repoSlug}`);
+				lines.push(`Worktree base: ${worktreeBase}`);
+				lines.push("");
+
+				lines.push(`## Persisted Runs (${runs.length})`);
+				if (runs.length === 0) {
+					lines.push("(none)");
+				} else {
+					for (const run of runs) {
+						lines.push(`- **${run.runId}**`);
+						lines.push(`  path: ${run.runPath}`);
+						lines.push(`  ticks: ${run.tickDirs.length ? run.tickDirs.join(", ") : "(empty)"}`);
+					}
+				}
+				lines.push("");
+
+				lines.push(`## Active Leases (${leases.length})`);
+				if (leases.length === 0) {
+					lines.push("(none)");
+				} else {
+					for (const l of leases) {
+						const status = l.expired ? "⏰ EXPIRED" : "🟢 active";
+						const wtStatus = l.worktreeExists ? "exists" : "⚠️ missing";
+						lines.push(`- **${l.tickId}** (${l.tick.title ?? ""})`);
+						lines.push(`  status: ${l.tick.status ?? "unknown"} | lease: ${status}`);
+						lines.push(`  session: ${l.lease.session_id} | attempt: ${l.lease.attempt}`);
+						lines.push(`  worktree: ${l.lease.worktree ?? "(none)"} [${wtStatus}]`);
+						lines.push(`  acquired: ${l.lease.acquired_at}${l.lease.expires_at ? ` | expires: ${l.lease.expires_at}` : ""}`);
+					}
+				}
+				lines.push("");
+
+				lines.push(`## Git Worktrees (${tickflowWorktrees.length} tickflow)`);
+				if (tickflowWorktrees.length === 0) {
+					lines.push("(none)");
+				} else {
+					for (const wt of tickflowWorktrees) {
+						lines.push(`- ${wt.branch}`);
+						lines.push(`  path: ${wt.path}`);
+					}
+				}
+				lines.push("");
+
+				lines.push(`## Last Decisions (${lastDecisions.length})`);
+				if (lastDecisions.length === 0) {
+					lines.push("(none)");
+				} else {
+					for (const d of lastDecisions) {
+						const signalText = d.signals.length ? d.signals.map((s) => s.type).join(", ") : "none";
+						lines.push(`- **${d.tickId}** attempt ${d.attempt} @ ${d.finishedAt}`);
+						lines.push(`  status: ${d.ticketStatus}${d.awaiting ? ` awaiting=${d.awaiting}` : ""} | signals: ${signalText}`);
+					}
+				}
+
+				pi.sendMessage({ customType: "tickflow", content: lines.join("\n"), display: true }, { deliverAs: "nextTurn" });
+				ctx.ui.notify(`Tickflow status: ${runs.length} run(s), ${leases.length} lease(s), ${tickflowWorktrees.length} worktree(s)`, "success");
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	pi.registerCommand("tickflow-resume", {
+		description: "Resume an interrupted Tickflow run by run-id",
+		handler: async (args, ctx) => {
+			const inputRunId = args.trim();
+			if (!inputRunId) return ctx.ui.notify("Usage: /tickflow-resume <run-id>", "error");
+
+			try {
+				const repoRoot = await getRepoRoot(pi, ctx.cwd);
+				const repoIdentity = await getRepoIdentity(pi, repoRoot);
+				const repoSlug = `${sanitizePathPart(path.basename(repoRoot))}-${shortHash(repoIdentity)}`;
+				const worktreeBase = path.resolve(path.dirname(repoRoot), ".tickflow-worktrees", repoSlug);
+				const runPath = path.join(worktreeBase, inputRunId);
+
+				if (!(await pathExists(runPath))) {
+					return ctx.ui.notify(`Run directory not found: ${runPath}`, "error");
+				}
+
+				// Extract epic ID from run-id format: run-<epicId>-<timestamp>-<random>
+				const runIdMatch = inputRunId.match(/^run-(.+?)-\d{8}t\d{6}z-[0-9a-f]{4}$/i);
+				const epicId = runIdMatch?.[1] ?? "";
+				if (!epicId) {
+					return ctx.ui.notify(`Could not extract epic ID from run-id: ${inputRunId}`, "error");
+				}
+
+				// Discover tick worktree directories in this run
+				const tickEntries = await fs.promises.readdir(runPath, { withFileTypes: true });
+				const tickDirs = tickEntries.filter((e) => e.isDirectory()).map((e) => e.name);
+
+				if (tickDirs.length === 0) {
+					return ctx.ui.notify(`No tick worktrees found in ${runPath}`, "error");
+				}
+
+				// Reconstruct the run context
+				const runContext: TickflowRunContext = {
+					repoRoot,
+					repoSlug,
+					repoIdentity,
+					epicId,
+					runId: inputRunId,
+					worktreeRoot: runPath,
+				};
+
+				const config = await loadConfig(ctx.cwd);
+				const summaries: string[] = [];
+				let resumed = 0;
+				let skippedCount = 0;
+
+				ctx.ui.setStatus("tickflow", `tickflow: resuming ${inputRunId}`);
+				ctx.ui.notify(`Resuming run ${inputRunId} with ${tickDirs.length} tick worktree(s)`, "info");
+
+				for (const tickId of tickDirs) {
+					// Check authoritative tick state — skip closed/awaiting
+					const state = await isRunnableByAuthoritativeTickState(pi, ctx.cwd, tickId);
+					if (!state.runnable) {
+						summaries.push(`${tickId}: skipped (${state.reason})`);
+						skippedCount++;
+						continue;
+					}
+
+					const worktreePath = path.join(runPath, tickId);
+					const branchName = `tf/${sanitizeBranchPart(inputRunId)}/${sanitizeBranchPart(tickId)}`;
+
+					// Verify the worktree still exists
+					if (!(await pathExists(path.join(worktreePath, ".git")))) {
+						summaries.push(`${tickId}: skipped (worktree missing or not a git worktree)`);
+						skippedCount++;
+						continue;
+					}
+
+					// Reconnect: build the handle as if we're reusing an existing worktree
+					const handle: WorktreeHandle = {
+						tickId,
+						worktreePath,
+						branchName,
+						runId: inputRunId,
+						repoRoot,
+						reused: true,
+					};
+
+					// Re-provision runtime resources and sandbox
+					const runtimeResources = await provisionRuntimeResources(pi, runContext, handle, config);
+					const sandboxMode = await protectDotTick(pi, handle, config);
+					const agentEnv: Record<string, string> = {
+						PATH: `${path.join(handle.worktreePath, ".tickflow-bin")}${path.delimiter}${process.env.PATH ?? ""}`,
+						TICKFLOW_CONTROLLER_REPO: repoRoot,
+						TICKFLOW_TICK_ID: tickId,
+						TICKFLOW_RUN_ID: inputRunId,
+						...config.runtime.env,
+					};
+
+					// Update lease
+					await setTickflowLease(ctx.cwd, tickId, buildLease(runContext, handle, await nextAttemptNumber(ctx.cwd, tickId)));
+
+					ctx.ui.notify(`[${tickId}] resuming in worktree ${worktreePath} (${sandboxMode})`, "info");
+
+					// Run supervised tick
+					const outcome = await superviseTick(
+						pi,
+						ctx.cwd,
+						tickId,
+						ctx.signal,
+						(message) => ctx.ui.notify(`[${tickId}] ${message}`, "info"),
+						handle.worktreePath,
+						agentEnv,
+						sandboxMode,
+						runtimeResources,
+					);
+
+					// Handle merge for accepted outcomes
+					if (outcome.decision.action === "accept") {
+						try {
+							const merge = await mergeWorktreeBranch(pi, handle);
+							if (!merge.merged) {
+								await setAwaiting(pi, ctx.cwd, tickId, "escalation");
+								await addTickNote(pi, ctx.cwd, tickId, `Tickflow merge conflict in preserved worktree ${handle.worktreePath}. Conflicts: ${merge.conflicts.join(", ") || "unknown"}`);
+								summaries.push(`${tickId}: accepted but merge conflict`);
+							} else {
+								await closeControllerTick(pi, ctx.cwd, tickId, `Merged resumed Tickflow worktree ${handle.branchName}${merge.commit ? ` (${merge.commit.slice(0, 8)})` : ""}`);
+								await setTickflowLease(ctx.cwd, tickId, undefined);
+								await removeWorktree(pi, handle);
+								summaries.push(`${tickId}: accepted and merged`);
+							}
+						} catch (error) {
+							await setAwaiting(pi, ctx.cwd, tickId, "escalation");
+							await addTickNote(pi, ctx.cwd, tickId, `Tickflow preserved worktree ${handle.worktreePath}: ${error instanceof Error ? error.message : String(error)}`);
+							summaries.push(`${tickId}: accepted but merge error`);
+						}
+					} else {
+						summaries.push(`${tickId}: ${outcome.decision.action}`);
+					}
+					resumed++;
+				}
+
+				pi.sendMessage(
+					{
+						customType: "tickflow",
+						content: [
+							`# Tickflow Resume: ${inputRunId}`,
+							`Epic: ${epicId}`,
+							`Resumed: ${resumed} tick(s)`,
+							`Skipped: ${skippedCount} tick(s)`,
+							"",
+							"## Results",
+							...summaries.map((s) => `- ${s}`),
+						].join("\n"),
+						display: true,
+					},
+					{ deliverAs: "nextTurn" },
+				);
+				ctx.ui.setStatus("tickflow", "tickflow: ready");
+				ctx.ui.notify(`Tickflow resume finished: ${resumed} resumed, ${skippedCount} skipped`, "success");
+			} catch (error) {
+				ctx.ui.setStatus("tickflow", "tickflow: error");
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		ctx.ui.setStatus("tickflow", "tickflow: ready");
 	});

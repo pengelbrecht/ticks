@@ -156,6 +156,38 @@ The tick schema now supports optional `tickflow_lease` metadata for Pi-style sch
 
 This is optional and backwards-compatible. Runners can use it to identify ownership and recover stale `in_progress` work. `Tick.Release()` clears the lease.
 
+## Status and resume
+
+```text
+/tickflow-status
+```
+
+Lists all active/recoverable Tickflow state for the current repository:
+
+- **Persisted runs**: discovered from worktree directories under `../.tickflow-worktrees/<repoSlug>/run-*/`
+- **Active leases**: scanned from `.tick/issues/*.json` files with `tickflow_lease` metadata, including expiry and worktree existence checks
+- **Git worktrees**: all tickflow-managed worktrees (branches matching `tf/`) from `git worktree list`
+- **Last decisions**: the most recent attempt evidence per tick from `.tick/logs/pi-runner/<tickId>/`
+
+```text
+/tickflow-resume <run-id>
+```
+
+Resumes an interrupted dry/manual run without deleting existing work:
+
+1. Locates the run directory under `../.tickflow-worktrees/<repoSlug>/<run-id>/`
+2. Extracts the epic ID from the run-id format
+3. Enumerates tick worktree directories from the run
+4. For each tick, checks authoritative state via `tk show` — **closed and awaiting ticks are skipped**
+5. Verifies the worktree still exists on disk (`.git` marker present)
+6. Reconnects to the existing worktree, re-provisions runtime resources (tk wrapper, secrets, bootstrap)
+7. Re-applies sandbox protection to `.tick`
+8. Updates the tickflow lease and runs the supervised tick attempt
+9. On acceptance, merges the worktree branch back to the controller and cleans up
+10. Reports per-tick results: accepted/merged, skipped, escalated, etc.
+
+This allows safe recovery from interrupted `--worktrees` runs. Work in existing worktrees is preserved and continued from the current repository state.
+
 ## MVP limitations
 
 - Shared workspace mode can conflict when parallel ticks edit the same files; prefer `--worktrees` for parallel implementation work.
