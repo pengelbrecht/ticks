@@ -158,16 +158,100 @@ This is optional and backwards-compatible. Runners can use it to identify owners
 
 ## MVP limitations
 
-- Shared workspace mode can conflict when parallel ticks edit the same files.
-- Worktree isolation and merge conflict handling are post-MVP.
-- Verifier inference is intentionally simple.
+- Shared workspace mode can conflict when parallel ticks edit the same files; prefer `--worktrees` for parallel implementation work.
+- Worktree mode has merge guardrails, but full resume/status UX is still pending.
+- `sandbox: auto` currently applies a best-effort label plus `readonly-dot-tick` fallback; full OS-enforced `sandbox-exec`/`bubblewrap` invocation remains a hardening target.
+- Verifier inference is intentionally simple; use `.tick/pi-runner.yaml` for explicit verifiers.
 - Attempt artifacts are persisted, but full resume UX is not implemented yet.
 - Pi JSON command output does not render extension UI messages in print mode; use interactive Pi for normal operation.
 
 ## Manual verification
 
+### Basic extension checks
+
 1. Reload Pi or start Pi in this repo so `.pi/extensions/tickflow/index.ts` is discovered.
 2. Run `/tickflow-contract <tick-id>` on a real tick with acceptance criteria.
 3. Run `/tickflow-run <epic-id> --dry-run` to inspect the first ready wave.
-4. Optionally run `/tickflow-run-tick --smoke` to verify child Pi process spawning.
-5. For a disposable tick, run `/tickflow-run-tick <tick-id>` and inspect `.tick/logs/pi-runner/<tick-id>/attempt-NNN.json`.
+4. Run `/tickflow-run <epic-id> --worktrees --dry-run` and verify the output includes:
+   - `Repo slug: <basename>-<hash>`
+   - `Run ID: run-...`
+   - worktree path under `../.tickflow-worktrees/<repoSlug>/<runId>/<tick-id>`
+   - branch `tf/<runId>/<tick-id>`
+5. Optionally run `/tickflow-run-tick --smoke` to verify child Pi process spawning.
+6. For a disposable tick, run `/tickflow-run-tick <tick-id>` and inspect `.tick/logs/pi-runner/<tick-id>/attempt-NNN.json`.
+
+### Worktree boundary checks
+
+Create or use a disposable worktree from `/tickflow-run <epic> --worktrees` and verify:
+
+```bash
+# The child wrapper should be first in PATH for child agents.
+ls <worktree>/.tickflow-bin/tk
+
+# Read commands should proxy to the controller repo.
+PATH="<worktree>/.tickflow-bin:$PATH" TICKFLOW_CONTROLLER_REPO="$PWD" tk show <tick-id>
+
+# Mutation commands should fail with exit 42 and guidance to use promises.
+PATH="<worktree>/.tickflow-bin:$PATH" TICKFLOW_CONTROLLER_REPO="$PWD" tk close <tick-id>
+```
+
+### Direct `.tick` write prevention
+
+With the default `readonly-dot-tick` fallback, direct writes should fail for normal child processes:
+
+```bash
+echo '{}' > <worktree>/.tick/issues/should-not-write.json
+# expect: permission denied
+```
+
+If this succeeds on a platform/filesystem, the merge guard must still prevent those changes from landing.
+
+### Merge guard checks
+
+In a disposable worktree:
+
+```bash
+# Forbidden operational state change.
+echo '# dirty' >> <worktree>/.tick/activity/activity.jsonl
+
+# Source change that would otherwise be mergeable.
+echo '# test' >> <worktree>/README.md
+```
+
+Then run the relevant Tickflow task to acceptance. Expected behavior:
+
+- Tickflow refuses to commit/merge `.tick` changes.
+- The worktree is preserved.
+- The controller tick is routed to `awaiting=escalation` with a note explaining the forbidden `.tick` mutation.
+
+### Merge conflict checks
+
+Create conflicting edits on the controller branch and the worktree branch, then let Tickflow merge. Expected behavior:
+
+- Tickflow aborts the failed merge.
+- The worktree is preserved.
+- The controller tick is routed to `awaiting=escalation` with conflict file names.
+
+### Runtime resource checks
+
+With a config such as:
+
+```yaml
+worktrees:
+  secrets_mode: copy
+  local_files:
+    - .env.local
+  bootstrap:
+    - echo bootstrap-ok > .tickflow-bootstrap-check
+runtime:
+  dev_servers:
+    - name: web
+      url: http://localhost:3000
+      shared: true
+```
+
+Expected behavior:
+
+- `.env.local` is copied into the worktree with `0600` permissions.
+- bootstrap command runs in the worktree.
+- attempt evidence and prompts list the configured runtime resources.

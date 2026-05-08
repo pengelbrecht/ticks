@@ -2,7 +2,7 @@
   "id": "z24",
   "title": "Document and manually verify Tickflow worktree mode",
   "description": "Update Tickflow documentation for --worktrees, path namespace, sandbox modes, tk wrapper behavior, runtime resources, merge policy, cleanup/preserve semantics, and manual verification steps.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -15,5 +15,7 @@
   "acceptance_criteria": "README documents --worktrees, --sandbox, runtime resource config, .tick protection guarantees/limitations, merge conflict behavior, and manual tests for direct .tick write prevention and merge guard.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:28:02.201074Z",
-  "updated_at": "2026-05-08T08:28:02.201074Z"
+  "updated_at": "2026-05-08T12:43:04.444065Z",
+  "closed_at": "2026-05-08T12:43:04.444065Z",
+  "closed_reason": "Expanded Tickflow worktree documentation and manual verification steps for --worktrees dry-run, path namespace, tk wrapper, readonly .tick protection, merge guard, conflict behavior, runtime resource provisioning, limitations, and expected outcomes."
 }
