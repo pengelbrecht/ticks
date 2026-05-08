@@ -1,7 +1,7 @@
 {
   "id": "5k0",
   "title": "Run interactive Tickflow dashboard smoke test",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +11,7 @@
   "parent": "5ld",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T18:28:17.423517Z",
-  "updated_at": "2026-05-08T18:28:20.025671Z"
+  "updated_at": "2026-05-08T19:12:09.647648Z",
+  "closed_at": "2026-05-08T19:12:09.647648Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-5ld-20260508t190547z-a974/5k0"
 }

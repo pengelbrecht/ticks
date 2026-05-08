@@ -1,7 +1,7 @@
 {
   "id": "whp",
   "title": "Run multi-epic Tickflow soak and file/fix findings",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "5ld",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T18:28:17.466639Z",
-  "updated_at": "2026-05-08T18:28:20.090021Z"
+  "updated_at": "2026-05-08T19:36:18.654853Z",
+  "closed_at": "2026-05-08T19:36:18.654853Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-5ld-20260508t190547z-a974/whp"
 }

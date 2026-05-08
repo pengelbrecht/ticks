@@ -1,7 +1,7 @@
 {
   "id": "zl1",
   "title": "Add dashboard detail panes for selected ticks and attempts",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +11,7 @@
   "parent": "5ld",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T18:28:17.43832Z",
-  "updated_at": "2026-05-08T18:28:20.046067Z"
+  "updated_at": "2026-05-08T19:25:13.95385Z",
+  "closed_at": "2026-05-08T19:25:13.95385Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-5ld-20260508t190547z-a974/zl1"
 }

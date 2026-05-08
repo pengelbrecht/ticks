@@ -1,7 +1,7 @@
 {
   "id": "8vx",
   "title": "Add dashboard keyboard actions for resume retry and inspect",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +11,7 @@
   "parent": "5ld",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T18:28:17.45303Z",
-  "updated_at": "2026-05-08T18:28:20.06223Z"
+  "updated_at": "2026-05-08T19:17:36.167839Z",
+  "closed_at": "2026-05-08T19:17:36.167839Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-5ld-20260508t190547z-a974/8vx"
 }
