@@ -1,0 +1,13 @@
+{
+  "id": "dur",
+  "title": "Add Tickflow supervisor dashboard TUI",
+  "description": "Build a Pi-native Tickflow supervisor dashboard that shows live wave progress, active agents, run records, leases, verifier results, merge conflicts, and awaiting-human tasks. Start with a lightweight persistent status widget, then add an interactive /tickflow-dashboard overlay.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "During Tickflow runs, the user can see current run id, epic, wave, active/completed/failed/awaiting ticks, latest verifier/merge decisions, and human-action items. A dashboard command can inspect persisted run state after interruption.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T14:47:11.702377Z",
+  "updated_at": "2026-05-08T14:47:19.658085Z"
+}
