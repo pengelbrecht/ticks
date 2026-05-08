@@ -174,6 +174,207 @@ type TickflowLease = {
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
+// ============================================================================
+// Run Record Types & Persistence
+// ============================================================================
+
+type TickRunStatus = "pending" | "running" | "accepted" | "handoff" | "repair" | "continue" | "escalated" | "failed";
+
+type TickRunEntry = {
+	tickId: string;
+	status: TickRunStatus;
+	artifactPath?: string;
+	worktreePath?: string;
+	decision?: string;
+	reason?: string;
+	attempts: number;
+	updatedAt: string;
+};
+
+type RunRecordWave = {
+	wave: number;
+	startedAt: string;
+	finishedAt?: string;
+	ticks: TickRunEntry[];
+};
+
+type RunRecord = {
+	runId: string;
+	repoIdentity: string;
+	repoSlug: string;
+	epicId: string;
+	status: "running" | "completed" | "interrupted" | "failed";
+	plannedTicks: string[];
+	worktreePaths: Record<string, string>;
+	leases: Record<string, TickflowLease>;
+	startedAt: string;
+	updatedAt: string;
+	finishedAt?: string;
+	agents: number;
+	worktreeMode: boolean;
+	waves: RunRecordWave[];
+	ticks: Record<string, TickRunEntry>;
+	summary?: {
+		totalWaves: number;
+		exitReason?: string;
+	};
+};
+
+function runRecordDir(cwd: string): string {
+	return path.join(cwd, ".tick", "logs", "pi-runner", "runs");
+}
+
+function runRecordPath(cwd: string, runId: string): string {
+	return path.join(runRecordDir(cwd), `${runId}.json`);
+}
+
+async function createRunRecord(
+	cwd: string,
+	runCtx: TickflowRunContext | undefined,
+	epicId: string,
+	plannedTicks: string[],
+	agents: number,
+	worktreeMode: boolean,
+): Promise<RunRecord> {
+	const now = new Date().toISOString();
+	const runId = runCtx?.runId ?? `run-${sanitizePathPart(epicId)}-${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")}-${randomBytes(2).toString("hex")}`;
+	const record: RunRecord = {
+		runId,
+		repoIdentity: runCtx?.repoIdentity ?? cwd,
+		repoSlug: runCtx?.repoSlug ?? path.basename(cwd),
+		epicId,
+		status: "running",
+		plannedTicks,
+		worktreePaths: {},
+		leases: {},
+		startedAt: now,
+		updatedAt: now,
+		agents,
+		worktreeMode,
+		waves: [],
+		ticks: {},
+	};
+	for (const tickId of plannedTicks) {
+		record.ticks[tickId] = {
+			tickId,
+			status: "pending",
+			attempts: 0,
+			updatedAt: now,
+		};
+	}
+	await persistRunRecord(cwd, record);
+	return record;
+}
+
+async function persistRunRecord(cwd: string, record: RunRecord): Promise<void> {
+	const dir = runRecordDir(cwd);
+	await fs.promises.mkdir(dir, { recursive: true });
+	record.updatedAt = new Date().toISOString();
+	const filePath = runRecordPath(cwd, record.runId);
+	const tmpPath = filePath + ".tmp";
+	await fs.promises.writeFile(tmpPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+	await fs.promises.rename(tmpPath, filePath);
+}
+
+function updateTickInRunRecord(
+	record: RunRecord,
+	tickId: string,
+	updates: Partial<TickRunEntry>,
+): void {
+	const now = new Date().toISOString();
+	if (!record.ticks[tickId]) {
+		record.ticks[tickId] = { tickId, status: "pending", attempts: 0, updatedAt: now };
+	}
+	Object.assign(record.ticks[tickId], { ...updates, updatedAt: now });
+}
+
+function startWaveInRunRecord(record: RunRecord, waveNumber: number, tickIds: string[]): RunRecordWave {
+	const now = new Date().toISOString();
+	const wave: RunRecordWave = {
+		wave: waveNumber,
+		startedAt: now,
+		ticks: tickIds.map((tickId) => {
+			const entry = record.ticks[tickId] ?? { tickId, status: "pending", attempts: 0, updatedAt: now };
+			return { ...entry };
+		}),
+	};
+	record.waves.push(wave);
+	for (const tickId of tickIds) {
+		updateTickInRunRecord(record, tickId, { status: "running" });
+	}
+	return wave;
+}
+
+function finishWaveInRunRecord(wave: RunRecordWave, record: RunRecord): void {
+	wave.finishedAt = new Date().toISOString();
+	// Sync wave tick entries from the authoritative record.ticks
+	for (const entry of wave.ticks) {
+		const tickEntry = record.ticks[entry.tickId];
+		if (tickEntry) {
+			Object.assign(entry, tickEntry);
+		}
+	}
+}
+
+function finalizeRunRecord(record: RunRecord, status: RunRecord["status"], exitReason?: string): void {
+	record.status = status;
+	record.finishedAt = new Date().toISOString();
+	record.updatedAt = record.finishedAt;
+	record.summary = {
+		totalWaves: record.waves.length,
+		exitReason,
+	};
+}
+
+async function loadRunRecord(cwd: string, runId: string): Promise<RunRecord | null> {
+	try {
+		const data = await fs.promises.readFile(runRecordPath(cwd, runId), "utf8");
+		return JSON.parse(data) as RunRecord;
+	} catch {
+		return null;
+	}
+}
+
+async function listRunRecords(cwd: string): Promise<RunRecord[]> {
+	const dir = runRecordDir(cwd);
+	try {
+		const entries = await fs.promises.readdir(dir);
+		const records: RunRecord[] = [];
+		for (const entry of entries) {
+			if (!entry.endsWith(".json") || entry.endsWith(".tmp")) continue;
+			try {
+				const data = await fs.promises.readFile(path.join(dir, entry), "utf8");
+				records.push(JSON.parse(data) as RunRecord);
+			} catch {
+				// Skip malformed records
+			}
+		}
+		// Sort by startedAt descending (most recent first)
+		records.sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""));
+		return records;
+	} catch {
+		return [];
+	}
+}
+
+function formatRunRecordSummary(record: RunRecord): string {
+	const tickStatuses = Object.values(record.ticks);
+	const accepted = tickStatuses.filter((t) => t.status === "accepted").length;
+	const failed = tickStatuses.filter((t) => t.status === "failed" || t.status === "escalated").length;
+	const handoff = tickStatuses.filter((t) => t.status === "handoff").length;
+	const pending = tickStatuses.filter((t) => t.status === "pending").length;
+	const duration = record.finishedAt
+		? `${((new Date(record.finishedAt).getTime() - new Date(record.startedAt).getTime()) / 1000).toFixed(0)}s`
+		: "running";
+	return [
+		`${record.runId}`,
+		`  epic: ${record.epicId} | status: ${record.status} | duration: ${duration}`,
+		`  ticks: ${tickStatuses.length} total, ${accepted} accepted, ${handoff} handoff, ${failed} failed, ${pending} pending`,
+		`  waves: ${record.waves.length} | agents: ${record.agents} | worktrees: ${record.worktreeMode ? "yes" : "no"}`,
+		record.summary?.exitReason ? `  exit: ${record.summary.exitReason}` : undefined,
+	].filter(Boolean).join("\n");
+}
+
 function usage(command: string): string {
 	return `Usage: /${command} <tick-id>`;
 }
@@ -1237,10 +1438,22 @@ export default function tickflow(pi: ExtensionAPI) {
 			const { epicId, agents, dryRun, worktrees } = parseRunArgs(args);
 			if (!epicId) return ctx.ui.notify("Usage: /tickflow-run <epic-id> [--agents N] [--dry-run] [--worktrees]", "error");
 
+			let activeRunRecord: RunRecord | undefined;
 			try {
 				const summaries: string[] = [];
 				const runContext = worktrees ? await createRunContext(pi, ctx.cwd, epicId) : undefined;
 				let waveCount = 0;
+
+				// Collect all planned ticks for the initial run record
+				const initialGraph = await loadGraph(pi, ctx.cwd, epicId);
+				const allPlannedTicks = (initialGraph.waves ?? []).flatMap((w) => w.tasks.map((t) => t.id));
+
+				// Create the run record at the start
+				const runRecord = dryRun
+					? undefined
+					: await createRunRecord(ctx.cwd, runContext, epicId, allPlannedTicks, agents, worktrees);
+				activeRunRecord = runRecord;
+
 				for (let guard = 0; guard < 50; guard++) {
 					const graph = await loadGraph(pi, ctx.cwd, epicId);
 					const readyWave = graph.waves?.find((wave) => wave.ready && wave.tasks.some((task) => task.agent_ready !== false && task.status !== "closed"));
@@ -1266,6 +1479,11 @@ export default function tickflow(pi: ExtensionAPI) {
 						break;
 					}
 
+					// Start wave in run record
+					const waveTaskIds = tasks.map((t) => t.id);
+					const currentWave = runRecord ? startWaveInRunRecord(runRecord, readyWave.wave, waveTaskIds) : undefined;
+					if (runRecord) await persistRunRecord(ctx.cwd, runRecord);
+
 					const outcomes = await mapWithConcurrencyLimit(tasks, agents, async (task) => {
 						let agentCwd = ctx.cwd;
 						let agentEnv: Record<string, string> = {};
@@ -1286,10 +1504,44 @@ export default function tickflow(pi: ExtensionAPI) {
 								TICKFLOW_RUN_ID: runContext.runId,
 								...config.runtime.env,
 							};
-							await setTickflowLease(ctx.cwd, task.id, buildLease(runContext, handle, await nextAttemptNumber(ctx.cwd, task.id)));
+							const lease = buildLease(runContext, handle, await nextAttemptNumber(ctx.cwd, task.id));
+							await setTickflowLease(ctx.cwd, task.id, lease);
+
+							// Record worktree path and lease in run record
+							if (runRecord) {
+								runRecord.worktreePaths[task.id] = handle.worktreePath;
+								runRecord.leases[task.id] = lease;
+								updateTickInRunRecord(runRecord, task.id, { status: "running", worktreePath: handle.worktreePath });
+								await persistRunRecord(ctx.cwd, runRecord);
+							}
+
 							ctx.ui.notify(`[${task.id}] worktree ${handle.reused ? "reused" : "created"}: ${handle.worktreePath} (${sandboxMode})`, "info");
+						} else if (runRecord) {
+							updateTickInRunRecord(runRecord, task.id, { status: "running" });
+							await persistRunRecord(ctx.cwd, runRecord);
 						}
+
 						const outcome = await superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info"), agentCwd, agentEnv, sandboxMode, runtimeResources);
+
+						// Update run record with outcome
+						if (runRecord) {
+							const tickStatus: TickRunStatus =
+								outcome.decision.action === "accept" ? "accepted"
+								: outcome.decision.action === "handoff" ? "handoff"
+								: outcome.decision.action === "escalate" ? "escalated"
+								: outcome.decision.action === "repair" ? "repair"
+								: outcome.decision.action === "continue" ? "continue"
+								: "failed";
+							updateTickInRunRecord(runRecord, task.id, {
+								status: tickStatus,
+								artifactPath: outcome.artifactPath,
+								decision: outcome.decision.action,
+								reason: outcome.decision.reason,
+								attempts: outcome.evidence?.attempt ?? 1,
+							});
+							await persistRunRecord(ctx.cwd, runRecord);
+						}
+
 						if (handle && outcome.decision.action === "accept") {
 							try {
 								const merge = await mergeWorktreeBranch(pi, handle);
@@ -1300,6 +1552,8 @@ export default function tickflow(pi: ExtensionAPI) {
 									await closeControllerTick(pi, ctx.cwd, task.id, `Merged Tickflow worktree ${handle.branchName}${merge.commit ? ` (${merge.commit.slice(0, 8)})` : ""}`);
 									await setTickflowLease(ctx.cwd, task.id, undefined);
 									await removeWorktree(pi, handle);
+									// Clear lease from run record after successful merge
+									if (runRecord) delete runRecord.leases[task.id];
 								}
 							} catch (error) {
 								await setAwaiting(pi, ctx.cwd, task.id, "escalation");
@@ -1308,15 +1562,28 @@ export default function tickflow(pi: ExtensionAPI) {
 						}
 						return outcome;
 					});
+
+					// Finish wave in run record
+					if (runRecord && currentWave) {
+						finishWaveInRunRecord(currentWave, runRecord);
+						await persistRunRecord(ctx.cwd, runRecord);
+					}
+
 					summaries.push(
 						`Wave ${readyWave.wave}: ${outcomes.map((outcome) => `${outcome.tickId}=${outcome.decision.action}`).join(", ")}`,
 					);
 				}
 
+				// Finalize run record as completed
+				if (runRecord) {
+					finalizeRunRecord(runRecord, "completed", summaries[summaries.length - 1]);
+					await persistRunRecord(ctx.cwd, runRecord);
+				}
+
 				pi.sendMessage(
 					{
 						customType: "tickflow",
-						content: [`# Tickflow run: ${epicId}`, `Agents: ${agents}`, `Worktrees: ${worktrees ? "yes" : "no"}`, `Waves executed: ${waveCount}`, "", ...summaries].join("\n"),
+						content: [`# Tickflow run: ${epicId}`, `Agents: ${agents}`, `Worktrees: ${worktrees ? "yes" : "no"}`, `Waves executed: ${waveCount}`, runRecord ? `Run record: ${path.relative(ctx.cwd, runRecordPath(ctx.cwd, runRecord.runId))}` : "", "", ...summaries].join("\n"),
 						display: true,
 					},
 					{ deliverAs: "nextTurn" },
@@ -1324,7 +1591,69 @@ export default function tickflow(pi: ExtensionAPI) {
 				ctx.ui.setStatus("tickflow", "tickflow: ready");
 				ctx.ui.notify(`Tickflow run finished for ${epicId}`, "success");
 			} catch (error) {
+				// Persist interrupted/failed run record
+				if (activeRunRecord && activeRunRecord.status === "running") {
+					const reason = error instanceof Error ? error.message : String(error);
+					finalizeRunRecord(activeRunRecord, "interrupted", `Error: ${reason}`);
+					await persistRunRecord(ctx.cwd, activeRunRecord).catch(() => {});
+				}
 				ctx.ui.setStatus("tickflow", "tickflow: error");
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	pi.registerCommand("tickflow-runs", {
+		description: "List Tickflow run records (completed, interrupted, and running)",
+		handler: async (args, ctx) => {
+			try {
+				const filter = args.trim(); // optional: epic ID or status filter
+				let records = await listRunRecords(ctx.cwd);
+				if (filter) {
+					records = records.filter((r) => r.epicId === filter || r.status === filter || r.runId.includes(filter));
+				}
+				if (records.length === 0) {
+					ctx.ui.notify(filter ? `No run records matching "${filter}"` : "No run records found", "info");
+					return;
+				}
+				const content = [
+					`# Tickflow Run Records (${records.length})`,
+					"",
+					...records.map((r) => formatRunRecordSummary(r)),
+				].join("\n");
+				pi.sendMessage({ customType: "tickflow", content, display: true }, { deliverAs: "nextTurn" });
+				ctx.ui.notify(`Found ${records.length} run record(s)`, "success");
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	pi.registerCommand("tickflow-run-show", {
+		description: "Show details of a specific Tickflow run record",
+		handler: async (args, ctx) => {
+			const runId = args.trim();
+			if (!runId) return ctx.ui.notify("Usage: /tickflow-run-show <run-id>", "error");
+			try {
+				const record = await loadRunRecord(ctx.cwd, runId);
+				if (!record) {
+					// Try partial match
+					const all = await listRunRecords(ctx.cwd);
+					const matches = all.filter((r) => r.runId.includes(runId));
+					if (matches.length === 1) {
+						const r = matches[0];
+						pi.sendMessage({ customType: "tickflow", content: JSON.stringify(r, null, 2), display: true }, { deliverAs: "nextTurn" });
+						return;
+					}
+					if (matches.length > 1) {
+						ctx.ui.notify(`Ambiguous run ID "${runId}": ${matches.map((m) => m.runId).join(", ")}`, "error");
+						return;
+					}
+					ctx.ui.notify(`Run record not found: ${runId}`, "error");
+					return;
+				}
+				pi.sendMessage({ customType: "tickflow", content: JSON.stringify(record, null, 2), display: true }, { deliverAs: "nextTurn" });
+			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
 		},
