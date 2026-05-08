@@ -22,7 +22,7 @@ type Tick = {
 type Verifier = {
 	name: string;
 	run: string;
-	source: "acceptance";
+	source: "acceptance" | "config";
 };
 
 type TickContract = {
@@ -34,6 +34,7 @@ type TickContract = {
 	requires?: RequiresGate;
 	maxAttempts: number;
 	verifiers: Verifier[];
+	config: TickflowConfig;
 };
 
 type SubagentResult = {
@@ -120,6 +121,27 @@ type WorktreePlan = {
 	branchName: string;
 };
 
+type TickflowConfig = {
+	defaults: {
+		maxAttempts: number;
+		requireCommit: boolean;
+		sandbox: "auto" | "none" | "readonly-dot-tick" | "macos-sandbox" | "bubblewrap";
+	};
+	verifiers: Verifier[];
+	policies: Record<string, unknown>;
+	worktrees: {
+		root?: string;
+		secretsMode: "none" | "copy" | "symlink";
+		localFiles: string[];
+		localDirs: string[];
+		bootstrap: string[];
+	};
+	runtime: {
+		env: Record<string, string>;
+		devServers: Array<Record<string, unknown>>;
+	};
+};
+
 type WorktreeHandle = WorktreePlan & {
 	runId: string;
 	repoRoot: string;
@@ -143,11 +165,11 @@ function usage(command: string): string {
 	return `Usage: /${command} <tick-id>`;
 }
 
-function addVerifier(verifiers: Verifier[], seen: Set<string>, command: string | undefined) {
+function addVerifier(verifiers: Verifier[], seen: Set<string>, command: string | undefined, source: Verifier["source"] = "acceptance", name?: string) {
 	const run = command?.trim().replace(/\s+$/g, "");
 	if (!run || seen.has(run)) return;
 	seen.add(run);
-	verifiers.push({ name: run, run, source: "acceptance" });
+	verifiers.push({ name: name?.trim() || run, run, source });
 }
 
 function inferVerifiers(acceptanceCriteria: string): Verifier[] {
@@ -173,8 +195,180 @@ function inferVerifiers(acceptanceCriteria: string): Verifier[] {
 	return verifiers;
 }
 
-function compileContract(tick: Tick): TickContract {
+function defaultConfig(): TickflowConfig {
+	return {
+		defaults: { maxAttempts: DEFAULT_MAX_ATTEMPTS, requireCommit: false, sandbox: "auto" },
+		verifiers: [],
+		policies: {},
+		worktrees: { secretsMode: "none", localFiles: [], localDirs: [], bootstrap: [] },
+		runtime: { env: {}, devServers: [] },
+	};
+}
+
+function parseYamlScalar(value: string): unknown {
+	const trimmed = value.trim();
+	if (trimmed === "true") return true;
+	if (trimmed === "false") return false;
+	if (/^-?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+	if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) return trimmed.slice(1, -1);
+	return trimmed;
+}
+
+function stripYamlComment(line: string): string {
+	let quote: string | undefined;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
+		if ((ch === '"' || ch === "'") && line[i - 1] !== "\\") quote = quote === ch ? undefined : quote ?? ch;
+		if (ch === "#" && !quote) return line.slice(0, i);
+	}
+	return line;
+}
+
+function parseTickflowConfigYaml(text: string): TickflowConfig {
+	const config = defaultConfig();
+	let section = "";
+	let subsection = "";
+	let currentVerifier: Partial<Verifier> | undefined;
+	let currentDevServer: Record<string, unknown> | undefined;
+
+	const finishVerifier = () => {
+		if (!currentVerifier) return;
+		if (!currentVerifier.run) throw new Error("Invalid .tick/pi-runner.yaml: verifier item missing run");
+		config.verifiers.push({ name: currentVerifier.name || currentVerifier.run, run: currentVerifier.run, source: "config" });
+		currentVerifier = undefined;
+	};
+	const finishDevServer = () => {
+		if (currentDevServer) config.runtime.devServers.push(currentDevServer);
+		currentDevServer = undefined;
+	};
+
+	for (const rawLine of text.split("\n")) {
+		const noComment = stripYamlComment(rawLine).replace(/\s+$/g, "");
+		if (!noComment.trim()) continue;
+		const indent = noComment.match(/^\s*/)?.[0].length ?? 0;
+		const line = noComment.trim();
+
+		if (indent === 0 && line.endsWith(":")) {
+			finishVerifier();
+			finishDevServer();
+			section = line.slice(0, -1);
+			subsection = "";
+			continue;
+		}
+
+		if (indent === 2 && line.endsWith(":")) {
+			finishVerifier();
+			finishDevServer();
+			subsection = line.slice(0, -1);
+			continue;
+		}
+
+		if (section === "defaults" && indent >= 2) {
+			const [key, ...rest] = line.split(":");
+			const value = parseYamlScalar(rest.join(":"));
+			if (key === "max_attempts") config.defaults.maxAttempts = Number(value);
+			else if (key === "require_commit") config.defaults.requireCommit = Boolean(value);
+			else if (key === "sandbox") config.defaults.sandbox = value as TickflowConfig["defaults"]["sandbox"];
+			else throw new Error(`Invalid .tick/pi-runner.yaml defaults key: ${key}`);
+			continue;
+		}
+
+		if (section === "verifiers") {
+			if (line.startsWith("- ")) {
+				finishVerifier();
+				currentVerifier = {};
+				const rest = line.slice(2).trim();
+				if (rest) {
+					const [key, ...value] = rest.split(":");
+					(currentVerifier as any)[key.trim()] = String(parseYamlScalar(value.join(":")));
+				}
+				continue;
+			}
+			if (currentVerifier && indent >= 4) {
+				const [key, ...value] = line.split(":");
+				(currentVerifier as any)[key.trim()] = String(parseYamlScalar(value.join(":")));
+				continue;
+			}
+		}
+
+		if (section === "worktrees" && indent >= 2) {
+			if (["local_files", "local_dirs", "bootstrap"].includes(subsection) && line.startsWith("- ")) {
+				const value = String(parseYamlScalar(line.slice(2)));
+				if (subsection === "local_files") config.worktrees.localFiles.push(value);
+				else if (subsection === "local_dirs") config.worktrees.localDirs.push(value);
+				else config.worktrees.bootstrap.push(value);
+				continue;
+			}
+			const [key, ...rest] = line.split(":");
+			const value = parseYamlScalar(rest.join(":"));
+			if (key === "root") config.worktrees.root = String(value);
+			else if (key === "secrets_mode") config.worktrees.secretsMode = value as TickflowConfig["worktrees"]["secretsMode"];
+			else if (!["local_files", "local_dirs", "bootstrap"].includes(key)) throw new Error(`Invalid .tick/pi-runner.yaml worktrees key: ${key}`);
+			continue;
+		}
+
+		if (section === "runtime") {
+			if (subsection === "env" && indent >= 4) {
+				const [key, ...rest] = line.split(":");
+				config.runtime.env[key.trim()] = String(parseYamlScalar(rest.join(":")));
+				continue;
+			}
+			if (subsection === "dev_servers") {
+				if (line.startsWith("- ")) {
+					finishDevServer();
+					currentDevServer = {};
+					const rest = line.slice(2).trim();
+					if (rest) {
+						const [key, ...value] = rest.split(":");
+						currentDevServer[key.trim()] = parseYamlScalar(value.join(":"));
+					}
+					continue;
+				}
+				if (currentDevServer && indent >= 6) {
+					const [key, ...value] = line.split(":");
+					currentDevServer[key.trim()] = parseYamlScalar(value.join(":"));
+					continue;
+				}
+			}
+		}
+
+		if (section === "policies" && indent >= 2) {
+			const [key, ...rest] = line.split(":");
+			config.policies[key.trim()] = parseYamlScalar(rest.join(":"));
+			continue;
+		}
+
+		throw new Error(`Invalid .tick/pi-runner.yaml line: ${rawLine}`);
+	}
+	finishVerifier();
+	finishDevServer();
+	validateConfig(config);
+	return config;
+}
+
+function validateConfig(config: TickflowConfig) {
+	if (!Number.isInteger(config.defaults.maxAttempts) || config.defaults.maxAttempts < 1) throw new Error("Invalid .tick/pi-runner.yaml: defaults.max_attempts must be a positive integer");
+	if (!["auto", "none", "readonly-dot-tick", "macos-sandbox", "bubblewrap"].includes(config.defaults.sandbox)) throw new Error("Invalid .tick/pi-runner.yaml: defaults.sandbox has invalid value");
+	if (!["none", "copy", "symlink"].includes(config.worktrees.secretsMode)) throw new Error("Invalid .tick/pi-runner.yaml: worktrees.secrets_mode has invalid value");
+}
+
+async function loadConfig(cwd: string): Promise<TickflowConfig> {
+	const configPath = path.join(cwd, ".tick", "pi-runner.yaml");
+	try {
+		const text = await fs.promises.readFile(configPath, "utf8");
+		return parseTickflowConfigYaml(text);
+	} catch (error) {
+		if ((error as any)?.code === "ENOENT") return defaultConfig();
+		throw error;
+	}
+}
+
+function compileContract(tick: Tick, config = defaultConfig()): TickContract {
 	const acceptanceCriteria = tick.acceptance_criteria ?? "";
+	const seen = new Set<string>();
+	const verifiers: Verifier[] = [];
+	for (const verifier of config.verifiers) addVerifier(verifiers, seen, verifier.run, "config", verifier.name);
+	for (const verifier of inferVerifiers(acceptanceCriteria)) addVerifier(verifiers, seen, verifier.run, verifier.source, verifier.name);
 	return {
 		id: tick.id,
 		title: tick.title,
@@ -182,8 +376,9 @@ function compileContract(tick: Tick): TickContract {
 		acceptanceCriteria,
 		dependencies: tick.blocked_by ?? [],
 		requires: tick.requires,
-		maxAttempts: DEFAULT_MAX_ATTEMPTS,
-		verifiers: inferVerifiers(acceptanceCriteria),
+		maxAttempts: config.defaults.maxAttempts,
+		verifiers,
+		config,
 	};
 }
 
@@ -194,6 +389,9 @@ function formatContract(contract: TickContract): string {
 		`Requires: ${contract.requires ?? "none"}`,
 		`Dependencies: ${contract.dependencies.length ? contract.dependencies.join(", ") : "none"}`,
 		`Max attempts: ${contract.maxAttempts}`,
+		`Sandbox: ${contract.config.defaults.sandbox}`,
+		`Require commit: ${contract.config.defaults.requireCommit}`,
+		`Secrets mode: ${contract.config.worktrees.secretsMode}`,
 		"",
 		"## Description",
 		contract.description || "(none)",
@@ -566,7 +764,7 @@ async function superviseTick(
 	onUpdate?: (message: string) => void,
 	agentCwd = cwd,
 ): Promise<SupervisorOutcome> {
-	const contract = compileContract(await loadTick(pi, cwd, tickId));
+	const contract = compileContract(await loadTick(pi, cwd, tickId), await loadConfig(cwd));
 	await markInProgress(pi, cwd, contract.id);
 
 	let prompt = buildAttemptPrompt(contract);
@@ -800,7 +998,7 @@ export default function tickflow(pi: ExtensionAPI) {
 			const id = args.trim();
 			if (!id) return ctx.ui.notify(usage("tickflow-contract"), "error");
 			try {
-				const contract = compileContract(await loadTick(pi, ctx.cwd, id));
+				const contract = compileContract(await loadTick(pi, ctx.cwd, id), await loadConfig(ctx.cwd));
 				pi.sendMessage({ customType: "tickflow", content: formatContract(contract), display: true }, { deliverAs: "nextTurn" });
 				ctx.ui.notify(`Compiled contract for ${contract.id}`, "success");
 			} catch (error) {

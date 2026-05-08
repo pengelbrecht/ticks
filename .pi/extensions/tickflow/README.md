@@ -70,17 +70,48 @@ The absolute worktree path is stored in `tickflow_lease.worktree` when worktree 
 
 Agent output is advisory. Durable tick state and verifier evidence decide outcomes.
 
-## Verifier inference
+## Config and verifier inference
 
-The MVP infers verifier commands from acceptance criteria patterns such as:
+Tickflow optionally loads `.tick/pi-runner.yaml`. Missing config is fine; defaults are used.
+
+```yaml
+defaults:
+  max_attempts: 5
+  require_commit: false
+  sandbox: auto
+
+verifiers:
+  - name: go tests
+    run: go test ./...
+
+policies:
+  max_no_progress_attempts: 1
+
+worktrees:
+  root: ../.tickflow-worktrees
+  secrets_mode: none
+  local_files:
+    - .env.local
+  bootstrap:
+    - pnpm install --frozen-lockfile
+
+runtime:
+  env:
+    TICKFLOW: "1"
+  dev_servers:
+    - name: web
+      command: pnpm dev
+      url: http://localhost:3000
+      shared: true
+```
+
+Config-derived verifiers are shown by `/tickflow-contract <tick-id>` and run before inferred acceptance verifiers. Tickflow also infers verifier commands from acceptance criteria patterns such as:
 
 ```text
 Run: go test ./internal/tick/...
 - `pnpm build` succeeds
 go test ./... passes
 ```
-
-Future work should add project config for explicit verifiers and per-tick policy overrides.
 
 ## Lease metadata
 

@@ -2,7 +2,7 @@
   "id": "12i",
   "title": "Add Tickflow pi-runner config loader",
   "description": "Implement .tick/pi-runner.yaml loading for Tickflow with defaults, verifier definitions, policies, sandbox/worktree options, local runtime resources, and clear validation errors. Config should be optional and backwards-compatible.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "Missing config uses defaults; valid config contributes verifiers/policies/runtime settings; invalid YAML or invalid fields produce actionable errors; /tickflow-contract shows config-derived verifiers.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:28:33.860014Z",
-  "updated_at": "2026-05-08T08:28:33.860014Z"
+  "updated_at": "2026-05-08T09:47:43.387852Z",
+  "closed_at": "2026-05-08T09:47:43.387852Z",
+  "closed_reason": "Implemented optional .tick/pi-runner.yaml loader with defaults, verifiers, policies, worktree/runtime sections, validation errors, and contract output showing config-derived verifiers/policies. Missing config remains backwards-compatible."
 }
