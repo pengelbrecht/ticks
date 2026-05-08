@@ -1,0 +1,14 @@
+{
+  "id": "b8y",
+  "title": "Tickflow graph scheduler should respect cross-epic blockers",
+  "description": "The MVP /tickflow-run uses tk graph \u003cepic\u003e --json. Current graph output does not show external blockers such as qeb blocked_by=12i outside the vmv epic, so a scheduler relying only on graph waves may run a tick before a cross-epic dependency is closed. Update tickflow scheduling to re-check each candidate tick with tk show/tk ready semantics before launch, or update tk graph to include external blockers.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "discovered_from": "vmv",
+  "acceptance_criteria": "A tick with blocked_by pointing to a task outside its parent epic is not launched by tickflow until the external blocker is closed; behavior is covered by test or documented scheduler guard.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T08:36:13.105122Z",
+  "updated_at": "2026-05-08T08:36:13.105122Z"
+}

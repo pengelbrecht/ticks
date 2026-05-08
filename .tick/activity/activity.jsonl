@@ -162,3 +162,5 @@
 {"ts":"2026-05-08T08:31:13.655273Z","tick":"i5u","action":"block","actor":"peter@engelbrecht.dk","epic":"mir","data":{"blockers":["9yp"],"title":"Implement Tickflow status and resume commands"}}
 {"ts":"2026-05-08T08:31:13.674002Z","tick":"i5u","action":"block","actor":"peter@engelbrecht.dk","epic":"mir","data":{"blockers":["9yp","fy4"],"title":"Implement Tickflow status and resume commands"}}
 {"ts":"2026-05-08T08:31:13.693698Z","tick":"78n","action":"block","actor":"peter@engelbrecht.dk","epic":"mir","data":{"blockers":["i5u","z1e"],"title":"Document and test Tickflow config/resume UX"}}
+{"ts":"2026-05-08T08:35:43.636675Z","tick":"qeb","action":"block","actor":"peter@engelbrecht.dk","epic":"vmv","data":{"blockers":["qri","12i"],"title":"Add runtime resource provisioning for worktree agents"}}
+{"ts":"2026-05-08T08:36:13.105469Z","tick":"b8y","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Tickflow graph scheduler should respect cross-epic blockers","type":"task"}}
