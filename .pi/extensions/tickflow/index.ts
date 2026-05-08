@@ -712,7 +712,7 @@ async function installTkWrapper(worktreePath: string, controllerRepo: string): P
 	const wrapper = path.join(binDir, "tk");
 	const script = `#!/usr/bin/env bash
 set -euo pipefail
-cmd="${1:-}"
+cmd="\${1:-}"
 case "$cmd" in
   show|list|ls|graph|ready|next|blocked|deps|notes|status|version)
     cd ${JSON.stringify(controllerRepo)}
