@@ -1,7 +1,7 @@
 {
   "id": "2cx",
   "title": "Surface awaiting-human Tickflow tasks and actions",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +11,7 @@
   "parent": "dur",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T14:47:19.714899Z",
-  "updated_at": "2026-05-08T14:47:33.002971Z"
+  "updated_at": "2026-05-08T15:47:03.833674Z",
+  "closed_at": "2026-05-08T15:47:03.833674Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-dur-20260508t152524z-6b4b/2cx"
 }

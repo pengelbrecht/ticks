@@ -1,7 +1,7 @@
 {
   "id": "39u",
   "title": "Add interactive /tickflow-dashboard overlay",
-  "status": "open",
+  "status": "closed",
   "priority": 3,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +11,7 @@
   "parent": "dur",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T14:47:19.70108Z",
-  "updated_at": "2026-05-08T14:47:32.989054Z"
+  "updated_at": "2026-05-08T15:52:22.812194Z",
+  "closed_at": "2026-05-08T15:52:22.812194Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-dur-20260508t152524z-6b4b/39u"
 }

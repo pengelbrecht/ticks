@@ -1,7 +1,7 @@
 {
   "id": "1xn",
   "title": "Document Tickflow dashboard UX",
-  "status": "open",
+  "status": "closed",
   "priority": 3,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "dur",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T14:47:19.728141Z",
-  "updated_at": "2026-05-08T14:47:33.044521Z"
+  "updated_at": "2026-05-08T15:56:02.886653Z",
+  "closed_at": "2026-05-08T15:56:02.886653Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-dur-20260508t152524z-6b4b/1xn"
 }
