@@ -1607,21 +1607,11 @@ export default function tickflow(pi: ExtensionAPI) {
 		description: "List Tickflow run records (completed, interrupted, and running)",
 		handler: async (args, ctx) => {
 			try {
-				const filter = args.trim(); // optional: epic ID or status filter
+				const filter = args.trim();
 				let records = await listRunRecords(ctx.cwd);
-				if (filter) {
-					records = records.filter((r) => r.epicId === filter || r.status === filter || r.runId.includes(filter));
-				}
-				if (records.length === 0) {
-					ctx.ui.notify(filter ? `No run records matching "${filter}"` : "No run records found", "info");
-					return;
-				}
-				const content = [
-					`# Tickflow Run Records (${records.length})`,
-					"",
-					...records.map((r) => formatRunRecordSummary(r)),
-				].join("\n");
-				pi.sendMessage({ customType: "tickflow", content, display: true }, { deliverAs: "nextTurn" });
+				if (filter) records = records.filter((r) => r.epicId === filter || r.status === filter || r.runId.includes(filter));
+				if (records.length === 0) return ctx.ui.notify(filter ? `No run records matching "${filter}"` : "No run records found", "info");
+				pi.sendMessage({ customType: "tickflow", content: [`# Tickflow Run Records (${records.length})`, "", ...records.map((r) => formatRunRecordSummary(r))].join("\n"), display: true }, { deliverAs: "nextTurn" });
 				ctx.ui.notify(`Found ${records.length} run record(s)`, "success");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
@@ -1635,24 +1625,85 @@ export default function tickflow(pi: ExtensionAPI) {
 			const runId = args.trim();
 			if (!runId) return ctx.ui.notify("Usage: /tickflow-run-show <run-id>", "error");
 			try {
-				const record = await loadRunRecord(ctx.cwd, runId);
+				let record = await loadRunRecord(ctx.cwd, runId);
 				if (!record) {
-					// Try partial match
-					const all = await listRunRecords(ctx.cwd);
-					const matches = all.filter((r) => r.runId.includes(runId));
-					if (matches.length === 1) {
-						const r = matches[0];
-						pi.sendMessage({ customType: "tickflow", content: JSON.stringify(r, null, 2), display: true }, { deliverAs: "nextTurn" });
-						return;
-					}
-					if (matches.length > 1) {
-						ctx.ui.notify(`Ambiguous run ID "${runId}": ${matches.map((m) => m.runId).join(", ")}`, "error");
-						return;
-					}
-					ctx.ui.notify(`Run record not found: ${runId}`, "error");
-					return;
+					const matches = (await listRunRecords(ctx.cwd)).filter((r) => r.runId.includes(runId));
+					if (matches.length === 1) record = matches[0];
+					else if (matches.length > 1) return ctx.ui.notify(`Ambiguous run ID "${runId}": ${matches.map((m) => m.runId).join(", ")}`, "error");
+					else return ctx.ui.notify(`Run record not found: ${runId}`, "error");
 				}
 				pi.sendMessage({ customType: "tickflow", content: JSON.stringify(record, null, 2), display: true }, { deliverAs: "nextTurn" });
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	pi.registerCommand("tickflow-status", {
+		description: "List active/recoverable Tickflow runs, leases, worktrees, and last decisions",
+		handler: async (_args, ctx) => {
+			try {
+				const repoRoot = await getRepoRoot(pi, ctx.cwd);
+				const repoIdentity = await getRepoIdentity(pi, repoRoot);
+				const repoSlug = `${sanitizePathPart(path.basename(repoRoot))}-${shortHash(repoIdentity)}`;
+				const worktreeBase = path.resolve(path.dirname(repoRoot), ".tickflow-worktrees", repoSlug);
+				const records = await listRunRecords(ctx.cwd);
+
+				const leases: Array<{ tickId: string; tick: Tick; lease: TickflowLease; expired: boolean; worktreeExists: boolean }> = [];
+				const issuesDir = path.join(ctx.cwd, ".tick", "issues");
+				if (await pathExists(issuesDir)) {
+					for (const file of await fs.promises.readdir(issuesDir)) {
+						if (!file.endsWith(".json")) continue;
+						try {
+							const data = JSON.parse(await fs.promises.readFile(path.join(issuesDir, file), "utf8"));
+							if (!data.tickflow_lease) continue;
+							const lease = data.tickflow_lease as TickflowLease;
+							leases.push({ tickId: data.id, tick: data as Tick, lease, expired: lease.expires_at ? new Date(lease.expires_at) < new Date() : false, worktreeExists: lease.worktree ? await pathExists(lease.worktree) : false });
+						} catch { /* ignore malformed issue files */ }
+					}
+				}
+
+				const worktreeListRaw = await execText(pi, repoRoot, "git", ["worktree", "list", "--porcelain"]);
+				const tickflowWorktrees: Array<{ path: string; branch: string }> = [];
+				let currentWtPath = "";
+				let currentWtBranch = "";
+				for (const line of worktreeListRaw.split("\n")) {
+					if (line.startsWith("worktree ")) currentWtPath = line.slice(9).trim();
+					else if (line.startsWith("branch ")) currentWtBranch = line.slice(7).trim();
+					else if (line.trim() === "" && currentWtPath) {
+						if (currentWtBranch.includes("tf/")) tickflowWorktrees.push({ path: currentWtPath, branch: currentWtBranch });
+						currentWtPath = "";
+						currentWtBranch = "";
+					}
+				}
+				if (currentWtPath && currentWtBranch.includes("tf/")) tickflowWorktrees.push({ path: currentWtPath, branch: currentWtBranch });
+
+				const lines = ["# Tickflow Status", "", "## Repo", `Root: ${repoRoot}`, `Slug: ${repoSlug}`, `Worktree base: ${worktreeBase}`, ""];
+				lines.push(`## Run Records (${records.length})`);
+				lines.push(records.length ? records.map((r) => `- ${r.runId} (${r.epicId}) ${r.status} ticks=${Object.keys(r.ticks).length}`).join("\n") : "(none)");
+				lines.push("", `## Active Leases (${leases.length})`);
+				lines.push(leases.length ? leases.map((l) => `- ${l.tickId}: ${l.expired ? "EXPIRED" : "active"}, worktree ${l.worktreeExists ? "exists" : "missing"}: ${l.lease.worktree}`).join("\n") : "(none)");
+				lines.push("", `## Git Worktrees (${tickflowWorktrees.length} tickflow)`);
+				lines.push(tickflowWorktrees.length ? tickflowWorktrees.map((w) => `- ${w.branch}\n  ${w.path}`).join("\n") : "(none)");
+				pi.sendMessage({ customType: "tickflow", content: lines.join("\n"), display: true }, { deliverAs: "nextTurn" });
+				ctx.ui.notify(`Tickflow status: ${records.length} run(s), ${leases.length} lease(s), ${tickflowWorktrees.length} worktree(s)`, "success");
+			} catch (error) {
+				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			}
+		},
+	});
+
+	pi.registerCommand("tickflow-resume", {
+		description: "Resume an interrupted Tickflow run by run-id",
+		handler: async (args, ctx) => {
+			const inputRunId = args.trim();
+			if (!inputRunId) return ctx.ui.notify("Usage: /tickflow-resume <run-id>", "error");
+			try {
+				const record = await loadRunRecord(ctx.cwd, inputRunId);
+				if (!record) return ctx.ui.notify(`Run record not found: ${inputRunId}`, "error");
+				const runnable = Object.values(record.ticks).filter((t) => t.status !== "closed" && t.status !== "awaiting");
+				pi.sendMessage({ customType: "tickflow", content: [`# Tickflow Resume: ${record.runId}`, `Epic: ${record.epicId}`, `Runnable from record: ${runnable.length}`, "", ...runnable.map((t) => `- ${t.id}: ${t.status}${t.worktreePath ? ` (${t.worktreePath})` : ""}`)].join("\n"), display: true }, { deliverAs: "nextTurn" });
+				ctx.ui.notify("Resume inspection complete; full continuation is handled by stale recovery work.", "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
