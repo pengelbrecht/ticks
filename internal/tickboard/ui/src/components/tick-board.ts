@@ -4,7 +4,7 @@ import { provide } from '@lit/context';
 import { StoreController } from '@nanostores/lit';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord } from '../api/ticks.js';
+import { type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord, type AwaitingTaskStatus } from '../api/ticks.js';
 import type { ToolActivityInfo } from './tool-activity.js';
 import type { MetricsRecord } from './run-metrics.js';
 import {
@@ -532,6 +532,100 @@ export class TickBoard extends LitElement {
       50% { opacity: 1; }
     }
 
+    /* Awaiting tasks section */
+    .awaiting-section {
+      background: color-mix(in srgb, var(--yellow, #f9e2af) 8%, var(--surface0, #313244));
+      border: 1px solid color-mix(in srgb, var(--yellow, #f9e2af) 30%, transparent);
+      border-radius: 8px;
+      padding: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .awaiting-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--yellow, #f9e2af);
+      margin-bottom: 0.5rem;
+    }
+
+    .awaiting-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.25rem;
+      height: 1.25rem;
+      padding: 0 0.375rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      background: var(--yellow, #f9e2af);
+      color: var(--base, #1e1e2e);
+      border-radius: 999px;
+    }
+
+    .awaiting-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .awaiting-item {
+      background: var(--surface0, #313244);
+      border: 1px solid var(--surface1, #45475a);
+      border-radius: 6px;
+      padding: 0.625rem;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .awaiting-item:hover {
+      border-color: var(--yellow, #f9e2af);
+    }
+
+    .awaiting-item-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .awaiting-icon {
+      font-size: 0.875rem;
+    }
+
+    .awaiting-item-id {
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: var(--blue, #89b4fa);
+      font-weight: 500;
+    }
+
+    .awaiting-type-badge {
+      font-size: 0.6875rem;
+      padding: 0.125rem 0.375rem;
+      background: color-mix(in srgb, var(--yellow, #f9e2af) 15%, transparent);
+      color: var(--yellow, #f9e2af);
+      border-radius: 4px;
+      font-weight: 500;
+      margin-left: auto;
+    }
+
+    .awaiting-item-title {
+      font-size: 0.8125rem;
+      color: var(--text, #cdd6f4);
+      line-height: 1.4;
+    }
+
+    .awaiting-item-reason {
+      font-size: 0.75rem;
+      color: var(--subtext0, #a6adc8);
+      margin-top: 0.25rem;
+      line-height: 1.3;
+      font-style: italic;
+    }
+
     /* Hide run panel on mobile */
     @media (max-width: 768px) {
       .run-panel {
@@ -612,6 +706,7 @@ export class TickBoard extends LitElement {
   @state() private runStreamConnected = false;
   @state() private activeToolInfo: ToolActivityInfo | null = null;
   @state() private runMetrics: MetricsRecord | null = null;
+  @state() private awaitingTasks: AwaitingTaskStatus[] = [];
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
@@ -791,6 +886,11 @@ export class TickBoard extends LitElement {
             };
           }
 
+          // Update awaiting tasks
+          if (status.awaitingTasks) {
+            this.awaitingTasks = status.awaitingTasks;
+          }
+
           return; // Only handle one active run at a time
         }
       } catch {
@@ -955,6 +1055,36 @@ export class TickBoard extends LitElement {
         this.runStatus = { epicId, isRunning: false };
         this.activeToolInfo = null;
         break;
+
+      case 'run:task-awaiting': {
+        console.log('[RunStream] Task awaiting:', event.taskId, event.awaitingType);
+        // Find the tick title from our current ticks list
+        const awaitingTick = this.ticks.find(t => t.id === event.taskId);
+        const awaitingTask: AwaitingTaskStatus = {
+          tickId: event.taskId,
+          title: awaitingTick?.title || event.taskId,
+          awaitingType: event.awaitingType,
+          signalReason: event.reason,
+        };
+        // Add if not already present, update if already there
+        const existingIdx = this.awaitingTasks.findIndex(t => t.tickId === event.taskId);
+        if (existingIdx >= 0) {
+          this.awaitingTasks = [
+            ...this.awaitingTasks.slice(0, existingIdx),
+            awaitingTask,
+            ...this.awaitingTasks.slice(existingIdx + 1),
+          ];
+        } else {
+          this.awaitingTasks = [...this.awaitingTasks, awaitingTask];
+        }
+
+        // Show toast notification
+        window.showToast?.({
+          message: `Task ${event.taskId} needs human action: ${event.awaitingType}`,
+          variant: 'warning',
+        });
+        break;
+      }
     }
   }
 
@@ -1391,6 +1521,11 @@ export class TickBoard extends LitElement {
     // Update the tick in store - computed stores will auto-update notes/blockers/etc.
     updateTick(tick);
     this.updateBoardState();
+
+    // Remove from awaiting list if tick is no longer awaiting
+    if (!tick.awaiting || tick.status === 'closed') {
+      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tick.id);
+    }
   }
 
   // Get filtered ticks for a column
@@ -1463,6 +1598,9 @@ export class TickBoard extends LitElement {
         </div>
 
         <div class="run-panel-body">
+          ${this.awaitingTasks.length > 0
+            ? this.renderAwaitingTasks()
+            : nothing}
           ${hasActiveRun
             ? this.renderActiveRun()
             : this.renderNoRunState()}
@@ -1507,6 +1645,53 @@ export class TickBoard extends LitElement {
         ></run-output-pane>
       </div>
     `;
+  }
+
+  /**
+   * Render tasks awaiting human action.
+   */
+  private renderAwaitingTasks() {
+    const awaitingIcons: Record<string, string> = {
+      work: '🔧',
+      approval: '✅',
+      input: '💬',
+      review: '👀',
+      content: '📝',
+      escalation: '🚨',
+      checkpoint: '📍',
+    };
+
+    return html`
+      <div class="awaiting-section">
+        <div class="awaiting-header">
+          <sl-icon name="exclamation-triangle"></sl-icon>
+          <span>Needs Human Action</span>
+          <span class="awaiting-count">${this.awaitingTasks.length}</span>
+        </div>
+        <div class="awaiting-list">
+          ${this.awaitingTasks.map(task => html`
+            <div class="awaiting-item" @click=${() => this.handleAwaitingTaskClick(task.tickId)}>
+              <div class="awaiting-item-header">
+                <span class="awaiting-icon">${awaitingIcons[task.awaitingType] || '⏳'}</span>
+                <span class="awaiting-item-id">${task.tickId}</span>
+                <span class="awaiting-type-badge">${task.awaitingType}</span>
+              </div>
+              <div class="awaiting-item-title">${task.title}</div>
+              ${task.signalReason
+                ? html`<div class="awaiting-item-reason">${task.signalReason}</div>`
+                : nothing}
+            </div>
+          `)}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Handle click on an awaiting task - open its detail drawer.
+   */
+  private handleAwaitingTaskClick(tickId: string) {
+    selectTick(tickId);
   }
 
   /**
@@ -1557,6 +1742,7 @@ export class TickBoard extends LitElement {
         connection-status=${this.connectionStatus}
         ?run-panel-open=${this.showRunPanel}
         ?run-active=${this.runStatus?.isRunning}
+        awaiting-count=${this.awaitingTasks.length}
         ?readonly-mode=${this.isCloudMode && !this.localClientConnected}
         @search-change=${this.handleSearchChange}
         @epic-filter-change=${this.handleEpicFilterChange}

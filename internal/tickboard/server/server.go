@@ -524,6 +524,11 @@ func (s *Server) watchFiles(ctx context.Context) {
 				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
 				s.debugf("watchFiles: broadcasting tick change: %s", msg)
 				s.broadcast(msg)
+
+				// Check if tick entered awaiting state and broadcast run-stream event
+				if eventType != "delete" {
+					s.checkAndBroadcastAwaiting(tickID)
+				}
 			})
 
 		case err, ok := <-s.watcher.Errors:
@@ -534,6 +539,58 @@ func (s *Server) watchFiles(ctx context.Context) {
 			fmt.Fprintf(os.Stderr, "file watcher error: %v\n", err)
 		}
 	}
+}
+
+// checkAndBroadcastAwaiting checks if a tick is in awaiting state and broadcasts
+// a task-awaiting event on the run stream for its parent epic.
+func (s *Server) checkAndBroadcastAwaiting(tickID string) {
+	// Read the tick
+	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
+	data, err := os.ReadFile(tickPath)
+	if err != nil {
+		return
+	}
+
+	var t tick.Tick
+	if err := json.Unmarshal(data, &t); err != nil {
+		return
+	}
+
+	// Only broadcast if tick is awaiting human action
+	if !t.IsAwaitingHuman() || t.Status == tick.StatusClosed {
+		return
+	}
+
+	// Need parent epic to broadcast on correct stream
+	if t.Parent == "" {
+		return
+	}
+
+	// Extract signal reason from latest note
+	signalReason := ""
+	if t.Notes != "" {
+		lines := strings.Split(t.Notes, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := strings.TrimSpace(lines[i])
+			if line != "" {
+				if idx := strings.Index(line, ") "); idx != -1 {
+					signalReason = line[idx+2:]
+				} else {
+					signalReason = line
+				}
+				break
+			}
+		}
+	}
+
+	s.debugf("checkAndBroadcastAwaiting: tickID=%s awaiting=%s parent=%s", tickID, t.GetAwaitingType(), t.Parent)
+
+	s.broadcastRunStreamEvent(t.Parent, "task-awaiting", RunStreamEventData{
+		TaskID:    tickID,
+		Status:    t.GetAwaitingType(),
+		Message:   signalReason,
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
 }
 
 // EpicInfo represents an epic for the filter dropdown.
@@ -752,10 +809,19 @@ func (s *Server) handleRecords(w http.ResponseWriter, r *http.Request) {
 
 // RunStatusResponse is the response body for GET /api/run-status/:epicId.
 type RunStatusResponse struct {
-	EpicID     string                  `json:"epicId"`
-	IsRunning  bool                    `json:"isRunning"`
-	ActiveTask *ActiveTaskStatus       `json:"activeTask,omitempty"`
-	Metrics    *runrecord.LiveRecord   `json:"metrics,omitempty"`
+	EpicID        string                  `json:"epicId"`
+	IsRunning     bool                    `json:"isRunning"`
+	ActiveTask    *ActiveTaskStatus       `json:"activeTask,omitempty"`
+	Metrics       *runrecord.LiveRecord   `json:"metrics,omitempty"`
+	AwaitingTasks []AwaitingTaskStatus    `json:"awaitingTasks,omitempty"`
+}
+
+// AwaitingTaskStatus contains information about a task awaiting human action.
+type AwaitingTaskStatus struct {
+	TickID       string `json:"tickId"`
+	Title        string `json:"title"`
+	AwaitingType string `json:"awaitingType"`
+	SignalReason string `json:"signalReason,omitempty"`
 }
 
 // ActiveTaskStatus contains information about the currently active task.
@@ -847,6 +913,33 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 				LastUpdated: liveRecord.LastUpdated.Format("2006-01-02T15:04:05Z07:00"),
 			}
 			break // Only one task can be active at a time
+		}
+	}
+
+	// Collect tasks awaiting human action
+	for _, t := range epicTasks {
+		if t.IsAwaitingHuman() && t.Status != tick.StatusClosed {
+			awaitingTask := AwaitingTaskStatus{
+				TickID:       t.ID,
+				Title:        t.Title,
+				AwaitingType: t.GetAwaitingType(),
+			}
+			// Extract signal reason from latest note if available
+			if t.Notes != "" {
+				lines := strings.Split(t.Notes, "\n")
+				if len(lines) > 0 {
+					lastNote := strings.TrimSpace(lines[len(lines)-1])
+					if lastNote != "" {
+						// Extract the note text after the timestamp/author prefix
+						if idx := strings.Index(lastNote, ") "); idx != -1 {
+							awaitingTask.SignalReason = lastNote[idx+2:]
+						} else {
+							awaitingTask.SignalReason = lastNote
+						}
+					}
+				}
+			}
+			response.AwaitingTasks = append(response.AwaitingTasks, awaitingTask)
 		}
 	}
 

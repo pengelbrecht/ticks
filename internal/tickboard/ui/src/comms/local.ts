@@ -255,6 +255,11 @@ export class LocalCommsClient implements CommsClient {
       this.handleRunEvent(epicId, 'epic-completed', event);
     });
 
+    // Handle task awaiting human action
+    source.addEventListener('task-awaiting', (event) => {
+      this.handleRunEvent(epicId, 'task-awaiting', event);
+    });
+
     // Handle context events
     source.addEventListener('context-generating', (event) => {
       this.handleContextEvent(epicId, 'context:generating', event);
@@ -638,6 +643,17 @@ export class LocalCommsClient implements CommsClient {
             type: 'run:epic-completed',
             epicId,
             success: data.success ?? true,
+            timestamp,
+          };
+          break;
+
+        case 'task-awaiting':
+          runEvent = {
+            type: 'run:task-awaiting',
+            taskId: data.taskId,
+            epicId,
+            awaitingType: data.status || 'work',
+            reason: data.message,
             timestamp,
           };
           break;

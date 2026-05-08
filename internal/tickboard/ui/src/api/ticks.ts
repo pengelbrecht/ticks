@@ -384,10 +384,19 @@ export interface LiveRecord {
   last_updated: string;
 }
 
+/** Status of a task awaiting human action during a tickflow run */
+export interface AwaitingTaskStatus {
+  tickId: string;
+  title: string;
+  awaitingType: string;
+  signalReason?: string;
+}
+
 /** Response from GET /api/run-status/:epicId */
 export interface RunStatusResponse {
   epicId: string;
   isRunning: boolean;
   activeTask?: ActiveTaskStatus;
   metrics?: LiveRecord;
+  awaitingTasks?: AwaitingTaskStatus[];
 }

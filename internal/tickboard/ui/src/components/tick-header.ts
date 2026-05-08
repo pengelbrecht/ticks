@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import './ticks-logo.js';
 import './ticks-button.js';
@@ -249,6 +249,9 @@ export class TickHeader extends LitElement {
   @property({ type: Boolean, attribute: 'run-active' })
   runActive = false;
 
+  @property({ type: Number, attribute: 'awaiting-count' })
+  awaitingCount = 0;
+
   @property({ type: Boolean, attribute: 'readonly-mode' })
   readonlyMode = false;
 
@@ -414,6 +417,9 @@ export class TickHeader extends LitElement {
               @click=${this.handleRunPanelToggle}
             >
               <sl-icon name="terminal"></sl-icon>
+              ${this.awaitingCount > 0
+                ? html`<sl-badge variant="warning" pill pulse>${this.awaitingCount}</sl-badge>`
+                : nothing}
             </sl-button>
           </sl-tooltip>
 
