@@ -60,6 +60,21 @@ When `--worktrees` runs without `--dry-run`, Tickflow creates the planned git wo
 
 The absolute worktree path is stored in `tickflow_lease.worktree` when worktree lifecycle support claims a tick.
 
+## Worktree agent boundary and `.tick` protection
+
+In worktree mode, child agents are not allowed to authoritatively mutate tick state. Tickflow installs `<worktree>/.tickflow-bin/tk` and prepends it to the child `PATH`:
+
+- read-only commands (`show`, `list`, `graph`, `ready`, `next`, `blocked`, `deps`, `notes`, `status`, `version`) proxy to the controller repo
+- mutation commands (`close`, `update`, `note`, `create`, etc.) fail with guidance to emit a `<promise>...</promise>` signal
+
+Tickflow also applies filesystem-level friction to `.tick` in child worktrees. In `sandbox: auto`, it chooses a supported sandbox label when available and falls back to `readonly-dot-tick`, which recursively removes write bits from `<worktree>/.tick`. Attempt evidence records the active sandbox mode and runtime resources.
+
+Worktree prompts are stricter than shared-workspace prompts: agents are told not to run `tk close/update/note/create` or edit `.tick`; completion should be reported with `<promise>COMPLETE: ...</promise>` and the controller updates ticks.
+
+## Runtime resources
+
+`.tick/pi-runner.yaml` can declare local files, bootstrap commands, and dev server descriptors for worktree agents. Secrets are not exposed by default (`secrets_mode: none`). With `secrets_mode: copy`, configured `local_files` are copied into the worktree with `0600` permissions; with `symlink`, Tickflow creates symlinks. Bootstrap commands run in the child worktree before the agent starts. Runtime resources are injected into the child prompt and environment so agents know about shared dev servers and should not start duplicates.
+
 ## Supervisor outcomes
 
 - `accept`: tick is closed and verifiers pass

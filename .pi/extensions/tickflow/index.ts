@@ -78,6 +78,8 @@ type AttemptEvidence = {
 	tickAfter: Tick;
 	subagent: SubagentResult;
 	signals: PromiseSignal[];
+	sandboxMode: TickflowConfig["defaults"]["sandbox"] | "readonly-dot-tick";
+	runtimeResources: string[];
 	git: {
 		statusBefore: string;
 		statusAfter: string;
@@ -146,6 +148,9 @@ type WorktreeHandle = WorktreePlan & {
 	runId: string;
 	repoRoot: string;
 	reused: boolean;
+	sandboxMode?: TickflowConfig["defaults"]["sandbox"] | "readonly-dot-tick";
+	env?: Record<string, string>;
+	runtimeResources?: string[];
 };
 
 type TickflowLease = {
@@ -411,7 +416,13 @@ function formatContract(contract: TickContract): string {
 	return lines.join("\n");
 }
 
-function buildAttemptPrompt(contract: TickContract): string {
+function buildAttemptPrompt(contract: TickContract, worktreeMode = false, runtimeResources: string[] = []): string {
+	const completionRule = worktreeMode
+		? `- You are in an isolated worktree. Do not run tk close/update/note/create and do not edit .tick. If complete, emit: <promise>COMPLETE: specific implementation summary</promise>. The controller will update ticks.`
+		: `- If complete, run: tk close ${contract.id} --reason "<specific implementation summary>"`;
+	const runtimeSection = runtimeResources.length
+		? `\n## Runtime Resources\n${runtimeResources.map((r) => `- ${r}`).join("\n")}\nDo not start duplicate shared dev servers. If a new resource is needed, emit <promise>RESOURCE_NEEDED: ...</promise>.\n`
+		: "";
 	return `You are implementing a single task from the Ticks issue tracker.
 
 ## Tick Contract
@@ -427,13 +438,13 @@ ${contract.acceptanceCriteria || "(none provided; infer a reasonable definition 
 
 ## Verifier Commands Inferred by Supervisor
 ${contract.verifiers.length ? contract.verifiers.map((v) => `- ${v.run}`).join("\n") : "(none inferred)"}
-
+${runtimeSection}
 ## Rules
 - Work only on tick ${contract.id}.
 - Make concrete progress; do not summarize and stop early.
 - Run relevant tests/verifiers when practical.
-- Do not edit .tick internals directly; use tk commands.
-- If complete, run: tk close ${contract.id} --reason "<specific implementation summary>"
+- Do not edit .tick internals directly.
+${completionRule}
 - If human input is truly required, emit one self-contained signal such as:
   <promise>INPUT_NEEDED: question with options/context</promise>
   <promise>ESCALATE: concrete blocker and recommended next action</promise>
@@ -664,6 +675,98 @@ async function createWorktree(pi: ExtensionAPI, run: TickflowRunContext, plan: W
 	return { ...plan, runId: run.runId, repoRoot: run.repoRoot, reused: false };
 }
 
+async function commandExists(pi: ExtensionAPI, cwd: string, command: string): Promise<boolean> {
+	const result = await pi.exec("bash", ["-lc", `command -v ${command}`], { cwd, timeout: 10_000 });
+	return result.code === 0;
+}
+
+async function chmodReadonly(target: string): Promise<void> {
+	if (!(await pathExists(target))) return;
+	await fs.promises.chmod(target, 0o555).catch(() => undefined);
+	const entries = await fs.promises.readdir(target, { withFileTypes: true }).catch(() => []);
+	for (const entry of entries) {
+		const child = path.join(target, entry.name);
+		if (entry.isDirectory()) await chmodReadonly(child);
+		else await fs.promises.chmod(child, 0o444).catch(() => undefined);
+	}
+}
+
+async function resolveSandboxMode(pi: ExtensionAPI, cwd: string, requested: TickflowConfig["defaults"]["sandbox"]): Promise<TickflowConfig["defaults"]["sandbox"] | "readonly-dot-tick"> {
+	if (requested !== "auto") return requested;
+	if (os.platform() === "darwin" && (await commandExists(pi, cwd, "sandbox-exec"))) return "macos-sandbox";
+	if (os.platform() === "linux" && (await commandExists(pi, cwd, "bwrap"))) return "bubblewrap";
+	return "readonly-dot-tick";
+}
+
+async function installTkWrapper(worktreePath: string, controllerRepo: string): Promise<void> {
+	const binDir = path.join(worktreePath, ".tickflow-bin");
+	await fs.promises.mkdir(binDir, { recursive: true });
+	const wrapper = path.join(binDir, "tk");
+	const script = `#!/usr/bin/env bash
+set -euo pipefail
+cmd="${1:-}"
+case "$cmd" in
+  show|list|ls|graph|ready|next|blocked|deps|notes|status|version)
+    cd ${JSON.stringify(controllerRepo)}
+    exec tk "$@"
+    ;;
+  *)
+    echo "tk mutations are disabled in Tickflow worktrees. Emit a <promise>COMPLETE|INPUT_NEEDED|ESCALATE|...> signal instead." >&2
+    exit 42
+    ;;
+esac
+`;
+	await fs.promises.writeFile(wrapper, script, "utf8");
+	await fs.promises.chmod(wrapper, 0o755);
+}
+
+async function provisionRuntimeResources(pi: ExtensionAPI, run: TickflowRunContext, handle: WorktreeHandle, config: TickflowConfig): Promise<string[]> {
+	const resources: string[] = [];
+	await installTkWrapper(handle.worktreePath, run.repoRoot);
+	resources.push("tk wrapper installed: read-only tk commands proxy to controller; mutations are blocked");
+
+	if (config.worktrees.secretsMode !== "none") {
+		for (const rel of config.worktrees.localFiles) {
+			const src = path.join(run.repoRoot, rel);
+			const dest = path.join(handle.worktreePath, rel);
+			if (!(await pathExists(src))) continue;
+			await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+			if (config.worktrees.secretsMode === "copy") {
+				await fs.promises.copyFile(src, dest);
+				await fs.promises.chmod(dest, 0o600);
+				resources.push(`copied local file ${rel}`);
+			} else {
+				await fs.promises.symlink(src, dest).catch(async (error) => {
+					if ((error as any)?.code !== "EEXIST") throw error;
+				});
+				resources.push(`symlinked local file ${rel}`);
+			}
+		}
+	}
+
+	for (const command of config.worktrees.bootstrap) {
+		const result = await pi.exec("bash", ["-lc", command], { cwd: handle.worktreePath, timeout: 10 * 60 * 1000 });
+		resources.push(`bootstrap ${command}: exit ${result.code}`);
+		if (result.code !== 0) throw new Error(result.stderr || result.stdout || `bootstrap failed: ${command}`);
+	}
+
+	for (const server of config.runtime.devServers) {
+		const name = String(server.name ?? "dev-server");
+		const url = server.url ? ` ${server.url}` : "";
+		resources.push(`configured dev server ${name}${url}${server.shared ? " (shared)" : ""}`);
+	}
+
+	return resources;
+}
+
+async function protectDotTick(pi: ExtensionAPI, handle: WorktreeHandle, config: TickflowConfig): Promise<TickflowConfig["defaults"]["sandbox"] | "readonly-dot-tick"> {
+	const mode = await resolveSandboxMode(pi, handle.worktreePath, config.defaults.sandbox);
+	if (mode === "readonly-dot-tick" || mode === "macos-sandbox" || mode === "bubblewrap") {
+		await chmodReadonly(path.join(handle.worktreePath, ".tick"));
+	}
+	return mode;
+}
+
 async function removeWorktree(pi: ExtensionAPI, handle: WorktreeHandle): Promise<void> {
 	if (!handle.worktreePath.includes(`${path.sep}.tickflow-worktrees${path.sep}`)) {
 		throw new Error(`refusing to remove non-Tickflow worktree: ${handle.worktreePath}`);
@@ -730,12 +833,15 @@ async function runAttempt(
 	contract: TickContract,
 	prompt: string,
 	signal?: AbortSignal,
+	agentEnv: Record<string, string> = {},
+	sandboxMode: AttemptEvidence["sandboxMode"] = "none",
+	runtimeResources: string[] = [],
 ): Promise<{ evidence: AttemptEvidence; artifactPath: string }> {
 	const tickBefore = await loadTick(pi, controllerCwd, contract.id);
 	const attempt = await nextAttemptNumber(controllerCwd, contract.id);
 	const startedAt = new Date().toISOString();
 	const statusBefore = await execText(pi, agentCwd, "git", ["status", "--porcelain"]);
-	const subagent = await runSubagent(agentCwd, prompt, signal);
+	const subagent = await runSubagent(agentCwd, prompt, signal, agentEnv);
 	const tickAfter = await loadTick(pi, controllerCwd, contract.id);
 	const statusAfter = await execText(pi, agentCwd, "git", ["status", "--porcelain"]);
 	const diffStat = await execText(pi, agentCwd, "git", ["diff", "--stat"]);
@@ -749,6 +855,8 @@ async function runAttempt(
 		tickAfter,
 		subagent,
 		signals: parsePromiseSignals(subagent.output),
+		sandboxMode,
+		runtimeResources,
 		git: { statusBefore, statusAfter, diffStat, changedFiles: parseChangedFiles(statusAfter) },
 		verifiers,
 	};
@@ -763,18 +871,21 @@ async function superviseTick(
 	signal: AbortSignal | undefined,
 	onUpdate?: (message: string) => void,
 	agentCwd = cwd,
+	agentEnv: Record<string, string> = {},
+	sandboxMode: AttemptEvidence["sandboxMode"] = "none",
+	runtimeResources: string[] = [],
 ): Promise<SupervisorOutcome> {
 	const contract = compileContract(await loadTick(pi, cwd, tickId), await loadConfig(cwd));
 	await markInProgress(pi, cwd, contract.id);
 
-	let prompt = buildAttemptPrompt(contract);
+	let prompt = buildAttemptPrompt(contract, agentCwd !== cwd, runtimeResources);
 	let finalEvidence: AttemptEvidence | undefined;
 	let finalArtifact = "";
 	let finalDecision: Decision | undefined;
 
 	for (let attemptIndex = 0; attemptIndex < contract.maxAttempts; attemptIndex++) {
 		onUpdate?.(`Running tickflow attempt ${attemptIndex + 1}/${contract.maxAttempts} for ${contract.id}...`);
-		const { evidence, artifactPath } = await runAttempt(pi, cwd, agentCwd, contract, prompt, signal);
+		const { evidence, artifactPath } = await runAttempt(pi, cwd, agentCwd, contract, prompt, signal, agentEnv, sandboxMode, runtimeResources);
 		finalEvidence = evidence;
 		finalArtifact = artifactPath;
 		const decision = decide(contract, evidence, contract.maxAttempts - attemptIndex - 1);
@@ -866,7 +977,7 @@ function assistantTextFromMessage(message: any): string {
 	return message.content.filter((part: any) => part?.type === "text" && typeof part.text === "string").map((part: any) => part.text).join("\n");
 }
 
-async function runSubagent(cwd: string, prompt: string, signal?: AbortSignal): Promise<SubagentResult> {
+async function runSubagent(cwd: string, prompt: string, signal?: AbortSignal, extraEnv: Record<string, string> = {}): Promise<SubagentResult> {
 	const started = Date.now();
 	const args = ["--mode", "json", "-p", "--no-session", prompt];
 	const invocation = getPiInvocation(args);
@@ -878,7 +989,7 @@ async function runSubagent(cwd: string, prompt: string, signal?: AbortSignal): P
 	let errorMessage: string | undefined;
 
 	const exitCode = await new Promise<number>((resolve) => {
-		const proc = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const proc = spawn(invocation.command, invocation.args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...extraEnv } });
 		let settled = false;
 		const finish = (code: number) => {
 			if (settled) return;
@@ -980,6 +1091,10 @@ function formatEvidenceSummary(evidence: AttemptEvidence, artifactPath: string):
 		"## Signals",
 		signalLines,
 		"",
+		"## Worktree Runtime",
+		`Sandbox: ${evidence.sandboxMode}`,
+		evidence.runtimeResources.length ? evidence.runtimeResources.map((r) => `- ${r}`).join("\n") : "(none)",
+		"",
 		"## Git Evidence",
 		`Changed files: ${evidence.git.changedFiles.length ? evidence.git.changedFiles.join(", ") : "none"}`,
 		evidence.git.diffStat || "(no diff stat)",
@@ -1078,14 +1193,27 @@ export default function tickflow(pi: ExtensionAPI) {
 
 					const outcomes = await mapWithConcurrencyLimit(tasks, agents, async (task) => {
 						let agentCwd = ctx.cwd;
+						let agentEnv: Record<string, string> = {};
+						let sandboxMode: AttemptEvidence["sandboxMode"] = "none";
+						let runtimeResources: string[] = [];
 						if (runContext) {
+							const config = await loadConfig(ctx.cwd);
 							const plan = planWorktree(runContext, task.id);
 							const handle = await createWorktree(pi, runContext, plan);
 							agentCwd = handle.worktreePath;
+							runtimeResources = await provisionRuntimeResources(pi, runContext, handle, config);
+							sandboxMode = await protectDotTick(pi, handle, config);
+							agentEnv = {
+								PATH: `${path.join(handle.worktreePath, ".tickflow-bin")}${path.delimiter}${process.env.PATH ?? ""}`,
+								TICKFLOW_CONTROLLER_REPO: runContext.repoRoot,
+								TICKFLOW_TICK_ID: task.id,
+								TICKFLOW_RUN_ID: runContext.runId,
+								...config.runtime.env,
+							};
 							await setTickflowLease(ctx.cwd, task.id, buildLease(runContext, handle, await nextAttemptNumber(ctx.cwd, task.id)));
-							ctx.ui.notify(`[${task.id}] worktree ${handle.reused ? "reused" : "created"}: ${handle.worktreePath}`, "info");
+							ctx.ui.notify(`[${task.id}] worktree ${handle.reused ? "reused" : "created"}: ${handle.worktreePath} (${sandboxMode})`, "info");
 						}
-						return superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info"), agentCwd);
+						return superviseTick(pi, ctx.cwd, task.id, ctx.signal, (message) => ctx.ui.notify(`[${task.id}] ${message}`, "info"), agentCwd, agentEnv, sandboxMode, runtimeResources);
 					});
 					summaries.push(
 						`Wave ${readyWave.wave}: ${outcomes.map((outcome) => `${outcome.tickId}=${outcome.decision.action}`).join(", ")}`,

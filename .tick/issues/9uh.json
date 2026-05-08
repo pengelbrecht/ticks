@@ -2,7 +2,7 @@
   "id": "9uh",
   "title": "Add tk wrapper and worktree-mode agent boundary",
   "description": "Create .tickflow-bin/tk in each child worktree and prepend it to PATH. Allow read-only tk commands and block mutation commands with guidance to emit promise signals. Update worktree prompts so child agents never run tk close/update/note/create or edit .tick.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "In a worktree, tk close/update/note/create fail with a clear Tickflow message; tk show/list-style reads still work or proxy safely; child prompt does not ask agents to mutate tick state.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:27:52.935767Z",
-  "updated_at": "2026-05-08T08:27:52.935767Z"
+  "updated_at": "2026-05-08T09:54:29.484487Z",
+  "closed_at": "2026-05-08T09:54:29.484487Z",
+  "closed_reason": "Added worktree tk wrapper in .tickflow-bin that proxies read-only commands to controller repo and blocks mutations; child PATH/env and worktree-mode prompts now forbid tick mutations and require promise signals."
 }
