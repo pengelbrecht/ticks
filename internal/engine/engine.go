@@ -877,6 +877,11 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 
 	fileChanges := watcher.Changes()
 
+	// Use a resettable ticker instead of time.After in the loop to avoid
+	// leaking timers when fileChanges fires frequently (S4 soak finding).
+	pollTicker := time.NewTicker(config.WatchPollInterval)
+	defer pollTicker.Stop()
+
 	for {
 		if !watchDeadline.IsZero() && time.Now().After(watchDeadline) {
 			return state.toResult(ExitReasonWatchTimeout, e.budget.Usage())
@@ -921,8 +926,11 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 			if result != nil {
 				return result
 			}
+			// Reset poll ticker after handling a file change so we get
+			// the full interval before the next poll-based check.
+			pollTicker.Reset(config.WatchPollInterval)
 
-		case <-time.After(config.WatchPollInterval):
+		case <-pollTicker.C:
 			task, err := e.ticks.NextTask(config.EpicID)
 			if err == nil && task != nil {
 				if e.Output != nil {

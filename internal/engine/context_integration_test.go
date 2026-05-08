@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,7 +20,8 @@ import (
 type mockAgentForContext struct {
 	name          string
 	available     bool
-	runCallCount  int
+	runCallCount  atomic.Int64
+	mu            sync.Mutex
 	lastPrompt    string
 	contextOutput string   // Output for context generation call
 	taskOutputs   []string // Outputs for task iteration calls
@@ -29,9 +32,11 @@ func (m *mockAgentForContext) Name() string    { return m.name }
 func (m *mockAgentForContext) Available() bool { return m.available }
 
 func (m *mockAgentForContext) Run(ctx context.Context, prompt string, opts agent.RunOpts) (*agent.Result, error) {
+	callIdx := int(m.runCallCount.Add(1) - 1)
+
+	m.mu.Lock()
 	m.lastPrompt = prompt
-	callIdx := m.runCallCount
-	m.runCallCount++
+	m.mu.Unlock()
 
 	if m.err != nil {
 		return nil, m.err
@@ -266,8 +271,8 @@ func TestEngine_ContextGeneration_ThreeTasks(t *testing.T) {
 	}
 
 	// Agent should have been called at least twice: once for context, once for task
-	if mockAg.runCallCount < 2 {
-		t.Errorf("agent.Run() called %d times, want at least 2", mockAg.runCallCount)
+	if mockAg.runCallCount.Load() < 2 {
+		t.Errorf("agent.Run() called %d times, want at least 2", mockAg.runCallCount.Load())
 	}
 }
 
@@ -331,8 +336,8 @@ func TestEngine_ContextGeneration_SingleTask(t *testing.T) {
 	}
 
 	// Agent should have been called only once (for the task)
-	if mockAg.runCallCount != 1 {
-		t.Errorf("agent.Run() called %d times, want 1 (no context generation)", mockAg.runCallCount)
+	if mockAg.runCallCount.Load() != 1 {
+		t.Errorf("agent.Run() called %d times, want 1 (no context generation)", mockAg.runCallCount.Load())
 	}
 }
 
@@ -408,8 +413,8 @@ func TestEngine_ContextGeneration_AlreadyExists(t *testing.T) {
 
 	// Agent should be called for tasks in the wave (not for context generation).
 	// With 2 tasks in the same wave, the agent is called twice.
-	if mockAg.runCallCount != 2 {
-		t.Errorf("agent.Run() called %d times, want 2 (context should be skipped, 2 tasks in wave)", mockAg.runCallCount)
+	if mockAg.runCallCount.Load() != 2 {
+		t.Errorf("agent.Run() called %d times, want 2 (context should be skipped, 2 tasks in wave)", mockAg.runCallCount.Load())
 	}
 }
 
@@ -482,8 +487,8 @@ func TestEngine_ContextGeneration_GeneratorFails(t *testing.T) {
 	}
 
 	// Task agent should still have been called
-	if customAgent.runCallCount < 1 {
-		t.Errorf("task agent.Run() called %d times, want at least 1", customAgent.runCallCount)
+	if customAgent.runCallCount.Load() < 1 {
+		t.Errorf("task agent.Run() called %d times, want at least 1", customAgent.runCallCount.Load())
 	}
 
 	_ = callCount // unused variable warning fix
@@ -493,14 +498,14 @@ func TestEngine_ContextGeneration_GeneratorFails(t *testing.T) {
 type mockAgentFailFirst struct {
 	name         string
 	available    bool
-	runCallCount int
+	runCallCount atomic.Int64
 }
 
 func (m *mockAgentFailFirst) Name() string    { return m.name }
 func (m *mockAgentFailFirst) Available() bool { return m.available }
 
 func (m *mockAgentFailFirst) Run(ctx context.Context, prompt string, opts agent.RunOpts) (*agent.Result, error) {
-	m.runCallCount++
+	m.runCallCount.Add(1)
 	// First call always succeeds - context generation uses a different agent instance
 	return &agent.Result{
 		Output:    "Task iteration output",
@@ -535,12 +540,15 @@ func TestEngine_ContextInjectedIntoPrompt(t *testing.T) {
 		{ID: "task-2", Title: "Task 2", Description: "Do thing 2", Status: "open"},
 	}
 
+	var capturedMu sync.Mutex
 	var capturedPrompt string
 	mockAg := &mockAgentCapture{
 		name:      "test",
 		available: true,
 		onRun: func(prompt string) {
+			capturedMu.Lock()
 			capturedPrompt = prompt
+			capturedMu.Unlock()
 		},
 	}
 
@@ -600,12 +608,15 @@ func TestEngine_ContextOmittedWhenEmpty(t *testing.T) {
 		{ID: "task-1", Title: "Task 1", Description: "Do thing 1", Status: "open"},
 	}
 
+	var capturedMu2 sync.Mutex
 	var capturedPrompt string
 	mockAg := &mockAgentCapture{
 		name:      "test",
 		available: true,
 		onRun: func(prompt string) {
+			capturedMu2.Lock()
 			capturedPrompt = prompt
+			capturedMu2.Unlock()
 		},
 	}
 
@@ -647,14 +658,14 @@ type mockAgentCapture struct {
 	name         string
 	available    bool
 	onRun        func(prompt string)
-	runCallCount int
+	runCallCount atomic.Int64
 }
 
 func (m *mockAgentCapture) Name() string    { return m.name }
 func (m *mockAgentCapture) Available() bool { return m.available }
 
 func (m *mockAgentCapture) Run(ctx context.Context, prompt string, opts agent.RunOpts) (*agent.Result, error) {
-	m.runCallCount++
+	m.runCallCount.Add(1)
 	if m.onRun != nil {
 		m.onRun(prompt)
 	}
@@ -712,8 +723,8 @@ func TestEngine_ContextComponentsNil(t *testing.T) {
 	}
 
 	// Agent should have been called for both tasks in the wave
-	if mockAg.runCallCount != 2 {
-		t.Errorf("agent.Run() called %d times, want 2 (2 tasks in wave)", mockAg.runCallCount)
+	if mockAg.runCallCount.Load() != 2 {
+		t.Errorf("agent.Run() called %d times, want 2 (2 tasks in wave)", mockAg.runCallCount.Load())
 	}
 }
 

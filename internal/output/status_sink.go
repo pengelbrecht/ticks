@@ -192,9 +192,12 @@ func (s *StatusSink) Flush() {
 // StartRefresh starts a goroutine that re-renders the widget at the given
 // interval (e.g., every second) to keep duration/progress up to date.
 // Returns a stop function that must be called to halt the goroutine.
+// The stop function blocks until the goroutine has exited.
 func (s *StatusSink) StartRefresh(interval time.Duration) func() {
 	done := make(chan struct{})
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -206,5 +209,8 @@ func (s *StatusSink) StartRefresh(interval time.Duration) func() {
 			}
 		}
 	}()
-	return func() { close(done) }
+	return func() {
+		close(done)
+		<-exited
+	}
 }
