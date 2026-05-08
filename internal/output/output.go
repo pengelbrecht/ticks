@@ -378,6 +378,31 @@ func (o *RunOutput) RunConfig(maxIter int, maxCost float64, maxDuration, agentTi
 	}
 }
 
+// PolicyConfig logs the active policy configuration.
+func (o *RunOutput) PolicyConfig(summary map[string]interface{}) {
+	if o.jsonl {
+		// Emit policy as JSONL event
+		if o.w != nil {
+			payload := map[string]interface{}{"event": "policy_config"}
+			for k, v := range summary {
+				payload[k] = v
+			}
+			o.mu.Lock()
+			enc := json.NewEncoder(o.w)
+			_ = enc.Encode(payload)
+			o.mu.Unlock()
+		}
+		return
+	}
+	o.printf("Policy: max_attempts=%v no_progress=%v verifier_fails=%v require_commit=%v secrets=%v\n",
+		summary["max_attempts"],
+		summary["max_no_progress_attempts"],
+		summary["max_same_verifier_failures"],
+		summary["require_commit"],
+		summary["secrets_exposure"],
+	)
+}
+
 // BudgetExceeded logs a budget limit check.
 func (o *RunOutput) BudgetExceeded(limitType string, shouldStop bool, stopReason string, iteration, totalTokens int, totalCost float64) {
 	if o.runLog != nil {

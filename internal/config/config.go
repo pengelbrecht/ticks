@@ -25,6 +25,7 @@ type Config struct {
 	Agent        *AgentConfig        `json:"agent,omitempty"`
 	Verification *VerificationConfig `json:"verification,omitempty"`
 	Context      *ContextConfig      `json:"context,omitempty"`
+	Policy       *PolicyConfig       `json:"policy,omitempty"`
 }
 
 // AgentConfig holds agent selection and configuration.
@@ -182,6 +183,176 @@ func (c *ContextConfig) Validate() error {
 	return nil
 }
 
+// SecretsExposure controls how secrets are made available to agents.
+type SecretsExposure string
+
+const (
+	// SecretsExposureNone means no secrets are exposed (default, safest).
+	SecretsExposureNone SecretsExposure = "none"
+
+	// SecretsExposureEnv exposes secrets via environment variables.
+	SecretsExposureEnv SecretsExposure = "env"
+
+	// SecretsExposureFile writes secrets to a temporary file.
+	SecretsExposureFile SecretsExposure = "file"
+)
+
+// PolicyConfig holds Tickflow run policy controls.
+// These are supervisor-level constraints that govern persistence, retries,
+// and verification behavior during autonomous runs.
+type PolicyConfig struct {
+	// MaxAttempts is the maximum number of attempts per task (default 3).
+	// After this many attempts, the task is marked as stuck.
+	MaxAttempts *int `json:"max_attempts,omitempty"`
+
+	// MaxNoProgressAttempts is how many consecutive attempts without
+	// measurable progress before the task is marked stuck (default 2).
+	MaxNoProgressAttempts *int `json:"max_no_progress_attempts,omitempty"`
+
+	// MaxSameVerifierFailures is how many times the same verifier command
+	// can fail before the task is escalated (default 2).
+	MaxSameVerifierFailures *int `json:"max_same_verifier_failures,omitempty"`
+
+	// RequireCommit controls whether the agent must produce at least one
+	// git commit for a task to be considered complete (default false).
+	RequireCommit *bool `json:"require_commit,omitempty"`
+
+	// RequireVerifiersForPriority is the minimum priority level (1=highest)
+	// at or above which verifier commands must pass for task closure.
+	// 0 means disabled (default). Example: 2 means P1 and P2 tasks require
+	// passing verifiers.
+	RequireVerifiersForPriority *int `json:"require_verifiers_for_priority,omitempty"`
+
+	// Sandbox controls whether agents run in a sandboxed environment
+	// (default false). When true, filesystem and network access may be
+	// restricted.
+	Sandbox *bool `json:"sandbox,omitempty"`
+
+	// SecretsExposure controls how secrets are made available to agents
+	// (default "none"). Valid values: "none", "env", "file".
+	SecretsExposure *SecretsExposure `json:"secrets_exposure,omitempty"`
+}
+
+// Default policy values.
+const (
+	DefaultMaxAttempts              = 3
+	DefaultMaxNoProgressAttempts    = 2
+	DefaultMaxSameVerifierFailures  = 2
+	DefaultRequireCommit            = false
+	DefaultRequireVerifiersForPrio  = 0
+	DefaultSandbox                  = false
+)
+
+// GetMaxAttempts returns the max attempts per task (default 3).
+func (p *PolicyConfig) GetMaxAttempts() int {
+	if p == nil || p.MaxAttempts == nil {
+		return DefaultMaxAttempts
+	}
+	return *p.MaxAttempts
+}
+
+// GetMaxNoProgressAttempts returns the max no-progress attempts (default 2).
+func (p *PolicyConfig) GetMaxNoProgressAttempts() int {
+	if p == nil || p.MaxNoProgressAttempts == nil {
+		return DefaultMaxNoProgressAttempts
+	}
+	return *p.MaxNoProgressAttempts
+}
+
+// GetMaxSameVerifierFailures returns the max same-verifier failures (default 2).
+func (p *PolicyConfig) GetMaxSameVerifierFailures() int {
+	if p == nil || p.MaxSameVerifierFailures == nil {
+		return DefaultMaxSameVerifierFailures
+	}
+	return *p.MaxSameVerifierFailures
+}
+
+// GetRequireCommit returns whether commits are required (default false).
+func (p *PolicyConfig) GetRequireCommit() bool {
+	if p == nil || p.RequireCommit == nil {
+		return DefaultRequireCommit
+	}
+	return *p.RequireCommit
+}
+
+// GetRequireVerifiersForPriority returns the priority threshold (default 0/disabled).
+func (p *PolicyConfig) GetRequireVerifiersForPriority() int {
+	if p == nil || p.RequireVerifiersForPriority == nil {
+		return DefaultRequireVerifiersForPrio
+	}
+	return *p.RequireVerifiersForPriority
+}
+
+// GetSandbox returns whether sandbox mode is enabled (default false).
+func (p *PolicyConfig) GetSandbox() bool {
+	if p == nil || p.Sandbox == nil {
+		return DefaultSandbox
+	}
+	return *p.Sandbox
+}
+
+// GetSecretsExposure returns the secrets exposure mode (default "none").
+func (p *PolicyConfig) GetSecretsExposure() SecretsExposure {
+	if p == nil || p.SecretsExposure == nil {
+		return SecretsExposureNone
+	}
+	return *p.SecretsExposure
+}
+
+// Validate checks that policy config values are within sensible ranges.
+func (p *PolicyConfig) Validate() error {
+	if p == nil {
+		return nil
+	}
+
+	if p.MaxAttempts != nil {
+		if *p.MaxAttempts < 1 {
+			return fmt.Errorf("policy.max_attempts must be at least 1, got %d", *p.MaxAttempts)
+		}
+		if *p.MaxAttempts > 100 {
+			return fmt.Errorf("policy.max_attempts must be at most 100, got %d", *p.MaxAttempts)
+		}
+	}
+
+	if p.MaxNoProgressAttempts != nil {
+		if *p.MaxNoProgressAttempts < 1 {
+			return fmt.Errorf("policy.max_no_progress_attempts must be at least 1, got %d", *p.MaxNoProgressAttempts)
+		}
+		if *p.MaxNoProgressAttempts > 50 {
+			return fmt.Errorf("policy.max_no_progress_attempts must be at most 50, got %d", *p.MaxNoProgressAttempts)
+		}
+	}
+
+	if p.MaxSameVerifierFailures != nil {
+		if *p.MaxSameVerifierFailures < 1 {
+			return fmt.Errorf("policy.max_same_verifier_failures must be at least 1, got %d", *p.MaxSameVerifierFailures)
+		}
+		if *p.MaxSameVerifierFailures > 50 {
+			return fmt.Errorf("policy.max_same_verifier_failures must be at most 50, got %d", *p.MaxSameVerifierFailures)
+		}
+	}
+
+	if p.RequireVerifiersForPriority != nil {
+		if *p.RequireVerifiersForPriority < 0 {
+			return fmt.Errorf("policy.require_verifiers_for_priority must be non-negative, got %d", *p.RequireVerifiersForPriority)
+		}
+		if *p.RequireVerifiersForPriority > 5 {
+			return fmt.Errorf("policy.require_verifiers_for_priority must be at most 5, got %d", *p.RequireVerifiersForPriority)
+		}
+	}
+
+	if p.SecretsExposure != nil {
+		switch *p.SecretsExposure {
+		case SecretsExposureNone, SecretsExposureEnv, SecretsExposureFile:
+			// Valid
+		default:
+			return fmt.Errorf("policy.secrets_exposure must be \"none\", \"env\", or \"file\", got %q", *p.SecretsExposure)
+		}
+	}
+
+	return nil
+}
+
 // Default returns the default config.
 func Default() Config {
 	return Config{
@@ -255,6 +426,11 @@ func (c Config) Validate() error {
 	if c.Context != nil {
 		if err := c.Context.Validate(); err != nil {
 			return fmt.Errorf("invalid context config: %w", err)
+		}
+	}
+	if c.Policy != nil {
+		if err := c.Policy.Validate(); err != nil {
+			return fmt.Errorf("invalid policy config: %w", err)
 		}
 	}
 	return nil
