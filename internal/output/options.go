@@ -46,3 +46,10 @@ func WithJSONL(enabled bool) Option {
 		o.jsonl = enabled
 	}
 }
+
+// WithStatus sets the status widget sink for live TUI rendering.
+func WithStatus(sink *StatusSink) Option {
+	return func(o *RunOutput) {
+		o.status = sink
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 // BoardSink handles board SSE events and run record persistence.
@@ -61,14 +63,15 @@ type RunLogSink interface {
 }
 
 // RunOutput is the single funnel for all tk run status updates.
-// It routes events to up to 4 sinks: terminal (stdout/stderr),
-// board SSE server, cloud client, and run log.
+// It routes events to up to 5 sinks: terminal (stdout/stderr),
+// board SSE server, cloud client, run log, and status widget.
 type RunOutput struct {
 	w      io.Writer // terminal stdout
 	errw   io.Writer // terminal stderr
 	board  BoardSink
 	cloud  CloudSink
 	runLog RunLogSink
+	status *StatusSink // live TUI status widget (optional)
 	jsonl           bool // suppress human output, emit JSONL only
 	mu              sync.Mutex
 	lastProgressLen int // length of last progress line for carriage-return clearing
@@ -93,6 +96,27 @@ func (o *RunOutput) AgentInfo(name, worktreePath string) {
 	}
 	o.printf("Agent: %s\n", name)
 	o.printf("Worktree: %s\n", worktreePath)
+}
+
+// EpicInfo sets the epic metadata for display (used by status widget).
+func (o *RunOutput) EpicInfo(epicID, title string) {
+	if o.status != nil {
+		o.status.OnEpicTitle(title)
+	}
+}
+
+// RegisterTasks registers the set of tasks for the status widget.
+// Must be called before the wave loop begins so the widget can show total count.
+func (o *RunOutput) RegisterTasks(tasks []*tick.Tick) {
+	if o.status != nil {
+		for _, t := range tasks {
+			awaitingType := ""
+			if t.IsAwaitingHuman() {
+				awaitingType = t.GetAwaitingType()
+			}
+			o.status.Builder().RegisterTask(t.ID, t.Title, t.BlockedBy, awaitingType)
+		}
+	}
 }
 
 // BoardURL prints the board server URL.
@@ -125,6 +149,9 @@ func (o *RunOutput) ContextGenerating(epicID string, taskCount int) {
 	}
 	if o.runLog != nil {
 		o.runLog.LogContextGenerationStarted(epicID, taskCount)
+	}
+	if o.status != nil {
+		o.status.OnContextGenerating(epicID, taskCount)
 	}
 }
 
@@ -162,6 +189,9 @@ func (o *RunOutput) ContextGenerated(epicID string, tokenCount int) {
 	if o.runLog != nil {
 		o.runLog.LogContextGenerationCompleted(epicID, tokenCount)
 	}
+	if o.status != nil {
+		o.status.OnContextGenerated(epicID, tokenCount)
+	}
 }
 
 // ContextLoaded signals that existing context was loaded.
@@ -171,6 +201,9 @@ func (o *RunOutput) ContextLoaded(epicID string) {
 	}
 	if o.board != nil {
 		o.board.BroadcastRunEvent(epicID, "context_loaded", nil)
+	}
+	if o.status != nil {
+		o.status.OnContextLoaded(epicID)
 	}
 }
 
@@ -186,6 +219,9 @@ func (o *RunOutput) ContextSkipped(epicID string, reason string) {
 	}
 	if o.runLog != nil {
 		o.runLog.LogContextSkipped(epicID, reason, 0)
+	}
+	if o.status != nil {
+		o.status.OnContextSkipped(epicID, reason)
 	}
 }
 
@@ -214,6 +250,9 @@ func (o *RunOutput) WaveStarted(iteration int, taskIDs []string) {
 			"task_ids":  taskIDs,
 		})
 	}
+	if o.status != nil {
+		o.status.OnWaveStarted(iteration, taskIDs)
+	}
 }
 
 // TaskStarted signals that a task has begun execution.
@@ -230,6 +269,9 @@ func (o *RunOutput) TaskStarted(iteration int, taskID, title string) {
 			"task_id":   taskID,
 			"title":     title,
 		})
+	}
+	if o.status != nil {
+		o.status.OnTaskStarted(iteration, taskID, title)
 	}
 }
 
@@ -272,6 +314,9 @@ func (o *RunOutput) TaskCompleted(result IterationResult) {
 			"is_timeout": result.IsTimeout,
 		})
 	}
+	if o.status != nil {
+		o.status.OnTaskCompleted(result)
+	}
 }
 
 // AgentOutput forwards a chunk of agent output (streaming).
@@ -288,6 +333,8 @@ func (o *RunOutput) AgentState(taskID string, snap any) {
 	if o.board != nil {
 		o.board.WriteLiveRecord(taskID, snap) //nolint:errcheck
 	}
+	// Note: status sink receives live updates via OnAgentState, which is
+	// called separately with parsed fields rather than the raw snapshot.
 }
 
 // Signal reports a detected signal from agent output.
@@ -302,6 +349,9 @@ func (o *RunOutput) Signal(signal, reason, taskID string) {
 			"task_id": taskID,
 		})
 	}
+	if o.status != nil {
+		o.status.OnSignal(signal, reason, taskID)
+	}
 }
 
 // SignalHandled reports how a signal was processed.
@@ -315,6 +365,9 @@ func (o *RunOutput) SignalHandled(signal, taskID, action, awaitingState string) 
 func (o *RunOutput) Idle() {
 	if o.board != nil {
 		o.board.BroadcastRunEvent("", "idle", nil)
+	}
+	if o.status != nil {
+		o.status.OnIdle()
 	}
 }
 
@@ -375,6 +428,9 @@ func (o *RunOutput) EpicStatus(epicID string, status any) {
 func (o *RunOutput) RunConfig(maxIter int, maxCost float64, maxDuration, agentTimeout time.Duration, maxTaskRetries int, watch bool, watchTimeout, watchPollInterval time.Duration) {
 	if o.runLog != nil {
 		o.runLog.LogRunConfig(maxIter, maxCost, maxDuration, agentTimeout, maxTaskRetries, watch, watchTimeout, watchPollInterval)
+	}
+	if o.status != nil {
+		o.status.OnBudgetConfig(maxIter, maxCost)
 	}
 }
 
@@ -442,6 +498,9 @@ func (o *RunOutput) AgentError(taskID, errMsg string) {
 func (o *RunOutput) TaskClosed(taskID string, verificationPassed bool) {
 	if o.runLog != nil {
 		o.runLog.LogTaskCompleted(taskID, verificationPassed)
+	}
+	if o.status != nil {
+		o.status.OnTaskClosed(taskID)
 	}
 }
 
@@ -514,6 +573,9 @@ func (o *RunOutput) RunComplete(result RunResult) {
 			"signal":          result.Signal,
 			"exit_reason":     result.ExitReason,
 		})
+	}
+	if o.status != nil {
+		o.status.OnRunComplete(result)
 	}
 }
 

@@ -194,6 +194,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 		output.WithJSONL(runJSONL),
 	}
 
+	// Set up live status widget (unless JSONL mode).
+	var statusSink *output.StatusSink
+	var stopRefresh func()
+	if !runJSONL && epicID != "" {
+		statusSink = output.NewStatusSink(epicID, os.Stderr, 0)
+		outOpts = append(outOpts, output.WithStatus(statusSink))
+		stopRefresh = statusSink.StartRefresh(time.Second)
+	}
+
 	var wg sync.WaitGroup
 	var boardServer *server.Server
 	var cloudClient *cloud.Client
@@ -385,6 +394,12 @@ Get a token at https://ticks.sh/settings`)
 	}
 
 	// Clean up
+	if stopRefresh != nil {
+		stopRefresh()
+	}
+	if statusSink != nil {
+		statusSink.Flush()
+	}
 	if cloudClient != nil {
 		cloudClient.Close()
 	}

@@ -426,6 +426,11 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 
 	state.epic = epic
 
+	// Notify output of epic info (for status widget)
+	if e.Output != nil {
+		e.Output.EpicInfo(epic.ID, epic.Title)
+	}
+
 	// Ensure epic context is generated before first wave
 	e.ensureEpicContext(ctx, epic)
 
@@ -465,6 +470,11 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		}
 
 		waveResult := wave.Compute(tickTasks)
+
+		// Register tasks with status widget (on first iteration)
+		if e.Output != nil && state.iteration == 0 {
+			e.Output.RegisterTasks(tickTasks)
+		}
 
 		// No waves available
 		if len(waveResult.Waves) == 0 {
