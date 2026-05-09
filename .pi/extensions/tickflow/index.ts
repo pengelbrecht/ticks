@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 
 type RequiresGate = "approval" | "review" | "content";
 
@@ -1966,10 +1967,12 @@ export default function tickflow(pi: ExtensionAPI) {
 			theme.fg("dim", "esc") + (state.pane === "detail" ? " back" : " close"),
 		];
 		if (state.records.length > 1) helpParts.push(theme.fg("dim", "←→") + " switch run");
+		helpParts.push(theme.fg("dim", "q/ctrl-c") + " close");
 		lines.push(" " + helpParts.join("  "));
 		lines.push("");
 
-		return lines;
+		const safeWidth = Math.max(1, width);
+		return lines.map((line) => truncateToWidth(line, safeWidth, "…"));
 	}
 
 	pi.registerCommand("tickflow-dashboard", {
@@ -2005,117 +2008,103 @@ export default function tickflow(pi: ExtensionAPI) {
 						cachedLines = undefined;
 					},
 					handleInput(data: string) {
+						const invalidateAndRender = () => {
+							cachedWidth = undefined;
+							cachedLines = undefined;
+							tui.requestRender();
+						};
+						const loadSelectedAttemptEvidence = (sortedTicks: TickRunEntry[]) => {
+							const tick = sortedTicks[state.selectedTickIndex];
+							if (tick && !attemptCache.has(tick.tickId)) {
+								loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
+									attemptCache.set(tick.tickId, ev);
+									invalidateAndRender();
+								});
+							}
+						};
+
 						const sortedTicks = getSortedTicks();
 						const maxTick = sortedTicks.length - 1;
 
-						// Escape
-						if (data === "\x1b" || data === "\x1b\x1b") {
+						// Always provide an emergency exit from the custom TUI. Pi normalizes
+						// many keys (for example "escape"/"ctrl+c"), so use matchesKey()
+						// instead of relying only on raw terminal escape sequences.
+						if (matchesKey(data, Key.ctrl("c")) || data === "\x03" || data === "q") {
+							done();
+							return;
+						}
+
+						if (matchesKey(data, Key.escape) || data === "\x1b" || data === "\x1b\x1b") {
 							if (state.pane === "detail") {
 								state.pane = "list";
-								cachedWidth = undefined;
-								tui.requestRender();
+								invalidateAndRender();
 							} else {
 								done();
 							}
 							return;
 						}
 
-						// q to quit
-						if (data === "q") {
-							done();
-							return;
-						}
-
-						// Arrow up
-						if (data === "\x1b[A" || data === "k") {
+						if (matchesKey(data, Key.up) || data === "\x1b[A" || data === "k") {
 							if (state.selectedTickIndex > 0) {
 								state.selectedTickIndex--;
-								if (state.pane === "detail") {
-									// Lazy-load evidence for new selection
-									const tick = sortedTicks[state.selectedTickIndex];
-									if (tick && !attemptCache.has(tick.tickId)) {
-										loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
-											attemptCache.set(tick.tickId, ev);
-											cachedWidth = undefined;
-											tui.requestRender();
-										});
-									}
-								}
-								cachedWidth = undefined;
-								tui.requestRender();
-							} else if (state.selectedTickIndex < 0) {
+								if (state.pane === "detail") loadSelectedAttemptEvidence(sortedTicks);
+								invalidateAndRender();
+							} else if (state.selectedTickIndex < 0 && maxTick >= 0) {
 								state.selectedTickIndex = 0;
+								invalidateAndRender();
 							}
 							return;
 						}
 
-						// Arrow down
-						if (data === "\x1b[B" || data === "j") {
+						if (matchesKey(data, Key.down) || data === "\x1b[B" || data === "j") {
 							if (state.selectedTickIndex < maxTick) {
 								state.selectedTickIndex++;
-								if (state.pane === "detail") {
-									const tick = sortedTicks[state.selectedTickIndex];
-									if (tick && !attemptCache.has(tick.tickId)) {
-										loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
-											attemptCache.set(tick.tickId, ev);
-											cachedWidth = undefined;
-											tui.requestRender();
-										});
-									}
-								}
-								cachedWidth = undefined;
-								tui.requestRender();
+								if (state.pane === "detail") loadSelectedAttemptEvidence(sortedTicks);
+								invalidateAndRender();
 							}
 							return;
 						}
 
-						// Enter — drill into tick detail
-						if (data === "\r" || data === "\n") {
+						if (matchesKey(data, Key.enter) || data === "\r" || data === "\n") {
+							if (state.selectedTickIndex < 0 && maxTick >= 0) {
+								state.selectedTickIndex = 0;
+							}
 							if (state.selectedTickIndex >= 0 && state.selectedTickIndex <= maxTick) {
 								state.pane = "detail";
-								const tick = sortedTicks[state.selectedTickIndex];
-								if (tick && !attemptCache.has(tick.tickId)) {
-									loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
-										attemptCache.set(tick.tickId, ev);
-										cachedWidth = undefined;
-										tui.requestRender();
-									});
-								}
-								cachedWidth = undefined;
-								tui.requestRender();
+								loadSelectedAttemptEvidence(sortedTicks);
+								invalidateAndRender();
 							}
 							return;
 						}
 
-						// Left/Right — switch between run records
-						if (data === "\x1b[D" || data === "h") {
+						if (matchesKey(data, Key.left) || data === "\x1b[D" || data === "h") {
 							if (state.selectedRecordIndex > 0) {
 								state.selectedRecordIndex--;
-								state.selectedTickIndex = 0;
+								state.selectedTickIndex = getSortedTicks().length > 0 ? 0 : -1;
 								state.pane = "list";
-								cachedWidth = undefined;
-								tui.requestRender();
+								invalidateAndRender();
 							}
 							return;
 						}
-						if (data === "\x1b[C" || data === "l") {
+						if (matchesKey(data, Key.right) || data === "\x1b[C" || data === "l") {
 							if (state.selectedRecordIndex < state.records.length - 1) {
 								state.selectedRecordIndex++;
-								state.selectedTickIndex = 0;
+								state.selectedTickIndex = getSortedTicks().length > 0 ? 0 : -1;
 								state.pane = "list";
-								cachedWidth = undefined;
-								tui.requestRender();
+								invalidateAndRender();
 							}
 							return;
 						}
 
-						// r — refresh
 						if (data === "r") {
 							loadDashboardState(ctx.cwd).then((newState) => {
-								state = { ...newState, selectedRecordIndex: state.selectedRecordIndex, selectedTickIndex: state.selectedTickIndex, pane: state.pane, detailTab: state.detailTab };
+								const nextRecordIndex = Math.min(state.selectedRecordIndex, Math.max(0, newState.records.length - 1));
+								state = { ...newState, selectedRecordIndex: nextRecordIndex, selectedTickIndex: state.selectedTickIndex, pane: state.pane, detailTab: state.detailTab };
+								const refreshedMaxTick = getSortedTicks().length - 1;
+								state.selectedTickIndex = Math.min(state.selectedTickIndex, refreshedMaxTick);
+								if (refreshedMaxTick < 0) state.selectedTickIndex = -1;
 								attemptCache.clear();
-								cachedWidth = undefined;
-								tui.requestRender();
+								invalidateAndRender();
 							});
 							return;
 						}

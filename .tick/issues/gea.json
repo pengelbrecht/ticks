@@ -1,0 +1,14 @@
+{
+  "id": "gea",
+  "title": "Fix tickflow-dashboard unresponsive TUI input",
+  "description": "Starting /tickflow-dashboard opens a custom TUI where keyboard input does not close or navigate. Esc and Ctrl-C should close the dashboard; arrows/vim keys should navigate; rendered lines should stay within terminal width.",
+  "status": "closed",
+  "priority": 1,
+  "type": "bug",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-09T15:49:42.087974Z",
+  "updated_at": "2026-05-09T15:51:22.916728Z",
+  "closed_at": "2026-05-09T15:51:22.916728Z",
+  "closed_reason": "Fixed tickflow-dashboard key handling to use pi-tui matchesKey for normalized keys, added Ctrl-C/q emergency exit, and truncated render lines to terminal width."
+}
