@@ -1439,7 +1439,7 @@ export default function tickflow(pi: ExtensionAPI) {
 			const { epicId, agents, dryRun, worktrees } = parseRunArgs(args);
 			if (!epicId) return ctx.ui.notify("Usage: /tickflow-run <epic-id> [--agents N] [--dry-run] [--worktrees]", "error");
 
-			let activeRunRecord: RunRecord | undefined;
+			let localRunRecord: RunRecord | undefined;
 			try {
 				const summaries: string[] = [];
 				const runContext = worktrees ? await createRunContext(pi, ctx.cwd, epicId) : undefined;
@@ -1453,7 +1453,9 @@ export default function tickflow(pi: ExtensionAPI) {
 				const runRecord = dryRun
 					? undefined
 					: await createRunRecord(ctx.cwd, runContext, epicId, allPlannedTicks, agents, worktrees);
+				localRunRecord = runRecord;
 				activeRunRecord = runRecord;
+				updateLiveWidget(ctx);
 
 				for (let guard = 0; guard < 50; guard++) {
 					const graph = await loadGraph(pi, ctx.cwd, epicId);
@@ -1483,7 +1485,10 @@ export default function tickflow(pi: ExtensionAPI) {
 					// Start wave in run record
 					const waveTaskIds = tasks.map((t) => t.id);
 					const currentWave = runRecord ? startWaveInRunRecord(runRecord, readyWave.wave, waveTaskIds) : undefined;
-					if (runRecord) await persistRunRecord(ctx.cwd, runRecord);
+					if (runRecord) {
+						await persistRunRecord(ctx.cwd, runRecord);
+						updateLiveWidget(ctx);
+					}
 
 					const outcomes = await mapWithConcurrencyLimit(tasks, agents, async (task) => {
 						let agentCwd = ctx.cwd;
@@ -1541,6 +1546,7 @@ export default function tickflow(pi: ExtensionAPI) {
 								attempts: outcome.evidence?.attempt ?? 1,
 							});
 							await persistRunRecord(ctx.cwd, runRecord);
+							updateLiveWidget(ctx);
 						}
 
 						if (handle && outcome.decision.action === "accept") {
@@ -1589,15 +1595,19 @@ export default function tickflow(pi: ExtensionAPI) {
 					},
 					{ deliverAs: "nextTurn" },
 				);
+				activeRunRecord = undefined;
+				updateLiveWidget(ctx);
 				ctx.ui.setStatus("tickflow", "tickflow: ready");
 				ctx.ui.notify(`Tickflow run finished for ${epicId}`, "success");
 			} catch (error) {
 				// Persist interrupted/failed run record
-				if (activeRunRecord && activeRunRecord.status === "running") {
+				if (localRunRecord && localRunRecord.status === "running") {
 					const reason = error instanceof Error ? error.message : String(error);
-					finalizeRunRecord(activeRunRecord, "interrupted", `Error: ${reason}`);
-					await persistRunRecord(ctx.cwd, activeRunRecord).catch(() => {});
+					finalizeRunRecord(localRunRecord, "interrupted", `Error: ${reason}`);
+					await persistRunRecord(ctx.cwd, localRunRecord).catch(() => {});
 				}
+				activeRunRecord = undefined;
+				updateLiveWidget(ctx);
 				ctx.ui.setStatus("tickflow", "tickflow: error");
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
@@ -1709,6 +1719,495 @@ export default function tickflow(pi: ExtensionAPI) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
 		},
+	});
+
+	// ============================================================================
+	// Dashboard TUI
+	// ============================================================================
+
+	type DashboardState = {
+		records: RunRecord[];
+		selectedRecordIndex: number;
+		selectedTickIndex: number;
+		pane: "list" | "detail";
+		detailTab: "overview" | "attempts";
+		awaitingTicks: Array<{ tickId: string; tick: Tick; runId: string; reason: string; note?: string }>;
+		escalatedTicks: Array<{ tickId: string; tick: Tick; runId: string; reason: string; note?: string }>;
+	};
+
+	function getTickStatusIcon(status: TickRunStatus | string | undefined): string {
+		switch (status) {
+			case "accepted": return "✓";
+			case "running": return "↻";
+			case "handoff": return "⏸";
+			case "escalated": return "⚠";
+			case "failed": return "✗";
+			case "repair": return "🔧";
+			case "continue": return "→";
+			case "pending": return "○";
+			default: return "·";
+		}
+	}
+
+	function getTickStatusColor(status: TickRunStatus | string | undefined): string {
+		switch (status) {
+			case "accepted": return "success";
+			case "running": return "accent";
+			case "handoff": return "warning";
+			case "escalated": return "error";
+			case "failed": return "error";
+			case "repair": return "warning";
+			case "continue": return "accent";
+			case "pending": return "dim";
+			default: return "muted";
+		}
+	}
+
+	async function loadDashboardState(cwd: string): Promise<DashboardState> {
+		const records = await listRunRecords(cwd);
+		const awaitingTicks: DashboardState["awaitingTicks"] = [];
+		const escalatedTicks: DashboardState["escalatedTicks"] = [];
+
+		for (const record of records) {
+			for (const [tickId, entry] of Object.entries(record.ticks)) {
+				if (entry.status === "handoff") {
+					awaitingTicks.push({ tickId, tick: { id: tickId, title: "" } as Tick, runId: record.runId, reason: entry.reason ?? "awaiting human", note: entry.decision });
+				}
+				if (entry.status === "escalated") {
+					escalatedTicks.push({ tickId, tick: { id: tickId, title: "" } as Tick, runId: record.runId, reason: entry.reason ?? "escalated", note: entry.decision });
+				}
+			}
+		}
+
+		// Try to enrich tick titles from issue files
+		const issuesDir = path.join(cwd, ".tick", "issues");
+		try {
+			for (const list of [awaitingTicks, escalatedTicks]) {
+				for (const item of list) {
+					try {
+						const data = JSON.parse(await fs.promises.readFile(path.join(issuesDir, `${item.tickId}.json`), "utf8"));
+						item.tick = data as Tick;
+					} catch { /* skip */ }
+				}
+			}
+		} catch { /* skip */ }
+
+		return {
+			records,
+			selectedRecordIndex: 0,
+			selectedTickIndex: -1,
+			pane: "list",
+			detailTab: "overview",
+			awaitingTicks,
+			escalatedTicks,
+		};
+	}
+
+	async function loadAttemptEvidence(cwd: string, tickId: string): Promise<AttemptEvidence[]> {
+		const dir = path.join(cwd, ".tick", "logs", "pi-runner", tickId);
+		try {
+			const names = await fs.promises.readdir(dir);
+			const attempts: AttemptEvidence[] = [];
+			for (const name of names.sort()) {
+				if (!name.match(/^attempt-\d+\.json$/)) continue;
+				try {
+					const data = JSON.parse(await fs.promises.readFile(path.join(dir, name), "utf8"));
+					attempts.push(data as AttemptEvidence);
+				} catch { /* skip */ }
+			}
+			return attempts;
+		} catch {
+			return [];
+		}
+	}
+
+	function renderDashboard(
+		state: DashboardState,
+		width: number,
+		theme: { fg: (color: string, text: string) => string; bold: (text: string) => string; bg: (color: string, text: string) => string },
+		attemptCache: Map<string, AttemptEvidence[]>,
+	): string[] {
+		const lines: string[] = [];
+		const record = state.records[state.selectedRecordIndex];
+		const hr = theme.fg("border", "─".repeat(Math.min(width, 80)));
+
+		// ── Needs Human Attention ──────────────────────────────────
+		const needsHuman = [...state.escalatedTicks, ...state.awaitingTicks];
+		if (needsHuman.length > 0) {
+			lines.push("");
+			lines.push(theme.fg("error", theme.bold(` ⚠  NEEDS HUMAN ATTENTION (${needsHuman.length})`)));
+			lines.push(hr);
+			for (const item of needsHuman) {
+				const isEscalation = state.escalatedTicks.includes(item);
+				const icon = isEscalation ? "⚠" : "⏸";
+				const color = isEscalation ? "error" : "warning";
+				const label = isEscalation ? "ESCALATED" : "AWAITING";
+				const title = item.tick.title || item.tickId;
+				lines.push(theme.fg(color, ` ${icon} ${label}`) + theme.fg("muted", ` ${item.tickId}`) + ` ${title}`);
+				if (item.reason) lines.push(theme.fg("dim", `   ${item.reason}`));
+				if (item.tick.awaiting) lines.push(theme.fg("dim", `   awaiting: ${item.tick.awaiting}`));
+			}
+			lines.push("");
+		}
+
+		if (!record) {
+			lines.push("");
+			lines.push(theme.fg("muted", " No run records found."));
+			lines.push(theme.fg("dim", " Run /tickflow-run <epic-id> to start."));
+			return lines;
+		}
+
+		// ── Run Header ─────────────────────────────────────────────
+		lines.push("");
+		const statusColor = record.status === "completed" ? "success" : record.status === "running" ? "accent" : record.status === "interrupted" ? "warning" : "error";
+		lines.push(theme.fg("accent", theme.bold(" Tickflow Dashboard")));
+		lines.push(hr);
+
+		// Run selector (if multiple)
+		if (state.records.length > 1) {
+			lines.push(theme.fg("dim", ` Run ${state.selectedRecordIndex + 1}/${state.records.length}`) + theme.fg("dim", "  (← → to switch)"));
+		}
+
+		const duration = record.finishedAt
+			? `${((new Date(record.finishedAt).getTime() - new Date(record.startedAt).getTime()) / 1000).toFixed(0)}s`
+			: "running";
+		lines.push(` Run:    ${theme.fg("muted", record.runId)}`);
+		lines.push(` Epic:   ${theme.fg("accent", record.epicId)}  Status: ${theme.fg(statusColor, record.status)}  Duration: ${theme.fg("muted", duration)}`);
+		lines.push(` Agents: ${record.agents}  Worktrees: ${record.worktreeMode ? "yes" : "no"}  Waves: ${record.waves.length}`);
+
+		// ── Summary Bar ─────────────────────────────────────────────
+		const ticks = Object.values(record.ticks);
+		const counts = {
+			accepted: ticks.filter((t) => t.status === "accepted").length,
+			running: ticks.filter((t) => t.status === "running").length,
+			handoff: ticks.filter((t) => t.status === "handoff").length,
+			escalated: ticks.filter((t) => t.status === "escalated" || t.status === "failed").length,
+			pending: ticks.filter((t) => t.status === "pending" || t.status === "continue" || t.status === "repair").length,
+		};
+		lines.push("");
+		const bar = [
+			theme.fg("success", `✓ ${counts.accepted}`),
+			theme.fg("accent", `↻ ${counts.running}`),
+			theme.fg("warning", `⏸ ${counts.handoff}`),
+			theme.fg("error", `⚠ ${counts.escalated}`),
+			theme.fg("dim", `○ ${counts.pending}`),
+		].join("  ");
+		lines.push(` ${bar}  (${ticks.length} total)`);
+		lines.push("");
+
+		// ── Tick List ──────────────────────────────────────────────
+		lines.push(hr);
+		if (state.pane === "list" || state.selectedTickIndex < 0) {
+			const sortedTicks = Object.values(record.ticks).sort((a, b) => {
+				const order: Record<string, number> = { escalated: 0, failed: 0, handoff: 1, running: 2, repair: 3, continue: 3, pending: 4, accepted: 5 };
+				return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+			});
+
+			for (let i = 0; i < sortedTicks.length; i++) {
+				const t = sortedTicks[i];
+				const icon = getTickStatusIcon(t.status);
+				const color = getTickStatusColor(t.status);
+				const selected = i === state.selectedTickIndex;
+				const prefix = selected ? theme.fg("accent", " ▸ ") : "   ";
+				const tickLine = `${prefix}${theme.fg(color, icon)} ${theme.fg("muted", t.tickId.padEnd(5))} ${t.status.padEnd(10)} ${theme.fg("dim", `att:${t.attempts}`)}${t.reason ? theme.fg("dim", ` ${t.reason.slice(0, 40)}`) : ""}`;
+				lines.push(selected ? theme.bg("selectedBg", tickLine) : tickLine);
+			}
+		} else {
+			// ── Detail Pane ───────────────────────────────────────────
+			const sortedTicks = Object.values(record.ticks).sort((a, b) => {
+				const order: Record<string, number> = { escalated: 0, failed: 0, handoff: 1, running: 2, repair: 3, continue: 3, pending: 4, accepted: 5 };
+				return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+			});
+			const tick = sortedTicks[state.selectedTickIndex];
+			if (tick) {
+				lines.push(theme.fg("accent", theme.bold(` ${tick.tickId}`)) + theme.fg("muted", `  ${tick.status}  attempts: ${tick.attempts}`));
+				lines.push(hr);
+
+				if (tick.decision) lines.push(` Decision: ${theme.fg(getTickStatusColor(tick.status), tick.decision)}`);
+				if (tick.reason) lines.push(` Reason:   ${tick.reason}`);
+				if (tick.worktreePath) lines.push(` Worktree: ${theme.fg("dim", tick.worktreePath)}`);
+				if (tick.artifactPath) lines.push(` Artifact: ${theme.fg("dim", tick.artifactPath)}`);
+
+				// Show attempt evidence if loaded
+				const attempts = attemptCache.get(tick.tickId);
+				if (attempts && attempts.length > 0) {
+					lines.push("");
+					lines.push(theme.fg("accent", ` Attempts (${attempts.length})`));
+					for (const att of attempts) {
+						const dur = ((new Date(att.finishedAt).getTime() - new Date(att.startedAt).getTime()) / 1000).toFixed(1);
+						const vPass = att.verifiers.filter((v) => v.exitCode === 0).length;
+						const vFail = att.verifiers.filter((v) => v.exitCode !== 0).length;
+						const changed = att.git.changedFiles.length;
+						lines.push(`  #${att.attempt} ${theme.fg("dim", `${dur}s`)} files:${changed} verifiers:${theme.fg("success", `${vPass}✓`)}${vFail ? theme.fg("error", `${vFail}✗`) : ""} exit:${att.subagent.exitCode}`);
+
+						// Show signals
+						for (const sig of att.signals) {
+							lines.push(theme.fg("warning", `    signal: ${sig.type}`) + (sig.context ? theme.fg("dim", ` ${sig.context.slice(0, 50)}`) : ""));
+						}
+
+						// Show failed verifiers
+						for (const v of att.verifiers.filter((v) => v.exitCode !== 0)) {
+							lines.push(theme.fg("error", `    ✗ ${v.run}`) + theme.fg("dim", ` (exit ${v.exitCode})`));
+						}
+					}
+				} else {
+					lines.push("");
+					lines.push(theme.fg("dim", " Loading attempt evidence..."));
+				}
+			}
+		}
+
+		// ── Help ─────────────────────────────────────────────────────
+		lines.push("");
+		lines.push(hr);
+		const helpParts = [
+			theme.fg("dim", "↑↓") + " navigate",
+			theme.fg("dim", "enter") + " inspect",
+			theme.fg("dim", "esc") + (state.pane === "detail" ? " back" : " close"),
+		];
+		if (state.records.length > 1) helpParts.push(theme.fg("dim", "←→") + " switch run");
+		lines.push(" " + helpParts.join("  "));
+		lines.push("");
+
+		return lines;
+	}
+
+	pi.registerCommand("tickflow-dashboard", {
+		description: "Interactive Tickflow dashboard — view runs, ticks, escalations, and awaiting-human items",
+		handler: async (args, ctx) => {
+			if (!ctx.hasUI) return ctx.ui.notify("Dashboard requires interactive mode", "error");
+
+			let state = await loadDashboardState(ctx.cwd);
+			const attemptCache = new Map<string, AttemptEvidence[]>();
+
+			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+				let cachedWidth: number | undefined;
+				let cachedLines: string[] | undefined;
+
+				function getSortedTicks(): TickRunEntry[] {
+					const record = state.records[state.selectedRecordIndex];
+					if (!record) return [];
+					return Object.values(record.ticks).sort((a, b) => {
+						const order: Record<string, number> = { escalated: 0, failed: 0, handoff: 1, running: 2, repair: 3, continue: 3, pending: 4, accepted: 5 };
+						return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+					});
+				}
+
+				return {
+					render(width: number): string[] {
+						if (cachedLines && cachedWidth === width) return cachedLines;
+						cachedLines = renderDashboard(state, width, theme, attemptCache);
+						cachedWidth = width;
+						return cachedLines;
+					},
+					invalidate() {
+						cachedWidth = undefined;
+						cachedLines = undefined;
+					},
+					handleInput(data: string) {
+						const sortedTicks = getSortedTicks();
+						const maxTick = sortedTicks.length - 1;
+
+						// Escape
+						if (data === "\x1b" || data === "\x1b\x1b") {
+							if (state.pane === "detail") {
+								state.pane = "list";
+								cachedWidth = undefined;
+								tui.requestRender();
+							} else {
+								done();
+							}
+							return;
+						}
+
+						// q to quit
+						if (data === "q") {
+							done();
+							return;
+						}
+
+						// Arrow up
+						if (data === "\x1b[A" || data === "k") {
+							if (state.selectedTickIndex > 0) {
+								state.selectedTickIndex--;
+								if (state.pane === "detail") {
+									// Lazy-load evidence for new selection
+									const tick = sortedTicks[state.selectedTickIndex];
+									if (tick && !attemptCache.has(tick.tickId)) {
+										loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
+											attemptCache.set(tick.tickId, ev);
+											cachedWidth = undefined;
+											tui.requestRender();
+										});
+									}
+								}
+								cachedWidth = undefined;
+								tui.requestRender();
+							} else if (state.selectedTickIndex < 0) {
+								state.selectedTickIndex = 0;
+							}
+							return;
+						}
+
+						// Arrow down
+						if (data === "\x1b[B" || data === "j") {
+							if (state.selectedTickIndex < maxTick) {
+								state.selectedTickIndex++;
+								if (state.pane === "detail") {
+									const tick = sortedTicks[state.selectedTickIndex];
+									if (tick && !attemptCache.has(tick.tickId)) {
+										loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
+											attemptCache.set(tick.tickId, ev);
+											cachedWidth = undefined;
+											tui.requestRender();
+										});
+									}
+								}
+								cachedWidth = undefined;
+								tui.requestRender();
+							}
+							return;
+						}
+
+						// Enter — drill into tick detail
+						if (data === "\r" || data === "\n") {
+							if (state.selectedTickIndex >= 0 && state.selectedTickIndex <= maxTick) {
+								state.pane = "detail";
+								const tick = sortedTicks[state.selectedTickIndex];
+								if (tick && !attemptCache.has(tick.tickId)) {
+									loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
+										attemptCache.set(tick.tickId, ev);
+										cachedWidth = undefined;
+										tui.requestRender();
+									});
+								}
+								cachedWidth = undefined;
+								tui.requestRender();
+							}
+							return;
+						}
+
+						// Left/Right — switch between run records
+						if (data === "\x1b[D" || data === "h") {
+							if (state.selectedRecordIndex > 0) {
+								state.selectedRecordIndex--;
+								state.selectedTickIndex = 0;
+								state.pane = "list";
+								cachedWidth = undefined;
+								tui.requestRender();
+							}
+							return;
+						}
+						if (data === "\x1b[C" || data === "l") {
+							if (state.selectedRecordIndex < state.records.length - 1) {
+								state.selectedRecordIndex++;
+								state.selectedTickIndex = 0;
+								state.pane = "list";
+								cachedWidth = undefined;
+								tui.requestRender();
+							}
+							return;
+						}
+
+						// r — refresh
+						if (data === "r") {
+							loadDashboardState(ctx.cwd).then((newState) => {
+								state = { ...newState, selectedRecordIndex: state.selectedRecordIndex, selectedTickIndex: state.selectedTickIndex, pane: state.pane, detailTab: state.detailTab };
+								attemptCache.clear();
+								cachedWidth = undefined;
+								tui.requestRender();
+							});
+							return;
+						}
+					},
+				};
+			});
+		},
+	});
+
+	// ============================================================================
+	// Live Widget During Runs
+	// ============================================================================
+
+	let activeRunRecord: RunRecord | undefined;
+
+	/** Update the live widget with current run state + human attention alerts */
+	function updateLiveWidget(ctx: { ui: { setWidget: (id: string, content: any, options?: any) => void; theme: any } }) {
+		if (!activeRunRecord) {
+			ctx.ui.setWidget("tickflow", undefined);
+			return;
+		}
+
+		ctx.ui.setWidget("tickflow", (_tui: any, theme: any) => {
+			const record = activeRunRecord!;
+			const ticks = Object.values(record.ticks);
+			const accepted = ticks.filter((t) => t.status === "accepted").length;
+			const running = ticks.filter((t) => t.status === "running").length;
+			const handoff = ticks.filter((t) => t.status === "handoff").length;
+			const escalated = ticks.filter((t) => t.status === "escalated" || t.status === "failed").length;
+			const needsHuman = handoff + escalated;
+
+			const lines: string[] = [];
+			const bar = [
+				theme.fg("accent", theme.bold("tickflow")),
+				theme.fg("muted", record.epicId),
+				`wave ${record.waves.length}`,
+				theme.fg("success", `${accepted}✓`),
+				theme.fg("accent", `${running}↻`),
+			].join(" ");
+			lines.push(bar);
+
+			if (needsHuman > 0) {
+				const parts: string[] = [];
+				if (escalated > 0) parts.push(theme.fg("error", `${escalated} escalated`));
+				if (handoff > 0) parts.push(theme.fg("warning", `${handoff} awaiting human`));
+				lines.push(theme.fg("error", "⚠ ") + parts.join(", ") + theme.fg("dim", " — /tickflow-dashboard to inspect"));
+			}
+
+			return {
+				render: () => lines,
+				invalidate: () => {},
+			};
+		});
+	}
+
+	// ============================================================================
+	// Custom Message Renderer
+	// ============================================================================
+
+	pi.registerMessageRenderer("tickflow", (message, options, theme) => {
+		const content = typeof message.content === "string" ? message.content : "";
+		const lines = content.split("\n");
+		const rendered: string[] = [];
+
+		for (const line of lines) {
+			if (line.startsWith("# ")) {
+				rendered.push(theme.fg("accent", theme.bold(line)));
+			} else if (line.startsWith("## ")) {
+				rendered.push(theme.fg("accent", line));
+			} else if (/^\s*[✓✗⏸↻⚠○🔧→]/.test(line)) {
+				// Status icon lines — colorize based on icon
+				if (line.includes("✓")) rendered.push(theme.fg("success", line));
+				else if (line.includes("✗")) rendered.push(theme.fg("error", line));
+				else if (line.includes("⚠")) rendered.push(theme.fg("error", line));
+				else if (line.includes("⏸")) rendered.push(theme.fg("warning", line));
+				else if (line.includes("↻")) rendered.push(theme.fg("accent", line));
+				else rendered.push(theme.fg("muted", line));
+			} else if (line.match(/^\s*-\s/)) {
+				rendered.push(theme.fg("dim", line));
+			} else if (line.match(/^[─━]+$/)) {
+				rendered.push(theme.fg("border", line));
+			} else {
+				rendered.push(line);
+			}
+		}
+
+		return {
+			render(width: number): string[] {
+				return rendered;
+			},
+			invalidate() {},
+		};
 	});
 
 	pi.on("session_start", (_event, ctx) => {
