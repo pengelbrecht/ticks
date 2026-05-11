@@ -243,3 +243,7 @@
 {"ts":"2026-05-11T14:25:04.905489Z","tick":"qq2","action":"awaiting","actor":"peter@engelbrecht.dk","epic":"weo","data":{"awaiting":"approval","title":"Dogfood: define human approval drill"}}
 {"ts":"2026-05-11T14:25:05.441013Z","tick":"zy4","action":"close","actor":"peter@engelbrecht.dk","epic":"weo","data":{"reason":"Merged Tickflow worktree tf/run-weo-20260511t142140z-9658/zy4 (cd8b0bfa)","title":"Dogfood: create run results template"}}
 {"ts":"2026-05-11T14:26:19.65534Z","tick":"o3k","action":"close","actor":"peter@engelbrecht.dk","data":{"reason":"Fixed persistRunRecord to serialize writes per run record and use unique temporary paths; go test ./... passes","title":"Fix concurrent Tickflow run-record persistence"}}
+{"ts":"2026-05-11T15:51:19.438796Z","tick":"ynr","action":"close","actor":"peter@engelbrecht.dk","epic":"weo","data":{"title":"Dogfood: author parallel run overview"}}
+{"ts":"2026-05-11T15:51:19.454296Z","tick":"qq2","action":"close","actor":"peter@engelbrecht.dk","epic":"weo","data":{"title":"Dogfood: define human approval drill"}}
+{"ts":"2026-05-11T15:52:03.475632Z","tick":"a0l","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Add approval actions to Tickflow dashboard","type":"task"}}
+{"ts":"2026-05-11T15:56:37.661182Z","tick":"a0l","action":"close","actor":"peter@engelbrecht.dk","data":{"reason":"Added dashboard detail review fields plus detail-only approve/reject keys; approved current ynr and qq2 gates; go test ./... passes","title":"Add approval actions to Tickflow dashboard"}}

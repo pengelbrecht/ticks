@@ -3,15 +3,16 @@
   "title": "Dogfood: author parallel run overview",
   "description": "Create docs/dogfood/tickflow-parallel-approvals/overview.md. Describe the purpose of this dogfood run, the expected parallel wave, why worktrees are enabled, and how human approval gates should appear in the dashboard. Include headings: # Tickflow Parallel Approvals Dogfood, ## Goals, ## Run Command, ## Expected Dashboard Signals, ## Approval Gates.",
   "notes": "2026-05-11 14:24 - Work complete, awaiting approval",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "weo",
-  "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/overview.md && grep -q 'Expected Dashboard Signals' docs/dogfood/tickflow-parallel-approvals/overview.md",
+  "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/overview.md \u0026\u0026 grep -q 'Expected Dashboard Signals' docs/dogfood/tickflow-parallel-approvals/overview.md",
   "requires": "approval",
-  "awaiting": "approval",
+  "verdict": "approved",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-11T14:17:22.131637Z",
-  "updated_at": "2026-05-11T14:24:04.905192Z"
+  "updated_at": "2026-05-11T15:51:19.438322Z",
+  "closed_at": "2026-05-11T17:51:19.438322+02:00"
 }

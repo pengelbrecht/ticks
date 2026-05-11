@@ -18,6 +18,8 @@ type Tick = {
 	acceptance_criteria?: string;
 	requires?: RequiresGate;
 	awaiting?: string;
+	verdict?: string;
+	notes?: string;
 };
 
 type Verifier = {
@@ -1760,6 +1762,7 @@ export default function tickflow(pi: ExtensionAPI) {
 		detailTab: "overview" | "attempts";
 		awaitingTicks: Array<{ tickId: string; tick: Tick; runId: string; reason: string; note?: string }>;
 		escalatedTicks: Array<{ tickId: string; tick: Tick; runId: string; reason: string; note?: string }>;
+		tickDetails: Record<string, Tick>;
 		loading?: boolean;
 		error?: string;
 		updatedAt?: string;
@@ -1780,6 +1783,7 @@ export default function tickflow(pi: ExtensionAPI) {
 			detailTab: "overview",
 			awaitingTicks: [],
 			escalatedTicks: [],
+			tickDetails: {},
 			loading,
 			updatedAt: new Date().toISOString(),
 		};
@@ -1879,30 +1883,34 @@ export default function tickflow(pi: ExtensionAPI) {
 		const records = await listRunRecords(cwd);
 		const awaitingTicks: DashboardState["awaitingTicks"] = [];
 		const escalatedTicks: DashboardState["escalatedTicks"] = [];
+		const tickDetails: Record<string, Tick> = {};
+		const tickIds = new Set<string>();
 
 		for (const record of records) {
-			for (const [tickId, entry] of Object.entries(record.ticks)) {
-				if (entry.status === "handoff") {
-					awaitingTicks.push({ tickId, tick: { id: tickId, title: "" } as Tick, runId: record.runId, reason: entry.reason ?? "awaiting human", note: entry.decision });
-				}
-				if (entry.status === "escalated") {
-					escalatedTicks.push({ tickId, tick: { id: tickId, title: "" } as Tick, runId: record.runId, reason: entry.reason ?? "escalated", note: entry.decision });
-				}
+			for (const tickId of Object.keys(record.ticks)) tickIds.add(tickId);
+		}
+
+		const issuesDir = path.join(cwd, ".tick", "issues");
+		for (const tickId of tickIds) {
+			try {
+				const data = JSON.parse(await fs.promises.readFile(path.join(issuesDir, `${tickId}.json`), "utf8"));
+				tickDetails[tickId] = data as Tick;
+			} catch {
+				// Missing/malformed issue files should not break dashboard rendering.
 			}
 		}
 
-		// Try to enrich tick titles from issue files
-		const issuesDir = path.join(cwd, ".tick", "issues");
-		try {
-			for (const list of [awaitingTicks, escalatedTicks]) {
-				for (const item of list) {
-					try {
-						const data = JSON.parse(await fs.promises.readFile(path.join(issuesDir, `${item.tickId}.json`), "utf8"));
-						item.tick = data as Tick;
-					} catch { /* skip */ }
+		for (const record of records) {
+			for (const [tickId, entry] of Object.entries(record.ticks)) {
+				const tick = tickDetails[tickId] ?? ({ id: tickId, title: "" } as Tick);
+				if (entry.status === "handoff" && tick.awaiting) {
+					awaitingTicks.push({ tickId, tick, runId: record.runId, reason: entry.reason ?? `awaiting ${tick.awaiting}`, note: entry.decision });
+				}
+				if (entry.status === "escalated") {
+					escalatedTicks.push({ tickId, tick, runId: record.runId, reason: entry.reason ?? "escalated", note: entry.decision });
 				}
 			}
-		} catch { /* skip */ }
+		}
 
 		return {
 			records,
@@ -1912,6 +1920,7 @@ export default function tickflow(pi: ExtensionAPI) {
 			detailTab: "overview",
 			awaitingTicks,
 			escalatedTicks,
+			tickDetails,
 		};
 	}
 
@@ -1931,6 +1940,30 @@ export default function tickflow(pi: ExtensionAPI) {
 		} catch {
 			return [];
 		}
+	}
+
+	function pushWrapped(lines: string[], label: string, text: string | undefined, theme: { fg: (color: string, text: string) => string }, width: number): void {
+		if (!text) return;
+		const prefix = label ? ` ${label}: ` : " ";
+		const available = Math.max(20, width - prefix.length - 2);
+		const paragraphs = text.split("\n").map((p) => p.trim()).filter(Boolean);
+		for (const paragraph of paragraphs) {
+			const words = paragraph.split(/\s+/);
+			let line = "";
+			for (const word of words) {
+				if ((line ? `${line} ${word}` : word).length > available) {
+					lines.push(theme.fg("dim", prefix) + line);
+					line = word;
+				} else {
+					line = line ? `${line} ${word}` : word;
+				}
+			}
+			if (line) lines.push(theme.fg("dim", prefix) + line);
+		}
+	}
+
+	function isApprovableAwaiting(awaiting: string | undefined): boolean {
+		return awaiting === "work" || awaiting === "approval" || awaiting === "review" || awaiting === "content";
 	}
 
 	function renderDashboard(
@@ -2051,13 +2084,29 @@ export default function tickflow(pi: ExtensionAPI) {
 			});
 			const tick = sortedTicks[state.selectedTickIndex];
 			if (tick) {
+				const tickDetail = state.tickDetails[tick.tickId];
 				lines.push(theme.fg("accent", theme.bold(` ${tick.tickId}`)) + theme.fg("muted", `  ${tick.status}  attempts: ${tick.attempts}`));
 				lines.push(hr);
 
+				if (tickDetail?.title) lines.push(` Title:    ${tickDetail.title}`);
+				if (tickDetail?.status) lines.push(` Tick:     ${theme.fg(getTickStatusColor(tickDetail.status), tickDetail.status)}${tickDetail.awaiting ? theme.fg("warning", ` awaiting=${tickDetail.awaiting}`) : ""}${tickDetail.requires ? theme.fg("muted", ` requires=${tickDetail.requires}`) : ""}${tickDetail.verdict ? theme.fg("muted", ` verdict=${tickDetail.verdict}`) : ""}`);
 				if (tick.decision) lines.push(` Decision: ${theme.fg(getTickStatusColor(tick.status), tick.decision)}`);
 				if (tick.reason) lines.push(` Reason:   ${tick.reason}`);
 				if (tick.worktreePath) lines.push(` Worktree: ${theme.fg("dim", tick.worktreePath)}`);
 				if (tick.artifactPath) lines.push(` Artifact: ${theme.fg("dim", tick.artifactPath)}`);
+				pushWrapped(lines, "Description", tickDetail?.description, theme, width);
+				pushWrapped(lines, "Acceptance", tickDetail?.acceptance_criteria, theme, width);
+				pushWrapped(lines, "Notes", tickDetail?.notes, theme, width);
+
+				if (tickDetail?.awaiting) {
+					lines.push("");
+					lines.push(theme.fg("warning", ` Awaiting ${tickDetail.awaiting}. Review the details above and evidence below before acting.`));
+					if (isApprovableAwaiting(tickDetail.awaiting)) {
+						lines.push(theme.fg("dim", " Press 'a' to approve/close, or 'x' to reject and return to the agent queue."));
+					} else {
+						lines.push(theme.fg("dim", " This awaiting type returns to the agent queue when approved; use CLI for now."));
+					}
+				}
 
 				// Show attempt evidence if loaded
 				const attempts = attemptCache.get(tick.tickId);
@@ -2096,7 +2145,19 @@ export default function tickflow(pi: ExtensionAPI) {
 			theme.fg("dim", "enter") + " inspect",
 			theme.fg("dim", "esc") + (state.pane === "detail" ? " back" : " close"),
 		];
+		if (state.pane === "detail" && record) {
+			const selected = Object.values(record.ticks).sort((a, b) => {
+				const order: Record<string, number> = { escalated: 0, failed: 0, handoff: 1, running: 2, repair: 3, continue: 3, pending: 4, accepted: 5 };
+				return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+			})[state.selectedTickIndex];
+			const awaiting = selected ? state.tickDetails[selected.tickId]?.awaiting : undefined;
+			if (isApprovableAwaiting(awaiting)) {
+				helpParts.push(theme.fg("dim", "a") + " approve");
+				helpParts.push(theme.fg("dim", "x") + " reject");
+			}
+		}
 		if (state.records.length > 1) helpParts.push(theme.fg("dim", "←→") + " switch run");
+		helpParts.push(theme.fg("dim", "r") + " refresh");
 		helpParts.push(theme.fg("dim", "q/ctrl-c") + " close");
 		lines.push(" " + helpParts.join("  "));
 		lines.push("");
@@ -2225,6 +2286,37 @@ export default function tickflow(pi: ExtensionAPI) {
 
 						const sortedTicks = getSortedTicks();
 						const maxTick = sortedTicks.length - 1;
+						const selectedTick = sortedTicks[state.selectedTickIndex];
+						const selectedDetail = selectedTick ? state.tickDetails[selectedTick.tickId] : undefined;
+
+						const actOnSelectedAwaitingTick = (action: "approve" | "reject") => {
+							if (state.pane !== "detail" || !selectedTick || !selectedDetail?.awaiting || !isApprovableAwaiting(selectedDetail.awaiting)) {
+								ctx.ui.notify("Open an awaiting approval/review/content tick detail before approving or rejecting", "warning");
+								return;
+							}
+							const args = action === "approve"
+								? ["approve", selectedTick.tickId]
+								: ["reject", selectedTick.tickId, "Rejected from Tickflow dashboard after reviewing details and evidence."];
+							dashboardDebug(options.debugPath, `tick:${action}:start`, { tickId: selectedTick.tickId, awaiting: selectedDetail.awaiting });
+							ctx.ui.notify(`${action === "approve" ? "Approving" : "Rejecting"} ${selectedTick.tickId}...`, "info");
+							pi.exec("tk", args, { cwd: ctx.cwd, timeout: 10_000 }).then((result) => {
+								if (closed) return;
+								if (result.code !== 0) {
+									const message = result.stderr || result.stdout || `tk ${action} ${selectedTick.tickId} failed`;
+									dashboardDebug(options.debugPath, `tick:${action}:error`, { tickId: selectedTick.tickId, message });
+									ctx.ui.notify(message, "error");
+									return;
+								}
+								dashboardDebug(options.debugPath, `tick:${action}:done`, { tickId: selectedTick.tickId });
+								ctx.ui.notify(`${selectedTick.tickId} ${action === "approve" ? "approved" : "rejected"}`, "success");
+								refreshState(`tick-${action}`);
+							}).catch((error) => {
+								if (closed) return;
+								const message = error instanceof Error ? error.message : String(error);
+								dashboardDebug(options.debugPath, `tick:${action}:error`, { tickId: selectedTick.tickId, message });
+								ctx.ui.notify(message, "error");
+							});
+						};
 
 						// Always provide an emergency exit from the custom TUI. Pi normalizes
 						// many keys (for example "escape"/"ctrl+c"), so use matchesKey()
@@ -2241,6 +2333,15 @@ export default function tickflow(pi: ExtensionAPI) {
 								} else {
 									safeDone("escape close");
 								}
+								return;
+							}
+
+							if (data === "a") {
+								actOnSelectedAwaitingTick("approve");
+								return;
+							}
+							if (data === "x") {
+								actOnSelectedAwaitingTick("reject");
 								return;
 							}
 

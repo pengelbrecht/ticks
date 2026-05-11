@@ -202,6 +202,12 @@ This allows safe recovery from interrupted `--worktrees` runs. Work in existing 
 
 The interactive dashboard opens immediately with a loading state and loads run records in the background so `q`, `Esc`, and `Ctrl-C` can close it even if state loading becomes slow.
 
+Approval actions are available from the detail pane only, so the user reviews the tick before acting:
+
+- `Enter` opens the selected tick detail, including title, status, awaiting/requires/verdict, description, acceptance criteria, notes, worktree/artifact paths, and attempt evidence.
+- `a` approves a selected awaiting `work`, `approval`, `review`, or `content` tick.
+- `x` rejects a selected awaiting `work`, `approval`, `review`, or `content` tick with a dashboard-generated rejection note and returns it to the agent queue.
+
 ## MVP limitations
 
 - Shared workspace mode can conflict when parallel ticks edit the same files; prefer `--worktrees` for parallel implementation work.
