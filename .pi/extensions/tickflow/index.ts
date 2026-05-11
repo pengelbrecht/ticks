@@ -20,6 +20,7 @@ type Tick = {
 	awaiting?: string;
 	verdict?: string;
 	notes?: string;
+	updated_at?: string;
 };
 
 type Verifier = {
@@ -1891,25 +1892,77 @@ export default function tickflow(pi: ExtensionAPI) {
 		}
 
 		const issuesDir = path.join(cwd, ".tick", "issues");
-		for (const tickId of tickIds) {
-			try {
-				const data = JSON.parse(await fs.promises.readFile(path.join(issuesDir, `${tickId}.json`), "utf8"));
-				tickDetails[tickId] = data as Tick;
-			} catch {
-				// Missing/malformed issue files should not break dashboard rendering.
+		try {
+			for (const file of await fs.promises.readdir(issuesDir)) {
+				if (!file.endsWith(".json")) continue;
+				try {
+					const data = JSON.parse(await fs.promises.readFile(path.join(issuesDir, file), "utf8")) as Tick;
+					if (!data.id) continue;
+					if (tickIds.has(data.id) || data.awaiting) {
+						tickDetails[data.id] = data;
+					}
+				} catch {
+					// Missing/malformed issue files should not break dashboard rendering.
+				}
 			}
+		} catch {
+			// No issues directory yet.
 		}
 
+		const seenAwaiting = new Set<string>();
+		const seenEscalated = new Set<string>();
 		for (const record of records) {
 			for (const [tickId, entry] of Object.entries(record.ticks)) {
 				const tick = tickDetails[tickId] ?? ({ id: tickId, title: "" } as Tick);
-				if (entry.status === "handoff" && tick.awaiting) {
+				if (entry.status === "handoff" && tick.awaiting && tick.status !== "closed") {
 					awaitingTicks.push({ tickId, tick, runId: record.runId, reason: entry.reason ?? `awaiting ${tick.awaiting}`, note: entry.decision });
+					seenAwaiting.add(tickId);
 				}
 				if (entry.status === "escalated") {
 					escalatedTicks.push({ tickId, tick, runId: record.runId, reason: entry.reason ?? "escalated", note: entry.decision });
+					seenEscalated.add(tickId);
 				}
 			}
+		}
+
+		// Also surface human-awaiting ticks that are not part of any Tickflow run
+		// record, so the dashboard can be used as a general approval queue.
+		for (const tick of Object.values(tickDetails)) {
+			if (!tick.awaiting || tick.status === "closed" || seenAwaiting.has(tick.id) || seenEscalated.has(tick.id)) continue;
+			if (tick.awaiting === "escalation") {
+				escalatedTicks.push({ tickId: tick.id, tick, runId: "human-attention", reason: "awaiting escalation" });
+				seenEscalated.add(tick.id);
+			} else {
+				awaitingTicks.push({ tickId: tick.id, tick, runId: "human-attention", reason: `awaiting ${tick.awaiting}` });
+				seenAwaiting.add(tick.id);
+			}
+		}
+
+		if (awaitingTicks.length || escalatedTicks.length) {
+			const now = new Date().toISOString();
+			const attentionRecord: RunRecord = {
+				runId: "human-attention",
+				repoIdentity: cwd,
+				repoSlug: path.basename(cwd),
+				epicId: "Human attention",
+				status: "running",
+				plannedTicks: [...escalatedTicks.map((t) => t.tickId), ...awaitingTicks.map((t) => t.tickId)],
+				worktreePaths: {},
+				leases: {},
+				startedAt: now,
+				updatedAt: now,
+				agents: 0,
+				worktreeMode: false,
+				waves: [],
+				ticks: {},
+			};
+			for (const item of escalatedTicks) {
+				attentionRecord.ticks[item.tickId] = { tickId: item.tickId, status: "escalated", decision: "handoff", reason: item.reason, attempts: 0, updatedAt: item.tick.updated_at ?? now } as TickRunEntry;
+			}
+			for (const item of awaitingTicks) {
+				attentionRecord.ticks[item.tickId] = { tickId: item.tickId, status: "handoff", decision: "handoff", reason: item.reason, attempts: 0, updatedAt: item.tick.updated_at ?? now } as TickRunEntry;
+			}
+			records.unshift(attentionRecord);
 		}
 
 		return {
@@ -1964,6 +2017,10 @@ export default function tickflow(pi: ExtensionAPI) {
 
 	function isApprovableAwaiting(awaiting: string | undefined): boolean {
 		return awaiting === "work" || awaiting === "approval" || awaiting === "review" || awaiting === "content";
+	}
+
+	function isActionableAwaiting(tick: Tick | undefined): boolean {
+		return Boolean(tick && tick.status !== "closed" && isApprovableAwaiting(tick.awaiting));
 	}
 
 	function renderDashboard(
@@ -2101,8 +2158,10 @@ export default function tickflow(pi: ExtensionAPI) {
 				if (tickDetail?.awaiting) {
 					lines.push("");
 					lines.push(theme.fg("warning", ` Awaiting ${tickDetail.awaiting}. Review the details above and evidence below before acting.`));
-					if (isApprovableAwaiting(tickDetail.awaiting)) {
+					if (isActionableAwaiting(tickDetail)) {
 						lines.push(theme.fg("dim", " Press 'a' to approve/close, or 'x' to reject and return to the agent queue."));
+					} else if (tickDetail.status === "closed") {
+						lines.push(theme.fg("dim", " This tick is already closed; approval/rejection keys are disabled."));
 					} else {
 						lines.push(theme.fg("dim", " This awaiting type returns to the agent queue when approved; use CLI for now."));
 					}
@@ -2150,10 +2209,12 @@ export default function tickflow(pi: ExtensionAPI) {
 				const order: Record<string, number> = { escalated: 0, failed: 0, handoff: 1, running: 2, repair: 3, continue: 3, pending: 4, accepted: 5 };
 				return (order[a.status] ?? 9) - (order[b.status] ?? 9);
 			})[state.selectedTickIndex];
-			const awaiting = selected ? state.tickDetails[selected.tickId]?.awaiting : undefined;
-			if (isApprovableAwaiting(awaiting)) {
+			const detail = selected ? state.tickDetails[selected.tickId] : undefined;
+			if (isActionableAwaiting(detail)) {
 				helpParts.push(theme.fg("dim", "a") + " approve");
 				helpParts.push(theme.fg("dim", "x") + " reject");
+			} else {
+				helpParts.push(theme.fg("dim", "a/x") + " awaiting only");
 			}
 		}
 		if (state.records.length > 1) helpParts.push(theme.fg("dim", "←→") + " switch run");
@@ -2290,8 +2351,19 @@ export default function tickflow(pi: ExtensionAPI) {
 						const selectedDetail = selectedTick ? state.tickDetails[selectedTick.tickId] : undefined;
 
 						const actOnSelectedAwaitingTick = (action: "approve" | "reject") => {
-							if (state.pane !== "detail" || !selectedTick || !selectedDetail?.awaiting || !isApprovableAwaiting(selectedDetail.awaiting)) {
-								ctx.ui.notify("Open an awaiting approval/review/content tick detail before approving or rejecting", "warning");
+							if (!selectedTick || !selectedDetail?.awaiting) {
+								ctx.ui.notify("Select a tick that is awaiting human action first", "warning");
+								return;
+							}
+							if (state.pane !== "detail") {
+								state.pane = "detail";
+								loadSelectedAttemptEvidence(sortedTicks);
+								invalidateAndRender();
+								ctx.ui.notify(`Review ${selectedTick.tickId} details, then press '${action === "approve" ? "a" : "x"}' again to ${action}`, "warning");
+								return;
+							}
+							if (!isActionableAwaiting(selectedDetail)) {
+								ctx.ui.notify(selectedDetail.status === "closed" ? `${selectedTick.tickId} is already closed` : `${selectedTick.tickId} is awaiting ${selectedDetail.awaiting}; use CLI for this awaiting type`, "warning");
 								return;
 							}
 							const args = action === "approve"

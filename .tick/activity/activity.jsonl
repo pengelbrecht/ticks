@@ -247,3 +247,7 @@
 {"ts":"2026-05-11T15:51:19.454296Z","tick":"qq2","action":"close","actor":"peter@engelbrecht.dk","epic":"weo","data":{"title":"Dogfood: define human approval drill"}}
 {"ts":"2026-05-11T15:52:03.475632Z","tick":"a0l","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Add approval actions to Tickflow dashboard","type":"task"}}
 {"ts":"2026-05-11T15:56:37.661182Z","tick":"a0l","action":"close","actor":"peter@engelbrecht.dk","data":{"reason":"Added dashboard detail review fields plus detail-only approve/reject keys; approved current ynr and qq2 gates; go test ./... passes","title":"Add approval actions to Tickflow dashboard"}}
+{"ts":"2026-05-11T16:34:26.965491Z","tick":"kqe","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Dashboard approval key smoke test","type":"task"}}
+{"ts":"2026-05-11T16:34:41.609326Z","tick":"kqe","action":"awaiting","actor":"peter@engelbrecht.dk","data":{"awaiting":"approval","title":"Dashboard approval key smoke test"}}
+{"ts":"2026-05-11T16:37:24.242913Z","tick":"08c","action":"create","actor":"peter@engelbrecht.dk","data":{"priority":2,"title":"Fix dashboard approval TUI action discoverability","type":"task"}}
+{"ts":"2026-05-11T16:37:34.470872Z","tick":"08c","action":"close","actor":"peter@engelbrecht.dk","data":{"reason":"Implemented Human attention record, detail-visible a/x help, list-to-detail guard, and smoke tick; go test ./... passes","title":"Fix dashboard approval TUI action discoverability"}}

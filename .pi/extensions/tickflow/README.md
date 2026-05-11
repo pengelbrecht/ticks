@@ -205,8 +205,10 @@ The interactive dashboard opens immediately with a loading state and loads run r
 Approval actions are available from the detail pane only, so the user reviews the tick before acting:
 
 - `Enter` opens the selected tick detail, including title, status, awaiting/requires/verdict, description, acceptance criteria, notes, worktree/artifact paths, and attempt evidence.
-- `a` approves a selected awaiting `work`, `approval`, `review`, or `content` tick.
-- `x` rejects a selected awaiting `work`, `approval`, `review`, or `content` tick with a dashboard-generated rejection note and returns it to the agent queue.
+- Awaiting ticks outside Tickflow run records appear in a synthetic `Human attention` dashboard record.
+- Pressing `a`/`x` from the list opens the selected awaiting tick detail first and asks the user to review before pressing the action key again.
+- `a` approves a selected awaiting `work`, `approval`, `review`, or `content` tick from the detail pane.
+- `x` rejects a selected awaiting `work`, `approval`, `review`, or `content` tick from the detail pane with a dashboard-generated rejection note and returns it to the agent queue.
 
 ## MVP limitations
 

@@ -1,0 +1,15 @@
+{
+  "id": "kqe",
+  "title": "Dashboard approval key smoke test",
+  "description": "Disposable awaiting approval tick for testing /tickflow-dashboard action keys after reviewing detail pane.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Open in /tickflow-dashboard detail pane, verify details and visible a/x keys, then approve or reject from TUI.",
+  "requires": "approval",
+  "awaiting": "approval",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T16:34:26.965207Z",
+  "updated_at": "2026-05-11T16:34:41.609065Z"
+}
