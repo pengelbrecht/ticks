@@ -1734,7 +1734,92 @@ export default function tickflow(pi: ExtensionAPI) {
 		detailTab: "overview" | "attempts";
 		awaitingTicks: Array<{ tickId: string; tick: Tick; runId: string; reason: string; note?: string }>;
 		escalatedTicks: Array<{ tickId: string; tick: Tick; runId: string; reason: string; note?: string }>;
+		loading?: boolean;
+		error?: string;
+		updatedAt?: string;
 	};
+
+	type DashboardOptions = {
+		dump: boolean;
+		debugPath?: string;
+		timeoutMs?: number;
+	};
+
+	function createInitialDashboardState(loading = false): DashboardState {
+		return {
+			records: [],
+			selectedRecordIndex: 0,
+			selectedTickIndex: -1,
+			pane: "list",
+			detailTab: "overview",
+			awaitingTicks: [],
+			escalatedTicks: [],
+			loading,
+			updatedAt: new Date().toISOString(),
+		};
+	}
+
+	function parseDurationMs(value: string | undefined): number | undefined {
+		if (!value) return undefined;
+		const match = value.trim().match(/^(\d+(?:\.\d+)?)(ms|s|m)?$/i);
+		if (!match) return undefined;
+		const amount = Number(match[1]);
+		const unit = (match[2] ?? "s").toLowerCase();
+		if (!Number.isFinite(amount) || amount <= 0) return undefined;
+		if (unit === "ms") return Math.round(amount);
+		if (unit === "m") return Math.round(amount * 60_000);
+		return Math.round(amount * 1_000);
+	}
+
+	function parseDashboardOptions(args: string): DashboardOptions {
+		const tokens = args.trim().split(/\s+/).filter(Boolean);
+		const options: DashboardOptions = { dump: false };
+		for (let i = 0; i < tokens.length; i++) {
+			const token = tokens[i];
+			if (token === "--dump") options.dump = true;
+			else if (token === "--debug") options.debugPath = tokens[i + 1] && !tokens[i + 1].startsWith("--") ? tokens[++i] : path.join(os.tmpdir(), `tickflow-dashboard-${process.pid}.jsonl`);
+			else if (token.startsWith("--debug=")) options.debugPath = token.slice("--debug=".length) || path.join(os.tmpdir(), `tickflow-dashboard-${process.pid}.jsonl`);
+			else if (token === "--timeout") options.timeoutMs = parseDurationMs(tokens[++i]);
+			else if (token.startsWith("--timeout=")) options.timeoutMs = parseDurationMs(token.slice("--timeout=".length));
+		}
+		if (!options.debugPath && process.env.PI_TICKFLOW_DASHBOARD_DEBUG) options.debugPath = process.env.PI_TICKFLOW_DASHBOARD_DEBUG;
+		return options;
+	}
+
+	function dashboardDebug(debugPath: string | undefined, message: string, data?: unknown): void {
+		if (!debugPath) return;
+		try {
+			fs.appendFileSync(debugPath, JSON.stringify({ ts: new Date().toISOString(), pid: process.pid, message, data }) + "\n");
+		} catch {
+			// Debug logging must never make the dashboard less responsive.
+		}
+	}
+
+	function formatDashboardDump(state: DashboardState): string {
+		const lines = ["# Tickflow Dashboard Dump", "", `Generated: ${new Date().toISOString()}`, ""];
+		const needsHuman = [...state.escalatedTicks, ...state.awaitingTicks];
+		lines.push(`Needs human attention: ${needsHuman.length}`);
+		for (const item of needsHuman) {
+			const kind = state.escalatedTicks.includes(item) ? "ESCALATED" : "AWAITING";
+			lines.push(`- ${kind} ${item.tickId}: ${item.tick.title || item.reason}`);
+			if (item.reason) lines.push(`  - reason: ${item.reason}`);
+			if (item.tick.awaiting) lines.push(`  - awaiting: ${item.tick.awaiting}`);
+		}
+		lines.push("", `Run records: ${state.records.length}`);
+		for (const record of state.records) {
+			const ticks = Object.values(record.ticks);
+			const counts = {
+				accepted: ticks.filter((t) => t.status === "accepted").length,
+				running: ticks.filter((t) => t.status === "running").length,
+				handoff: ticks.filter((t) => t.status === "handoff").length,
+				escalated: ticks.filter((t) => t.status === "escalated" || t.status === "failed").length,
+				pending: ticks.filter((t) => t.status === "pending" || t.status === "continue" || t.status === "repair").length,
+			};
+			lines.push(`- ${record.runId} (${record.epicId}) ${record.status}: ${counts.accepted} accepted, ${counts.running} running, ${counts.handoff} handoff, ${counts.escalated} escalated, ${counts.pending} pending`);
+		}
+		if (state.error) lines.push("", `Error: ${state.error}`);
+		return lines.join("\n");
+	}
 
 	function getTickStatusIcon(status: TickRunStatus | string | undefined): string {
 		switch (status) {
@@ -1849,6 +1934,25 @@ export default function tickflow(pi: ExtensionAPI) {
 				if (item.tick.awaiting) lines.push(theme.fg("dim", `   awaiting: ${item.tick.awaiting}`));
 			}
 			lines.push("");
+		}
+
+		if (state.loading) {
+			lines.push("");
+			lines.push(theme.fg("accent", theme.bold(" Tickflow Dashboard")));
+			lines.push(hr);
+			lines.push(theme.fg("muted", " Loading run records in the background..."));
+			lines.push(theme.fg("dim", " q / esc / ctrl-c closes immediately."));
+			return lines.map((line) => truncateToWidth(line, Math.max(1, width), "…"));
+		}
+
+		if (state.error) {
+			lines.push("");
+			lines.push(theme.fg("accent", theme.bold(" Tickflow Dashboard")));
+			lines.push(hr);
+			lines.push(theme.fg("error", " Failed to load dashboard state:"));
+			lines.push(theme.fg("dim", ` ${state.error}`));
+			lines.push(theme.fg("dim", " Press r to retry, q / esc / ctrl-c to close."));
+			return lines.map((line) => truncateToWidth(line, Math.max(1, width), "…"));
 		}
 
 		if (!record) {
@@ -1978,14 +2082,82 @@ export default function tickflow(pi: ExtensionAPI) {
 	pi.registerCommand("tickflow-dashboard", {
 		description: "Interactive Tickflow dashboard — view runs, ticks, escalations, and awaiting-human items",
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI) return ctx.ui.notify("Dashboard requires interactive mode", "error");
+			const options = parseDashboardOptions(args);
+			dashboardDebug(options.debugPath, "command:start", { cwd: ctx.cwd, args, options });
 
-			let state = await loadDashboardState(ctx.cwd);
+			if (options.dump) {
+				try {
+					dashboardDebug(options.debugPath, "dump:load:start");
+					const dumpState = await loadDashboardState(ctx.cwd);
+					dashboardDebug(options.debugPath, "dump:load:done", { records: dumpState.records.length, awaiting: dumpState.awaitingTicks.length, escalated: dumpState.escalatedTicks.length });
+					pi.sendMessage({ customType: "tickflow", content: formatDashboardDump(dumpState), display: true }, { deliverAs: "nextTurn" });
+					ctx.ui.notify("Tickflow dashboard dump added to conversation", "success");
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					dashboardDebug(options.debugPath, "dump:load:error", { message });
+					ctx.ui.notify(message, "error");
+				}
+				return;
+			}
+
+			if (!ctx.hasUI) return ctx.ui.notify("Dashboard requires interactive mode; use /tickflow-dashboard --dump for non-interactive output", "error");
+
+			let state = createInitialDashboardState(true);
 			const attemptCache = new Map<string, AttemptEvidence[]>();
+			let closed = false;
+			let closeTimer: ReturnType<typeof setTimeout> | undefined;
 
-			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-				let cachedWidth: number | undefined;
-				let cachedLines: string[] | undefined;
+			if (options.debugPath) ctx.ui.notify(`Tickflow dashboard debug log: ${options.debugPath}`, "info");
+
+			try {
+				await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+					let cachedWidth: number | undefined;
+					let cachedLines: string[] | undefined;
+
+					const safeDone = (reason: string) => {
+						if (closed) return;
+						closed = true;
+						dashboardDebug(options.debugPath, "dashboard:close", { reason });
+						if (closeTimer) clearTimeout(closeTimer);
+						done();
+					};
+
+					const invalidateAndRender = () => {
+						if (closed) return;
+						cachedWidth = undefined;
+						cachedLines = undefined;
+						tui.requestRender();
+					};
+
+					const refreshState = (reason: string) => {
+						dashboardDebug(options.debugPath, "state:load:start", { reason });
+						state = { ...state, loading: true, error: undefined };
+						invalidateAndRender();
+						loadDashboardState(ctx.cwd).then((newState) => {
+							if (closed) return;
+							const nextRecordIndex = Math.min(state.selectedRecordIndex, Math.max(0, newState.records.length - 1));
+							state = { ...newState, selectedRecordIndex: nextRecordIndex, selectedTickIndex: state.selectedTickIndex, pane: state.pane, detailTab: state.detailTab, loading: false, updatedAt: new Date().toISOString() };
+							const refreshedMaxTick = getSortedTicks().length - 1;
+							state.selectedTickIndex = Math.min(state.selectedTickIndex, refreshedMaxTick);
+							if (refreshedMaxTick < 0) state.selectedTickIndex = -1;
+							attemptCache.clear();
+							dashboardDebug(options.debugPath, "state:load:done", { reason, records: state.records.length, awaiting: state.awaitingTicks.length, escalated: state.escalatedTicks.length });
+							invalidateAndRender();
+						}).catch((error) => {
+							if (closed) return;
+							const message = error instanceof Error ? error.message : String(error);
+							state = { ...createInitialDashboardState(false), error: message };
+							dashboardDebug(options.debugPath, "state:load:error", { reason, message });
+							invalidateAndRender();
+						});
+					};
+
+					if (options.timeoutMs) {
+						closeTimer = setTimeout(() => safeDone(`watchdog timeout ${options.timeoutMs}ms`), options.timeoutMs);
+						dashboardDebug(options.debugPath, "watchdog:armed", { timeoutMs: options.timeoutMs });
+					}
+
+					queueMicrotask(() => refreshState("open"));
 
 				function getSortedTicks(): TickRunEntry[] {
 					const record = state.records[state.selectedRecordIndex];
@@ -1996,32 +2168,34 @@ export default function tickflow(pi: ExtensionAPI) {
 					});
 				}
 
-				return {
-					render(width: number): string[] {
-						if (cachedLines && cachedWidth === width) return cachedLines;
-						cachedLines = renderDashboard(state, width, theme, attemptCache);
-						cachedWidth = width;
-						return cachedLines;
-					},
+					return {
+						render(width: number): string[] {
+							dashboardDebug(options.debugPath, "render", { width, cached: Boolean(cachedLines && cachedWidth === width), loading: state.loading, records: state.records.length, pane: state.pane });
+							if (cachedLines && cachedWidth === width) return cachedLines;
+							cachedLines = renderDashboard(state, width, theme, attemptCache);
+							cachedWidth = width;
+							return cachedLines;
+						},
 					invalidate() {
 						cachedWidth = undefined;
 						cachedLines = undefined;
 					},
-					handleInput(data: string) {
-						const invalidateAndRender = () => {
-							cachedWidth = undefined;
-							cachedLines = undefined;
-							tui.requestRender();
-						};
-						const loadSelectedAttemptEvidence = (sortedTicks: TickRunEntry[]) => {
-							const tick = sortedTicks[state.selectedTickIndex];
-							if (tick && !attemptCache.has(tick.tickId)) {
-								loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
-									attemptCache.set(tick.tickId, ev);
-									invalidateAndRender();
-								});
-							}
-						};
+						handleInput(data: string) {
+							dashboardDebug(options.debugPath, "input", { raw: JSON.stringify(data), bytes: [...Buffer.from(data)] });
+							const loadSelectedAttemptEvidence = (sortedTicks: TickRunEntry[]) => {
+								const tick = sortedTicks[state.selectedTickIndex];
+								if (tick && !attemptCache.has(tick.tickId)) {
+									dashboardDebug(options.debugPath, "attempts:load:start", { tickId: tick.tickId });
+									loadAttemptEvidence(ctx.cwd, tick.tickId).then((ev) => {
+										if (closed) return;
+										attemptCache.set(tick.tickId, ev);
+										dashboardDebug(options.debugPath, "attempts:load:done", { tickId: tick.tickId, attempts: ev.length });
+										invalidateAndRender();
+									}).catch((error) => {
+										dashboardDebug(options.debugPath, "attempts:load:error", { tickId: tick.tickId, message: error instanceof Error ? error.message : String(error) });
+									});
+								}
+							};
 
 						const sortedTicks = getSortedTicks();
 						const maxTick = sortedTicks.length - 1;
@@ -2029,20 +2203,20 @@ export default function tickflow(pi: ExtensionAPI) {
 						// Always provide an emergency exit from the custom TUI. Pi normalizes
 						// many keys (for example "escape"/"ctrl+c"), so use matchesKey()
 						// instead of relying only on raw terminal escape sequences.
-						if (matchesKey(data, Key.ctrl("c")) || data === "\x03" || data === "q") {
-							done();
-							return;
-						}
-
-						if (matchesKey(data, Key.escape) || data === "\x1b" || data === "\x1b\x1b") {
-							if (state.pane === "detail") {
-								state.pane = "list";
-								invalidateAndRender();
-							} else {
-								done();
+							if (matchesKey(data, Key.ctrl("c")) || data === "\x03" || data === "q") {
+								safeDone("keyboard close");
+								return;
 							}
-							return;
-						}
+
+							if (matchesKey(data, Key.escape) || data === "\x1b" || data === "\x1b\x1b") {
+								if (state.pane === "detail") {
+									state.pane = "list";
+									invalidateAndRender();
+								} else {
+									safeDone("escape close");
+								}
+								return;
+							}
 
 						if (matchesKey(data, Key.up) || data === "\x1b[A" || data === "k") {
 							if (state.selectedTickIndex > 0) {
@@ -2096,21 +2270,18 @@ export default function tickflow(pi: ExtensionAPI) {
 							return;
 						}
 
-						if (data === "r") {
-							loadDashboardState(ctx.cwd).then((newState) => {
-								const nextRecordIndex = Math.min(state.selectedRecordIndex, Math.max(0, newState.records.length - 1));
-								state = { ...newState, selectedRecordIndex: nextRecordIndex, selectedTickIndex: state.selectedTickIndex, pane: state.pane, detailTab: state.detailTab };
-								const refreshedMaxTick = getSortedTicks().length - 1;
-								state.selectedTickIndex = Math.min(state.selectedTickIndex, refreshedMaxTick);
-								if (refreshedMaxTick < 0) state.selectedTickIndex = -1;
-								attemptCache.clear();
-								invalidateAndRender();
-							});
-							return;
-						}
-					},
-				};
-			});
+							if (data === "r") {
+								refreshState("manual-refresh");
+								return;
+							}
+						},
+					};
+				});
+			} finally {
+				closed = true;
+				if (closeTimer) clearTimeout(closeTimer);
+				dashboardDebug(options.debugPath, "command:done");
+			}
 		},
 	});
 

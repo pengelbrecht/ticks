@@ -188,6 +188,20 @@ Resumes an interrupted dry/manual run without deleting existing work:
 
 This allows safe recovery from interrupted `--worktrees` runs. Work in existing worktrees is preserved and continued from the current repository state.
 
+## Dashboard debugging
+
+```text
+/tickflow-dashboard --dump
+/tickflow-dashboard --debug [/path/to/debug.jsonl]
+/tickflow-dashboard --timeout 10s
+```
+
+- `--dump` renders a non-interactive dashboard summary into the conversation, useful when the custom TUI is suspect.
+- `--debug` writes JSONL lifecycle/input/render diagnostics. Without a path, it writes to the system temp directory. You can also set `PI_TICKFLOW_DASHBOARD_DEBUG=/tmp/tickflow-dashboard.jsonl`.
+- `--timeout` arms an optional watchdog that closes the custom dashboard after the given duration (`ms`, `s`, or `m`).
+
+The interactive dashboard opens immediately with a loading state and loads run records in the background so `q`, `Esc`, and `Ctrl-C` can close it even if state loading becomes slow.
+
 ## MVP limitations
 
 - Shared workspace mode can conflict when parallel ticks edit the same files; prefer `--worktrees` for parallel implementation work.
