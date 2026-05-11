@@ -1,0 +1,12 @@
+{
+  "id": "weo",
+  "title": "Dogfood Tickflow parallel worktree approvals run",
+  "description": "Dogfood Tickflow with \u003e3 parallel agents, worktree mode, and human approval gates. Tasks intentionally touch separate docs under docs/dogfood/tickflow-parallel-approvals/ so the run can safely exercise concurrent worktree merges and dashboard handoffs.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T14:17:00.330791Z",
+  "updated_at": "2026-05-11T14:17:00.330791Z"
+}

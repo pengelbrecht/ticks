@@ -1,0 +1,15 @@
+{
+  "id": "26e",
+  "title": "Surface required approval handoffs in Tickflow run records",
+  "description": "When a worktree task is accepted and merged, tk close may route ticks with requires=approval/review/content into awaiting state. Update the run record to handoff so the dashboard shows human approvals after successful merge.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Run record updates to handoff when post-close tick has awaiting set; go test ./... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T14:18:34.425977Z",
+  "updated_at": "2026-05-11T14:18:43.704677Z",
+  "closed_at": "2026-05-11T14:18:43.704677Z",
+  "closed_reason": "Updated worktree merge path to mark run record handoff when post-close tick is awaiting approval/review/content; verified go test ./..."
+}

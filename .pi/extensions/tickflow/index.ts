@@ -1558,10 +1558,23 @@ export default function tickflow(pi: ExtensionAPI) {
 									await addTickNote(pi, ctx.cwd, task.id, `Tickflow merge conflict in preserved worktree ${handle.worktreePath}. Conflicts: ${merge.conflicts.join(", ") || "unknown"}`);
 								} else {
 									await closeControllerTick(pi, ctx.cwd, task.id, `Merged Tickflow worktree ${handle.branchName}${merge.commit ? ` (${merge.commit.slice(0, 8)})` : ""}`);
+									const postCloseTick = await loadTick(pi, ctx.cwd, task.id);
 									await setTickflowLease(ctx.cwd, task.id, undefined);
 									await removeWorktree(pi, handle);
-									// Clear lease from run record after successful merge
-									if (runRecord) delete runRecord.leases[task.id];
+									// Clear lease from run record after successful merge. If tk close routed
+									// the tick to a human gate, surface that handoff in the dashboard.
+									if (runRecord) {
+										delete runRecord.leases[task.id];
+										if (postCloseTick.awaiting) {
+											updateTickInRunRecord(runRecord, task.id, {
+												status: "handoff",
+												decision: "handoff",
+												reason: `awaiting ${postCloseTick.awaiting}`,
+											});
+											await persistRunRecord(ctx.cwd, runRecord);
+											updateLiveWidget(ctx);
+										}
+									}
 								}
 							} catch (error) {
 								await setAwaiting(pi, ctx.cwd, task.id, "escalation");
