@@ -267,14 +267,27 @@ async function createRunRecord(
 	return record;
 }
 
+const runRecordPersistQueues = new Map<string, Promise<void>>();
+
 async function persistRunRecord(cwd: string, record: RunRecord): Promise<void> {
-	const dir = runRecordDir(cwd);
-	await fs.promises.mkdir(dir, { recursive: true });
-	record.updatedAt = new Date().toISOString();
 	const filePath = runRecordPath(cwd, record.runId);
-	const tmpPath = filePath + ".tmp";
-	await fs.promises.writeFile(tmpPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-	await fs.promises.rename(tmpPath, filePath);
+	const previous = runRecordPersistQueues.get(filePath) ?? Promise.resolve();
+	const next = previous.catch(() => {}).then(async () => {
+		const dir = runRecordDir(cwd);
+		await fs.promises.mkdir(dir, { recursive: true });
+		record.updatedAt = new Date().toISOString();
+		const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`;
+		await fs.promises.writeFile(tmpPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+		await fs.promises.rename(tmpPath, filePath);
+	});
+	runRecordPersistQueues.set(filePath, next);
+	try {
+		await next;
+	} finally {
+		if (runRecordPersistQueues.get(filePath) === next) {
+			runRecordPersistQueues.delete(filePath);
+		}
+	}
 }
 
 function updateTickInRunRecord(

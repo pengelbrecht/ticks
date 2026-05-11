@@ -2,14 +2,15 @@
   "id": "qq2",
   "title": "Dogfood: define human approval drill",
   "description": "Create docs/dogfood/tickflow-parallel-approvals/human-approval-drill.md. Define how a human should review and approve tasks after Tickflow routes completed work to awaiting approval. Include headings: # Human Approval Drill, ## Approval Criteria, ## Rejection Criteria, ## Commands, ## Expected Outcome.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "weo",
   "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/human-approval-drill.md \u0026\u0026 grep -q 'Approval Criteria' docs/dogfood/tickflow-parallel-approvals/human-approval-drill.md",
   "requires": "approval",
+  "awaiting": "approval",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-11T14:17:22.166342Z",
-  "updated_at": "2026-05-11T14:17:22.166342Z"
+  "updated_at": "2026-05-11T14:25:04.905183Z"
 }

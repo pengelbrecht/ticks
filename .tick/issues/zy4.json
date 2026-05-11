@@ -2,7 +2,7 @@
   "id": "zy4",
   "title": "Dogfood: create run results template",
   "description": "Create docs/dogfood/tickflow-parallel-approvals/run-results-template.md. Provide a fill-in template for recording run ID, agent count, worktree paths, approvals, failures, timings, and follow-up issues. Include headings: # Run Results Template, ## Run Metadata, ## Wave Summary, ## Approval Outcomes, ## Follow-up Issues.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/run-results-template.md \u0026\u0026 grep -q 'Run Metadata' docs/dogfood/tickflow-parallel-approvals/run-results-template.md",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-11T14:17:22.215076Z",
-  "updated_at": "2026-05-11T14:17:22.215076Z"
+  "updated_at": "2026-05-11T14:25:55.073702Z",
+  "closed_at": "2026-05-11T14:25:55.073702Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-weo-20260511t142140z-9658/zy4 (cd8b0bf)"
 }
