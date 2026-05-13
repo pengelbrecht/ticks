@@ -24,9 +24,10 @@ case "$ARCH" in
     *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Get latest version
-VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-if [ -z "$VERSION" ]; then
+# Get latest version (resolve the /releases/latest redirect to avoid GitHub API rate limits in shared-IP envs)
+LATEST_URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")
+VERSION=${LATEST_URL##*/v}
+if [ -z "$VERSION" ] || [ "$VERSION" = "$LATEST_URL" ]; then
     echo "Failed to get latest version"
     exit 1
 fi
