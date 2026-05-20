@@ -677,25 +677,7 @@ export interface RunStatusResponse {
   isRunning: boolean;
   activeTask?: ActiveTaskStatus1;
   metrics?: LiveRecord1;
-  /**
-   * Tasks currently awaiting human action
-   */
-  awaitingTasks?: AwaitingTaskStatus[];
   [k: string]: unknown;
-}
-
-/**
- * Status of a task awaiting human action during a tickflow run.
- */
-export interface AwaitingTaskStatus {
-  /** ID of the task awaiting human action */
-  tickId: string;
-  /** Task title */
-  title: string;
-  /** The awaiting type: work, approval, input, review, content, escalation, checkpoint */
-  awaitingType: string;
-  /** Human-readable reason from the agent signal */
-  signalReason?: string;
 }
 /**
  * Status of currently executing task
