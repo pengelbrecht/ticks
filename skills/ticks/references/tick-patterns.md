@@ -67,7 +67,7 @@ tk create "Add [feature]" \
 - Error case: [bad input] -> Expected: [error]
 
 Run: [test command]" \
-  -acceptance "All tests pass, no regressions"
+  --acceptance "All tests pass, no regressions"
 ```
 
 ### TDD Feature Example
@@ -83,7 +83,7 @@ Test cases:
 - \"\" -> error: \"password required\"
 
 Run: go test ./internal/auth/... -v" \
-  -acceptance "All password tests pass, validator integrated"
+  --acceptance "All password tests pass, validator integrated"
 ```
 
 ### TDD Bug Fix Example
@@ -101,7 +101,7 @@ Current: Returns \"invalid email format\"
 Expected: All plus addresses validate
 
 Run: npm test -- --grep \"email\"" \
-  -acceptance "New plus-address tests pass, existing tests pass"
+  --acceptance "New plus-address tests pass, existing tests pass"
 ```
 
 ### Why TDD Matters
@@ -188,10 +188,10 @@ Group related tasks under an epic:
 tk create "Search Feature" -t epic -d "Full-text search for documents"
 
 # Create tasks with dependencies
-tk create "Add search index schema" -parent <epic>
-tk create "Implement indexing service" -parent <epic> -blocked-by <schema>
-tk create "Add search API endpoint" -parent <epic> -blocked-by <indexing>
-tk create "Add search UI component" -parent <epic> -blocked-by <api>
+tk create "Add search index schema" --parent <epic>
+tk create "Implement indexing service" --parent <epic> --blocked-by <schema>
+tk create "Add search API endpoint" --parent <epic> --blocked-by <indexing>
+tk create "Add search UI component" --parent <epic> --blocked-by <api>
 ```
 
 **Guidelines:**
@@ -223,7 +223,7 @@ Agent has no way to verify "appropriately".
 
 ### Implicit Dependencies
 - Bad: Create tasks without explicit blockers
-- Good: Use `-blocked-by` to make order clear
+- Good: Use `--blocked-by` to make order clear
 
 ## Priority Guidelines
 

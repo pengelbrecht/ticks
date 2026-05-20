@@ -110,8 +110,8 @@ Test cases:
 - @nodomain.com -> invalid
 
 Run: go test ./internal/validation/..." \
-  -acceptance "All validation tests pass" \
-  -parent <epic-id>
+  --acceptance "All validation tests pass" \
+  --parent <epic-id>
 ```
 
 **Bad task:**
@@ -130,13 +130,13 @@ Transform the spec into ticks organized by epic.
 
 **Epic organization:**
 1. Group related tasks into logical epics (auth, API, UI, etc.)
-2. Create tasks with dependencies using `-blocked-by`
+2. Create tasks with dependencies using `--blocked-by`
 3. Mark human-required tasks with `--awaiting work`
 
 **Designing for parallel execution:**
-Tasks in the same wave (no blocking relationship) may run concurrently. To avoid file conflicts:
-- If two tasks edit the same file, make one block the other
-- Use `tk graph <epic>` to visualize waves and verify parallel tasks touch different files
+Ticks in the same wave (no blocking relationship) run concurrently, each in its own git worktree. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file will still collide at merge time. To keep merges clean:
+- If two ticks edit the same file, make one block the other so they land in different waves
+- Use `tk graph <epic>` to see the waves and confirm ticks in the same wave touch different files
 - Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A
 
 ```bash
@@ -147,14 +147,14 @@ tk create "API Endpoints" -t epic
 # Create tasks with acceptance criteria
 tk create "Add JWT token generation" \
   -d "Implement JWT signing and verification" \
-  -acceptance "JWT tests pass" \
-  -parent <auth-epic>
+  --acceptance "JWT tests pass" \
+  --parent <auth-epic>
 
 tk create "Add login endpoint" \
   -d "POST /api/login with email/password" \
-  -acceptance "Login endpoint tests pass" \
-  -parent <api-epic> \
-  -blocked-by <jwt-task>
+  --acceptance "Login endpoint tests pass" \
+  --parent <api-epic> \
+  --blocked-by <jwt-task>
 
 # Human-only tasks (skipped by tk next)
 tk create "Set up production database" --awaiting work \
@@ -176,100 +176,47 @@ tk blocked  # See what's waiting
 
 Walk the user through each blocking task, then close it:
 ```bash
-tk close <id> "Completed - connection string in .env"
+tk close <id> --reason "Completed - connection string in .env"
 ```
 
-### Step 5: Choose Execution Mode
+### Step 5: Run the Epic
 
-Ticks supports two execution approaches. If the user hasn't specified a preference, ask:
+Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`**; the shape is:
 
-```
-Question: "How would you like to execute this epic?"
-Header: "Execution"
-Options:
-  - "tk run" - "Rich monitoring via tickboard, HITL support, cost tracking, git worktree isolation"
-  - "Claude Code" - "Native parallel subagents, seamless session execution, direct visibility"
-```
+1. `tk graph <epic-id> --json` — get the waves and how wide you can run.
+2. For each wave, launch one subagent per ready tick — **all in one message**, each in its own git worktree (`isolation: "worktree"`), in the background.
+3. Wait for the completion notifications (no polling), merge each finished tick's branch, and update tick state.
+4. Move to the next wave; review and close the epic when everything's done.
 
-#### Option A: tk run
+You own all tick state; subagents only write code in their worktrees. That keeps parallel work conflict-free and tick history clean. Run wave to wave continuously — don't stop to check in between waves unless you hit a real blocker.
 
-Uses the Ticks agent runner with tickboard monitoring.
-
-```bash
-# Run on specific epic
-tk run <epic-id>
-
-# Pool mode - N concurrent workers within single epic
-tk run <epic-id> --pool 4
-
-# Pool with custom stale timeout
-tk run <epic-id> --pool 4 --stale-timeout 2h
-
-# Run in isolated worktree
-tk run <epic-id> --worktree
-
-# Parallel epics (each in own worktree)
-tk run <epic-id> --parallel 2
-
-# Combined: parallel epics with pool workers each
-tk run epic1 epic2 --parallel 2 --pool 4
-
-# With cost limit
-tk run <epic-id> --max-cost 5.00
-```
-
-**Monitor:** `tk board` opens local web interface.
-
-**Best for:** Production epics, rich HITL workflows, long-running tasks, cost tracking.
-
-#### Option B: Claude Code Native
-
-Uses Claude Code's Task tool to spawn parallel subagents.
-
-**Best for:** Quick parallel execution within a Claude session, direct visibility into agents.
-
-See **`references/claude-runner.md`** for full documentation including:
-- Task tool parameters and options
-- Agent naming conventions (epic/tick/wave)
-- Wave orchestration algorithm
-- Polling strategy to avoid hangs
-- HITL-aware state transitions
-- Example session
-
-#### Quick Comparison
-
-| Aspect | `tk run` | Claude Code |
-|--------|----------|-------------|
-| Monitoring | Tickboard | Claude Code UI |
-| HITL | Rich (approvals, checkpoints) | Basic (conversation) |
-| Parallelization | Pool workers (`--pool`) or worktrees (`--parallel`) | Task subagents |
-| File isolation | Worktrees (proven) | Shared workspace |
-| State persistence | Tick files (survives crashes) | Session-bound |
-| Cost tracking | Built-in (`--max-cost`) | Manual |
+> Ticks also ships a standalone runner (`tk run`) with its own worktree and cost-tracking machinery. It's intentionally **not** the path this skill uses right now, so execution goes through Claude orchestration instead.
 
 ## Quick Reference
 
 ### Creating Ticks
 
 ```bash
-tk create "Title" -d "Description" -acceptance "Tests pass"  # Task
-tk create "Title" -t epic                                    # Epic
-tk create "Title" -parent <epic-id>                          # Under epic
-tk create "Title" -blocked-by <task-id>                      # Blocked
-tk create "Title" --awaiting work                            # Human task
-tk create "Title" --requires approval                        # Needs approval gate
+tk create "Title" -d "Description" --acceptance "Tests pass"  # Task
+tk create "Title" -t epic                                     # Epic
+tk create "Title" --parent <epic-id>                          # Under epic
+tk create "Title" --blocked-by <task-id>                      # Blocked
+tk create "Title" --awaiting work                             # Human task
+tk create "Title" --requires approval                         # Needs approval gate
 ```
+
+> `tk` uses standard double-dash for long flags. `-acceptance`/`-parent`/`-blocked-by` (single dash) do **not** work — use `--acceptance`/`--parent`/`--blocked-by`. Single-letter shorthands like `-d`, `-t`, `-p`, `-l`, `-b` are fine.
 
 ### Querying
 
 ```bash
 tk list                      # All open ticks
 tk list -t epic              # Epics only
-tk list -parent <epic-id>    # Tasks in epic
+tk list --parent <epic-id>   # Tasks in epic
 tk ready                     # Unblocked tasks
 tk next <epic-id>            # Next task for agent
 tk blocked                   # Blocked tasks
-tk list --awaiting           # Tasks awaiting human
+tk list --awaiting=          # Tasks awaiting human
 tk graph <epic-id>           # Dependency graph with parallelization
 tk graph <epic-id> --json    # JSON output for agents
 ```
@@ -277,68 +224,52 @@ tk graph <epic-id> --json    # JSON output for agents
 ### Managing
 
 ```bash
-tk show <id>                 # Show details
-tk close <id> "reason"       # Close tick
-tk note <id> "text"          # Add note
-tk approve <id>              # Approve awaiting tick
-tk reject <id> "feedback"    # Reject with feedback
+tk show <id>                      # Show details
+tk close <id> --reason "reason"   # Close tick
+tk note <id> "text"               # Add note
+tk approve <id>                   # Approve awaiting tick
+tk reject <id> "feedback"         # Reject with required feedback
 ```
 
-### Running Agent (Two Modes)
+### Running the Epic
 
-**Mode A: Native tk run**
+Drive execution from this Claude Code session (full details in `references/claude-runner.md`):
+
 ```bash
-tk run <epic-id>                      # Run on epic
-tk run --auto                         # Auto-select epic
-tk run <epic-id> --pool 4             # Pool mode (4 concurrent workers)
-tk run <epic-id> --pool 4 --stale-timeout 2h  # Custom stale timeout
-tk run <epic-id> --worktree           # Use git worktree
-tk run <epic-id> --parallel 3         # 3 epics in parallel worktrees
-tk run a b --parallel 2 --pool 4      # 2 epics, 4 workers each
-tk run <epic-id> --max-iterations 10  # Limit iterations
-tk run <epic-id> --max-cost 5.00      # Cost limit
-tk run <epic-id> --watch              # Restart when tasks ready
-tk board                              # Web interface
-```
-
-**Mode B: Claude Code Native**
-```bash
-# See references/claude-runner.md for full details
-
-# 1. Get dependency graph
+# 1. Get the dependency graph (waves + max parallelism)
 tk graph <epic-id> --json
+```
 
-# 2. Ask user for MAX_AGENTS (1-10)
-
-# 3. For each wave, launch Task agents:
-#    Task(subagent_type: "general-purpose",
-#         name: "<epic>-w<wave>-<tick>",
-#         run_in_background: true,
-#         mode: "bypassPermissions")
-
-# 4. Poll for completion, sync to ticks
-tk close <tick-id> --reason "Completed via Claude runner"
+```
+# 2. For each wave, launch one Agent per ready tick — all in ONE message:
+#    Agent(subagent_type: "general-purpose",
+#          name: "<epic>-w<wave>-<tick>",
+#          isolation: "worktree",
+#          run_in_background: true,
+#          mode: "bypassPermissions",
+#          model: "sonnet")   # haiku for trivial, opus for complex
+#
+# 3. Wait for completion notifications (no polling), then integrate each tick:
+git merge <agent-branch>
+tk close <tick-id> --reason "Completed via Claude orchestration"
 ```
 
 ### Planning Parallel Execution
 
-Before running agents, use `tk graph` to understand parallelization opportunities:
+Before launching agents, use `tk graph` to understand the parallelism:
 
 ```bash
 tk graph <epic-id>        # Human-readable wave breakdown
-tk graph <epic-id> --json # Machine-readable for planning
+tk graph <epic-id> --json # Machine-readable for orchestration
 ```
 
 The graph shows:
-- **Waves**: Groups of tasks that can run in parallel
-- **Max parallel**: How many workers you could use at once
-- **Critical path**: Minimum sequential steps to complete the epic
-- **Dependencies**: What each task is blocked by
+- **Waves**: groups of ticks that can run in parallel
+- **Max parallel**: how many subagents you can launch at once in the widest wave
+- **Critical path**: minimum number of sequential waves to finish the epic
+- **Dependencies**: what each tick is blocked by
 
-Use this to decide:
-- `--pool N` for N concurrent workers within one epic (recommended)
-- `--parallel N` for N epics in separate worktrees
-- Combine both: `--parallel 2 --pool 4` for 2 epics with 4 workers each
+Launch up to `max_parallel` subagents per wave (cap it if you want to limit cost or noise), and merge each wave before starting the next so dependent ticks build on completed work.
 
 See `references/tk-commands.md` for full reference.
 
@@ -347,8 +278,8 @@ See `references/tk-commands.md` for full reference.
 When working interactively, help users process awaiting ticks:
 
 ```bash
-tk list --awaiting    # Find ticks awaiting human
-tk next --awaiting    # Next one needing attention
+tk list --awaiting=   # Find ticks awaiting human
+tk next --awaiting=   # Next one needing attention
 ```
 
 Use AskUserQuestion to help users decide, then execute:
