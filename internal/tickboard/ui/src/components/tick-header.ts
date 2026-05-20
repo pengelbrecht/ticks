@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import './ticks-logo.js';
 import './ticks-button.js';
@@ -18,6 +18,7 @@ export interface EpicInfo {
  * @fires create-click - Fired when the create button is clicked
  * @fires menu-toggle - Fired when the mobile menu button is clicked
  * @fires activity-click - Bubbled from tick-activity-feed when an activity item is clicked
+ * @fires dashboard-toggle - Fired when dashboard button is clicked
  *
  * @prop {string} repoName - Repository name to display in header badge
  * @prop {EpicInfo[]} epics - List of epics for the filter dropdown
@@ -249,6 +250,9 @@ export class TickHeader extends LitElement {
   @property({ type: Boolean, attribute: 'run-active' })
   runActive = false;
 
+  @property({ type: Number, attribute: 'awaiting-count' })
+  awaitingCount = 0;
+
   @property({ type: Boolean, attribute: 'readonly-mode' })
   readonlyMode = false;
 
@@ -321,6 +325,15 @@ export class TickHeader extends LitElement {
   private handleRunPanelToggle() {
     this.dispatchEvent(
       new CustomEvent('run-panel-toggle', {
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  private handleDashboardToggle() {
+    this.dispatchEvent(
+      new CustomEvent('dashboard-toggle', {
         bubbles: true,
         composed: true,
       })
@@ -406,6 +419,16 @@ export class TickHeader extends LitElement {
         </div>
 
         <div class="header-right">
+          <sl-tooltip content="Dashboard (d)">
+            <sl-button
+              variant="default"
+              size="small"
+              @click=${this.handleDashboardToggle}
+            >
+              <sl-icon name="grid-1x2"></sl-icon>
+            </sl-button>
+          </sl-tooltip>
+
           <sl-tooltip content="Live run panel (r)">
             <sl-button
               class=${this.runActive ? 'run-button-active' : ''}
@@ -414,6 +437,9 @@ export class TickHeader extends LitElement {
               @click=${this.handleRunPanelToggle}
             >
               <sl-icon name="terminal"></sl-icon>
+              ${this.awaitingCount > 0
+                ? html`<sl-badge variant="warning" pill pulse>${this.awaitingCount}</sl-badge>`
+                : nothing}
             </sl-button>
           </sl-tooltip>
 

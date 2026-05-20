@@ -1,0 +1,20 @@
+{
+  "id": "eho",
+  "title": "Implement tickflow evidence and verifier runner",
+  "description": "Collect AttemptEvidence after each subagent attempt: tick state before/after, git status/diff stat, changed files, parsed promise signals, subagent output, and verifier command results. Persist attempt artifacts under .tick/logs/pi-runner/\u003ctick-id\u003e/attempt-NNN.json.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "nyt",
+    "seu"
+  ],
+  "parent": "bha",
+  "acceptance_criteria": "After /tickflow-run-tick \u003cid\u003e, an attempt JSON file is written with tick state, output summary, changed files, signals, and verifier results; verifier failures are represented structurally.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T06:41:36.632911Z",
+  "updated_at": "2026-05-08T06:47:25.698843Z",
+  "closed_at": "2026-05-08T06:47:25.698843Z",
+  "closed_reason": "Implemented AttemptEvidence collection for /tickflow-run-tick with tick before/after, promise signal parsing, git status/diff/changed files, verifier execution, and persisted attempt artifacts under .tick/logs/pi-runner."
+}

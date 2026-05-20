@@ -864,3 +864,22 @@ func (l *Logger) LogContextLoadFailed(epicID, errMsg string) {
 		Error:  errMsg,
 	})
 }
+
+// --- Lifecycle Events ---
+
+// EventLifecycle is the event type for general lifecycle status messages.
+const EventLifecycle EventType = "lifecycle"
+
+// LifecycleEventData contains a lifecycle event's data.
+type LifecycleEventData struct {
+	EventType string `json:"event_type"`
+	Message   string `json:"message"`
+}
+
+// LogLifecycleEvent logs a general lifecycle status event.
+func (l *Logger) LogLifecycleEvent(eventType, message string) {
+	l.log(EventLifecycle, message, LifecycleEventData{
+		EventType: eventType,
+		Message:   message,
+	})
+}

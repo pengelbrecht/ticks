@@ -1,0 +1,20 @@
+{
+  "id": "v0t",
+  "title": "Implement Tickflow merge guard, commit, and merge policy",
+  "description": "Before accepting worktree output, detect dirty .tick changes and refuse to merge them. Commit only non-.tick paths, run verifiers in the worktree, merge accepted branch into controller branch, clean up on success, and preserve worktree with awaiting escalation notes on conflicts or forbidden .tick mutations.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "qri",
+    "8pt"
+  ],
+  "parent": "vmv",
+  "acceptance_criteria": ".tick changes cannot be committed or merged; accepted work is committed and merged; merge conflicts preserve the worktree and set awaiting=escalation with conflict details; cleanup only happens after durable merge and tick update.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T08:27:52.935743Z",
+  "updated_at": "2026-05-08T12:29:24.305729Z",
+  "closed_at": "2026-05-08T12:29:24.305729Z",
+  "closed_reason": "Implemented worktree merge guard and merge policy: refuses dirty/staged .tick changes, commits non-.tick paths, merges accepted worktree branches, routes merge conflicts/forbidden mutations to awaiting escalation with notes, clears leases and removes worktrees only after durable merge and controller tick update."
+}

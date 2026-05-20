@@ -1,0 +1,14 @@
+{
+  "id": "bha",
+  "title": "Pi tickflow MVP extension",
+  "description": "Build a Pi-native Ticks wave executor MVP as a project-local extension. The MVP should execute tick dependency waves with Pi subagents, supervise attempts using durable tick state and verifier evidence, and avoid accepting premature agent completion.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T06:41:04.326721Z",
+  "updated_at": "2026-05-08T06:53:38.096219Z",
+  "closed_at": "2026-05-08T06:53:38.096219Z",
+  "closed_reason": "Tickflow MVP implemented: project-local Pi extension with contract compilation, subagent runtime, evidence/verifier collection, supervisor loop, wave scheduler, lease metadata, docs, and passing go test ./...."
+}

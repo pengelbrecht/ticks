@@ -1,0 +1,16 @@
+{
+  "id": "sl9",
+  "title": "Add Tickflow repo/run identity and worktree path planner",
+  "description": "Implement repoSlug/runId generation and deterministic worktree/branch path planning for Tickflow worktree mode. Namespace paths by repo identity and run id so local tick IDs cannot collide across sibling repos or reruns. Include dry-run output for planned worktree paths.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "vmv",
+  "acceptance_criteria": "Given a repo, epic, and tick, planner returns ../.tickflow-worktrees/\u003crepo-slug\u003e/\u003crun-id\u003e/\u003ctick-id\u003e and branch tf/\u003crun-id\u003e/\u003ctick-id\u003e; repoSlug includes a stable hash of remote URL or repo root; /tickflow-run --worktrees --dry-run shows planned paths.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T08:27:38.211881Z",
+  "updated_at": "2026-05-08T08:44:00.166846Z",
+  "closed_at": "2026-05-08T08:44:00.166846Z",
+  "closed_reason": "Implemented Tickflow repo/run identity and worktree path planning: repoSlug from basename plus hash(remote/root), runId generation, worktree path ../.tickflow-worktrees/\u003crepoSlug\u003e/\u003crunId\u003e/\u003ctick\u003e, branch tf/\u003crunId\u003e/\u003ctick\u003e, and --worktrees --dry-run plan output."
+}

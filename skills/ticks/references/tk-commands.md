@@ -11,16 +11,18 @@ tk create "Title" [flags]
 | Flag | Description |
 |------|-------------|
 | `-d, --description` | Tick description |
-| `-acceptance` | Acceptance criteria (how to verify done) |
-| `-t, --type` | Type: `task` (default) or `epic` |
+| `--acceptance` | Acceptance criteria (how to verify done) |
+| `-t, --type` | Type: `task` (default), `epic`, `bug`, `feature`, `chore` |
 | `-p, --priority` | Priority: 0=Critical, 1=High, 2=Medium, 3=Low, 4=Backlog |
 | `-l, --labels` | Comma-separated labels |
-| `-parent` | Parent epic ID |
-| `-blocked-by` | Blocking tick ID(s) |
-| `--requires` | Pre-declared approval gate: `approval`, `review`, `content` |
-| `--awaiting` | Immediate human assignment: `work`, `approval`, `input`, `review`, `content`, `escalation`, `checkpoint` |
-| `-defer` | Defer until date (YYYY-MM-DD) |
-| `-external-ref` | External reference (e.g., gh-42) |
+| `--parent` | Parent epic ID |
+| `-b, --blocked-by` | Blocking tick ID(s), comma-separated |
+| `-r, --requires` | Pre-declared approval gate: `approval`, `review`, `content` |
+| `-a, --awaiting` | Immediate human assignment: `work`, `approval`, `input`, `review`, `content`, `escalation`, `checkpoint` |
+| `--defer` | Defer until date (YYYY-MM-DD) |
+| `--external-ref` | External reference (e.g., gh-42) |
+
+> Long flags require double dashes (`--acceptance`, `--parent`, `--blocked-by`). A single dash is only for letter shorthands (`-d`, `-t`, `-p`, `-l`, `-b`, `-a`, `-r`).
 
 **Examples:**
 ```bash
@@ -30,13 +32,13 @@ tk create "Fix login bug" -d "Users can't login with special chars" -p 1
 # Task with acceptance criteria
 tk create "Add email validation" \
   -d "Validate email format on registration form" \
-  -acceptance "All validation tests pass"
+  --acceptance "All validation tests pass"
 
 # Epic
 tk create "Auth System" -t epic -d "Complete authentication implementation"
 
 # Task with dependencies
-tk create "Add OAuth" -parent abc -blocked-by def,ghi
+tk create "Add OAuth" --parent abc --blocked-by def,ghi
 
 # Task requiring approval
 tk create "Update auth flow" --requires approval -d "Security-sensitive change"
@@ -53,11 +55,12 @@ tk list [flags]
 
 | Flag | Description |
 |------|-------------|
-| `-t, --type` | Filter by type: `task` or `epic` |
-| `-s, --status` | Filter by status: `open` or `closed` |
+| `-t, --type` | Filter by type: `task`, `epic`, `bug`, `feature`, `chore` |
+| `-s, --status` | Filter by status: `open`, `closed`, `all` |
 | `-p, --priority` | Filter by priority (0-4) |
-| `-l, --labels` | Filter by labels |
-| `-parent` | Filter by parent epic |
+| `-l, --label` | Filter by label |
+| `--parent` | Filter by parent epic |
+| `-a, --all` | Show all owners (default: current user only) |
 | `--awaiting` | Filter by awaiting status |
 | `--json` | Output as JSON |
 
@@ -66,12 +69,12 @@ tk list [flags]
 tk ready                    # List ready (unblocked) tasks
 tk blocked                  # List blocked tasks
 tk next <epic-id>           # Get next task for agent in epic
-tk next --awaiting          # Get next task for human
+tk next --awaiting=         # Get next task for human
 ```
 
 **Awaiting filters:**
 ```bash
-tk list --awaiting              # All ticks awaiting human action
+tk list --awaiting=             # All ticks awaiting human action
 tk list --awaiting approval     # Only ticks awaiting approval
 tk list --awaiting input,review # Multiple awaiting types
 ```
@@ -90,17 +93,25 @@ tk update <id> [flags]
 
 | Flag | Description |
 |------|-------------|
-| `-t, --title` | New title |
-| `-d, --description` | New description |
-| `-p, --priority` | New priority |
-| `-l, --labels` | New labels (replaces existing) |
-| `--awaiting` | Set awaiting status (or `--awaiting=""` to clear) |
+| `--title` | New title |
+| `--description` | New description |
+| `--priority` | New priority |
+| `--status` | New status: `open`, `in_progress`, `closed` |
+| `--add-labels` / `--remove-labels` | Add or remove labels |
+| `--parent` | New parent epic (empty string to clear) |
+| `-a, --awaiting` | Set awaiting status (or `--awaiting=` to clear) |
+| `-r, --requires` | Set approval gate (empty to clear) |
+| `-v, --verdict` | Set verdict: `approved`, `rejected` |
+
+(`tk update` has no single-letter shorthands except `-a`, `-r`, `-v` — use the long form for the rest.)
 
 ## Status Changes
 
 ```bash
-tk close <id> "reason"      # Close with reason
-tk reopen <id>              # Reopen closed tick
+tk close <id>                    # Close
+tk close <id> --reason "reason"  # Close with reason
+tk close <id> --force            # Close epic with all children, or bypass a requires gate
+tk reopen <id>                   # Reopen closed tick
 ```
 
 ## Human Verdicts
@@ -109,8 +120,7 @@ Commands for humans responding to agent handoffs:
 
 ```bash
 tk approve <id>             # Approve tick awaiting human verdict
-tk reject <id>              # Reject tick (returns to agent)
-tk reject <id> "feedback"   # Reject with feedback note
+tk reject <id> "feedback"   # Reject — feedback message is required (added as a human note)
 ```
 
 **What happens on verdict:**
@@ -128,8 +138,8 @@ tk reject <id> "feedback"   # Reject with feedback note
 ## Dependencies
 
 ```bash
-tk block <id> -b <blocker-id>     # Add blocker
-tk unblock <id> -b <blocker-id>   # Remove blocker
+tk block <id> <blocker-id>        # Add blocker (id is now blocked by blocker-id)
+tk unblock <id> <blocker-id>      # Remove blocker
 tk deps <id>                      # Show dependency tree
 ```
 
@@ -146,50 +156,9 @@ tk notes <id>                         # List notes
 - Human answering a question (INPUT_NEEDED)
 - Human giving direction on escalation
 
-## Running Agent
+## Running an Epic
 
-```bash
-tk run [epic-id...] [flags]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--auto` | Auto-select next ready epic |
-| `--parallel N` | Run N tasks in parallel |
-| `--worktree` | Use git worktree for isolation |
-| `--watch` | Restart when tasks become ready |
-| `--max-iterations N` | Max iterations per task (default 50) |
-| `--max-cost N` | Max cost in USD |
-| `--max-task-retries N` | Max retries for failed tasks (default 3) |
-| `--timeout duration` | Task timeout (default 30m) |
-| `--skip-verify` | Skip verification after completion |
-| `--verify-only` | Only run verification |
-| `--jsonl` | Output JSONL format |
-| `--checkpoint-interval N` | Checkpoint every N iterations |
-
-**Examples:**
-```bash
-tk run abc123                     # Run on specific epic
-tk run abc123 def456              # Multiple epics (sequential)
-tk run --auto                     # Auto-select ready epic
-tk run abc123 --worktree          # Isolated git worktree
-tk run abc123 --parallel 3        # 3 parallel tasks
-tk run abc123 --watch             # Watch mode
-tk run abc123 --max-cost 5.00     # Cost limit
-```
-
-## Resuming from Checkpoint
-
-```bash
-tk resume <checkpoint-id>         # Resume from checkpoint
-tk checkpoints [epic-id]          # List available checkpoints
-```
-
-## Merging Epic Branch
-
-```bash
-tk merge <epic-id>                # Merge completed epic branch
-```
+This skill runs epics by orchestrating Claude Code subagents — see `claude-runner.md`. The standalone `tk run` runner (and its `tk resume` / `tk checkpoints` / `tk merge` companions) is intentionally out of scope here for now, so it isn't documented in this reference.
 
 ## Web Board
 

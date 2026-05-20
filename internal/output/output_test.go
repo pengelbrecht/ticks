@@ -103,6 +103,9 @@ func (m *mockRunLogSink) LogIdleFileChange(path string) {
 func (m *mockRunLogSink) LogIdleTaskCheck(taskFound bool, taskID string) {
 	m.calls = append(m.calls, logCall{"LogIdleTaskCheck", []any{taskFound, taskID}})
 }
+func (m *mockRunLogSink) LogLifecycleEvent(eventType, message string) {
+	m.calls = append(m.calls, logCall{"LogLifecycleEvent", []any{eventType, message}})
+}
 
 func TestNew_Defaults(t *testing.T) {
 	o := New()

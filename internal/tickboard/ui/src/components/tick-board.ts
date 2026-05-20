@@ -4,7 +4,7 @@ import { provide } from '@lit/context';
 import { StoreController } from '@nanostores/lit';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord } from '../api/ticks.js';
+import { type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord, type AwaitingTaskStatus } from '../api/ticks.js';
 import type { ToolActivityInfo } from './tool-activity.js';
 import type { MetricsRecord } from './run-metrics.js';
 import {
@@ -44,8 +44,10 @@ import {
   fetchInfo,
   fetchTickDetails,
   fetchRunStatus,
+  fetchActivity,
 } from '../stores/index.js';
 import type { RunEvent } from '../comms/types.js';
+import type { Activity } from '../api/ticks.js';
 
 // Initialize comms auto-connect (handles mode switching)
 console.log('[TickBoard] Initializing comms module');
@@ -532,6 +534,100 @@ export class TickBoard extends LitElement {
       50% { opacity: 1; }
     }
 
+    /* Awaiting tasks section */
+    .awaiting-section {
+      background: color-mix(in srgb, var(--yellow, #f9e2af) 8%, var(--surface0, #313244));
+      border: 1px solid color-mix(in srgb, var(--yellow, #f9e2af) 30%, transparent);
+      border-radius: 8px;
+      padding: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .awaiting-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--yellow, #f9e2af);
+      margin-bottom: 0.5rem;
+    }
+
+    .awaiting-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.25rem;
+      height: 1.25rem;
+      padding: 0 0.375rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      background: var(--yellow, #f9e2af);
+      color: var(--base, #1e1e2e);
+      border-radius: 999px;
+    }
+
+    .awaiting-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .awaiting-item {
+      background: var(--surface0, #313244);
+      border: 1px solid var(--surface1, #45475a);
+      border-radius: 6px;
+      padding: 0.625rem;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .awaiting-item:hover {
+      border-color: var(--yellow, #f9e2af);
+    }
+
+    .awaiting-item-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .awaiting-icon {
+      font-size: 0.875rem;
+    }
+
+    .awaiting-item-id {
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: var(--blue, #89b4fa);
+      font-weight: 500;
+    }
+
+    .awaiting-type-badge {
+      font-size: 0.6875rem;
+      padding: 0.125rem 0.375rem;
+      background: color-mix(in srgb, var(--yellow, #f9e2af) 15%, transparent);
+      color: var(--yellow, #f9e2af);
+      border-radius: 4px;
+      font-weight: 500;
+      margin-left: auto;
+    }
+
+    .awaiting-item-title {
+      font-size: 0.8125rem;
+      color: var(--text, #cdd6f4);
+      line-height: 1.4;
+    }
+
+    .awaiting-item-reason {
+      font-size: 0.75rem;
+      color: var(--subtext0, #a6adc8);
+      margin-top: 0.25rem;
+      line-height: 1.3;
+      font-style: italic;
+    }
+
     /* Hide run panel on mobile */
     @media (max-width: 768px) {
       .run-panel {
@@ -606,12 +702,15 @@ export class TickBoard extends LitElement {
   @state() private showMobileFilterDrawer = false;
 
   // Run monitoring state
+  @state() private showDashboard = false;
+  @state() private dashboardActivities: Activity[] = [];
   @state() private showRunPanel = false;
   @state() private runStatus: RunStatusResponse | null = null;
   @state() private runPanelEpicId: string | null = null;
   @state() private runStreamConnected = false;
   @state() private activeToolInfo: ToolActivityInfo | null = null;
   @state() private runMetrics: MetricsRecord | null = null;
+  @state() private awaitingTasks: AwaitingTaskStatus[] = [];
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
 
@@ -791,6 +890,11 @@ export class TickBoard extends LitElement {
             };
           }
 
+          // Update awaiting tasks
+          if (status.awaitingTasks) {
+            this.awaitingTasks = status.awaitingTasks;
+          }
+
           return; // Only handle one active run at a time
         }
       } catch {
@@ -955,6 +1059,36 @@ export class TickBoard extends LitElement {
         this.runStatus = { epicId, isRunning: false };
         this.activeToolInfo = null;
         break;
+
+      case 'run:task-awaiting': {
+        console.log('[RunStream] Task awaiting:', event.taskId, event.awaitingType);
+        // Find the tick title from our current ticks list
+        const awaitingTick = this.ticks.find(t => t.id === event.taskId);
+        const awaitingTask: AwaitingTaskStatus = {
+          tickId: event.taskId,
+          title: awaitingTick?.title || event.taskId,
+          awaitingType: event.awaitingType,
+          signalReason: event.reason,
+        };
+        // Add if not already present, update if already there
+        const existingIdx = this.awaitingTasks.findIndex(t => t.tickId === event.taskId);
+        if (existingIdx >= 0) {
+          this.awaitingTasks = [
+            ...this.awaitingTasks.slice(0, existingIdx),
+            awaitingTask,
+            ...this.awaitingTasks.slice(existingIdx + 1),
+          ];
+        } else {
+          this.awaitingTasks = [...this.awaitingTasks, awaitingTask];
+        }
+
+        // Show toast notification
+        window.showToast?.({
+          message: `Task ${event.taskId} needs human action: ${event.awaitingType}`,
+          variant: 'warning',
+        });
+        break;
+      }
     }
   }
 
@@ -1071,6 +1205,12 @@ export class TickBoard extends LitElement {
       return;
     }
 
+    // When dashboard is open, let the dashboard handle navigation/action keys.
+    // Only handle Escape and 'd' (to close the dashboard) at the board level.
+    if (this.showDashboard && e.key !== 'Escape' && e.key !== 'd' && e.key !== '?') {
+      return;
+    }
+
     // Close keyboard help on any key
     if (this.showKeyboardHelp && e.key !== '?') {
       this.showKeyboardHelp = false;
@@ -1140,6 +1280,14 @@ export class TickBoard extends LitElement {
         if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
           e.preventDefault();
           this.toggleRunPanel();
+        }
+        break;
+
+      // Toggle dashboard overlay: d
+      case 'd':
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          this.toggleDashboard();
         }
         break;
     }
@@ -1224,7 +1372,9 @@ export class TickBoard extends LitElement {
    * Handle escape key: close dialogs/drawers or clear focus.
    */
   private handleEscape() {
-    if (this.showKeyboardHelp) {
+    if (this.showDashboard) {
+      this.showDashboard = false;
+    } else if (this.showKeyboardHelp) {
       this.showKeyboardHelp = false;
     } else if (this.selectedTick) {
       selectTick(null);
@@ -1232,6 +1382,70 @@ export class TickBoard extends LitElement {
       this.showRunPanel = false;
     } else {
       this.clearFocus();
+    }
+  }
+
+  /**
+   * Toggle the dashboard overlay.
+   */
+  private async toggleDashboard() {
+    this.showDashboard = !this.showDashboard;
+    if (this.showDashboard) {
+      // Fetch recent activity when opening
+      try {
+        this.dashboardActivities = await fetchActivity(20);
+      } catch {
+        this.dashboardActivities = [];
+      }
+    }
+  }
+
+  /**
+   * Handle epic selection from dashboard.
+   */
+  private handleDashboardEpicSelect(e: CustomEvent<{ epicId: string }>) {
+    this.selectedEpic = e.detail.epicId;
+    this.showDashboard = false;
+    this.updateBoardState();
+  }
+
+  /**
+   * Handle tick selection from dashboard.
+   */
+  private handleDashboardTickSelect(e: CustomEvent<{ tickId: string }>) {
+    selectTick(e.detail.tickId);
+    this.showDashboard = false;
+  }
+
+  /**
+   * Handle resume (approve) action from dashboard.
+   * Approves the awaiting tick so the agent can continue.
+   */
+  private async handleDashboardTickResume(e: CustomEvent<{ tickId: string }>) {
+    const { tickId } = e.detail;
+    try {
+      const response = await import('../stores/comms.js').then(m => m.approveTick(tickId));
+      updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
+      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tickId);
+      window.showToast?.({ message: `Resumed tick ${tickId}`, variant: 'success' });
+    } catch (err) {
+      window.showToast?.({ message: `Failed to resume ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
+    }
+  }
+
+  /**
+   * Handle retry action from dashboard.
+   * Reopens the tick so the agent picks it up again.
+   */
+  private async handleDashboardTickRetry(e: CustomEvent<{ tickId: string }>) {
+    const { tickId } = e.detail;
+    try {
+      const response = await import('../stores/comms.js').then(m => m.reopenTick(tickId));
+      updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
+      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tickId);
+      window.showToast?.({ message: `Retrying tick ${tickId}`, variant: 'success' });
+    } catch (err) {
+      window.showToast?.({ message: `Failed to retry ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
     }
   }
 
@@ -1391,6 +1605,11 @@ export class TickBoard extends LitElement {
     // Update the tick in store - computed stores will auto-update notes/blockers/etc.
     updateTick(tick);
     this.updateBoardState();
+
+    // Remove from awaiting list if tick is no longer awaiting
+    if (!tick.awaiting || tick.status === 'closed') {
+      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tick.id);
+    }
   }
 
   // Get filtered ticks for a column
@@ -1463,6 +1682,9 @@ export class TickBoard extends LitElement {
         </div>
 
         <div class="run-panel-body">
+          ${this.awaitingTasks.length > 0
+            ? this.renderAwaitingTasks()
+            : nothing}
           ${hasActiveRun
             ? this.renderActiveRun()
             : this.renderNoRunState()}
@@ -1507,6 +1729,53 @@ export class TickBoard extends LitElement {
         ></run-output-pane>
       </div>
     `;
+  }
+
+  /**
+   * Render tasks awaiting human action.
+   */
+  private renderAwaitingTasks() {
+    const awaitingIcons: Record<string, string> = {
+      work: '🔧',
+      approval: '✅',
+      input: '💬',
+      review: '👀',
+      content: '📝',
+      escalation: '🚨',
+      checkpoint: '📍',
+    };
+
+    return html`
+      <div class="awaiting-section">
+        <div class="awaiting-header">
+          <sl-icon name="exclamation-triangle"></sl-icon>
+          <span>Needs Human Action</span>
+          <span class="awaiting-count">${this.awaitingTasks.length}</span>
+        </div>
+        <div class="awaiting-list">
+          ${this.awaitingTasks.map(task => html`
+            <div class="awaiting-item" @click=${() => this.handleAwaitingTaskClick(task.tickId)}>
+              <div class="awaiting-item-header">
+                <span class="awaiting-icon">${awaitingIcons[task.awaitingType] || '⏳'}</span>
+                <span class="awaiting-item-id">${task.tickId}</span>
+                <span class="awaiting-type-badge">${task.awaitingType}</span>
+              </div>
+              <div class="awaiting-item-title">${task.title}</div>
+              ${task.signalReason
+                ? html`<div class="awaiting-item-reason">${task.signalReason}</div>`
+                : nothing}
+            </div>
+          `)}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Handle click on an awaiting task - open its detail drawer.
+   */
+  private handleAwaitingTaskClick(tickId: string) {
+    selectTick(tickId);
   }
 
   /**
@@ -1557,6 +1826,7 @@ export class TickBoard extends LitElement {
         connection-status=${this.connectionStatus}
         ?run-panel-open=${this.showRunPanel}
         ?run-active=${this.runStatus?.isRunning}
+        awaiting-count=${this.awaitingTasks.length}
         ?readonly-mode=${this.isCloudMode && !this.localClientConnected}
         @search-change=${this.handleSearchChange}
         @epic-filter-change=${this.handleEpicFilterChange}
@@ -1564,6 +1834,7 @@ export class TickBoard extends LitElement {
         @menu-toggle=${this.handleMobileMenuToggle}
         @activity-click=${this.handleActivityClick}
         @run-panel-toggle=${this.toggleRunPanel}
+        @dashboard-toggle=${this.toggleDashboard}
       ></tick-header>
 
       <!-- Toast notification stack -->
@@ -1690,6 +1961,21 @@ export class TickBoard extends LitElement {
         </ticks-button>
       </sl-drawer>
 
+      <!-- Tickflow Dashboard overlay -->
+      <tickflow-dashboard
+        ?open=${this.showDashboard}
+        .ticks=${this.ticks}
+        .epics=${this.epics}
+        .runStatus=${this.runStatus}
+        .activities=${this.dashboardActivities}
+        repo-name=${this.repoName}
+        @close=${() => { this.showDashboard = false; }}
+        @epic-select=${this.handleDashboardEpicSelect}
+        @tick-select=${this.handleDashboardTickSelect}
+        @tick-resume=${this.handleDashboardTickResume}
+        @tick-retry=${this.handleDashboardTickRetry}
+      ></tickflow-dashboard>
+
       <!-- Keyboard shortcuts help dialog -->
       <sl-dialog
         label="Keyboard Shortcuts"
@@ -1740,8 +2026,31 @@ export class TickBoard extends LitElement {
               <span>Toggle run panel</span>
             </div>
             <div class="shortcut-row">
+              <kbd>d</kbd>
+              <span>Toggle dashboard</span>
+            </div>
+            <div class="shortcut-row">
               <kbd>?</kbd>
               <span>Show this help</span>
+            </div>
+          </div>
+          <div class="shortcut-group">
+            <h4>Dashboard (when open)</h4>
+            <div class="shortcut-row">
+              <kbd>j</kbd> <kbd>k</kbd>
+              <span>Navigate attention list</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>Enter</kbd> <kbd>i</kbd>
+              <span>Inspect tick</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>a</kbd>
+              <span>Resume (approve) tick</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>t</kbd>
+              <span>Retry (reopen) tick</span>
             </div>
           </div>
         </div>

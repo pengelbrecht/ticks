@@ -1,0 +1,20 @@
+{
+  "id": "qeb",
+  "title": "Add runtime resource provisioning for worktree agents",
+  "description": "Add explicit local runtime resource support for worktrees: configured local files/secrets copied or symlinked, bootstrap commands, shared dev server descriptors, per-worktree port allocation, and runtime context injected into child prompts/env. Default should not expose secrets without config/confirmation.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "qri",
+    "12i"
+  ],
+  "parent": "vmv",
+  "acceptance_criteria": ".tick/pi-runner.yaml can declare local_files, secrets_mode, bootstrap commands, and dev_servers; copied secrets are chmod 600 and cleaned up; child prompt lists available runtime resources and tells agents not to start duplicate shared servers.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T08:27:52.935737Z",
+  "updated_at": "2026-05-08T09:54:29.502434Z",
+  "closed_at": "2026-05-08T09:54:29.502434Z",
+  "closed_reason": "Added runtime resource provisioning from pi-runner config: local file copy/symlink with chmod 600 for copies, bootstrap commands in worktree, dev server/resource prompt context, and runtime env injection. Secrets default to none."
+}

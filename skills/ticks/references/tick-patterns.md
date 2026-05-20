@@ -8,6 +8,27 @@ Patterns for creating effective ticks that AI agents can complete autonomously.
 
 If tests don't make sense for a task, there should be another form of validation that confirms completion. Every task should result in demoable software that can be run, tested, and builds on previous work.
 
+## Partitioning an Epic into Ticks
+
+How you carve an epic into ticks matters as much as how you write each one.
+
+**Slice vertically, not horizontally.** Don't make a "schema" tick, an "API" tick, and a "UI" tick — each is useless until the others land, and nothing is demoable until the very end. Instead slice by user-visible capability, so each tick takes one feature front-to-back and leaves the system working:
+
+```
+Bad (horizontal):           Good (vertical):
+- Build all DB tables       - User can register (schema + endpoint + sign-up form)
+- Build all API endpoints   - User can log in   (auth   + endpoint + login form)
+- Build all the UI          - User sees profile (query  + endpoint + profile page)
+```
+
+Each vertical slice is independently testable and builds on the last — exactly what the runner wants.
+
+**But keep parallel ticks on disjoint files.** Vertical slices tend to touch shared files (the same schema file, the same router). That's fine in sequence, but ticks that run in the *same wave* each execute in their own worktree and get merged afterward — two same-wave ticks editing `router.go` will collide at merge. So:
+
+- Slice vertically to define the dependency backbone.
+- Within any wave you intend to run in parallel, make sure the ticks touch *different* files. Where they'd overlap, add a `--blocked-by` so they fall into different waves, or pull the shared edit into its own earlier tick the others depend on.
+- This is why every tick records its **files likely touched** (below) — it's the input to this decision. Run `tk graph <epic>` to see the waves and check for collisions before launching.
+
 ## The Ideal Tick
 
 A well-formed tick has:
@@ -17,6 +38,9 @@ A well-formed tick has:
 3. **Test cases** - Specific inputs and expected outputs
 4. **Acceptance criteria** - How to verify done
 5. **Bounded scope** - Completable in 1-3 iterations
+6. **Files likely touched** - The paths the work will create or change
+
+**Write each tick to stand on its own.** A tick is executed by a fresh subagent in an isolated worktree that sees *only the tick* — not the spec, not the epic, not its sibling ticks. The description has to carry everything the implementer needs. No placeholders ("TBD", "handle edge cases", "add appropriate validation", "write tests for the above" without saying which cases), and no references to a type or function that's only defined in another tick. If you'd have to read a different tick to understand this one, inline what's needed.
 
 ## Tick Sizing
 
@@ -48,6 +72,16 @@ Test cases:
 Run: npm test -- --grep "email"
 ```
 
+### When to break a tick down
+
+Split a tick (into smaller ticks, or an epic) when any of these is true:
+- The **title needs an "and"** ("Add login and password reset") — that's two ticks.
+- You **can't state acceptance in 3 bullets or fewer** — the scope is too broad to verify cleanly.
+- It **touches two or more independent subsystems** (e.g. auth *and* billing).
+- It **wouldn't finish in one focused agent session** (~1-3 iterations).
+
+A right-sized tick reads like one clear deliverable an implementer can finish, test, and commit without stopping to ask what you meant.
+
 ## Test-Driven Development
 
 **Critical for AI agent success.** Tests give agents:
@@ -67,7 +101,7 @@ tk create "Add [feature]" \
 - Error case: [bad input] -> Expected: [error]
 
 Run: [test command]" \
-  -acceptance "All tests pass, no regressions"
+  --acceptance "All tests pass, no regressions"
 ```
 
 ### TDD Feature Example
@@ -83,7 +117,7 @@ Test cases:
 - \"\" -> error: \"password required\"
 
 Run: go test ./internal/auth/... -v" \
-  -acceptance "All password tests pass, validator integrated"
+  --acceptance "All password tests pass, validator integrated"
 ```
 
 ### TDD Bug Fix Example
@@ -101,7 +135,7 @@ Current: Returns \"invalid email format\"
 Expected: All plus addresses validate
 
 Run: npm test -- --grep \"email\"" \
-  -acceptance "New plus-address tests pass, existing tests pass"
+  --acceptance "New plus-address tests pass, existing tests pass"
 ```
 
 ### Why TDD Matters
@@ -188,10 +222,10 @@ Group related tasks under an epic:
 tk create "Search Feature" -t epic -d "Full-text search for documents"
 
 # Create tasks with dependencies
-tk create "Add search index schema" -parent <epic>
-tk create "Implement indexing service" -parent <epic> -blocked-by <schema>
-tk create "Add search API endpoint" -parent <epic> -blocked-by <indexing>
-tk create "Add search UI component" -parent <epic> -blocked-by <api>
+tk create "Add search index schema" --parent <epic>
+tk create "Implement indexing service" --parent <epic> --blocked-by <schema>
+tk create "Add search API endpoint" --parent <epic> --blocked-by <indexing>
+tk create "Add search UI component" --parent <epic> --blocked-by <api>
 ```
 
 **Guidelines:**
@@ -223,7 +257,11 @@ Agent has no way to verify "appropriately".
 
 ### Implicit Dependencies
 - Bad: Create tasks without explicit blockers
-- Good: Use `-blocked-by` to make order clear
+- Good: Use `--blocked-by` to make order clear
+
+### Placeholders and Cross-References
+- Bad: "Add error handling as appropriate" / "Write tests for the above" / "Use the type from the schema tick"
+- Good: spell out which errors, list the actual test cases, and inline the type signature — the implementer can't see the spec or other ticks
 
 ## Priority Guidelines
 

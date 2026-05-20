@@ -1,0 +1,16 @@
+{
+  "id": "2hm",
+  "title": "Add detailed Tickflow lifecycle status messages",
+  "description": "Emit and render detailed Tickflow lifecycle status events in the TUI/dashboard: worktree planning/creation/reuse/protection/provisioning, lease acquisition/release, tick launch, verifier start/end, merge start/success/conflict, tick close/handoff/escalation, and worktree teardown/preservation.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "dur",
+  "acceptance_criteria": "During a Tickflow run, the TUI/status widget shows human-readable lifecycle messages for worktree establishment and teardown, tick start/completion, verifier and merge phases, and awaiting-human transitions. Messages are also represented in persisted run state or recent event history so /tickflow-dashboard can show them after interruption.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T15:56:56.47204Z",
+  "updated_at": "2026-05-08T16:22:32.51121Z",
+  "closed_at": "2026-05-08T16:22:32.51121Z",
+  "closed_reason": "Merged Tickflow worktree tf/run-dur-20260508t161411z-0bf0/2hm"
+}

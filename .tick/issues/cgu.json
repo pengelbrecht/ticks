@@ -1,0 +1,16 @@
+{
+  "id": "cgu",
+  "title": "Tickflow merge policy must merge existing worktree branch commits",
+  "description": "Dogfood run of mir showed worktree agents may commit directly on their branch before returning. mergeWorktreeBranch only commits staged changes and returns merged=true when there are no staged changes, so ticks 9yp/fy4/i5u were closed even though their branch commits were not merged into the controller branch. Fix merge policy to compare worktree branch with controller HEAD/merge-base and merge existing branch commits even when no new staged changes exist; never close a tick until branch commits are actually merged or explicitly no-op.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "discovered_from": "v0t",
+  "acceptance_criteria": "If a worktree branch has commits ahead of controller but no staged changes, Tickflow merges those commits before closing; test/manual repro covers agent-created commits; no-op close only happens when branch has no diff/commits relative to controller.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T13:51:34.238391Z",
+  "updated_at": "2026-05-08T13:54:49.365344Z",
+  "closed_at": "2026-05-08T13:54:49.365344Z",
+  "closed_reason": "Fixed mergeWorktreeBranch to merge existing worktree branch commits even when there are no staged changes by checking merge-base --is-ancestor before treating branch as already merged. Dogfood branches 9yp/fy4/i5u were manually recovered and merged."
+}

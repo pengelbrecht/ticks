@@ -30,6 +30,18 @@ type IterationContext struct {
 	// This is the contents of .tick/logs/context/<epic-id>.md if it exists,
 	// or an empty string if no context has been generated.
 	EpicContext string
+
+	// Policy contains resolved policy controls for contract display.
+	Policy *PolicyInfo
+}
+
+// PolicyInfo holds resolved policy values for display in prompts.
+type PolicyInfo struct {
+	MaxAttempts           int
+	MaxNoProgressAttempts int
+	RequireCommit         bool
+	SecretsExposure       string
+	Sandbox               bool
 }
 
 // PromptBuilder constructs prompts for autonomous agent iterations.
@@ -70,6 +82,15 @@ func (pb *PromptBuilder) Build(ctx IterationContext) string {
 		}
 	}
 
+	// Populate policy fields from iteration context
+	if ctx.Policy != nil {
+		data.MaxAttempts = ctx.Policy.MaxAttempts
+		data.MaxNoProgressAttempts = ctx.Policy.MaxNoProgressAttempts
+		data.RequireCommit = ctx.Policy.RequireCommit
+		data.SecretsExposure = ctx.Policy.SecretsExposure
+		data.Sandbox = ctx.Policy.Sandbox
+	}
+
 	if err := pb.tmpl.Execute(&buf, data); err != nil {
 		// This should never happen with a valid template
 		return fmt.Sprintf("Error generating prompt: %v", err)
@@ -92,6 +113,13 @@ type templateData struct {
 	EpicNotes          []string
 	HumanFeedback      []ticks.Note
 	EpicContext        string
+
+	// Policy controls (surfaced in contract)
+	MaxAttempts              int
+	MaxNoProgressAttempts    int
+	RequireCommit            bool
+	SecretsExposure          string
+	Sandbox                  bool
 }
 
 // extractAcceptanceCriteria parses acceptance criteria from a task description.
@@ -139,6 +167,17 @@ These notes were left by previous iterations. Read them carefully before startin
 {{.EpicDescription}}
 {{end}}
 
+{{if .MaxAttempts}}
+## Tick Contract
+
+| Policy | Value |
+|--------|-------|
+| Max attempts per task | {{.MaxAttempts}} |
+| Max no-progress attempts | {{.MaxNoProgressAttempts}} |
+| Require commit | {{.RequireCommit}} |{{if .Sandbox}}
+| Sandbox | enabled |{{end}}{{if ne .SecretsExposure ""}}
+| Secrets exposure | {{.SecretsExposure}} |{{end}}
+{{end}}
 ## Current Task
 {{if .TaskID}}**[{{.TaskID}}] {{.TaskTitle}}**{{else}}**{{.TaskTitle}}**{{end}}
 

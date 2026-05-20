@@ -1,0 +1,16 @@
+{
+  "id": "nyt",
+  "title": "Implement tick contract compiler for tickflow",
+  "description": "Load tick data through tk show/list JSON and compile a TickContract containing id, title, description, acceptance_criteria, blocked_by, requires, maxAttempts, and verifier commands inferred from acceptance criteria. Add /tickflow-contract \u003cid\u003e output for inspection.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "bha",
+  "acceptance_criteria": "Given a real tick with acceptance_criteria, /tickflow-contract \u003cid\u003e displays the contract and inferred verifier commands; handles missing acceptance criteria gracefully.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T06:41:25.901859Z",
+  "updated_at": "2026-05-08T06:47:25.663118Z",
+  "closed_at": "2026-05-08T06:47:25.663118Z",
+  "closed_reason": "Implemented TickContract compilation from tk show JSON, acceptance criteria extraction, verifier inference from Run/backticked/prose patterns, and /tickflow-contract formatting."
+}

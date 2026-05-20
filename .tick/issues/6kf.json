@@ -1,0 +1,16 @@
+{
+  "id": "6kf",
+  "title": "Scaffold project-local Pi tickflow extension",
+  "description": "Create .pi/extensions/tickflow/index.ts and supporting module layout for a Pi extension. Register /tickflow-run-tick and /tickflow-contract commands with argument parsing and basic UI notifications. Keep implementation minimal but reloadable with Pi /reload.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "bha",
+  "acceptance_criteria": "Pi can load the extension from .pi/extensions/tickflow; /tickflow-contract \u003cid\u003e and /tickflow-run-tick \u003cid\u003e commands are registered; TypeScript has no obvious syntax errors.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-08T06:41:25.90188Z",
+  "updated_at": "2026-05-08T06:43:05.461429Z",
+  "closed_at": "2026-05-08T06:43:05.461429Z",
+  "closed_reason": "Scaffolded .pi/extensions/tickflow with /tickflow-contract, /tickflow-run-tick, and /tickflow-run commands; validated Pi can load the extension via pi -e."
+}

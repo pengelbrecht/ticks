@@ -1,0 +1,15 @@
+{
+  "id": "297",
+  "title": "Dogfood: draft failure recovery playbook",
+  "description": "Create docs/dogfood/tickflow-parallel-approvals/failure-recovery.md. Describe recovery steps if a worker fails, a merge conflicts, or Pi becomes unresponsive. Include headings: # Failure Recovery Playbook, ## Worker Failure, ## Merge Conflict, ## Unresponsive Pi, ## Resume Commands.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "weo",
+  "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/failure-recovery.md \u0026\u0026 grep -q 'Unresponsive Pi' docs/dogfood/tickflow-parallel-approvals/failure-recovery.md",
+  "requires": "approval",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T14:17:22.198426Z",
+  "updated_at": "2026-05-11T14:17:22.198426Z"
+}

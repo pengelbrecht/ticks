@@ -1,0 +1,15 @@
+{
+  "id": "o3k",
+  "title": "Fix concurrent Tickflow run-record persistence",
+  "description": "Parallel worktree run weo failed immediately with ENOENT renaming .tick/logs/pi-runner/runs/\u003crun\u003e.json.tmp. Multiple agents persisted the same run record concurrently using the same temp path. Use unique temp files and/or serialization so \u003e3 parallel agents can update one run record safely.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Parallel run-record persists do not share a fixed .tmp path; go test ./... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T14:23:29.53439Z",
+  "updated_at": "2026-05-11T14:26:19.655069Z",
+  "closed_at": "2026-05-11T14:26:19.655069Z",
+  "closed_reason": "Fixed persistRunRecord to serialize writes per run record and use unique temporary paths; go test ./... passes"
+}

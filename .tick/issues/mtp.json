@@ -1,0 +1,15 @@
+{
+  "id": "mtp",
+  "title": "Harden tickflow dashboard debugging and exit paths",
+  "description": "Add non-interactive dump mode, debug logging, background state loading, and optional watchdog timeout for /tickflow-dashboard so dashboard hangs can be diagnosed without restarting Pi.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Dashboard extension loads; /tickflow-dashboard --dump works in print mode; go test ./... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T09:47:13.765061Z",
+  "updated_at": "2026-05-11T09:48:40.756424Z",
+  "closed_at": "2026-05-11T09:48:40.756424Z",
+  "closed_reason": "Implemented dashboard dump/debug/watchdog and background loading; verified extension loads and go test ./... passes"
+}

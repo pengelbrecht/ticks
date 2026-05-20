@@ -84,7 +84,7 @@ brew install pengelbrecht/tap/ticks
 ### Shell script (macOS/Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh | sh
+curl -fsSL https://ticks.sh/install | sh
 ```
 
 ### PowerShell (Windows)

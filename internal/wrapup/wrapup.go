@@ -145,14 +145,26 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 	merged := false
 	var mergeResult *worktree.MergeResult
 	if result != nil && engine.ShouldCleanupWorktree(result.ExitReason) && !r.NoMerge {
+		if r.Output != nil {
+			targetBranch := r.Worktree.ParentBranch
+			if targetBranch == "" {
+				targetBranch = "main"
+			}
+			r.Output.MergeStarting(targetBranch)
+		}
 		mergeResult, err = r.handleMerge()
 		if err != nil {
 			if r.Output != nil {
 				r.Output.Warn("merge failed: %v", err)
 				r.Output.WorktreePreserved(r.WorkDir, "merge failed")
+				r.Output.WorktreeProtected(r.WorkDir, "merge failed")
 			}
 		} else if mergeResult != nil && mergeResult.Success {
 			merged = true
+			if r.Output != nil {
+				r.Output.MergeCompleted(mergeResult.TargetBranch)
+				r.Output.WorktreeTeardown(r.WorkDir)
+			}
 			_ = r.WtManager.Remove(r.EpicID)
 			if r.Output != nil {
 				r.Output.MergeSuccess(mergeResult.TargetBranch)
@@ -160,20 +172,24 @@ func (r *Runner) Run(ctx context.Context, config Config, result *engine.RunResul
 		} else if mergeResult != nil && !mergeResult.Success {
 			if r.Output != nil {
 				if len(mergeResult.Conflicts) > 0 {
+					r.Output.MergeConflict(mergeResult.TargetBranch, mergeResult.Conflicts)
 					r.Output.Warn("merge conflicts in: %v", mergeResult.Conflicts)
 				} else {
 					r.Output.Warn("merge failed: %s", mergeResult.ErrorMessage)
 				}
 				r.Output.WorktreePreserved(r.WorkDir, "merge conflicts")
+				r.Output.WorktreeProtected(r.WorkDir, "merge conflicts")
 			}
 		}
 	} else if r.NoMerge {
 		if r.Output != nil {
 			r.Output.WorktreeInfo(r.WorkDir, r.Worktree.Branch)
+			r.Output.WorktreeProtected(r.WorkDir, "--no-merge")
 		}
 	} else if result != nil {
 		if r.Output != nil {
 			r.Output.WorktreePreserved(r.WorkDir, "resumption")
+			r.Output.WorktreeProtected(r.WorkDir, "resumption")
 		}
 	}
 

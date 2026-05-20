@@ -1,0 +1,14 @@
+{
+  "id": "1tf",
+  "title": "Dogfood: write dashboard observability guide",
+  "description": "Create docs/dogfood/tickflow-parallel-approvals/dashboard-observability.md. Explain how to use /tickflow-dashboard, --debug, --timeout, and --dump during this dogfood run. Include headings: # Dashboard Observability Guide, ## Live Dashboard, ## Debug Logging, ## Watchdog Timeout, ## Evidence to Capture.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "weo",
+  "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/dashboard-observability.md \u0026\u0026 grep -q 'Debug Logging' docs/dogfood/tickflow-parallel-approvals/dashboard-observability.md",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T14:17:22.18205Z",
+  "updated_at": "2026-05-11T14:17:22.18205Z"
+}

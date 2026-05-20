@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/budget"
+	configpkg "github.com/pengelbrecht/ticks/internal/config"
 	epiccontext "github.com/pengelbrecht/ticks/internal/context"
 	"github.com/pengelbrecht/ticks/internal/output"
 	"github.com/pengelbrecht/ticks/internal/runrecord"
@@ -94,6 +97,10 @@ type RunConfig struct {
 	// WatchPollInterval is how often to poll for new tasks when idle (0 = 10s default).
 	// Only used when Watch is true.
 	WatchPollInterval time.Duration
+
+	// Policy contains Tickflow policy controls loaded from config.
+	// When nil, defaults are used.
+	Policy *configpkg.PolicyConfig
 }
 
 // Defaults for RunConfig.
@@ -370,6 +377,9 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 	// Log configuration after defaults applied
 	if e.Output != nil {
 		e.Output.RunConfig(config.MaxIterations, config.MaxCost, config.MaxDuration, config.AgentTimeout, config.MaxTaskRetries, config.Watch, config.WatchTimeout, config.WatchPollInterval)
+		if config.Policy != nil {
+			e.Output.PolicyConfig(PolicySummary(config.Policy))
+		}
 	}
 
 	// Calculate watch deadline (0 = unlimited)
@@ -385,6 +395,13 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		completedTasks: []string{},
 		workDir:        config.WorkDir,
 		startTime:      time.Now(),
+	}
+	initPolicyTracking(state)
+
+	// Resolve effective policy (from config or defaults)
+	effectivePolicy := config.Policy
+	if effectivePolicy == nil {
+		effectivePolicy = &configpkg.PolicyConfig{}
 	}
 
 	// Get epic info
@@ -409,6 +426,11 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 
 	state.epic = epic
 
+	// Notify output of epic info (for status widget)
+	if e.Output != nil {
+		e.Output.EpicInfo(epic.ID, epic.Title)
+	}
+
 	// Ensure epic context is generated before first wave
 	e.ensureEpicContext(ctx, epic)
 
@@ -421,7 +443,7 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		WorkDir:     config.WorkDir,
 		RecordStore: e.runRecordStore,
 		Timeout:     config.AgentTimeout,
-		BuildPrompt: e.makePromptFunc(state),
+		BuildPrompt: e.makePromptFunc(state, effectivePolicy),
 	}
 
 	// Wave loop
@@ -448,6 +470,11 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 		}
 
 		waveResult := wave.Compute(tickTasks)
+
+		// Register tasks with status widget (on first iteration)
+		if e.Output != nil && state.iteration == 0 {
+			e.Output.RegisterTasks(tickTasks)
+		}
 
 		// No waves available
 		if len(waveResult.Waves) == 0 {
@@ -510,10 +537,24 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 			}
 		}
 
-		// Mark tasks as in_progress
+		// Check policy limits before executing - skip tasks that have exceeded limits
+		for _, t := range firstWave.Tasks {
+			if skip, reason := checkPolicyLimits(state, effectivePolicy, t.ID); skip {
+				if e.Output != nil {
+					e.Output.Warn("policy limit reached: %s", reason)
+				}
+				_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Policy: %s — marking stuck", reason))
+				_ = e.ticks.SetAwaiting(t.ID, "work", fmt.Sprintf("Policy limit: %s", reason))
+			}
+		}
+
+		// Mark tasks as in_progress and emit lifecycle events
 		for _, t := range firstWave.Tasks {
 			if err := e.ticks.SetStatus(t.ID, "in_progress"); err != nil {
 				_ = e.ticks.AddNote(config.EpicID, fmt.Sprintf("Warning: could not mark %s as in_progress: %v", t.ID, err))
+			}
+			if e.Output != nil {
+				e.Output.TickLaunched(t.ID, t.Title)
 			}
 		}
 
@@ -568,6 +609,9 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 				})
 			}
 
+			// Record attempt for policy tracking
+			recordTaskAttempt(state, tr.TaskID, tr.Output)
+
 			// Handle timeout
 			if iterResult.IsTimeout {
 				if e.Output != nil {
@@ -595,6 +639,7 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 				} else if taskClosed {
 					if e.Output != nil {
 						e.Output.TaskClosed(tr.TaskID, true)
+						e.Output.TickClose(tr.TaskID, "completed by agent")
 					}
 					state.completedTasks = append(state.completedTasks, tr.TaskID)
 				}
@@ -626,6 +671,12 @@ func (e *Engine) Run(ctx context.Context, config RunConfig) (result *RunResult, 
 					}
 					if e.Output != nil {
 						e.Output.SignalHandled(signalStr, tr.TaskID, "set task awaiting", awaitingState)
+						// Emit specific lifecycle events for handoff and escalation
+						if sig == SignalEscalate {
+							e.Output.TickEscalation(tr.TaskID, sigCtx)
+						} else {
+							e.Output.TickHandoff(tr.TaskID, awaitingState, sigCtx)
+						}
 					}
 				}
 			}
@@ -654,6 +705,12 @@ type runState struct {
 	currentTaskID    string
 	currentTaskTitle string
 
+	// Policy-related tracking
+	taskAttempts         map[string]int            // taskID -> total attempts
+	taskNoProgressCount  map[string]int            // taskID -> consecutive no-progress attempts
+	taskVerifierFailures map[string]map[string]int // taskID -> verifierCmd -> failure count
+	taskLastOutputHash   map[string]string         // taskID -> hash of last output for progress detection
+
 	// Working directory for agent (worktree path or empty for current dir)
 	workDir string
 
@@ -679,7 +736,19 @@ func (s *runState) toResult(exitReason string, budgetUsage budget.Usage) *RunRes
 // makePromptFunc creates a prompt builder function for the wave runner.
 // It captures the current engine state (epic, notes, context) and builds
 // prompts using the engine's full PromptBuilder for each task.
-func (e *Engine) makePromptFunc(state *runState) wave.PromptFunc {
+func (e *Engine) makePromptFunc(state *runState, policy *configpkg.PolicyConfig) wave.PromptFunc {
+	// Pre-compute policy info for prompt contract
+	var policyInfo *PolicyInfo
+	if policy != nil {
+		policyInfo = &PolicyInfo{
+			MaxAttempts:           policy.GetMaxAttempts(),
+			MaxNoProgressAttempts: policy.GetMaxNoProgressAttempts(),
+			RequireCommit:         policy.GetRequireCommit(),
+			SecretsExposure:       string(policy.GetSecretsExposure()),
+			Sandbox:               policy.GetSandbox(),
+		}
+	}
+
 	return func(t *tick.Tick) string {
 		// Refresh epic notes for each task
 		notes, _ := e.ticks.GetNotes(state.epicID)
@@ -701,6 +770,7 @@ func (e *Engine) makePromptFunc(state *runState) wave.PromptFunc {
 			EpicNotes:     notes,
 			HumanFeedback: humanNotes,
 			EpicContext:   state.epicContext,
+			Policy:        policyInfo,
 		}
 
 		if e.Output != nil {
@@ -807,6 +877,11 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 
 	fileChanges := watcher.Changes()
 
+	// Use a resettable ticker instead of time.After in the loop to avoid
+	// leaking timers when fileChanges fires frequently (S4 soak finding).
+	pollTicker := time.NewTicker(config.WatchPollInterval)
+	defer pollTicker.Stop()
+
 	for {
 		if !watchDeadline.IsZero() && time.Now().After(watchDeadline) {
 			return state.toResult(ExitReasonWatchTimeout, e.budget.Usage())
@@ -851,8 +926,11 @@ func (e *Engine) handleWatchIdle(ctx context.Context, config RunConfig, state *r
 			if result != nil {
 				return result
 			}
+			// Reset poll ticker after handling a file change so we get
+			// the full interval before the next poll-based check.
+			pollTicker.Reset(config.WatchPollInterval)
 
-		case <-time.After(config.WatchPollInterval):
+		case <-pollTicker.C:
 			task, err := e.ticks.NextTask(config.EpicID)
 			if err == nil && task != nil {
 				if e.Output != nil {
@@ -895,4 +973,80 @@ func (e *Engine) checkForEpicCompletion(config RunConfig, state *runState) *RunR
 	}
 
 	return nil
+}
+
+// initPolicyTracking initializes the policy tracking maps on runState.
+func initPolicyTracking(state *runState) {
+	state.taskAttempts = make(map[string]int)
+	state.taskNoProgressCount = make(map[string]int)
+	state.taskVerifierFailures = make(map[string]map[string]int)
+	state.taskLastOutputHash = make(map[string]string)
+}
+
+// outputHash computes a short hash of agent output for progress detection.
+func outputHash(output string) string {
+	h := sha256.Sum256([]byte(output))
+	return hex.EncodeToString(h[:8])
+}
+
+// checkPolicyLimits checks whether a task has exceeded policy limits.
+// Returns (shouldSkip bool, reason string).
+func checkPolicyLimits(state *runState, policy *configpkg.PolicyConfig, taskID string) (bool, string) {
+	maxAttempts := policy.GetMaxAttempts()
+	if attempts := state.taskAttempts[taskID]; attempts >= maxAttempts {
+		return true, fmt.Sprintf("task %s exceeded max_attempts (%d/%d)", taskID, attempts, maxAttempts)
+	}
+
+	maxNoProg := policy.GetMaxNoProgressAttempts()
+	if noProg := state.taskNoProgressCount[taskID]; noProg >= maxNoProg {
+		return true, fmt.Sprintf("task %s exceeded max_no_progress_attempts (%d/%d)", taskID, noProg, maxNoProg)
+	}
+
+	maxVerifierFails := policy.GetMaxSameVerifierFailures()
+	if vfMap, ok := state.taskVerifierFailures[taskID]; ok {
+		for cmd, count := range vfMap {
+			if count >= maxVerifierFails {
+				return true, fmt.Sprintf("task %s exceeded max_same_verifier_failures for %q (%d/%d)", taskID, cmd, count, maxVerifierFails)
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// recordTaskAttempt records that a task was attempted and tracks progress.
+func recordTaskAttempt(state *runState, taskID, agentOutput string) {
+	state.taskAttempts[taskID]++
+
+	hash := outputHash(agentOutput)
+	if prev, ok := state.taskLastOutputHash[taskID]; ok && prev == hash {
+		// Same output as last time = no progress
+		state.taskNoProgressCount[taskID]++
+	} else {
+		// Output changed = progress made
+		state.taskNoProgressCount[taskID] = 0
+	}
+	state.taskLastOutputHash[taskID] = hash
+}
+
+// recordVerifierFailure records a verifier command failure for a task.
+func recordVerifierFailure(state *runState, taskID, verifierCmd string) {
+	if state.taskVerifierFailures[taskID] == nil {
+		state.taskVerifierFailures[taskID] = make(map[string]int)
+	}
+	state.taskVerifierFailures[taskID][verifierCmd]++
+}
+
+// PolicySummary returns a human-readable summary of active policy controls.
+func PolicySummary(policy *configpkg.PolicyConfig) map[string]interface{} {
+	summary := map[string]interface{}{
+		"max_attempts":                policy.GetMaxAttempts(),
+		"max_no_progress_attempts":    policy.GetMaxNoProgressAttempts(),
+		"max_same_verifier_failures":  policy.GetMaxSameVerifierFailures(),
+		"require_commit":              policy.GetRequireCommit(),
+		"require_verifiers_for_priority": policy.GetRequireVerifiersForPriority(),
+		"sandbox":                     policy.GetSandbox(),
+		"secrets_exposure":            string(policy.GetSecretsExposure()),
+	}
+	return summary
 }

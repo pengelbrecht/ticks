@@ -383,8 +383,8 @@ export const landingPage = `<!DOCTYPE html>
   <nav>
     <a href="/" class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 28" height="28"><defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1"/><feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur2"/><feMerge><feMergeNode in="blur1"/><feMergeNode in="blur2"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><text x="32" y="14" font-family="ui-monospace, monospace" font-size="18" font-weight="600" fill="#A6E3A1" text-anchor="middle" dominant-baseline="central" filter="url(#glow)">tk_</text></svg></a>
     <div class="nav-links">
-      <a href="https://github.com/anthropics/ticks" target="_blank">GitHub</a>
-      <a href="https://github.com/anthropics/ticks#readme" target="_blank">Docs</a>
+      <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a>
+      <a href="https://github.com/pengelbrecht/ticks#readme" target="_blank">Docs</a>
       <a href="/login" class="btn btn-primary">Sign In</a>
     </div>
   </nav>
@@ -409,7 +409,7 @@ export const landingPage = `<!DOCTYPE html>
     <p class="hero-sub">Git-native. Lightning fast. Built for the AI era.</p>
     <div class="hero-buttons">
       <a href="/login" class="btn btn-primary">Get Started</a>
-      <a href="https://github.com/anthropics/ticks" class="btn btn-secondary" target="_blank">View on GitHub</a>
+      <a href="https://github.com/pengelbrecht/ticks" class="btn btn-secondary" target="_blank">View on GitHub</a>
     </div>
     <span class="scroll-hint">↓</span>
   </header>
@@ -458,7 +458,7 @@ export const landingPage = `<!DOCTYPE html>
       <div class="step">
         <div class="step-number">1</div>
         <h3>Install</h3>
-        <p>Single binary, no dependencies. Works on Mac, Linux, and Windows. <code>brew install ticks</code> or download from GitHub.</p>
+        <p>Single binary, no dependencies. Works on Mac, Linux, and Windows. <code>brew install pengelbrecht/tap/ticks</code> or <code>curl -fsSL https://ticks.sh/install | sh</code>.</p>
       </div>
       <div class="step">
         <div class="step-number">2</div>
@@ -473,8 +473,11 @@ export const landingPage = `<!DOCTYPE html>
     </div>
 
     <div class="code-block">
-      <pre><span class="comment"># Install ticks</span>
-<span class="cmd">brew</span> install ticks
+      <pre><span class="comment"># Install ticks (Homebrew)</span>
+<span class="cmd">brew</span> install pengelbrecht/tap/ticks
+
+<span class="comment"># Or via curl</span>
+<span class="cmd">curl</span> <span class="flag">-fsSL</span> https://ticks.sh/install | sh
 
 <span class="comment"># Initialize in your repo</span>
 <span class="cmd">cd</span> my-project
@@ -496,7 +499,7 @@ export const landingPage = `<!DOCTYPE html>
     <p>Free and open source. Set up in under a minute.</p>
     <div class="hero-buttons">
       <a href="/login" class="btn btn-primary">Create Account</a>
-      <a href="https://github.com/anthropics/ticks#readme" class="btn btn-secondary" target="_blank">Read the Docs</a>
+      <a href="https://github.com/pengelbrecht/ticks#readme" class="btn btn-secondary" target="_blank">Read the Docs</a>
     </div>
   </section>
 
@@ -504,9 +507,9 @@ export const landingPage = `<!DOCTYPE html>
     <a href="/" class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 28" height="28"><defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1"/><feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur2"/><feMerge><feMergeNode in="blur1"/><feMergeNode in="blur2"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><text x="32" y="14" font-family="ui-monospace, monospace" font-size="18" font-weight="600" fill="#A6E3A1" text-anchor="middle" dominant-baseline="central" filter="url(#glow)">tk_</text></svg></a>
     <p>Multiplayer-first issue tracking for AI coding agents</p>
     <p style="margin-top: 1rem;">
-      <a href="https://github.com/anthropics/ticks" target="_blank">GitHub</a> ·
-      <a href="https://github.com/anthropics/ticks#readme" target="_blank">Documentation</a> ·
-      <a href="https://github.com/anthropics/ticks/issues" target="_blank">Feedback</a>
+      <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a> ·
+      <a href="https://github.com/pengelbrecht/ticks#readme" target="_blank">Documentation</a> ·
+      <a href="https://github.com/pengelbrecht/ticks/issues" target="_blank">Feedback</a>
     </p>
   </footer>
 </body>

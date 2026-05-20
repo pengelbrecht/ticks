@@ -113,13 +113,24 @@ export interface RunEpicCompletedEvent extends RunEventBase {
   success: boolean;
 }
 
+/** Task entered awaiting-human state */
+export interface RunTaskAwaitingEvent extends RunEventBase {
+  type: 'run:task-awaiting';
+  taskId: string;
+  /** The awaiting type: work, approval, input, review, content, escalation, checkpoint */
+  awaitingType: string;
+  /** Human-readable reason from the agent signal */
+  reason?: string;
+}
+
 export type RunEvent =
   | RunTaskStartedEvent
   | RunTaskUpdateEvent
   | RunTaskCompletedEvent
   | RunToolActivityEvent
   | RunEpicStartedEvent
-  | RunEpicCompletedEvent;
+  | RunEpicCompletedEvent
+  | RunTaskAwaitingEvent;
 
 // =============================================================================
 // Context Events
@@ -269,6 +280,7 @@ export type {
   ActiveTaskStatus,
   ActiveToolRecord,
   LiveRecord,
+  AwaitingTaskStatus,
   // Tick detail types
   GetTickResponse as TickDetail,
   Note,

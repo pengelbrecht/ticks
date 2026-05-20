@@ -1,0 +1,14 @@
+{
+  "id": "xm7",
+  "title": "Dogfood: write worktree isolation checklist",
+  "description": "Create docs/dogfood/tickflow-parallel-approvals/worktree-isolation.md. Document what each parallel worker should and should not touch, how to spot branch/worktree collisions, and cleanup expectations after successful merge. Include headings: # Worktree Isolation Checklist, ## Worker Boundaries, ## Merge Expectations, ## Cleanup Checks.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "weo",
+  "acceptance_criteria": "Run: test -f docs/dogfood/tickflow-parallel-approvals/worktree-isolation.md \u0026\u0026 grep -q 'Worker Boundaries' docs/dogfood/tickflow-parallel-approvals/worktree-isolation.md",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T14:17:22.150251Z",
+  "updated_at": "2026-05-11T14:17:22.150251Z"
+}

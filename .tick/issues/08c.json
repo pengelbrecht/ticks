@@ -1,0 +1,15 @@
+{
+  "id": "08c",
+  "title": "Fix dashboard approval TUI action discoverability",
+  "description": "Dashboard approval actions warned even when users pressed a from the list and global awaiting ticks were not selectable. Add a synthetic Human attention record, show a/x help, and make list a/x open detail first for review.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Awaiting smoke tick appears in dashboard; a/x visible from detail; list a/x opens detail for review; go test ./... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T16:37:24.242688Z",
+  "updated_at": "2026-05-11T16:37:34.470616Z",
+  "closed_at": "2026-05-11T16:37:34.470616Z",
+  "closed_reason": "Implemented Human attention record, detail-visible a/x help, list-to-detail guard, and smoke tick; go test ./... passes"
+}

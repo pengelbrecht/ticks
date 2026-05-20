@@ -1,317 +1,197 @@
-# Claude Code Native Runner
+# Running Epics with Claude Code
 
-Run Ticks epics using Claude Code's native Task tool for parallel subagent orchestration.
+Run a Ticks epic by orchestrating subagents from your current Claude Code session. You read the dependency graph, launch one subagent per ready tick — each in its own isolated git worktree — and integrate their work wave by wave.
 
-## When to Use This
+This is the way the skill executes ticks. (Ticks also ships a standalone runner, `tk run`, with its own worktree and cost-tracking machinery. It's intentionally out of scope here for now — see `SKILL.md`.)
 
-- You're already in a Claude Code session
-- Tasks are fairly independent and benefit from parallelization
-- Epic doesn't require heavy human intervention mid-execution
-- You want direct visibility into agent spawning
+## Mental model
 
-For rich monitoring, HITL workflows, or cost tracking, use `tk run` instead.
+- **You are the orchestrator.** You own all tick state: you spawn implementers, wait for them, integrate their branches, and update ticks. You don't write feature code yourself during a run — you coordinate.
+- **One tick = one subagent = one worktree = one mergeable branch.** This maps directly onto the "atomic, committable piece of work" principle behind a well-formed tick.
+- **Waves are your unit of parallelism.** `tk graph` groups ticks into waves; everything in a wave can run at once because nothing in it depends on anything else in it.
 
-## Overview
+## Before you start: don't run on main
+
+Orchestration produces commits and merges. If you're on `main`/`master`, create a feature branch first (e.g. `git switch -c epic/<epic-id>`) or start the run from your own worktree (`EnterWorktree`). Running an epic directly on the default branch is the one thing not to do without the user explicitly asking.
+
+## The loop
 
 ```
-1. Get MAX_AGENTS from user (1-10)
-2. Run: tk graph <epic> --json
-3. Parse waves from the graph
-4. For each wave:
-   a. Launch up to MAX_AGENTS Task agents in background
-   b. Poll for completion (avoid blocking hangs)
-   c. Sync results back to ticks
-   d. Proceed to next wave
+1. tk graph <epic> --json          → waves + max_parallel
+2. For each wave:
+   a. Mark the wave's ticks in_progress
+   b. Launch one Agent per tick — all in a SINGLE message — worktree-isolated, in the background
+   c. Wait. The harness notifies you as each agent finishes. Do NOT poll.
+   d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
+   e. When the whole wave is integrated, go to the next wave
+3. Run a final review over the epic, then close it (or report what's awaiting a human)
 ```
 
-## Task Tool Reference
+Order matters: integrate a wave's work *before* launching the next, so wave N+1 agents branch from a tree that already contains wave N's changes.
 
-### Required Parameters
+**Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prompt` | string | Full task instructions for the agent |
-| `description` | string | Short (3-5 word) summary shown in UI |
-| `subagent_type` | string | Use `"general-purpose"` for implementation |
+## Launching agents
 
-### Key Optional Parameters
+Use the `Agent` tool. Spawn every tick in the current wave in **one message** so they truly run in parallel:
 
-| Parameter | Type | Recommendation |
-|-----------|------|----------------|
-| `run_in_background` | boolean | `true` - enables parallel execution |
-| `mode` | string | `"bypassPermissions"` for autonomous work |
-| `model` | string | `"sonnet"` for most tasks, `"opus"` for complex |
-| `name` | string | See naming conventions below |
+```
+Agent(
+  subagent_type: "general-purpose",
+  name: "<epic-slug>-w<wave>-<tick-id>",   # e.g. auth-w1-abc — readable in logs, addressable via SendMessage
+  description: "Implement <tick-title>",     # 3-5 words
+  prompt: <implementer prompt, see below>,
+  isolation: "worktree",                     # own git worktree, auto-cleaned if it makes no changes
+  run_in_background: true,                    # async — you're notified on completion
+  mode: "bypassPermissions",                 # autonomous; shouldn't stop for tool-permission prompts
+  model: "sonnet"                            # see model selection below
+)
+```
 
-## Naming Conventions
+### Choosing a model per tick
 
-Use consistent naming for traceability.
+Pick the model for each tick, not once for the run. Use the least powerful model that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical.
 
-### Available Identifiers
+| Tick shape | Model |
+|---|---|
+| 1-2 files, complete spec, tests to pass | `haiku` or `sonnet` |
+| Multiple files, integration concerns | `sonnet` |
+| Real design judgment or broad codebase understanding | `opus` |
 
-| Entity | ID | Title |
-|--------|-----|-------|
-| Epic | 3-letter (e.g., `x7k`) | e.g., "Authentication" |
-| Tick | 3-letter (e.g., `abc`) | e.g., "Add JWT tokens" |
+### Why worktree isolation
 
-### Agent Name Pattern
+Each agent gets its own working directory on its own branch, so parallel agents in a wave can't clobber each other's files or fight over the git index. That's what makes a wave safe to run wide. Worktrees that make no changes are cleaned up automatically; ones with work persist as a branch for you to merge.
 
-Use a readable format: `<epic-slug>-w<wave>-<tick-id>`
+For a wave with a single tick — or when you deliberately want to run sequentially — you can drop `isolation: "worktree"` and let the agent work in the shared tree. Only do that when nothing else is running concurrently; concurrent agents sharing one tree is the exact problem worktrees solve.
 
-Where `<epic-slug>` is a short lowercase version of the epic title (or the epic ID if title is long/unclear).
+## Waiting for completion (no polling)
 
-**Examples:**
-- `auth-w1-abc` - Epic "Authentication", wave 1, tick abc
-- `api-w2-def` - Epic "API Endpoints", wave 2, tick def
-- `x7k-w1-ghi` - Epic with unclear title, using ID instead
+When you launch background agents, you receive a `<task-notification>` as each one finishes. Continue once you have what you need — there is no poll loop, no `sleep`, no block-waiting on output.
 
-### Why Naming Matters
+> `TaskOutput` is deprecated, and for a subagent its output file is the full conversation transcript — reading it will flood your context. Use the value the `Agent` tool returns instead.
 
-- Distinguishes agents in logs and UI
-- Enables filtering/searching by epic or wave
-- Helps debug when things go wrong
+This is the biggest change from older versions of this workflow: you launch a wave and **wait to be woken**, rather than babysitting a polling loop.
 
-## Orchestration Algorithm
+## Implementer status protocol
 
-### Step 1: Gather Context
+Ask each implementer to end with one of four statuses. Structured statuses let you route the result correctly instead of parsing prose.
+
+| Status | Meaning | Your move |
+|---|---|---|
+| `DONE` | Implemented, tests pass, committed | Integrate (see below) |
+| `DONE_WITH_CONCERNS` | Done, but flagged doubts | Read the concerns. Correctness/scope doubts → resolve before integrating. Observations → note and proceed. |
+| `NEEDS_CONTEXT` | Missing info it couldn't get | Provide what's missing via `SendMessage` to the same agent (it keeps its context) |
+| `BLOCKED` | Can't complete | See "When an agent is blocked" below |
+
+Never force the same agent to retry on the same model with no change. If it's stuck, something has to change.
+
+## Integrating finished work
+
+Each implementer commits its code in its own worktree and reports its branch name. For each `DONE` tick:
 
 ```bash
-# Get the dependency graph
-tk graph <epic-id> --json
-
-# Get tick details including HITL flags
-tk list --parent <epic-id> --json
-
-# Get project identifier for metadata
-git remote get-url origin 2>/dev/null | sed 's/.*github.com[:/]\(.*\)\.git/\1/' || basename $(pwd)
+git merge <agent-branch>     # branch name comes from the agent's report
+tk close <tick-id> --reason "Completed via Claude orchestration"
 ```
 
-### Step 2: Parse Waves
+Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Hold that invariant: **agents implement; the orchestrator owns tick state.**
 
-The `tk graph --json` output includes waves - groups of tasks that can run in parallel:
+## Reviewing the work
 
-```json
-{
-  "waves": [
-    [{"id": "abc", "title": "First task", "blocked_by": []}],
-    [{"id": "def", ...}, {"id": "ghi", ...}],
-    [{"id": "jkl", "blocked_by": ["def", "ghi"]}]
-  ],
-  "max_parallel": 2,
-  "critical_path": 3
-}
-```
+Ticks are designed to carry their own success criteria (tests in the acceptance), and implementers verify those before reporting `DONE`. On top of that:
 
-### Step 3: Filter HITL Tasks
+- **Always** run one final review over the epic's full diff before closing the epic (see "Closing the epic").
+- **Per-tick review is worth it** for ticks created with `--requires review`/`--requires approval`, and for any tick that needed `opus`. When you want it, run a two-stage review (cheaper than debugging later):
+  1. **Spec compliance** — does the diff match the tick's description + acceptance, with nothing missing and nothing extra? (Can be a quick inline check or a cheap reviewer subagent.)
+  2. **Code quality** — only after spec compliance passes. Dispatch a reviewer subagent over the tick's branch.
 
-Before launching, identify tasks that need special handling:
+  If a reviewer finds issues, `SendMessage` the original implementer to fix them, then re-review. Don't move on with open issues.
 
-| Tick Flag | Action |
-|-----------|--------|
-| `--awaiting work` | **Skip** - human must do this |
-| `--awaiting input` | **Skip** - needs human input first |
-| `--requires approval/review/content` | **Include** - but transition to awaiting state after |
+Skipping per-tick review for routine, well-specified ticks is fine — that's the speed dividend of a good tick. Reserve the heavier review for the ticks that earn it.
 
-### Step 4: Execute Waves
+## Human-in-the-loop ticks
 
-For each wave, launch agents up to MAX_AGENTS:
-
-```
-For wave in waves:
-    agents = []
-
-    For tick in wave (up to MAX_AGENTS):
-        if tick has --awaiting work or --awaiting input:
-            skip  # Human task
-
-        # Mark tick as in progress before launching agent
-        run: tk update <tick-id> --status in_progress
-
-        agent = Task(
-            subagent_type: "general-purpose",
-            name: "<epic-id>-w<wave-num>-<tick-id>",
-            description: "Implement <tick-title>",
-            prompt: <see prompt template below>,
-            run_in_background: true,
-            mode: "bypassPermissions"
-        )
-        agents.append(agent)
-
-    # Wait for all agents in wave to complete
-    For agent in agents:
-        poll_until_complete(agent)  # See polling strategy below
-
-    # Sync completed ticks
-    For tick in completed:
-        sync_to_ticks(tick)  # See HITL-aware sync below
-```
-
-### Step 5: HITL-Aware Sync
-
-After each agent completes, update the tick based on its HITL requirements:
+If a tick declared an approval gate, don't close it — route it to the human:
 
 ```bash
-# No approval gates - close it
-tk close <tick-id> --reason "Completed via Claude runner"
-
-# Has approval gate - transition to awaiting
-tk update <tick-id> --awaiting approval   # or review, content
+tk update <tick-id> --awaiting approval     # or review / content, per the tick
 ```
 
-### Step 6: Epic Closure
+Surface it to the user. On a verdict:
+- **Approved** → integrate (if not already) and `tk close`.
+- **Rejected with feedback** → reopen the work. Prefer `SendMessage` to the *same* agent — it still has full context of what it built — over spawning a cold one:
 
-After all waves complete:
+```
+SendMessage(to: "<agent-name>", message: "Reviewer feedback: <verbatim feedback>. Please address and re-commit.")
+```
+
+## When an agent is blocked
+
+1. Read its report — it should name the blocker.
+2. Note it on the tick: `tk note <tick-id> "Agent blocked: <reason>"`.
+3. Decide:
+   - **Missing context** → `SendMessage` the same agent with what it needed.
+   - **Needs more reasoning** → re-dispatch on a stronger model (`opus`).
+   - **Too big** → split the tick, re-graph.
+   - **The plan itself is wrong** → stop and raise it with the user.
+4. Keep going with the rest of the wave. A blocked tick may leave its dependents blocked — that's fine; report them at the end.
+
+## Closing the epic
 
 ```bash
-# Check if any ticks still open
-tk list --parent <epic-id> --status open
+# Final review over everything the epic produced
+git diff <base-branch>...HEAD          # or review the merged branches together
+# (dispatch a reviewer subagent over this diff if the epic is substantial)
 
-# If all closed, close the epic
-tk close <epic-id> --reason "All tasks completed via Claude runner"
-
-# If some awaiting human, notify user
-tk list --parent <epic-id> --awaiting
+tk list --parent <epic-id> --status open     # anything left?
+tk close <epic-id> --reason "All tasks completed via Claude orchestration"   # if all done
+tk list --parent <epic-id> --awaiting=        # otherwise, report what's waiting on a human
 ```
 
-## Agent Prompt Template
+## Implementer prompt template
 
-Each spawned agent should receive a comprehensive prompt:
+Subagents start fresh with none of your context — give them everything. Don't make them read a plan file or guess where the task fits.
 
 ```
-You are implementing a task from the Ticks issue tracker.
+You are implementing one task from the Ticks issue tracker, working in an isolated git worktree.
 
 ## Task
 Title: <tick-title>
-ID: <tick-id>
+Tick ID: <tick-id>
 Epic: <epic-title> (<epic-id>)
 
 ## Description
 <tick-description>
 
-## Acceptance Criteria
+## Acceptance criteria
 <tick-acceptance>
 
+## How this fits
+<1-2 sentences: where this sits in the epic, and what earlier ticks already built that you can rely on>
+
 ## Instructions
-1. Read and understand the existing codebase relevant to this task
-2. Implement the feature/fix as described
-3. Write tests that verify the acceptance criteria
-4. Ensure all tests pass before completing
+1. Read the relevant existing code before changing anything.
+2. Implement the task test-first: write the failing test, then make it pass.
+3. Run the tests named in the acceptance criteria and confirm they pass.
+4. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
 
-## Completion
-When done, provide a summary of:
-- Files changed
-- Tests added/modified
-- Any notes for the next task
+## Boundaries (important)
+- Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
+- Stay in scope: implement this tick only. Don't add features it didn't ask for.
+- If the task is ambiguous or you're missing something, stop and report it — don't guess.
 
-Do NOT run `tk close` - the orchestrator will handle tick state.
+## Report back, ending with one status line
+- Branch name (`git rev-parse --abbrev-ref HEAD`)
+- Files changed and tests added
+- Anything the next tick should know
+- Final line, exactly one of:
+  STATUS: DONE
+  STATUS: DONE_WITH_CONCERNS — <what to double-check>
+  STATUS: NEEDS_CONTEXT — <what you need>
+  STATUS: BLOCKED — <why>
 ```
 
-## Avoiding Hangs: Polling Strategy
+## Current limitations
 
-**Problem**: Using `TaskOutput(block=true)` can cause apparent hangs if agents take longer than the timeout (default 30s).
-
-**Solution**: Poll with `block=false` and longer intervals:
-
-```
-poll_until_complete(agent):
-    while true:
-        result = TaskOutput(
-            task_id: agent.id,
-            block: false,      # Non-blocking check
-            timeout: 5000      # Quick check
-        )
-
-        if result.status == "completed":
-            return result
-
-        if result.status == "failed":
-            handle_failure(agent)
-            return
-
-        # Still running - wait before next poll
-        sleep(10 seconds)
-```
-
-**Alternative**: Use `block=true` with longer timeout:
-
-```
-TaskOutput(
-    task_id: agent.id,
-    block: true,
-    timeout: 600000    # 10 minutes max
-)
-```
-
-The non-blocking poll approach gives better visibility into progress.
-
-## Error Handling
-
-### Agent Failure
-
-If an agent fails:
-1. Log the failure with tick ID
-2. Add a note to the tick: `tk note <id> "Agent failed: <reason>"`
-3. Continue with remaining agents in wave
-4. Report failures to user at end
-
-### Partial Wave Completion
-
-If some agents in a wave succeed and others fail:
-1. Sync successful ticks
-2. Blocked tasks in next wave may still be blocked
-3. User can retry failed ticks or handle manually
-
-## Example Session
-
-```
-User: Run the auth epic with Claude
-
-Claude: I'll run epic `auth` using Claude Code native orchestration.
-
-> tk graph auth --json
-Shows 3 waves, max parallel 2
-
-How many parallel agents? (1-10, recommend 2 based on graph)
-
-User: 2
-
-Claude: Starting wave 1 (1 task)...
-  Launching: auth-w1-abc "Add JWT token generation"
-  [waiting...]
-  Completed: abc
-
-Starting wave 2 (2 tasks)...
-  Launching: auth-w2-def "Add login endpoint"
-  Launching: auth-w2-ghi "Add logout endpoint"
-  [waiting...]
-  Completed: def, ghi
-
-Starting wave 3 (1 task)...
-  Launching: auth-w3-jkl "Add auth middleware"
-  [waiting...]
-  Completed: jkl
-
-All waves complete. Syncing to ticks...
-  Closed: abc, def, ghi, jkl
-  Closed epic: auth
-
-Done! All 4 tasks completed.
-```
-
-## Comparison with tk run
-
-| Aspect | `tk run` | Claude Native |
-|--------|----------|---------------|
-| Monitoring | Tickboard (local + remote) | Claude Code UI |
-| HITL | Rich (approvals, checkpoints) | Basic (conversation) |
-| Parallelization | Git worktrees | Task subagents |
-| File isolation | Worktrees (proven) | Shared workspace |
-| State persistence | Tick files (survives crashes) | Session-bound |
-| Cost tracking | Built-in (`--max-cost`) | Manual |
-| Best for | Production, HITL workflows | Quick parallel execution |
-
-## Limitations
-
-- **Shared workspace**: Unlike `tk run --worktree`, agents share the same working directory. Conflicts possible if tasks touch same files.
-- **Session-bound**: If Claude session ends, orchestration stops. Use `tk run` for long-running epics.
-- **No cost limits**: Can't set `--max-cost` like with `tk run`.
+- **Session-bound.** Orchestration lives in this Claude session; if it ends, the run stops. Tick *state* is safe on disk and in git, so you can pick up where you left off — but in-flight agents won't resume themselves.
+- **Cost is yours to watch.** There's no built-in spend cap here; keep an eye on how wide and how deep you run, and lean on cheaper models for mechanical ticks.

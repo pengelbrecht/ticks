@@ -1,0 +1,15 @@
+{
+  "id": "a0l",
+  "title": "Add approval actions to Tickflow dashboard",
+  "description": "Allow users to review tick details in /tickflow-dashboard and approve or reject awaiting ticks from the dashboard. The dashboard must expose enough tick detail/evidence before actions are available.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Dashboard detail pane shows title, description, acceptance, notes/awaiting/requires and latest evidence; approval/rejection keys operate on selected awaiting ticks; go test ./... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-05-11T15:52:03.475333Z",
+  "updated_at": "2026-05-11T15:56:37.660695Z",
+  "closed_at": "2026-05-11T15:56:37.660695Z",
+  "closed_reason": "Added dashboard detail review fields plus detail-only approve/reject keys; approved current ynr and qq2 gates; go test ./... passes"
+}
