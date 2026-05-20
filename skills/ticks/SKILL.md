@@ -164,6 +164,20 @@ tk create "Create Stripe API keys" --awaiting work \
   -d "Set up Stripe account and get API credentials"
 ```
 
+**Slice vertically.** Carve the epic into ticks by user-visible capability (one feature front-to-back), not by layer (all schema, then all API, then all UI). Each tick should leave the system working and demoable. See `references/tick-patterns.md` for the full reasoning and the parallel-safety caveat.
+
+**Define shared contracts first.** When several ticks consume the same interface (an API shape, a DB schema, a shared type), make one tick that defines it and have the others `--blocked-by` it. A stable contract up front lets the dependents run in parallel against a known shape instead of guessing — and keeps their descriptions naming things the same way.
+
+**Order for working state and fail fast.** Sequence ticks so each leaves the build green and the app runnable, and put the riskiest or most uncertain ticks early — discover a wrong assumption on tick 2, not tick 12. For a phase boundary where you want to look before continuing, create an `--awaiting checkpoint` tick; for a genuinely open question, create an `--awaiting input` tick rather than guessing.
+
+**Before running, review the epic's ticks.** Once the ticks exist, do a quick pass:
+1. **Coverage** — walk each requirement in the spec (for this phase) and point to the tick that implements it. Add ticks for any gaps.
+2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
+3. **Naming consistency** — the same interface should be called the same thing across tick descriptions; a contract named `clearLayers` in one tick and `clearFullLayers` in another is a latent bug.
+4. **Wave safety** — run `tk graph <epic>` and confirm ticks in the same wave touch different files.
+
+This review is cheap and catches the partitioning mistakes that are expensive to unwind once agents are running.
+
 ### Step 4: Guide User Through Blocking Human Tasks
 
 If human tasks block automated tasks, guide the user through them before running the agent.
