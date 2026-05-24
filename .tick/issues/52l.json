@@ -1,0 +1,13 @@
+{
+  "id": "52l",
+  "title": "Test tick for close",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-01-11T16:57:33.217874054Z",
+  "updated_at": "2026-01-11T16:57:37.648628183Z",
+  "closed_at": "2026-01-11T16:57:37.648628183Z",
+  "closed_reason": "Implemented by adding new function in utils.go"
+}
