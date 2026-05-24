@@ -13,7 +13,12 @@ func TestParseProjectFromRemote(t *testing.T) {
 		{"https no git", "https://github.com/petere/chefswiz", "petere/chefswiz", true},
 		{"ssh", "git@github.com:petere/chefswiz.git", "petere/chefswiz", true},
 		{"ssh no git", "git@github.com:petere/chefswiz", "petere/chefswiz", true},
+		{"ssh url", "ssh://git@github.com:22/petere/chefswiz.git", "petere/chefswiz", true},
+		{"sandbox proxy", "http://local_proxy@127.0.0.1:38611/git/pengelbrecht/ticks", "pengelbrecht/ticks", true},
+		{"sandbox proxy git suffix", "http://local_proxy@127.0.0.1:38611/git/pengelbrecht/ticks.git", "pengelbrecht/ticks", true},
 		{"invalid", "git@github.com", "", false},
+		{"invalid url no path", "https://github.com", "", false},
+		{"empty", "", "", false},
 	}
 
 	for _, tc := range cases {
