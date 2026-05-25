@@ -120,7 +120,7 @@ tk create "Add email validation" -d "Make sure emails are valid"
 # No test cases, no verification criteria - agent will guess
 ```
 
-See `references/tick-patterns.md` for more patterns.
+Run the **Definition of Ready** checklist in `references/tick-patterns.md` against each tick before creating it; see that file for the full patterns.
 
 ### Step 3: Create Ticks from Spec
 

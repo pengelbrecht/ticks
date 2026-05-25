@@ -8,6 +8,20 @@ Patterns for creating effective ticks that AI agents can complete autonomously.
 
 If tests don't make sense for a task, there should be another form of validation that confirms completion. Every task should result in demoable software that can be run, tested, and builds on previous work.
 
+## Definition of Ready (per-tick gate)
+
+Run this before `tk create`. A fresh subagent sees *only this tick* — not the spec, the epic, or sibling ticks — so anything vague becomes a guess. If a tick fails a line, tighten it or split it.
+
+- [ ] **One deliverable** — the title names a single capability and needs no "and" (see *Tick Sizing*)
+- [ ] **Acceptance fits in ≤3 bullets** — if it doesn't, the scope is too broad to verify cleanly; split it
+- [ ] **Verification is concrete** — a runnable test command or explicit check, never "works appropriately"
+- [ ] **Test cases spelled out** — actual inputs → expected outputs, including edge and error cases
+- [ ] **Self-contained** — no placeholders, and no reference to a type or function defined only in another tick (see *The Ideal Tick*)
+- [ ] **Files likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
+- [ ] **Human gate decided** — if the tick needs a person (a decision, a secret, a review), create it with the right `--awaiting`/`--requires` flag rather than letting an agent guess
+
+The sections below are the detailed backing for each line; this checklist is just the fast gate.
+
 ## Partitioning an Epic into Ticks
 
 How you carve an epic into ticks matters as much as how you write each one.
