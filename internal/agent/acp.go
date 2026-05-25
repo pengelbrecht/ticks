@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -81,7 +80,7 @@ func (a *AcpAgent) Open(ctx context.Context, opts RunOpts) (Session, error) {
 	proc.Env = append(os.Environ(), "TICK_OWNER=ticker")
 	proc.Stderr = os.Stderr
 	// Create a new process group so we can kill the entire tree on Close().
-	proc.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(proc)
 
 	stdin, err := proc.StdinPipe()
 	if err != nil {
@@ -343,9 +342,9 @@ func (s *acpSession) Close() error {
 		<-s.readDone
 		return err
 	case <-time.After(5 * time.Second):
-		// Kill the entire process group (negative PID).
+		// Kill the entire process tree.
 		if s.proc.Process != nil {
-			_ = syscall.Kill(-s.proc.Process.Pid, syscall.SIGKILL)
+			killProcessGroup(s.proc.Process)
 		}
 		err := <-done
 		<-s.readDone
