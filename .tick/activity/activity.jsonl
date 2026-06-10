@@ -390,3 +390,6 @@
 {"ts":"2026-06-10T18:04:52.065978Z","tick":"sfa","action":"create","actor":"orchestrator","epic":"vuq","data":{"priority":2,"title":"Final review of epic vuq diff","type":"task"}}
 {"ts":"2026-06-10T18:04:52.084866Z","tick":"u7j","action":"create","actor":"orchestrator","epic":"vuq","data":{"priority":2,"title":"Close out epic vuq: retro + learnings promotion","type":"task"}}
 {"ts":"2026-06-10T18:05:01.845256Z","tick":"ips","action":"start","actor":"orchestrator","epic":"vuq","data":{"title":"Delete dead code: internal/recovery, internal/streamtest, stale top-level dirs"}}
+{"ts":"2026-06-10T18:15:18.601716Z","tick":"8v9","action":"create","actor":"orchestrator","epic":"vuq","data":{"priority":2,"title":"Delete the pi tickflow harness (.pi/) and its operator docs","type":"task"}}
+{"ts":"2026-06-10T18:15:18.61946Z","tick":"zbj","action":"create","actor":"orchestrator","epic":"vuq","data":{"priority":2,"title":"Remove TickflowLease residue from the tick model","type":"task"}}
+{"ts":"2026-06-10T18:15:18.637162Z","tick":"sfa","action":"block","actor":"peter@engelbrecht.dk","epic":"vuq","data":{"blockers":["0u6","8v9","zbj"],"title":"Final review of epic vuq diff"}}
