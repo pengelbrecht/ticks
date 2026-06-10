@@ -50,10 +50,10 @@ if $CHECK_MODE; then
         --output "$TEMP_DIR/types.go" \
         --resolve-extension json \
         tick.schema.json \
-        run.schema.json \
         activity.schema.json \
         api/requests.schema.json \
-        api/responses.schema.json
+        api/responses.schema.json \
+        websocket/messages.schema.json
     cd "$PROJECT_ROOT"
 
     gofmt -w "$TEMP_DIR/types.go"

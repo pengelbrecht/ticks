@@ -8,13 +8,12 @@ This directory contains JSON Schema definitions that serve as the single source 
 schemas/
 ├── README.md             # This file
 ├── tick.schema.json      # Core tick type
-├── run.schema.json       # RunRecord, ToolRecord, MetricsRecord, etc.
 ├── activity.schema.json  # Activity log entry type
 ├── api/
 │   ├── requests.schema.json   # API request types
 │   └── responses.schema.json  # API response types
-└── events/
-    └── (future: run-events.schema.json for SSE event types)
+└── websocket/
+    └── messages.schema.json   # WebSocket message types
 ```
 
 ## Conventions

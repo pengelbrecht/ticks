@@ -533,7 +533,7 @@ export class TickflowDashboard extends LitElement {
     }
 
     /* ================================================================
-     * Detail Pane (inline tick detail + run attempts)
+     * Detail Pane (inline tick detail)
      * ================================================================ */
     .detail-pane {
       background: var(--mantle, #181825);

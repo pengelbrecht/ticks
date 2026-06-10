@@ -8,23 +8,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	migrateDryRun bool
-)
-
 var migrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Run data migrations",
 	Long: `Run data migrations to upgrade .tick data to the latest format.
 
-There are currently no data migrations to run.
-
-Use --dry-run to preview changes without modifying any files.`,
+There are currently no data migrations to run.`,
 	RunE: runMigrate,
 }
 
 func init() {
-	migrateCmd.Flags().BoolVar(&migrateDryRun, "dry-run", false, "preview changes without modifying files")
 	rootCmd.AddCommand(migrateCmd)
 }
 
