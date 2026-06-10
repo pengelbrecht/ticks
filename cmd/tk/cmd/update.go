@@ -63,6 +63,7 @@ var (
 	updateAwaiting    string
 	updateVerdict     string
 	updateBaseBranch  string
+	updateActor       string
 	updateJSON        bool
 
 	// Track which flags were explicitly set
@@ -105,6 +106,7 @@ func init() {
 	updateCmd.Flags().StringVarP(&updateRequires, "requires", "r", "", "approval gate (approval|review|content, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateAwaiting, "awaiting", "a", "", "wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateVerdict, "verdict", "v", "", "set verdict and trigger processing (approved|rejected)")
+	updateCmd.Flags().StringVar(&updateActor, "actor", "", "override actor for this activity entry (overrides TK_ACTOR env)")
 	updateCmd.Flags().BoolVar(&updateJSON, "json", false, "output as JSON")
 
 	rootCmd.AddCommand(updateCmd)
@@ -287,7 +289,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor(updateActor)); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 

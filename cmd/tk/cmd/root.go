@@ -10,6 +10,21 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// resolveActor determines the actor for an activity entry using the precedence:
+//
+//	--actor flag > TK_ACTOR env > default (empty, caller falls back to tick owner)
+//
+// Pass the value of the --actor flag (empty string if not set).
+func resolveActor(flagActor string) string {
+	if flagActor != "" {
+		return flagActor
+	}
+	if env := os.Getenv("TK_ACTOR"); env != "" {
+		return env
+	}
+	return ""
+}
+
 // Version is set at build time via ldflags
 var Version = "dev"
 
@@ -199,6 +214,7 @@ func ResetFlags() {
 	updateRequires = ""
 	updateAwaiting = ""
 	updateVerdict = ""
+	updateActor = ""
 	updateJSON = false
 	updateTitleSet = false
 	updateDescriptionSet = false
@@ -254,6 +270,7 @@ func ResetFlags() {
 	closeReason = ""
 	closeForce = false
 	closeJSON = false
+	closeActor = ""
 
 	// Reset show flags
 	showJSON = false

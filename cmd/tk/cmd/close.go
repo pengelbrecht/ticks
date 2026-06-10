@@ -23,7 +23,8 @@ Examples:
   tk close abc123                      # Close tick
   tk close abc123 --reason "done"      # Close with reason
   tk close abc123 --force              # Close epic with all children, or bypass requires gate
-  tk close abc123 --json               # Output closed tick as JSON`,
+  tk close abc123 --json               # Output closed tick as JSON
+  tk close abc123 --actor human-pete   # Override TK_ACTOR for this invocation`,
 	Args: cobra.ExactArgs(1),
 	RunE: runClose,
 }
@@ -32,12 +33,14 @@ var (
 	closeReason string
 	closeForce  bool
 	closeJSON   bool
+	closeActor  string
 )
 
 func init() {
 	closeCmd.Flags().StringVar(&closeReason, "reason", "", "close reason")
 	closeCmd.Flags().BoolVar(&closeForce, "force", false, "close epic and all open children, or bypass requires gate")
 	closeCmd.Flags().BoolVar(&closeJSON, "json", false, "output as JSON")
+	closeCmd.Flags().StringVar(&closeActor, "actor", "", "override actor for this activity entry (overrides TK_ACTOR env)")
 
 	rootCmd.AddCommand(closeCmd)
 }
@@ -91,6 +94,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 			}
 
 			// Close all children with --force (bypassing requires gates)
+			actor := resolveActor(closeActor)
 			for _, c := range openChildren {
 				c.Status = tick.StatusClosed
 				c.ClosedAt = &now
@@ -98,7 +102,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 				c.ClearAwaiting()
 				c.Verdict = nil
 				c.UpdatedAt = now
-				if err := store.Write(c); err != nil {
+				if err := store.WriteAs(c, actor); err != nil {
 					return fmt.Errorf("failed to close child %s: %w", c.ID, err)
 				}
 			}
@@ -119,7 +123,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 		routed := tick.HandleClose(&t, closeReason)
 		if routed {
 			// Save the routed state, but return error
-			if err := store.Write(t); err != nil {
+			if err := store.WriteAs(t, resolveActor(closeActor)); err != nil {
 				return fmt.Errorf("failed to save tick: %w", err)
 			}
 			fmt.Fprintf(os.Stderr, "tick %s requires %s before closing\n", t.ID, *t.Requires)
@@ -129,7 +133,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor(closeActor)); err != nil {
 		return fmt.Errorf("failed to close tick: %w", err)
 	}
 
