@@ -2,7 +2,8 @@
   "id": "hbz",
   "title": "Execution Model v2 — Phase 2: planning-aware tk next/graph + stale-state support",
   "description": "ROUGH SCOPE — flesh out into ticks when Phase 1 (azw) closes. Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 (tk changes), §3 (stale state recovery), Open Question 4.\n\n- tk next / tk graph: an unblocked epic with no children is returned as a planning action (additive 'action: plan' field in --json; human-readable output may change freely).\n- Stale in_progress support: a way to list ticks stuck in_progress (for the skill's resume/recovery pass that resets them to open).\n- Likely code: internal/query, cmd/tk/cmd/next.go, graph command, tests in internal/query.",
-  "status": "open",
+  "notes": "2026-06-10 15:14 - RETRO REPORT — Phase 2 (hbz)\nLearnings promoted: .tick/learnings.md +1 entry (define consumer-facing fields by consumer semantics, not implementation predicate — the needs_planning blocker). One-offs stay in tick notes.\nOutside-in verification (dogfooded on this repo): EpicsNeedingPlanning predicate VERIFIED (zk7/kgh childless cases); tk next action field VERIFIED (implement/plan/await on live ticks); tk graph needs_planning VERIFIED incl. blocked-\u003efalse after fix; tk list last_activity VERIFIED (42w showed real 18m age).\nFinal review: 1 blocker (needs_planning ignored blocked state — JSON/test fixed), 3 should-fix (all-closed-children misreport fixed; awaiting path got action:await; O(kxM) activity scans replaced by single-pass bulk variant), 3 nits (2 fixed: unused param, bufio scanner; 1 accepted: listOutput shape divergence is documented in code).\nKnown nit carried forward: tk graph's 'epic complete — close it' hint also shows for ALREADY-closed epics (graph on closed epic edge); fix opportunistically in phase 3/4.\nProposed roadmap adjustments: none.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +12,7 @@
   ],
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T12:31:23.599156Z",
-  "updated_at": "2026-06-10T12:31:23.599156Z"
+  "updated_at": "2026-06-10T13:14:54.490025Z",
+  "closed_at": "2026-06-10T13:14:54.490025Z",
+  "closed_reason": "All 5 ticks completed via Claude orchestration (3 waves + review-fix round). Retro report in epic notes."
 }

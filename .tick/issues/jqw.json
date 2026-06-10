@@ -2,7 +2,7 @@
   "id": "jqw",
   "title": "tk graph: report needs-planning for childless epics instead of an empty graph",
   "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 'tk changes'. Consumes query.EpicsNeedingPlanning (already in internal/query/plan.go when this tick runs).\n\nFile: cmd/tk/cmd/graph.go.\n\nBehavior: when the target epic has zero children (any status):\n- Human output: instead of an empty wave listing, print a short notice: 'Epic \u003cid\u003e has no child ticks — it needs planning. Flesh it out into ticks (see the ticks skill roadmap guidance), then re-run tk graph \u003cid\u003e.' Use query.EpicsNeedingPlanning to distinguish 'needs planning' (unblocked) from 'blocked — will need planning when \u003cblockers\u003e close' and say which.\n- JSON output (additive): add NeedsPlanning bool `json:\"needs_planning\"` to the top-level graphOutput struct. true when the epic has zero children; existing fields keep their current shapes (waves empty, stats zeroed) so existing consumers are unaffected.\n\nDo NOT change behavior for epics that have children. Do not modify next.go or internal/query (other ticks own those files).\n\nTests: graph.go's output structs are package-local — add a focused test (cmd/tk/cmd/graph_test.go if none exists) for the zero-children JSON path if the command logic is testable without a full repo; otherwise verify end-to-end like the sibling tick: build tk, /tmp fixture repo with a childless epic, assert needs_planning:true in tk graph \u003cid\u003e --json, and document the commands in your report.\n\nRun: go test ./... \u0026\u0026 go build ./...",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "go test ./... passes; tk graph \u003cchildless-epic\u003e --json contains needs_planning:true and human output explains planning is needed (fixture-verified)",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T12:47:00.935322Z",
-  "updated_at": "2026-06-10T12:47:00.935322Z"
+  "updated_at": "2026-06-10T13:00:39.206168Z",
+  "closed_at": "2026-06-10T13:00:39.206168Z",
+  "closed_reason": "tk graph needs-planning reporting merged; 5 unit tests + fixture verification green"
 }

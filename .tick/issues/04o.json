@@ -2,7 +2,7 @@
   "id": "04o",
   "title": "tk next: surface unblocked childless epics as a planning action",
   "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 'tk changes', resolving Open Question 4 additively. Consumes query.EpicsNeedingPlanning (already implemented in internal/query/plan.go when this tick runs).\n\nFile: cmd/tk/cmd/next.go.\n\nBehavior (agent mode only — NOT when --awaiting is set):\n- After computing 'ready' and finding it EMPTY, before printing 'No ready ticks': compute query.EpicsNeedingPlanning over the same filter scope (global, --epic, or the parent epic when EPIC_ID arg given — for the EPIC_ID form, check whether that epic itself needs planning). If non-empty, sort with query.SortByPriorityCreatedAt and return the first.\n- Ready tasks always win over planning candidates; planning is the fallback when nothing is implementable.\n\nOutput (additive JSON change):\n- Introduce a wrapper struct: type nextOutput struct { tick.Tick; Action string `json:\"action\"` } and use it for ALL --json output from tk next: action=\"implement\" for a ready task, action=\"plan\" for an epic needing planning. Existing consumers that decode into a tick shape are unaffected (extra key).\n- Human output for planning result: \u003cid\u003e  P\u003cn\u003e epic  \u003ctitle\u003e  (needs planning — no child ticks). Human output for ready tasks unchanged.\n- Update the command's Long help text with one line about the planning fallback.\n\nTests: extract any non-trivial selection logic so it is unit-testable; if cmd/tk/cmd has no test convention, verify via a Go test against the wrapper marshaling (action key present alongside tick fields) plus an end-to-end check: build tk (go build ./cmd/tk), create a throwaway git repo + .tick fixture in /tmp with one childless unblocked epic, run 'tk next --json' and 'tk next \u003cepic-id\u003e --json', assert action==plan. Document the manual check commands in your report.\n\nRun: go test ./... \u0026\u0026 go build ./...",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "go test ./... passes; tk next --json returns action:plan for a childless unblocked epic and action:implement for ready tasks (fixture-verified)",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T12:46:46.23062Z",
-  "updated_at": "2026-06-10T12:46:46.23062Z"
+  "updated_at": "2026-06-10T13:05:22.301093Z",
+  "closed_at": "2026-06-10T13:05:22.301093Z",
+  "closed_reason": "tk next planning action merged incl. ready-pool relabeling fix (childless epic -\u003e action:plan regardless of selection path); unit + fixture verified"
 }

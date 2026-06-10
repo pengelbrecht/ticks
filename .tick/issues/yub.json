@@ -1,0 +1,18 @@
+{
+  "id": "yub",
+  "title": "claude-runner.md: add 'Resuming a run' section (re-entry, stale state, worktree reconciliation, base branch)",
+  "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §3 ('Resumable orchestration', 'Stale state recovery', 'Base branch persistence'). File: skills/ticks/references/claude-runner.md only. Runs after the meta-work-ticks tick (same file); read that new content first and keep terminology consistent.\n\nAdd a 'Resuming a run' section covering:\n\n1. Re-entry is just re-invoking the skill. Start from tk next / tk graph as usual; because meta-work is ticks, every result maps to exactly one action. Include the action map as a small table: action:implement -\u003e dispatch implementer; action:plan -\u003e flesh out the epic (roadmap guidance); final-review tick -\u003e review the diff; close-out tick -\u003e retro + plan next epic; nothing + all closed -\u003e roadmap end, write completion report.\n2. Stale state recovery, run BEFORE the first wave on (re)entry:\n   - tk list --status in_progress --all now shows a last-activity age per tick (from the activity log). A tick in_progress with no live agent and meaningful age is stale: reset it with tk update \u003cid\u003e --status open. Completed work stays closed; only incomplete work reopens.\n   - Edge case (from phase 2): an in_progress CHILDLESS epic maps to action:implement, which is unroutable — reset it to open so it correctly surfaces as action:plan.\n3. Worktree branch reconciliation: list leftover worktree-agent-* branches; for each, if its tick is closed or its agent reported DONE before the session died, merge it; otherwise delete it (the work re-runs from the reopened tick). Never leave orphaned branches unaccounted for.\n4. Base branch: at run start, record the run's base branch as a note on the epic tick (tk note \u003cepic-id\u003e 'base-branch: \u003cname\u003e'), asked once if ambiguous. Merges, final-review diffs (git diff \u003cbase\u003e...HEAD), and resume read it from the epic's notes instead of assuming main. Mention the existing 'don't run on main' rule stays.\n\nAlso update the 'Current limitations' section: the 'Session-bound' limitation should be rewritten to reflect that runs now resume from tick state (in-flight agents still don't survive, but the procedure above recovers cleanly).\n\nDo NOT touch SKILL.md or tick-patterns.md.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "hxc",
+    "87t"
+  ],
+  "parent": "zk7",
+  "acceptance_criteria": "claude-runner.md has the Resuming a run section with action map, stale-reset procedure incl. the childless-epic edge, worktree reconciliation, and base-branch note convention; Current limitations updated",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:06:59.364337Z",
+  "updated_at": "2026-06-10T13:07:12.4249Z"
+}

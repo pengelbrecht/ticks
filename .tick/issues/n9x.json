@@ -2,7 +2,7 @@
   "id": "n9x",
   "title": "tk list: expose last-activity timestamp for in_progress ticks (stale-run recovery)",
   "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §3 'Stale state recovery'. The orchestrator's resume pass needs to spot ticks stuck in_progress from a dead run; 'tk list --status in_progress' exists, but gives no signal of HOW LONG a tick has been in progress.\n\nBehavior:\n- For in_progress ticks in tk list output: JSON gains LastActivity *time.Time `json:\"last_activity,omitempty\"` (additive); human output appends a relative age, e.g. 'in_progress 2h' (omit if no activity entry found).\n- Source: the newest entry for the tick id in .tick/activity/activity.jsonl. Find the existing activity-log WRITER (grep for activity.jsonl / activity in internal/) and put the reader beside it in the same package, following its conventions. The log can contain interleaved/non-chronological lines after union merges — pick the max ts for the tick, do not assume the file is sorted.\n- Reader must tolerate: missing file (no error, no timestamps), malformed lines (skip), large files (single pass, no full unmarshal of unrelated fields needed beyond ts/tick).\n\nFiles: the activity package in internal/ (reader + tests), cmd/tk/cmd/list.go. Do NOT touch internal/query/plan.go, next.go, or graph.go (other ticks own those).\n\nTest cases:\n- log with 3 entries for tick X out of order -\u003e max ts returned\n- missing file -\u003e nil, no error\n- malformed line between valid ones -\u003e skipped, valid ones used\n- list --json for an in_progress tick includes last_activity; closed/open ticks omit it\n\nRun: go test ./... \u0026\u0026 go build ./...",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "go test ./... passes incl. new reader tests; tk list --status in_progress --json shows last_activity sourced from the activity log",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T12:47:16.072524Z",
-  "updated_at": "2026-06-10T12:47:16.072524Z"
+  "updated_at": "2026-06-10T12:56:12.246034Z",
+  "closed_at": "2026-06-10T12:56:12.246034Z",
+  "closed_reason": "Activity reader + last_activity in tk list merged; reader tests + fixture verification green"
 }
