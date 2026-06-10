@@ -53,7 +53,7 @@ async function resetDatabase(): Promise<void> {
   ]);
 }
 
-async function createUserToken(): Promise<{ token: string }> {
+async function createUserToken(): Promise<{ token: string; userId: string }> {
   const userId = randomId("user");
   const tokenId = randomId("token");
   const email = `${userId}@test.com`;
@@ -73,7 +73,7 @@ async function createUserToken(): Promise<{ token: string }> {
     .bind(tokenId, userId, "test-session", tokenHash)
     .run();
 
-  return { token };
+  return { token, userId };
 }
 
 function createSocketQueue(ws: WebSocket) {
@@ -244,6 +244,70 @@ describe("ProjectRoom sync behavior", () => {
     });
 
     await closeSocket(cloud.socket);
+    await closeSocket(local.socket);
+  });
+});
+
+describe("tick_operation actor propagation", () => {
+  beforeEach(async () => {
+    await resetDatabase();
+  });
+
+  it("forwards session identity as actor in tick_operation sent to local client", async () => {
+    const { token, userId } = await createUserToken();
+    const projectId = `sync/test-project-${crypto.randomUUID().slice(0, 8)}`;
+
+    // Connect local client — this auto-registers the board so the HTTP approve endpoint
+    // can verify project ownership.
+    const local = await connectSync(projectId, token, "local");
+    await local.queue.next((m) => m.type === "state_full");
+
+    // Seed the local state with a tick that is awaiting approval.
+    const awaiting_tick = {
+      ...makeTick("tick1"),
+      status: "open",
+      awaiting: "approval",
+    };
+    local.socket.send(JSON.stringify({
+      type: "sync_full",
+      ticks: { tick1: awaiting_tick },
+    }));
+    await local.queue.next((m) => m.type === "state_full");
+
+    // Call the cloud HTTP approve endpoint, authenticated as the same user.
+    // Because this is async (the local client has to respond), we fire the
+    // HTTP request and simultaneously wait for the tick_operation on the local
+    // WebSocket so we can verify the actor field before responding.
+    const approvePromise = SELF.fetch(
+      `https://example.com/api/projects/${encodeURIComponent(projectId)}/ticks/tick1/approve`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      }
+    );
+
+    // Local client should receive tick_operation with actor=userId.
+    const opMsg = await local.queue.next(
+      (m) => m.type === "tick_operation" && (m as SyncMessage & { tickId?: string }).tickId === "tick1",
+      4000
+    );
+    expect(opMsg.type).toBe("tick_operation");
+    expect((opMsg as SyncMessage & { actor?: string }).actor).toBe(userId);
+
+    // Let the local client respond so the approve HTTP call resolves (avoids timeout).
+    local.socket.send(JSON.stringify({
+      type: "tick_operation_response",
+      requestId: (opMsg as SyncMessage & { requestId?: string }).requestId,
+      success: true,
+      tick: { ...awaiting_tick, status: "closed" },
+    }));
+
+    await approvePromise;
+
     await closeSocket(local.socket);
   });
 });
