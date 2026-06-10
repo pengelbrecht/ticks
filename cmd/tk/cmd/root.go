@@ -271,6 +271,9 @@ func ResetFlags() {
 	graphAll = false
 	graphJSON = false
 
+	// Reset roadmap flags
+	roadmapJSON = false
+
 	// Reset status flags
 	statusJSON = false
 
