@@ -385,6 +385,7 @@ func ResetFlags() {
 	boardPort = 3000
 	boardCloud = false
 	boardDev = false
+	boardHost = "127.0.0.1"
 }
 
 // SetVersion allows main.go to set the version at initialization

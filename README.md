@@ -234,6 +234,9 @@ tk board -p 8080
 # Serve a different repo
 tk board /path/to/repo
 
+# Expose on all interfaces (LAN / Docker)
+tk board --host 0.0.0.0
+
 # Serve the UI from disk for hot reload (development)
 tk board --dev
 ```
@@ -246,7 +249,7 @@ Opens a web kanban board at `http://localhost:3000` with real-time updates. Buil
 - Keyboard navigation (`hjkl`, `?` for help)
 - PWA support for offline use
 
-Without `-p/--port`, the board starts at port 3000 and takes the first free port. See `internal/tickboard/ui/README.md` for development docs.
+The board binds `127.0.0.1` (loopback) by default so it is only accessible from the local machine. Use `--host 0.0.0.0` to expose it on all network interfaces. Without `-p/--port`, the board starts at port 3000 and takes the first free port. See `internal/tickboard/ui/README.md` for development docs.
 
 ## Cloud Sync
 

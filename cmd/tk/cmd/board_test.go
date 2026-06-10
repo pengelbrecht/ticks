@@ -30,7 +30,7 @@ func TestBoardHelp(t *testing.T) {
 	if !strings.Contains(out, "board") {
 		t.Errorf("help output missing command name; got:\n%s", out)
 	}
-	if !strings.Contains(out, "--port") || !strings.Contains(out, "--cloud") {
+	if !strings.Contains(out, "--port") || !strings.Contains(out, "--cloud") || !strings.Contains(out, "--host") {
 		t.Errorf("help output missing expected flags; got:\n%s", out)
 	}
 }
@@ -89,18 +89,23 @@ func TestBoardCloudWithoutToken(t *testing.T) {
 	}
 }
 
-// TestBoardExplicitPortInUse reproduces the blocker scenario: a wildcard
-// listener already holds the port (as another running board would). An
-// explicit -p on that port must fail fast with a clear error instead of
+// TestBoardExplicitPortInUse reproduces the blocker scenario: the same
+// loopback address already holds the port (as another running board would).
+// An explicit -p on that port must fail fast with a clear error instead of
 // printing a banner and serving nothing.
+//
+// Note: on macOS a wildcard listener does NOT conflict with a subsequent
+// loopback bind on the same port (SO_REUSEADDR semantics). The occupant must
+// be a loopback listener to match the default bind address of tk board.
 func TestBoardExplicitPortInUse(t *testing.T) {
 	repoDir, _ := setupTestRepo(t)
 	if err := os.MkdirAll(filepath.Join(repoDir, ".tick", "issues"), 0o755); err != nil {
 		t.Fatalf("mkdir .tick/issues: %v", err)
 	}
 
-	// Occupy a port with a wildcard bind, like a running board does.
-	occupant, err := net.Listen("tcp", ":0")
+	// Occupy a port with a loopback bind — matching what a running board uses
+	// by default (127.0.0.1). A wildcard occupant would NOT conflict on macOS.
+	occupant, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -324,6 +329,72 @@ func TestBoardServesUIAndAPI(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("server did not shut down within 5s")
+	}
+}
+
+// TestBoardDefaultBindIsLoopback verifies that the default bind address is
+// 127.0.0.1 (loopback only). The listener address returned by bindBoardListener
+// must be a 127.0.0.1 TCP address.
+func TestBoardDefaultBindIsLoopback(t *testing.T) {
+	l, port, err := bindBoardListener("127.0.0.1", 0, false)
+	if err != nil {
+		t.Fatalf("bindBoardListener: %v", err)
+	}
+	defer l.Close()
+
+	if port == 0 {
+		t.Fatal("expected non-zero port")
+	}
+
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listener address is not *net.TCPAddr: %T", l.Addr())
+	}
+	if !addr.IP.Equal(net.ParseIP("127.0.0.1")) {
+		t.Errorf("expected listener on 127.0.0.1, got %s", addr.IP)
+	}
+}
+
+// TestBoardHostFlagBindsWildcard verifies that --host 0.0.0.0 causes
+// bindBoardListener to bind the wildcard address (all interfaces).
+func TestBoardHostFlagBindsWildcard(t *testing.T) {
+	l, port, err := bindBoardListener("0.0.0.0", 0, false)
+	if err != nil {
+		t.Fatalf("bindBoardListener with 0.0.0.0: %v", err)
+	}
+	defer l.Close()
+
+	if port == 0 {
+		t.Fatal("expected non-zero port")
+	}
+
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listener address is not *net.TCPAddr: %T", l.Addr())
+	}
+	// A wildcard bind on 0.0.0.0 results in IP == 0.0.0.0 (all-zeros).
+	if !addr.IP.IsUnspecified() {
+		t.Errorf("expected wildcard (unspecified) listener address, got %s", addr.IP)
+	}
+}
+
+// TestBoardBannerHost verifies the URL host printed in the banner.
+func TestBoardBannerHost(t *testing.T) {
+	cases := []struct {
+		host string
+		want string
+	}{
+		{"127.0.0.1", "localhost"},
+		{"::1", "localhost"},
+		{"", "localhost"},
+		{"0.0.0.0", "0.0.0.0"},
+		{"192.168.1.10", "192.168.1.10"},
+	}
+	for _, c := range cases {
+		got := boardBannerHost(c.host)
+		if got != c.want {
+			t.Errorf("boardBannerHost(%q) = %q, want %q", c.host, got, c.want)
+		}
 	}
 }
 

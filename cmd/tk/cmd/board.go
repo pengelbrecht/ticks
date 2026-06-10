@@ -31,11 +31,15 @@ browser over Server-Sent Events.
 If --port is given explicitly, the board binds exactly that port and fails if
 it is busy. Without --port it starts at 3000 and takes the first free port.
 
+By default the board binds 127.0.0.1 (loopback only). Use --host 0.0.0.0 to
+expose the board on all interfaces (LAN / Docker).
+
 Examples:
-  tk board                    # Serve the current repo on port 3000 (or next free)
-  tk board -p 8080            # Serve on port 8080 exactly
-  tk board /path/to/repo      # Serve a different repo
-  tk board --cloud            # Also mirror ticks to ticks.sh (requires a token)`,
+  tk board                        # Serve the current repo on port 3000 (or next free)
+  tk board -p 8080                # Serve on port 8080 exactly
+  tk board /path/to/repo          # Serve a different repo
+  tk board --host 0.0.0.0         # Expose on all interfaces (LAN / Docker)
+  tk board --cloud                # Also mirror ticks to ticks.sh (requires a token)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runBoard,
 }
@@ -44,10 +48,12 @@ var (
 	boardPort  int
 	boardCloud bool
 	boardDev   bool
+	boardHost  string
 )
 
 func init() {
 	boardCmd.Flags().IntVarP(&boardPort, "port", "p", 3000, "port to listen on")
+	boardCmd.Flags().StringVar(&boardHost, "host", "127.0.0.1", "host/IP to bind (default 127.0.0.1; use 0.0.0.0 to expose on all interfaces)")
 	boardCmd.Flags().BoolVar(&boardCloud, "cloud", false, "mirror ticks to ticks.sh in real time (requires a token)")
 	boardCmd.Flags().BoolVar(&boardDev, "dev", false, "serve UI from disk for hot reload (development only)")
 
@@ -91,7 +97,7 @@ func runBoard(cmd *cobra.Command, args []string) error {
 	// wildcard listener already holds the port, so a second board would print
 	// a banner and then fail to bind. Holding the listener up front means the
 	// banner is only ever printed for a socket we actually own.
-	listener, port, err := bindBoardListener(boardPort, cmd.Flags().Changed("port"))
+	listener, port, err := bindBoardListener(boardHost, boardPort, cmd.Flags().Changed("port"))
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
@@ -173,7 +179,7 @@ Get a token at https://ticks.sh/settings`)
 	}()
 
 	// The bind already succeeded, so the banner is truthful.
-	fmt.Printf("Board running at http://localhost:%d\n", port)
+	fmt.Printf("Board running at http://%s:%d\n", boardBannerHost(boardHost), port)
 	if cloudClient != nil {
 		fmt.Printf("Cloud sync: %s\n", cloudBoardName)
 	}
@@ -193,16 +199,24 @@ Get a token at https://ticks.sh/settings`)
 	return nil
 }
 
-// bindBoardListener binds the board's TCP listener (wildcard, matching what
-// the server would bind itself) and returns it with the actual bound port.
+// bindBoardListener binds the board's TCP listener on the given host and
+// returns it with the actual bound port.
 //
 // When the port was requested explicitly (exact=true), only that port is
 // tried — a busy port is an error, not an excuse to serve somewhere the user
 // didn't ask for. Otherwise it scans upward from startPort and takes the
 // first free port.
-func bindBoardListener(startPort int, exact bool) (net.Listener, int, error) {
+//
+// host is typically "127.0.0.1" (loopback-only, the default) or "0.0.0.0"
+// (all interfaces). An empty host is treated as "127.0.0.1".
+func bindBoardListener(host string, startPort int, exact bool) (net.Listener, int, error) {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := func(port int) string { return fmt.Sprintf("%s:%d", host, port) }
+
 	if exact {
-		l, err := net.Listen("tcp", fmt.Sprintf(":%d", startPort))
+		l, err := net.Listen("tcp", addr(startPort))
 		if err != nil {
 			return nil, 0, fmt.Errorf("port %d is unavailable: %v (is another board already running? pick a different port with -p)", startPort, err)
 		}
@@ -212,12 +226,25 @@ func bindBoardListener(startPort int, exact bool) (net.Listener, int, error) {
 	const maxAttempts = 100
 	for i := 0; i < maxAttempts; i++ {
 		port := startPort + i
-		l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		l, err := net.Listen("tcp", addr(port))
 		if err == nil {
 			return l, boundPort(l), nil
 		}
 	}
 	return nil, 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
+}
+
+// boardBannerHost returns the host string to print in the "Board running at"
+// banner. 127.0.0.1 and :: are both displayed as "localhost" for readability;
+// 0.0.0.0 is kept as-is (or displayed as the literal address) so users know
+// the board is accessible on all interfaces.
+func boardBannerHost(host string) string {
+	switch host {
+	case "127.0.0.1", "::1", "":
+		return "localhost"
+	default:
+		return host
+	}
 }
 
 // boundPort returns the port a listener is actually bound to (resolves ":0").
