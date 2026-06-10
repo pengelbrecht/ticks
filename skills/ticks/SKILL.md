@@ -249,7 +249,7 @@ tk close <id> --reason "Completed - connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`**; the shape is:
+Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`** — that file is the authoritative source; speak in capability tiers and harness primitives, never hardcoded model names, so the skill stays aligned with the best available tools. The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
 2. For each wave, launch one subagent per ready tick — **all in one message**, each in its own git worktree (`isolation: "worktree"`), in the background.
@@ -316,7 +316,7 @@ tk graph <epic-id> --json
 #          isolation: "worktree",
 #          run_in_background: true,
 #          mode: "bypassPermissions",
-#          model: "sonnet")   # haiku for trivial, opus for complex
+#          model: "sonnet")   # example — pick by capability tier (see claude-runner.md)
 #
 # 3. Wait for completion notifications (no polling), then integrate each tick:
 git merge <agent-branch>
