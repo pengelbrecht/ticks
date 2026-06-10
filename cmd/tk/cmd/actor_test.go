@@ -354,6 +354,83 @@ func TestUnblockWithTKActorEnv(t *testing.T) {
 	}
 }
 
+// TestReopenWithTKActorEnv verifies that TK_ACTOR env is applied to the
+// "reopen" activity entry written by tk reopen.
+func TestReopenWithTKActorEnv(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	if err := store.Write(makeClosedTestTask("a12")); err != nil {
+		t.Fatalf("write closed task: %v", err)
+	}
+
+	t.Setenv("TK_ACTOR", "orchestrator")
+
+	if _, err := captureStdoutArgs(t, []string{"reopen", "a12"}); err != nil {
+		t.Fatalf("ExecuteArgs reopen: %v", err)
+	}
+
+	activities, err := store.ReadActivity(20)
+	if err != nil {
+		t.Fatalf("read activity: %v", err)
+	}
+
+	var found bool
+	for _, a := range activities {
+		if a.TickID == "a12" && a.Action == tick.ActivityReopen {
+			if a.Actor != "orchestrator" {
+				t.Errorf("expected actor=%q, got %q", "orchestrator", a.Actor)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected reopen activity for tick a12; got %+v", activities)
+	}
+}
+
+// TestDeleteBlockerCleanupWithTKActorEnv verifies that TK_ACTOR env is applied
+// to the "unblock" activity entries written by tk delete's blocker-reference
+// cleanup on the surviving ticks.
+func TestDeleteBlockerCleanupWithTKActorEnv(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	blocker := makeTestTask("b11")
+	if err := store.Write(blocker); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	task := makeTestTask("a11")
+	task.BlockedBy = []string{"b11"}
+	if err := store.Write(task); err != nil {
+		t.Fatalf("write task: %v", err)
+	}
+
+	t.Setenv("TK_ACTOR", "orchestrator")
+
+	if _, err := captureStdoutArgs(t, []string{"delete", "b11", "--force"}); err != nil {
+		t.Fatalf("ExecuteArgs delete: %v", err)
+	}
+
+	activities, err := store.ReadActivity(20)
+	if err != nil {
+		t.Fatalf("read activity: %v", err)
+	}
+
+	var found bool
+	for _, a := range activities {
+		if a.TickID == "a11" && a.Action == tick.ActivityUnblock {
+			if a.Actor != "orchestrator" {
+				t.Errorf("expected actor=%q, got %q", "orchestrator", a.Actor)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected unblock activity for tick a11 from delete cleanup; got %+v", activities)
+	}
+}
+
 // TestUpdateWithActorFlagOverridesTKActorEnv verifies that --actor on tk update
 // overrides TK_ACTOR env.
 func TestUpdateWithActorFlagOverridesTKActorEnv(t *testing.T) {
