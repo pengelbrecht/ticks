@@ -113,15 +113,18 @@ The "don't touch `.tick/`, don't run `tk`" rule below is enforced only by the pr
 
 ### Choosing a capability tier per tick
 
-Pick the tier for each tick, not once for the run. Use the least capable tier that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical. The harness resolves each tier to the best available model at runtime; don't hardcode model names in prompts or scripts.
+Pick the tier for each tick, not once for the run. Use the least capable tier that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical. The harness resolves each tier to the best available model at runtime; don't hardcode model names in prompts or scripts. This table is guidance, not enforcement: the orchestrator is assumed to run on a frontier-class model and is trusted to weigh each tick's actual complexity and pick well — round up when a "mechanical" tick hides judgment (load-bearing docs, deletions needing reference triage), and never let cost-optimizing down-tiering put an under-powered model on work that can fail subtly.
 
 | Tick shape | Tier |
 |---|---|
-| 1-2 files, complete spec, mechanical work | **fastest/cheapest** — e.g. haiku-class (dated example) |
-| Multiple files, integration concerns | **balanced default** — e.g. sonnet-class |
-| Design judgment, broad codebase understanding, ambiguous specs | **most capable** — e.g. opus-class |
+| 1-2 files, complete spec, purely mechanical (renames, list-driven deletions, config tweaks) | **fastest/cheapest** — smallest current model (haiku-class, dated example) |
+| Well-specified implementation, a few files, standard patterns — the default for most ticks | **balanced** — mid-tier workhorse (sonnet-class, dated example) |
+| Integration-heavy or subtle-correctness work: cross-layer changes, state machines, ports between languages | **strong** — large non-frontier model (opus-class, dated example) |
+| Design judgment, ambiguous specs, broad codebase understanding — anything you'd hand a senior engineer | **frontier** — the most capable model available (fable-class, dated example) |
 
-**REVIEWER-TIER RULE:** review with a model at least as capable as the one that wrote the code. Epic final reviews default to the most-capable tier.
+The tier names are the contract; the parenthesized models are dated examples — resolve each tier against what the harness offers today, and when the harness exposes fewer levels than the table, collapse adjacent tiers downward (balanced and strong merge first).
+
+**REVIEWER-TIER RULE:** review with a model at least as capable as the one that wrote the code. Epic final reviews default to the frontier tier.
 
 ### Why worktree isolation
 
