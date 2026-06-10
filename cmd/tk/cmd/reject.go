@@ -110,7 +110,7 @@ func runReject(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to process verdict: %w", err)
 	}
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor("")); err != nil {
 		return fmt.Errorf("failed to save tick: %w", err)
 	}
 
