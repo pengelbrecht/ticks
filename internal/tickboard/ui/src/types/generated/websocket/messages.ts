@@ -410,6 +410,10 @@ export interface TickOperationRequest {
   requestId: string;
   operation: TickOperationType;
   tickId: string;
+  /**
+   * Identity of the cloud user who initiated the operation (e.g. email). Used to attribute activity log entries.
+   */
+  actor?: string;
   payload?: {
     message?: string;
     reason?: string;
