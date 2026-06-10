@@ -163,11 +163,21 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		t.Notes = updateNotes
 	}
 	if updateStatusSet {
-		t.Status = updateStatus
-		if updateStatus == tick.StatusClosed {
+		switch updateStatus {
+		case tick.StatusInProgress:
+			t.Start()
+		case tick.StatusOpen:
+			if t.Status == tick.StatusInProgress {
+				t.Release()
+			} else {
+				t.Status = updateStatus
+			}
+		case tick.StatusClosed:
+			t.Status = updateStatus
 			now := time.Now().UTC()
 			t.ClosedAt = &now
-		} else {
+		default:
+			t.Status = updateStatus
 			t.ClosedAt = nil
 			t.ClosedReason = ""
 		}
