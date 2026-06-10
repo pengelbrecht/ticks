@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -174,6 +175,51 @@ func TestRenderRoadmap_BlockedByAnnotation(t *testing.T) {
 	// The blocked epic's line should carry "← blocked by: src"
 	if !strings.Contains(plain, "blocked by: src") {
 		t.Errorf("expected 'blocked by: src' annotation, got:\n%s", plain)
+	}
+}
+
+func TestRenderRoadmap_NeedsPlanningAnnotation(t *testing.T) {
+	awaiting := tick.AwaitingApproval
+
+	readyEpic := makeTestEpic("rdy", "Ready Epic", tick.StatusOpen) // zero children → ready
+	gatedEpic := makeTestEpic("gtd", "Gated Epic", tick.StatusOpen)
+	gatedEpic.Awaiting = &awaiting
+	activeEpic := makeTestEpic("act", "Active Epic", tick.StatusInProgress)
+
+	t.Run("ready epic line carries the annotation", func(t *testing.T) {
+		plain := stripANSI(RenderRoadmap([]tick.Tick{readyEpic}, 120))
+		if !strings.Contains(plain, "(needs planning)") {
+			t.Errorf("expected '(needs planning)' annotation for ready epic, got:\n%s", plain)
+		}
+	})
+
+	t.Run("gated and active epics do not carry the annotation", func(t *testing.T) {
+		plain := stripANSI(RenderRoadmap([]tick.Tick{gatedEpic, activeEpic}, 120))
+		if strings.Contains(plain, "needs planning") {
+			t.Errorf("did not expect 'needs planning' annotation for gated/active epics, got:\n%s", plain)
+		}
+	})
+}
+
+func TestRoadmapStatusStyles_ReadyAndGatedDiffer(t *testing.T) {
+	// ready must be visually distinct from gated: color is the primary cue
+	// (ready = gray like StatusOpenStyle, gated = yellow like StatusAwaitingStyle).
+	readyFg := roadmapStatusReadyStyle.GetForeground()
+	gatedFg := roadmapStatusGatedStyle.GetForeground()
+	if readyFg == gatedFg {
+		t.Errorf("ready and gated styles must use different foreground colors, both are %v", readyFg)
+	}
+
+	// ready follows the CLI convention: same color as StatusOpenStyle (gray).
+	openFg := styles.StatusOpenStyle.GetForeground()
+	if readyFg != openFg {
+		t.Errorf("ready style should match StatusOpenStyle (gray), got %v want %v", readyFg, openFg)
+	}
+
+	// gated keeps the awaiting yellow.
+	awaitingFg := styles.StatusAwaitingStyle.GetForeground()
+	if gatedFg != awaitingFg {
+		t.Errorf("gated style should match StatusAwaitingStyle (yellow), got %v want %v", gatedFg, awaitingFg)
 	}
 }
 
