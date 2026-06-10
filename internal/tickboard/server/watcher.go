@@ -53,7 +53,11 @@ type LiveFileWatcher struct {
 	// Debouncing
 	debounceDelay time.Duration
 	debounceTimers map[string]*time.Timer
-	timersMu       sync.Mutex
+	// Ops accumulated across debounced events: on Linux a single WriteFile
+	// emits CREATE then WRITE, and keeping only the last op would
+	// misclassify a new file as Updated.
+	pendingOps map[string]fsnotify.Op
+	timersMu   sync.Mutex
 
 	// Track known live files for detecting created vs updated
 	knownFiles   map[string]struct{}
@@ -73,6 +77,7 @@ func NewLiveFileWatcher(recordsDir string) *LiveFileWatcher {
 		events:         make(chan LiveFileEvent, 100),
 		debounceDelay:  100 * time.Millisecond,
 		debounceTimers: make(map[string]*time.Timer),
+		pendingOps:     make(map[string]fsnotify.Op),
 		knownFiles:     make(map[string]struct{}),
 		stopCh:         make(chan struct{}),
 		stoppedCh:      make(chan struct{}),
@@ -240,12 +245,18 @@ func (w *LiveFileWatcher) debounceLiveFileEvent(tickID string, op fsnotify.Op) {
 		timer.Stop()
 	}
 
-	// Capture values for closure
+	// Accumulate ops so a CREATE followed by WRITE within the debounce
+	// window still classifies as a creation when the timer fires.
+	w.pendingOps[tickID] |= op
+
 	capturedTickID := tickID
-	capturedOp := op
 
 	w.debounceTimers[tickID] = time.AfterFunc(w.debounceDelay, func() {
-		w.processLiveFileChange(capturedTickID, capturedOp)
+		w.timersMu.Lock()
+		accumulatedOp := w.pendingOps[capturedTickID]
+		delete(w.pendingOps, capturedTickID)
+		w.timersMu.Unlock()
+		w.processLiveFileChange(capturedTickID, accumulatedOp)
 	})
 }
 
