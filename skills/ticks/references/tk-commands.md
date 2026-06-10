@@ -169,6 +169,8 @@ tk board [path] [flags]
 | Flag | Description |
 |------|-------------|
 | `-p, --port N` | Port to listen on (default 3000) |
+| `--cloud` | Sync the board to ticks.sh (token in `~/.ticksrc`) |
+| `--dev` | Serve the UI from source instead of embedded assets |
 
 Opens a web interface for viewing and managing ticks.
 

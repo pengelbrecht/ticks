@@ -5,7 +5,7 @@ description: Work with Ticks issue tracker and AI agent runner. Use when managin
 
 # Ticks Workflow
 
-Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, runs agents in continuous loops, and provides a web-based board for monitoring.
+Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, and `tk board` provides a web-based board for monitoring; epics are executed by orchestrating Claude Code subagents (see references/claude-runner.md).
 
 ## When to Use Ticks vs TodoWrite
 
