@@ -1070,103 +1070,41 @@ func TestBaseBranchJSONRoundTrip(t *testing.T) {
 	})
 }
 
-func TestTickflowLeaseValidationAndJSON(t *testing.T) {
-	now := time.Date(2026, 5, 8, 6, 0, 0, 0, time.UTC)
-	expires := now.Add(time.Hour)
-	tick := Tick{
-		ID:        "a1b",
-		Title:     "Lease work",
-		Status:    StatusInProgress,
-		Priority:  2,
-		Type:      TypeTask,
-		Owner:     "petere",
-		CreatedBy: "petere",
-		CreatedAt: now,
-		UpdatedAt: now,
-		TickflowLease: &TickflowLease{
-			Runner:     "pi-tickflow",
-			SessionID:  "session-123",
-			Attempt:    2,
-			Worktree:   "/tmp/worktree",
-			Owner:      "agent-1",
-			AcquiredAt: now,
-			ExpiresAt:  &expires,
-		},
-	}
+// TestTickflowLeaseUnknownFieldRoundTrip verifies that old tick JSON files that still
+// carry a tickflow_lease field are silently ignored on unmarshal (Go's json.Unmarshal
+// ignores unknown fields), and that the re-marshalled result simply omits the field.
+func TestTickflowLeaseUnknownFieldRoundTrip(t *testing.T) {
+	jsonStr := `{
+		"id": "a1b",
+		"title": "Old work",
+		"status": "open",
+		"priority": 2,
+		"type": "task",
+		"owner": "petere",
+		"created_by": "petere",
+		"created_at": "2026-05-08T06:00:00Z",
+		"updated_at": "2026-05-08T06:00:00Z",
+		"tickflow_lease": {
+			"runner": "pi-tickflow",
+			"session_id": "session-123",
+			"attempt": 2,
+			"acquired_at": "2026-05-08T06:00:00Z"
+		}
+	}`
 
-	if err := tick.Validate(); err != nil {
-		t.Fatalf("expected valid tickflow lease, got %v", err)
+	var tick Tick
+	if err := json.Unmarshal([]byte(jsonStr), &tick); err != nil {
+		t.Fatalf("unmarshal with legacy tickflow_lease field must not error, got: %v", err)
 	}
-
+	if tick.ID != "a1b" {
+		t.Errorf("ID round-trip: got %q, want %q", tick.ID, "a1b")
+	}
+	// Re-marshal: the unknown field is simply absent in output.
 	data, err := json.Marshal(tick)
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatalf("re-marshal: %v", err)
 	}
-	if !strings.Contains(string(data), "tickflow_lease") {
-		t.Fatalf("expected tickflow_lease in JSON, got %s", data)
-	}
-
-	var roundTrip Tick
-	if err := json.Unmarshal(data, &roundTrip); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if roundTrip.TickflowLease == nil || roundTrip.TickflowLease.Runner != "pi-tickflow" {
-		t.Fatalf("lease did not round trip: %#v", roundTrip.TickflowLease)
-	}
-}
-
-func TestTickflowLeaseValidationErrors(t *testing.T) {
-	now := time.Date(2026, 5, 8, 6, 0, 0, 0, time.UTC)
-	base := Tick{
-		ID:        "a1b",
-		Title:     "Lease work",
-		Status:    StatusInProgress,
-		Priority:  2,
-		Type:      TypeTask,
-		Owner:     "petere",
-		CreatedBy: "petere",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	missingAcquired := base
-	missingAcquired.TickflowLease = &TickflowLease{Runner: "pi-tickflow"}
-	if err := missingAcquired.Validate(); err == nil || !strings.Contains(err.Error(), "tickflow_lease acquired_at") {
-		t.Fatalf("expected acquired_at validation error, got %v", err)
-	}
-
-	negativeAttempt := base
-	negativeAttempt.TickflowLease = &TickflowLease{Runner: "pi-tickflow", Attempt: -1, AcquiredAt: now}
-	if err := negativeAttempt.Validate(); err == nil || !strings.Contains(err.Error(), "attempt") {
-		t.Fatalf("expected attempt validation error, got %v", err)
-	}
-}
-
-func TestTickflowLeaseExpiryAndRelease(t *testing.T) {
-	now := time.Date(2026, 5, 8, 6, 0, 0, 0, time.UTC)
-	expires := now.Add(time.Minute)
-	tick := Tick{
-		ID:            "a1b",
-		Title:         "Lease work",
-		Status:        StatusInProgress,
-		Priority:      2,
-		Type:          TypeTask,
-		Owner:         "petere",
-		CreatedBy:     "petere",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		TickflowLease: &TickflowLease{Runner: "pi-tickflow", AcquiredAt: now, ExpiresAt: &expires},
-	}
-
-	if tick.HasExpiredTickflowLease(now) {
-		t.Fatal("lease should not be expired at acquisition time")
-	}
-	if !tick.HasExpiredTickflowLease(now.Add(2 * time.Minute)) {
-		t.Fatal("lease should be expired after expires_at")
-	}
-
-	tick.Release()
-	if tick.Status != StatusOpen || tick.TickflowLease != nil || tick.StartedAt != nil {
-		t.Fatalf("release should clear status/start/lease, got status=%s lease=%#v started=%#v", tick.Status, tick.TickflowLease, tick.StartedAt)
+	if strings.Contains(string(data), "tickflow_lease") {
+		t.Errorf("re-marshalled JSON must not contain tickflow_lease: %s", data)
 	}
 }
