@@ -294,12 +294,19 @@ tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs
 ### Managing
 
 ```bash
-tk show <id>                      # Show details
-tk close <id> --reason "reason"   # Close tick
-tk note <id> "text"               # Add note
-tk approve <id>                   # Approve awaiting tick
-tk reject <id> "feedback"         # Reject with required feedback
+tk show <id>                                           # Show details
+tk close <id> --reason "Completed: <one-line summary>" # Close tick — always pass --reason
+tk note <id> "text"                                    # Add note
+tk approve <id>                                        # Approve awaiting tick
+tk reject <id> "feedback"                              # Reject with required feedback
 ```
+
+**Close-reason convention:** always pass `--reason` with a concrete summary when closing.
+`tk close <id> --reason "Completed: <one-line summary of what landed>"` — never a bare `tk close`.
+
+**Actor convention (orchestrated runs):** export `TK_ACTOR=orchestrator` at run start so activity
+entries are stamped with a recognisable actor. Use `--actor <name>` to override for a single call.
+Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 ### Running the Epic
 
@@ -322,7 +329,7 @@ tk graph <epic-id> --json
 # 3. Wait for completion notifications (no polling), then integrate each tick:
 git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
 git merge <agent-branch>   # if it conflicts: abort, have the agent rebase + resolve in its worktree
-tk close <tick-id> --reason "Completed via Claude orchestration"
+tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 
 # 4. After the wave's merges land, run the test suite before launching the next wave
 ```
