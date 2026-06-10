@@ -42,6 +42,9 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
+        with:
+          # packageManager lives in the nested UI package.json, not the repo root
+          package_json_file: internal/tickboard/ui/package.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
