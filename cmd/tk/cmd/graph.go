@@ -138,7 +138,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(tasks) == 0 {
-		return handleChildlessEpic(cmd, epic, allTicks)
+		return handleChildlessEpic(epic, allTicks)
 	}
 
 	// Build dependency display maps (for rendering blockedBy/blocks info).
@@ -387,13 +387,34 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// handleChildlessEpic handles the case where a target epic has zero children (any status).
-// It uses query.EpicsNeedingPlanning to distinguish between an unblocked epic that needs
-// planning vs one that is blocked and will need planning once its blockers close.
-func handleChildlessEpic(cmd *cobra.Command, epic tick.Tick, allTicks []tick.Tick) error {
-	// Determine whether this epic is "needs planning" (unblocked) or blocked.
+// handleChildlessEpic handles the case where the epic's task list (after the
+// closed-task filter) is empty. There are three sub-cases:
+//   - the epic has children but they are all closed → epic is complete, close it
+//   - the epic has no children and is unblocked → it needs planning NOW
+//   - the epic has no children but is blocked → it will need planning when its
+//     blockers close
+//
+// In JSON output, needs_planning is true only when the epic is plannable now
+// (zero children AND unblocked), matching the gating that tk next applies to
+// its action:plan signal. It uses query.EpicsNeedingPlanning for that decision.
+func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
+	// Check for children of any status (tasks was filtered to open-only when
+	// --all is not set, so all-closed children can land us here too).
+	hasChildren := false
+	allChildrenClosed := true
+	for _, t := range allTicks {
+		if t.Parent == epic.ID {
+			hasChildren = true
+			if t.Status != tick.StatusClosed {
+				allChildrenClosed = false
+			}
+		}
+	}
+
+	// Plannable now = zero children AND unblocked (and open, not deferred,
+	// not awaiting human). query.EpicsNeedingPlanning encodes all of that.
 	needsPlanning := query.EpicsNeedingPlanning([]tick.Tick{epic}, allTicks)
-	isReadyToplan := len(needsPlanning) > 0
+	isReadyToPlan := len(needsPlanning) > 0
 
 	if graphJSON {
 		output := graphOutput{
@@ -401,9 +422,9 @@ func handleChildlessEpic(cmd *cobra.Command, epic tick.Tick, allTicks []tick.Tic
 				ID:    epic.ID,
 				Title: epic.Title,
 			},
-			NeedsPlanning: true,
-			Stats:        graphStats{},
-			CriticalPath: 0,
+			NeedsPlanning: isReadyToPlan,
+			Stats:         graphStats{},
+			CriticalPath:  0,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -411,7 +432,20 @@ func handleChildlessEpic(cmd *cobra.Command, epic tick.Tick, allTicks []tick.Tic
 	}
 
 	// Human-readable output.
-	if isReadyToplan {
+	if hasChildren {
+		if allChildrenClosed {
+			fmt.Printf(
+				"Epic %s is complete — all child ticks are closed. Close it with tk close %s.\n",
+				epic.ID, epic.ID,
+			)
+		} else {
+			// Children exist but none are graphable tasks (e.g. child epics).
+			fmt.Printf("Epic %s has no tasks\n", epic.ID)
+		}
+		return nil
+	}
+
+	if isReadyToPlan {
 		fmt.Printf(
 			"Epic %s has no child ticks — it needs planning. Flesh it out into ticks (see the ticks skill roadmap guidance), then re-run tk graph %s.\n",
 			epic.ID, epic.ID,

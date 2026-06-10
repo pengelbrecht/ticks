@@ -4,11 +4,44 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
+
+// captureChildlessOutput runs handleChildlessEpic with graphJSON set to
+// jsonMode and returns captured stdout. We manipulate the package-level
+// graphJSON flag directly because we are in the same package.
+func captureChildlessOutput(t *testing.T, jsonMode bool, epic tick.Tick, allTicks []tick.Tick) string {
+	t.Helper()
+
+	prev := graphJSON
+	graphJSON = jsonMode
+	defer func() { graphJSON = prev }()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+
+	runErr := handleChildlessEpic(epic, allTicks)
+
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	_ = r.Close()
+
+	if runErr != nil {
+		t.Fatalf("handleChildlessEpic returned error: %v", runErr)
+	}
+	return buf.String()
+}
 
 // TestGraphOutputStructHasNeedsPlanning verifies that the graphOutput struct
 // includes the NeedsPlanning field and that it serializes correctly.
@@ -65,10 +98,10 @@ func TestGraphOutputStructHasNeedsPlanning(t *testing.T) {
 	})
 }
 
-// TestHandleChildlessEpicJSON exercises handleChildlessEpic JSON output via
-// the exported graphJSON package-level variable, which is set during cobra
-// command execution. We manipulate it directly because we are in the same
-// package (package cmd).
+// TestHandleChildlessEpicJSON verifies the JSON shape. needs_planning is true
+// only when the epic is plannable NOW (zero children AND unblocked) — the
+// orchestration loop consumes this field to decide "plan this epic", and it
+// must agree with tk next's action:plan gating.
 func TestHandleChildlessEpicJSON(t *testing.T) {
 	now := time.Now()
 
@@ -81,32 +114,12 @@ func TestHandleChildlessEpicJSON(t *testing.T) {
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
-		allTicks := []tick.Tick{epic}
 
-		graphJSON = true
-		defer func() { graphJSON = false }()
-
-		// Capture stdout.
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
-		err := handleChildlessEpic(nil, epic, allTicks)
-
-		_ = w.Close()
-		os.Stdout = origStdout
-
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		_ = r.Close()
-
-		if err != nil {
-			t.Fatalf("handleChildlessEpic returned error: %v", err)
-		}
+		raw := captureChildlessOutput(t, true, epic, []tick.Tick{epic})
 
 		var out graphOutput
-		if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
-			t.Fatalf("parse json: %v (raw: %s)", err, buf.String())
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			t.Fatalf("parse json: %v (raw: %s)", err, raw)
 		}
 
 		if !out.NeedsPlanning {
@@ -138,42 +151,56 @@ func TestHandleChildlessEpicJSON(t *testing.T) {
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
-		allTicks := []tick.Tick{blocker, epic}
 
-		graphJSON = true
-		defer func() { graphJSON = false }()
-
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
-		err := handleChildlessEpic(nil, epic, allTicks)
-
-		_ = w.Close()
-		os.Stdout = origStdout
-
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		_ = r.Close()
-
-		if err != nil {
-			t.Fatalf("handleChildlessEpic returned error: %v", err)
-		}
+		raw := captureChildlessOutput(t, true, epic, []tick.Tick{blocker, epic})
 
 		var out graphOutput
-		if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
-			t.Fatalf("parse json: %v (raw: %s)", err, buf.String())
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			t.Fatalf("parse json: %v (raw: %s)", err, raw)
 		}
 
-		// Blocked epic still has no children so needs_planning is true.
-		if !out.NeedsPlanning {
-			t.Errorf("expected NeedsPlanning=true for blocked childless epic")
+		// A blocked childless epic is NOT plannable now: needs_planning must be
+		// false so it agrees with tk next's action:plan gating.
+		if out.NeedsPlanning {
+			t.Errorf("expected NeedsPlanning=false for blocked childless epic")
+		}
+	})
+
+	t.Run("all_closed_children_epic_json", func(t *testing.T) {
+		epic := tick.Tick{
+			ID:        "fin",
+			Title:     "Finished Epic",
+			Type:      tick.TypeEpic,
+			Status:    tick.StatusOpen,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		child := tick.Tick{
+			ID:        "c1",
+			Title:     "Done Task",
+			Type:      tick.TypeTask,
+			Status:    tick.StatusClosed,
+			Parent:    "fin",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		raw := captureChildlessOutput(t, true, epic, []tick.Tick{epic, child})
+
+		var out graphOutput
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			t.Fatalf("parse json: %v (raw: %s)", err, raw)
+		}
+
+		// Epic with (all-closed) children does not need planning — it needs closing.
+		if out.NeedsPlanning {
+			t.Errorf("expected NeedsPlanning=false for epic whose children are all closed")
 		}
 	})
 }
 
 // TestHandleChildlessEpicHuman verifies that human output distinguishes
-// unblocked from blocked childless epics.
+// unblocked, blocked, and complete (all children closed) cases.
 func TestHandleChildlessEpicHuman(t *testing.T) {
 	now := time.Now()
 
@@ -187,29 +214,12 @@ func TestHandleChildlessEpicHuman(t *testing.T) {
 			UpdatedAt: now,
 		}
 
-		graphJSON = false
+		output := captureChildlessOutput(t, false, epic, []tick.Tick{epic})
 
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
-		err := handleChildlessEpic(nil, epic, []tick.Tick{epic})
-
-		_ = w.Close()
-		os.Stdout = origStdout
-
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		_ = r.Close()
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		output := buf.String()
-		if !bytes.Contains([]byte(output), []byte("needs planning")) {
+		if !strings.Contains(output, "needs planning") {
 			t.Errorf("expected 'needs planning' in output for unblocked epic, got: %s", output)
 		}
-		if bytes.Contains([]byte(output), []byte("blocked")) {
+		if strings.Contains(output, "blocked") {
 			t.Errorf("expected no 'blocked' mention for unblocked epic, got: %s", output)
 		}
 	})
@@ -232,34 +242,52 @@ func TestHandleChildlessEpicHuman(t *testing.T) {
 			UpdatedAt: now,
 		}
 
-		graphJSON = false
+		output := captureChildlessOutput(t, false, epic, []tick.Tick{blocker, epic})
 
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-
-		err := handleChildlessEpic(nil, epic, []tick.Tick{blocker, epic})
-
-		_ = w.Close()
-		os.Stdout = origStdout
-
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		_ = r.Close()
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		output := buf.String()
-		if !bytes.Contains([]byte(output), []byte("blocked")) {
+		if !strings.Contains(output, "blocked") {
 			t.Errorf("expected 'blocked' in output for blocked epic, got: %s", output)
 		}
-		if !bytes.Contains([]byte(output), []byte("blk")) {
+		if !strings.Contains(output, "blk") {
 			t.Errorf("expected blocker id 'blk' in output, got: %s", output)
 		}
 		// Should NOT say "needs planning" (that's reserved for the unblocked path).
-		if bytes.Contains([]byte(output), []byte("needs planning")) {
+		if strings.Contains(output, "needs planning") {
 			t.Errorf("expected no 'needs planning' in blocked-path output, got: %s", output)
+		}
+	})
+
+	t.Run("all_closed_children_prints_complete", func(t *testing.T) {
+		epic := tick.Tick{
+			ID:        "e3",
+			Title:     "Finished Epic",
+			Type:      tick.TypeEpic,
+			Status:    tick.StatusOpen,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		child := tick.Tick{
+			ID:        "c1",
+			Title:     "Done Task",
+			Type:      tick.TypeTask,
+			Status:    tick.StatusClosed,
+			Parent:    "e3",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		output := captureChildlessOutput(t, false, epic, []tick.Tick{epic, child})
+
+		if !strings.Contains(output, "complete") {
+			t.Errorf("expected 'complete' in output for epic with all children closed, got: %s", output)
+		}
+		if !strings.Contains(output, "tk close e3") {
+			t.Errorf("expected 'tk close e3' hint in output, got: %s", output)
+		}
+		if strings.Contains(output, "needs planning") {
+			t.Errorf("expected no 'needs planning' for complete epic, got: %s", output)
+		}
+		if strings.Contains(output, "open blockers") {
+			t.Errorf("expected no misleading 'open blockers' message for complete epic, got: %s", output)
 		}
 	})
 }
