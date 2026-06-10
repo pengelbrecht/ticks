@@ -231,6 +231,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// API endpoint: context documents
 	mux.HandleFunc("/api/context/", s.handleContext)
 
+	// API endpoint: roadmap (epic dependency waves)
+	mux.HandleFunc("/api/roadmap", s.handleRoadmap)
+
 	// Root handler - serve index.html and PWA assets at root paths
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -767,6 +770,27 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleRoadmap handles GET /api/roadmap.
+// Returns the epic-chain wave computation as a query.Roadmap JSON object.
+func (s *Server) handleRoadmap(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	issuesDir := filepath.Join(s.tickDir, "issues")
+	allTicks, err := query.LoadTicksParallel(issuesDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to load ticks: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	roadmap := query.ComputeRoadmap(allTicks)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(roadmap)
 }
 
 // handleRecords routes requests to /api/records/:tickId.
