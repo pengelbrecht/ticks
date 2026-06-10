@@ -2,12 +2,14 @@
   "id": "jw0",
   "title": "Test debt: flaky integration tests and CI hardening",
   "description": "Address the pre-existing test debt surfaced during the Execution Model v2 roadmap (PR #9 notes): (1) flaky TestStreamParser_RealClaudeWithToolUse in internal/agent (live Claude CLI call, non-deterministic); (2) 72 UI test failures — 69 across src/comms/cloud.test.ts + local.test.ts (CloudCommsClient/local 'Integration' suites, likely needing a live server/WebSocket) and 3 in src/components/tick-create-dialog.test.ts; (3) CI hardening: pnpm version pin (ui job currently fails setup: 'No pnpm version specified') and flipping the ui job to blocking once green.",
-  "status": "open",
+  "notes": "2026-06-10 17:04 - RETRO REPORT — Test debt epic (jw0)\nLearnings: 2 repo-specific entries added to .tick/learnings.md (nested package.json + pnpm-11 build approval for CI; comms suites are live-rig tests, how to run them). No process-level promotions needed — existing skill text covered this run.\nOutside-in verification: go test -short ./... all green incl. 5x de-flaked test (reviewer-verified); pnpm test 433 passed / 69 skipped / 0 failed (was 430 passed / 72 FAILED); live-rig run verified 69/69 by implementer; CI ui job now blocking — final proof lands on the PR run.\nFinal review: CLEAN (0 findings requiring action; 2 informational nits incl. vestigial sawToolUse diagnostic — accepted as harmless).\nScope growth: +2 follow-up fixes within the epic (dead error-branch made deterministic; package_json_file CI fix). New pre-existing issue surfaced and filed as backlog tick vy0 (comms type drift, tsc-only).\nBoundary extension accepted: pnpm-workspace.yaml (required by pnpm 11), flagged via DONE_WITH_CONCERNS per protocol.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
-  "base_branch": "fix/test-debt",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T14:43:07.983458Z",
-  "updated_at": "2026-06-10T14:43:33.268932Z"
+  "updated_at": "2026-06-10T15:04:02.662831Z",
+  "closed_at": "2026-06-10T15:04:02.662831Z",
+  "closed_reason": "All 6 ticks completed via Claude orchestration. Both pre-existing issues fixed at root cause; CI ui job now blocking. Retro in epic notes."
 }

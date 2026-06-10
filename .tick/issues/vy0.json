@@ -1,0 +1,13 @@
+{
+  "id": "vy0",
+  "title": "Comms type drift: fix longstanding tsc errors in src/comms (no runtime impact)",
+  "description": "Surfaced during the test-debt epic (jw0 / tick 5mf) by npx tsc --noEmit — pre-existing type errors that vitest/esbuild does not catch and pnpm test does not exercise:\n- cloud-unit.test.ts: missing afterEach import (3x TS2304)\n- cloud.ts: TS2345 x2 (lines ~336/362), TS2678 at ~614 (tick_created not in the message union), TS2353 at ~819 (ContextFailedEvent)\n- mock.ts:75: TS2420 interface mismatch\nThese suggest drift between the comms message unions (src/comms/types.ts) and call sites. Fix the types (or the unions, where the union is the stale side — check against the Go server message shapes in internal/tickboard/server and the cloud worker), then make npx tsc --noEmit clean for src/comms/. Consider adding a typecheck script + CI step in a follow-up if cheap.\nFiles: internal/tickboard/ui/src/comms/*.ts. Run: cd internal/tickboard/ui \u0026\u0026 npx tsc --noEmit \u0026\u0026 pnpm test",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "tsc --noEmit reports no errors in src/comms; pnpm test still 433 passed / 69 skipped",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T14:57:07.243708Z",
+  "updated_at": "2026-06-10T14:57:07.243708Z"
+}
