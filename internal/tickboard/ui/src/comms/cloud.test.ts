@@ -847,25 +847,40 @@ describe.skipIf(!RUN_LIVE)('CloudCommsClient Integration', () => {
     });
 
     it('emits error event on connection failure', async () => {
-      // Create a client with invalid project
-      const badClient = new CloudCommsClient('non-existent-project');
-      const errors: ConnectionEvent[] = [];
-
-      badClient.onConnection((event) => {
-        if (event.type === 'error') {
-          errors.push(event);
+      // Force the WebSocket to target an unreachable endpoint so the error
+      // path deterministically fires. (TestRigWebSocket rewrites ANY project
+      // URL to the rig's /api/sync, so a bogus project id alone would still
+      // connect successfully while the rig is up.)
+      class FailingWebSocket extends WebSocket {
+        constructor(_url: string | URL, _protocols?: string | string[]) {
+          super('ws://127.0.0.1:1/unreachable');
         }
-      });
-
-      // Don't use real WebSocket - just verify the error path
-      // The connect() will fail because there's no server at this endpoint
-      try {
-        await badClient.connect();
-      } catch {
-        // Expected to throw
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).WebSocket = FailingWebSocket;
 
-      badClient.disconnect();
+      try {
+        const badClient = new CloudCommsClient('non-existent-project');
+        const errors: ConnectionEvent[] = [];
+
+        badClient.onConnection((event) => {
+          if (event.type === 'connection:error') {
+            errors.push(event);
+          }
+        });
+
+        await expect(badClient.connect()).rejects.toThrow(ConnectionError);
+
+        expect(errors).toContainEqual({
+          type: 'connection:error',
+          message: 'WebSocket connection error',
+        });
+
+        badClient.disconnect();
+      } finally {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (globalThis as any).WebSocket = TestRigWebSocket;
+      }
     });
   });
 });
