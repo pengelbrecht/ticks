@@ -1,0 +1,17 @@
+{
+  "id": "49i",
+  "title": "Add standalone tk board command (restore board/cloud entrypoint)",
+  "description": "Context: the web board (internal/tickboard/server, embedded UI) and cloud sync client (internal/tickboard/cloud) were only ever launchable via 'tk run --board' — and the runner was just deleted, so the board has NO CLI entrypoint. skills/ticks/references/tk-commands.md already documents the target interface: 'tk board [path]' with -p/--port (default 3000). Make that real.\n\nProcedure:\n1. Recover the old wiring from git history: 'git log --oneline --diff-filter=D -- cmd/tk/cmd/run.go' gives the deletion commit; 'git show \u003cthat-commit\u003e^:cmd/tk/cmd/run.go' shows how the board server and cloud sync were constructed/started (--board/--cloud flow). Reuse that wiring minus everything runner-specific (no engine/budget/iterations).\n2. Implement cmd/tk/cmd/board.go: 'tk board [path]' (path = repo dir, default cwd), --port/-p default 3000; starts the server, serves the embedded UI, file watching/SSE as the server package provides; preserve cloud sync startup if the old board path did it (conditional on config/auth as before).\n3. REPO GOTCHA: register the command in BOTH cobra AND the legacy switch + usage text in cmd/tk/main.go.\n4. The server has just been decoupled from runner internals (records watcher and run-stream endpoints removed by a prior tick) — build against the current server API; do NOT re-add run-stream/run-status anything.\n\nTest cases:\n- 'tk board --help' works via ExecuteArgs (command registered)\n- server boots on an ephemeral port and serves GET /api/ticks (200, JSON) and GET / (embedded index.html) — start, probe, shut down in the test\n- bad path arg -\u003e clear error\n\nRun: go test ./cmd/tk/... ./internal/tickboard/...\n\nFiles likely touched: cmd/tk/cmd/board.go (new), cmd/tk/main.go, command tests; possibly small exported-API touches in internal/tickboard/server if startup needs them.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "0u6"
+  ],
+  "parent": "vuq",
+  "acceptance_criteria": "tk board [path] -p starts the local board serving embedded UI + /api endpoints with cloud sync preserved; registered in cobra and main.go switch; tests green",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T18:18:33.352964Z",
+  "updated_at": "2026-06-10T18:18:33.352964Z"
+}

@@ -2,7 +2,7 @@
   "id": "0u6",
   "title": "Decouple the board from runner internals per the live-run pipeline decision",
   "description": "Context: the board imports internal/agent and internal/runrecord to watch .tick/logs/records/ and serve live run output (internal/tickboard/server/server.go:19-21 + recordsWatcher ~lines 305-510, watcher.go:11; UI: run-output-pane.ts, run/metrics sections of tickflow-dashboard.ts). Only the now-removed tk run ever fed that pipeline. A decision tick (id wwv) recorded whether to delete or repurpose it - READ ITS NOTES FIRST: tk show wwv --json and tk notes wwv.\n\nIf verdict A (delete):\n1. Remove the recordsWatcher and the /api/run-stream/:epicId and /api/run-status/:epicId endpoints from internal/tickboard/server/.\n2. Remove run-output-pane.ts and the run-status / cost-metrics portions of tickflow-dashboard.ts (keep the rest of the dashboard: aggregate tick metrics, recent activity, epic progress).\n3. Trim remaining internal/agent + internal/runrecord usage from internal/ticks/client.go, then delete internal/agent/ and internal/runrecord/ if importer-free (verify: grep -rn 'internal/agent\"|internal/runrecord' --include='*.go' .).\n4. Rebuild embedded UI: scripts/build-ui.sh, commit regenerated internal/tickboard/server/static/ and ui/dist/ (repo gotcha: the binary embeds prebuilt assets).\n\nIf verdict B (repurpose): do NOT implement the telemetry feature inside this tick. Scope it per the verdict notes and create follow-up ticks (a design tick plus implementation ticks) under this epic, then close this tick with a reason pointing at the created tick ids.\n\nVerification (verdict A):\n- go build ./... \u0026\u0026 go test ./... green; pnpm test green in internal/tickboard/ui\n- tk board starts and serves kanban/roadmap/activity with no console errors and no requests to /api/run-stream\n- grep for internal/agent and internal/runrecord imports returns nothing\n\nFiles likely touched (A): internal/tickboard/server/server.go, watcher.go (+ tests), internal/tickboard/ui/src/components/run-output-pane.ts, tickflow-dashboard.ts (+ tests), internal/ticks/client.go, internal/agent/, internal/runrecord/ (deleted), static/ + ui/dist/ (regenerated).",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -15,5 +15,6 @@
   "acceptance_criteria": "Board no longer imports internal/agent or internal/runrecord (or, for verdict B, follow-up ticks created and referenced); all Go and UI tests green; rebuilt static assets committed",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:25:43.686992Z",
-  "updated_at": "2026-06-10T15:26:23.957129Z"
+  "updated_at": "2026-06-10T18:18:33.38668Z",
+  "started_at": "2026-06-10T18:18:33.38668Z"
 }
