@@ -151,6 +151,97 @@ func TestUpdateStatusToClosedRegressionViaCmd(t *testing.T) {
 	}
 }
 
+// makeClosedTestTask returns a closed task with closure metadata set, for
+// reopen-path regression tests.
+func makeClosedTestTask(id string) tick.Tick {
+	task := makeTestTask(id)
+	closedAt := time.Date(2025, 1, 9, 12, 0, 0, 0, time.UTC)
+	task.Status = tick.StatusClosed
+	task.ClosedAt = &closedAt
+	task.ClosedReason = "done"
+	return task
+}
+
+// TestUpdateStatusClosedToOpenClearsClosureMetadata verifies that manually
+// reopening a closed tick via `tk update <id> --status open` clears ClosedAt
+// and ClosedReason, and still emits the "reopen" activity entry.
+func TestUpdateStatusClosedToOpenClearsClosureMetadata(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	if err := store.Write(makeClosedTestTask("ro1")); err != nil {
+		t.Fatalf("write closed task: %v", err)
+	}
+
+	if err := ExecuteArgs([]string{"update", "ro1", "--status", "open"}); err != nil {
+		t.Fatalf("ExecuteArgs update --status open: %v", err)
+	}
+
+	loaded, err := store.Read("ro1")
+	if err != nil {
+		t.Fatalf("read tick after reopen: %v", err)
+	}
+	if loaded.Status != tick.StatusOpen {
+		t.Errorf("status should be open, got %q", loaded.Status)
+	}
+	if loaded.ClosedAt != nil {
+		t.Errorf("ClosedAt should be nil after reopen, got %v", loaded.ClosedAt)
+	}
+	if loaded.ClosedReason != "" {
+		t.Errorf("ClosedReason should be empty after reopen, got %q", loaded.ClosedReason)
+	}
+
+	// The closed->open transition must still emit a "reopen" activity entry.
+	activities, err := store.ReadActivity(20)
+	if err != nil {
+		t.Fatalf("read activity: %v", err)
+	}
+	var found bool
+	for _, a := range activities {
+		if a.TickID == "ro1" && a.Action == tick.ActivityReopen {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected activity entry with action=%q for tick ro1; got %+v", tick.ActivityReopen, activities)
+	}
+}
+
+// TestUpdateStatusClosedToInProgressClearsClosureMetadata verifies that
+// moving a closed tick straight to in_progress clears ClosedAt/ClosedReason
+// and sets started_at.
+func TestUpdateStatusClosedToInProgressClearsClosureMetadata(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	if err := store.Write(makeClosedTestTask("ro2")); err != nil {
+		t.Fatalf("write closed task: %v", err)
+	}
+
+	claimTime := time.Now().UTC()
+	if err := ExecuteArgs([]string{"update", "ro2", "--status", "in_progress"}); err != nil {
+		t.Fatalf("ExecuteArgs update --status in_progress: %v", err)
+	}
+
+	loaded, err := store.Read("ro2")
+	if err != nil {
+		t.Fatalf("read tick after update: %v", err)
+	}
+	if loaded.Status != tick.StatusInProgress {
+		t.Errorf("status should be in_progress, got %q", loaded.Status)
+	}
+	if loaded.ClosedAt != nil {
+		t.Errorf("ClosedAt should be nil after closed->in_progress, got %v", loaded.ClosedAt)
+	}
+	if loaded.ClosedReason != "" {
+		t.Errorf("ClosedReason should be empty after closed->in_progress, got %q", loaded.ClosedReason)
+	}
+	if loaded.StartedAt == nil {
+		t.Error("started_at should be set after closed->in_progress")
+	} else if loaded.StartedAt.Before(claimTime) {
+		t.Errorf("started_at %v should be >= claim time %v", loaded.StartedAt, claimTime)
+	}
+}
+
 // TestUpdateStatusInProgressLastActivityAfterClaim verifies that after
 // `tk update <id> --status in_progress`, the last activity timestamp for
 // the tick is >= the claim time, satisfying stale-recovery requirements.

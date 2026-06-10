@@ -166,12 +166,16 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		switch updateStatus {
 		case tick.StatusInProgress:
 			t.Start()
+			t.ClosedAt = nil
+			t.ClosedReason = ""
 		case tick.StatusOpen:
 			if t.Status == tick.StatusInProgress {
 				t.Release()
 			} else {
 				t.Status = updateStatus
 			}
+			t.ClosedAt = nil
+			t.ClosedReason = ""
 		case tick.StatusClosed:
 			t.Status = updateStatus
 			now := time.Now().UTC()
