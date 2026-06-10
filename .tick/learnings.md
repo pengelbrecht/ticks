@@ -32,4 +32,6 @@ action and let the implementation derive the predicate — and state the consume
 (`.claude/worktrees/agent-*`); git then merges into the worktree branch and `tk` resolves the
 worktree's repo root.
 **Rule:** In orchestration shells, prefix merge/`tk` command chains with an explicit
-`cd <repo-root>` (absolute path) — don't trust the inherited cwd.
+`cd <repo-root>` (absolute path) — don't trust the inherited cwd. A stray `tk close` in an
+agent worktree silently contaminates THAT worktree's `.tick/` while the real tick stays open;
+if it happens, `git -C <worktree> checkout -- .tick/` and redo the command at the root.

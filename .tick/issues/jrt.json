@@ -2,7 +2,7 @@
   "id": "jrt",
   "title": "tk graph: do not print the close-it hint for already-closed epics",
   "description": "Cleanup carried forward from the phase 2 retro (hbz epic notes, known nit): tk graph on an epic whose children are all closed prints \"Epic \u003cid\u003e is complete — all child ticks are closed. Close it with tk close \u003cid\u003e.\" even when the EPIC ITSELF is already closed — observed live: tk graph azw suggests closing the already-closed azw.\n\nFix in cmd/tk/cmd/graph.go (handleChildlessEpic and/or its caller): when the epic status is closed, print a completed-epic message without the close-it instruction, e.g. \"Epic \u003cid\u003e is closed (all \u003cn\u003e child ticks closed).\" JSON: needs_planning stays false; no new fields.\n\nAdd a test alongside the existing all_closed_children tests covering the closed-epic variant.\n\nRun: go test ./cmd/... \u0026\u0026 go vet ./...",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "go test ./cmd/... passes; tk graph on a closed epic no longer suggests closing it (test-covered)",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T13:23:33.257645Z",
-  "updated_at": "2026-06-10T13:23:33.257645Z"
+  "updated_at": "2026-06-10T13:28:23.558739Z",
+  "closed_at": "2026-06-10T13:28:23.558739Z",
+  "closed_reason": "Closed-epic close-hint nit fixed in tk graph (haiku agent, test-covered, merged)"
 }

@@ -2,7 +2,7 @@
   "id": "lb4",
   "title": "Add base_branch as a first-class epic field (tk update --base-branch, shown in tk show)",
   "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §3 base-branch + phasing row 4 (replaces the note convention from phase 3).\n\nChanges:\n1. internal/tick/tick.go: add BaseBranch string field, json:\"base_branch,omitempty\". Additive — absent for all existing ticks.\n2. cmd/tk/cmd/update.go: --base-branch string flag (validate: non-empty implies type epic, error otherwise).\n3. cmd/tk/cmd/show.go: display Base branch line for epics when set.\n4. skills/ticks/references/claude-runner.md: in the Resuming a run \u003e Base branch subsection, make the field the PRIMARY mechanism (tk update \u003cepic-id\u003e --base-branch \u003cname\u003e, read via tk show \u003cepic-id\u003e --json .base_branch) and demote the tk note convention to a fallback line for older tk versions. Keep edits to that subsection only.\n\nConsumer semantics: this field tells the orchestrator which branch to merge into, diff against, and resume on for THIS epic run. It is orchestrator-owned metadata, not a git operation — tk never touches git because of it.\n\nTest cases: update sets + show displays + JSON round-trips; --base-branch on a task errors; unset field absent from JSON.\n\nRun: go test ./... \u0026\u0026 go build ./...",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "go test ./... passes; tk update \u003cepic\u003e --base-branch works and tk show displays it; claude-runner.md base-branch subsection prefers the field with note fallback",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T13:23:11.147363Z",
-  "updated_at": "2026-06-10T13:23:11.147363Z"
+  "updated_at": "2026-06-10T13:32:01.258113Z",
+  "closed_at": "2026-06-10T13:32:01.258113Z",
+  "closed_reason": "base_branch first-class epic field merged (model+update+show+skill doc, 7 new tests)"
 }
