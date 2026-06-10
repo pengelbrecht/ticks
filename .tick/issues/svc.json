@@ -2,7 +2,7 @@
   "id": "svc",
   "title": "Show elapsed-since-claim on in_progress cards in the local board",
   "description": "Context: tick JSON files in .tick/issues/ now carry started_at (RFC3339, set when status becomes in_progress, cleared when released). The local board (tk board, Lit UI in internal/tickboard/ui/) places in_progress ticks in the 'agent' kanban column but gives no signal of when work started.\n\nDeliverable: in_progress cards in the agent column show an elapsed-time badge (e.g. '3m', '1h 12m') computed from started_at, with the absolute timestamp as tooltip/title. Cards without started_at show no badge. Refresh the elapsed value at a reasonable interval (e.g. every 30-60s) or on SSE tick events - no per-second timers.\n\nFirst verify the board API tick payload includes started_at (the server serves tick JSON from .tick/issues/; if the field is stripped anywhere in internal/tickboard/server/server.go, pass it through).\n\nTest cases (UI tests, pnpm test in internal/tickboard/ui/):\n- tick with started_at 5 minutes ago -\u003e badge renders '5m'\n- tick with started_at 90 minutes ago -\u003e badge renders '1h 30m'\n- tick without started_at -\u003e no badge element\n\nIMPORTANT build step: the Go binary embeds pre-built assets from internal/tickboard/server/static/. After UI source changes run scripts/build-ui.sh and commit the regenerated static/ (and ui/dist/) - source-only changes do not appear in tk board.\n\nFiles likely touched: internal/tickboard/ui/src/components/ (tick card / kanban component + tests), internal/tickboard/server/static/ (regenerated), internal/tickboard/ui/dist/ (regenerated), possibly internal/tickboard/server/server.go.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Agent-column cards show elapsed time since started_at with absolute-time tooltip; pnpm test green in internal/tickboard/ui; static assets rebuilt via scripts/build-ui.sh and committed",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:23:29.300078Z",
-  "updated_at": "2026-06-10T15:23:29.300078Z"
+  "updated_at": "2026-06-10T17:03:26.522414Z",
+  "closed_at": "2026-06-10T17:03:26.522414Z",
+  "closed_reason": "Completed: in_progress cards show elapsed-since-claim badge from started_at with absolute-time tooltip, 30s refresh; works in local and cloud modes; 11 UI tests; embedded static rebuilt"
 }

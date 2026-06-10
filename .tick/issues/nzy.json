@@ -2,7 +2,7 @@
   "id": "nzy",
   "title": "Distinguish agent vs human actors in activity entries across mutating tk commands",
   "description": "Context: activity entries (internal/tick/store.go Activity struct, actor field) currently get their actor from whatever the save path passes; when empty it defaults to the tick owner (store.go:91-93). Only 'tk note' supports --from agent|human (cmd/tk/cmd/note.go). When a Claude orchestrator closes/updates/approves ticks, the activity feed shows the same actor as human actions - there is no way to tell who (or what) did what.\n\nDeliverable: a consistent actor mechanism for all mutating commands (close, update, approve, reject, create, block/unblock, label):\n1. Add a TK_ACTOR environment variable read once in the CLI layer; when set, it is passed as the actor on every save/activity write. This lets an orchestrator export TK_ACTOR=orchestrator (or agent:\u003cname\u003e) for the whole session without per-command flags.\n2. Add an --actor flag to close and update that overrides TK_ACTOR for one invocation.\n3. Precedence: --actor flag \u003e TK_ACTOR env \u003e existing default (tick owner). 'tk note --from' keeps working unchanged.\n\nTest cases:\n- TK_ACTOR=orchestrator tk close \u003cid\u003e --reason x -\u003e activity entry actor=\"orchestrator\"\n- TK_ACTOR=orchestrator tk close \u003cid\u003e --actor human-pete -\u003e actor=\"human-pete\"\n- no env, no flag -\u003e actor falls back to current behavior (tick owner)\n- TK_ACTOR set on tk update --status in_progress -\u003e the 'start' activity entry carries the actor\n\nRun: go test ./internal/tick/... ./cmd/tk/...\n\nFiles likely touched: cmd/tk/cmd/close.go, cmd/tk/cmd/update.go, cmd/tk/cmd/root.go (or wherever shared flag/env plumbing lives), internal/tick/store.go (only if the actor plumbing needs widening), plus command tests.\n\nNote: do NOT add a new tk subcommand for this (no main.go switch changes needed - this is flags/env on existing commands).",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "TK_ACTOR env and --actor flag set the activity actor with documented precedence; default behavior unchanged when neither is set; go test ./... green",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:23:47.279392Z",
-  "updated_at": "2026-06-10T15:23:47.279392Z"
+  "updated_at": "2026-06-10T17:10:18.274349Z",
+  "closed_at": "2026-06-10T17:10:18.274349Z",
+  "closed_reason": "Completed: TK_ACTOR env (all mutating commands incl. reopen/delete blocker-cleanup) + --actor flag on close/update, precedence flag \u003e env \u003e owner default; 12 tests; note --from untouched by design"
 }

@@ -6,7 +6,8 @@
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
+  "base_branch": "main",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:22:31.21679Z",
-  "updated_at": "2026-06-10T15:22:31.21679Z"
+  "updated_at": "2026-06-10T17:10:18.28715Z"
 }
