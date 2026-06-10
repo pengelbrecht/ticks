@@ -15,7 +15,8 @@ import (
 )
 
 // nextOutput wraps a tick with an action annotation for JSON output.
-// Action is "implement" for a ready task, "plan" for an epic needing planning.
+// Action is "implement" for a ready task, "plan" for an epic needing planning,
+// "await" for human-gated work returned by --awaiting mode.
 // The embedded tick.Tick is flattened so all tick fields are at the top level;
 // existing consumers that decode into a tick shape are unaffected by the extra key.
 type nextOutput struct {
@@ -169,8 +170,11 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 		next := awaiting[0]
 		if nextJSON {
+			// Every tk next --json result carries an action; "await" marks
+			// human-gated work so consumers can switch on the field.
+			out := nextOutput{Tick: next, Action: "await"}
 			enc := json.NewEncoder(os.Stdout)
-			if err := enc.Encode(next); err != nil {
+			if err := enc.Encode(out); err != nil {
 				return fmt.Errorf("failed to encode json: %w", err)
 			}
 			return nil

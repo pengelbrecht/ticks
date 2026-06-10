@@ -76,6 +76,32 @@ func TestNextOutputJSONFlattening(t *testing.T) {
 		}
 	})
 
+	t.Run("await action has action key and tick fields (awaiting path)", func(t *testing.T) {
+		tk := mkTick("a1", tick.TypeTask, tick.StatusOpen, 1)
+		approval := tick.AwaitingApproval
+		tk.Awaiting = &approval
+		out := nextOutput{Tick: tk, Action: "await"}
+		data, err := json.Marshal(out)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("unmarshal to map: %v", err)
+		}
+
+		if got, ok := m["action"]; !ok || got != "await" {
+			t.Errorf("action key: got %v, want 'await'", got)
+		}
+		if got, ok := m["id"]; !ok || got != "a1" {
+			t.Errorf("id key: got %v, want 'a1'", got)
+		}
+		if got, ok := m["awaiting"]; !ok || got != tick.AwaitingApproval {
+			t.Errorf("awaiting key: got %v, want %q", got, tick.AwaitingApproval)
+		}
+	})
+
 	t.Run("existing consumer decoding into tick.Tick still works (extra key ignored)", func(t *testing.T) {
 		tk := mkTick("xyz", tick.TypeTask, tick.StatusOpen, 0)
 		out := nextOutput{Tick: tk, Action: "implement"}
