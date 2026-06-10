@@ -284,6 +284,58 @@ Write a short summary as the epic's close reason or as a note on the epic tick. 
 
 ---
 
+## Resuming a run
+
+Re-entry is just re-invoking the skill. Before starting the first wave, run the stale-state and worktree checks below, then proceed from `tk graph`/`tk next` as usual. Because meta-work is ticks, every `tk next` result maps to exactly one action:
+
+| `tk next` result | Action |
+|---|---|
+| `action: implement` | Dispatch an implementer subagent (standard wave loop) |
+| `action: plan` | Flesh the epic out into ticks (SKILL.md Roadmaps guidance + foundation-first procedure) |
+| `action: await` | Route to the human — something is waiting on a decision or approval |
+| Final-review tick unblocked | Review the epic's full diff (reviewer subagent for substantial epics) |
+| Close-out tick unblocked | Run the epic-close retro, then plan and continue into the next epic |
+| `tk next` returns nothing and all roadmap epics are closed | Roadmap end: write a completion report and stop |
+
+### Stale state recovery
+
+Run this **before the first wave on every (re)entry**, even on a fresh start (guarding against a crashed previous session costs nothing):
+
+1. List stuck ticks: `tk list --status in_progress --all`. The `--json` output carries a `last_activity` timestamp per tick.
+2. For each `in_progress` tick with no live agent and a meaningful last-activity age: it is stale. Reset it: `tk update <id> --status open`.
+   - **What stays closed:** any tick already closed before the session died. Completed work is never re-opened.
+   - **What re-opens:** only ticks that were still in_progress when the session died — incomplete work must be re-run from the reopened tick.
+3. **Childless-epic edge case:** an `in_progress` epic with no child ticks maps to `action: implement` in `tk next`, which is unroutable — `EpicsNeedingPlanning` only considers epics with status `open`. Reset it to `open` so it correctly surfaces as `action: plan`.
+
+### Worktree branch reconciliation
+
+List leftover agent branches: `git branch --list 'worktree-agent-*'` and `git worktree list`. For each leftover branch:
+
+- **If its tick is already closed, or if the agent reported `DONE` before the session died:** merge the branch now (`git merge <branch>`) then delete it.
+- **Otherwise:** the work is incomplete. Remove the worktree (`git worktree remove --force <path>`) and delete the branch (`git branch -D <branch>`). The tick was reset to `open` in the step above; it re-runs from a fresh worktree.
+
+Never leave orphaned `worktree-agent-*` branches unaccounted for. They carry uncommitted agent state that becomes stale the moment its tick re-runs from scratch.
+
+> **Shell cwd warning (from `.tick/learnings.md`):** if your orchestration shell is cwd'd inside an agent worktree (`.claude/worktrees/agent-*`), `git merge` will target the worktree branch and `tk` will resolve the worktree's `.tick/`. Prefix every merge/`tk` chain with an explicit `cd <repo-root>` using the absolute path — don't trust the inherited cwd.
+
+### Base branch
+
+At run start, record the run's base branch as a note on the epic tick:
+
+```bash
+tk note <epic-id> "base-branch: <name>"
+```
+
+Ask once if the base branch is ambiguous (e.g. the user is on a feature branch of a feature branch); from that point on, read it back from the epic's notes:
+
+```bash
+tk notes <epic-id>    # → find the "base-branch: <name>" note
+```
+
+Use this value everywhere a base branch appears: merges, final-review diffs (`git diff <base>...HEAD`), and resume. Never assume `main`. The existing rule still holds: don't run orchestration directly on the default branch.
+
+---
+
 ## Implementer prompt template
 
 Subagents start fresh with none of your context — give them everything. Don't make them read a plan file or guess where the task fits.
@@ -331,5 +383,5 @@ Epic: <epic-title> (<epic-id>)
 
 ## Current limitations
 
-- **Session-bound.** Orchestration lives in this Claude session; if it ends, the run stops. Tick *state* is safe on disk and in git, so you can pick up where you left off — but in-flight agents won't resume themselves.
+- **Resumable, not continuous.** Runs resume cleanly from tick state: re-invoke the skill, run the stale-state and worktree-reconciliation checks (see *Resuming a run*), and continue from `tk next`. In-flight agents do not survive a session crash — they are identified via the stale-state check and their ticks are reset to `open` for re-dispatch. Completed work is never re-opened.
 - **Cost is yours to watch.** There's no built-in spend cap here; keep an eye on how wide and how deep you run, and lean on cheaper models for mechanical ticks.
