@@ -1,0 +1,12 @@
+{
+  "id": "vuq",
+  "title": "Runner removal: delete the built-in tk run execution stack",
+  "description": "Execution moved to Claude Code orchestration (docs/claude-code-swarm-architecture.md; the ticks skill explicitly does not use tk run). The built-in runner stack (~17-19k LOC, ~15% of the codebase) is unused: cmd/tk/cmd/run.go plus internal/engine, internal/wrapup, internal/output, internal/runstate, internal/runlog, internal/budget, and internal/wave/runner.go. Separately, internal/recovery (zero importers) and internal/streamtest (6-line hello-world) are already dead, along with stale top-level dirs (.ticker/, .tickflow-bin/, prototypes/, benchmarks/). One coupling needs a human decision: the board imports internal/agent and internal/runrecord to watch .tick/logs/records/ for live run output (internal/tickboard/server/server.go:19-21, watcher.go:11) - a pipeline only tk run feeds, so it is dead under orchestration; it can be deleted or repurposed as an orchestrator telemetry channel. KEEP regardless: internal/wave/wave.go (tk graph + internal/query/roadmap.go), internal/worktree (tk merge), internal/context (tk context), internal/gc, internal/config.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:22:51.24544Z",
+  "updated_at": "2026-06-10T15:22:51.24544Z"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "idc",
+  "title": "Orchestrator interop: board \u0026 CLI visibility for Claude-orchestrated runs",
+  "description": "The repo is now driven exclusively by Claude Code as orchestrator (per docs/claude-code-swarm-architecture.md and docs/design/execution-model-v2-epic-chaining-and-learning-loop.md). The tk CLI and both boards (local tk board, cloud) predate this and have observability gaps: the open-\u003ein_progress transition emits no activity event and never sets started_at (breaking the documented stale-recovery procedure in skills/ticks/references/claude-runner.md:356), the activity feed cannot distinguish agent actions from human actions, and cloud-side operations lose requester identity. This epic wires the claim/start signal through the CLI and store, surfaces it on the board, fixes actor attribution, and updates the orchestration skill docs to match.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:22:31.21679Z",
+  "updated_at": "2026-06-10T15:22:31.21679Z"
+}

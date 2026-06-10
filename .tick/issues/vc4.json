@@ -1,0 +1,14 @@
+{
+  "id": "vc4",
+  "title": "Emit start activity and set started_at when a tick moves to in_progress",
+  "description": "Context: Claude orchestration claims ticks via 'tk update \u003cid\u003e --status in_progress' (skills/ticks/references/claude-runner.md:27). Today cmd/tk/cmd/update.go:166 assigns t.Status directly: Tick.Start() (internal/tick/tick.go:256, sets StartedAt=now) is never called, and detectChange() in internal/tick/store.go:124-208 has no case for the open-\u003ein_progress transition, so NO activity entry is written at all. Consequences: the board activity feed never shows work starting, and stale recovery (claude-runner.md:356) uses last_activity = max activity timestamp per tick (internal/tick/store.go:346 LastActivityForTicks), so a tick claimed seconds ago still shows its pre-claim timestamp and can be falsely reset to open by a resuming orchestrator.\n\nRequired behavior:\n1. cmd/tk/cmd/update.go: when --status changes status, route transitions through the model helpers instead of raw assignment: -\u003ein_progress calls t.Start() (sets StartedAt); in_progress-\u003eopen calls t.Release() (clears StartedAt, internal/tick/tick.go:267). Closing already works via existing logic.\n2. internal/tick/store.go detectChange(): add status-transition cases: any-\u003ein_progress returns ActivityStart (constant exists at store.go:262, currently only documented for the pool runner); in_progress-\u003eopen returns ActivityUpdate with data {\"status\":{\"from\":\"in_progress\",\"to\":\"open\"}}. Keep existing close/reopen handling untouched.\n\nTest cases (add to internal/tick/store_test.go and the update command tests):\n- Save open-\u003ein_progress: activity.jsonl gains entry with action=\"start\"; tick JSON has started_at set (non-nil, ~now)\n- Save in_progress-\u003eopen: started_at cleared (nil); activity entry action=\"update\" with status from/to in data\n- Save open-\u003eclosed: still emits action=\"close\" (regression)\n- tk update \u003cid\u003e --status in_progress then 'tk list --status in_progress --all --json': last_activity \u003e= claim time\n\nRun: go test ./internal/tick/... ./cmd/tk/...\n\nFiles likely touched: cmd/tk/cmd/update.go, internal/tick/store.go, internal/tick/store_test.go, cmd/tk/cmd/update_test.go (or equivalent command test file).",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "idc",
+  "acceptance_criteria": "open-\u003ein_progress emits a 'start' activity entry and sets started_at; in_progress-\u003eopen clears started_at and emits a visible update entry; go test ./... fully green",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:23:12.654214Z",
+  "updated_at": "2026-06-10T15:23:12.654214Z"
+}
