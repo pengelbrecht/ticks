@@ -129,8 +129,32 @@ describe('AC2: epic with awaiting gate', () => {
     expect(gatedEpic.awaiting_type).toBe('review');
   });
 
+  it('legacy manual-only epic gets status "gated" with awaiting_type "work"', () => {
+    // Mirrors Go IsAwaitingHuman() (Awaiting != nil || Manual) and
+    // GetAwaitingType() returning "work" for legacy Manual ticks.
+    const epic = makeEpic({ id: 'epm', title: 'Manual Epic', manual: true });
+    const result = computeRoadmapFromTicks([epic]);
+    const gatedEpic = result.waves![0][0];
+    expect(gatedEpic.status).toBe('gated');
+    expect(gatedEpic.awaiting_type).toBe('work');
+  });
+
+  it('manual epic with explicit awaiting keeps the awaiting value (no "work" fallback)', () => {
+    const epic = makeEpic({ id: 'epm', title: 'Manual Epic', manual: true, awaiting: 'approval' });
+    const result = computeRoadmapFromTicks([epic]);
+    const gatedEpic = result.waves![0][0];
+    expect(gatedEpic.status).toBe('gated');
+    expect(gatedEpic.awaiting_type).toBe('approval');
+  });
+
   it('closed epic with awaiting set is still "done" (gated only for open)', () => {
     const epic = makeEpic({ id: 'epc', title: 'Closed Epic', status: 'closed', awaiting: 'approval' });
+    const result = computeRoadmapFromTicks([epic]);
+    expect(result.waves![0][0].status).toBe('done');
+  });
+
+  it('closed epic with manual flag is still "done" (gated only for open)', () => {
+    const epic = makeEpic({ id: 'epc', title: 'Closed Manual Epic', status: 'closed', manual: true });
     const result = computeRoadmapFromTicks([epic]);
     expect(result.waves![0][0].status).toBe('done');
   });

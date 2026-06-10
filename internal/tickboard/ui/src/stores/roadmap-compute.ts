@@ -6,7 +6,8 @@
  * GET /api/roadmap (which is only served by the local Go server).
  *
  * Status semantics (matches Go implementation):
- *   - "gated"  — epic is open and has awaiting set (takes priority over all)
+ *   - "gated"  — epic is open and awaiting human action: awaiting set OR
+ *     legacy manual flag (takes priority over all)
  *   - "done"   — epic is closed
  *   - "queued" — epic is open and blocked by at least one open epic
  *   - "active" — epic is in_progress; OR open with children (≥1 child)
@@ -30,8 +31,9 @@ function epicConsumerStatus(
   epicByID: Map<string, Tick>,
   totalChildren: number,
 ): 'done' | 'active' | 'ready' | 'queued' | 'gated' {
-  // Gated takes priority: open + awaiting
-  if (epic.status !== 'closed' && epic.awaiting) {
+  // Gated takes priority: open + awaiting human action.
+  // Mirrors Go IsAwaitingHuman(): Awaiting set OR legacy Manual flag.
+  if (epic.status !== 'closed' && (epic.awaiting || epic.manual)) {
     return 'gated';
   }
 
@@ -190,7 +192,8 @@ function buildRoadmapEpic(
     id: epic.id,
     title: epic.title,
     status,
-    awaiting_type: status === 'gated' ? epic.awaiting : undefined,
+    // Mirrors Go GetAwaitingType(): Awaiting value, or "work" for legacy Manual.
+    awaiting_type: status === 'gated' ? (epic.awaiting ?? 'work') : undefined,
     blocked_by: epicDeps.length > 0 ? [...epicDeps] : undefined,
     children_total: totalChildren,
     children_closed: closedChildren,
