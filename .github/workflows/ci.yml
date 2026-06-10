@@ -31,9 +31,8 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
-    # Known baseline: 72 pre-existing test failures in 3 files (see PR #9 notes).
-    # Non-blocking until that baseline is fixed; flip to blocking afterwards.
-    continue-on-error: true
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     defaults:
       run:
         working-directory: internal/tickboard/ui
