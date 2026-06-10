@@ -144,6 +144,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if t.Parent != "" {
 		lines = append(lines, styles.RenderLabel("Parent:")+"  "+t.Parent)
 	}
+	if t.Type == tick.TypeEpic && strings.TrimSpace(t.BaseBranch) != "" {
+		lines = append(lines, styles.RenderLabel("Base branch:")+"  "+t.BaseBranch)
+	}
 	if t.DeferUntil != nil {
 		lines = append(lines, styles.RenderLabel("Deferred:")+"  "+t.DeferUntil.Format("2006-01-02"))
 	}
