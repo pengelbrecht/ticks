@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/pengelbrecht/ticks/internal/query"
-	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -154,12 +152,6 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// API endpoint: activity feed
 	mux.HandleFunc("/api/activity", s.handleActivity)
-
-	// API endpoint: run records
-	mux.HandleFunc("/api/records/", s.handleRecords)
-
-	// API endpoint: context documents
-	mux.HandleFunc("/api/context/", s.handleContext)
 
 	// API endpoint: roadmap (epic dependency waves)
 	mux.HandleFunc("/api/roadmap", s.handleRoadmap)
@@ -658,44 +650,6 @@ func (s *Server) handleRoadmap(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(roadmap)
 }
 
-// handleRecords routes requests to /api/records/:tickId.
-func (s *Server) handleRecords(w http.ResponseWriter, r *http.Request) {
-	// Parse path: /api/records/:tickId
-	path := strings.TrimPrefix(r.URL.Path, "/api/records/")
-	if path == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Remove any trailing slash
-	tickID := strings.TrimSuffix(path, "/")
-	if tickID == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Only GET method is supported
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Get the run record
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-	record, err := store.Read(tickID)
-	if err != nil {
-		if errors.Is(err, runrecord.ErrNotFound) {
-			http.Error(w, "Run record not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, fmt.Sprintf("Failed to read run record: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(record)
-}
-
 // Column represents kanban board columns.
 const (
 	ColumnBlocked = "blocked"
@@ -708,9 +662,8 @@ const (
 // TickResponse is a tick with computed fields for the API response.
 type TickResponse struct {
 	tick.Tick
-	IsBlocked          bool    `json:"isBlocked"`
-	Column             string  `json:"column"`
-	VerificationStatus *string `json:"verificationStatus,omitempty"` // "verified", "failed", "pending", or nil
+	IsBlocked bool   `json:"isBlocked"`
+	Column    string `json:"column"`
 }
 
 // Note represents a parsed note entry.
@@ -786,9 +739,6 @@ func (s *Server) handleListTicksGet(w http.ResponseWriter, r *http.Request) {
 	// Apply filters
 	filtered := query.Apply(allTicks, filter)
 
-	// Create runrecord store for verification status lookup
-	recordStore := runrecord.NewStore(filepath.Dir(s.tickDir))
-
 	// Build response with computed fields
 	response := ListTicksResponse{
 		Ticks: make([]TickResponse, 0, len(filtered)),
@@ -797,13 +747,11 @@ func (s *Server) handleListTicksGet(w http.ResponseWriter, r *http.Request) {
 	for _, t := range filtered {
 		isBlocked := computeIsBlocked(t, tickIndex)
 		column := computeColumn(t, isBlocked)
-		verificationStatus := computeVerificationStatus(t, recordStore)
 
 		response.Ticks = append(response.Ticks, TickResponse{
-			Tick:               t,
-			IsBlocked:          isBlocked,
-			Column:             column,
-			VerificationStatus: verificationStatus,
+			Tick:      t,
+			IsBlocked: isBlocked,
+			Column:    column,
 		})
 	}
 
@@ -870,44 +818,6 @@ func computeColumn(t tick.Tick, isBlocked bool) string {
 	// ready: open + unblocked + !awaiting (all priorities)
 	// Note: Rejected+open ticks also go here so agent can see feedback and retry
 	return ColumnReady
-}
-
-// computeVerificationStatus returns the verification status for a tick.
-// Returns nil for non-tasks or open tasks.
-// Returns "verified", "failed", or "pending" for closed tasks based on run record.
-func computeVerificationStatus(t tick.Tick, store *runrecord.Store) *string {
-	// Only show verification for tasks
-	if t.Type != tick.TypeTask {
-		return nil
-	}
-
-	// Only show verification for closed tasks (verification runs on task close)
-	if t.Status != tick.StatusClosed {
-		return nil
-	}
-
-	// Try to read run record
-	record, err := store.Read(t.ID)
-	if err != nil || record == nil {
-		// No run record - verification pending or not run
-		pending := "pending"
-		return &pending
-	}
-
-	// Check verification results
-	if record.Verification == nil {
-		// Has run record but no verification results - pending
-		pending := "pending"
-		return &pending
-	}
-
-	if record.Verification.AllPassed {
-		verified := "verified"
-		return &verified
-	}
-
-	failed := "failed"
-	return &failed
 }
 
 // parseNotes parses the Notes string into a slice of Note structs.
@@ -1875,43 +1785,4 @@ func (s *Server) handleCreateTick(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
 	}
-}
-
-// handleContext handles GET /api/context/:epicId.
-// Returns the raw markdown content of the context document for an epic.
-func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
-	// Parse path: /api/context/:epicId
-	path := strings.TrimPrefix(r.URL.Path, "/api/context/")
-	if path == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Remove any trailing slash
-	epicID := strings.TrimSuffix(path, "/")
-	if epicID == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Only GET method is supported
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Read the context file
-	contextPath := filepath.Join(s.tickDir, "logs", "context", epicID+".md")
-	data, err := os.ReadFile(contextPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "Context document not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, fmt.Sprintf("Failed to read context document: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	w.Write(data)
 }

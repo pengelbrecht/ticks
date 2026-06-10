@@ -49,8 +49,7 @@
     "created_at": "2024-01-25T10:00:00Z",
     "updated_at": "2024-01-25T10:00:00Z",
     "isBlocked": false,
-    "column": "human",
-    "verificationStatus": "pending"
+    "column": "human"
   },
   "getTickResponse": {
     "id": "tick-001",

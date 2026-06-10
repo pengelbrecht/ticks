@@ -398,29 +398,6 @@ describe('CloudCommsClient Read Operations', () => {
     });
   });
 
-  // ===========================================================================
-  // fetchRecord Tests
-  // ===========================================================================
-
-  describe('fetchRecord', () => {
-    it('returns null (not supported in cloud mode)', async () => {
-      const record = await client.fetchRecord('any-tick-id');
-
-      expect(record).toBeNull();
-    });
-  });
-
-  // ===========================================================================
-  // fetchContext Tests
-  // ===========================================================================
-
-  describe('fetchContext', () => {
-    it('returns null (not supported in cloud mode)', async () => {
-      const context = await client.fetchContext('any-epic-id');
-
-      expect(context).toBeNull();
-    });
-  });
 });
 
 // =============================================================================

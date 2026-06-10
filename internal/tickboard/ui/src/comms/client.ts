@@ -13,7 +13,6 @@ import type {
   InfoResponse,
   TickDetail,
   Activity,
-  RunRecord,
 } from './types.js';
 
 // =============================================================================
@@ -148,20 +147,6 @@ export interface CommsClient {
    * @param limit - Optional limit on number of entries to return
    */
   fetchActivity(limit?: number): Promise<Activity[]>;
-
-  /**
-   * Fetch the run record for a completed tick.
-   * @param tickId - Tick ID
-   * @returns Run record or null if no record exists
-   */
-  fetchRecord(tickId: string): Promise<RunRecord | null>;
-
-  /**
-   * Fetch the generated context for an epic.
-   * @param epicId - Epic ID
-   * @returns Context string or null if not generated
-   */
-  fetchContext(epicId: string): Promise<string | null>;
 
   // ===========================================================================
   // State

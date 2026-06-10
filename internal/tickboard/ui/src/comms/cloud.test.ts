@@ -496,21 +496,6 @@ describe.skipIf(!RUN_LIVE)('CloudCommsClient Integration', () => {
       });
     });
 
-    describe('fetchRecord', () => {
-      it('returns null (not supported in cloud mode)', async () => {
-        const record = await client.fetchRecord('any-tick-id');
-
-        expect(record).toBeNull();
-      });
-    });
-
-    describe('fetchContext', () => {
-      it('returns null (not supported in cloud mode)', async () => {
-        const context = await client.fetchContext('any-epic-id');
-
-        expect(context).toBeNull();
-      });
-    });
   });
 
   // ===========================================================================

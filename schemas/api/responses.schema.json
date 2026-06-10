@@ -9,11 +9,6 @@
       "enum": ["blocked", "ready", "agent", "human", "done"],
       "description": "Kanban column computed from tick state"
     },
-    "VerificationStatus": {
-      "type": "string",
-      "enum": ["verified", "failed", "pending"],
-      "description": "Verification status for completed tasks"
-    },
     "Note": {
       "type": "object",
       "description": "Parsed note entry from tick.notes",
@@ -83,10 +78,6 @@
             "column": {
               "$ref": "#/$defs/TickColumn",
               "description": "Computed kanban column"
-            },
-            "verificationStatus": {
-              "$ref": "#/$defs/VerificationStatus",
-              "description": "Verification status (for closed tasks only)"
             }
           }
         }

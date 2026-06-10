@@ -38,7 +38,6 @@ export interface ListTicksResponse {
 export interface TickResponse extends Tick {
   isBlocked: boolean;
   column: TickColumn;
-  verificationStatus?: 'verified' | 'failed' | 'pending'; // For closed tasks only
 }
 
 /** Response from GET /api/ticks/:id */
@@ -164,56 +163,6 @@ export interface Activity {
   data?: Record<string, unknown>; // Additional action-specific data
 }
 
-/** Metrics record for run records (matching server response) */
-export interface MetricsRecord {
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  cache_creation_tokens: number;
-  cost_usd: number;
-  duration_ms: number;
-}
-
-/** Tool invocation record (matching server response) */
-export interface ToolRecord {
-  name: string;
-  input?: string;
-  output?: string;
-  duration_ms: number;
-  is_error?: boolean;
-}
-
-/** Verifier result record (matching server response) */
-export interface VerifierResult {
-  verifier: string;
-  passed: boolean;
-  output?: string;
-  duration_ms: number;
-  error?: string;
-}
-
-/** Verification record for task verification results (matching server response) */
-export interface VerificationRecord {
-  all_passed: boolean;
-  results?: VerifierResult[];
-}
-
-/** Run record for a completed agent run (matching server response) */
-export interface RunRecord {
-  session_id: string;
-  model: string;
-  started_at: string;  // ISO timestamp
-  ended_at: string;    // ISO timestamp
-  output: string;
-  thinking?: string;
-  tools?: ToolRecord[];
-  metrics: MetricsRecord;
-  success: boolean;
-  num_turns: number;
-  error_msg?: string;
-  verification?: VerificationRecord;
-}
-
 // ============================================================================
 // Request Types
 // ============================================================================
@@ -325,11 +274,10 @@ export async function fetchTicks(params?: ListTicksParams): Promise<BoardTick[]>
   const url = buildUrl('/api/ticks', params as Record<string, string | undefined>);
   const response = await request<ListTicksResponse>(url);
 
-  // Map TickResponse to BoardTick (field name differences: isBlocked -> is_blocked, verificationStatus -> verification_status)
+  // Map TickResponse to BoardTick (field name differences: isBlocked -> is_blocked)
   return response.ticks.map(tick => ({
     ...tick,
     is_blocked: tick.isBlocked,
-    verification_status: tick.verificationStatus,
   }));
 }
 

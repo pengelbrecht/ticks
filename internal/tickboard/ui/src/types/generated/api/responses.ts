@@ -13,13 +13,6 @@
  */
 export type TickColumn = 'blocked' | 'ready' | 'agent' | 'human' | 'done';
 /**
- * Verification status for completed tasks
- *
- * This interface was referenced by `APIResponses`'s JSON-Schema
- * via the `definition` "VerificationStatus".
- */
-export type VerificationStatus = 'verified' | 'failed' | 'pending';
-/**
  * Tick with computed board fields (used in list responses)
  *
  * This interface was referenced by `APIResponses`'s JSON-Schema
@@ -34,10 +27,6 @@ export type TickResponse = Tick & {
    * Computed kanban column
    */
   column: 'blocked' | 'ready' | 'agent' | 'human' | 'done';
-  /**
-   * Verification status (for closed tasks only)
-   */
-  verificationStatus?: 'verified' | 'failed' | 'pending';
   [k: string]: unknown;
 };
 /**

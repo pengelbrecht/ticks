@@ -75,6 +75,4 @@ export {
   fetchInfo,
   fetchTickDetails,
   fetchActivity,
-  fetchRecord,
-  fetchContext,
 } from './comms.js';

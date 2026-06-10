@@ -19,7 +19,6 @@ import type {
   InfoResponse,
   TickDetail,
   Activity,
-  RunRecord,
   BlockerDetail,
 } from './types.js';
 import type {
@@ -485,24 +484,6 @@ export class CloudCommsClient implements CommsClient {
   async fetchActivity(_limit?: number): Promise<Activity[]> {
     // Activity feed not supported in cloud mode yet
     return [];
-  }
-
-  /**
-   * Fetch the run record for a completed tick.
-   * In cloud mode, run records are not supported yet - returns null.
-   */
-  async fetchRecord(_tickId: string): Promise<RunRecord | null> {
-    // Run records not supported in cloud mode yet
-    return null;
-  }
-
-  /**
-   * Fetch the generated context for an epic.
-   * In cloud mode, context is not supported yet - returns null.
-   */
-  async fetchContext(_epicId: string): Promise<string | null> {
-    // Context not supported in cloud mode yet
-    return null;
   }
 
   // ---------------------------------------------------------------------------

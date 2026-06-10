@@ -18,7 +18,6 @@ import type {
   InfoResponse,
   TickDetail,
   Activity,
-  RunRecord,
 } from './types.js';
 import type {
   CommsClient,
@@ -300,10 +299,9 @@ export class LocalCommsClient implements CommsClient {
 
     const data = await response.json();
     // Map TickResponse to BoardTick (field name differences: isBlocked -> is_blocked)
-    return data.ticks.map((tick: { isBlocked: boolean; verificationStatus?: string; [key: string]: unknown }) => ({
+    return data.ticks.map((tick: { isBlocked: boolean; [key: string]: unknown }) => ({
       ...tick,
       is_blocked: tick.isBlocked,
-      verification_status: tick.verificationStatus,
     }));
   }
 
@@ -340,34 +338,6 @@ export class LocalCommsClient implements CommsClient {
 
     const data = await response.json();
     return data.activities;
-  }
-
-  async fetchRecord(tickId: string): Promise<RunRecord | null> {
-    const response = await fetch(`${this.baseUrl}/api/records/${tickId}`);
-
-    if (response.status === 404) {
-      return null;
-    }
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch record: ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
-  async fetchContext(epicId: string): Promise<string | null> {
-    const response = await fetch(`${this.baseUrl}/api/context/${epicId}`);
-
-    if (response.status === 404) {
-      return null;
-    }
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch context: ${response.statusText}`);
-    }
-
-    return response.text();
   }
 
   // ---------------------------------------------------------------------------

@@ -809,13 +809,14 @@ describe('tickflow-dashboard', () => {
       expect(badgeTexts).toContain('task');
     });
 
-    it('shows overview tab as default', async () => {
+    it('shows overview content in the detail pane', async () => {
       const attentionItem = query(element, '.attention-item') as HTMLElement;
       attentionItem?.click();
-      await element.updateComplete;
+      await settled(element);
 
-      const activeTab = query(element, '.detail-tab.active');
-      expect(activeTab?.textContent).toBe('Overview');
+      const body = query(element, '.detail-tab-body');
+      expect(body).not.toBeNull();
+      expect(query(element, '.detail-meta-row')).not.toBeNull();
     });
 
     it('has Open on Board button that fires tick-select and closes dashboard', async () => {
@@ -887,16 +888,6 @@ describe('tickflow-dashboard', () => {
       await settled(element);
 
       expect(query(element, '.detail-pane')).toBeNull();
-    });
-
-    it('shows Attempts tab for task-type ticks', async () => {
-      const attentionItem = query(element, '.attention-item') as HTMLElement;
-      attentionItem?.click();
-      await element.updateComplete;
-
-      const tabs = queryAll(element, '.detail-tab');
-      const tabTexts = Array.from(tabs).map(t => t.textContent);
-      expect(tabTexts).toContain('Attempts');
     });
 
     it('switches to activity item detail on click', async () => {
@@ -986,9 +977,8 @@ describe('tickflow-dashboard', () => {
     it('includes detail pane styles', () => {
       const cssText = getCssText(element);
       expect(cssText).toContain('.detail-pane');
-      expect(cssText).toContain('.detail-tab');
+      expect(cssText).toContain('.detail-tab-body');
       expect(cssText).toContain('.detail-meta-badge');
-      expect(cssText).toContain('.run-summary');
     });
   });
 

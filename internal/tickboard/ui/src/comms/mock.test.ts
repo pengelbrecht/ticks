@@ -652,53 +652,6 @@ describe('MockCommsClient', () => {
       });
     });
 
-    describe('fetchRecord', () => {
-      it('returns null for unconfigured tick', async () => {
-        const record = await client.fetchRecord('unknown');
-        expect(record).toBeNull();
-      });
-
-      it('returns configured mock record via setMockRecord', async () => {
-        const mockRecord = createMockRunRecord();
-        client.setMockRecord('t1', mockRecord);
-
-        const record = await client.fetchRecord('t1');
-        expect(record).toEqual(mockRecord);
-      });
-
-      it('supports multiple configured records', async () => {
-        const record1 = createMockRunRecord({ session_id: 'session-1' });
-        const record2 = createMockRunRecord({ session_id: 'session-2' });
-        client.setMockRecord('t1', record1);
-        client.setMockRecord('t2', record2);
-
-        expect(await client.fetchRecord('t1')).toEqual(record1);
-        expect(await client.fetchRecord('t2')).toEqual(record2);
-      });
-    });
-
-    describe('fetchContext', () => {
-      it('returns null for unconfigured epic', async () => {
-        const context = await client.fetchContext('unknown');
-        expect(context).toBeNull();
-      });
-
-      it('returns configured mock context via setMockContext', async () => {
-        const mockContext = '# Epic Context\n\nThis is the generated context.';
-        client.setMockContext('epic-1', mockContext);
-
-        const context = await client.fetchContext('epic-1');
-        expect(context).toBe(mockContext);
-      });
-
-      it('supports multiple configured contexts', async () => {
-        client.setMockContext('epic-1', 'Context for epic 1');
-        client.setMockContext('epic-2', 'Context for epic 2');
-
-        expect(await client.fetchContext('epic-1')).toBe('Context for epic 1');
-        expect(await client.fetchContext('epic-2')).toBe('Context for epic 2');
-      });
-    });
   });
 
   // ===========================================================================
@@ -710,15 +663,11 @@ describe('MockCommsClient', () => {
       // Configure mock data
       client.setMockInfo({ repoName: 'test', epics: [{ id: 'e1', title: 'Epic' }] });
       client.setMockActivity([createMockActivity({ tick: 't1', action: 'create' })]);
-      client.setMockRecord('t1', createMockRunRecord());
-      client.setMockContext('e1', 'Context');
       client.setMockTick('t1', createMockTickDetail({ id: 't1' }));
 
       // Verify data is set
       expect((await client.fetchInfo()).repoName).toBe('test');
       expect(await client.fetchActivity()).toHaveLength(1);
-      expect(await client.fetchRecord('t1')).not.toBeNull();
-      expect(await client.fetchContext('e1')).toBe('Context');
       expect((await client.fetchTick('t1')).id).toBe('t1');
 
       // Reset
@@ -727,8 +676,6 @@ describe('MockCommsClient', () => {
       // Verify data is cleared
       expect((await client.fetchInfo()).repoName).toBe('mock-repo');
       expect(await client.fetchActivity()).toHaveLength(0);
-      expect(await client.fetchRecord('t1')).toBeNull();
-      expect(await client.fetchContext('e1')).toBeNull();
       await expect(client.fetchTick('t1')).rejects.toThrow('Tick not found');
     });
   });
@@ -798,28 +745,3 @@ function createMockActivity(overrides: Partial<{
   };
 }
 
-function createMockRunRecord(overrides: Partial<{
-  session_id: string;
-  model: string;
-  output: string;
-  success: boolean;
-  num_turns: number;
-}> = {}) {
-  return {
-    session_id: overrides.session_id || 'session-123',
-    model: overrides.model || 'claude-opus-4-5-20251101',
-    started_at: new Date().toISOString(),
-    ended_at: new Date().toISOString(),
-    output: overrides.output || 'Task completed successfully.',
-    metrics: {
-      input_tokens: 1000,
-      output_tokens: 500,
-      cache_read_tokens: 0,
-      cache_creation_tokens: 0,
-      cost_usd: 0.05,
-      duration_ms: 10000,
-    },
-    success: overrides.success ?? true,
-    num_turns: overrides.num_turns ?? 3,
-  };
-}

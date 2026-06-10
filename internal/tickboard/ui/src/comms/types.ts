@@ -125,12 +125,6 @@ export type {
   EpicInfo,
   // Activity feed types
   Activity,
-  // Run record types (completed runs)
-  RunRecord,
-  MetricsRecord,
-  ToolRecord,
-  VerificationRecord,
-  VerifierResult,
   // Tick detail types
   GetTickResponse as TickDetail,
   Note,

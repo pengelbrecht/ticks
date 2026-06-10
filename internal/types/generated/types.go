@@ -1081,9 +1081,6 @@ type TickResponse struct {
 
 	// Human response to an awaiting state
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
-
-	// Verification status (for closed tasks only)
-	VerificationStatus *VerificationStatus `json:"verificationStatus,omitempty,omitzero" yaml:"verificationStatus,omitempty" mapstructure:"verificationStatus,omitempty"`
 }
 
 // A single work item (task, bug, feature, epic, or chore)
@@ -1323,12 +1320,6 @@ type VerificationRecord struct {
 	// Individual verifier results
 	Results []VerifierResult `json:"results,omitempty,omitzero" yaml:"results,omitempty" mapstructure:"results,omitempty"`
 }
-
-type VerificationStatus string
-
-const VerificationStatusFailed VerificationStatus = "failed"
-const VerificationStatusPending VerificationStatus = "pending"
-const VerificationStatusVerified VerificationStatus = "verified"
 
 // Result from a single verifier
 type VerifierResult struct {

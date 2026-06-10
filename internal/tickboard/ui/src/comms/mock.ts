@@ -13,7 +13,6 @@ import type {
   CommsEvent,
   InfoResponse,
   Activity,
-  RunRecord,
   TickDetail,
 } from './types.js';
 import type {
@@ -106,10 +105,6 @@ export class MockCommsClient implements CommsClient {
   };
 
   private mockActivity: Activity[] = [];
-
-  private mockRecords = new Map<string, RunRecord>();
-
-  private mockContexts = new Map<string, string>();
 
   private mockTicks = new Map<string, TickDetail>();
 
@@ -338,8 +333,6 @@ export class MockCommsClient implements CommsClient {
     // Reset mock read data
     this.mockInfo = { repoName: 'mock-repo', epics: [] };
     this.mockActivity = [];
-    this.mockRecords.clear();
-    this.mockContexts.clear();
     this.mockTicks.clear();
   }
 
@@ -359,20 +352,6 @@ export class MockCommsClient implements CommsClient {
    */
   setMockActivity(activities: Activity[]): void {
     this.mockActivity = activities;
-  }
-
-  /**
-   * Set a mock run record for a specific tick.
-   */
-  setMockRecord(tickId: string, record: RunRecord): void {
-    this.mockRecords.set(tickId, record);
-  }
-
-  /**
-   * Set the mock context for a specific epic.
-   */
-  setMockContext(epicId: string, context: string): void {
-    this.mockContexts.set(epicId, context);
   }
 
   /**
@@ -416,22 +395,6 @@ export class MockCommsClient implements CommsClient {
       return this.mockActivity.slice(0, limit);
     }
     return this.mockActivity;
-  }
-
-  /**
-   * Fetch run record for a tick.
-   * Returns the mock record configured via setMockRecord(), or null if not found.
-   */
-  async fetchRecord(tickId: string): Promise<RunRecord | null> {
-    return this.mockRecords.get(tickId) ?? null;
-  }
-
-  /**
-   * Fetch context for an epic.
-   * Returns the mock context configured via setMockContext(), or null if not found.
-   */
-  async fetchContext(epicId: string): Promise<string | null> {
-    return this.mockContexts.get(epicId) ?? null;
   }
 
   // ---------------------------------------------------------------------------

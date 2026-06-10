@@ -328,7 +328,6 @@ import type {
   InfoResponse,
   TickDetail,
   Activity,
-  RunRecord,
 } from '../comms/index.js';
 
 /**
@@ -357,20 +356,6 @@ export async function fetchTickDetails(id: string): Promise<TickDetail> {
  */
 export async function fetchActivity(limit?: number): Promise<Activity[]> {
   return getCommsClient().fetchActivity(limit);
-}
-
-/**
- * Fetch the run record for a completed tick.
- */
-export async function fetchRecord(tickId: string): Promise<RunRecord | null> {
-  return getCommsClient().fetchRecord(tickId);
-}
-
-/**
- * Fetch the generated context for an epic.
- */
-export async function fetchContext(epicId: string): Promise<string | null> {
-  return getCommsClient().fetchContext(epicId);
 }
 
 // =============================================================================

@@ -185,9 +185,6 @@ func TestAPIResponses_Roundtrip(t *testing.T) {
 		if tick.Column != "human" {
 			t.Errorf("Expected column 'human', got %q", tick.Column)
 		}
-		if tick.VerificationStatus == nil || *tick.VerificationStatus != "pending" {
-			t.Error("Expected verificationStatus 'pending'")
-		}
 	})
 
 	t.Run("GetTickResponse", func(t *testing.T) {

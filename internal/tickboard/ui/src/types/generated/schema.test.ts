@@ -205,7 +205,6 @@ describe('Schema Roundtrip Tests', () => {
       // Computed fields
       expect(tick.isBlocked).toBe(false);
       expect(tick.column).toBe('human');
-      expect(tick.verificationStatus).toBe('pending');
     });
 
     it('deserializes GetTickResponse with notesList and blockerDetails', () => {
