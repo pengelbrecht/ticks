@@ -17,15 +17,16 @@ import (
 //
 //   done   — green  ✓  (same as StatusClosed)
 //   active — blue   ●  (same as StatusInProgress)
-//   ready  — yellow ○  (open, needs planning — use yellow to distinguish from queued)
+//   ready  — gray   ○  (open, needs planning — matches the tk roadmap CLI
+//            convention; the "needs planning" annotation carries the meaning)
 //   queued — gray   ○  (open, blocked by another open epic)
 //   gated  — yellow ◐  (same as StatusAwaiting)
 var (
-	roadmapStatusDoneStyle   = styles.StatusClosedStyle   // green
+	roadmapStatusDoneStyle   = styles.StatusClosedStyle     // green
 	roadmapStatusActiveStyle = styles.StatusInProgressStyle // blue
-	roadmapStatusReadyStyle  = lipgloss.NewStyle().Foreground(styles.ColorYellow) // yellow
-	roadmapStatusQueuedStyle = styles.StatusOpenStyle     // gray
-	roadmapStatusGatedStyle  = styles.StatusAwaitingStyle // yellow
+	roadmapStatusReadyStyle  = styles.StatusOpenStyle       // gray (matches CLI)
+	roadmapStatusQueuedStyle = styles.StatusOpenStyle       // gray
+	roadmapStatusGatedStyle  = styles.StatusAwaitingStyle   // yellow
 
 	roadmapWaveHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(styles.ColorPink)
 	roadmapGateBadgeStyle  = lipgloss.NewStyle().Foreground(styles.ColorYellow)
@@ -93,7 +94,7 @@ func RenderRoadmap(allTicks []tick.Tick, width int) string {
 // renderRoadmapEpicLine renders one epic line within the roadmap.
 // Format:
 //
-//	  <glyph> <id>  [closed/total]  <title>  [gate:<type>]  [← blocked by: id1 id2]
+//	  <glyph> <id>  [closed/total]  <title>  [gate:<type>]  (needs planning)  [← blocked by: id1 id2]
 func renderRoadmapEpicLine(epic query.RoadmapEpic, width int) string {
 	glyph := renderRoadmapStatusGlyph(epic.Status)
 
@@ -112,6 +113,13 @@ func renderRoadmapEpicLine(epic query.RoadmapEpic, width int) string {
 		gateBadge = " " + roadmapGateBadgeStyle.Render(fmt.Sprintf("[gate:%s]", epic.AwaitingType))
 	}
 
+	// Needs-planning annotation: only for ready status (consumer-facing,
+	// matches "(needs planning)" in tk roadmap and the web "Needs planning" badge).
+	needsPlanning := ""
+	if epic.Status == "ready" {
+		needsPlanning = " " + roadmapStatusReadyStyle.Render("(needs planning)")
+	}
+
 	// Blocked-by annotation
 	blockedAnnotation := ""
 	if len(epic.BlockedBy) > 0 {
@@ -121,8 +129,8 @@ func renderRoadmapEpicLine(epic query.RoadmapEpic, width int) string {
 	}
 
 	// Indented two spaces to sit under the Wave header
-	line := fmt.Sprintf("  %s %s %s %s%s%s",
-		glyph, id, progress, title, gateBadge, blockedAnnotation)
+	line := fmt.Sprintf("  %s %s %s %s%s%s%s",
+		glyph, id, progress, title, gateBadge, needsPlanning, blockedAnnotation)
 
 	return truncate(line, width)
 }
