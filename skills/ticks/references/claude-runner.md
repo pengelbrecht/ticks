@@ -10,6 +10,10 @@ This is the way the skill executes ticks. (Ticks also ships a standalone runner,
 - **One tick = one subagent = one worktree = one mergeable branch.** This maps directly onto the "atomic, committable piece of work" principle behind a well-formed tick.
 - **Waves are your unit of parallelism.** `tk graph` groups ticks into waves; everything in a wave can run at once because nothing in it depends on anything else in it.
 
+## Orchestration-evolution principle
+
+The ticks skill must stay high-level enough to take best advantage of whatever orchestration capabilities and models are current. Speak in capabilities and tiers, never hardcoded model names or harness specifics; the orchestrator resolves them to the best available at runtime. When the harness offers a better primitive than what this doc describes, prefer the primitive and note the gap so this text can be updated.
+
 ## Before you start: don't run on main
 
 Orchestration produces commits and merges. If you're on `main`/`master`, create a feature branch first (e.g. `git switch -c epic/<epic-id>`) or start the run from your own worktree (`EnterWorktree`). Running an epic directly on the default branch is the one thing not to do without the user explicitly asking.
@@ -84,19 +88,21 @@ Agent(
   isolation: "worktree",                     # own git worktree, auto-cleaned if it makes no changes
   run_in_background: true,                    # async — you're notified on completion
   mode: "bypassPermissions",                 # autonomous; shouldn't stop for tool-permission prompts
-  model: "sonnet"                            # see model selection below
+  model: "sonnet"                            # example — see capability tier selection below
 )
 ```
 
-### Choosing a model per tick
+### Choosing a capability tier per tick
 
-Pick the model for each tick, not once for the run. Use the least powerful model that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical.
+Pick the tier for each tick, not once for the run. Use the least capable tier that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical. The harness resolves each tier to the best available model at runtime; don't hardcode model names in prompts or scripts.
 
-| Tick shape | Model |
+| Tick shape | Tier |
 |---|---|
-| 1-2 files, complete spec, tests to pass | `haiku` or `sonnet` |
-| Multiple files, integration concerns | `sonnet` |
-| Real design judgment or broad codebase understanding | `opus` |
+| 1-2 files, complete spec, mechanical work | **fastest/cheapest** — e.g. haiku-class (dated example) |
+| Multiple files, integration concerns | **balanced default** — e.g. sonnet-class |
+| Design judgment, broad codebase understanding, ambiguous specs | **most capable** — e.g. opus-class |
+
+**REVIEWER-TIER RULE:** review with a model at least as capable as the one that wrote the code. Epic final reviews default to the most-capable tier.
 
 ### Why worktree isolation
 
@@ -141,13 +147,20 @@ Because agents only ever touch code — never `.tick/`, never `tk` — their bra
 Ticks are designed to carry their own success criteria (tests in the acceptance), and implementers verify those before reporting `DONE`. On top of that:
 
 - **Always** run one final review over the epic's full diff before closing the epic (see "Closing the epic").
-- **Per-tick review is worth it** for ticks created with `--requires review`/`--requires approval`, and for any tick that needed `opus`. When you want it, run a two-stage review (cheaper than debugging later):
+- **Per-tick review is worth it** for ticks created with `--requires review`/`--requires approval`, and for any tick that needed the most-capable tier. When you want it, run a two-stage review (cheaper than debugging later):
   1. **Spec compliance** — does the diff match the tick's description + acceptance, with nothing missing and nothing extra? (Can be a quick inline check or a cheap reviewer subagent.)
   2. **Code quality** — only after spec compliance passes. Dispatch a reviewer subagent over the tick's branch.
 
   If a reviewer finds issues, `SendMessage` the original implementer to fix them, then re-review. Don't move on with open issues.
 
 Skipping per-tick review for routine, well-specified ticks is fine — that's the speed dividend of a good tick. Reserve the heavier review for the ticks that earn it.
+
+**FOUNDATION-REVIEW:** When a wave-1 tick defines a contract consumed by multiple dependents (an API shape, a shared type, a DB schema), review it before launching the dependent wave. This is the cheapest, highest-leverage review in the run — a contract bug caught here saves fixing it across every tick that depended on it.
+
+**Review severity policy:**
+- **Blocker** — must be fixed before the epic is closed out. Do not close with a known blocker.
+- **Should-fix** — fix now if feasible; if deferred, record it explicitly in the retro report as accepted tech debt.
+- **Nit** — fix opportunistically; silence is fine if cost is not worth it.
 
 **Optional: fan out a substantial review with `Workflow`.** Review is read-only — it only reads the diff, it never touches `git` or `.tick/` — so it's the one part of a run that fits the `Workflow` tool cleanly (the execution loop does *not*: a Workflow script can't run `git merge` or `tk close`, so keep wave orchestration on the `Agent` path above). For a large epic diff, a Workflow can run the multi-dimension review as a fan-out — one agent per axis (correctness, security, performance, spec-compliance), then an adversarial verify pass over each finding — instead of a single reviewer subagent. This is strictly an upgrade to the *review* step, and entirely optional: `Workflow` is a newer, Claude-Code-specific tool, so a single reviewer subagent remains the portable default. Reach for it only when the epic is big enough that broader, parallelized review earns the extra machinery.
 
@@ -173,7 +186,7 @@ SendMessage(to: "<agent-name>", message: "Reviewer feedback: <verbatim feedback>
 2. Note it on the tick: `tk note <tick-id> "Agent blocked: <reason>"`.
 3. Decide:
    - **Missing context** → `SendMessage` the same agent with what it needed.
-   - **Needs more reasoning** → re-dispatch on a stronger model (`opus`).
+   - **Needs more reasoning** → re-dispatch at a more-capable tier.
    - **Too big** → split the tick, re-graph.
    - **The plan itself is wrong** → stop and raise it with the user.
 4. Keep going with the rest of the wave. A blocked tick may leave its dependents blocked — that's fine; report them at the end.
@@ -191,6 +204,10 @@ tk list --parent <epic-id> --awaiting=        # otherwise, report what's waiting
 ```
 
 Before closing the epic, run the **Epic-close retro** (see below). Write the retro report as the close reason (or as a note on the epic tick if the reason field is short).
+
+**Merge, not squash.** Use `git merge`, never `git merge --squash`. Tick-stamped commits (`tick <id>: …`) are the audit trail the retro mines — squashing destroys it.
+
+**Integration status.** The completion report must state the epic branch's integration status: *merged*, *awaiting PR*, or *awaiting human*. For repos with CI, the default is a PR + CI gate before merging to the default branch; configure the requirement in `.tick/config.md` Rules so every agent prompt inherits it.
 
 ---
 
@@ -237,6 +254,9 @@ Each learning goes to **exactly one** destination:
 | Operational gotcha for future implementer agents (test quirks, env traps, recurring build issues) | `.tick/learnings.md` |
 | One-off detail, only matters to this epic | stays in tick notes (already persisted — do nothing) |
 | A doc proven wrong by this epic | fix or delete the doc |
+| Learning about the orchestration process itself (harness behavior, worktree/branching gotchas, prompt patterns) | `skills/ticks/references/claude-runner.md` or `tick-patterns.md` — so it travels to every repo |
+
+Per-repo `.tick/learnings.md` stays for repo-specific operational gotchas; process knowledge must live in the skill to transfer across repos.
 
 Write the promotions to their destinations now, before moving on.
 
@@ -346,6 +366,8 @@ Subagents start fresh with none of your context — give them everything. Don't 
 
 ```
 You are implementing one task from the Ticks issue tracker, working in an isolated git worktree.
+
+IMPORTANT FIRST STEP: your worktree was likely created from the repo's default branch. The work you must build on lives on branch `<base-branch>`. Run `git merge <base-branch> --no-edit` first and verify `<artifact>` exists; report STATUS: BLOCKED if not.
 
 ## Task
 Title: <tick-title>
