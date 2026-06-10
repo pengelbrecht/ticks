@@ -12,4 +12,3 @@ internal/tickboard/ui/e2e/.wrangler.*
 
 # tk Claude worktrees
 .claude/worktrees/
-.tickflow-bin/
