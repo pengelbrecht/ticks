@@ -2,13 +2,14 @@
   "id": "or1",
   "title": "Make tsc --noEmit pass in the board UI",
   "description": "Context: internal/tickboard/ui has ~203 pre-existing 'pnpm exec tsc --noEmit' errors that neither vite build nor vitest gate. Reviewers flagged the clusters twice: (1) src/comms/mock.ts does not implement fetchTicks from the CommsClient interface (real non-conformance); (2) src/comms/cloud.ts Tick/OutgoingMessage mismatches and a 'tick_created' message type used by code but missing from the generated websocket union - if the worker/client genuinely send tick_created, add it to schemas/websocket/messages.schema.json and follow the REPO RULE: regenerate BOTH outputs (make codegen-go AND scripts/build-ui.sh) and commit everything including refreshed static/; if it is dead code, remove the usage instead; (3) ambiguous re-exports in src/types/generated/index.ts; (4) cssText errors in tick-activity-feed.test.ts; (5) missing afterEach import in cloud-unit.test.ts; plus whatever remains - fix ALL errors, zero tolerance.\n\nVerification: 'pnpm exec tsc --noEmit' exits 0 in internal/tickboard/ui; pnpm test still green; go test ./... green if schema/codegen changed.\n\nDo NOT add a CI step - the orchestrator wires CI afterward. Do NOT change runtime behavior except where a type error reveals a real bug (report those explicitly).",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "acceptance_criteria": "tsc --noEmit exits 0 in internal/tickboard/ui; vitest suite still green; any schema change regenerated through both codegens with static rebuilt",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T20:50:46.168759Z",
-  "updated_at": "2026-06-10T20:50:46.213047Z",
-  "started_at": "2026-06-10T20:50:46.213047Z"
+  "updated_at": "2026-06-10T21:02:19.133627Z",
+  "closed_at": "2026-06-10T21:02:19.133627Z",
+  "closed_reason": "Completed: tsc --noEmit 104 -\u003e 0 in board UI; tick_created added to websocket schema (verified live in worker broadcast + Go client) with dual codegen + static rebuild; mock.ts now conforms to CommsClient; generator dedupes re-exports with --check gating; 46 test-file cssText errors fixed via shared helper; one dead-code removal"
 }
