@@ -24,6 +24,9 @@ func setupTestRepo(t *testing.T) (repoDir string, store *tick.Store) {
 	// Minimal git repo + remote so DetectProject succeeds.
 	execTestCmd(t, dir, "git", "init")
 	execTestCmd(t, dir, "git", "remote", "add", "origin", "https://github.com/test/repo.git")
+	// Local identity so owner detection works on runners with no global git config.
+	execTestCmd(t, dir, "git", "config", "user.email", "test@example.com")
+	execTestCmd(t, dir, "git", "config", "user.name", "Test User")
 
 	origDir, err := os.Getwd()
 	if err != nil {
