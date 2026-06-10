@@ -62,6 +62,7 @@ var (
 	updateRequires    string
 	updateAwaiting    string
 	updateVerdict     string
+	updateBaseBranch  string
 	updateJSON        bool
 
 	// Track which flags were explicitly set
@@ -79,6 +80,7 @@ var (
 	updateExternalRefSet bool
 	updateParentSet      bool
 	updateManualSet      bool
+	updateBaseBranchSet  bool
 	updateRequiresSet    bool
 	updateAwaitingSet    bool
 	updateVerdictSet     bool
@@ -99,6 +101,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateExternalRef, "external-ref", "", "external reference")
 	updateCmd.Flags().StringVar(&updateParent, "parent", "", "parent epic id (use empty string to clear)")
 	updateCmd.Flags().StringVar(&updateManual, "manual", "", "mark as requiring human intervention (true/false)")
+	updateCmd.Flags().StringVar(&updateBaseBranch, "base-branch", "", "base branch for this epic run (epics only)")
 	updateCmd.Flags().StringVarP(&updateRequires, "requires", "r", "", "approval gate (approval|review|content, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateAwaiting, "awaiting", "a", "", "wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateVerdict, "verdict", "v", "", "set verdict and trigger processing (approved|rejected)")
@@ -123,6 +126,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updateExternalRefSet = cmd.Flags().Changed("external-ref")
 	updateParentSet = cmd.Flags().Changed("parent")
 	updateManualSet = cmd.Flags().Changed("manual")
+	updateBaseBranchSet = cmd.Flags().Changed("base-branch")
 	updateRequiresSet = cmd.Flags().Changed("requires")
 	updateAwaitingSet = cmd.Flags().Changed("awaiting")
 	updateVerdictSet = cmd.Flags().Changed("verdict")
@@ -219,6 +223,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if updateParentSet {
 		t.Parent = updateParent
+	}
+	if updateBaseBranchSet {
+		if t.Type != tick.TypeEpic {
+			return NewExitError(ExitUsage, "--base-branch can only be set on epic ticks (this tick has type %q)", t.Type)
+		}
+		t.BaseBranch = updateBaseBranch
 	}
 	if updateRequiresSet {
 		if updateRequires == "" {

@@ -320,19 +320,23 @@ Never leave orphaned `worktree-agent-*` branches unaccounted for. They carry unc
 
 ### Base branch
 
-At run start, record the run's base branch as a note on the epic tick:
+At run start, record the run's base branch as a first-class field on the epic tick:
 
 ```bash
-tk note <epic-id> "base-branch: <name>"
+tk update <epic-id> --base-branch <name>
 ```
 
-Ask once if the base branch is ambiguous (e.g. the user is on a feature branch of a feature branch); from that point on, read it back from the epic's notes:
+Ask once if the base branch is ambiguous (e.g. the user is on a feature branch of a feature branch); from that point on, read it back via:
 
 ```bash
-tk notes <epic-id>    # → find the "base-branch: <name>" note
+tk show <epic-id> --json | jq -r '.base_branch'
+# or human-readable:
+tk show <epic-id>   # → "Base branch:" line
 ```
 
 Use this value everywhere a base branch appears: merges, final-review diffs (`git diff <base>...HEAD`), and resume. Never assume `main`. The existing rule still holds: don't run orchestration directly on the default branch.
+
+**Fallback for older `tk` versions without `--base-branch`:** record it as a note instead (`tk note <epic-id> "base-branch: <name>"`) and read it back with `tk notes <epic-id>`.
 
 ---
 
