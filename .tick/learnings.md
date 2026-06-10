@@ -1,18 +1,9 @@
 # Learnings
 
-Operational gotchas for implementer agents and the orchestrator. Format: Problem → Cause → Rule
-under category headers. Hard cap 150 lines — compact at every epic retro.
-See `skills/ticks/references/claude-runner.md` (Epic-close retro) for conventions.
-
-## Orchestration
-
-**Problem:** Agent worktrees start from the wrong base — work from earlier waves (or the epic's
-own setup commits) is missing in the agent's checkout.
-**Cause:** Worktrees created via `Agent(isolation: "worktree")` branch from the repo's default
-branch, not from the orchestrator's current branch.
-**Rule:** When orchestrating on a non-default branch, make the implementer's first instruction:
-`git merge <epic-branch> --no-edit`, then verify a file landed by the prior wave exists before
-editing. Abort with STATUS: BLOCKED if it doesn't.
+Repo-specific operational gotchas for implementer agents and the orchestrator.
+Format: Problem → Cause → Rule under category headers. Hard cap 150 lines — compact at every
+epic retro. Process-level (cross-repo) learnings belong in the ticks skill, not here — see
+`skills/ticks/references/claude-runner.md` (Epic-close retro, promotion table).
 
 ## Tick authoring
 
@@ -24,14 +15,17 @@ DO when it sees the value: plan now vs wait).
 **Rule:** When a tick specifies a flag/field another tool consumes, define it by the consumer's
 action and let the implementation derive the predicate — and state the consumer in the tick.
 
-## Orchestration
+## This repo's build
 
-**Problem:** `git merge` of an agent branch reports "Already up to date" without merging, and
-`tk` commands read or write the wrong `.tick/` directory.
-**Cause:** The orchestrator's shell cwd can silently end up inside an agent worktree
-(`.claude/worktrees/agent-*`); git then merges into the worktree branch and `tk` resolves the
-worktree's repo root.
-**Rule:** In orchestration shells, prefix merge/`tk` command chains with an explicit
-`cd <repo-root>` (absolute path) — don't trust the inherited cwd. A stray `tk close` in an
-agent worktree silently contaminates THAT worktree's `.tick/` while the real tick stays open;
-if it happens, `git -C <worktree> checkout -- .tick/` and redo the command at the root.
+**Problem:** A new cobra subcommand compiles and tests green but is unreachable from the
+installed binary.
+**Cause:** `cmd/tk/main.go` has a legacy routing switch with a hard-coded case list; every
+cobra command must also be added there.
+**Rule:** When adding a `tk` subcommand, register it in BOTH `cmd/tk/cmd/*.go` (cobra) and the
+switch + usage text in `cmd/tk/main.go`.
+
+**Problem:** Tickboard UI changes pass `pnpm test` but don't appear in the running `tk board`.
+**Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`;
+source changes need a production build.
+**Rule:** After UI source changes, run `scripts/build-ui.sh` and commit the regenerated
+`static/` (and `ui/dist/`) so the embed is current.
