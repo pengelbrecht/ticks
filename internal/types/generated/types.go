@@ -4,48 +4,6 @@ package generated
 
 import "time"
 
-// Status of the currently executing task
-type ActiveTaskStatus struct {
-	// Currently executing tool (if any)
-	ActiveTool *ActiveToolRecord `json:"activeTool,omitempty,omitzero" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
-
-	// ISO timestamp of last update
-	LastUpdated time.Time `json:"lastUpdated" yaml:"lastUpdated" mapstructure:"lastUpdated"`
-
-	// Current metrics
-	Metrics MetricsRecord `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-
-	// Number of API turns so far
-	NumTurns int `json:"numTurns" yaml:"numTurns" mapstructure:"numTurns"`
-
-	// Current execution status
-	Status string `json:"status" yaml:"status" mapstructure:"status"`
-
-	// ID of the task being executed
-	TickId string `json:"tickId" yaml:"tickId" mapstructure:"tickId"`
-
-	// Task title
-	Title string `json:"title" yaml:"title" mapstructure:"title"`
-}
-
-// Active tool during a live run
-type ActiveToolRecord struct {
-	// Duration so far in milliseconds
-	DurationMs *int `json:"duration_ms,omitempty,omitzero" yaml:"duration_ms,omitempty" mapstructure:"duration_ms,omitempty"`
-
-	// Tool input (may be partial)
-	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
-
-	// Whether the tool has errored
-	IsError *bool `json:"is_error,omitempty,omitzero" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
-
-	// Tool name
-	Name string `json:"name" yaml:"name" mapstructure:"name"`
-
-	// Tool output (may be partial)
-	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
-}
-
 // Response from GET /api/activity
 type ActivityResponse struct {
 	// List of activity entries
@@ -616,42 +574,6 @@ type ListTicksResponse struct {
 	Ticks []TickResponse `json:"ticks" yaml:"ticks" mapstructure:"ticks"`
 }
 
-// Live run record for in-progress execution
-type LiveRecord struct {
-	// Currently executing tool
-	ActiveTool *ActiveToolRecord `json:"active_tool,omitempty,omitzero" yaml:"active_tool,omitempty" mapstructure:"active_tool,omitempty"`
-
-	// Last update timestamp
-	LastUpdated time.Time `json:"last_updated" yaml:"last_updated" mapstructure:"last_updated"`
-
-	// Current metrics
-	Metrics MetricsRecord `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-
-	// Model being used
-	Model string `json:"model" yaml:"model" mapstructure:"model"`
-
-	// Number of turns so far
-	NumTurns int `json:"num_turns" yaml:"num_turns" mapstructure:"num_turns"`
-
-	// Output so far
-	Output string `json:"output" yaml:"output" mapstructure:"output"`
-
-	// Session identifier
-	SessionId string `json:"session_id" yaml:"session_id" mapstructure:"session_id"`
-
-	// When the run started
-	StartedAt time.Time `json:"started_at" yaml:"started_at" mapstructure:"started_at"`
-
-	// Current status
-	Status string `json:"status" yaml:"status" mapstructure:"status"`
-
-	// Thinking content so far
-	Thinking *string `json:"thinking,omitempty,omitzero" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
-
-	// Completed tool invocations
-	Tools []ToolRecord `json:"tools,omitempty,omitzero" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
-}
-
 // Local agent online/offline status
 type LocalStatusMessage struct {
 	// Connected corresponds to the JSON schema field "connected".
@@ -940,22 +862,6 @@ type RunStatus string
 
 const RunStatusComplete RunStatus = "complete"
 const RunStatusError RunStatus = "error"
-
-// Response from GET /api/run-status/:epicId
-type RunStatusResponse struct {
-	// Status of currently executing task
-	ActiveTask *ActiveTaskStatus `json:"activeTask,omitempty,omitzero" yaml:"activeTask,omitempty" mapstructure:"activeTask,omitempty"`
-
-	// Epic being queried
-	EpicId string `json:"epicId" yaml:"epicId" mapstructure:"epicId"`
-
-	// Whether there is an active run for this epic
-	IsRunning bool `json:"isRunning" yaml:"isRunning" mapstructure:"isRunning"`
-
-	// Live run metrics
-	Metrics *LiveRecord `json:"metrics,omitempty,omitzero" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
-}
-
 const RunStatusStarting RunStatus = "starting"
 const RunStatusThinking RunStatus = "thinking"
 const RunStatusToolUse RunStatus = "tool_use"

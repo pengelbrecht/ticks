@@ -1,8 +1,6 @@
 // Package runrecord provides storage for completed agent run records.
 // Run records are stored as JSON files in .tick/logs/records/<tick-id>.json
-//
-// This is distinct from the internal/runlog package which writes JSONL
-// event streams to .tick/logs/runs/ for debugging and replay purposes.
+// and back the board's historical record views and verification badges.
 package runrecord
 
 import (

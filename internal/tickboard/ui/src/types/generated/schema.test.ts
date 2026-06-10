@@ -29,7 +29,6 @@ import type {
   ListTicksResponse,
   TickResponse,
   GetTickResponse,
-  RunStatusResponse,
   EpicInfo,
   Note,
   BlockerDetail,
@@ -163,7 +162,6 @@ describe('Schema Roundtrip Tests', () => {
       listTicksResponse: ListTicksResponse;
       tickResponse: TickResponse;
       getTickResponse: GetTickResponse;
-      runStatusResponse: RunStatusResponse;
     }
 
     const fixtures = readFixture('api-responses.json') as ApiFixtures;
@@ -231,28 +229,6 @@ describe('Schema Roundtrip Tests', () => {
       expect(blocker.id).toBe('tick-002');
       expect(blocker.title).toBe('Blocking task');
       expect(blocker.status).toBe('open');
-    });
-
-    it('deserializes RunStatusResponse with activeTask', () => {
-      const status = fixtures.runStatusResponse;
-
-      expect(status.epicId).toBe('epic-001');
-      expect(status.isRunning).toBe(true);
-
-      expect(status.activeTask).toBeDefined();
-      expect(status.activeTask!.tickId).toBe('tick-001');
-      expect(status.activeTask!.title).toBe('Active task');
-      expect(status.activeTask!.status).toBe('tool_use');
-      expect(status.activeTask!.numTurns).toBe(2);
-
-      // Active tool
-      expect(status.activeTask!.activeTool).toBeDefined();
-      expect(status.activeTask!.activeTool!.name).toBe('Bash');
-      expect(status.activeTask!.activeTool!.input).toBe('npm test');
-
-      // Metrics
-      expect(status.activeTask!.metrics.input_tokens).toBe(1000);
-      expect(status.activeTask!.metrics.cost_usd).toBe(0.01);
     });
   });
 });
