@@ -25,7 +25,8 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 9
+          # packageManager lives in the nested UI package.json, not the repo root
+          package_json_file: internal/tickboard/ui/package.json
 
       - name: Build shared UI bundle
         run: |
@@ -105,7 +106,8 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 9
+          # packageManager lives in the nested UI package.json, not the repo root
+          package_json_file: internal/tickboard/ui/package.json
 
       - name: Prepare UI artifact directory
         run: |
