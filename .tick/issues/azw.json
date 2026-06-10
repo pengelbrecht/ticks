@@ -1,0 +1,15 @@
+{
+  "id": "azw",
+  "title": "Execution Model v2 — Phase 1: skill-side epic chaining, retro, and discipline (docs only)",
+  "description": "Implement phase 1 of docs/design/execution-model-v2-epic-chaining-and-learning-loop.md: all skill-text changes, no tk code changes.\n\nDelivers: roadmap/epic-chaining authoring guidance (spec §1), epic-close retro + .tick/learnings.md convention (§2), foundation-first partitioning procedure (§4), .tick/config.md convention (§5), discipline rules (§6).\n\nFiles: skills/ticks/SKILL.md, skills/ticks/references/claude-runner.md, skills/ticks/references/tick-patterns.md.",
+  "notes": "2026-06-10 14:47 - RETRO REPORT — Phase 1 (azw)\nLearnings promoted: .tick/learnings.md created (2 entries: agent worktrees branch from default branch -\u003e merge epic branch first; shell cwd drifts into agent worktrees -\u003e cd repo root before git/tk). Repo-permanent fix landed directly: .gitattributes union-merge for activity.jsonl + tick ry7 for the tk init/upgrade product fix. Nothing promoted to CLAUDE.md or docs/.\nOutside-in verification: spec §1 (roadmap guidance, SKILL.md) VERIFIED; §2 (retro + learnings convention + 3 consumption points) VERIFIED; §4 (partitioning procedure steps 0-5) VERIFIED; §5 (config.md convention + run-start preflight + template step) VERIFIED; §6 (4 discipline rules) VERIFIED.\nDrift review: docs-only diff; one contradiction found and fixed ('injected into every implementer prompt' vs read-fresh rule in claude-runner.md). No cleanup ticks needed.\nProposed roadmap adjustments: none.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:31:15.107869Z",
+  "updated_at": "2026-06-10T12:47:54.647335Z",
+  "closed_at": "2026-06-10T12:47:54.647335Z",
+  "closed_reason": "All 6 ticks completed via Claude orchestration (4 waves, 5 subagents + orchestrator close-out). Retro report in epic notes."
+}

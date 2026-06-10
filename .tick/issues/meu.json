@@ -1,0 +1,16 @@
+{
+  "id": "meu",
+  "title": "Add query.EpicsNeedingPlanning predicate to internal/query",
+  "description": "Foundation tick for phase 2 (spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 'tk changes' + §3). Both tk next and tk graph will consume this.\n\nNew files: internal/query/plan.go + internal/query/plan_test.go (follow the style of internal/query/ready.go and ready_test.go).\n\nFunction: EpicsNeedingPlanning(candidates []tick.Tick, allTicks ...[]tick.Tick) []tick.Tick\nAn epic 'needs planning' when ALL of:\n- Type == tick.TypeEpic and Status is open (NOT in_progress — an in_progress epic is being worked)\n- Not blocked: every BlockedBy entry is closed or missing (same blocker semantics as isReadyWithOptions in ready.go: missing blocker = closed)\n- Not deferred (DeferUntil nil or past) and not awaiting human (IsAwaitingHuman() false) — same exclusions as ready.go\n- Has ZERO children in allTicks (no tick, any status, has Parent == epic.ID). NOTE: an epic whose children are all closed does NOT need planning — it needs closing; zero-children is the test, not zero-open-children.\nUse the allTicks variadic lookup pattern from ready.go (candidates may be a filtered subset; children/blockers may live outside it).\n\nTest cases (table-driven like ready_test.go):\n- open unblocked childless epic -\u003e returned\n- epic with one open child -\u003e not returned\n- epic with only closed children -\u003e not returned\n- epic blocked by an open epic -\u003e not returned; blocked by a closed/missing epic -\u003e returned\n- in_progress epic, awaiting epic, deferred epic (future DeferUntil) -\u003e not returned\n- non-epic tick -\u003e not returned\n\nRun: go test ./internal/query/...",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "hbz",
+  "acceptance_criteria": "go test ./internal/query/... passes with the new table-driven tests; go vet ./... clean",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:46:28.52288Z",
+  "updated_at": "2026-06-10T12:53:22.476302Z",
+  "closed_at": "2026-06-10T12:53:22.476302Z",
+  "closed_reason": "EpicsNeedingPlanning predicate merged; 14 table-driven tests green, vet clean"
+}

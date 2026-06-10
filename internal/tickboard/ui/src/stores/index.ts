@@ -41,6 +41,14 @@ export {
   type Epic,
 } from './ticks.js';
 
+// Roadmap state
+export {
+  $roadmap,
+  $roadmapLoading,
+  $roadmapError,
+  loadRoadmap,
+} from './roadmap.js';
+
 // Comms - unified communication abstraction
 export {
   $commsClient,

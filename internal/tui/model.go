@@ -33,6 +33,14 @@ type item struct {
 	HasKids bool
 }
 
+// viewModeType represents which mode the left pane is in.
+type viewModeType int
+
+const (
+	viewModeTree    viewModeType = iota // default: tree of ticks
+	viewModeRoadmap                     // epic chains grouped into waves
+)
+
 // keyMap defines all keybindings for the TUI.
 type keyMap struct {
 	Up            key.Binding
@@ -50,12 +58,13 @@ type keyMap struct {
 	HumanQueue    key.Binding
 	CycleAwaiting key.Binding
 	SwitchPane    key.Binding
+	RoadmapMode   key.Binding
 	Quit          key.Binding
 }
 
 // ShortHelp returns bindings for the short help view (single line).
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.ScrollUp, k.Fold, k.Focus, k.Search, k.HideClosed, k.HumanQueue, k.Approve, k.SwitchPane, k.Quit}
+	return []key.Binding{k.Up, k.ScrollUp, k.Fold, k.Focus, k.Search, k.HideClosed, k.HumanQueue, k.Approve, k.RoadmapMode, k.SwitchPane, k.Quit}
 }
 
 // FullHelp returns bindings for the full help view (multiple columns).
@@ -65,7 +74,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.ScrollUp, k.ScrollDn, k.Top, k.Bottom},
 		{k.Fold, k.Focus, k.Search, k.HideClosed},
 		{k.HumanQueue, k.CycleAwaiting},
-		{k.Approve, k.Reject, k.SwitchPane, k.Quit},
+		{k.Approve, k.Reject, k.RoadmapMode, k.SwitchPane, k.Quit},
 	}
 }
 
@@ -129,6 +138,10 @@ var defaultKeyMap = keyMap{
 	SwitchPane: key.NewBinding(
 		key.WithKeys("tab"),
 		key.WithHelp("tab", "pane"),
+	),
+	RoadmapMode: key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "roadmap"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),
@@ -203,6 +216,9 @@ type Model struct {
 
 	// Pane focus: false = left (list), true = right (details)
 	rightPaneFocused bool
+
+	// viewMode controls which content is rendered in the left pane.
+	viewMode viewModeType
 }
 
 // TUI-specific styles (layout elements)
@@ -742,6 +758,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.updateListViewportContent()
 			m.updateViewportContent()
+		case "m":
+			// Toggle roadmap view mode
+			if m.viewMode == viewModeRoadmap {
+				m.viewMode = viewModeTree
+			} else {
+				m.viewMode = viewModeRoadmap
+			}
+			m.updateListViewportContent()
 		}
 	}
 
@@ -928,7 +952,9 @@ func (m Model) View() string {
 
 	// Build left panel header with indicators
 	leftHeader := "Ticks"
-	if m.rejecting {
+	if m.viewMode == viewModeRoadmap {
+		leftHeader = "Roadmap"
+	} else if m.rejecting {
 		leftHeader = fmt.Sprintf("Reject: %s", m.rejectInput.View())
 	} else if m.searching {
 		leftHeader = fmt.Sprintf("Search: %s", m.searchInput.View())
@@ -937,18 +963,20 @@ func (m Model) View() string {
 	} else if m.focusedEpic != "" {
 		leftHeader = fmt.Sprintf("Focus: %s", m.focusedEpic)
 	}
-	// Add indicator for hiding closed ticks
-	if m.hideClosed {
+	// Add indicator for hiding closed ticks (tree mode only)
+	if m.hideClosed && m.viewMode != viewModeRoadmap {
 		leftHeader += " [hiding closed]"
 	}
-	// Add indicator for awaiting filter
-	switch m.awaitingFilter {
-	case awaitingFilterHumanOnly:
-		leftHeader += " [human queue]"
-	case awaitingFilterAgentOnly:
-		leftHeader += " [agent queue]"
-	case awaitingFilterByType:
-		leftHeader += fmt.Sprintf(" [awaiting:%s]", m.awaitingTypeFilter)
+	// Add indicator for awaiting filter (tree mode only)
+	if m.viewMode != viewModeRoadmap {
+		switch m.awaitingFilter {
+		case awaitingFilterHumanOnly:
+			leftHeader += " [human queue]"
+		case awaitingFilterAgentOnly:
+			leftHeader += " [agent queue]"
+		case awaitingFilterByType:
+			leftHeader += fmt.Sprintf(" [awaiting:%s]", m.awaitingTypeFilter)
+		}
 	}
 
 	// Build right panel header with title and scroll indicator
@@ -1150,6 +1178,13 @@ func (m *Model) updateViewportSize() {
 
 // updateListViewportContent sets the list viewport content and ensures selected item is visible.
 func (m *Model) updateListViewportContent() {
+	if m.viewMode == viewModeRoadmap {
+		// Roadmap mode: render the roadmap view, display-only (no selection tracking).
+		content := RenderRoadmap(m.allTicks, m.listViewport.Width)
+		m.listViewport.SetContent(content)
+		return
+	}
+
 	if len(m.items) == 0 {
 		m.listViewport.SetContent("")
 		return

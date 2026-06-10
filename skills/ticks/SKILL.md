@@ -57,6 +57,20 @@ git check-ignore .tick/
 # If it returns ".tick/", remove the entry from .gitignore
 ```
 
+**5. Per-project runner config (`.tick/config.md`):**
+
+Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Three recognized sections:
+
+- **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
+- **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
+- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
+
+**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads it at run start; implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
+
+**Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
+
+**Why not `CLAUDE.md`?** `CLAUDE.md` is for anyone working interactively in the repo (humans and interactive agents alike). `.tick/config.md` is specifically the contract for dispatched implementer agents and is consumed programmatically. Projects may of course cross-reference one from the other, but the distinction keeps the operator-facing config separate from the interactive config.
+
 ### Step 1: Check for SPEC.md
 
 Look for a SPEC.md (or similar spec file) in the repo root.
@@ -126,7 +140,47 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 
 Transform the spec into ticks organized by epic.
 
-**For phased specs:** Focus on creating ticks for the current/next phase only. Don't create ticks for future phases - they may change based on learnings.
+### Roadmaps (multi-epic work)
+
+When the spec spans multiple epics that must be delivered in sequence, create a **roadmap**: a chain of epics linked with `--blocked-by`. Only the front (unblocked) epic gets child ticks. Downstream epics exist as parent-only ticks — give each a rough scope description (a paragraph plus a deliverables list), not detailed tasks. This is just-in-time detailing: future epics stay cheap to reorder or rescope.
+
+```bash
+# Create the roadmap up front — only epic A gets child ticks now
+tk create "Auth foundation" -t epic -d "<rough scope>"                               # A — flesh out now
+tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>              # B — parent only
+tk create "Billing" -t epic -d "<rough scope>" --blocked-by <B>                      # C — parent only
+```
+
+**Always append a close-out task as the final child of the front epic.** This task is real work:
+
+```bash
+tk create "Close out <epic A>: run epic retro, then flesh out <epic B> into ticks" \
+  --parent <A> \
+  --blocked-by <last-task-in-A>
+```
+
+Executing this task means: run the epic-close retro (see `references/claude-runner.md`), then read epic B's rough scope, partition it into child ticks, and continue with `tk graph <B>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+
+**Planning triggers from `tk`.** Two CLI signals tell you that an epic needs to be fleshed out now:
+
+- `tk next <roadmap-epic> --json` returns `{"action":"plan",...}` when the next item is an unblocked childless epic. Human-readable output looks like `<id>  P<n> epic  <title>  (needs planning — no child ticks)`. The `action` field is present on **all** `tk next --json` results: `implement` for a ready task, `plan` for an unplannable epic, and `await` for `--awaiting` mode results — so orchestration can branch on it directly.
+- `tk graph <epic> --json` returns `{"needs_planning": true,...}` when that specific epic is plannable now (zero children and unblocked). Blocked childless epics and fully-closed-children epics carry `false` with explanatory human output.
+
+When either signal fires, the move is: flesh the epic out into child ticks (per the roadmap guidance above and the foundation-first procedure in `references/tick-patterns.md`), then continue with `tk graph <epic>`.
+
+**Human gates are chosen at roadmap creation time.** Create a downstream epic with `--awaiting checkpoint` or `--requires approval` to force a stop at that boundary. Without either flag the run auto-continues through the boundary. Default: **auto-continue**.
+
+```bash
+# Auto-continue into epic B (default)
+tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>
+
+# Stop for human review before starting epic B
+tk create "Billing" -t epic -d "<rough scope>" --blocked-by <B> --awaiting checkpoint
+```
+
+**Roadmap-level changes — adding, removing, or reordering epics — are human decisions.** The agent may propose them in the retro report but must not execute them unilaterally.
+
+This rule also covers phased specs: focus on creating ticks for the current/next phase only. Future phases are downstream epics in the roadmap — parent-only, rough scope, no detailed tasks yet.
 
 **Epic organization:**
 1. Group related tasks into logical epics (auth, API, UI, etc.)
@@ -196,9 +250,9 @@ tk close <id> --reason "Completed - connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`**; the shape is:
+Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`** — that file is the authoritative source; speak in capability tiers and harness primitives, never hardcoded model names, so the skill stays aligned with the best available tools. The shape is:
 
-1. `tk graph <epic-id> --json` — get the waves and how wide you can run.
+1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
 2. For each wave, launch one subagent per ready tick — **all in one message**, each in its own git worktree (`isolation: "worktree"`), in the background.
 3. Wait for the completion notifications (no polling), merge each finished tick's branch, and update tick state.
 4. Run the test suite on the merged tree, then move to the next wave; review and close the epic when everything's done.
@@ -230,10 +284,11 @@ tk list -t epic              # Epics only
 tk list --parent <epic-id>   # Tasks in epic
 tk ready                     # Unblocked tasks
 tk next <epic-id>            # Next task for agent
+tk next <epic-id> --json     # JSON: action field is "implement" | "plan" | "await"
 tk blocked                   # Blocked tasks
 tk list --awaiting=          # Tasks awaiting human
 tk graph <epic-id>           # Dependency graph with parallelization
-tk graph <epic-id> --json    # JSON output for agents
+tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks
 ```
 
 ### Managing
@@ -260,9 +315,9 @@ tk graph <epic-id> --json
 #    Agent(subagent_type: "general-purpose",
 #          isolation: "worktree",
 #          run_in_background: true,
-#          model: "sonnet")   # haiku for trivial, opus for complex
-#    (some harness versions also take name: and mode: "bypassPermissions" —
-#     check the Agent tool's schema before passing them)
+#          mode: "bypassPermissions",
+#          model: "sonnet")   # example — pick by capability tier (see claude-runner.md)
+#    (some harness versions also take name: — check the Agent tool's schema)
 #
 # 3. Wait for completion notifications (no polling), then integrate each tick:
 git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty

@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -340,6 +341,75 @@ func (s *Store) ReadActivity(limit int) ([]Activity, error) {
 	}
 
 	return activities, nil
+}
+
+// LastActivityForTicks scans activity.jsonl once and returns the maximum
+// timestamp found for each of the requested tick IDs. IDs with no (valid)
+// entries are absent from the result map. A missing log file yields an empty
+// map and no error; malformed lines are skipped. Errors are returned only for
+// genuine I/O failures.
+func (s *Store) LastActivityForTicks(ids []string) (map[string]*time.Time, error) {
+	result := make(map[string]*time.Time, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+	wanted := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+
+	logPath := filepath.Join(s.Root, "activity", "activity.jsonl")
+	f, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return result, nil
+		}
+		return nil, fmt.Errorf("open activity log: %w", err)
+	}
+	defer f.Close()
+
+	// minimalActivity contains only the fields we need; avoids allocating full
+	// Data maps for every line in what can be a large file.
+	type minimalActivity struct {
+		Timestamp time.Time `json:"ts"`
+		TickID    string    `json:"tick"`
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var a minimalActivity
+		if err := json.Unmarshal(line, &a); err != nil {
+			continue // skip malformed lines
+		}
+		if !wanted[a.TickID] {
+			continue
+		}
+		if cur := result[a.TickID]; cur == nil || a.Timestamp.After(*cur) {
+			ts := a.Timestamp
+			result[a.TickID] = &ts
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan activity log: %w", err)
+	}
+
+	return result, nil
+}
+
+// LastActivityForTick returns the maximum activity timestamp for a single
+// tick ID, or nil if the log is missing or has no valid entries for the tick.
+// Implemented via LastActivityForTicks.
+func (s *Store) LastActivityForTick(tickID string) (*time.Time, error) {
+	result, err := s.LastActivityForTicks([]string{tickID})
+	if err != nil {
+		return nil, err
+	}
+	return result[tickID], nil
 }
 
 // splitLines splits data by newlines without allocating empty strings.

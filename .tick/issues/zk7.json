@@ -1,0 +1,18 @@
+{
+  "id": "zk7",
+  "title": "Execution Model v2 — Phase 3: meta-work-as-ticks and re-entrant orchestration loop",
+  "description": "ROUGH SCOPE — flesh out into ticks when Phase 2 (hbz) closes. Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §3. Depends on phase 2's planning-aware tk next.\n\n- Skill creates process steps as ticks when planning an epic: 'Final review of epic diff' and 'Close out epic: retro + plan next' (blocked appropriately).\n- Fully re-entrant loop: every tk next result maps to exactly one action (implement / review / close-out / plan); resuming a dead run = re-invoking the skill.\n- On (re)entry: reset stale in_progress ticks, reconcile leftover worktree branches (merge if DONE was reported, else delete).\n- Base branch recorded on the epic tick at run start; merges, review diffs, and resume read it from there.\n- Mostly skills/ticks/ text; small tk additions only if phase 2 left gaps.",
+  "notes": "2026-06-10 15:25 - RETRO REPORT — Phase 3 (zk7)\nLearnings promoted: none new — existing learnings rules held (worktree base-merge + cwd rules applied in all prompts, zero merge incidents this phase). .tick/learnings.md unchanged at ~40 lines, under cap.\nOutside-in verification: spec §3 meta-work-as-ticks VERIFIED (claude-runner.md Meta-work ticks section + loop step 3); re-entrant action map VERIFIED (Resuming a run, all 6 rows incl. action:await); stale recovery incl. in_progress-childless-epic edge VERIFIED; worktree reconciliation VERIFIED; base-branch note convention VERIFIED. SKILL.md wiring to action:plan/needs_planning VERIFIED.\nDrift review: docs-only diff, clean. One improvement applied at close-out: Closing-the-epic diff line now references the base-branch convention instead of a bare placeholder.\nDogfood note: phase 4 planning (kgh) used the new convention — final-review meta-tick created at planning time, blocked by all last-wave ticks.\nProposed roadmap adjustments: none. kgh is the final epic; its close-out is the roadmap hard stop.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "hbz"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:31:34.637479Z",
+  "updated_at": "2026-06-10T13:25:18.754419Z",
+  "closed_at": "2026-06-10T13:25:18.754419Z",
+  "closed_reason": "All 4 ticks completed via Claude orchestration (3 waves). Retro report in epic notes."
+}

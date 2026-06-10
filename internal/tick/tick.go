@@ -72,6 +72,7 @@ type Tick struct {
 	DeferUntil         *time.Time     `json:"defer_until,omitempty"`
 	ExternalRef        string         `json:"external_ref,omitempty"`
 	Manual             bool           `json:"manual,omitempty"`
+	BaseBranch         string         `json:"base_branch,omitempty"`
 	Requires           *string        `json:"requires,omitempty"`
 	Awaiting           *string        `json:"awaiting,omitempty"`
 	Verdict            *string        `json:"verdict,omitempty"`

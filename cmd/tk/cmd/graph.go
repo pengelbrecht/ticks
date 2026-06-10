@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/github"
+	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/wave"
@@ -51,6 +52,7 @@ func init() {
 // graphOutput is the JSON output structure for agents.
 type graphOutput struct {
 	Epic         graphEpic   `json:"epic"`
+	NeedsPlanning bool       `json:"needs_planning"`
 	Stats        graphStats  `json:"stats"`
 	Waves        []graphWave `json:"waves"`
 	CriticalPath int         `json:"critical_path"`
@@ -136,8 +138,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(tasks) == 0 {
-		fmt.Printf("Epic %s has no tasks\n", epicID)
-		return nil
+		return handleChildlessEpic(epic, allTicks)
 	}
 
 	// Build dependency display maps (for rendering blockedBy/blocks info).
@@ -261,6 +262,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 				ID:    epic.ID,
 				Title: epic.Title,
 			},
+			NeedsPlanning: false,
 			Stats: graphStats{
 				TotalTasks:    len(tasks),
 				WaveCount:     len(waves),
@@ -382,6 +384,106 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s %d waves (minimum sequential steps to complete epic)\n",
 		styles.DimStyle.Render("Critical path:"), len(waves))
 
+	return nil
+}
+
+// handleChildlessEpic handles the case where the epic's task list (after the
+// closed-task filter) is empty. There are three sub-cases:
+//   - the epic has children but they are all closed → epic is complete, close it
+//   - the epic has no children and is unblocked → it needs planning NOW
+//   - the epic has no children but is blocked → it will need planning when its
+//     blockers close
+//
+// In JSON output, needs_planning is true only when the epic is plannable now
+// (zero children AND unblocked), matching the gating that tk next applies to
+// its action:plan signal. It uses query.EpicsNeedingPlanning for that decision.
+func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
+	// Check for children of any status (tasks was filtered to open-only when
+	// --all is not set, so all-closed children can land us here too).
+	hasChildren := false
+	allChildrenClosed := true
+	for _, t := range allTicks {
+		if t.Parent == epic.ID {
+			hasChildren = true
+			if t.Status != tick.StatusClosed {
+				allChildrenClosed = false
+			}
+		}
+	}
+
+	// Plannable now = zero children AND unblocked (and open, not deferred,
+	// not awaiting human). query.EpicsNeedingPlanning encodes all of that.
+	needsPlanning := query.EpicsNeedingPlanning([]tick.Tick{epic}, allTicks)
+	isReadyToPlan := len(needsPlanning) > 0
+
+	if graphJSON {
+		output := graphOutput{
+			Epic: graphEpic{
+				ID:    epic.ID,
+				Title: epic.Title,
+			},
+			NeedsPlanning: isReadyToPlan,
+			Stats:         graphStats{},
+			CriticalPath:  0,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	// Human-readable output.
+	if hasChildren {
+		if allChildrenClosed {
+			// Count the children
+			childCount := 0
+			for _, t := range allTicks {
+				if t.Parent == epic.ID {
+					childCount++
+				}
+			}
+			if epic.Status == tick.StatusClosed {
+				// Epic is already closed with all children closed
+				fmt.Printf(
+					"Epic %s is closed (all %d child ticks closed).\n",
+					epic.ID, childCount,
+				)
+			} else {
+				// Epic is open with all children closed; it needs closing
+				fmt.Printf(
+					"Epic %s is complete — all child ticks are closed. Close it with tk close %s.\n",
+					epic.ID, epic.ID,
+				)
+			}
+		} else {
+			// Children exist but none are graphable tasks (e.g. child epics).
+			fmt.Printf("Epic %s has no tasks\n", epic.ID)
+		}
+		return nil
+	}
+
+	if isReadyToPlan {
+		fmt.Printf(
+			"Epic %s has no child ticks — it needs planning. Flesh it out into ticks (see the ticks skill roadmap guidance), then re-run tk graph %s.\n",
+			epic.ID, epic.ID,
+		)
+	} else {
+		// Collect open blocker IDs.
+		tickIndex := make(map[string]tick.Tick, len(allTicks))
+		for _, t := range allTicks {
+			tickIndex[t.ID] = t
+		}
+		var openBlockers []string
+		for _, blockerID := range epic.BlockedBy {
+			if b, ok := tickIndex[blockerID]; ok && b.Status != tick.StatusClosed {
+				openBlockers = append(openBlockers, blockerID)
+			}
+		}
+		blockerList := strings.Join(openBlockers, ", ")
+		fmt.Printf(
+			"Epic %s has no child ticks — blocked (open blockers: %s). It will need planning when its blockers close. Re-run tk graph %s then.\n",
+			epic.ID, blockerList, epic.ID,
+		)
+	}
 	return nil
 }
 

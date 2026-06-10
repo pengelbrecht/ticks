@@ -1,0 +1,19 @@
+{
+  "id": "kw2",
+  "title": "tk roadmap command: render epic chains with status and gate badges",
+  "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 (tk roadmap bullet). Consumes query.Roadmap from internal/query/roadmap.go (foundation tick, merged before this runs — read its exported types first; statuses: done|active|ready|queued|gated).\n\nNew file: cmd/tk/cmd/roadmap.go (+ roadmap_test.go). Follow graph.go conventions (styles via internal/styles, --json flag, cobra registration in init()).\n\nHuman output: waves of epics in dependency order, one line per epic:\n  \u003cstatus glyph\u003e \u003cid\u003e  \u003ctitle\u003e   [\u003cclosed\u003e/\u003ctotal\u003e ticks]  \u003cgate badge if gated: awaiting:\u003ctype\u003e\u003e\nwith a legend line and a final summary (N epics: x done, y active, ...). Use the same glyph/color conventions tk list uses for statuses; ready epics get a \"needs planning\" annotation (consistent with tk graph wording).\n\nJSON output (--json): marshal the query.Roadmap struct directly — additive, no reshaping.\n\nScope flag: tk roadmap with no args shows all epics; tk roadmap \u003cepic-id\u003e shows only the chain (transitive blockers + dependents) containing that epic.\n\nTest: unit tests for the chain-scoping filter and output assembly where testable; end-to-end fixture in /tmp (chain of 3 epics in different states) — document commands in your report.\n\nRun: go test ./... \u0026\u0026 go build ./...",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "srn"
+  ],
+  "parent": "kgh",
+  "acceptance_criteria": "go test ./... passes; tk roadmap renders waves with statuses+badges on a fixture and --json emits the query.Roadmap shape",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:23:59.80076Z",
+  "updated_at": "2026-06-10T13:37:43.386726Z",
+  "closed_at": "2026-06-10T13:37:43.386726Z",
+  "closed_reason": "tk roadmap command merged (13 tests, chain filter, fixture-verified)"
+}

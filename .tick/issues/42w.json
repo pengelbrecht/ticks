@@ -1,0 +1,21 @@
+{
+  "id": "42w",
+  "title": "Close out Phase 2: epic retro, then flesh out Phase 3 (zk7) into ticks",
+  "description": "The close-out task per the roadmap convention (skills/ticks/SKILL.md, Roadmaps section).\n\n1. Final review of the epic's full diff: internal/query/plan.go, cmd/tk/cmd/next.go, cmd/tk/cmd/graph.go, activity reader + list.go — consistency of the 'action'/'needs_planning' additive JSON fields, no behavior change for existing shapes, go test ./... green.\n2. Run the epic-close retro (skills/ticks/references/claude-runner.md, Epic-close retro): harvest tick notes + agent reports, promote by tier, compact .tick/learnings.md (150-line cap), outside-in verification of phase 2 scope against the code, drift review of the diff, retro report as the epic close reason.\n3. Flesh out Phase 3 (epic zk7 — meta-work-as-ticks + re-entrant orchestration loop) into ticks per its rough scope, using the foundation-first partitioning procedure (skills/ticks/references/tick-patterns.md) and re-reading .tick/learnings.md first.\n\nzk7 is NOT gated, so per the two-tier stopping rule execution flows on into Phase 3 unless the human says otherwise.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "04o",
+    "jqw",
+    "n9x"
+  ],
+  "parent": "hbz",
+  "acceptance_criteria": "Epic diff reviewed and retro report written as close reason; .tick/learnings.md compacted; zk7 has child ticks incl. its own close-out task",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:47:27.43077Z",
+  "updated_at": "2026-06-10T13:14:54.451315Z",
+  "closed_at": "2026-06-10T13:14:54.451315Z",
+  "closed_reason": "Close-out executed: reviewer subagent found 1 blocker + 3 should-fix + 3 nits, all fixed by original implementers and merged; outside-in verification dogfooded on this repo's live ticks; Phase 3 (zk7) fleshed into 4 ticks (3 waves)"
+}

@@ -10,7 +10,7 @@ If tests don't make sense for a task, there should be another form of validation
 
 ## Definition of Ready (per-tick gate)
 
-Run this before `tk create`. A fresh subagent sees *only this tick* — not the spec, the epic, or sibling ticks — so anything vague becomes a guess. If a tick fails a line, tighten it or split it.
+Run this before `tk create`. A fresh subagent sees *only this tick* — not the spec, the epic, or sibling ticks — so anything vague becomes a guess. If a tick fails a line, tighten it or split it. If `.tick/learnings.md` exists, re-read it first — most recurring authoring mistakes (sizing, file footprints, missing test commands, hidden cross-tick dependencies) are captured there, and reading it takes less time than undoing a bad tick.
 
 - [ ] **One deliverable** — the title names a single capability and needs no "and" (see *Tick Sizing*)
 - [ ] **Acceptance fits in ≤3 bullets** — if it doesn't, the scope is too broad to verify cleanly; split it
@@ -26,6 +26,32 @@ The sections below are the detailed backing for each line; this checklist is jus
 
 How you carve an epic into ticks matters as much as how you write each one.
 
+### Foundation-first partitioning procedure
+
+Use this ordered procedure every time you plan an epic. It replaces ad-hoc "define shared contracts first" intuition with a repeatable algorithm.
+
+**Step 0 — Re-read `.tick/learnings.md`.** If the file exists, read it in full before you partition. Partitioning mistakes (wrong wave boundaries, shared-file collisions, oversized foundation ticks) are a recurring learning category. This is the same re-read called for in the Definition of Ready preamble; do it here too, fresh — don't rely on an earlier in-context copy. (See `references/claude-runner.md` for the learnings file format and the 150-line cap convention.)
+
+**Step 1 — List every deliverable in the epic.** Write them out explicitly; don't carry them only in your head. One deliverable = one named user-visible or system behaviour to be produced.
+
+**Step 2 — Build a work-to-file matrix.** For each deliverable, list the files it will create or modify. A rough list is fine — the goal is to surface sharing, not produce an exhaustive path inventory.
+
+| Deliverable | Files created/modified |
+|---|---|
+| User can register | `schema.sql`, `handlers/auth.go`, `ui/signup.ts` |
+| User can log in | `handlers/auth.go`, `ui/login.ts` |
+| User sees profile | `handlers/profile.go`, `ui/profile.ts` |
+
+**Step 3 — Cluster by shared files.** Deliverables that touch the same files cannot safely run in parallel. For each cluster of overlap, either make the ticks sequential with `--blocked-by`, or merge them into one tick if they are tightly coupled enough that separation adds no value.
+
+**Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
+
+**Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so that everything that *can* run in parallel *does*. Verify with `tk graph <epic>` that no two ticks in the same wave share a file. If they do, add `--blocked-by` or re-merge until the graph is clean.
+
+### Vertical slicing (the backbone principle)
+
+The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to define what each tick does.
+
 **Slice vertically, not horizontally.** Don't make a "schema" tick, an "API" tick, and a "UI" tick — each is useless until the others land, and nothing is demoable until the very end. Instead slice by user-visible capability, so each tick takes one feature front-to-back and leaves the system working:
 
 ```
@@ -37,7 +63,9 @@ Bad (horizontal):           Good (vertical):
 
 Each vertical slice is independently testable and builds on the last — exactly what the runner wants.
 
-**But keep parallel ticks on disjoint files.** Vertical slices tend to touch shared files (the same schema file, the same router). That's fine in sequence, but ticks that run in the *same wave* each execute in their own worktree and get merged afterward — two same-wave ticks editing `router.go` will collide at merge. So:
+The foundation-first procedure and vertical slicing work together: vertical slicing defines the *shape* of each tick; the procedure determines the *order* and *wave* it belongs to. Where vertical slices would share foundation files, the procedure extracts those into an earlier wave so the slices can proceed cleanly in parallel.
+
+**Keep parallel ticks on disjoint files.** Vertical slices tend to touch shared files (the same schema file, the same router). That's fine in sequence, but ticks that run in the *same wave* each execute in their own worktree and get merged afterward — two same-wave ticks editing `router.go` will collide at merge. So:
 
 - Slice vertically to define the dependency backbone.
 - Within any wave you intend to run in parallel, make sure the ticks touch *different* files. Where they'd overlap, add a `--blocked-by` so they fall into different waves, or pull the shared edit into its own earlier tick the others depend on.

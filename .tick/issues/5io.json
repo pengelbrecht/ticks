@@ -1,0 +1,19 @@
+{
+  "id": "5io",
+  "title": "Add discipline rules and learnings-read instruction to claude-runner.md",
+  "description": "Implement spec §6 + §2 consumption point 1 (docs/design/execution-model-v2-epic-chaining-and-learning-loop.md) in skills/ticks/references/claude-runner.md. (Blocked by the retro tick because it edits the same file.)\n\nAdd a 'Discipline rules' section near the existing 'Run continuously' guidance:\n- Scope never shrinks: the agent may split, merge, or reorder ticks, and scope may grow (bugs, discovered gaps) — but only the human removes scope. If the epic-close retro's outside-in verification finds an undelivered scope item, fix it now; never relabel it 'follow-up'.\n- No known-failure closes: a tick cannot close with failing acceptance. No 'close with known issues' — it passes, or it stays open/blocked/awaiting.\n- Name the stall instinct: completing a large body of work triggers the instinct to summarize and hand control back; epic boundaries with a close-out tick are waypoints, not stopping points.\n- Two-tier stopping rule: intra-roadmap epic boundaries auto-continue (unless gated with --awaiting checkpoint / --requires approval); the roadmap end or a gate is the hard stop where a completion report is written.\n\nAlso update the implementer prompt template's Instructions list: add as step 1 'Read .tick/learnings.md (if present) — accumulated gotchas from earlier epics' (renumber following steps). Do NOT mention .tick/config.md here — a separate tick introduces that convention and wires it in.\n\nFiles: skills/ticks/references/claude-runner.md only.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "f1i"
+  ],
+  "parent": "azw",
+  "acceptance_criteria": "Discipline rules section present with all 4 rules; implementer prompt template instructs reading .tick/learnings.md from the worktree; existing template content otherwise unchanged",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:32:39.027012Z",
+  "updated_at": "2026-06-10T12:41:22.169438Z",
+  "closed_at": "2026-06-10T12:41:22.169438Z",
+  "closed_reason": "Discipline rules + learnings-read instruction added to claude-runner.md (agent DONE, merged)"
+}

@@ -446,9 +446,9 @@ describe('tick-header mobile view', () => {
       const handler = vi.fn();
       element.addEventListener('run-panel-toggle', handler);
 
-      // The run panel button is the second sl-button in header-right (after the dashboard button)
+      // Button order in header-right: roadmap(0), dashboard(1), run-panel(2), activity(...)
       const buttons = element.shadowRoot?.querySelectorAll('.header-right sl-button');
-      const runButton = buttons?.[1] as HTMLElement;
+      const runButton = buttons?.[2] as HTMLElement;
       runButton?.click();
 
       expect(handler).toHaveBeenCalledTimes(1);

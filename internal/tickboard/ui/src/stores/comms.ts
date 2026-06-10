@@ -136,16 +136,22 @@ function handleTickEvent(event: TickEvent): void {
     case 'tick:updated':
       console.log('[CommsStore] Tick updated:', event.tick.id);
       updateTick(event.tick);
+      // Notify roadmap store to refetch (epic chains may have changed)
+      window.dispatchEvent(new CustomEvent('tick-update-for-roadmap'));
       break;
 
     case 'tick:deleted':
       console.log('[CommsStore] Tick deleted:', event.tickId);
       removeTick(event.tickId);
+      // Notify roadmap store to refetch
+      window.dispatchEvent(new CustomEvent('tick-update-for-roadmap'));
       break;
 
     case 'tick:bulk':
       console.log('[CommsStore] Bulk tick sync:', event.ticks.size, 'ticks');
       setTicksFromMap(event.ticks);
+      // Notify roadmap store to refetch
+      window.dispatchEvent(new CustomEvent('tick-update-for-roadmap'));
       break;
 
     case 'activity:updated':

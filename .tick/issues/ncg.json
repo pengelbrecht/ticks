@@ -1,0 +1,21 @@
+{
+  "id": "ncg",
+  "title": "Close out Phase 1: final review, dry-run the new retro on this epic, flesh out Phase 2 (hbz) into ticks",
+  "description": "The close-out task per the convention this very epic introduces (spec §1, docs/design/execution-model-v2-epic-chaining-and-learning-loop.md).\n\n1. Final review of the epic's full diff (skills/ticks/ changes): consistency across SKILL.md, claude-runner.md, tick-patterns.md — same terminology, no duplicated or contradicting guidance, cross-references resolve.\n2. Dry-run the freshly written retro procedure on this epic itself (first real use): harvest tick notes, create .tick/learnings.md if anything qualifies, do outside-in verification of spec §1/§2/§4/§5/§6 against the actual skill text.\n3. Sync installed copy: the live skill at ~/.claude/skills/ticks/ must match skills/ticks/ (check how installation/sync works in this repo — scripts/ or install docs — and follow it).\n4. Flesh out Phase 2 (epic hbz) into ticks per its rough scope, using the new partitioning procedure from tick-patterns.md.\n\nNote: hbz is NOT gated (--awaiting), so per the new two-tier stopping rule, execution flows on into Phase 2.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "vlu",
+    "d74",
+    "5im"
+  ],
+  "parent": "azw",
+  "acceptance_criteria": "Epic diff reviewed for cross-file consistency; retro dry-run done (learnings file created if warranted); hbz has child ticks created with the new procedure",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:33:14.892607Z",
+  "updated_at": "2026-06-10T12:47:54.571891Z",
+  "closed_at": "2026-06-10T12:47:54.571891Z",
+  "closed_reason": "Close-out executed: epic diff reviewed (1 inconsistency found+fixed), retro dry-run done (.tick/learnings.md created with 2 orchestration entries), installed skill synced to ~/.claude/skills/ticks, Phase 2 (hbz) fleshed into 5 ticks (3 waves) with foundation-first procedure"
+}

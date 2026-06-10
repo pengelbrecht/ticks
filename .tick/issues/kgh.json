@@ -1,0 +1,18 @@
+{
+  "id": "kgh",
+  "title": "Execution Model v2 — Phase 4: roadmap surfaces (tk roadmap, TUI, tickboard) and polish",
+  "description": "ROUGH SCOPE — flesh out into ticks when Phase 3 (zk7) closes. Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 (tk changes), phasing row 4.\n\n- tk roadmap: render the epic chain with status (done / active / queued) — tk graph at epic granularity.\n- Roadmap views in TUI (internal/tui) and tickboard (internal/tickboard): epic-chain progress, badges for gated boundaries (--awaiting checkpoint / --requires approval). No new data model — derived from epic + blocked-by + awaiting. Tickboard is the priority surface (human monitoring during long autonomous runs).\n- Base-branch as a first-class epic field (replacing the note convention from phase 3).\n- Learnings-cap lint: warn when .tick/learnings.md exceeds 150 lines.\n- Tickboard UI work follows CLAUDE.md rules: pnpm, ticks-* components, Catppuccin Mocha.",
+  "notes": "2026-06-10 16:15 - RETRO REPORT — Phase 4 (kgh)\nLearnings: 2 process-level entries PROMOTED from .tick/learnings.md into the skill per the new promotion rule (worktree-base-branch -\u003e implementer template boilerplate; cwd drift -\u003e Resuming-a-run warning). 2 new repo-specific entries added (main.go legacy router case list; build-ui.sh embed rebuild). Tick-authoring entry retained. File at ~35 lines, under cap.\nOutside-in verification: tk roadmap VERIFIED live (81 epics, v2 chain renders done/done/done/active); TUI roadmap mode VERIFIED (11 render tests; display-only v1 accepted, noted on tx9 as follow-up candidate); GET /api/roadmap VERIFIED (handler tests + SSE coverage confirmed); tickboard roadmap view VERIFIED (28 Vitest tests, embedded assets rebuilt); base_branch field VERIFIED (dogfooded on kgh itself); learnings lint VERIFIED (fixture: warns, never blocks); graph closed-epic hint VERIFIED live on azw.\nFinal review: 0 blockers, 3 should-fix (all fixed: TUI ready/gated color + needs-planning annotation, CLI queued glyph), 2 nits (fixed inline). Severity policy + foundation-review principle now codified in skill (tick 985).\nScope growth this epic: +jrt (carried-forward graph nit), +985 (capability-tier abstraction, human-requested philosophy). Nothing deferred.\nProposed follow-ups for the human (NOT executed): roadmap-native selection in TUI; PR+CI gate adoption via .tick/config.md once repo has CI wired; ry7 (tk init merge-driver self-heal) still open outside this roadmap; pre-existing flaky TestStreamParser_RealClaudeWithToolUse and 72 baseline UI test failures.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "zk7"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:31:43.255107Z",
+  "updated_at": "2026-06-10T14:15:26.600267Z",
+  "closed_at": "2026-06-10T14:15:26.600267Z",
+  "closed_reason": "All 11 ticks completed via Claude orchestration (5 waves + review-fix round + human-requested scope growth). Retro in epic notes. ROADMAP COMPLETE."
+}

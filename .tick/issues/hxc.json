@@ -1,0 +1,16 @@
+{
+  "id": "hxc",
+  "title": "claude-runner.md: planning an epic creates meta-work ticks (final review + close-out)",
+  "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §3 'Meta-work as ticks'. File: skills/ticks/references/claude-runner.md only.\n\nAdd guidance (a subsection near 'The loop' or where epic planning is discussed) that when the orchestrator fleshes an epic into ticks it ALSO creates the process steps as ticks:\n\nEpic X\n├── \u003cimplementation ticks, waves as usual\u003e\n├── 'Final review of epic X diff'            --blocked-by \u003cevery last-wave implementation tick\u003e\n└── 'Close out epic X: retro + plan \u003cnext\u003e'  --blocked-by \u003cfinal review tick\u003e\n\n- The final-review tick's work: review the epic's full diff (dispatch a reviewer subagent for substantial epics, per the existing 'Reviewing the work' section) and fix or route findings before close-out.\n- The close-out tick already exists as a convention in SKILL.md's Roadmaps section — reference it, don't redefine it. What is NEW here: the final-review step becomes a tick too, and both meta-ticks are created AT PLANNING TIME so the whole process is resumable from tick state alone.\n- Update the numbered loop pseudocode: the 'Run a final review over the epic, then close it' step should note these are now ticks the loop reaches via tk next, not ad-hoc steps.\n- One sentence on why: with meta-work as ticks, every tk next result maps to exactly one action, so a dead session resumes by re-invoking the skill (the full resume procedure is a separate tick — do not write it).\n\nDo NOT touch SKILL.md or tick-patterns.md (another tick owns SKILL.md changes).",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zk7",
+  "acceptance_criteria": "claude-runner.md documents both meta-ticks with their blocker wiring, created at planning time; loop pseudocode references them; no duplication of SKILL.md's close-out definition",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:06:28.885235Z",
+  "updated_at": "2026-06-10T13:16:25.449819Z",
+  "closed_at": "2026-06-10T13:16:25.449819Z",
+  "closed_reason": "Meta-work ticks subsection merged into claude-runner.md (agent DONE)"
+}

@@ -1,0 +1,24 @@
+{
+  "id": "rvl",
+  "title": "Final review of Phase 4 epic diff",
+  "description": "Meta-work tick per the planning-time convention (claude-runner.md, Meta-work ticks). Review the full phase 4 diff before close-out: correctness of query.Roadmap consumer semantics across all three surfaces (CLI/TUI/board agree on status meanings), JSON additivity, UI accessibility + CLAUDE.md compliance (pnpm, ticks-* components, Catppuccin), perf on hot paths, drift. Dispatch a reviewer subagent (the diff spans Go + TypeScript); route findings back to implementers and merge fixes before unblocking close-out.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "kw2",
+    "tx9",
+    "210",
+    "lb4",
+    "2rs",
+    "jrt"
+  ],
+  "parent": "kgh",
+  "acceptance_criteria": "Reviewer findings resolved or explicitly accepted; go test ./... and ui pnpm test green on the final tree",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:24:50.208198Z",
+  "updated_at": "2026-06-10T14:10:17.789978Z",
+  "closed_at": "2026-06-10T14:10:17.789978Z",
+  "closed_reason": "Final review executed: reviewer found 0 blockers, 3 should-fix (TUI ready/gated color + needs-planning annotation, CLI queued glyph), 2 nits — all fixed by original implementers or inline and merged. Clean axes: BFS chain filter, base_branch validation, lint never-blocks, JSON contract incl. waves:null, CLAUDE.md UI compliance, perf (O(n)+Kahn-over-epics), no drift markers"
+}

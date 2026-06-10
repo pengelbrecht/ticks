@@ -1,0 +1,13 @@
+{
+  "id": "ry7",
+  "title": "tk init/upgrade: union-merge activity.jsonl and self-heal merge driver registration",
+  "description": "Two systemic causes of .tick/ merge conflicts when merging branches/worktrees:\n\n1. .tick/activity/activity.jsonl has no merge attribute -\u003e default text merge conflicts whenever two branches both append (the most common .tick conflict). Fix: EnsureGitAttributes (internal/github/git.go) should also write '.tick/activity/activity.jsonl merge=union'. Union merge concatenates both sides' lines without conflict markers; entries are self-contained JSON with a ts field, so interleaved order is harmless. Verify any reader of activity.jsonl tolerates non-chronological line order (sort by ts on read if not).\n\n2. merge.tick.driver is registered via 'git config' (per-clone, .git/config) by tk init only — fresh clones and new machines silently lack it even though the versioned .gitattributes references merge=tick. Fix: self-heal — have tk re-run ConfigureMergeDriver when it detects the attribute present but the driver unconfigured (e.g. on mutating commands, or at least in tk upgrade and a doctor-style check), so issue JSON merges always get the smart driver.\n\nFiles: internal/github/git.go (+ tests in internal/github/git_test.go), cmd/tk/cmd/init.go, possibly cmd/tk/cmd/upgrade.go.\n\nTest cases:\n- EnsureGitAttributes on a repo with the old single-line .gitattributes adds the union line, idempotently (run twice -\u003e one line)\n- Two branches each appending distinct lines to activity.jsonl merge cleanly with merge=union (script-level test or documented manual check)\n- Driver self-heal: clone-like dir with .gitattributes containing merge=tick but no merge.tick.driver in config -\u003e after running tk \u003cmutating cmd or upgrade\u003e, config is set",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "go test ./internal/github/... passes incl. new tests; fresh tk init writes both attribute lines; re-init on existing repo is idempotent",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:39:52.996068Z",
+  "updated_at": "2026-06-10T12:39:52.996068Z"
+}

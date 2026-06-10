@@ -991,6 +991,85 @@ func TestRelease(t *testing.T) {
 	})
 }
 
+func TestBaseBranchJSONRoundTrip(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 30, 0, 0, time.UTC)
+
+	t.Run("base_branch_set_roundtrips", func(t *testing.T) {
+		tk := Tick{
+			ID:         "e1b",
+			Title:      "My epic",
+			Status:     StatusOpen,
+			Priority:   2,
+			Type:       TypeEpic,
+			Owner:      "petere",
+			CreatedBy:  "petere",
+			CreatedAt:  now,
+			UpdatedAt:  now,
+			BaseBranch: "epic/my-feature",
+		}
+
+		data, err := json.Marshal(tk)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if !strings.Contains(string(data), `"base_branch":"epic/my-feature"`) {
+			t.Errorf("JSON missing base_branch field: %s", data)
+		}
+
+		var decoded Tick
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if decoded.BaseBranch != "epic/my-feature" {
+			t.Errorf("BaseBranch round-trip: got %q, want %q", decoded.BaseBranch, "epic/my-feature")
+		}
+	})
+
+	t.Run("base_branch_empty_omitted_from_json", func(t *testing.T) {
+		tk := Tick{
+			ID:        "e1b",
+			Title:     "My epic",
+			Status:    StatusOpen,
+			Priority:  2,
+			Type:      TypeEpic,
+			Owner:     "petere",
+			CreatedBy: "petere",
+			CreatedAt: now,
+			UpdatedAt: now,
+			// BaseBranch is zero value — should be omitted
+		}
+
+		data, err := json.Marshal(tk)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(data), `"base_branch"`) {
+			t.Errorf("JSON should omit empty base_branch: %s", data)
+		}
+	})
+
+	t.Run("base_branch_backwards_compat_absent_in_old_json", func(t *testing.T) {
+		jsonStr := `{
+			"id": "e1b",
+			"title": "My epic",
+			"status": "open",
+			"priority": 2,
+			"type": "epic",
+			"owner": "petere",
+			"created_by": "petere",
+			"created_at": "2025-01-08T10:30:00Z",
+			"updated_at": "2025-01-08T10:30:00Z"
+		}`
+		var decoded Tick
+		if err := json.Unmarshal([]byte(jsonStr), &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if decoded.BaseBranch != "" {
+			t.Errorf("BaseBranch should be empty when absent in JSON, got %q", decoded.BaseBranch)
+		}
+	})
+}
+
 func TestTickflowLeaseValidationAndJSON(t *testing.T) {
 	now := time.Date(2026, 5, 8, 6, 0, 0, 0, time.UTC)
 	expires := now.Add(time.Hour)

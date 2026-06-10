@@ -195,6 +195,7 @@ func ResetFlags() {
 	updateExternalRef = ""
 	updateParent = ""
 	updateManual = ""
+	updateBaseBranch = ""
 	updateRequires = ""
 	updateAwaiting = ""
 	updateVerdict = ""
@@ -213,6 +214,7 @@ func ResetFlags() {
 	updateExternalRefSet = false
 	updateParentSet = false
 	updateManualSet = false
+	updateBaseBranchSet = false
 	updateRequiresSet = false
 	updateAwaitingSet = false
 	updateVerdictSet = false
@@ -268,6 +270,9 @@ func ResetFlags() {
 	// Reset graph flags
 	graphAll = false
 	graphJSON = false
+
+	// Reset roadmap flags
+	roadmapJSON = false
 
 	// Reset status flags
 	statusJSON = false
