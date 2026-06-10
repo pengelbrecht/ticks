@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        # -short skips live-API/CLI integration tests (internal/agent), which
+        # also self-skip when the claude CLI is absent.
+        run: go test -short ./...
+
+  ui:
+    runs-on: ubuntu-latest
+    # Known baseline: 72 pre-existing test failures in 3 files (see PR #9 notes).
+    # Non-blocking until that baseline is fixed; flip to blocking afterwards.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: internal/tickboard/ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: internal/tickboard/ui/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
