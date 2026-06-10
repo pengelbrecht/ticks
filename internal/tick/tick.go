@@ -76,26 +76,12 @@ type Tick struct {
 	Requires           *string        `json:"requires,omitempty"`
 	Awaiting           *string        `json:"awaiting,omitempty"`
 	Verdict            *string        `json:"verdict,omitempty"`
-	CreatedBy          string         `json:"created_by"`
-	CreatedAt          time.Time      `json:"created_at"`
-	UpdatedAt          time.Time      `json:"updated_at"`
-	StartedAt          *time.Time     `json:"started_at,omitempty"`
-	ClosedAt           *time.Time     `json:"closed_at,omitempty"`
-	ClosedReason       string         `json:"closed_reason,omitempty"`
-	TickflowLease      *TickflowLease `json:"tickflow_lease,omitempty"`
-}
-
-// TickflowLease records transient ownership metadata for Pi tickflow-style
-// schedulers. It is optional and backwards-compatible: ordinary tk commands do
-// not require it, but runners can use it to recover stale in_progress work.
-type TickflowLease struct {
-	Runner     string     `json:"runner,omitempty"`
-	SessionID  string     `json:"session_id,omitempty"`
-	Attempt    int        `json:"attempt,omitempty"`
-	Worktree   string     `json:"worktree,omitempty"`
-	Owner      string     `json:"owner,omitempty"`
-	AcquiredAt time.Time  `json:"acquired_at"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	CreatedBy          string     `json:"created_by"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	StartedAt          *time.Time `json:"started_at,omitempty"`
+	ClosedAt           *time.Time `json:"closed_at,omitempty"`
+	ClosedReason       string     `json:"closed_reason,omitempty"`
 }
 
 // Validate checks required fields and enum values.
@@ -141,14 +127,6 @@ func (t Tick) Validate() error {
 	}
 	if t.Verdict != nil && !isVerdictValid(*t.Verdict) {
 		errs = append(errs, fmt.Errorf("invalid verdict: %s", *t.Verdict))
-	}
-	if t.TickflowLease != nil {
-		if t.TickflowLease.Attempt < 0 {
-			errs = append(errs, fmt.Errorf("tickflow_lease attempt must be >= 0, got %d", t.TickflowLease.Attempt))
-		}
-		if t.TickflowLease.AcquiredAt.IsZero() {
-			errs = append(errs, errors.New("tickflow_lease acquired_at is required"))
-		}
 	}
 
 	return errors.Join(errs...)
@@ -269,12 +247,5 @@ func (t *Tick) Release() {
 	now := time.Now().UTC()
 	t.Status = StatusOpen
 	t.StartedAt = nil
-	t.TickflowLease = nil
 	t.UpdatedAt = now
-}
-
-// HasExpiredTickflowLease reports whether the optional tickflow lease expired
-// at the supplied time. Missing leases and leases without an expiry are active.
-func (t *Tick) HasExpiredTickflowLease(now time.Time) bool {
-	return t.TickflowLease != nil && t.TickflowLease.ExpiresAt != nil && now.After(*t.TickflowLease.ExpiresAt)
 }
