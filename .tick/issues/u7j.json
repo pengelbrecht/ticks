@@ -2,7 +2,7 @@
   "id": "u7j",
   "title": "Close out epic vuq: retro + learnings promotion",
   "description": "Orchestrator meta-tick: epic-close retro per the ticks skill — harvest, promote learnings by tier, compact learnings.md, outside-in verification (build + run tk, tk board smoke), drift review, retro report as close reason.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "vuq",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T18:04:52.084375Z",
-  "updated_at": "2026-06-10T18:04:52.084375Z"
+  "updated_at": "2026-06-10T19:33:02.534767Z",
+  "closed_at": "2026-06-10T19:33:02.534767Z",
+  "closed_reason": "Completed: retro run — learnings updated (2 entries, 71/150 lines), outside-in verification of all scope items against the built binary, drift review via frontier-tier final review with all fixes merged, report on epic tick"
 }

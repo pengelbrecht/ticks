@@ -2,7 +2,7 @@
   "id": "ips",
   "title": "Delete dead code: internal/recovery, internal/streamtest, stale top-level dirs",
   "description": "Context: verified-dead code with zero importers anywhere in the repo:\n- internal/recovery/ (~1,100 LOC stale-tick recovery; grep for 'internal/recovery' finds no imports outside the package)\n- internal/streamtest/ (a 6-line hello-world leftover)\n- .ticker/ (stale checkpoints dir), .tickflow-bin/ (wrapper for the old Tickflow runner), prototypes/lit-shoelace-board/ (superseded by the embedded board), benchmarks/ (perf data artifacts)\n\nDeliverable: remove all of the above in one commit.\n\nProcedure: before deleting each item, re-verify zero references with grep across code, scripts, CI, and docs: grep -rn 'internal/recovery|internal/streamtest|tickflow-bin|\\.ticker|prototypes/|benchmarks/' --include='*' . (excluding .git). If a doc or script references one (e.g. docs mentioning benchmarks/), update that reference in the same commit. Run go mod tidy afterward in case deleted packages were sole users of a dependency.\n\nTest cases / verification:\n- go build ./... succeeds\n- go test ./... fully green\n- the grep above returns no hits outside .git and the activity log\n\nFiles likely touched: deletions of the dirs listed above, possibly go.mod/go.sum (tidy), possibly a doc file referencing benchmarks.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,6 +10,7 @@
   "acceptance_criteria": "Listed dirs deleted with no dangling references (grep clean); go build ./... and go test ./... green; go.mod/go.sum tidied",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:24:46.598699Z",
-  "updated_at": "2026-06-10T18:05:01.844978Z",
-  "started_at": "2026-06-10T18:05:01.844978Z"
+  "updated_at": "2026-06-10T19:35:01.690061Z",
+  "closed_at": "2026-06-10T19:35:01.690061Z",
+  "closed_reason": "Completed: deleted internal/recovery, internal/streamtest, .ticker/, stale .tickflow-bin/tk, prototypes/, benchmarks/ (-3917 LOC); refs updated; go mod tidied. (Re-closed: original close was uncommitted working-tree state wiped when an implementer reset the shared checkout - see epic retro.)"
 }

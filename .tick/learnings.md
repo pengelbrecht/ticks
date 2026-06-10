@@ -21,8 +21,15 @@ action and let the implementation derive the predicate — and state the consume
 installed binary.
 **Cause:** `cmd/tk/main.go` has a legacy routing switch with a hard-coded case list; every
 cobra command must also be added there.
-**Rule:** When adding a `tk` subcommand, register it in BOTH `cmd/tk/cmd/*.go` (cobra) and the
-switch + usage text in `cmd/tk/main.go`.
+**Rule:** Register new subcommands in BOTH `cmd/tk/cmd/*.go` (cobra) and the switch + usage
+text in `cmd/tk/main.go`. `TestLegacyDispatchCoversAllCobraCommands` (main_test.go) now fails
+on omissions — keep it passing rather than skipping it.
+
+**Problem:** In-process command tests hang or silently no-op when run after other tests.
+**Cause:** cobra state leaks across in-process executions: flag values persist, the --help
+flag value short-circuits later commands, and contexts only propagate to commands with nil ctx.
+**Rule:** Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext` (cmd/tk/cmd/root.go),
+which reset flags and handle these quirks — never call `rootCmd.Execute()` directly.
 
 **Problem:** Tickboard UI changes pass `pnpm test` but don't appear in the running `tk board`.
 **Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`;
