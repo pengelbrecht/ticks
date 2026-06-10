@@ -226,13 +226,9 @@ export class TickCard extends LitElement {
       font-size: 0.625rem;
     }
 
-    .working-time {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      font-size: 0.625rem;
+    .meta-badge.elapsed-time {
+      background: rgba(250, 179, 135, 0.15);
       color: var(--peach);
-      margin-top: 0.375rem;
     }
   `;
 
@@ -337,6 +333,18 @@ export class TickCard extends LitElement {
     }
   }
 
+  private renderElapsedBadge() {
+    if (!this.elapsedTime || !this.tick.started_at) {
+      return null;
+    }
+    const absoluteTime = new Date(this.tick.started_at).toLocaleString();
+    return html`
+      <sl-tooltip content="Started: ${absoluteTime}">
+        <span class="meta-badge elapsed-time">⏱ ${this.elapsedTime}</span>
+      </sl-tooltip>
+    `;
+  }
+
   render() {
     const { tick, selected, focused, epicName } = this;
 
@@ -374,14 +382,11 @@ export class TickCard extends LitElement {
             ? html`<span class="meta-badge awaiting">⏳ ${tick.awaiting}</span>`
             : null}
           ${this.renderVerificationBadge()}
+          ${this.renderElapsedBadge()}
         </div>
 
         ${epicName
           ? html`<div class="epic-name">${epicName}</div>`
-          : null}
-
-        ${this.elapsedTime
-          ? html`<div class="working-time">⏱ Working for ${this.elapsedTime}</div>`
           : null}
       </div>
     `;
