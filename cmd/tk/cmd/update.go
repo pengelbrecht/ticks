@@ -167,7 +167,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if updateStatusSet {
 		switch updateStatus {
 		case tick.StatusInProgress:
-			t.Start()
+			// Idempotent re-claim: an already-in_progress tick keeps its
+			// started_at (no activity entry is emitted either, so resetting
+			// it would break the stale-recovery invariant).
+			if t.Status != tick.StatusInProgress {
+				t.Start()
+			}
 			t.ClosedAt = nil
 			t.ClosedReason = ""
 		case tick.StatusOpen:
@@ -175,6 +180,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 				t.Release()
 			} else {
 				t.Status = updateStatus
+				t.StartedAt = nil
 			}
 			t.ClosedAt = nil
 			t.ClosedReason = ""

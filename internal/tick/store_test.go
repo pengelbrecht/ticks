@@ -2,7 +2,6 @@ package tick
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -284,27 +283,4 @@ func TestActivityLastActivityAfterStart(t *testing.T) {
 	if lastActivity.After(afterWrite) {
 		t.Errorf("last_activity %v should be <= afterWrite %v", lastActivity, afterWrite)
 	}
-}
-
-// readActivityFromFile reads the raw activity.jsonl file and returns all entries.
-func readActivityFromFile(t *testing.T, root string) []map[string]interface{} {
-	t.Helper()
-	logPath := filepath.Join(root, "activity", "activity.jsonl")
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("read activity file: %v", err)
-	}
-
-	var entries []map[string]interface{}
-	for _, line := range splitLines(data) {
-		if len(line) == 0 {
-			continue
-		}
-		var m map[string]interface{}
-		if err := json.Unmarshal(line, &m); err != nil {
-			continue
-		}
-		entries = append(entries, m)
-	}
-	return entries
 }
