@@ -195,15 +195,16 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	query.SortByPriorityCreatedAt(filtered)
 
-	// Resolve last-activity timestamps for in_progress ticks (used by both
-	// JSON and human-readable output paths).
-	lastActivity := make(map[string]*time.Time, len(filtered))
+	// Resolve last-activity timestamps for in_progress ticks in a single
+	// pass over the activity log (used by both JSON and human-readable
+	// output paths).
+	var inProgressIDs []string
 	for _, t := range filtered {
 		if t.Status == tick.StatusInProgress {
-			ts, _ := store.LastActivityForTick(t.ID) // ignore errors; best-effort
-			lastActivity[t.ID] = ts
+			inProgressIDs = append(inProgressIDs, t.ID)
 		}
 	}
+	lastActivity, _ := store.LastActivityForTicks(inProgressIDs) // ignore errors; best-effort
 
 	if listJSON {
 		enriched := make([]tickWithActivity, len(filtered))

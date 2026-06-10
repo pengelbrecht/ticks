@@ -210,3 +210,95 @@ func TestLastActivityForTick_NoEntriesForTick(t *testing.T) {
 		t.Errorf("expected nil for tick with no entries, got %v", *got)
 	}
 }
+
+// writeActivityLines writes raw lines to a store's activity.jsonl, creating
+// the directory as needed.
+func writeActivityLines(t *testing.T, tickDir string, lines ...string) {
+	t.Helper()
+	activityDir := filepath.Join(tickDir, "activity")
+	if err := os.MkdirAll(activityDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var content string
+	for _, l := range lines {
+		content += l + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(activityDir, "activity.jsonl"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLastActivityForTicks_Bulk verifies a single scan resolves max
+// timestamps for multiple ticks at once, with out-of-order entries,
+// malformed lines, and IDs without entries.
+func TestLastActivityForTicks_Bulk(t *testing.T) {
+	dir := t.TempDir()
+	tickDir := filepath.Join(dir, ".tick")
+	store := NewStore(tickDir)
+
+	aMax := time.Date(2026, 5, 1, 15, 0, 0, 0, time.UTC)
+	bMax := time.Date(2026, 5, 2, 9, 30, 0, 0, time.UTC)
+
+	writeActivityLines(t, tickDir,
+		// tick "aaa": out of order, max first
+		fmt.Sprintf(`{"ts":%q,"tick":"aaa","action":"update","actor":"x"}`, aMax.Format(time.RFC3339Nano)),
+		fmt.Sprintf(`{"ts":%q,"tick":"aaa","action":"create","actor":"x"}`, aMax.Add(-3*time.Hour).Format(time.RFC3339Nano)),
+		`NOT VALID JSON`,
+		// tick "bbb": single entry
+		fmt.Sprintf(`{"ts":%q,"tick":"bbb","action":"create","actor":"x"}`, bMax.Format(time.RFC3339Nano)),
+		// unrelated tick, newer than everything — must not leak into results
+		fmt.Sprintf(`{"ts":%q,"tick":"zzz","action":"create","actor":"x"}`, bMax.Add(24*time.Hour).Format(time.RFC3339Nano)),
+	)
+
+	got, err := store.LastActivityForTicks([]string{"aaa", "bbb", "nope"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ts := got["aaa"]; ts == nil || !ts.Equal(aMax) {
+		t.Errorf("aaa: expected %v, got %v", aMax, ts)
+	}
+	if ts := got["bbb"]; ts == nil || !ts.Equal(bMax) {
+		t.Errorf("bbb: expected %v, got %v", bMax, ts)
+	}
+	if ts, present := got["nope"]; present && ts != nil {
+		t.Errorf("nope: expected absent/nil, got %v", *ts)
+	}
+	if ts, present := got["zzz"]; present && ts != nil {
+		t.Errorf("zzz: was not requested but present with %v", *ts)
+	}
+}
+
+// TestLastActivityForTicks_MissingFile verifies an empty map and no error
+// when the activity log does not exist.
+func TestLastActivityForTicks_MissingFile(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(filepath.Join(dir, ".tick"))
+
+	got, err := store.LastActivityForTicks([]string{"abc", "def"})
+	if err != nil {
+		t.Fatalf("expected no error for missing file, got: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty result for missing file, got %v", got)
+	}
+}
+
+// TestLastActivityForTicks_EmptyIDs verifies no result (and no error) for an
+// empty/nil ID slice even when the log exists.
+func TestLastActivityForTicks_EmptyIDs(t *testing.T) {
+	dir := t.TempDir()
+	tickDir := filepath.Join(dir, ".tick")
+	store := NewStore(tickDir)
+
+	if err := store.LogActivity("abc", ActivityCreate, "a@b.com", "", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.LastActivityForTicks(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty result for nil ids, got %v", got)
+	}
+}
