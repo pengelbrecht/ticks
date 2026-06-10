@@ -1,0 +1,16 @@
+{
+  "id": "1qp",
+  "title": "Fix the 3 failing tick-create-dialog tests",
+  "description": "Pre-existing: 3 of the 72 baseline UI failures are in internal/tickboard/ui/src/components/tick-create-dialog.test.ts. Diagnose by running pnpm test src/components/tick-create-dialog.test.ts and reading the errors; fix the tests (or the component, if the tests document intended behavior the component lost — justify in report). Do NOT touch src/comms/** (a parallel tick owns it).\n\nPer project CLAUDE.md: pnpm only; ticks-* components; custom events bubbles+composed.\n\nRun: cd internal/tickboard/ui \u0026\u0026 pnpm test src/components/tick-create-dialog.test.ts",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "jw0",
+  "acceptance_criteria": "The 3 tests pass; full pnpm test shows no new failures; comms files untouched",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T14:43:59.018416Z",
+  "updated_at": "2026-06-10T14:49:13.400631Z",
+  "closed_at": "2026-06-10T14:49:13.400631Z",
+  "closed_reason": "3 dialog tests fixed: rotted after manual-checkbox -\u003e workflow-select refactor; tests updated to current component behavior, no component changes"
+}

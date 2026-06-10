@@ -31,9 +31,8 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
-    # Known baseline: 72 pre-existing test failures in 3 files (see PR #9 notes).
-    # Non-blocking until that baseline is fixed; flip to blocking afterwards.
-    continue-on-error: true
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     defaults:
       run:
         working-directory: internal/tickboard/ui
@@ -43,6 +42,9 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
+        with:
+          # packageManager lives in the nested UI package.json, not the repo root
+          package_json_file: internal/tickboard/ui/package.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v6

@@ -152,16 +152,17 @@ describe('tick-create-dialog', () => {
       expect(labelsInput).not.toBeNull();
     });
 
-    it('renders manual task checkbox', async () => {
-      const checkbox = element.shadowRoot?.querySelector('sl-checkbox');
-      expect(checkbox).not.toBeNull();
-      expect(checkbox?.textContent).toContain('Manual task');
+    it('renders workflow select dropdown', async () => {
+      const workflowSelect = Array.from(element.shadowRoot?.querySelectorAll('sl-select') || []).find(
+        s => s.getAttribute('placeholder') === 'Agent task (default)'
+      );
+      expect(workflowSelect).not.toBeNull();
     });
 
-    it('manual checkbox has help text', async () => {
+    it('workflow select has help text', async () => {
       const helpText = element.shadowRoot?.querySelector('.checkbox-help');
       expect(helpText).not.toBeNull();
-      expect(helpText?.textContent).toContain('Manual tasks require human intervention');
+      expect(helpText?.textContent).toContain('Leave empty for agent-automated tasks');
     });
   });
 
@@ -835,7 +836,7 @@ describe('tick-create-dialog', () => {
         expect(handler.mock.calls[0][0].detail.labels).toEqual(['bug', 'urgent', 'frontend']);
       });
 
-      it('tick-created event includes manual flag', async () => {
+      it('tick-created event includes awaiting flag', async () => {
         const mockTick = { id: 'abc', title: 'Test' };
         mockCreateTick.mockResolvedValue(mockTick);
 
@@ -847,10 +848,12 @@ describe('tick-create-dialog', () => {
         input.value = 'Test';
         input.dispatchEvent(new CustomEvent('sl-input', { bubbles: true }));
 
-        // Check manual checkbox
-        const checkbox = element.shadowRoot?.querySelector('sl-checkbox') as any;
-        checkbox.checked = true;
-        checkbox.dispatchEvent(new CustomEvent('sl-change', { bubbles: true }));
+        // Select workflow awaiting state
+        const workflowSelect = Array.from(element.shadowRoot?.querySelectorAll('sl-select') || []).find(
+          s => s.getAttribute('placeholder') === 'Agent task (default)'
+        ) as any;
+        workflowSelect.value = 'work';
+        workflowSelect.dispatchEvent(new CustomEvent('sl-change', { bubbles: true }));
 
         await element.updateComplete;
 
@@ -862,7 +865,7 @@ describe('tick-create-dialog', () => {
           expect(handler).toHaveBeenCalled();
         });
 
-        expect(handler.mock.calls[0][0].detail.manual).toBe(true);
+        expect(handler.mock.calls[0][0].detail.awaiting).toBe('work');
       });
 
       it('closes dialog after successful creation', async () => {
