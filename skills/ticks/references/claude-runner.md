@@ -168,7 +168,7 @@ tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 
 Always pass `--reason` with a concrete summary — never a bare `tk close <id>`. The reason appears in the activity feed and in the retro harvest; vague or absent reasons make the retro harder.
 
-Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Hold that invariant: **agents implement; the orchestrator owns tick state.** The check in step 1 is how you *enforce* it rather than hope for it: if the diff shows `.tick/` changes, strip them out of the merge instead of letting them collide with your state updates:
+Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Commit your tick-state mutations immediately after making them — uncommitted `.tick/` edits in the shared checkout can be wiped by a stray agent `git restore` (it has happened), and the loss looks like a clean tree. Hold that invariant: **agents implement; the orchestrator owns tick state.** The check in step 1 is how you *enforce* it rather than hope for it: if the diff shows `.tick/` changes, strip them out of the merge instead of letting them collide with your state updates:
 
 ```bash
 git merge --no-commit <agent-branch>

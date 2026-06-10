@@ -69,3 +69,14 @@ Go types updated but the UI's generated TS stale (or vice versa).
 `scripts/build-ui.sh` regenerates internal/tickboard/ui/src/types/generated/websocket/*.
 **Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
 all regenerated output together.
+
+## Orchestration
+
+**Problem:** A tick's close vanished — the tracker showed it in_progress at epic close despite
+a successful tk close hours earlier.
+**Cause:** tk mutations are working-tree file edits; an implementer agent mistakenly ran
+git-restore against the shared checkout and wiped uncommitted tick state. A later "tree is
+clean" check read the wipe as healthy.
+**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note) —
+before merging any agent branch or launching agents. If an implementer reports having touched
+the shared checkout, diff tick state against the activity log before trusting the tree.
