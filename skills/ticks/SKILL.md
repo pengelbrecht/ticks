@@ -161,6 +161,13 @@ tk create "Close out <epic A>: run epic retro, then flesh out <epic B> into tick
 
 Executing this task means: run the epic-close retro (see `references/claude-runner.md`), then read epic B's rough scope, partition it into child ticks, and continue with `tk graph <B>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
 
+**Planning triggers from `tk`.** Two CLI signals tell you that an epic needs to be fleshed out now:
+
+- `tk next <roadmap-epic> --json` returns `{"action":"plan",...}` when the next item is an unblocked childless epic. Human-readable output looks like `<id>  P<n> epic  <title>  (needs planning — no child ticks)`. The `action` field is present on **all** `tk next --json` results: `implement` for a ready task, `plan` for an unplannable epic, and `await` for `--awaiting` mode results — so orchestration can branch on it directly.
+- `tk graph <epic> --json` returns `{"needs_planning": true,...}` when that specific epic is plannable now (zero children and unblocked). Blocked childless epics and fully-closed-children epics carry `false` with explanatory human output.
+
+When either signal fires, the move is: flesh the epic out into child ticks (per the roadmap guidance above and the foundation-first procedure in `references/tick-patterns.md`), then continue with `tk graph <epic>`.
+
 **Human gates are chosen at roadmap creation time.** Create a downstream epic with `--awaiting checkpoint` or `--requires approval` to force a stop at that boundary. Without either flag the run auto-continues through the boundary. Default: **auto-continue**.
 
 ```bash
@@ -244,7 +251,7 @@ tk close <id> --reason "Completed - connection string in .env"
 
 Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`**; the shape is:
 
-1. `tk graph <epic-id> --json` — get the waves and how wide you can run.
+1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
 2. For each wave, launch one subagent per ready tick — **all in one message**, each in its own git worktree (`isolation: "worktree"`), in the background.
 3. Wait for the completion notifications (no polling), merge each finished tick's branch, and update tick state.
 4. Move to the next wave; review and close the epic when everything's done.
@@ -276,10 +283,11 @@ tk list -t epic              # Epics only
 tk list --parent <epic-id>   # Tasks in epic
 tk ready                     # Unblocked tasks
 tk next <epic-id>            # Next task for agent
+tk next <epic-id> --json     # JSON: action field is "implement" | "plan" | "await"
 tk blocked                   # Blocked tasks
 tk list --awaiting=          # Tasks awaiting human
 tk graph <epic-id>           # Dependency graph with parallelization
-tk graph <epic-id> --json    # JSON output for agents
+tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks
 ```
 
 ### Managing
