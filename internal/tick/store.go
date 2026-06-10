@@ -342,6 +342,89 @@ func (s *Store) ReadActivity(limit int) ([]Activity, error) {
 	return activities, nil
 }
 
+// LastActivityForTick scans activity.jsonl and returns the maximum timestamp
+// found for the given tickID. Returns nil if the file is missing, the tick has
+// no entries, or all lines for the tick are malformed. Never returns an error
+// for a missing file or malformed lines — only for genuine I/O failures.
+func (s *Store) LastActivityForTick(tickID string) (*time.Time, error) {
+	logPath := filepath.Join(s.Root, "activity", "activity.jsonl")
+	f, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("open activity log: %w", err)
+	}
+	defer f.Close()
+
+	// minimalActivity contains only the fields we need; avoids allocating full
+	// Data maps for every line in what can be a large file.
+	type minimalActivity struct {
+		Timestamp time.Time `json:"ts"`
+		TickID    string    `json:"tick"`
+	}
+
+	var maxTS *time.Time
+	buf := make([]byte, 0, 4096)
+	tmp := make([]byte, 4096)
+	lineStart := 0
+
+	// Single-pass scan: read chunks and process complete lines.
+	for {
+		n, readErr := f.Read(tmp)
+		buf = append(buf, tmp[:n]...)
+		for {
+			idx := -1
+			for i := lineStart; i < len(buf); i++ {
+				if buf[i] == '\n' {
+					idx = i
+					break
+				}
+			}
+			if idx < 0 {
+				break
+			}
+			line := buf[lineStart:idx]
+			lineStart = idx + 1
+			if len(line) == 0 {
+				continue
+			}
+			var a minimalActivity
+			if err := json.Unmarshal(line, &a); err != nil {
+				continue // skip malformed lines
+			}
+			if a.TickID != tickID {
+				continue
+			}
+			if maxTS == nil || a.Timestamp.After(*maxTS) {
+				ts := a.Timestamp
+				maxTS = &ts
+			}
+		}
+		// Compact consumed bytes.
+		if lineStart > 0 {
+			buf = append(buf[:0], buf[lineStart:]...)
+			lineStart = 0
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	// Handle any trailing line without a final newline.
+	if len(buf) > 0 {
+		var a minimalActivity
+		if err := json.Unmarshal(buf, &a); err == nil && a.TickID == tickID {
+			if maxTS == nil || a.Timestamp.After(*maxTS) {
+				ts := a.Timestamp
+				maxTS = &ts
+			}
+		}
+	}
+
+	return maxTS, nil
+}
+
 // splitLines splits data by newlines without allocating empty strings.
 func splitLines(data []byte) [][]byte {
 	var lines [][]byte

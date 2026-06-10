@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -15,10 +16,25 @@ import (
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
+// tickWithActivity augments a tick.Tick with an optional last_activity field
+// for JSON output. The field is only populated for in_progress ticks.
+type tickWithActivity struct {
+	tick.Tick
+	LastActivity *time.Time `json:"last_activity,omitempty"`
+}
+
 // listOutput wraps the output for JSON formatting.
+// Also used by ready.go — keep Ticks as []tick.Tick.
 type listOutput struct {
 	Ticks   []tick.Tick `json:"ticks"`
 	Filters *listFilter `json:"filters,omitempty"`
+}
+
+// listOutputEnriched is the JSON output for the list command; it adds
+// last_activity to in_progress ticks via tickWithActivity.
+type listOutputEnriched struct {
+	Ticks   []tickWithActivity `json:"ticks"`
+	Filters *listFilter        `json:"filters,omitempty"`
 }
 
 // listFilter captures the search/filter options applied to list output.
@@ -179,8 +195,22 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	query.SortByPriorityCreatedAt(filtered)
 
+	// Resolve last-activity timestamps for in_progress ticks (used by both
+	// JSON and human-readable output paths).
+	lastActivity := make(map[string]*time.Time, len(filtered))
+	for _, t := range filtered {
+		if t.Status == tick.StatusInProgress {
+			ts, _ := store.LastActivityForTick(t.ID) // ignore errors; best-effort
+			lastActivity[t.ID] = ts
+		}
+	}
+
 	if listJSON {
-		output := listOutput{Ticks: filtered}
+		enriched := make([]tickWithActivity, len(filtered))
+		for i, t := range filtered {
+			enriched[i] = tickWithActivity{Tick: t, LastActivity: lastActivity[t.ID]}
+		}
+		output := listOutputEnriched{Ticks: enriched}
 		// Include filter metadata if any search filters are present
 		if filter.TitleContains != "" || filter.DescContains != "" || filter.NotesContains != "" || len(filter.LabelAny) > 0 {
 			output.Filters = &listFilter{
@@ -222,16 +252,41 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 
 		statusIcon := styles.RenderTickStatusWithBlocked(t, isBlocked)
+		title := t.Title
+		// For in_progress ticks, append relative age if available.
+		if t.Status == tick.StatusInProgress {
+			if ts := lastActivity[t.ID]; ts != nil {
+				title = fmt.Sprintf("%s  %s", title, relativeAge(*ts, time.Now()))
+			}
+		}
 		fmt.Printf(" %-4s  %s  %-7s  %s   %s\n",
 			t.ID,
 			styles.RenderPriority(t.Priority),
 			styles.RenderType(t.Type),
 			statusIcon,
-			t.Title,
+			title,
 		)
 	}
 	fmt.Printf("\n%d ticks\n", len(filtered))
 	return nil
+}
+
+// relativeAge returns a human-readable relative duration string, e.g. "2h", "3m", "1d".
+func relativeAge(ts, now time.Time) string {
+	d := now.Sub(ts)
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
 }
 
 // resolveOwner resolves the owner to use based on flags.
