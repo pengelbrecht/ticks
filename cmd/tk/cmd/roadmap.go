@@ -133,7 +133,9 @@ func renderEpicGlyph(re query.RoadmapEpic) string {
 	case "gated":
 		return styles.StatusAwaitingStyle.Render(styles.IconAwaiting)
 	case "queued":
-		return styles.StatusBlockedStyle.Render(styles.IconBlocked)
+		// Queued is a planned state (waiting on an upstream epic), not a
+		// problem — render muted gray (matching the TUI/web), not blocked-red.
+		return styles.StatusOpenStyle.Render(styles.IconBlocked)
 	case "ready":
 		// Open, unblocked, zero children — needs planning. Use open circle dimmed.
 		return styles.StatusOpenStyle.Render(styles.IconOpen)
@@ -232,7 +234,7 @@ func renderRoadmapHuman(roadmap query.Roadmap) error {
 		styles.StatusClosedStyle.Render(styles.IconClosed) + " done",
 		styles.StatusInProgressStyle.Render(styles.IconInProgress) + " active",
 		styles.StatusOpenStyle.Render(styles.IconOpen) + " ready",
-		styles.StatusBlockedStyle.Render(styles.IconBlocked) + " queued",
+		styles.StatusOpenStyle.Render(styles.IconBlocked) + " queued",
 		styles.StatusAwaitingStyle.Render(styles.IconAwaiting) + " gated",
 	}, "  ")
 	fmt.Printf("%s %s\n\n", styles.DimStyle.Render("Legend:"), legend)

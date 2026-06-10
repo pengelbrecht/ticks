@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/query"
+	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -284,6 +285,36 @@ func TestRenderRoadmapHuman_SummaryLine(t *testing.T) {
 	}
 	if !strings.Contains(out, "1 ready") {
 		t.Errorf("expected '1 ready' in summary; got:\n%s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// renderEpicGlyph style tests
+// ---------------------------------------------------------------------------
+
+// TestRenderEpicGlyph_Styles pins the glyph + style per status. In particular,
+// "queued" must render as a MUTED gray ⊘ (StatusOpenStyle), not blocked-red:
+// queued means "waiting on an upstream epic" — a planned state, not a problem.
+// This matches the TUI and web roadmap renderings.
+func TestRenderEpicGlyph_Styles(t *testing.T) {
+	cases := []struct {
+		status string
+		want   string
+	}{
+		{"done", styles.StatusClosedStyle.Render(styles.IconClosed)},
+		{"active", styles.StatusInProgressStyle.Render(styles.IconInProgress)},
+		{"gated", styles.StatusAwaitingStyle.Render(styles.IconAwaiting)},
+		{"queued", styles.StatusOpenStyle.Render(styles.IconBlocked)},
+		{"ready", styles.StatusOpenStyle.Render(styles.IconOpen)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.status, func(t *testing.T) {
+			got := renderEpicGlyph(query.RoadmapEpic{ID: "x", Status: tc.status})
+			if got != tc.want {
+				t.Errorf("glyph for %q: got %q, want %q", tc.status, got, tc.want)
+			}
+		})
 	}
 }
 
