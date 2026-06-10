@@ -151,6 +151,14 @@ func resetCobraFlags(cmd *cobra.Command) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		f.Changed = false
 	})
+	// Cobra's auto-generated --help flag is read by value, not by Changed. If a
+	// prior invocation in this process passed --help, the value sticks to "true"
+	// and every later command short-circuits to printing help. Restore it to its
+	// default so ExecuteArgs can be reused across commands (tests, legacy run()).
+	if helpFlag := cmd.Flags().Lookup("help"); helpFlag != nil {
+		_ = helpFlag.Value.Set(helpFlag.DefValue)
+		helpFlag.Changed = false
+	}
 	for _, subCmd := range cmd.Commands() {
 		resetCobraFlags(subCmd)
 	}
@@ -336,6 +344,11 @@ func ResetFlags() {
 	mergeDeleteBranch = true
 	mergeDryRun = false
 	mergeYes = false
+
+	// Reset board flags
+	boardPort = 3000
+	boardCloud = false
+	boardDev = false
 }
 
 // SetVersion allows main.go to set the version at initialization
