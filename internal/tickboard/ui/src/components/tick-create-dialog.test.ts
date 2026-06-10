@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { LitElement } from 'lit';
+import { styleText } from '../test-utils/styles.js';
 import './tick-create-dialog.js';
 import type { TickCreateDialog } from './tick-create-dialog.js';
 
@@ -608,9 +609,7 @@ describe('tick-create-dialog', () => {
 
     it('error message has correct styling', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.error-message');
       expect(cssText).toContain('var(--red)');
@@ -899,9 +898,7 @@ describe('tick-create-dialog', () => {
   describe('CSS styling', () => {
     it('dialog panel has correct width', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('width: 480px');
       expect(cssText).toContain('max-width: 95vw');
@@ -909,9 +906,7 @@ describe('tick-create-dialog', () => {
 
     it('dialog uses Catppuccin theme colors', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('var(--base)');
       expect(cssText).toContain('var(--surface0)');
@@ -920,9 +915,7 @@ describe('tick-create-dialog', () => {
 
     it('form fields have proper spacing', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.form-field');
       expect(cssText).toContain('margin-bottom: 1rem');
@@ -930,9 +923,7 @@ describe('tick-create-dialog', () => {
 
     it('form row uses flex layout', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.form-row');
       expect(cssText).toContain('display: flex');
@@ -941,9 +932,7 @@ describe('tick-create-dialog', () => {
 
     it('required asterisk uses red color', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.required');
       expect(cssText).toContain('var(--red)');
@@ -951,9 +940,7 @@ describe('tick-create-dialog', () => {
 
     it('epic-id badge has monospace font', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.epic-id');
       expect(cssText).toContain('--sl-font-mono');
@@ -961,9 +948,7 @@ describe('tick-create-dialog', () => {
 
     it('footer buttons are right-aligned', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.footer-buttons');
       expect(cssText).toContain('justify-content: flex-end');

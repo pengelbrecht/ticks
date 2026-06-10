@@ -843,7 +843,8 @@ export class TickBoard extends LitElement {
     const { tickId } = e.detail;
     try {
       const response = await import('../stores/comms.js').then(m => m.approveTick(tickId));
-      updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
+      // updateTick recomputes is_blocked/column via tickToBoardTick, so pass the raw Tick.
+      updateTick(response);
       window.showToast?.({ message: `Resumed tick ${tickId}`, variant: 'success' });
     } catch (err) {
       window.showToast?.({ message: `Failed to resume ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
@@ -858,7 +859,8 @@ export class TickBoard extends LitElement {
     const { tickId } = e.detail;
     try {
       const response = await import('../stores/comms.js').then(m => m.reopenTick(tickId));
-      updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
+      // updateTick recomputes is_blocked/column via tickToBoardTick, so pass the raw Tick.
+      updateTick(response);
       window.showToast?.({ message: `Retrying tick ${tickId}`, variant: 'success' });
     } catch (err) {
       window.showToast?.({ message: `Failed to retry ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });

@@ -3,7 +3,7 @@
  * Tests the read operations without external dependencies.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CloudCommsClient } from './cloud.js';
 import type { Tick } from '../types/tick.js';
 
