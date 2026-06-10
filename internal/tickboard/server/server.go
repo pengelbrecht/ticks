@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
@@ -24,52 +23,6 @@ import (
 
 //go:embed static/*
 var staticFS embed.FS
-
-// CloudClient interface for cloud sync.
-// Uses interface{} to avoid import cycles between server and cloud packages.
-type CloudClient interface {
-	SendRunEventAny(event interface{}) error
-}
-
-// RunEventMessage for cloud sync (matches cloud.RunEventMessage).
-type RunEventMessage struct {
-	Type   string       `json:"type"`
-	EpicID string       `json:"epicId"`
-	TaskID string       `json:"taskId,omitempty"`
-	Source string       `json:"source"`
-	Event  RunEventData `json:"event"`
-}
-
-// RunEventData contains the details of a run event.
-type RunEventData struct {
-	Type       string           `json:"type"`
-	Output     string           `json:"output,omitempty"`
-	Status     string           `json:"status,omitempty"`
-	NumTurns   int              `json:"numTurns,omitempty"`
-	Iteration  int              `json:"iteration,omitempty"`
-	Success    bool             `json:"success,omitempty"`
-	Metrics    *RunEventMetrics `json:"metrics,omitempty"`
-	ActiveTool *RunEventTool    `json:"activeTool,omitempty"`
-	Message    string           `json:"message,omitempty"`
-	Timestamp  string           `json:"timestamp"`
-}
-
-// RunEventMetrics contains cost and token metrics.
-type RunEventMetrics struct {
-	InputTokens         int     `json:"inputTokens"`
-	OutputTokens        int     `json:"outputTokens"`
-	CacheReadTokens     int     `json:"cacheReadTokens"`
-	CacheCreationTokens int     `json:"cacheCreationTokens"`
-	CostUSD             float64 `json:"costUsd"`
-	DurationMS          int64   `json:"durationMs"`
-}
-
-// RunEventTool contains info about an active tool.
-type RunEventTool struct {
-	Name     string `json:"name"`
-	Input    string `json:"input,omitempty"`
-	Duration int64  `json:"duration,omitempty"`
-}
 
 // Server represents the ticks board HTTP server.
 type Server struct {
@@ -82,24 +35,8 @@ type Server struct {
 	sseClients   map[chan string]struct{}
 	sseClientsMu sync.RWMutex
 
-	// Run stream SSE clients (per epic)
-	runStreamClients   map[string]map[chan RunStreamEvent]struct{}
-	runStreamClientsMu sync.RWMutex
-
 	// File watcher
 	watcher *fsnotify.Watcher
-
-	// Separate watcher for records directory (run streaming)
-	recordsWatcher *fsnotify.Watcher
-
-	// Cloud client for sync
-	cloudClient CloudClient
-}
-
-// RunStreamEvent represents an SSE event for run streaming.
-type RunStreamEvent struct {
-	Type string      `json:"type"`
-	Data interface{} `json:"data"`
 }
 
 // ServerOption configures the server.
@@ -126,19 +63,11 @@ func New(tickDir string, port int, opts ...ServerOption) (*Server, error) {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
 	}
 
-	recordsWatcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		watcher.Close()
-		return nil, fmt.Errorf("failed to create records watcher: %w", err)
-	}
-
 	s := &Server{
-		tickDir:          tickDir,
-		port:             port,
-		sseClients:       make(map[chan string]struct{}),
-		runStreamClients: make(map[string]map[chan RunStreamEvent]struct{}),
-		watcher:          watcher,
-		recordsWatcher:   recordsWatcher,
+		tickDir:    tickDir,
+		port:       port,
+		sseClients: make(map[chan string]struct{}),
+		watcher:    watcher,
 	}
 
 	for _, opt := range opts {
@@ -146,11 +75,6 @@ func New(tickDir string, port int, opts ...ServerOption) (*Server, error) {
 	}
 
 	return s, nil
-}
-
-// SetCloudClient sets the cloud client for sync.
-func (s *Server) SetCloudClient(client CloudClient) {
-	s.cloudClient = client
 }
 
 // uiDir returns the path to the UI dist directory for dev mode.
@@ -222,12 +146,6 @@ func (s *Server) Run(ctx context.Context) error {
 	// API endpoint: run records
 	mux.HandleFunc("/api/records/", s.handleRecords)
 
-	// API endpoint: run status for an epic
-	mux.HandleFunc("/api/run-status/", s.handleRunStatus)
-
-	// API endpoint: SSE stream for run updates
-	mux.HandleFunc("/api/run-stream/", s.handleRunStream)
-
 	// API endpoint: context documents
 	mux.HandleFunc("/api/context/", s.handleContext)
 
@@ -253,17 +171,17 @@ func (s *Server) Run(ctx context.Context) error {
 		// Serve PWA and favicon files from root paths
 		// These files are commonly requested at root level by browsers
 		rootFiles := map[string]string{
-			"/manifest.json":        "application/manifest+json",
-			"/sw.js":                "application/javascript",
-			"/favicon.ico":          "image/x-icon",
-			"/favicon.svg":          "image/svg+xml",
-			"/favicon-16x16.png":    "image/png",
-			"/favicon-32x32.png":    "image/png",
-			"/apple-touch-icon.png": "image/png",
-			"/icon.svg":             "image/svg+xml",
-			"/icon-192.png":         "image/png",
-			"/icon-512.png":         "image/png",
-			"/icon-maskable.svg":    "image/svg+xml",
+			"/manifest.json":         "application/manifest+json",
+			"/sw.js":                 "application/javascript",
+			"/favicon.ico":           "image/x-icon",
+			"/favicon.svg":           "image/svg+xml",
+			"/favicon-16x16.png":     "image/png",
+			"/favicon-32x32.png":     "image/png",
+			"/apple-touch-icon.png":  "image/png",
+			"/icon.svg":              "image/svg+xml",
+			"/icon-192.png":          "image/png",
+			"/icon-512.png":          "image/png",
+			"/icon-maskable.svg":     "image/svg+xml",
 			"/icon-maskable-192.png": "image/png",
 			"/icon-maskable-512.png": "image/png",
 		}
@@ -301,19 +219,8 @@ func (s *Server) Run(ctx context.Context) error {
 		fmt.Fprintf(os.Stderr, "warning: failed to watch activity directory: %v\n", err)
 	}
 
-	// Watch records directory for run streaming
-	recordsDir := filepath.Join(s.tickDir, "logs", "records")
-	os.MkdirAll(recordsDir, 0o755) // Ensure it exists
-	if err := s.recordsWatcher.Add(recordsDir); err != nil {
-		// Non-fatal: records watching is optional
-		fmt.Fprintf(os.Stderr, "warning: failed to watch records directory: %v\n", err)
-	}
-
 	// Start watching for file changes
 	go s.watchFiles(ctx)
-
-	// Start watching for records changes (run streaming)
-	go s.watchRecords(ctx)
 
 	// Start server in goroutine
 	errChan := make(chan error, 1)
@@ -330,7 +237,6 @@ func (s *Server) Run(ctx context.Context) error {
 		fmt.Fprintln(os.Stderr, "Shutting down...")
 		// Close watchers in background (don't block shutdown)
 		go s.watcher.Close()
-		go s.recordsWatcher.Close()
 		// Graceful shutdown with short timeout
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -343,7 +249,6 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	case err := <-errChan:
 		go s.watcher.Close()
-		go s.recordsWatcher.Close()
 		return err
 	}
 }
@@ -527,11 +432,6 @@ func (s *Server) watchFiles(ctx context.Context) {
 				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
 				s.debugf("watchFiles: broadcasting tick change: %s", msg)
 				s.broadcast(msg)
-
-				// Check if tick entered awaiting state and broadcast run-stream event
-				if eventType != "delete" {
-					s.checkAndBroadcastAwaiting(tickID)
-				}
 			})
 
 		case err, ok := <-s.watcher.Errors:
@@ -542,58 +442,6 @@ func (s *Server) watchFiles(ctx context.Context) {
 			fmt.Fprintf(os.Stderr, "file watcher error: %v\n", err)
 		}
 	}
-}
-
-// checkAndBroadcastAwaiting checks if a tick is in awaiting state and broadcasts
-// a task-awaiting event on the run stream for its parent epic.
-func (s *Server) checkAndBroadcastAwaiting(tickID string) {
-	// Read the tick
-	tickPath := filepath.Join(s.tickDir, "issues", tickID+".json")
-	data, err := os.ReadFile(tickPath)
-	if err != nil {
-		return
-	}
-
-	var t tick.Tick
-	if err := json.Unmarshal(data, &t); err != nil {
-		return
-	}
-
-	// Only broadcast if tick is awaiting human action
-	if !t.IsAwaitingHuman() || t.Status == tick.StatusClosed {
-		return
-	}
-
-	// Need parent epic to broadcast on correct stream
-	if t.Parent == "" {
-		return
-	}
-
-	// Extract signal reason from latest note
-	signalReason := ""
-	if t.Notes != "" {
-		lines := strings.Split(t.Notes, "\n")
-		for i := len(lines) - 1; i >= 0; i-- {
-			line := strings.TrimSpace(lines[i])
-			if line != "" {
-				if idx := strings.Index(line, ") "); idx != -1 {
-					signalReason = line[idx+2:]
-				} else {
-					signalReason = line
-				}
-				break
-			}
-		}
-	}
-
-	s.debugf("checkAndBroadcastAwaiting: tickID=%s awaiting=%s parent=%s", tickID, t.GetAwaitingType(), t.Parent)
-
-	s.broadcastRunStreamEvent(t.Parent, "task-awaiting", RunStreamEventData{
-		TaskID:    tickID,
-		Status:    t.GetAwaitingType(),
-		Message:   signalReason,
-		Timestamp: time.Now().Format(time.RFC3339),
-	})
 }
 
 // EpicInfo represents an epic for the filter dropdown.
@@ -829,146 +677,6 @@ func (s *Server) handleRecords(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(record)
-}
-
-// RunStatusResponse is the response body for GET /api/run-status/:epicId.
-type RunStatusResponse struct {
-	EpicID        string                  `json:"epicId"`
-	IsRunning     bool                    `json:"isRunning"`
-	ActiveTask    *ActiveTaskStatus       `json:"activeTask,omitempty"`
-	Metrics       *runrecord.LiveRecord   `json:"metrics,omitempty"`
-	AwaitingTasks []AwaitingTaskStatus    `json:"awaitingTasks,omitempty"`
-}
-
-// AwaitingTaskStatus contains information about a task awaiting human action.
-type AwaitingTaskStatus struct {
-	TickID       string `json:"tickId"`
-	Title        string `json:"title"`
-	AwaitingType string `json:"awaitingType"`
-	SignalReason string `json:"signalReason,omitempty"`
-}
-
-// ActiveTaskStatus contains information about the currently active task.
-type ActiveTaskStatus struct {
-	TickID      string                   `json:"tickId"`
-	Title       string                   `json:"title"`
-	Status      string                   `json:"status"`
-	ActiveTool  *agent.ToolRecord        `json:"activeTool,omitempty"`
-	NumTurns    int                      `json:"numTurns"`
-	Metrics     agent.MetricsRecord      `json:"metrics"`
-	LastUpdated string                   `json:"lastUpdated"`
-}
-
-// handleRunStatus handles GET /api/run-status/:epicId.
-func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
-	// Parse path: /api/run-status/:epicId
-	path := strings.TrimPrefix(r.URL.Path, "/api/run-status/")
-	if path == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Remove any trailing slash
-	epicID := strings.TrimSuffix(path, "/")
-	if epicID == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Only GET method is supported
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Load all ticks to find tasks in this epic
-	issuesDir := filepath.Join(s.tickDir, "issues")
-	allTicks, err := query.LoadTicksParallel(issuesDir)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load ticks: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Verify the epic exists
-	epicExists := false
-	for _, t := range allTicks {
-		if t.ID == epicID && t.Type == tick.TypeEpic {
-			epicExists = true
-			break
-		}
-	}
-	if !epicExists {
-		http.Error(w, "Epic not found", http.StatusNotFound)
-		return
-	}
-
-	// Filter tasks belonging to this epic
-	var epicTasks []tick.Tick
-	for _, t := range allTicks {
-		if t.Parent == epicID {
-			epicTasks = append(epicTasks, t)
-		}
-	}
-
-	// Check for live records for any of the epic's tasks
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-	response := RunStatusResponse{
-		EpicID:    epicID,
-		IsRunning: false,
-	}
-
-	// Look for active runs by checking .live.json files
-	for _, t := range epicTasks {
-		if store.LiveExists(t.ID) {
-			liveRecord, err := store.ReadLive(t.ID)
-			if err != nil {
-				continue // Skip if we can't read
-			}
-
-			response.IsRunning = true
-			response.Metrics = liveRecord
-			response.ActiveTask = &ActiveTaskStatus{
-				TickID:      t.ID,
-				Title:       t.Title,
-				Status:      liveRecord.Status,
-				ActiveTool:  liveRecord.ActiveTool,
-				NumTurns:    liveRecord.NumTurns,
-				Metrics:     liveRecord.Metrics,
-				LastUpdated: liveRecord.LastUpdated.Format("2006-01-02T15:04:05Z07:00"),
-			}
-			break // Only one task can be active at a time
-		}
-	}
-
-	// Collect tasks awaiting human action
-	for _, t := range epicTasks {
-		if t.IsAwaitingHuman() && t.Status != tick.StatusClosed {
-			awaitingTask := AwaitingTaskStatus{
-				TickID:       t.ID,
-				Title:        t.Title,
-				AwaitingType: t.GetAwaitingType(),
-			}
-			// Extract signal reason from latest note if available
-			if t.Notes != "" {
-				lines := strings.Split(t.Notes, "\n")
-				if len(lines) > 0 {
-					lastNote := strings.TrimSpace(lines[len(lines)-1])
-					if lastNote != "" {
-						// Extract the note text after the timestamp/author prefix
-						if idx := strings.Index(lastNote, ") "); idx != -1 {
-							awaitingTask.SignalReason = lastNote[idx+2:]
-						} else {
-							awaitingTask.SignalReason = lastNote
-						}
-					}
-				}
-			}
-			response.AwaitingTasks = append(response.AwaitingTasks, awaitingTask)
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 }
 
 // Column represents kanban board columns.
@@ -2150,606 +1858,6 @@ func (s *Server) handleCreateTick(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
 	}
-}
-
-// RunStreamEventData contains the event data for run stream SSE events.
-type RunStreamEventData struct {
-	TaskID     string                   `json:"taskId,omitempty"`
-	EpicID     string                   `json:"epicId,omitempty"`
-	Iteration  int                      `json:"iteration,omitempty"`
-	Delta      string                   `json:"delta,omitempty"`
-	Timestamp  string                   `json:"timestamp,omitempty"`
-	Tool       *agent.ToolRecord        `json:"tool,omitempty"`
-	Status     string                   `json:"status,omitempty"`
-	Success    bool                     `json:"success,omitempty"`
-	Metrics    *agent.MetricsRecord     `json:"metrics,omitempty"`
-	Output     string                   `json:"output,omitempty"`
-	NumTurns   int                      `json:"numTurns,omitempty"`
-	ActiveTool *agent.ToolRecord        `json:"activeTool,omitempty"`
-	Message    string                   `json:"message,omitempty"`    // Human-readable status message (for context events)
-	TaskCount  int                      `json:"taskCount,omitempty"`  // Number of tasks (for context_generating)
-	TokenCount int                      `json:"tokenCount,omitempty"` // Estimated token count (for context_generated/context_loaded)
-}
-
-// handleRunStream handles GET /api/run-stream/:epicId for SSE streaming of run updates.
-func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
-	// Parse path: /api/run-stream/:epicId
-	path := strings.TrimPrefix(r.URL.Path, "/api/run-stream/")
-	if path == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Remove any trailing slash
-	epicID := strings.TrimSuffix(path, "/")
-	if epicID == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Only GET method is supported
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Verify the epic exists
-	issuesDir := filepath.Join(s.tickDir, "issues")
-	allTicks, err := query.LoadTicksParallel(issuesDir)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to load ticks: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	epicExists := false
-	var epicTasks []tick.Tick
-	for _, t := range allTicks {
-		if t.ID == epicID && t.Type == tick.TypeEpic {
-			epicExists = true
-		}
-		if t.Parent == epicID {
-			epicTasks = append(epicTasks, t)
-		}
-	}
-	if !epicExists {
-		http.Error(w, "Epic not found", http.StatusNotFound)
-		return
-	}
-
-	// Set SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	// Create channel for this client
-	clientChan := make(chan RunStreamEvent, 20)
-
-	// Register client for this epic
-	s.runStreamClientsMu.Lock()
-	if s.runStreamClients[epicID] == nil {
-		s.runStreamClients[epicID] = make(map[chan RunStreamEvent]struct{})
-	}
-	s.runStreamClients[epicID][clientChan] = struct{}{}
-	clientCount := len(s.runStreamClients[epicID])
-	s.runStreamClientsMu.Unlock()
-	s.debugf("handleRunStream: client connected for epic %s (total clients: %d)", epicID, clientCount)
-
-	// Unregister on disconnect
-	defer func() {
-		s.runStreamClientsMu.Lock()
-		delete(s.runStreamClients[epicID], clientChan)
-		if len(s.runStreamClients[epicID]) == 0 {
-			delete(s.runStreamClients, epicID)
-		}
-		close(clientChan)
-		s.runStreamClientsMu.Unlock()
-	}()
-
-	// Get flusher for streaming
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "SSE not supported", http.StatusInternalServerError)
-		return
-	}
-
-	// Send initial connection message with current state
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-	for _, t := range epicTasks {
-		if store.LiveExists(t.ID) {
-			liveRecord, err := store.ReadLive(t.ID)
-			if err != nil {
-				continue
-			}
-			// Send current state as task-update event
-			eventData := RunStreamEventData{
-				TaskID:    t.ID,
-				Status:    liveRecord.Status,
-				Output:    liveRecord.Output,
-				NumTurns:  liveRecord.NumTurns,
-				Metrics:   &liveRecord.Metrics,
-				Timestamp: liveRecord.LastUpdated.Format(time.RFC3339),
-			}
-			if liveRecord.ActiveTool != nil {
-				eventData.ActiveTool = liveRecord.ActiveTool
-			}
-			data, _ := json.Marshal(eventData)
-			fmt.Fprintf(w, "event: task-update\ndata: %s\n\n", data)
-		}
-	}
-
-	// Send connected event
-	connectedData, _ := json.Marshal(map[string]string{"epicId": epicID})
-	fmt.Fprintf(w, "event: connected\ndata: %s\n\n", connectedData)
-	flusher.Flush()
-
-	// Stream events to client
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case event, ok := <-clientChan:
-			if !ok {
-				return
-			}
-			data, err := json.Marshal(event.Data)
-			if err != nil {
-				continue
-			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
-			flusher.Flush()
-		}
-	}
-}
-
-// BroadcastRunStreamEvent sends an event to all connected run stream clients for an epic.
-// This is the public entry point used by output sink adapters.
-func (s *Server) BroadcastRunStreamEvent(epicID string, eventType string, data interface{}) {
-	s.broadcastRunStreamEvent(epicID, eventType, data)
-}
-
-// broadcastRunStreamEvent sends an event to all connected run stream clients for an epic.
-func (s *Server) broadcastRunStreamEvent(epicID string, eventType string, data interface{}) {
-	s.runStreamClientsMu.RLock()
-	clients, ok := s.runStreamClients[epicID]
-	clientCount := len(clients)
-	s.runStreamClientsMu.RUnlock()
-
-	s.debugf("broadcastRunStreamEvent: epicID=%s eventType=%s clientCount=%d", epicID, eventType, clientCount)
-
-	// Send to local SSE clients
-	if ok {
-		event := RunStreamEvent{
-			Type: eventType,
-			Data: data,
-		}
-
-		s.runStreamClientsMu.RLock()
-		for clientChan := range clients {
-			select {
-			case clientChan <- event:
-				s.debugf("broadcastRunStreamEvent: sent to client")
-			default:
-				s.debugf("broadcastRunStreamEvent: client buffer full, skipped")
-			}
-		}
-		s.runStreamClientsMu.RUnlock()
-	}
-
-	// Send to cloud if connected (sync mode)
-	s.pushRunEventToCloud(epicID, eventType, data)
-}
-
-// pushRunEventToCloud sends a run event to the cloud if connected.
-func (s *Server) pushRunEventToCloud(epicID string, eventType string, data interface{}) {
-	if s.cloudClient == nil {
-		s.debugf("pushRunEventToCloud: no cloud client")
-		return
-	}
-
-
-	// Extract taskId from data if present
-	var taskID string
-	if d, ok := data.(RunStreamEventData); ok {
-		taskID = d.TaskID
-	}
-
-	// Build the run event message
-	event := RunEventMessage{
-		Type:   "run_event",
-		EpicID: epicID,
-		TaskID: taskID,
-		Source: "ralph", // Default to ralph; swarm will set its own source
-	}
-
-	// Convert data to RunEventData
-	if d, ok := data.(RunStreamEventData); ok {
-		event.Event = RunEventData{
-			Type:      eventType,
-			Output:    d.Output,
-			Status:    d.Status,
-			NumTurns:  d.NumTurns,
-			Iteration: d.Iteration,
-			Success:   d.Success,
-			Message:   d.Message,
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-		if d.Metrics != nil {
-			event.Event.Metrics = &RunEventMetrics{
-				InputTokens:         d.Metrics.InputTokens,
-				OutputTokens:        d.Metrics.OutputTokens,
-				CacheReadTokens:     d.Metrics.CacheReadTokens,
-				CacheCreationTokens: d.Metrics.CacheCreationTokens,
-				CostUSD:             d.Metrics.CostUSD,
-				DurationMS:          int64(d.Metrics.DurationMS),
-			}
-		}
-		if d.ActiveTool != nil {
-			event.Event.ActiveTool = &RunEventTool{
-				Name:     d.ActiveTool.Name,
-				Input:    d.ActiveTool.Input,
-				Duration: int64(d.ActiveTool.Duration),
-			}
-		}
-	} else {
-		event.Event = RunEventData{
-			Type:      eventType,
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-	}
-
-	if err := s.cloudClient.SendRunEventAny(event); err != nil {
-		fmt.Fprintf(os.Stderr, "cloud: failed to push run event: %v\n", err)
-	}
-}
-
-// watchRecords watches the records directory for .live.json changes and broadcasts updates.
-func (s *Server) watchRecords(ctx context.Context) {
-	debounceTimers := make(map[string]*time.Timer)
-	debounceDelay := 100 * time.Millisecond
-
-	// Track previous live file states to detect changes
-	previousStates := make(map[string]string) // tickID -> last known status
-
-	for {
-		select {
-		case <-ctx.Done():
-			for _, timer := range debounceTimers {
-				timer.Stop()
-			}
-			return
-		case event, ok := <-s.recordsWatcher.Events:
-			if !ok {
-				return
-			}
-
-			filename := filepath.Base(event.Name)
-			s.debugf("recordsWatcher: %s (%s)", filename, event.Op)
-
-			// Handle epic live files (_epic-<epicId>.live.json) - for swarm orchestrator
-			if runrecord.IsEpicLiveFile(filename) {
-				epicID := runrecord.ParseEpicLiveFilename(filename)
-				if epicID == "" {
-					continue
-				}
-
-				// Debounce per epic
-				debounceKey := "epic_live_" + epicID
-				if timer, exists := debounceTimers[debounceKey]; exists {
-					timer.Stop()
-				}
-
-				capturedEpicID := epicID
-				capturedEvent := event
-				debounceTimers[debounceKey] = time.AfterFunc(debounceDelay, func() {
-					s.handleEpicLiveRecordChange(capturedEpicID, capturedEvent.Op, previousStates)
-				})
-				continue
-			}
-
-			// Handle task live files (<taskId>.live.json)
-			if strings.HasSuffix(filename, ".live.json") {
-				tickID := strings.TrimSuffix(filename, ".live.json")
-
-				// Debounce per tick
-				if timer, exists := debounceTimers[tickID]; exists {
-					timer.Stop()
-				}
-
-				// Capture for closure
-				capturedTickID := tickID
-				capturedEvent := event
-
-				debounceTimers[tickID] = time.AfterFunc(debounceDelay, func() {
-					s.handleLiveRecordChange(capturedTickID, capturedEvent.Op, previousStates)
-				})
-				continue
-			}
-
-			// Handle epic status files (_epic-<epicId>.status.json)
-			if runrecord.IsEpicStatusFile(filename) {
-				epicID := runrecord.ParseEpicStatusFilename(filename)
-				if epicID == "" {
-					continue
-				}
-
-				// Debounce per epic
-				debounceKey := "epic_status_" + epicID
-				if timer, exists := debounceTimers[debounceKey]; exists {
-					timer.Stop()
-				}
-
-				capturedEpicID := epicID
-				debounceTimers[debounceKey] = time.AfterFunc(debounceDelay, func() {
-					s.handleEpicStatusChange(capturedEpicID)
-				})
-				continue
-			}
-
-			// Handle finalized .json files (when .live.json is renamed to .json)
-			if strings.HasSuffix(filename, ".json") && !strings.HasSuffix(filename, ".live.json") {
-				// This might be a finalization (rename from .live.json to .json)
-				if event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Rename == fsnotify.Rename {
-					tickID := strings.TrimSuffix(filename, ".json")
-
-					// Debounce per tick
-					if timer, exists := debounceTimers[tickID+"_final"]; exists {
-						timer.Stop()
-					}
-
-					capturedTickID := tickID
-
-					debounceTimers[tickID+"_final"] = time.AfterFunc(debounceDelay, func() {
-						s.handleRecordFinalized(capturedTickID, previousStates)
-					})
-				}
-			}
-
-		case err, ok := <-s.recordsWatcher.Errors:
-			if !ok {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "records watcher error: %v\n", err)
-		}
-	}
-}
-
-// handleLiveRecordChange processes a change to a .live.json file.
-func (s *Server) handleLiveRecordChange(tickID string, op fsnotify.Op, previousStates map[string]string) {
-	s.debugf("handleLiveRecordChange: tickID=%s op=%s", tickID, op)
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-
-	// Check if live file was deleted (task ending)
-	if op&fsnotify.Remove == fsnotify.Remove {
-		delete(previousStates, tickID)
-		return
-	}
-
-	// Read the live record
-	liveRecord, err := store.ReadLive(tickID)
-	if err != nil {
-		s.debugf("handleLiveRecordChange: failed to read live record: %v", err)
-		return
-	}
-	s.debugf("handleLiveRecordChange: read live record, status=%s numTurns=%d", liveRecord.Status, liveRecord.NumTurns)
-
-	// Find which epic this task belongs to
-	issuesDir := filepath.Join(s.tickDir, "issues")
-	allTicks, err := query.LoadTicksParallel(issuesDir)
-	if err != nil {
-		return
-	}
-
-	var parentEpicID string
-	for _, t := range allTicks {
-		if t.ID == tickID {
-			parentEpicID = t.Parent
-			break
-		}
-	}
-
-	if parentEpicID == "" {
-		s.debugf("handleLiveRecordChange: no parent epic found for tickID=%s", tickID)
-		return
-	}
-	s.debugf("handleLiveRecordChange: found parent epic=%s for tickID=%s", parentEpicID, tickID)
-
-	// Determine event type based on status changes
-	prevStatus := previousStates[tickID]
-	currentStatus := liveRecord.Status
-
-	eventData := RunStreamEventData{
-		TaskID:    tickID,
-		Status:    currentStatus,
-		NumTurns:  liveRecord.NumTurns,
-		Metrics:   &liveRecord.Metrics,
-		Timestamp: liveRecord.LastUpdated.Format(time.RFC3339),
-	}
-
-	// If this is a new run (no previous state)
-	if prevStatus == "" {
-		eventData.Iteration = liveRecord.NumTurns
-		s.broadcastRunStreamEvent(parentEpicID, "task-started", eventData)
-	}
-
-	// Update with current output delta and tool activity
-	eventData.Output = liveRecord.Output
-	if liveRecord.ActiveTool != nil {
-		eventData.ActiveTool = liveRecord.ActiveTool
-		s.broadcastRunStreamEvent(parentEpicID, "tool-activity", RunStreamEventData{
-			TaskID:    tickID,
-			Tool:      liveRecord.ActiveTool,
-			Status:    liveRecord.ActiveTool.Name,
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
-
-	// Broadcast general update
-	s.broadcastRunStreamEvent(parentEpicID, "task-update", eventData)
-
-	// Update previous state
-	previousStates[tickID] = currentStatus
-}
-
-// handleEpicLiveRecordChange processes a change to an epic live record (_epic-<id>.live.json).
-// This is used for swarm orchestrator output streaming.
-func (s *Server) handleEpicLiveRecordChange(epicID string, op fsnotify.Op, previousStates map[string]string) {
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-	stateKey := "_epic_" + epicID // Use prefix to avoid collision with task states
-
-	// Check if live file was deleted (swarm ending)
-	if op&fsnotify.Remove == fsnotify.Remove {
-		delete(previousStates, stateKey)
-		return
-	}
-
-	// Read the epic live record
-	liveRecord, err := store.ReadEpicLive(epicID)
-	if err != nil {
-		return
-	}
-
-	// Determine event type based on status changes
-	prevStatus := previousStates[stateKey]
-	currentStatus := liveRecord.Status
-
-	eventData := RunStreamEventData{
-		EpicID:    epicID,
-		Status:    currentStatus,
-		NumTurns:  liveRecord.NumTurns,
-		Metrics:   &liveRecord.Metrics,
-		Timestamp: liveRecord.LastUpdated.Format(time.RFC3339),
-	}
-
-	// If this is a new run (no previous state), emit epic-started
-	if prevStatus == "" {
-		s.broadcastRunStreamEvent(epicID, "epic-started", RunStreamEventData{
-			EpicID:    epicID,
-			Status:    "running",
-			Message:   "Swarm orchestrator started",
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
-
-	// Update with current output delta and tool activity
-	eventData.Output = liveRecord.Output
-	if liveRecord.ActiveTool != nil {
-		eventData.ActiveTool = liveRecord.ActiveTool
-		s.broadcastRunStreamEvent(epicID, "tool-activity", RunStreamEventData{
-			EpicID:    epicID,
-			Tool:      liveRecord.ActiveTool,
-			Status:    liveRecord.ActiveTool.Name,
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
-
-	// Broadcast general update (use task-update for compatibility with live panel)
-	s.broadcastRunStreamEvent(epicID, "task-update", eventData)
-
-	// Update previous state
-	previousStates[stateKey] = currentStatus
-}
-
-// handleRecordFinalized processes when a run record is finalized (task completed).
-func (s *Server) handleRecordFinalized(tickID string, previousStates map[string]string) {
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-
-	// Read the finalized record
-	record, err := store.Read(tickID)
-	if err != nil {
-		return
-	}
-
-	// Find which epic this task belongs to
-	issuesDir := filepath.Join(s.tickDir, "issues")
-	allTicks, err := query.LoadTicksParallel(issuesDir)
-	if err != nil {
-		return
-	}
-
-	var parentEpicID string
-	var epicTasks []tick.Tick
-	for _, t := range allTicks {
-		if t.ID == tickID {
-			parentEpicID = t.Parent
-		}
-		if t.Parent != "" {
-			epicTasks = append(epicTasks, t)
-		}
-	}
-
-	if parentEpicID == "" {
-		return
-	}
-
-	// Broadcast task-completed event
-	eventData := RunStreamEventData{
-		TaskID:    tickID,
-		Success:   record.Success,
-		Metrics:   &record.Metrics,
-		NumTurns:  record.NumTurns,
-		Timestamp: record.EndedAt.Format(time.RFC3339),
-	}
-	s.broadcastRunStreamEvent(parentEpicID, "task-completed", eventData)
-
-	// Clean up previous state
-	delete(previousStates, tickID)
-
-	// Check if all tasks in the epic are complete
-	allComplete := true
-	for _, t := range epicTasks {
-		if t.Parent == parentEpicID && t.Status != tick.StatusClosed {
-			allComplete = false
-			break
-		}
-	}
-
-	if allComplete {
-		s.broadcastRunStreamEvent(parentEpicID, "epic-completed", RunStreamEventData{
-			EpicID:    parentEpicID,
-			Success:   true,
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
-}
-
-// handleEpicStatusChange processes a change to an epic status file.
-// This broadcasts context generation events to connected SSE clients.
-func (s *Server) handleEpicStatusChange(epicID string) {
-	store := runrecord.NewStore(filepath.Dir(s.tickDir))
-
-	status, err := store.ReadEpicStatus(epicID)
-	if err != nil {
-		return
-	}
-
-	// Map status to SSE event type
-	var eventType string
-	switch status.Status {
-	case "context_generating":
-		eventType = "context-generating"
-	case "context_generated":
-		eventType = "context-generated"
-	case "context_loaded":
-		eventType = "context-loaded"
-	case "context_failed":
-		eventType = "context-failed"
-	case "context_skipped":
-		eventType = "context-skipped"
-	default:
-		// Unknown status, use generic epic-status event
-		eventType = "epic-status"
-	}
-
-	// Broadcast to connected clients
-	s.broadcastRunStreamEvent(epicID, eventType, RunStreamEventData{
-		EpicID:     epicID,
-		Status:     status.Status,
-		Message:    status.Message,
-		TaskCount:  status.TaskCount,
-		TokenCount: status.TokenCount,
-		Timestamp:  status.LastUpdated.Format(time.RFC3339),
-	})
 }
 
 // handleContext handles GET /api/context/:epicId.

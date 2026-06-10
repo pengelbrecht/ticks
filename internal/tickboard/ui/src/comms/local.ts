@@ -3,7 +3,6 @@
  *
  * Event sources:
  * - /api/events: Tick updates, activity changes
- * - /api/run-stream/:epicId: Run streaming per epic
  *
  * Write operations:
  * - REST API calls to local server
@@ -12,8 +11,6 @@
 import type { Tick } from '../types/tick.js';
 import type {
   TickEvent,
-  RunEvent,
-  ContextEvent,
   ConnectionEvent,
   TickCreate,
   TickUpdate,
@@ -22,13 +19,10 @@ import type {
   TickDetail,
   Activity,
   RunRecord,
-  RunStatusResponse,
 } from './types.js';
 import type {
   CommsClient,
   TickEventHandler,
-  RunEventHandler,
-  ContextEventHandler,
   ConnectionEventHandler,
   Unsubscribe,
 } from './client.js';
@@ -60,8 +54,6 @@ export class LocalCommsClient implements CommsClient {
   // ---------------------------------------------------------------------------
 
   private tickHandlers = new Set<TickEventHandler>();
-  private runHandlers = new Set<RunEventHandler>();
-  private contextHandlers = new Set<ContextEventHandler>();
   private connectionHandlers = new Set<ConnectionEventHandler>();
 
   // ---------------------------------------------------------------------------
@@ -69,7 +61,6 @@ export class LocalCommsClient implements CommsClient {
   // ---------------------------------------------------------------------------
 
   private eventSource: EventSource | null = null;
-  private runEventSources = new Map<string, EventSource>();
 
   // ---------------------------------------------------------------------------
   // Reconnection State
@@ -144,13 +135,6 @@ export class LocalCommsClient implements CommsClient {
     // Close main SSE
     this.disconnectMainSSE();
 
-    // Close all run streams
-    for (const [epicId, source] of this.runEventSources) {
-      source.close();
-      console.log(`[LocalComms] Closed run stream for epic ${epicId}`);
-    }
-    this.runEventSources.clear();
-
     // Emit disconnected event
     if (this.connected) {
       this.connected = false;
@@ -190,114 +174,9 @@ export class LocalCommsClient implements CommsClient {
     return () => this.tickHandlers.delete(handler);
   }
 
-  onRun(handler: RunEventHandler): Unsubscribe {
-    this.runHandlers.add(handler);
-    return () => this.runHandlers.delete(handler);
-  }
-
-  onContext(handler: ContextEventHandler): Unsubscribe {
-    this.contextHandlers.add(handler);
-    return () => this.contextHandlers.delete(handler);
-  }
-
   onConnection(handler: ConnectionEventHandler): Unsubscribe {
     this.connectionHandlers.add(handler);
     return () => this.connectionHandlers.delete(handler);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Run Stream Subscriptions
-  // ---------------------------------------------------------------------------
-
-  subscribeRun(epicId: string): Unsubscribe {
-    // Check if already subscribed
-    if (this.runEventSources.has(epicId)) {
-      console.log(`[LocalComms] Already subscribed to run stream for ${epicId}`);
-      return () => this.unsubscribeRun(epicId);
-    }
-
-    const source = new EventSource(`${this.baseUrl}/api/run-stream/${epicId}`);
-    this.runEventSources.set(epicId, source);
-
-    // Handle connection
-    source.addEventListener('connected', () => {
-      console.log(`[LocalComms] Run stream connected for ${epicId}`);
-      this.emitConnection({ type: 'connection:connected', epicId });
-    });
-
-    // Handle task started
-    source.addEventListener('task-started', (event) => {
-      this.handleRunEvent(epicId, 'task-started', event);
-    });
-
-    // Handle task update
-    source.addEventListener('task-update', (event) => {
-      this.handleRunEvent(epicId, 'task-update', event);
-    });
-
-    // Handle tool activity
-    source.addEventListener('tool-activity', (event) => {
-      this.handleRunEvent(epicId, 'tool-activity', event);
-    });
-
-    // Handle task completed
-    source.addEventListener('task-completed', (event) => {
-      this.handleRunEvent(epicId, 'task-completed', event);
-    });
-
-    // Handle epic started
-    source.addEventListener('epic-started', (event) => {
-      this.handleRunEvent(epicId, 'epic-started', event);
-    });
-
-    // Handle epic completed
-    source.addEventListener('epic-completed', (event) => {
-      this.handleRunEvent(epicId, 'epic-completed', event);
-    });
-
-    // Handle task awaiting human action
-    source.addEventListener('task-awaiting', (event) => {
-      this.handleRunEvent(epicId, 'task-awaiting', event);
-    });
-
-    // Handle context events
-    source.addEventListener('context-generating', (event) => {
-      this.handleContextEvent(epicId, 'context:generating', event);
-    });
-
-    source.addEventListener('context-generated', (event) => {
-      this.handleContextEvent(epicId, 'context:generated', event);
-    });
-
-    source.addEventListener('context-loaded', (event) => {
-      this.handleContextEvent(epicId, 'context:loaded', event);
-    });
-
-    source.addEventListener('context-failed', (event) => {
-      this.handleContextEvent(epicId, 'context:failed', event);
-    });
-
-    source.addEventListener('context-skipped', (event) => {
-      this.handleContextEvent(epicId, 'context:skipped', event);
-    });
-
-    // Handle errors
-    source.onerror = () => {
-      console.log(`[LocalComms] Run stream error for ${epicId}`);
-      source.close();
-      this.runEventSources.delete(epicId);
-    };
-
-    return () => this.unsubscribeRun(epicId);
-  }
-
-  private unsubscribeRun(epicId: string): void {
-    const source = this.runEventSources.get(epicId);
-    if (source) {
-      source.close();
-      this.runEventSources.delete(epicId);
-      console.log(`[LocalComms] Unsubscribed from run stream for ${epicId}`);
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -477,16 +356,6 @@ export class LocalCommsClient implements CommsClient {
     return response.json();
   }
 
-  async fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
-    const response = await fetch(`${this.baseUrl}/api/run-status/${epicId}`);
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch run status: ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
   async fetchContext(epicId: string): Promise<string | null> {
     const response = await fetch(`${this.baseUrl}/api/context/${epicId}`);
 
@@ -572,159 +441,6 @@ export class LocalCommsClient implements CommsClient {
     }
   }
 
-  private handleRunEvent(epicId: string, eventType: string, event: MessageEvent): void {
-    try {
-      const data = JSON.parse(event.data);
-      const timestamp = new Date().toISOString();
-
-      let runEvent: RunEvent;
-
-      switch (eventType) {
-        case 'task-started':
-          runEvent = {
-            type: 'run:task-started',
-            taskId: data.taskId,
-            epicId,
-            status: data.status || 'running',
-            numTurns: data.numTurns || 0,
-            metrics: this.normalizeMetrics(data.metrics),
-            timestamp,
-          };
-          break;
-
-        case 'task-update':
-          runEvent = {
-            type: 'run:task-update',
-            taskId: data.taskId,
-            epicId,
-            output: data.output,
-            status: data.status,
-            numTurns: data.numTurns,
-            metrics: this.normalizeMetrics(data.metrics),
-            activeTool: data.activeTool ? this.normalizeToolInfo(data.activeTool) : undefined,
-            timestamp,
-          };
-          break;
-
-        case 'task-completed':
-          runEvent = {
-            type: 'run:task-completed',
-            taskId: data.taskId,
-            epicId,
-            success: data.success ?? true,
-            numTurns: data.numTurns || 0,
-            metrics: this.normalizeMetrics(data.metrics),
-            timestamp,
-          };
-          break;
-
-        case 'tool-activity':
-          runEvent = {
-            type: 'run:tool-activity',
-            taskId: data.taskId,
-            epicId,
-            tool: this.normalizeToolInfo(data.tool || data.activeTool),
-            timestamp,
-          };
-          break;
-
-        case 'epic-started':
-          runEvent = {
-            type: 'run:epic-started',
-            epicId,
-            status: data.status || 'running',
-            message: data.message,
-            timestamp,
-          };
-          break;
-
-        case 'epic-completed':
-          runEvent = {
-            type: 'run:epic-completed',
-            epicId,
-            success: data.success ?? true,
-            timestamp,
-          };
-          break;
-
-        case 'task-awaiting':
-          runEvent = {
-            type: 'run:task-awaiting',
-            taskId: data.taskId,
-            epicId,
-            awaitingType: data.status || 'work',
-            reason: data.message,
-            timestamp,
-          };
-          break;
-
-        default:
-          console.warn(`[LocalComms] Unknown run event type: ${eventType}`);
-          return;
-      }
-
-      this.emitRun(runEvent);
-    } catch (err) {
-      console.error(`[LocalComms] Failed to parse run event ${eventType}:`, err);
-    }
-  }
-
-  private handleContextEvent(epicId: string, eventType: ContextEvent['type'], event: MessageEvent): void {
-    try {
-      const data = JSON.parse(event.data);
-
-      let contextEvent: ContextEvent;
-
-      switch (eventType) {
-        case 'context:generating':
-          contextEvent = {
-            type: 'context:generating',
-            epicId,
-            taskCount: data.taskCount || 0,
-          };
-          break;
-
-        case 'context:generated':
-          contextEvent = {
-            type: 'context:generated',
-            epicId,
-            tokenCount: data.tokenCount || 0,
-          };
-          break;
-
-        case 'context:loaded':
-          contextEvent = {
-            type: 'context:loaded',
-            epicId,
-          };
-          break;
-
-        case 'context:failed':
-          contextEvent = {
-            type: 'context:failed',
-            epicId,
-            message: data.message || 'Context generation failed',
-          };
-          break;
-
-        case 'context:skipped':
-          contextEvent = {
-            type: 'context:skipped',
-            epicId,
-            reason: data.reason || 'Unknown reason',
-          };
-          break;
-
-        default:
-          return;
-      }
-
-      this.emitContext(contextEvent);
-    } catch (err) {
-      console.error(`[LocalComms] Failed to parse context event ${eventType}:`, err);
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // Event Emission
   // ---------------------------------------------------------------------------
@@ -739,26 +455,6 @@ export class LocalCommsClient implements CommsClient {
     }
   }
 
-  private emitRun(event: RunEvent): void {
-    for (const handler of this.runHandlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error('[LocalComms] Error in run handler:', err);
-      }
-    }
-  }
-
-  private emitContext(event: ContextEvent): void {
-    for (const handler of this.contextHandlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error('[LocalComms] Error in context handler:', err);
-      }
-    }
-  }
-
   private emitConnection(event: ConnectionEvent): void {
     for (const handler of this.connectionHandlers) {
       try {
@@ -769,34 +465,4 @@ export class LocalCommsClient implements CommsClient {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Normalization Helpers
-  // ---------------------------------------------------------------------------
-
-  private normalizeMetrics(metrics: Record<string, unknown> | undefined): import('./types.js').RunMetrics | undefined {
-    if (!metrics) return undefined;
-
-    return {
-      inputTokens: (metrics.input_tokens as number) || (metrics.inputTokens as number) || 0,
-      outputTokens: (metrics.output_tokens as number) || (metrics.outputTokens as number) || 0,
-      cacheReadTokens: (metrics.cache_read_tokens as number) || (metrics.cacheReadTokens as number) || 0,
-      cacheCreationTokens: (metrics.cache_creation_tokens as number) || (metrics.cacheCreationTokens as number) || 0,
-      costUsd: (metrics.cost_usd as number) || (metrics.costUsd as number) || 0,
-      durationMs: (metrics.duration_ms as number) || (metrics.durationMs as number) || 0,
-    };
-  }
-
-  private normalizeToolInfo(tool: Record<string, unknown> | undefined): import('./types.js').ToolInfo {
-    if (!tool) {
-      return { name: 'Unknown' };
-    }
-
-    return {
-      name: (tool.name as string) || 'Unknown',
-      input: tool.input as string | undefined,
-      output: tool.output as string | undefined,
-      durationMs: (tool.duration_ms as number) || (tool.duration as number) || (tool.durationMs as number),
-      isError: (tool.is_error as boolean) || (tool.isError as boolean),
-    };
-  }
 }

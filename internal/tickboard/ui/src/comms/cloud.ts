@@ -12,26 +12,19 @@
 import type { Tick, TickStatus } from '../types/tick.js';
 import type {
   TickEvent,
-  RunEvent,
-  ContextEvent,
   ConnectionEvent,
   TickCreate,
   TickUpdate,
   ConnectionInfo,
-  RunMetrics,
-  ToolInfo,
   InfoResponse,
   TickDetail,
   Activity,
   RunRecord,
-  RunStatusResponse,
   BlockerDetail,
 } from './types.js';
 import type {
   CommsClient,
   TickEventHandler,
-  RunEventHandler,
-  ContextEventHandler,
   ConnectionEventHandler,
   Unsubscribe,
 } from './client.js';
@@ -48,7 +41,6 @@ import type {
   ErrorMessage,
   TickUpdateRequest,
   TickDeleteRequest,
-  RunEventType,
 } from '../types/generated/websocket/messages.js';
 
 // =============================================================================
@@ -95,8 +87,6 @@ export class CloudCommsClient implements CommsClient {
   // ---------------------------------------------------------------------------
 
   private tickHandlers = new Set<TickEventHandler>();
-  private runHandlers = new Set<RunEventHandler>();
-  private contextHandlers = new Set<ContextEventHandler>();
   private connectionHandlers = new Set<ConnectionEventHandler>();
 
   // ---------------------------------------------------------------------------
@@ -110,26 +100,10 @@ export class CloudCommsClient implements CommsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ---------------------------------------------------------------------------
-  // Run Stream Subscriptions
-  // ---------------------------------------------------------------------------
-
-  private runSubscriptions = new Set<string>();
-
-  // ---------------------------------------------------------------------------
   // Tick Cache (for read operations)
   // ---------------------------------------------------------------------------
 
   private tickCache = new Map<string, Tick>();
-
-  // ---------------------------------------------------------------------------
-  // Run State (for fetchRunStatus)
-  // ---------------------------------------------------------------------------
-
-  private runStates = new Map<string, {
-    isRunning: boolean;
-    activeTaskId?: string;
-    lastEvent?: RunEvent;
-  }>();
 
   constructor(projectId: string) {
     this.projectId = projectId;
@@ -223,9 +197,6 @@ export class CloudCommsClient implements CommsClient {
     // Close WebSocket
     this.closeWebSocket();
 
-    // Clear subscriptions
-    this.runSubscriptions.clear();
-
     // Emit disconnected event
     if (this.connected) {
       this.connected = false;
@@ -276,35 +247,9 @@ export class CloudCommsClient implements CommsClient {
     return () => this.tickHandlers.delete(handler);
   }
 
-  onRun(handler: RunEventHandler): Unsubscribe {
-    this.runHandlers.add(handler);
-    return () => this.runHandlers.delete(handler);
-  }
-
-  onContext(handler: ContextEventHandler): Unsubscribe {
-    this.contextHandlers.add(handler);
-    return () => this.contextHandlers.delete(handler);
-  }
-
   onConnection(handler: ConnectionEventHandler): Unsubscribe {
     this.connectionHandlers.add(handler);
     return () => this.connectionHandlers.delete(handler);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Run Stream Subscriptions
-  // ---------------------------------------------------------------------------
-
-  subscribeRun(epicId: string): Unsubscribe {
-    // In cloud mode, run events come through the WebSocket connection
-    // We just need to track which epics we're interested in
-    this.runSubscriptions.add(epicId);
-    console.log(`[CloudComms] Subscribed to run events for ${epicId}`);
-
-    return () => {
-      this.runSubscriptions.delete(epicId);
-      console.log(`[CloudComms] Unsubscribed from run events for ${epicId}`);
-    };
   }
 
   // ---------------------------------------------------------------------------
@@ -552,43 +497,6 @@ export class CloudCommsClient implements CommsClient {
   }
 
   /**
-   * Fetch the current run status for an epic.
-   * In cloud mode, derives status from tracked run events.
-   */
-  async fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
-    const state = this.runStates.get(epicId);
-
-    if (!state) {
-      return {
-        epicId,
-        isRunning: false,
-      };
-    }
-
-    return {
-      epicId,
-      isRunning: state.isRunning,
-      activeTask: state.activeTaskId
-        ? {
-            tickId: state.activeTaskId,
-            title: this.tickCache.get(state.activeTaskId)?.title || state.activeTaskId,
-            status: 'running',
-            numTurns: 0,
-            metrics: {
-              input_tokens: 0,
-              output_tokens: 0,
-              cache_read_tokens: 0,
-              cache_creation_tokens: 0,
-              cost_usd: 0,
-              duration_ms: 0,
-            },
-            lastUpdated: state.lastEvent?.timestamp || new Date().toISOString(),
-          }
-        : undefined,
-    };
-  }
-
-  /**
    * Fetch the generated context for an epic.
    * In cloud mode, context is not supported yet - returns null.
    */
@@ -633,7 +541,9 @@ export class CloudCommsClient implements CommsClient {
           break;
 
         case 'run_event':
-          this.handleRunEventMessage(msg);
+          // Live-run streaming was removed with the built-in runner; the cloud
+          // protocol may still carry run_event messages from older agents -
+          // ignore them instead of warning about an unknown message type.
           break;
 
         default:
@@ -675,171 +585,6 @@ export class CloudCommsClient implements CommsClient {
     this.emitConnection({ type: 'connection:local-status', connected: msg.connected });
   }
 
-  private handleRunEventMessage(msg: RunEventMessage): void {
-    const { epicId, taskId, event } = msg;
-    console.log(`[CloudComms] Received run_event: epic=${epicId} type=${event.type} subscriptions=${[...this.runSubscriptions].join(',')}`);
-
-    // Only forward events for subscribed epics
-    if (!this.runSubscriptions.has(epicId) && this.runSubscriptions.size > 0) {
-      console.log(`[CloudComms] Skipping run_event - not subscribed to ${epicId}`);
-      return;
-    }
-
-    const timestamp = event.timestamp || new Date().toISOString();
-    let runEvent: RunEvent;
-
-    switch (event.type) {
-      case 'task-started':
-        runEvent = {
-          type: 'run:task-started',
-          taskId: taskId || '',
-          epicId,
-          status: event.status || 'running',
-          numTurns: event.numTurns || 0,
-          metrics: this.normalizeMetrics(event.metrics),
-          timestamp,
-        };
-        // Track run state
-        this.runStates.set(epicId, {
-          isRunning: true,
-          activeTaskId: taskId,
-          lastEvent: runEvent,
-        });
-        break;
-
-      case 'task-update':
-        runEvent = {
-          type: 'run:task-update',
-          taskId: taskId || '',
-          epicId,
-          output: event.output,
-          status: event.status,
-          numTurns: event.numTurns,
-          metrics: this.normalizeMetrics(event.metrics),
-          activeTool: event.activeTool ? this.normalizeToolInfo(event.activeTool) : undefined,
-          timestamp,
-        };
-        // Update run state
-        const currentState = this.runStates.get(epicId);
-        if (currentState) {
-          currentState.lastEvent = runEvent;
-        }
-        break;
-
-      case 'task-completed':
-        runEvent = {
-          type: 'run:task-completed',
-          taskId: taskId || '',
-          epicId,
-          success: event.success ?? true,
-          numTurns: event.numTurns || 0,
-          metrics: this.normalizeMetrics(event.metrics),
-          timestamp,
-        };
-        // Update run state - task completed but epic may still be running
-        const taskCompleteState = this.runStates.get(epicId);
-        if (taskCompleteState) {
-          taskCompleteState.activeTaskId = undefined;
-          taskCompleteState.lastEvent = runEvent;
-        }
-        break;
-
-      case 'tool-activity':
-        runEvent = {
-          type: 'run:tool-activity',
-          taskId: taskId || '',
-          epicId,
-          tool: event.activeTool ? this.normalizeToolInfo(event.activeTool) : { name: 'Unknown' },
-          timestamp,
-        };
-        break;
-
-      case 'epic-started':
-        runEvent = {
-          type: 'run:epic-started',
-          epicId,
-          status: event.status || 'running',
-          message: event.message,
-          timestamp,
-        };
-        // Track run state
-        this.runStates.set(epicId, {
-          isRunning: true,
-          lastEvent: runEvent,
-        });
-        break;
-
-      case 'epic-completed':
-        runEvent = {
-          type: 'run:epic-completed',
-          epicId,
-          success: event.success ?? true,
-          timestamp,
-        };
-        // Track run state - epic completed
-        this.runStates.set(epicId, {
-          isRunning: false,
-          lastEvent: runEvent,
-        });
-        break;
-
-      case 'context-generating': {
-        const contextEvent: ContextEvent = {
-          type: 'context:generating',
-          epicId,
-          taskCount: (event as any).taskCount || 0,
-        };
-        this.emitContext(contextEvent);
-        return;
-      }
-
-      case 'context-generated': {
-        const contextEvent: ContextEvent = {
-          type: 'context:generated',
-          epicId,
-          tokenCount: (event as any).tokenCount || 0,
-        };
-        this.emitContext(contextEvent);
-        return;
-      }
-
-      case 'context-loaded': {
-        const contextEvent: ContextEvent = {
-          type: 'context:loaded',
-          epicId,
-        };
-        this.emitContext(contextEvent);
-        return;
-      }
-
-      case 'context-failed': {
-        const contextEvent: ContextEvent = {
-          type: 'context:failed',
-          epicId,
-          error: event.message || 'Context generation failed',
-        };
-        this.emitContext(contextEvent);
-        return;
-      }
-
-      case 'context-skipped': {
-        const contextEvent: ContextEvent = {
-          type: 'context:skipped',
-          epicId,
-          reason: event.message || 'Context generation skipped',
-        };
-        this.emitContext(contextEvent);
-        return;
-      }
-
-      default:
-        console.warn('[CloudComms] Unknown run event type:', event.type);
-        return;
-    }
-
-    this.emitRun(runEvent);
-  }
-
   // ---------------------------------------------------------------------------
   // Event Emission
   // ---------------------------------------------------------------------------
@@ -850,26 +595,6 @@ export class CloudCommsClient implements CommsClient {
         handler(event);
       } catch (err) {
         console.error('[CloudComms] Error in tick handler:', err);
-      }
-    }
-  }
-
-  private emitRun(event: RunEvent): void {
-    for (const handler of this.runHandlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error('[CloudComms] Error in run handler:', err);
-      }
-    }
-  }
-
-  private emitContext(event: ContextEvent): void {
-    for (const handler of this.contextHandlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error('[CloudComms] Error in context handler:', err);
       }
     }
   }
@@ -937,41 +662,5 @@ export class CloudCommsClient implements CommsClient {
       id += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return id;
-  }
-
-  private normalizeMetrics(metrics?: {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    cacheCreationTokens?: number;
-    costUsd?: number;
-    durationMs?: number;
-  }): RunMetrics | undefined {
-    if (!metrics) return undefined;
-
-    return {
-      inputTokens: metrics.inputTokens || 0,
-      outputTokens: metrics.outputTokens || 0,
-      cacheReadTokens: metrics.cacheReadTokens || 0,
-      cacheCreationTokens: metrics.cacheCreationTokens || 0,
-      costUsd: metrics.costUsd || 0,
-      durationMs: metrics.durationMs || 0,
-    };
-  }
-
-  private normalizeToolInfo(tool?: {
-    name?: string;
-    input?: string;
-    duration?: number;
-  }): ToolInfo {
-    if (!tool) {
-      return { name: 'Unknown' };
-    }
-
-    return {
-      name: tool.name || 'Unknown',
-      input: tool.input,
-      durationMs: tool.duration,
-    };
   }
 }

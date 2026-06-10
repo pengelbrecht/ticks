@@ -2,7 +2,7 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { classMap } from 'lit/directives/class-map.js';
 import type { BoardTick, TickColumn } from '../types/tick.js';
-import type { EpicInfo, RunStatusResponse, Activity, RunRecord, Note, ToolRecord, VerifierResult } from '../api/ticks.js';
+import type { EpicInfo, Activity, RunRecord, Note, ToolRecord, VerifierResult } from '../api/ticks.js';
 import { parseNotes } from '../api/ticks.js';
 import { fetchRecord, fetchTickDetails } from '../stores/comms.js';
 
@@ -27,11 +27,9 @@ const COLUMNS: ColumnInfo[] = [
 /**
  * Interactive Tickflow Dashboard Overlay.
  *
- * Provides a birds-eye view of the entire tickflow run:
+ * Provides a birds-eye view of the entire tickflow board:
  * - Epic progress bars
  * - Task distribution across columns
- * - Aggregate token/cost metrics
- * - Active run status indicator
  * - Recent activity feed
  *
  * @element tickflow-dashboard
@@ -39,7 +37,6 @@ const COLUMNS: ColumnInfo[] = [
  * @prop {BoardTick[]} ticks - All ticks to summarize
  * @prop {EpicInfo[]} epics - Epic list for progress breakdown
  * @prop {boolean} open - Whether the overlay is visible
- * @prop {RunStatusResponse|null} runStatus - Current run status
  * @prop {Activity[]} activities - Recent activity entries
  * @prop {string} repoName - Repository name
  *
@@ -386,68 +383,6 @@ export class TickflowDashboard extends LitElement {
       font-weight: 600;
       min-width: 2.5rem;
       text-align: right;
-    }
-
-    /* Run status indicator */
-    .run-status {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem 1rem;
-      background: var(--surface0, #313244);
-      border-radius: 8px;
-    }
-
-    .run-status.active {
-      border: 1px solid var(--green, #a6e3a1);
-      background: rgba(166, 227, 161, 0.05);
-    }
-
-    .run-status.inactive {
-      border: 1px solid var(--surface1, #45475a);
-    }
-
-    .run-indicator {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .run-indicator.active {
-      background: var(--green, #a6e3a1);
-      box-shadow: 0 0 8px var(--green, #a6e3a1);
-      animation: runPulse 1.5s ease-in-out infinite;
-    }
-
-    .run-indicator.inactive {
-      background: var(--overlay0, #6c7086);
-    }
-
-    @keyframes runPulse {
-      0%, 100% { opacity: 0.7; box-shadow: 0 0 4px var(--green); }
-      50% { opacity: 1; box-shadow: 0 0 12px var(--green); }
-    }
-
-    .run-info {
-      flex: 1;
-    }
-
-    .run-label {
-      font-size: 0.8125rem;
-      font-weight: 500;
-      color: var(--text, #cdd6f4);
-    }
-
-    .run-detail {
-      font-size: 0.6875rem;
-      color: var(--subtext0, #a6adc8);
-      margin-top: 0.125rem;
-    }
-
-    .run-detail .task-id {
-      font-family: 'Geist Mono', 'SF Mono', monospace;
-      color: var(--blue, #89b4fa);
     }
 
     /* Activity mini-feed */
@@ -1183,9 +1118,6 @@ export class TickflowDashboard extends LitElement {
   @property({ type: Boolean, reflect: true })
   open = false;
 
-  @property({ attribute: false })
-  runStatus: RunStatusResponse | null = null;
-
   @property({ type: Array })
   activities: Activity[] = [];
 
@@ -1535,7 +1467,6 @@ export class TickflowDashboard extends LitElement {
     const counts = this._getColumnCounts();
     const totalTasks = this._getTotalNonEpicTicks();
     const humanTicks = this._getHumanTicks();
-    const isRunning = this.runStatus?.isRunning ?? false;
 
     return html`
       <div class="overlay" @click=${this._handleBackdropClick} tabindex="-1">
@@ -1543,14 +1474,13 @@ export class TickflowDashboard extends LitElement {
           ${this._renderHeader()}
           <div class="dashboard-body">
             ${this._detailTick ? this._renderDetailPane() : nothing}
-            ${this._renderSummaryCards(counts, totalTasks, isRunning)}
+            ${this._renderSummaryCards(counts, totalTasks)}
             ${this._renderDistribution(counts, totalTasks)}
             ${this._renderEpicProgress()}
             <div class="two-col">
               ${this._renderNeedsAttention(humanTicks)}
               ${this._renderRecentActivity()}
             </div>
-            ${this._renderRunStatus(isRunning)}
           </div>
         </div>
       </div>
@@ -1582,7 +1512,6 @@ export class TickflowDashboard extends LitElement {
   private _renderSummaryCards(
     counts: Record<TickColumn, number>,
     totalTasks: number,
-    isRunning: boolean,
   ) {
     const completionPct = totalTasks > 0 ? Math.round((counts.done / totalTasks) * 100) : 0;
 
@@ -1606,7 +1535,7 @@ export class TickflowDashboard extends LitElement {
         <div class="summary-card">
           <div class="summary-card-label">In Progress</div>
           <div class="summary-card-value ${counts.agent > 0 ? 'value-peach' : ''}">${counts.agent}</div>
-          <div class="summary-card-detail">${isRunning ? 'agent active' : 'agent idle'}</div>
+          <div class="summary-card-detail">with agent</div>
         </div>
         <div class="summary-card">
           <div class="summary-card-label">Blocked</div>
@@ -1741,32 +1670,6 @@ export class TickflowDashboard extends LitElement {
                 `)}
               </div>
             `}
-      </div>
-    `;
-  }
-
-  private _renderRunStatus(isRunning: boolean) {
-    return html`
-      <div class="section">
-        <div class="section-title">Run Status</div>
-        <div class="run-status ${isRunning ? 'active' : 'inactive'}">
-          <div class="run-indicator ${isRunning ? 'active' : 'inactive'}"></div>
-          <div class="run-info">
-            <div class="run-label">${isRunning ? 'Agent Running' : 'Agent Idle'}</div>
-            ${isRunning && this.runStatus?.activeTask
-              ? html`
-                  <div class="run-detail">
-                    Task <span class="task-id">${this.runStatus.activeTask.tickId}</span>
-                    · ${this.runStatus.activeTask.numTurns} turns
-                  </div>
-                `
-              : html`
-                  <div class="run-detail">
-                    No active run. Start with <code>tk run</code>
-                  </div>
-                `}
-          </div>
-        </div>
       </div>
     `;
   }

@@ -238,10 +238,6 @@
         <button onclick="connectWS()">Connect WebSocket</button>
         <button onclick="disconnectWS()">Disconnect WS</button>
       </div>
-      <div class="button-group">
-        <button onclick="subscribeRunStream()">Subscribe Run</button>
-        <button onclick="unsubscribeRunStream()">Unsubscribe Run</button>
-      </div>
       <div class="form-row">
         <label>Epic ID:</label>
         <input type="text" id="epic-id" value="epic-test" placeholder="Epic ID">
@@ -254,7 +250,6 @@
 
       <div class="button-group">
         <button onclick="runScenario('tick-lifecycle')">Tick Lifecycle</button>
-        <button onclick="runScenario('run-complete')">Run Complete</button>
         <button onclick="runScenario('connection-flaky')">Flaky Connection</button>
       </div>
 
@@ -279,7 +274,6 @@
       <div class="button-group">
         <button onclick="fetchInfo()">Fetch Info</button>
         <button onclick="fetchActivity()">Fetch Activity</button>
-        <button onclick="fetchRunStatus()">Fetch Run Status</button>
       </div>
       <div class="button-group">
         <button onclick="fetchRecord()">Fetch Record</button>
@@ -310,7 +304,6 @@
   <script>
     // State
     let sseSource = null;
-    let runStreamSource = null;
     let wsConnection = null;
     let ticks = {};
     let selectedTickId = null;
@@ -404,38 +397,6 @@
       }
       updateSSEStatus('disconnected');
       log('SSE', 'Manually disconnected');
-    }
-
-    // Run Stream
-    function subscribeRunStream() {
-      const epicId = document.getElementById('epic-id').value;
-      if (runStreamSource) {
-        runStreamSource.close();
-      }
-
-      runStreamSource = new EventSource(`/api/run-stream/${epicId}`);
-
-      runStreamSource.addEventListener('connected', () => {
-        log('RunStream', `Connected to ${epicId}`);
-      });
-
-      ['task-started', 'task-update', 'task-completed', 'tool-activity', 'epic-started', 'epic-completed'].forEach(type => {
-        runStreamSource.addEventListener(type, (e) => {
-          log(`Run:${type}`, JSON.parse(e.data));
-        });
-      });
-
-      runStreamSource.onerror = () => {
-        log('RunStream', 'Error/Disconnected');
-      };
-    }
-
-    function unsubscribeRunStream() {
-      if (runStreamSource) {
-        runStreamSource.close();
-        runStreamSource = null;
-      }
-      log('RunStream', 'Unsubscribed');
     }
 
     // WebSocket Connection
@@ -671,18 +632,6 @@
         const resp = await fetch('/api/activity?limit=10');
         const data = await resp.json();
         log('Read:activity', { count: data.activities?.length || 0 });
-        showReadResult(data);
-      } catch (e) {
-        showError(e.message);
-      }
-    }
-
-    async function fetchRunStatus() {
-      const epicId = document.getElementById('epic-id').value;
-      try {
-        const resp = await fetch(`/api/run-status/${epicId}`);
-        const data = await resp.json();
-        log('Read:run-status', data);
         showReadResult(data);
       } catch (e) {
         showError(e.message);

@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { CloudCommsClient } from './cloud.js';
 import { ReadOnlyError, ConnectionError } from './client.js';
-import type { TickEvent, RunEvent, ConnectionEvent } from './types.js';
+import type { TickEvent, ConnectionEvent } from './types.js';
 
 const TEST_RIG_URL = process.env.TICKS_TEST_RIG_URL || 'http://localhost:18787';
 
@@ -294,45 +294,6 @@ describe.skipIf(!RUN_LIVE)('CloudCommsClient Integration', () => {
         expect(deleteEvent.tickId).toBe(created.id);
       }
     });
-
-    it('receives run events from WebSocket when subscribed', async () => {
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      // Subscribe to epic
-      client.subscribeRun('epic-test');
-
-      // Emit run event via test rig
-      await fetch(`${TEST_RIG_URL}/test/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'websocket',
-          data: {
-            type: 'run_event',
-            epicId: 'epic-test',
-            taskId: 'task-1',
-            source: 'ralph',
-            event: {
-              type: 'task-started',
-              status: 'running',
-              numTurns: 0,
-              timestamp: new Date().toISOString(),
-            },
-          },
-        }),
-      });
-
-      // Wait for event
-      await waitFor(() => runEvents.some((e) => e.type === 'run:task-started'));
-
-      const startEvent = runEvents.find((e) => e.type === 'run:task-started');
-      expect(startEvent).toBeDefined();
-      if (startEvent?.type === 'run:task-started') {
-        expect(startEvent.taskId).toBe('task-1');
-        expect(startEvent.epicId).toBe('epic-test');
-      }
-    });
   });
 
   // ===========================================================================
@@ -395,83 +356,6 @@ describe.skipIf(!RUN_LIVE)('CloudCommsClient Integration', () => {
       const disconnectedClient = new CloudCommsClient('test-project');
 
       expect(() => disconnectedClient.createTick({ title: 'Test' })).rejects.toThrow(ConnectionError);
-    });
-  });
-
-  // ===========================================================================
-  // Run Stream Subscriptions
-  // ===========================================================================
-
-  describe('run stream subscriptions', () => {
-    beforeEach(async () => {
-      await client.connect();
-    });
-
-    it('subscribeRun tracks epic subscriptions', () => {
-      const unsubscribe1 = client.subscribeRun('epic-1');
-      const unsubscribe2 = client.subscribeRun('epic-2');
-
-      // Can't directly check internal state, but we can verify events are filtered
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      // Unsubscribe from epic-1
-      unsubscribe1();
-
-      // Events for epic-1 should not be received after unsubscribe
-      // Events for epic-2 should still be received
-      unsubscribe2();
-    });
-
-    it('filters run events by subscribed epics', async () => {
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      // Subscribe to only epic-1
-      client.subscribeRun('epic-1');
-
-      // Send event for epic-1 (should be received)
-      await fetch(`${TEST_RIG_URL}/test/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'websocket',
-          data: {
-            type: 'run_event',
-            epicId: 'epic-1',
-            taskId: 'task-1',
-            source: 'ralph',
-            event: { type: 'task-started', status: 'running', numTurns: 0, timestamp: new Date().toISOString() },
-          },
-        }),
-      });
-
-      await sleep(100);
-
-      // Send event for epic-2 (should be filtered out)
-      await fetch(`${TEST_RIG_URL}/test/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'websocket',
-          data: {
-            type: 'run_event',
-            epicId: 'epic-2',
-            taskId: 'task-2',
-            source: 'ralph',
-            event: { type: 'task-started', status: 'running', numTurns: 0, timestamp: new Date().toISOString() },
-          },
-        }),
-      });
-
-      await sleep(100);
-
-      // Should only have events for epic-1
-      const epic1Events = runEvents.filter((e) => 'epicId' in e && e.epicId === 'epic-1');
-      const epic2Events = runEvents.filter((e) => 'epicId' in e && e.epicId === 'epic-2');
-
-      expect(epic1Events.length).toBeGreaterThan(0);
-      expect(epic2Events.length).toBe(0);
     });
   });
 
@@ -617,133 +501,6 @@ describe.skipIf(!RUN_LIVE)('CloudCommsClient Integration', () => {
         const record = await client.fetchRecord('any-tick-id');
 
         expect(record).toBeNull();
-      });
-    });
-
-    describe('fetchRunStatus', () => {
-      it('returns not running when no run events received', async () => {
-        const status = await client.fetchRunStatus('unknown-epic');
-
-        expect(status.epicId).toBe('unknown-epic');
-        expect(status.isRunning).toBe(false);
-        expect(status.activeTask).toBeUndefined();
-      });
-
-      it('returns running after epic-started event', async () => {
-        // Subscribe to run events for the epic
-        client.subscribeRun('test-epic');
-
-        // Emit epic-started event
-        await fetch(`${TEST_RIG_URL}/test/emit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target: 'websocket',
-            data: {
-              type: 'run_event',
-              epicId: 'test-epic',
-              source: 'ralph',
-              event: {
-                type: 'epic-started',
-                status: 'running',
-                timestamp: new Date().toISOString(),
-              },
-            },
-          }),
-        });
-
-        await sleep(100);
-
-        const status = await client.fetchRunStatus('test-epic');
-
-        expect(status.epicId).toBe('test-epic');
-        expect(status.isRunning).toBe(true);
-      });
-
-      it('returns not running after epic-completed event', async () => {
-        // Subscribe to run events for the epic
-        client.subscribeRun('test-epic-2');
-
-        // Emit epic-started event
-        await fetch(`${TEST_RIG_URL}/test/emit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target: 'websocket',
-            data: {
-              type: 'run_event',
-              epicId: 'test-epic-2',
-              source: 'ralph',
-              event: {
-                type: 'epic-started',
-                status: 'running',
-                timestamp: new Date().toISOString(),
-              },
-            },
-          }),
-        });
-
-        await sleep(50);
-
-        // Emit epic-completed event
-        await fetch(`${TEST_RIG_URL}/test/emit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target: 'websocket',
-            data: {
-              type: 'run_event',
-              epicId: 'test-epic-2',
-              source: 'ralph',
-              event: {
-                type: 'epic-completed',
-                success: true,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          }),
-        });
-
-        await sleep(100);
-
-        const status = await client.fetchRunStatus('test-epic-2');
-
-        expect(status.epicId).toBe('test-epic-2');
-        expect(status.isRunning).toBe(false);
-      });
-
-      it('tracks active task from task-started event', async () => {
-        // Subscribe to run events for the epic
-        client.subscribeRun('test-epic-3');
-
-        // Emit task-started event
-        await fetch(`${TEST_RIG_URL}/test/emit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target: 'websocket',
-            data: {
-              type: 'run_event',
-              epicId: 'test-epic-3',
-              taskId: 'task-123',
-              source: 'ralph',
-              event: {
-                type: 'task-started',
-                status: 'running',
-                numTurns: 0,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          }),
-        });
-
-        await sleep(100);
-
-        const status = await client.fetchRunStatus('test-epic-3');
-
-        expect(status.isRunning).toBe(true);
-        expect(status.activeTask).toBeDefined();
-        expect(status.activeTask?.tickId).toBe('task-123');
       });
     });
 

@@ -8,10 +8,7 @@ import { MockCommsClient } from './mock.js';
 import { ReadOnlyError } from './client.js';
 import type {
   TickEvent,
-  RunEvent,
-  ContextEvent,
   ConnectionEvent,
-  CommsEvent,
   TickDetail,
 } from './types.js';
 import type { Tick, TickStatus, TickType, TickColumn } from '../types/tick.js';
@@ -60,16 +57,6 @@ describe('MockCommsClient', () => {
 
       expect(handler).toHaveBeenCalledWith({ type: 'connection:disconnected' });
     });
-
-    it('disconnect() clears run subscriptions', async () => {
-      await client.connect();
-      client.subscribeRun('epic-1');
-      client.subscribeRun('epic-2');
-      expect(client.getRunSubscriptions().size).toBe(2);
-
-      client.disconnect();
-      expect(client.getRunSubscriptions().size).toBe(0);
-    });
   });
 
   // ===========================================================================
@@ -87,30 +74,6 @@ describe('MockCommsClient', () => {
       unsubscribe();
       client.emitTick({ type: 'tick:updated', tick: createMockTick() });
       expect(handler).toHaveBeenCalledTimes(1); // Still 1, not called again
-    });
-
-    it('onRun registers handler and returns unsubscribe', () => {
-      const handler = vi.fn();
-      const unsubscribe = client.onRun(handler);
-
-      client.emitRun(createRunEvent());
-      expect(handler).toHaveBeenCalledTimes(1);
-
-      unsubscribe();
-      client.emitRun(createRunEvent());
-      expect(handler).toHaveBeenCalledTimes(1);
-    });
-
-    it('onContext registers handler and returns unsubscribe', () => {
-      const handler = vi.fn();
-      const unsubscribe = client.onContext(handler);
-
-      client.emitContext({ type: 'context:generating', epicId: 'e1', taskCount: 5 });
-      expect(handler).toHaveBeenCalledTimes(1);
-
-      unsubscribe();
-      client.emitContext({ type: 'context:loaded', epicId: 'e1' });
-      expect(handler).toHaveBeenCalledTimes(1);
     });
 
     it('onConnection registers handler and returns unsubscribe', () => {
@@ -140,92 +103,21 @@ describe('MockCommsClient', () => {
   });
 
   // ===========================================================================
-  // Run Stream Subscriptions
-  // ===========================================================================
-
-  describe('run stream subscriptions', () => {
-    it('subscribeRun adds epic to subscriptions', () => {
-      expect(client.getRunSubscriptions().size).toBe(0);
-
-      client.subscribeRun('epic-1');
-      expect(client.getRunSubscriptions().has('epic-1')).toBe(true);
-    });
-
-    it('subscribeRun emits connection:connected with epicId', () => {
-      const handler = vi.fn();
-      client.onConnection(handler);
-
-      client.subscribeRun('epic-1');
-
-      expect(handler).toHaveBeenCalledWith({
-        type: 'connection:connected',
-        epicId: 'epic-1',
-      });
-    });
-
-    it('unsubscribe removes epic from subscriptions', () => {
-      const unsubscribe = client.subscribeRun('epic-1');
-      expect(client.getRunSubscriptions().has('epic-1')).toBe(true);
-
-      unsubscribe();
-      expect(client.getRunSubscriptions().has('epic-1')).toBe(false);
-    });
-
-    it('multiple epics can be subscribed simultaneously', () => {
-      client.subscribeRun('epic-1');
-      client.subscribeRun('epic-2');
-      client.subscribeRun('epic-3');
-
-      const subs = client.getRunSubscriptions();
-      expect(subs.size).toBe(3);
-      expect(subs.has('epic-1')).toBe(true);
-      expect(subs.has('epic-2')).toBe(true);
-      expect(subs.has('epic-3')).toBe(true);
-    });
-  });
-
-  // ===========================================================================
   // Event Emission
   // ===========================================================================
 
   describe('event emission', () => {
     it('emit dispatches tick events to tick handlers', () => {
       const tickHandler = vi.fn();
-      const runHandler = vi.fn();
+      const connectionHandler = vi.fn();
       client.onTick(tickHandler);
-      client.onRun(runHandler);
+      client.onConnection(connectionHandler);
 
       const event: TickEvent = { type: 'tick:updated', tick: createMockTick() };
       client.emit(event);
 
       expect(tickHandler).toHaveBeenCalledWith(event);
-      expect(runHandler).not.toHaveBeenCalled();
-    });
-
-    it('emit dispatches run events to run handlers', () => {
-      const tickHandler = vi.fn();
-      const runHandler = vi.fn();
-      client.onTick(tickHandler);
-      client.onRun(runHandler);
-
-      const event = createRunEvent();
-      client.emit(event);
-
-      expect(runHandler).toHaveBeenCalledWith(event);
-      expect(tickHandler).not.toHaveBeenCalled();
-    });
-
-    it('emit dispatches context events to context handlers', () => {
-      const contextHandler = vi.fn();
-      const tickHandler = vi.fn();
-      client.onContext(contextHandler);
-      client.onTick(tickHandler);
-
-      const event: ContextEvent = { type: 'context:generating', epicId: 'e1', taskCount: 3 };
-      client.emit(event);
-
-      expect(contextHandler).toHaveBeenCalledWith(event);
-      expect(tickHandler).not.toHaveBeenCalled();
+      expect(connectionHandler).not.toHaveBeenCalled();
     });
 
     it('emit dispatches connection events to connection handlers', () => {
@@ -270,13 +162,11 @@ describe('MockCommsClient', () => {
       const tick = createMockTick();
       client.emitTick({ type: 'tick:updated', tick });
       client.emitConnection({ type: 'connection:connected' });
-      client.emitRun(createRunEvent());
 
       const log = client.getEventLog();
-      expect(log).toHaveLength(3);
+      expect(log).toHaveLength(2);
       expect(log[0]).toEqual({ type: 'tick:updated', tick });
       expect(log[1]).toEqual({ type: 'connection:connected' });
-      expect(log[2].type).toBe('run:task-started');
     });
 
     it('getEventLog returns a copy', () => {
@@ -638,21 +528,9 @@ describe('MockCommsClient', () => {
       expect(client.getConnectionInfo().connected).toBe(true);
     });
 
-    it('getRunSubscriptions returns copy of subscriptions', () => {
-      client.subscribeRun('epic-1');
-      client.subscribeRun('epic-2');
-
-      const subs1 = client.getRunSubscriptions();
-      const subs2 = client.getRunSubscriptions();
-
-      expect(subs1).not.toBe(subs2);
-      expect(subs1).toEqual(subs2);
-    });
-
     it('reset clears all state', async () => {
       // Set up various state
       await client.connect();
-      client.subscribeRun('epic-1');
       client.emitTick({ type: 'tick:updated', tick: createMockTick() });
       await client.createTick({ title: 'T1' });
       client.setWriteResponse('createTick', { result: createMockTick() });
@@ -667,7 +545,6 @@ describe('MockCommsClient', () => {
       // Verify all state is cleared
       expect(client.isConnected()).toBe(false);
       expect(client.isReadOnly()).toBe(false);
-      expect(client.getRunSubscriptions().size).toBe(0);
       expect(client.getEventLog()).toHaveLength(0);
       expect(client.getWriteLog()).toHaveLength(0);
 
@@ -800,31 +677,6 @@ describe('MockCommsClient', () => {
       });
     });
 
-    describe('fetchRunStatus', () => {
-      it('returns default not-running status for unconfigured epic', async () => {
-        const status = await client.fetchRunStatus('unknown');
-        expect(status).toEqual({ epicId: 'unknown', isRunning: false });
-      });
-
-      it('returns configured mock run status via setMockRunStatus', async () => {
-        const mockStatus = createMockRunStatus({ epicId: 'epic-1', isRunning: true });
-        client.setMockRunStatus('epic-1', mockStatus);
-
-        const status = await client.fetchRunStatus('epic-1');
-        expect(status).toEqual(mockStatus);
-      });
-
-      it('supports multiple configured statuses', async () => {
-        const status1 = createMockRunStatus({ epicId: 'epic-1', isRunning: true });
-        const status2 = createMockRunStatus({ epicId: 'epic-2', isRunning: false });
-        client.setMockRunStatus('epic-1', status1);
-        client.setMockRunStatus('epic-2', status2);
-
-        expect(await client.fetchRunStatus('epic-1')).toEqual(status1);
-        expect(await client.fetchRunStatus('epic-2')).toEqual(status2);
-      });
-    });
-
     describe('fetchContext', () => {
       it('returns null for unconfigured epic', async () => {
         const context = await client.fetchContext('unknown');
@@ -859,7 +711,6 @@ describe('MockCommsClient', () => {
       client.setMockInfo({ repoName: 'test', epics: [{ id: 'e1', title: 'Epic' }] });
       client.setMockActivity([createMockActivity({ tick: 't1', action: 'create' })]);
       client.setMockRecord('t1', createMockRunRecord());
-      client.setMockRunStatus('e1', createMockRunStatus({ epicId: 'e1', isRunning: true }));
       client.setMockContext('e1', 'Context');
       client.setMockTick('t1', createMockTickDetail({ id: 't1' }));
 
@@ -867,7 +718,6 @@ describe('MockCommsClient', () => {
       expect((await client.fetchInfo()).repoName).toBe('test');
       expect(await client.fetchActivity()).toHaveLength(1);
       expect(await client.fetchRecord('t1')).not.toBeNull();
-      expect((await client.fetchRunStatus('e1')).isRunning).toBe(true);
       expect(await client.fetchContext('e1')).toBe('Context');
       expect((await client.fetchTick('t1')).id).toBe('t1');
 
@@ -878,7 +728,6 @@ describe('MockCommsClient', () => {
       expect((await client.fetchInfo()).repoName).toBe('mock-repo');
       expect(await client.fetchActivity()).toHaveLength(0);
       expect(await client.fetchRecord('t1')).toBeNull();
-      expect((await client.fetchRunStatus('e1')).isRunning).toBe(false);
       expect(await client.fetchContext('e1')).toBeNull();
       await expect(client.fetchTick('t1')).rejects.toThrow('Tick not found');
     });
@@ -906,17 +755,6 @@ function createMockTick(overrides: Partial<{
     updated_at: new Date().toISOString(),
     created_by: 'test@user.com',
     owner: '',
-  };
-}
-
-function createRunEvent(): RunEvent {
-  return {
-    type: 'run:task-started',
-    taskId: 'task-1',
-    epicId: 'epic-1',
-    status: 'running',
-    numTurns: 0,
-    timestamp: new Date().toISOString(),
   };
 }
 
@@ -983,15 +821,5 @@ function createMockRunRecord(overrides: Partial<{
     },
     success: overrides.success ?? true,
     num_turns: overrides.num_turns ?? 3,
-  };
-}
-
-function createMockRunStatus(overrides: Partial<{
-  epicId: string;
-  isRunning: boolean;
-}> = {}) {
-  return {
-    epicId: overrides.epicId || 'epic-1',
-    isRunning: overrides.isRunning ?? false,
   };
 }

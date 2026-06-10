@@ -346,62 +346,6 @@ export async function createTick(tick: NewTick): Promise<CreateTickResponse> {
 }
 
 // ============================================================================
-// Run Status Types
-// ============================================================================
-
-/** Active tool record for live runs */
-export interface ActiveToolRecord {
-  name: string;
-  input?: string;
-  output?: string;
-  duration_ms?: number;
-  is_error?: boolean;
-}
-
-/** Active task status for live runs */
-export interface ActiveTaskStatus {
-  tickId: string;
-  title: string;
-  status: string;
-  activeTool?: ActiveToolRecord;
-  numTurns: number;
-  metrics: MetricsRecord;
-  lastUpdated: string;
-}
-
-/** Live record for in-progress runs */
-export interface LiveRecord {
-  session_id: string;
-  model: string;
-  started_at: string;
-  output: string;
-  thinking?: string;
-  tools?: ToolRecord[];
-  metrics: MetricsRecord;
-  num_turns: number;
-  status: string;
-  active_tool?: ActiveToolRecord;
-  last_updated: string;
-}
-
-/** Status of a task awaiting human action during a tickflow run */
-export interface AwaitingTaskStatus {
-  tickId: string;
-  title: string;
-  awaitingType: string;
-  signalReason?: string;
-}
-
-/** Response from GET /api/run-status/:epicId */
-export interface RunStatusResponse {
-  epicId: string;
-  isRunning: boolean;
-  activeTask?: ActiveTaskStatus;
-  metrics?: LiveRecord;
-  awaitingTasks?: AwaitingTaskStatus[];
-}
-
-// ============================================================================
 // Roadmap Types (matching query.Roadmap from server)
 // ============================================================================
 

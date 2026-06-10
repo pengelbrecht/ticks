@@ -4,9 +4,7 @@ import { provide } from '@lit/context';
 import { StoreController } from '@nanostores/lit';
 import { boardContext, initialBoardState, type BoardState } from '../contexts/board-context.js';
 import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
-import { type Note, type BlockerDetail, type RunStatusResponse, type MetricsRecord as ApiMetricsRecord, type AwaitingTaskStatus } from '../api/ticks.js';
-import type { ToolActivityInfo } from './tool-activity.js';
-import type { MetricsRecord } from './run-metrics.js';
+import { type Note, type BlockerDetail } from '../api/ticks.js';
 import {
   // Connection stores
   $isCloudMode,
@@ -37,13 +35,10 @@ import {
   initLocalComms,
   initCloudComms,
   disconnectComms,
-  subscribeRun,
-  onRunEvent,
   // Read operations (comms wrappers)
   fetchTicks,
   fetchInfo,
   fetchTickDetails,
-  fetchRunStatus,
   fetchActivity,
   // Roadmap
   $roadmap,
@@ -51,7 +46,6 @@ import {
   $roadmapError,
   loadRoadmap,
 } from '../stores/index.js';
-import type { RunEvent } from '../comms/types.js';
 import type { Activity } from '../api/ticks.js';
 
 // Initialize comms auto-connect (handles mode switching)
@@ -368,291 +362,6 @@ export class TickBoard extends LitElement {
       flex: 1;
       overflow: hidden;
     }
-
-    .board-layout.split main {
-      flex: 0 0 50%;
-      min-width: 400px;
-    }
-
-    .board-layout.split .kanban-board {
-      height: calc(100vh - 80px);
-    }
-
-    /* Run panel container */
-    .run-panel {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      border-left: 1px solid var(--surface1, #45475a);
-      background: var(--base, #1e1e2e);
-      min-width: 400px;
-      max-width: 60%;
-      overflow: hidden;
-    }
-
-    .run-panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.5rem 0.75rem;
-      background: var(--surface0, #313244);
-      border-bottom: 1px solid var(--surface1, #45475a);
-      flex-shrink: 0;
-    }
-
-    .run-panel-header-left {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .run-panel-title {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: var(--text, #cdd6f4);
-    }
-
-    .run-panel-title sl-icon {
-      color: var(--green, #a6e3a1);
-    }
-
-    .run-panel-epic {
-      font-size: 0.75rem;
-      color: var(--subtext0, #a6adc8);
-    }
-
-    .run-panel-epic .epic-id {
-      font-family: monospace;
-      color: var(--blue, #89b4fa);
-    }
-
-    .run-panel-header-right {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .run-panel-header-right sl-icon-button::part(base) {
-      color: var(--subtext0, #a6adc8);
-    }
-
-    .run-panel-header-right sl-icon-button::part(base):hover {
-      color: var(--text, #cdd6f4);
-    }
-
-    .run-panel-body {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      padding: 0.75rem;
-      gap: 0.75rem;
-    }
-
-    /* Run info bar */
-    .run-info-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      flex-shrink: 0;
-    }
-
-    .run-task-info {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.8125rem;
-    }
-
-    .run-task-id {
-      font-family: monospace;
-      color: var(--blue, #89b4fa);
-      font-weight: 500;
-    }
-
-    .run-task-title {
-      color: var(--text, #cdd6f4);
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    /* Run output section */
-    .run-output-section {
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    /* No run state */
-    .no-run-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      flex: 1;
-      color: var(--subtext0, #a6adc8);
-      text-align: center;
-      padding: 2rem;
-    }
-
-    .no-run-state sl-icon {
-      font-size: 3rem;
-      margin-bottom: 1rem;
-      opacity: 0.5;
-    }
-
-    .no-run-state p {
-      margin: 0;
-      font-size: 0.875rem;
-    }
-
-    .no-run-state .hint {
-      font-size: 0.75rem;
-      margin-top: 0.5rem;
-      color: var(--overlay0, #6c7086);
-    }
-
-    /* Run toggle button in header area */
-    .run-toggle-btn {
-      position: relative;
-    }
-
-    .run-toggle-btn .live-dot {
-      position: absolute;
-      top: 4px;
-      right: 4px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--green, #a6e3a1);
-      box-shadow: 0 0 6px var(--green, #a6e3a1);
-      animation: pulse-dot 1.5s ease-in-out infinite;
-    }
-
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 0.7; }
-      50% { opacity: 1; }
-    }
-
-    /* Awaiting tasks section */
-    .awaiting-section {
-      background: color-mix(in srgb, var(--yellow, #f9e2af) 8%, var(--surface0, #313244));
-      border: 1px solid color-mix(in srgb, var(--yellow, #f9e2af) 30%, transparent);
-      border-radius: 8px;
-      padding: 0.75rem;
-      flex-shrink: 0;
-    }
-
-    .awaiting-header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.8125rem;
-      font-weight: 600;
-      color: var(--yellow, #f9e2af);
-      margin-bottom: 0.5rem;
-    }
-
-    .awaiting-count {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 1.25rem;
-      height: 1.25rem;
-      padding: 0 0.375rem;
-      font-size: 0.6875rem;
-      font-weight: 700;
-      background: var(--yellow, #f9e2af);
-      color: var(--base, #1e1e2e);
-      border-radius: 999px;
-    }
-
-    .awaiting-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .awaiting-item {
-      background: var(--surface0, #313244);
-      border: 1px solid var(--surface1, #45475a);
-      border-radius: 6px;
-      padding: 0.625rem;
-      cursor: pointer;
-      transition: border-color 0.15s;
-    }
-
-    .awaiting-item:hover {
-      border-color: var(--yellow, #f9e2af);
-    }
-
-    .awaiting-item-header {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .awaiting-icon {
-      font-size: 0.875rem;
-    }
-
-    .awaiting-item-id {
-      font-family: monospace;
-      font-size: 0.75rem;
-      color: var(--blue, #89b4fa);
-      font-weight: 500;
-    }
-
-    .awaiting-type-badge {
-      font-size: 0.6875rem;
-      padding: 0.125rem 0.375rem;
-      background: color-mix(in srgb, var(--yellow, #f9e2af) 15%, transparent);
-      color: var(--yellow, #f9e2af);
-      border-radius: 4px;
-      font-weight: 500;
-      margin-left: auto;
-    }
-
-    .awaiting-item-title {
-      font-size: 0.8125rem;
-      color: var(--text, #cdd6f4);
-      line-height: 1.4;
-    }
-
-    .awaiting-item-reason {
-      font-size: 0.75rem;
-      color: var(--subtext0, #a6adc8);
-      margin-top: 0.25rem;
-      line-height: 1.3;
-      font-style: italic;
-    }
-
-    /* Hide run panel on mobile */
-    @media (max-width: 768px) {
-      .run-panel {
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        left: 0;
-        min-width: unset;
-        max-width: unset;
-        border-left: none;
-        z-index: 100;
-      }
-
-      .board-layout.split main {
-        flex: 1;
-        min-width: unset;
-      }
-    }
   `;
 
   // Provide board context to all child components
@@ -713,24 +422,12 @@ export class TickBoard extends LitElement {
   @state() private showCreateDialog = false;
   @state() private showMobileFilterDrawer = false;
 
-  // Run monitoring state
+  // Overlay state
   @state() private showDashboard = false;
   @state() private dashboardActivities: Activity[] = [];
   @state() private showRoadmap = false;
-  @state() private showRunPanel = false;
-  @state() private runStatus: RunStatusResponse | null = null;
-  @state() private runPanelEpicId: string | null = null;
-  @state() private runStreamConnected = false;
-  @state() private activeToolInfo: ToolActivityInfo | null = null;
-  @state() private runMetrics: MetricsRecord | null = null;
-  @state() private awaitingTasks: AwaitingTaskStatus[] = [];
 
   private mediaQuery = window.matchMedia('(max-width: 480px)');
-
-  // Run stream subscription (via CommsClient)
-  private runStreamUnsubscribe: (() => void) | null = null;
-  private runEventUnsubscribe: (() => void) | null = null;
-  private runPollInterval: ReturnType<typeof setInterval> | null = null;
 
   connectedCallback() {
     super.connectedCallback();
@@ -740,13 +437,9 @@ export class TickBoard extends LitElement {
     // Detect cloud mode from URL or config (sets store, auto-triggers comms connection)
     this.detectCloudMode();
 
-    // Subscribe to run events via the comms store
-    this.runEventUnsubscribe = onRunEvent((event) => this.handleRunEvent(event));
-
-    // Load data and start polling (comms handles SSE/WebSocket connection automatically)
+    // Load data (comms handles SSE/WebSocket connection automatically)
     if (!this.isCloudMode) {
       this.loadData();
-      this.startRunStatusPolling();
     }
   }
 
@@ -821,312 +514,8 @@ export class TickBoard extends LitElement {
     super.disconnectedCallback();
     this.mediaQuery.removeEventListener('change', this.handleMediaChange);
     document.removeEventListener('keydown', this.handleKeyDown);
-
-    // Unsubscribe from run events
-    this.runEventUnsubscribe?.();
-    this.runEventUnsubscribe = null;
-
-    // Unsubscribe from run stream
-    this.unsubscribeRunStream();
-
-    this.stopRunStatusPolling();
     // Note: CommsClient disconnect is handled by the store when component unmounts
   }
-
-  // ============================================================================
-  // Run Status Monitoring
-  // ============================================================================
-
-  /**
-   * Start polling for active runs across all epics.
-   * This detects when a run starts so we can show the run panel.
-   */
-  private startRunStatusPolling() {
-    // Poll every 5 seconds for new runs
-    this.runPollInterval = setInterval(() => {
-      this.checkForActiveRuns();
-    }, 5000);
-
-    // Also check immediately
-    this.checkForActiveRuns();
-  }
-
-  /**
-   * Stop polling for active runs.
-   */
-  private stopRunStatusPolling() {
-    if (this.runPollInterval) {
-      clearInterval(this.runPollInterval);
-      this.runPollInterval = null;
-    }
-  }
-
-  /**
-   * Check all epics for active runs.
-   * If a run is found and we're not already showing the run panel,
-   * automatically show it.
-   */
-  private async checkForActiveRuns() {
-    // Only check if we have epics
-    if (this.epics.length === 0) return;
-
-    // Check each epic for active runs
-    for (const epic of this.epics) {
-      try {
-        const status = await fetchRunStatus(epic.id);
-        if (status.isRunning) {
-          // Found an active run
-          this.runStatus = status;
-
-          // If not already subscribed to this epic's stream, subscribe
-          if (this.runPanelEpicId !== epic.id) {
-            this.runPanelEpicId = epic.id;
-            this.subscribeToRunStream(epic.id);
-          }
-
-          // Note: Don't auto-show the run panel - let users toggle it manually
-
-          // Update metrics from status
-          if (status.activeTask?.metrics) {
-            this.runMetrics = this.convertApiMetrics(status.activeTask.metrics);
-          }
-
-          // Update active tool
-          if (status.activeTask?.activeTool) {
-            this.activeToolInfo = {
-              name: status.activeTask.activeTool.name,
-              input: status.activeTask.activeTool.input,
-              output: status.activeTask.activeTool.output,
-              durationMs: status.activeTask.activeTool.duration_ms,
-              isError: status.activeTask.activeTool.is_error,
-              isComplete: false,
-            };
-          }
-
-          // Update awaiting tasks
-          if (status.awaitingTasks) {
-            this.awaitingTasks = status.awaitingTasks;
-          }
-
-          return; // Only handle one active run at a time
-        }
-      } catch {
-        // Ignore errors when checking run status
-      }
-    }
-
-    // No active runs found
-    if (this.runStatus?.isRunning) {
-      this.runStatus = { ...this.runStatus, isRunning: false };
-    }
-  }
-
-  /**
-   * Convert API metrics format to component metrics format.
-   */
-  private convertApiMetrics(apiMetrics: ApiMetricsRecord): MetricsRecord {
-    return {
-      inputTokens: apiMetrics.input_tokens,
-      outputTokens: apiMetrics.output_tokens,
-      cacheReadTokens: apiMetrics.cache_read_tokens,
-      cacheCreationTokens: apiMetrics.cache_creation_tokens,
-      costUsd: apiMetrics.cost_usd,
-      durationMs: apiMetrics.duration_ms,
-    };
-  }
-
-  /**
-   * Subscribe to run stream for a specific epic via CommsClient.
-   */
-  private subscribeToRunStream(epicId: string) {
-    // Clean up any existing subscription
-    this.unsubscribeRunStream();
-
-    console.log('[RunStream] Subscribing to epic:', epicId);
-    this.runStreamUnsubscribe = subscribeRun(epicId);
-    this.runStreamConnected = true;
-  }
-
-  /**
-   * Unsubscribe from run stream.
-   */
-  private unsubscribeRunStream() {
-    if (this.runStreamUnsubscribe) {
-      this.runStreamUnsubscribe();
-      this.runStreamUnsubscribe = null;
-    }
-    this.runStreamConnected = false;
-  }
-
-  /**
-   * Handle run events from the comms store.
-   */
-  private handleRunEvent(event: RunEvent) {
-    const epicId = event.epicId;
-
-    // Only handle events for the epic we're monitoring
-    if (this.runPanelEpicId && epicId !== this.runPanelEpicId) {
-      return;
-    }
-
-    switch (event.type) {
-      case 'run:task-started':
-        this.runStatus = {
-          epicId,
-          isRunning: true,
-          activeTask: {
-            tickId: event.taskId,
-            title: '',
-            status: 'running',
-            numTurns: event.numTurns || 0,
-            metrics: event.metrics ? {
-              input_tokens: event.metrics.inputTokens,
-              output_tokens: event.metrics.outputTokens,
-              cache_read_tokens: event.metrics.cacheReadTokens,
-              cache_creation_tokens: event.metrics.cacheCreationTokens,
-              cost_usd: event.metrics.costUsd,
-              duration_ms: event.metrics.durationMs,
-            } : {
-              input_tokens: 0,
-              output_tokens: 0,
-              cache_read_tokens: 0,
-              cache_creation_tokens: 0,
-              cost_usd: 0,
-              duration_ms: 0,
-            },
-            lastUpdated: event.timestamp,
-          },
-        };
-        this.activeToolInfo = null;
-        break;
-
-      case 'run:task-update':
-        // Update metrics
-        if (event.metrics) {
-          this.runMetrics = {
-            inputTokens: event.metrics.inputTokens,
-            outputTokens: event.metrics.outputTokens,
-            cacheReadTokens: event.metrics.cacheReadTokens,
-            cacheCreationTokens: event.metrics.cacheCreationTokens,
-            costUsd: event.metrics.costUsd,
-            durationMs: event.metrics.durationMs,
-          };
-        }
-
-        // Update active tool
-        if (event.activeTool) {
-          this.activeToolInfo = {
-            name: event.activeTool.name,
-            input: event.activeTool.input,
-            output: event.activeTool.output,
-            durationMs: event.activeTool.durationMs,
-            isComplete: false,
-          };
-        }
-
-        // Update run status
-        if (this.runStatus?.activeTask) {
-          this.runStatus = {
-            ...this.runStatus,
-            activeTask: {
-              ...this.runStatus.activeTask,
-              numTurns: event.numTurns ?? this.runStatus.activeTask.numTurns,
-              lastUpdated: event.timestamp,
-            },
-          };
-        }
-        break;
-
-      case 'run:tool-activity':
-        this.activeToolInfo = {
-          name: event.tool.name,
-          input: event.tool.input,
-          output: event.tool.output,
-          durationMs: event.tool.durationMs,
-          isComplete: false,
-        };
-        break;
-
-      case 'run:task-completed':
-        console.log('[RunStream] Task completed:', event.taskId);
-        this.activeToolInfo = null;
-        if (this.runStatus) {
-          this.runStatus = {
-            ...this.runStatus,
-            isRunning: false,
-            activeTask: undefined,
-          };
-        }
-        break;
-
-      case 'run:epic-started':
-        console.log('[RunStream] Epic started:', epicId);
-        this.runStatus = {
-          epicId,
-          isRunning: true,
-        };
-        break;
-
-      case 'run:epic-completed':
-        console.log('[RunStream] Epic completed:', epicId);
-        this.runStatus = { epicId, isRunning: false };
-        this.activeToolInfo = null;
-        break;
-
-      case 'run:task-awaiting': {
-        console.log('[RunStream] Task awaiting:', event.taskId, event.awaitingType);
-        // Find the tick title from our current ticks list
-        const awaitingTick = this.ticks.find(t => t.id === event.taskId);
-        const awaitingTask: AwaitingTaskStatus = {
-          tickId: event.taskId,
-          title: awaitingTick?.title || event.taskId,
-          awaitingType: event.awaitingType,
-          signalReason: event.reason,
-        };
-        // Add if not already present, update if already there
-        const existingIdx = this.awaitingTasks.findIndex(t => t.tickId === event.taskId);
-        if (existingIdx >= 0) {
-          this.awaitingTasks = [
-            ...this.awaitingTasks.slice(0, existingIdx),
-            awaitingTask,
-            ...this.awaitingTasks.slice(existingIdx + 1),
-          ];
-        } else {
-          this.awaitingTasks = [...this.awaitingTasks, awaitingTask];
-        }
-
-        // Show toast notification
-        window.showToast?.({
-          message: `Task ${event.taskId} needs human action: ${event.awaitingType}`,
-          variant: 'warning',
-        });
-        break;
-      }
-    }
-  }
-
-  /**
-   * Toggle the run panel visibility.
-   */
-  private toggleRunPanel() {
-    this.showRunPanel = !this.showRunPanel;
-
-    // If showing and we have an active run, subscribe to its stream
-    if (this.showRunPanel && this.runStatus?.isRunning && this.runStatus.epicId) {
-      if (this.runPanelEpicId !== this.runStatus.epicId) {
-        this.runPanelEpicId = this.runStatus.epicId;
-        this.subscribeToRunStream(this.runStatus.epicId);
-      }
-    }
-  }
-
-  /**
-   * Close the run panel.
-   */
-  private closeRunPanel() {
-    this.showRunPanel = false;
-  }
-
   // ============================================================================
   // Keyboard Navigation
   // ============================================================================
@@ -1293,14 +682,6 @@ export class TickBoard extends LitElement {
         this.focusSearchInput();
         break;
 
-      // Toggle run panel: r (only when no modifiers pressed)
-      case 'r':
-        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-          e.preventDefault();
-          this.toggleRunPanel();
-        }
-        break;
-
       // Toggle dashboard overlay: d
       case 'd':
         if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
@@ -1406,8 +787,6 @@ export class TickBoard extends LitElement {
       this.showKeyboardHelp = false;
     } else if (this.selectedTick) {
       selectTick(null);
-    } else if (this.showRunPanel) {
-      this.showRunPanel = false;
     } else {
       this.clearFocus();
     }
@@ -1465,7 +844,6 @@ export class TickBoard extends LitElement {
     try {
       const response = await import('../stores/comms.js').then(m => m.approveTick(tickId));
       updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
-      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tickId);
       window.showToast?.({ message: `Resumed tick ${tickId}`, variant: 'success' });
     } catch (err) {
       window.showToast?.({ message: `Failed to resume ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
@@ -1481,7 +859,6 @@ export class TickBoard extends LitElement {
     try {
       const response = await import('../stores/comms.js').then(m => m.reopenTick(tickId));
       updateTick({ ...response, is_blocked: (response.blocked_by?.length ?? 0) > 0, column: 'ready' as const });
-      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tickId);
       window.showToast?.({ message: `Retrying tick ${tickId}`, variant: 'success' });
     } catch (err) {
       window.showToast?.({ message: `Failed to retry ${tickId}: ${err instanceof Error ? err.message : err}`, variant: 'danger' });
@@ -1644,11 +1021,6 @@ export class TickBoard extends LitElement {
     // Update the tick in store - computed stores will auto-update notes/blockers/etc.
     updateTick(tick);
     this.updateBoardState();
-
-    // Remove from awaiting list if tick is no longer awaiting
-    if (!tick.awaiting || tick.status === 'closed') {
-      this.awaitingTasks = this.awaitingTasks.filter(t => t.tickId !== tick.id);
-    }
   }
 
   // Get filtered ticks for a column
@@ -1687,149 +1059,6 @@ export class TickBoard extends LitElement {
     return names;
   }
 
-  /**
-   * Render the run monitoring panel.
-   */
-  private renderRunPanel() {
-    const hasActiveRun = this.runStatus?.isRunning && this.runStatus.activeTask;
-    const epicTitle = this.epics.find(e => e.id === this.runPanelEpicId)?.title || this.runPanelEpicId || 'Unknown Epic';
-
-    return html`
-      <div class="run-panel">
-        <div class="run-panel-header">
-          <div class="run-panel-header-left">
-            <div class="run-panel-title">
-              <sl-icon name="terminal"></sl-icon>
-              <span>Live Run</span>
-            </div>
-            ${this.runPanelEpicId
-              ? html`
-                  <div class="run-panel-epic">
-                    <span class="epic-id">${this.runPanelEpicId}</span>
-                    <span>· ${epicTitle}</span>
-                  </div>
-                `
-              : nothing}
-          </div>
-          <div class="run-panel-header-right">
-            <sl-icon-button
-              name="x-lg"
-              label="Close run panel"
-              @click=${this.closeRunPanel}
-            ></sl-icon-button>
-          </div>
-        </div>
-
-        <div class="run-panel-body">
-          ${this.awaitingTasks.length > 0
-            ? this.renderAwaitingTasks()
-            : nothing}
-          ${hasActiveRun
-            ? this.renderActiveRun()
-            : this.renderNoRunState()}
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Render the active run content.
-   */
-  private renderActiveRun() {
-    const activeTask = this.runStatus?.activeTask;
-    if (!activeTask) return nothing;
-
-    return html`
-      <!-- Task info bar -->
-      <div class="run-info-bar">
-        <div class="run-task-info">
-          <span class="run-task-id">${activeTask.tickId}</span>
-          <span class="run-task-title">${activeTask.title}</span>
-        </div>
-        ${this.runMetrics
-          ? html`<run-metrics .metrics=${this.runMetrics} ?live=${true}></run-metrics>`
-          : nothing}
-      </div>
-
-      <!-- Tool activity indicator -->
-      ${this.activeToolInfo
-        ? html`
-            <tool-activity
-              .tool=${this.activeToolInfo}
-              ?expanded=${true}
-            ></tool-activity>
-          `
-        : nothing}
-
-      <!-- Output pane -->
-      <div class="run-output-section">
-        <run-output-pane
-          epic-id=${this.runPanelEpicId || ''}
-        ></run-output-pane>
-      </div>
-    `;
-  }
-
-  /**
-   * Render tasks awaiting human action.
-   */
-  private renderAwaitingTasks() {
-    const awaitingIcons: Record<string, string> = {
-      work: '🔧',
-      approval: '✅',
-      input: '💬',
-      review: '👀',
-      content: '📝',
-      escalation: '🚨',
-      checkpoint: '📍',
-    };
-
-    return html`
-      <div class="awaiting-section">
-        <div class="awaiting-header">
-          <sl-icon name="exclamation-triangle"></sl-icon>
-          <span>Needs Human Action</span>
-          <span class="awaiting-count">${this.awaitingTasks.length}</span>
-        </div>
-        <div class="awaiting-list">
-          ${this.awaitingTasks.map(task => html`
-            <div class="awaiting-item" @click=${() => this.handleAwaitingTaskClick(task.tickId)}>
-              <div class="awaiting-item-header">
-                <span class="awaiting-icon">${awaitingIcons[task.awaitingType] || '⏳'}</span>
-                <span class="awaiting-item-id">${task.tickId}</span>
-                <span class="awaiting-type-badge">${task.awaitingType}</span>
-              </div>
-              <div class="awaiting-item-title">${task.title}</div>
-              ${task.signalReason
-                ? html`<div class="awaiting-item-reason">${task.signalReason}</div>`
-                : nothing}
-            </div>
-          `)}
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Handle click on an awaiting task - open its detail drawer.
-   */
-  private handleAwaitingTaskClick(tickId: string) {
-    selectTick(tickId);
-  }
-
-  /**
-   * Render the no run state.
-   */
-  private renderNoRunState() {
-    return html`
-      <div class="no-run-state">
-        <sl-icon name="hourglass-split"></sl-icon>
-        <p>No active run</p>
-        <p class="hint">When a ticker run starts, output will appear here</p>
-      </div>
-    `;
-  }
-
   render() {
     // Show loading state
     if (this.loading) {
@@ -1863,16 +1092,12 @@ export class TickBoard extends LitElement {
         selected-epic=${this.selectedEpic}
         search-term=${this.searchTerm}
         connection-status=${this.connectionStatus}
-        ?run-panel-open=${this.showRunPanel}
-        ?run-active=${this.runStatus?.isRunning}
-        awaiting-count=${this.awaitingTasks.length}
         ?readonly-mode=${this.isCloudMode && !this.localClientConnected}
         @search-change=${this.handleSearchChange}
         @epic-filter-change=${this.handleEpicFilterChange}
         @create-click=${this.handleCreateClick}
         @menu-toggle=${this.handleMobileMenuToggle}
         @activity-click=${this.handleActivityClick}
-        @run-panel-toggle=${this.toggleRunPanel}
         @dashboard-toggle=${this.toggleDashboard}
         @roadmap-toggle=${this.toggleRoadmap}
       ></tick-header>
@@ -1900,8 +1125,8 @@ export class TickBoard extends LitElement {
         @tick-created=${this.handleTickCreated}
       ></tick-create-dialog>
 
-      <!-- Desktop/Tablet kanban board with optional run panel -->
-      <div class="board-layout ${this.showRunPanel ? 'split' : ''}">
+      <!-- Desktop/Tablet kanban board -->
+      <div class="board-layout">
         <main>
           <div class="kanban-board">
             ${COLUMNS.map((col, colIndex) => html`
@@ -1915,9 +1140,6 @@ export class TickBoard extends LitElement {
             `)}
           </div>
         </main>
-
-        <!-- Run monitoring panel -->
-        ${this.showRunPanel ? this.renderRunPanel() : nothing}
       </div>
 
       <!-- Mobile tab layout (visible only on ≤480px) -->
@@ -2006,7 +1228,6 @@ export class TickBoard extends LitElement {
         ?open=${this.showDashboard}
         .ticks=${this.ticks}
         .epics=${this.epics}
-        .runStatus=${this.runStatus}
         .activities=${this.dashboardActivities}
         repo-name=${this.repoName}
         @close=${() => { this.showDashboard = false; }}

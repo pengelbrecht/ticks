@@ -6,8 +6,6 @@
 import type { Tick } from '../types/tick.js';
 import type {
   TickEvent,
-  RunEvent,
-  ContextEvent,
   ConnectionEvent,
   TickCreate,
   TickUpdate,
@@ -16,14 +14,11 @@ import type {
   InfoResponse,
   Activity,
   RunRecord,
-  RunStatusResponse,
   TickDetail,
 } from './types.js';
 import type {
   CommsClient,
   TickEventHandler,
-  RunEventHandler,
-  ContextEventHandler,
   ConnectionEventHandler,
   Unsubscribe,
 } from './client.js';
@@ -78,8 +73,6 @@ export class MockCommsClient implements CommsClient {
   // ---------------------------------------------------------------------------
 
   private tickHandlers = new Set<TickEventHandler>();
-  private runHandlers = new Set<RunEventHandler>();
-  private contextHandlers = new Set<ContextEventHandler>();
   private connectionHandlers = new Set<ConnectionEventHandler>();
 
   // ---------------------------------------------------------------------------
@@ -88,7 +81,6 @@ export class MockCommsClient implements CommsClient {
 
   private connected = false;
   private readOnly = false;
-  private runSubscriptions = new Set<string>();
 
   // ---------------------------------------------------------------------------
   // Logging
@@ -117,8 +109,6 @@ export class MockCommsClient implements CommsClient {
 
   private mockRecords = new Map<string, RunRecord>();
 
-  private mockRunStatus = new Map<string, RunStatusResponse>();
-
   private mockContexts = new Map<string, string>();
 
   private mockTicks = new Map<string, TickDetail>();
@@ -134,7 +124,6 @@ export class MockCommsClient implements CommsClient {
 
   disconnect(): void {
     this.connected = false;
-    this.runSubscriptions.clear();
     this.emitConnection({ type: 'connection:disconnected' });
   }
 
@@ -147,31 +136,9 @@ export class MockCommsClient implements CommsClient {
     return () => this.tickHandlers.delete(handler);
   }
 
-  onRun(handler: RunEventHandler): Unsubscribe {
-    this.runHandlers.add(handler);
-    return () => this.runHandlers.delete(handler);
-  }
-
-  onContext(handler: ContextEventHandler): Unsubscribe {
-    this.contextHandlers.add(handler);
-    return () => this.contextHandlers.delete(handler);
-  }
-
   onConnection(handler: ConnectionEventHandler): Unsubscribe {
     this.connectionHandlers.add(handler);
     return () => this.connectionHandlers.delete(handler);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Run Stream Subscriptions
-  // ---------------------------------------------------------------------------
-
-  subscribeRun(epicId: string): Unsubscribe {
-    this.runSubscriptions.add(epicId);
-    this.emitConnection({ type: 'connection:connected', epicId });
-    return () => {
-      this.runSubscriptions.delete(epicId);
-    };
   }
 
   // ---------------------------------------------------------------------------
@@ -243,10 +210,6 @@ export class MockCommsClient implements CommsClient {
 
     if (event.type.startsWith('tick:') || event.type === 'activity:updated') {
       this.tickHandlers.forEach((h) => h(event as TickEvent));
-    } else if (event.type.startsWith('run:')) {
-      this.runHandlers.forEach((h) => h(event as RunEvent));
-    } else if (event.type.startsWith('context:')) {
-      this.contextHandlers.forEach((h) => h(event as ContextEvent));
     } else if (event.type.startsWith('connection:')) {
       this.connectionHandlers.forEach((h) => h(event as ConnectionEvent));
     }
@@ -258,22 +221,6 @@ export class MockCommsClient implements CommsClient {
   emitTick(event: TickEvent): void {
     this.eventLog.push(event);
     this.tickHandlers.forEach((h) => h(event));
-  }
-
-  /**
-   * Emit a run event.
-   */
-  emitRun(event: RunEvent): void {
-    this.eventLog.push(event);
-    this.runHandlers.forEach((h) => h(event));
-  }
-
-  /**
-   * Emit a context event.
-   */
-  emitContext(event: ContextEvent): void {
-    this.eventLog.push(event);
-    this.contextHandlers.forEach((h) => h(event));
   }
 
   /**
@@ -377,22 +324,12 @@ export class MockCommsClient implements CommsClient {
   }
 
   /**
-   * Get the set of currently subscribed epic IDs.
-   */
-  getRunSubscriptions(): Set<string> {
-    return new Set(this.runSubscriptions);
-  }
-
-  /**
    * Reset all state to initial values.
    */
   reset(): void {
     this.connected = false;
     this.readOnly = false;
-    this.runSubscriptions.clear();
     this.tickHandlers.clear();
-    this.runHandlers.clear();
-    this.contextHandlers.clear();
     this.connectionHandlers.clear();
     this.eventLog = [];
     this.writeLog = [];
@@ -402,7 +339,6 @@ export class MockCommsClient implements CommsClient {
     this.mockInfo = { repoName: 'mock-repo', epics: [] };
     this.mockActivity = [];
     this.mockRecords.clear();
-    this.mockRunStatus.clear();
     this.mockContexts.clear();
     this.mockTicks.clear();
   }
@@ -430,13 +366,6 @@ export class MockCommsClient implements CommsClient {
    */
   setMockRecord(tickId: string, record: RunRecord): void {
     this.mockRecords.set(tickId, record);
-  }
-
-  /**
-   * Set the mock run status for a specific epic.
-   */
-  setMockRunStatus(epicId: string, status: RunStatusResponse): void {
-    this.mockRunStatus.set(epicId, status);
   }
 
   /**
@@ -495,14 +424,6 @@ export class MockCommsClient implements CommsClient {
    */
   async fetchRecord(tickId: string): Promise<RunRecord | null> {
     return this.mockRecords.get(tickId) ?? null;
-  }
-
-  /**
-   * Fetch run status for an epic.
-   * Returns the mock status configured via setMockRunStatus(), or a default not-running status.
-   */
-  async fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
-    return this.mockRunStatus.get(epicId) ?? { epicId, isRunning: false };
   }
 
   /**

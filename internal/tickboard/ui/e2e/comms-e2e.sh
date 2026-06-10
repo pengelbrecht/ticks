@@ -336,78 +336,6 @@ test_tick_lifecycle_scenario() {
   fi
 }
 
-test_run_complete_scenario() {
-  log_test "Run Complete Scenario"
-  reset_state
-
-  # Connect SSE
-  click_by_onclick "connectSSE()"
-  sleep 0.5
-
-  # Subscribe to run stream
-  click_by_onclick "subscribeRunStream()"
-  sleep 0.3
-
-  # Clear event log
-  click_by_onclick "clearLog()"
-  sleep 0.2
-
-  # Run Run Complete scenario
-  run_scenario "run-complete"
-  sleep 1  # Scenario has some delays but we check early
-
-  # Check event log has scenario start event
-  local snapshot=$(get_snapshot)
-  if echo "$snapshot" | grep -q "Scenario"; then
-    log_pass "Run complete scenario ran"
-  else
-    log_fail "Run complete scenario events not received"
-    echo "Snapshot: $snapshot"
-  fi
-}
-
-# ============================================================================
-# Run Stream Subscription Tests
-# ============================================================================
-
-test_run_subscribe() {
-  log_test "Run Stream Subscribe"
-  reset_state
-
-  # Connect SSE first
-  click_by_onclick "connectSSE()"
-  sleep 0.5
-
-  # Subscribe to run stream
-  click_by_onclick "subscribeRunStream()"
-  sleep 0.3
-
-  # Check for subscription event in log
-  local snapshot=$(get_snapshot)
-  if echo "$snapshot" | grep -q "connection:connected.*epicId"; then
-    log_pass "Run stream subscribed"
-  else
-    # Also check if any run events show up after triggering scenario
-    log_pass "Run stream subscription initiated"
-  fi
-}
-
-test_run_unsubscribe() {
-  log_test "Run Stream Unsubscribe"
-
-  # Unsubscribe from run stream
-  click_by_onclick "unsubscribeRunStream()"
-  sleep 0.3
-
-  # Check for disconnection event in log
-  local snapshot=$(get_snapshot)
-  if echo "$snapshot" | grep -q "connection:disconnected"; then
-    log_pass "Run stream unsubscribed"
-  else
-    log_pass "Run stream unsubscription initiated"
-  fi
-}
-
 # ============================================================================
 # Read Operation Tests
 # ============================================================================
@@ -455,28 +383,6 @@ test_fetch_activity() {
     log_pass "Fetch activity returned data"
   else
     log_fail "Fetch activity not logged"
-    echo "Snapshot: $snapshot"
-  fi
-}
-
-test_fetch_run_status() {
-  log_test "Fetch Run Status"
-  reset_state
-
-  # Connect SSE first
-  click_by_onclick "connectSSE()"
-  sleep 0.5
-
-  # Fetch run status
-  click_by_onclick "fetchRunStatus()"
-  sleep 0.5
-
-  # Check event log for Read:run-status entry
-  local snapshot=$(get_snapshot)
-  if echo "$snapshot" | grep -q "Read:run-status"; then
-    log_pass "Fetch run status returned data"
-  else
-    log_fail "Fetch run status not logged"
     echo "Snapshot: $snapshot"
   fi
 }
@@ -661,15 +567,11 @@ main() {
   test_create_multiple_ticks
   test_event_log_records
   test_event_log_clear
-  test_run_subscribe
-  test_run_unsubscribe
   test_tick_lifecycle_scenario
-  test_run_complete_scenario
 
   # Read operation tests
   test_fetch_info
   test_fetch_activity
-  test_fetch_run_status
   test_fetch_record_not_found
   test_fetch_record_with_data
   test_fetch_context_not_found

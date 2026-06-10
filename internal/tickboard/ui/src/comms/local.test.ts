@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventSource as EventSourcePolyfill } from 'eventsource';
 import { LocalCommsClient } from './local.js';
-import type { TickEvent, RunEvent, ContextEvent, ConnectionEvent } from './types.js';
+import type { TickEvent, ConnectionEvent } from './types.js';
 
 // Polyfill EventSource for Node.js environment
 // This is also set in test-setup.ts but we ensure it's available
@@ -282,128 +282,6 @@ describe.skipIf(!RUN_LIVE)('LocalCommsClient Integration', () => {
   });
 
   // ===========================================================================
-  // Run Stream Subscription
-  // ===========================================================================
-
-  describe('run stream subscription', () => {
-    beforeEach(async () => {
-      await client.connect();
-    });
-
-    afterEach(() => {
-      client.disconnect();
-    });
-
-    it('subscribeRun() connects to run stream SSE', async () => {
-      const connectionEvents: ConnectionEvent[] = [];
-      client.onConnection((e) => connectionEvents.push(e));
-
-      const unsubscribe = client.subscribeRun('epic-test');
-
-      // Wait for connection event
-      await waitFor(() =>
-        connectionEvents.some(
-          (e) => e.type === 'connection:connected' && 'epicId' in e && e.epicId === 'epic-test'
-        )
-      );
-
-      expect(
-        connectionEvents.find(
-          (e) => e.type === 'connection:connected' && 'epicId' in e && e.epicId === 'epic-test'
-        )
-      ).toBeDefined();
-
-      unsubscribe();
-    });
-
-    it('receives run events from run stream', async () => {
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      client.subscribeRun('epic-test');
-
-      // Wait for connection
-      await sleep(100);
-
-      // Emit run event via test rig
-      await fetch(`${TEST_RIG_URL}/test/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'run-stream',
-          epicId: 'epic-test',
-          eventType: 'task-started',
-          data: { taskId: 'task-1', status: 'running', numTurns: 0 },
-        }),
-      });
-
-      // Wait for event
-      await waitFor(() => runEvents.some((e) => e.type === 'run:task-started'));
-
-      const startEvent = runEvents.find((e) => e.type === 'run:task-started');
-      expect(startEvent).toBeDefined();
-      if (startEvent?.type === 'run:task-started') {
-        expect(startEvent.taskId).toBe('task-1');
-        expect(startEvent.epicId).toBe('epic-test');
-      }
-    });
-
-    it('receives context events from run stream', async () => {
-      const contextEvents: ContextEvent[] = [];
-      client.onContext((e) => contextEvents.push(e));
-
-      client.subscribeRun('epic-test');
-
-      // Wait for connection
-      await sleep(100);
-
-      // Emit context event via test rig
-      await fetch(`${TEST_RIG_URL}/test/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'run-stream',
-          epicId: 'epic-test',
-          eventType: 'context-generating',
-          data: { taskCount: 5 },
-        }),
-      });
-
-      // Wait for event
-      await waitFor(() => contextEvents.some((e) => e.type === 'context:generating'));
-
-      const event = contextEvents.find((e) => e.type === 'context:generating');
-      expect(event).toBeDefined();
-      if (event?.type === 'context:generating') {
-        expect(event.taskCount).toBe(5);
-      }
-    });
-
-    it('unsubscribe closes run stream', async () => {
-      const unsubscribe = client.subscribeRun('epic-test');
-
-      // Wait for connection
-      await sleep(100);
-
-      // Get client count before unsubscribe
-      const beforeResponse = await fetch(`${TEST_RIG_URL}/test/clients`);
-      const beforeClients = await beforeResponse.json();
-      expect(beforeClients.runStream).toBeGreaterThanOrEqual(1);
-
-      // Unsubscribe
-      unsubscribe();
-
-      // Wait a bit
-      await sleep(100);
-
-      // Get client count after unsubscribe
-      const afterResponse = await fetch(`${TEST_RIG_URL}/test/clients`);
-      const afterClients = await afterResponse.json();
-      expect(afterClients.runStream).toBe(0);
-    });
-  });
-
-  // ===========================================================================
   // Scenario Tests
   // ===========================================================================
 
@@ -432,29 +310,6 @@ describe.skipIf(!RUN_LIVE)('LocalCommsClient Integration', () => {
 
       // Should have received multiple tick events
       expect(tickEvents.length).toBeGreaterThanOrEqual(2);
-    });
-
-    it('handles run-complete scenario', async () => {
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      // Subscribe to run stream
-      client.subscribeRun('epic-test');
-      await sleep(100);
-
-      // Run scenario
-      await fetch(`${TEST_RIG_URL}/test/scenario`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'run-complete' }),
-      });
-
-      // Wait for events (scenario has 300ms delays between steps)
-      await sleep(1500);
-
-      // Should have received run events
-      expect(runEvents.some((e) => e.type === 'run:task-started')).toBe(true);
-      expect(runEvents.some((e) => e.type === 'run:task-completed')).toBe(true);
     });
   });
 
@@ -561,20 +416,6 @@ describe.skipIf(!RUN_LIVE)('LocalCommsClient Integration', () => {
       expect(record?.session_id).toBe('test-session');
       expect(record?.model).toBe('test-model');
       expect(record?.success).toBe(true);
-    });
-
-    it('fetchRunStatus() returns run status', async () => {
-      // Create an epic
-      const epic = await client.createTick({
-        title: 'Test Epic',
-        type: 'epic',
-      });
-
-      const status = await client.fetchRunStatus(epic.id);
-
-      expect(status).toBeDefined();
-      expect(status.epicId).toBe(epic.id);
-      expect(typeof status.isRunning).toBe('boolean');
     });
 
     it('fetchContext() returns null for non-existent context', async () => {

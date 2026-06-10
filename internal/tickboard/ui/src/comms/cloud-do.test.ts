@@ -20,7 +20,7 @@ import { spawn, ChildProcess } from 'child_process';
 const WebSocket = (WebSocketModule as unknown as { default?: typeof WebSocketModule }).default || WebSocketModule;
 import { CloudCommsClient } from './cloud.js';
 import { ReadOnlyError, ConnectionError } from './client.js';
-import type { TickEvent, RunEvent, ConnectionEvent } from './types.js';
+import type { TickEvent, ConnectionEvent } from './types.js';
 
 // =============================================================================
 // Configuration - Read from environment or use defaults
@@ -596,84 +596,6 @@ describe('CloudCommsClient Integration (Real Worker/DO)', () => {
 
       // Wait for client to receive local_status connected
       await waitFor(() => !client.isReadOnly(), { timeout: 10000 });
-    });
-  });
-
-  // ===========================================================================
-  // Run Stream Events
-  // ===========================================================================
-
-  describe('run stream events', () => {
-    beforeEach(async () => {
-      if (!wranglerReady || !testRigReady) {
-        return;
-      }
-      await client.connect();
-      await sleep(500);
-    });
-
-    it('receives run events from local agent via DO', async () => {
-      if (!wranglerReady || !testRigReady) {
-        console.log('Skipping: wrangler or test rig not ready');
-        return;
-      }
-
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      // Subscribe to epic
-      client.subscribeRun('epic-test-do');
-
-      // Emit run event via test rig
-      // The test rig will forward this to the DO as it would in a real scenario
-      await fetch(`http://localhost:${TEST_RIG_PORT}/test/emit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: 'websocket',
-          data: {
-            type: 'run_event',
-            epicId: 'epic-test-do',
-            taskId: 'task-do-1',
-            source: 'ralph',
-            event: {
-              type: 'task-started',
-              status: 'running',
-              numTurns: 0,
-              timestamp: new Date().toISOString(),
-            },
-          },
-        }),
-      });
-
-      // Note: Run events from test rig's local WebSocket clients won't reach DO
-      // unless the test rig explicitly sends them through its upstream connection.
-      // For this test, we verify the subscription mechanism works locally.
-      await sleep(500);
-
-      // Run events are relayed through local DO connections, so the cloud client
-      // may not receive events emitted locally to test rig's WS clients.
-      // This test validates the subscription tracking works.
-      expect(() => client.subscribeRun('epic-test-do')).not.toThrow();
-    });
-
-    it('filters run events by subscribed epics', async () => {
-      if (!wranglerReady || !testRigReady) {
-        console.log('Skipping: wrangler or test rig not ready');
-        return;
-      }
-
-      const runEvents: RunEvent[] = [];
-      client.onRun((e) => runEvents.push(e));
-
-      // Only subscribe to epic-1
-      const unsub = client.subscribeRun('epic-1');
-
-      // Unsubscribe should work without error
-      unsub();
-
-      // Can subscribe again
-      client.subscribeRun('epic-1');
     });
   });
 

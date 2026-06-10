@@ -197,7 +197,7 @@ export class TickHeader extends LitElement {
       }
     }
 
-    /* Style run panel button with green tones */
+    /* Style header action buttons with green tones */
     .header-right sl-button::part(base) {
       color: var(--subtext0);
     }
@@ -216,21 +216,6 @@ export class TickHeader extends LitElement {
       background: #b8e8b3;
     }
 
-    /* Pulsing animation for active run indicator */
-    @keyframes pulse-glow {
-      0%, 100% {
-        box-shadow: 0 0 4px var(--green, #a6e3a1);
-      }
-      50% {
-        box-shadow: 0 0 12px var(--green, #a6e3a1), 0 0 20px var(--green, #a6e3a1);
-      }
-    }
-
-    .run-button-active::part(base) {
-      background: var(--green, #a6e3a1) !important;
-      color: var(--crust, #11111b) !important;
-      animation: pulse-glow 1.5s ease-in-out infinite;
-    }
   `;
 
   @property({ type: String, attribute: 'repo-name' })
@@ -244,15 +229,6 @@ export class TickHeader extends LitElement {
 
   @property({ type: String, attribute: 'search-term' })
   searchTerm = '';
-
-  @property({ type: Boolean, attribute: 'run-panel-open' })
-  runPanelOpen = false;
-
-  @property({ type: Boolean, attribute: 'run-active' })
-  runActive = false;
-
-  @property({ type: Number, attribute: 'awaiting-count' })
-  awaitingCount = 0;
 
   @property({ type: Boolean, attribute: 'readonly-mode' })
   readonlyMode = false;
@@ -317,15 +293,6 @@ export class TickHeader extends LitElement {
     this.dispatchEvent(
       new CustomEvent('activity-click', {
         detail: e.detail,
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
-
-  private handleRunPanelToggle() {
-    this.dispatchEvent(
-      new CustomEvent('run-panel-toggle', {
         bubbles: true,
         composed: true,
       })
@@ -446,20 +413,6 @@ export class TickHeader extends LitElement {
               @click=${this.handleDashboardToggle}
             >
               <sl-icon name="grid-1x2"></sl-icon>
-            </sl-button>
-          </sl-tooltip>
-
-          <sl-tooltip content="Live run panel (r)">
-            <sl-button
-              class=${this.runActive ? 'run-button-active' : ''}
-              variant=${this.runPanelOpen ? 'primary' : 'default'}
-              size="small"
-              @click=${this.handleRunPanelToggle}
-            >
-              <sl-icon name="terminal"></sl-icon>
-              ${this.awaitingCount > 0
-                ? html`<sl-badge variant="warning" pill pulse>${this.awaitingCount}</sl-badge>`
-                : nothing}
             </sl-button>
           </sl-tooltip>
 

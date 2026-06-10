@@ -441,18 +441,6 @@ describe('tick-header mobile view', () => {
       expect(handler.mock.calls[0][0].bubbles).toBe(true);
       expect(handler.mock.calls[0][0].composed).toBe(true);
     });
-
-    it('run-panel-toggle event fires on run button click', async () => {
-      const handler = vi.fn();
-      element.addEventListener('run-panel-toggle', handler);
-
-      // Button order in header-right: roadmap(0), dashboard(1), run-panel(2), activity(...)
-      const buttons = element.shadowRoot?.querySelectorAll('.header-right sl-button');
-      const runButton = buttons?.[2] as HTMLElement;
-      runButton?.click();
-
-      expect(handler).toHaveBeenCalledTimes(1);
-    });
   });
 
   // ===========================================================================

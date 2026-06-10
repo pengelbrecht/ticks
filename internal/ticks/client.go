@@ -3,14 +3,11 @@ package ticks
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/query"
-	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -63,19 +60,14 @@ func splitNonEmpty(s string) []string {
 // Client provides direct access to the Ticks issue tracker via the tick.Store.
 // This avoids the overhead of exec'ing the tk CLI for each operation.
 type Client struct {
-	store          *tick.Store
-	runrecordStore *runrecord.Store
+	store *tick.Store
 }
 
 // NewClient creates a new Client using the given tick directory.
 // tickDir should be the .tick directory (e.g., "/path/to/project/.tick").
 func NewClient(tickDir string) *Client {
-	// The runrecord.Store expects the project root, not the .tick dir.
-	// Since tickDir is ".tick", the parent is the project root.
-	projectRoot := filepath.Dir(tickDir)
 	return &Client{
-		store:          tick.NewStore(tickDir),
-		runrecordStore: runrecord.NewStore(projectRoot),
+		store: tick.NewStore(tickDir),
 	}
 }
 
@@ -793,23 +785,4 @@ func (c *Client) GetHumanNotes(issueID string) ([]Note, error) {
 // Use this to read progress notes from previous agent iterations.
 func (c *Client) GetAgentNotes(issueID string) ([]Note, error) {
 	return c.GetNotesByAuthor(issueID, "agent")
-}
-
-// SetRunRecord stores a RunRecord for a task.
-// The RunRecord is stored in a separate file at .tick/logs/records/<task-id>.json
-func (c *Client) SetRunRecord(taskID string, record *agent.RunRecord) error {
-	if record == nil {
-		return nil
-	}
-	return c.runrecordStore.Write(taskID, record)
-}
-
-// GetRunRecord retrieves the RunRecord for a task.
-// Returns nil if no RunRecord exists.
-func (c *Client) GetRunRecord(taskID string) (*agent.RunRecord, error) {
-	record, err := c.runrecordStore.Read(taskID)
-	if err == runrecord.ErrNotFound {
-		return nil, nil
-	}
-	return record, err
 }

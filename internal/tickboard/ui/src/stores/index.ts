@@ -60,10 +60,7 @@ export {
   initCloudComms,
   disconnectComms,
   initCommsAutoConnect,
-  subscribeRun,
   getCommsClient,
-  onRunEvent,
-  onContextEvent,
   // Write operations
   createTick,
   updateTickViaComms,
@@ -79,6 +76,5 @@ export {
   fetchTickDetails,
   fetchActivity,
   fetchRecord,
-  fetchRunStatus,
   fetchContext,
 } from './comms.js';
