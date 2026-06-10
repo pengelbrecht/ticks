@@ -425,3 +425,4 @@
 {"ts":"2026-06-10T20:50:46.200642Z","tick":"xdq","action":"start","actor":"orchestrator","data":{"title":"Fix cloud/worker test suite crash (workerd + Node 24)"}}
 {"ts":"2026-06-10T20:50:46.213273Z","tick":"or1","action":"start","actor":"orchestrator","data":{"title":"Make tsc --noEmit pass in the board UI"}}
 {"ts":"2026-06-10T20:50:46.226109Z","tick":"e2v","action":"start","actor":"orchestrator","data":{"title":"Bind tk board to 127.0.0.1 by default with --host override"}}
+{"ts":"2026-06-10T20:55:07.248709Z","tick":"e2v","action":"close","actor":"orchestrator","data":{"reason":"Completed: tk board binds 127.0.0.1 by default, --host overrides (0.0.0.0 to expose); collision test corrected to loopback-occupant scenario per empirical macOS SO_REUSEADDR semantics; banner reflects effective host; docs updated","title":"Bind tk board to 127.0.0.1 by default with --host override"}}

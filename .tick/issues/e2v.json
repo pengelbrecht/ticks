@@ -2,13 +2,14 @@
   "id": "e2v",
   "title": "Bind tk board to 127.0.0.1 by default with --host override",
   "description": "Context: tk board currently binds the wildcard address (carried over from tk run --board); the final epic review flagged localhost binding as hardening since the board is unauthenticated. Change bindBoardListener in cmd/tk/cmd/board.go to bind 127.0.0.1:\u003cport\u003e by default and add a --host flag (e.g. --host 0.0.0.0 to expose on LAN; --host also feeds the printed URL). Update the port-collision fail-fast test expectations if the bind address changes their setup; add a test that the default listener is loopback-only and that --host 0.0.0.0 binds wildcard. Update docs: README Web Board section and skills/ticks/references/tk-commands.md flag table (add --host row, note the localhost default). Remember ResetFlags in cmd/tk/cmd/root.go for the new flag var.\n\nRun: go test ./cmd/tk/...",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "acceptance_criteria": "Default bind is 127.0.0.1 (test-verified); --host overrides and is documented in README + tk-commands.md; collision fail-fast behavior preserved; go test ./... green",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T20:50:46.18508Z",
-  "updated_at": "2026-06-10T20:50:46.225876Z",
-  "started_at": "2026-06-10T20:50:46.225876Z"
+  "updated_at": "2026-06-10T20:55:07.248458Z",
+  "closed_at": "2026-06-10T20:55:07.248458Z",
+  "closed_reason": "Completed: tk board binds 127.0.0.1 by default, --host overrides (0.0.0.0 to expose); collision test corrected to loopback-occupant scenario per empirical macOS SO_REUSEADDR semantics; banner reflects effective host; docs updated"
 }
