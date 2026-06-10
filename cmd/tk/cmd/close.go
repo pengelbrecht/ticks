@@ -133,6 +133,15 @@ func runClose(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to close tick: %w", err)
 	}
 
+	// Warn if .tick/learnings.md exceeds the cap — never blocks the close.
+	if t.Type == tick.TypeEpic {
+		if n, over, _ := tick.CheckLearningsCap(filepath.Join(root, ".tick")); over {
+			fmt.Fprintf(os.Stderr,
+				"warning: .tick/learnings.md is %d lines (cap %d) — compact it at the next retro\n",
+				n, tick.LearningsCap)
+		}
+	}
+
 	if closeJSON {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {

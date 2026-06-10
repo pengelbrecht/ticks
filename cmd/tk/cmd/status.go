@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 var statusCmd = &cobra.Command{
@@ -52,6 +55,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("%s", output)
+
+	// Warn if .tick/learnings.md exceeds the cap — never blocks status.
+	if n, over, _ := tick.CheckLearningsCap(filepath.Join(root, ".tick")); over {
+		fmt.Fprintf(os.Stderr,
+			"warning: .tick/learnings.md is %d lines (cap %d) — compact it at the next retro\n",
+			n, tick.LearningsCap)
+	}
+
 	return nil
 }
 
