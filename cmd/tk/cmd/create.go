@@ -45,7 +45,11 @@ Examples:
   tk create "Configure AWS credentials" --awaiting work
 
   # Task under an epic with PR review required
-  tk create "Implement payment API" --parent abc123 --requires review`,
+  tk create "Implement payment API" --parent abc123 --requires review
+
+  # Task blocked by several ticks (repeat the flag or comma-separate)
+  tk create "Wire checkout UI" -b abc123 -b def456
+  tk create "Wire checkout UI" --blocked-by abc123,def456`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runCreate,
 }
@@ -56,7 +60,7 @@ var (
 	createType           string
 	createOwner          string
 	createLabels         string
-	createBlockedBy      string
+	createBlockedBy      []string
 	createParent         string
 	createDiscoveredFrom string
 	createAcceptance     string
@@ -74,7 +78,7 @@ func init() {
 	createCmd.Flags().StringVarP(&createType, "type", "t", tick.TypeTask, "type (task|epic|bug|feature|chore)")
 	createCmd.Flags().StringVarP(&createOwner, "owner", "o", "", "owner")
 	createCmd.Flags().StringVarP(&createLabels, "labels", "l", "", "comma-separated labels")
-	createCmd.Flags().StringVarP(&createBlockedBy, "blocked-by", "b", "", "comma-separated blocker ids")
+	createCmd.Flags().StringSliceVarP(&createBlockedBy, "blocked-by", "b", nil, "blocker ids (repeatable or comma-separated)")
 	createCmd.Flags().StringVar(&createParent, "parent", "", "parent epic id")
 	createCmd.Flags().StringVar(&createDiscoveredFrom, "discovered-from", "", "source tick id")
 	createCmd.Flags().StringVar(&createAcceptance, "acceptance", "", "acceptance criteria")
@@ -187,7 +191,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Type:               strings.TrimSpace(createType),
 		Owner:              owner,
 		Labels:             splitCSV(createLabels),
-		BlockedBy:          splitCSV(createBlockedBy),
+		BlockedBy:          splitCSV(strings.Join(createBlockedBy, ",")),
 		Parent:             strings.TrimSpace(createParent),
 		DiscoveredFrom:     strings.TrimSpace(createDiscoveredFrom),
 		AcceptanceCriteria: strings.TrimSpace(createAcceptance),

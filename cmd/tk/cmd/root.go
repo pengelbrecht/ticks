@@ -169,7 +169,7 @@ func ResetFlags() {
 	createType = "task"
 	createOwner = ""
 	createLabels = ""
-	createBlockedBy = ""
+	createBlockedBy = nil
 	createParent = ""
 	createDiscoveredFrom = ""
 	createAcceptance = ""
