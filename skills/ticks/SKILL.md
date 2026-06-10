@@ -126,7 +126,40 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 
 Transform the spec into ticks organized by epic.
 
-**For phased specs:** Focus on creating ticks for the current/next phase only. Don't create ticks for future phases - they may change based on learnings.
+### Roadmaps (multi-epic work)
+
+When the spec spans multiple epics that must be delivered in sequence, create a **roadmap**: a chain of epics linked with `--blocked-by`. Only the front (unblocked) epic gets child ticks. Downstream epics exist as parent-only ticks — give each a rough scope description (a paragraph plus a deliverables list), not detailed tasks. This is just-in-time detailing: future epics stay cheap to reorder or rescope.
+
+```bash
+# Create the roadmap up front — only epic A gets child ticks now
+tk create "Auth foundation" -t epic -d "<rough scope>"                               # A — flesh out now
+tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>              # B — parent only
+tk create "Billing" -t epic -d "<rough scope>" --blocked-by <B>                      # C — parent only
+```
+
+**Always append a close-out task as the final child of the front epic.** This task is real work:
+
+```bash
+tk create "Close out <epic A>: run epic retro, then flesh out <epic B> into ticks" \
+  --parent <A> \
+  --blocked-by <last-task-in-A>
+```
+
+Executing this task means: run the epic-close retro (see `references/claude-runner.md`), then read epic B's rough scope, partition it into child ticks, and continue with `tk graph <B>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+
+**Human gates are chosen at roadmap creation time.** Create a downstream epic with `--awaiting checkpoint` or `--requires approval` to force a stop at that boundary. Without either flag the run auto-continues through the boundary. Default: **auto-continue**.
+
+```bash
+# Auto-continue into epic B (default)
+tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>
+
+# Stop for human review before starting epic B
+tk create "Billing" -t epic -d "<rough scope>" --blocked-by <B> --awaiting checkpoint
+```
+
+**Roadmap-level changes — adding, removing, or reordering epics — are human decisions.** The agent may propose them in the retro report but must not execute them unilaterally.
+
+This rule also covers phased specs: focus on creating ticks for the current/next phase only. Future phases are downstream epics in the roadmap — parent-only, rough scope, no detailed tasks yet.
 
 **Epic organization:**
 1. Group related tasks into logical epics (auth, API, UI, etc.)
