@@ -180,7 +180,7 @@ The retro runs inside every epic close-out task, **before** the `tk close` call.
 
 ### `.tick/learnings.md` — format and conventions
 
-Operational learnings for future implementer agents live in `.tick/learnings.md`. This file travels with the tracker (`.tick/` is version-controlled by design) and is injected into every implementer prompt, so its size is a direct per-agent context tax.
+Operational learnings for future implementer agents live in `.tick/learnings.md`. This file travels with the tracker (`.tick/` is version-controlled by design) and is read in full by every implementer and at every planning pass, so its size is a direct per-agent context tax.
 
 **Format:** short `Problem → Cause → Rule` entries, grouped under category headers. Example:
 
