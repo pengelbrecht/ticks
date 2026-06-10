@@ -1,0 +1,14 @@
+{
+  "id": "yyv",
+  "title": "Make TestStreamParser_RealClaudeWithToolUse deterministic or properly gated",
+  "description": "Pre-existing flake (confirmed twice during the v2 roadmap, baseline-identical): internal/agent/stream_integration_test.go TestStreamParser_RealClaudeWithToolUse invokes the real claude CLI; the model nondeterministically makes different tool choices, so assertions sometimes fail on a healthy system. Currently guarded by testing.Short() + claude-CLI-presence, so CI (-short) skips it — the flake hits local full runs.\n\nFirst DIAGNOSE: read the test and the assertions that flake. Then pick the smallest fix that keeps real coverage, in preference order:\n1. Loosen assertions to invariants that hold for ANY valid model response (e.g. stream parses, terminal event arrives, tool_use events well-formed if present) instead of asserting specific tool choices.\n2. If invariant-only assertions would gut the test, add a recorded-fixture variant (capture one real stream output as testdata, parse it deterministically) and keep the live test behind an explicit env var (e.g. TICKS_LIVE_TESTS=1) on top of -short.\nDo NOT simply delete the test or its live path — gate it.\n\nFiles: internal/agent/stream_integration_test.go (+ testdata/ if option 2).\nAcceptance: go test ./internal/agent/ -run TestStreamParser_RealClaudeWithToolUse -count=5 passes 5/5 (or skips cleanly when gated); go test -short ./... still green.\n\nRun: go test ./internal/agent/... \u0026\u0026 go vet ./...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "jw0",
+  "acceptance_criteria": "5 consecutive runs pass or skip cleanly; -short suite green; live coverage preserved behind gate or invariant assertions",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T14:43:33.303368Z",
+  "updated_at": "2026-06-10T14:43:33.303368Z"
+}
