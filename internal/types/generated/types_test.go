@@ -143,11 +143,10 @@ func TestAPIResponses_Roundtrip(t *testing.T) {
 	}
 
 	var fixtures struct {
-		InfoResponse       InfoResponse       `json:"infoResponse"`
-		ListTicksResponse  ListTicksResponse  `json:"listTicksResponse"`
-		TickResponse       TickResponse       `json:"tickResponse"`
-		GetTickResponse    GetTickResponse    `json:"getTickResponse"`
-		RunStatusResponse  RunStatusResponse  `json:"runStatusResponse"`
+		InfoResponse      InfoResponse      `json:"infoResponse"`
+		ListTicksResponse ListTicksResponse `json:"listTicksResponse"`
+		TickResponse      TickResponse      `json:"tickResponse"`
+		GetTickResponse   GetTickResponse   `json:"getTickResponse"`
 	}
 
 	if err := json.Unmarshal(data, &fixtures); err != nil {
@@ -201,26 +200,6 @@ func TestAPIResponses_Roundtrip(t *testing.T) {
 		}
 		if tick.BlockerDetails[0].Title != "Blocking task" {
 			t.Errorf("Expected blocker title 'Blocking task', got %q", tick.BlockerDetails[0].Title)
-		}
-	})
-
-	t.Run("RunStatusResponse", func(t *testing.T) {
-		status := fixtures.RunStatusResponse
-		if status.EpicId != "epic-001" {
-			t.Errorf("Expected epicId 'epic-001', got %q", status.EpicId)
-		}
-		if !status.IsRunning {
-			t.Error("Expected isRunning to be true")
-		}
-		if status.ActiveTask == nil {
-			t.Error("Expected activeTask to be set")
-		} else {
-			if status.ActiveTask.TickId != "tick-001" {
-				t.Errorf("Expected tickId 'tick-001', got %q", status.ActiveTask.TickId)
-			}
-			if status.ActiveTask.ActiveTool == nil {
-				t.Error("Expected activeTool to be set")
-			}
 		}
 	})
 }

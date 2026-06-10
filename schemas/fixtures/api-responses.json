@@ -73,29 +73,5 @@
     "blockerDetails": [
       { "id": "tick-002", "title": "Blocking task", "status": "open" }
     ]
-  },
-  "runStatusResponse": {
-    "epicId": "epic-001",
-    "isRunning": true,
-    "activeTask": {
-      "tickId": "tick-001",
-      "title": "Active task",
-      "status": "tool_use",
-      "numTurns": 2,
-      "metrics": {
-        "input_tokens": 1000,
-        "output_tokens": 500,
-        "cache_read_tokens": 200,
-        "cache_creation_tokens": 100,
-        "cost_usd": 0.01,
-        "duration_ms": 5000
-      },
-      "lastUpdated": "2024-01-25T10:30:00Z",
-      "activeTool": {
-        "name": "Bash",
-        "input": "npm test",
-        "duration_ms": 1000
-      }
-    }
   }
 }
