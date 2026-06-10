@@ -1033,8 +1033,8 @@ type TickDeletedMessage struct {
 
 // RPC request for tick operation
 type TickOperationRequest struct {
-	// Identity of the cloud user who initiated the operation (e.g. email). Used to
-	// attribute activity log entries.
+	// Authenticated session user id (opaque, not an email) of the cloud user who
+	// initiated the operation. Used to attribute activity log entries.
 	Actor *string `json:"actor,omitempty,omitzero" yaml:"actor,omitempty" mapstructure:"actor,omitempty"`
 
 	// Operation corresponds to the JSON schema field "operation".
