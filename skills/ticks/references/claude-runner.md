@@ -25,10 +25,30 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    c. Wait. The harness notifies you as each agent finishes. Do NOT poll.
    d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
    e. When the whole wave is integrated, go to the next wave
-3. Run a final review over the epic, then close it (or report what's awaiting a human)
+3. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
+   Execute them like any other tick (see "Meta-work ticks" below).
 ```
 
 Order matters: integrate a wave's work *before* launching the next, so wave N+1 agents branch from a tree that already contains wave N's changes.
+
+### Meta-work ticks
+
+When the orchestrator fleshes an epic into implementation ticks, it also creates two **process ticks** at planning time:
+
+```
+Epic X
+├── (implementation ticks, waves as usual)
+├── "Final review of epic X diff"            --blocked-by <every last-wave implementation tick>
+└── "Close out epic X: retro + plan (next)"  --blocked-by <final review tick>
+```
+
+**Why at planning time:** with these ticks in the tracker from the start, every `tk next` result maps to exactly one action — implement, review, or close out. A session that dies mid-run resumes by re-invoking the skill and calling `tk next`; no state reconstruction is needed (see *Resuming a run*).
+
+**Final-review tick** — its work is to review the epic's full diff (run a reviewer subagent for substantial epics, per the "Reviewing the work" section above) and resolve or route any findings before the close-out tick unblocks.
+
+**Close-out tick** — this is the existing close-out convention (retro + plan the next epic). It is defined in SKILL.md's Roadmaps section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
+
+Both meta-ticks are owned by the orchestrator, not by implementer subagents. They follow the same integrator–tick-state invariant: only the orchestrator runs `tk`; implementers never touch `.tick/`.
 
 ### Run-start: reading `.tick/config.md`
 
