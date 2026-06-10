@@ -813,24 +813,3 @@ func (c *Client) GetRunRecord(taskID string) (*agent.RunRecord, error) {
 	}
 	return record, err
 }
-
-// Compile-time assertion that Client implements TicksClient from the engine package.
-// This is done via a type assertion using the interface methods.
-// The actual interface is defined in internal/engine/engine.go.
-var _ interface {
-	GetEpic(epicID string) (*Epic, error)
-	GetTask(taskID string) (*Task, error)
-	NextTask(epicID string) (*Task, error)
-	ListTasks(epicID string) ([]Task, error)
-	HasOpenTasks(epicID string) (bool, error)
-	CloseTask(taskID, reason string) error
-	CloseEpic(epicID, reason string) error
-	ReopenTask(taskID string) error
-	AddNote(issueID, message string, extraArgs ...string) error
-	GetNotes(epicID string) ([]string, error)
-	GetHumanNotes(issueID string) ([]Note, error)
-	SetStatus(issueID, status string) error
-	SetAwaiting(taskID, awaiting, note string) error
-	SetRunRecord(taskID string, record *agent.RunRecord) error
-	GetRunRecord(taskID string) (*agent.RunRecord, error)
-} = (*Client)(nil)
