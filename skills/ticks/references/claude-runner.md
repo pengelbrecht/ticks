@@ -31,6 +31,15 @@ Order matters: integrate a wave's work *before* launching the next, so wave N+1 
 
 **Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
 
+## Discipline rules
+
+These rules complement the "run continuously" guidance above. Name them internally so you can act on them rather than drift past them.
+
+- **Scope never shrinks.** You may split, merge, or reorder ticks, and scope may grow (bugs, discovered gaps) — but only the human removes scope. If the Epic-close retro's outside-in verification finds an undelivered scope item, fix it now; never relabel it "follow-up."
+- **No known-failure closes.** A tick cannot close with failing acceptance criteria. There is no "close with known issues" state — it passes, or it stays open/blocked/awaiting.
+- **Name the stall instinct.** Completing a large body of work triggers the instinct to summarize and hand control back. Epic boundaries with a close-out tick are waypoints, not stopping points. The "run continuously" rule above is the explicit counter to this instinct.
+- **Two-tier stopping rule.** Intra-roadmap epic boundaries auto-continue (unless the downstream epic is gated with `--awaiting checkpoint` or `--requires approval`). The roadmap end — or a checkpoint/approval gate — is the hard stop where you write a completion report and yield.
+
 ## Launching agents
 
 Use the `Agent` tool. Spawn every tick in the current wave in **one message** so they truly run in parallel:
@@ -266,10 +275,11 @@ Epic: <epic-title> (<epic-id>)
 <1-2 sentences: where this sits in the epic, and what earlier ticks already built that you can rely on>
 
 ## Instructions
-1. Read the relevant existing code before changing anything.
-2. Implement the task test-first: write the failing test, then make it pass.
-3. Run the tests named in the acceptance criteria and confirm they pass.
-4. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
+1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
+2. Read the relevant existing code before changing anything.
+3. Implement the task test-first: write the failing test, then make it pass.
+4. Run the tests named in the acceptance criteria and confirm they pass.
+5. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
 
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
