@@ -12,13 +12,55 @@
  * @vitest-environment node
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { CloudCommsClient } from './cloud.js';
 import { ReadOnlyError, ConnectionError } from './client.js';
 import type { TickEvent, RunEvent, ConnectionEvent } from './types.js';
 
-const TEST_RIG_URL = 'http://localhost:18787';
+const TEST_RIG_URL = process.env.TICKS_TEST_RIG_URL || 'http://localhost:18787';
+
+// =============================================================================
+// Live-server gate
+// =============================================================================
+//
+// This suite exercises the real Go test rig (`go run ./cmd/testrig -port 18787`)
+// over a real WebSocket connection. It is meant to run inside the dedicated
+// cloud/e2e harness (see e2e/run-cloud-tests.sh), NOT the default `pnpm test`.
+// Hermetic, server-free coverage of the same client API lives in
+// cloud-unit.test.ts and mock.test.ts, so when no rig is reachable this suite
+// is SKIPPED (reported as skipped, not failed) rather than re-mocking the
+// entire server surface in JS.
+//
+// It runs when EITHER `TICKS_LIVE_TESTS=1` is set (explicit opt-in) OR the test
+// rig answers its /health endpoint (auto-run when a rig is already up). The
+// probe is performed at collection time so describe.skipIf can act on it.
+const RUN_LIVE = await probeTestRig(TEST_RIG_URL);
+
+async function probeTestRig(rigUrl: string): Promise<boolean> {
+  const forced = process.env.TICKS_LIVE_TESTS === '1' || process.env.TICKS_LIVE_TESTS === 'true';
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1000);
+    const response = await fetch(`${rigUrl}/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (response.ok) return true;
+  } catch {
+    // Rig not reachable.
+  }
+  if (forced) {
+    console.warn(
+      `\n⚠️  TICKS_LIVE_TESTS is set but the test rig at ${rigUrl} is not responding.` +
+        `\n   Start it with: go run ./cmd/testrig -port 18787\n`
+    );
+    return true;
+  }
+  console.warn(
+    `\nℹ️  Skipping CloudCommsClient integration tests: test rig at ${rigUrl} not running.` +
+      `\n   Run with: pnpm test:cloud  (or: go run ./cmd/testrig -port 18787 && TICKS_LIVE_TESTS=1 pnpm test)\n`
+  );
+  return false;
+}
 
 // =============================================================================
 // Browser Global Polyfills/Mocks
@@ -63,22 +105,8 @@ const mockLocation = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).localStorage = localStorage;
 
-describe('CloudCommsClient Integration', () => {
+describe.skipIf(!RUN_LIVE)('CloudCommsClient Integration', () => {
   let client: CloudCommsClient;
-
-  // Check if test rig is running
-  beforeAll(async () => {
-    try {
-      const response = await fetch(`${TEST_RIG_URL}/health`);
-      if (!response.ok) {
-        throw new Error('Test rig not healthy');
-      }
-    } catch {
-      console.warn('\n⚠️  Test rig not running. Skipping integration tests.');
-      console.warn('   Start with: go run ./cmd/testrig -port 18787\n');
-      vi.stubGlobal('describe', vi.fn());
-    }
-  });
 
   beforeEach(async () => {
     // Reset test rig state before each test
