@@ -2,7 +2,7 @@
   "id": "210",
   "title": "Tickboard UI: roadmap view (epic chains, status colors, gate badges)",
   "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 (tickboard is the priority roadmap surface). Consumes GET /api/roadmap shipped by the server tick (merged before this runs): waves of epics with id, title, status (done|active|ready|queued|gated), awaiting_type, blocked_by, children_total, children_closed.\n\nRecon facts (verified): internal/tickboard/ui/src — Lit + Nanostores + Shoelace; entry main.ts registers elements; root ticks-app.ts; main board components/tick-board.ts (~2000 lines, kanban with mobile breakpoints); stores in src/stores (comms.ts fetch wrappers); Vitest via pnpm test (run pnpm install + pnpm test in internal/tickboard/ui); Catppuccin Mocha variables in src/styles/catppuccin.css.\n\nImplement:\n1. types + fetch: add RoadmapResponse types and fetchRoadmap() following existing api/stores conventions (api/ticks.ts, stores/comms.ts); a $roadmap nanostore that refetches on the existing SSE tick-update events.\n2. components/roadmap-view.ts: new Lit component rendering waves vertically — each epic as a card/row: status color (done=green --green, active=blue --blue, ready=yellow --yellow with needs-planning label, queued=surface/gray, gated=peach --peach with awaiting badge), [closed/total] progress, blocked-by ids as small chips. Vertical list layout that works on mobile (no SVG connectors needed — wave grouping + chips carry the structure). Use ticks-*/Shoelace components and Catppuccin variables per CLAUDE.md; custom events bubbles:true composed:true.\n3. Integration: register in main.ts; add a board/roadmap toggle where tick-board.ts hosts view switches (follow however tickflow-dashboard.ts is toggled); clicking an epic card opens the existing tick-detail-drawer for that epic.\n4. Tests (Vitest): roadmap-view renders waves/statuses/badges from a fixture RoadmapResponse; store refetch logic. Run pnpm test in internal/tickboard/ui plus go build ./... (UI embeds may require the build script — check scripts/build-ui.sh; run it if the Go embed expects fresh assets, and say so in your report).\n\nPer project CLAUDE.md: pnpm only; never confirm()/alert(); Geist fonts already global.\n\nRun: (cd internal/tickboard/ui \u0026\u0026 pnpm install \u0026\u0026 pnpm test) \u0026\u0026 go build ./...",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "pnpm test passes incl. new roadmap-view tests; toggle shows the roadmap with correct status colors/badges; epic click opens detail drawer",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T13:24:33.714162Z",
-  "updated_at": "2026-06-10T13:37:43.401421Z"
+  "updated_at": "2026-06-10T13:50:20.653899Z",
+  "closed_at": "2026-06-10T13:50:20.653899Z",
+  "closed_reason": "Tickboard roadmap view merged (28 Vitest tests, drawer + m-key integration), embedded assets rebuilt via build-ui.sh; 72 UI test failures confirmed pre-existing baseline"
 }

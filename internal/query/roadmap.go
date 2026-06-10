@@ -36,7 +36,7 @@ type Roadmap struct {
 	Waves [][]RoadmapEpic `json:"waves"`
 }
 
-// epicRoadmapStatusDone is the status value for closed epics.
+// Consumer-facing roadmap status values; see RoadmapEpic.Status.
 const (
 	epicStatusDone   = "done"
 	epicStatusActive = "active"

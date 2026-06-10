@@ -5,7 +5,7 @@
  * Each epic is shown as a card with:
  * - Status colour coding (Catppuccin Mocha palette)
  * - [children_closed / children_total] progress chip
- * - awaiting_type badge (for "gated" / "ready" epics)
+ * - awaiting_type badge (for "gated" epics only)
  * - blocked_by chips
  *
  * Clicking an epic card opens the existing tick-detail-drawer via the

@@ -2,7 +2,7 @@
   "id": "rvl",
   "title": "Final review of Phase 4 epic diff",
   "description": "Meta-work tick per the planning-time convention (claude-runner.md, Meta-work ticks). Review the full phase 4 diff before close-out: correctness of query.Roadmap consumer semantics across all three surfaces (CLI/TUI/board agree on status meanings), JSON additivity, UI accessibility + CLAUDE.md compliance (pnpm, ticks-* components, Catppuccin), perf on hot paths, drift. Dispatch a reviewer subagent (the diff spans Go + TypeScript); route findings back to implementers and merge fixes before unblocking close-out.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -18,5 +18,5 @@
   "acceptance_criteria": "Reviewer findings resolved or explicitly accepted; go test ./... and ui pnpm test green on the final tree",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T13:24:50.208198Z",
-  "updated_at": "2026-06-10T13:25:00.248099Z"
+  "updated_at": "2026-06-10T13:50:20.669856Z"
 }
