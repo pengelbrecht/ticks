@@ -57,6 +57,20 @@ git check-ignore .tick/
 # If it returns ".tick/", remove the entry from .gitignore
 ```
 
+**5. Per-project runner config (`.tick/config.md`):**
+
+Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Three recognized sections:
+
+- **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
+- **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
+- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
+
+**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads it at run start; implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
+
+**Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
+
+**Why not `CLAUDE.md`?** `CLAUDE.md` is for anyone working interactively in the repo (humans and interactive agents alike). `.tick/config.md` is specifically the contract for dispatched implementer agents and is consumed programmatically. Projects may of course cross-reference one from the other, but the distinction keeps the operator-facing config separate from the interactive config.
+
 ### Step 1: Check for SPEC.md
 
 Look for a SPEC.md (or similar spec file) in the repo root.

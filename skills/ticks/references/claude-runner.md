@@ -17,6 +17,7 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
 ## The loop
 
 ```
+0. Read .tick/config.md (if present) — run its Environment pre-flight checks now, before wave 1.
 1. tk graph <epic> --json          → waves + max_parallel
 2. For each wave:
    a. Mark the wave's ticks in_progress
@@ -28,6 +29,16 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
 ```
 
 Order matters: integrate a wave's work *before* launching the next, so wave N+1 agents branch from a tree that already contains wave N's changes.
+
+### Run-start: reading `.tick/config.md`
+
+Before calling `tk graph`, read `.tick/config.md` (if present). It contains up to three sections:
+
+- **Testing** — the exact test commands to pass on to implementers.
+- **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop; don't start a wave on a broken environment.
+- **Rules** — project-specific constraints to include verbatim in every implementer prompt.
+
+**Read it fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the file from the worktree each time you start or resume a run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
 
 **Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
 
@@ -276,10 +287,11 @@ Epic: <epic-title> (<epic-id>)
 
 ## Instructions
 1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
-2. Read the relevant existing code before changing anything.
-3. Implement the task test-first: write the failing test, then make it pass.
-4. Run the tests named in the acceptance criteria and confirm they pass.
-5. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
+2. Read `.tick/config.md` (if present) — test commands and project-specific rules for implementers.
+3. Read the relevant existing code before changing anything.
+4. Implement the task test-first: write the failing test, then make it pass.
+5. Run the tests named in the acceptance criteria and confirm they pass.
+6. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
 
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
