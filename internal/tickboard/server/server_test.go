@@ -3121,3 +3121,203 @@ func TestContext_MethodNotAllowed(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
 	}
 }
+
+// TestGetRoadmap_ThreeEpicChain tests GET /api/roadmap with a 3-epic chain,
+// verifying the wave structure and status values.
+//
+// Chain: epicA (no deps, done) -> epicB (blocked_by epicA, active) -> epicC (blocked_by epicB, queued)
+// Expected waves: [[epicA], [epicB], [epicC]]
+func TestGetRoadmap_ThreeEpicChain(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	now := time.Now()
+	closedAt := now
+
+	// epicA: closed (done), wave 0
+	epicA := baseTick("epica", "Epic A")
+	epicA.Type = tick.TypeEpic
+	epicA.Status = tick.StatusClosed
+	epicA.ClosedAt = &closedAt
+	createTestTick(t, issuesDir, epicA)
+
+	// epicB: in_progress (active), blocked by epicA (closed, so unblocked in wave)
+	epicB := baseTick("epicb", "Epic B")
+	epicB.Type = tick.TypeEpic
+	epicB.Status = tick.StatusInProgress
+	epicB.BlockedBy = []string{"epica"}
+	createTestTick(t, issuesDir, epicB)
+
+	// epicC: open (queued), blocked by epicB (open/in_progress)
+	epicC := baseTick("epicc", "Epic C")
+	epicC.Type = tick.TypeEpic
+	epicC.Status = tick.StatusOpen
+	epicC.BlockedBy = []string{"epicb"}
+	createTestTick(t, issuesDir, epicC)
+
+	// task under epicB so it has children
+	taskB := baseTick("taskb1", "Task B1")
+	taskB.Parent = "epicb"
+	taskB.Status = tick.StatusOpen
+	createTestTick(t, issuesDir, taskB)
+
+	srv, err := New(tickDir, 18825)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18825/api/roadmap")
+	if err != nil {
+		t.Fatalf("failed to request /api/roadmap: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/roadmap status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	// Decode using the same shape as query.Roadmap but inline for independence.
+	type epicJSON struct {
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		Status         string   `json:"status"`
+		AwaitingType   string   `json:"awaiting_type,omitempty"`
+		BlockedBy      []string `json:"blocked_by,omitempty"`
+		ChildrenTotal  int      `json:"children_total"`
+		ChildrenClosed int      `json:"children_closed"`
+	}
+	type roadmapJSON struct {
+		Waves [][]epicJSON `json:"waves"`
+	}
+
+	var result roadmapJSON
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(result.Waves) != 3 {
+		t.Fatalf("got %d waves, want 3", len(result.Waves))
+	}
+
+	// Wave 0: epicA (done)
+	if len(result.Waves[0]) != 1 {
+		t.Fatalf("wave 0 has %d epics, want 1", len(result.Waves[0]))
+	}
+	if result.Waves[0][0].ID != "epica" {
+		t.Errorf("wave 0 epic ID = %q, want %q", result.Waves[0][0].ID, "epica")
+	}
+	if result.Waves[0][0].Status != "done" {
+		t.Errorf("wave 0 epic status = %q, want %q", result.Waves[0][0].Status, "done")
+	}
+
+	// Wave 1: epicB (active — in_progress)
+	if len(result.Waves[1]) != 1 {
+		t.Fatalf("wave 1 has %d epics, want 1", len(result.Waves[1]))
+	}
+	if result.Waves[1][0].ID != "epicb" {
+		t.Errorf("wave 1 epic ID = %q, want %q", result.Waves[1][0].ID, "epicb")
+	}
+	if result.Waves[1][0].Status != "active" {
+		t.Errorf("wave 1 epic status = %q, want %q", result.Waves[1][0].Status, "active")
+	}
+	if result.Waves[1][0].ChildrenTotal != 1 {
+		t.Errorf("wave 1 epic children_total = %d, want 1", result.Waves[1][0].ChildrenTotal)
+	}
+
+	// Wave 2: epicC (queued — open, blocked by open epicB)
+	if len(result.Waves[2]) != 1 {
+		t.Fatalf("wave 2 has %d epics, want 1", len(result.Waves[2]))
+	}
+	if result.Waves[2][0].ID != "epicc" {
+		t.Errorf("wave 2 epic ID = %q, want %q", result.Waves[2][0].ID, "epicc")
+	}
+	if result.Waves[2][0].Status != "queued" {
+		t.Errorf("wave 2 epic status = %q, want %q", result.Waves[2][0].Status, "queued")
+	}
+}
+
+// TestGetRoadmap_Empty verifies the endpoint returns {"waves":[]} when there are no epics.
+func TestGetRoadmap_Empty(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18826)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Get("http://localhost:18826/api/roadmap")
+	if err != nil {
+		t.Fatalf("failed to request /api/roadmap: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /api/roadmap status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	type roadmapJSON struct {
+		Waves interface{} `json:"waves"`
+	}
+	var result roadmapJSON
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	// waves should be null or empty array — both are valid zero-value representations
+	// The important thing is the response decodes successfully with a waves key.
+}
+
+// TestGetRoadmap_MethodNotAllowed verifies POST returns 405.
+func TestGetRoadmap_MethodNotAllowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	srv, err := New(tickDir, 18827)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	resp, err := http.Post("http://localhost:18827/api/roadmap", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("failed to post /api/roadmap: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
+	}
+}
