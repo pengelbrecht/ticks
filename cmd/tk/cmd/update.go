@@ -45,46 +45,46 @@ Examples:
 }
 
 var (
-	updateTitle       string
-	updateDescription string
-	updateNotes       string
-	updateStatus      string
-	updatePriority    int
-	updateType        string
-	updateOwner       string
-	updateAddLabels   string
+	updateTitle        string
+	updateDescription  string
+	updateNotes        string
+	updateStatus       string
+	updatePriority     int
+	updateType         string
+	updateOwner        string
+	updateAddLabels    string
 	updateRemoveLabels string
-	updateAcceptance  string
-	updateDefer       string
-	updateExternalRef string
-	updateParent      string
-	updateManual      string
-	updateRequires    string
-	updateAwaiting    string
-	updateVerdict     string
-	updateBaseBranch  string
-	updateActor       string
-	updateJSON        bool
+	updateAcceptance   string
+	updateDefer        string
+	updateExternalRef  string
+	updateParent       string
+	updateManual       string
+	updateRequires     string
+	updateAwaiting     string
+	updateVerdict      string
+	updateBaseBranch   string
+	updateActor        string
+	updateJSON         bool
 
 	// Track which flags were explicitly set
-	updateTitleSet       bool
-	updateDescriptionSet bool
-	updateNotesSet       bool
-	updateStatusSet      bool
-	updatePrioritySet    bool
-	updateTypeSet        bool
-	updateOwnerSet       bool
-	updateAddLabelsSet   bool
+	updateTitleSet        bool
+	updateDescriptionSet  bool
+	updateNotesSet        bool
+	updateStatusSet       bool
+	updatePrioritySet     bool
+	updateTypeSet         bool
+	updateOwnerSet        bool
+	updateAddLabelsSet    bool
 	updateRemoveLabelsSet bool
-	updateAcceptanceSet  bool
-	updateDeferSet       bool
-	updateExternalRefSet bool
-	updateParentSet      bool
-	updateManualSet      bool
-	updateBaseBranchSet  bool
-	updateRequiresSet    bool
-	updateAwaitingSet    bool
-	updateVerdictSet     bool
+	updateAcceptanceSet   bool
+	updateDeferSet        bool
+	updateExternalRefSet  bool
+	updateParentSet       bool
+	updateManualSet       bool
+	updateBaseBranchSet   bool
+	updateRequiresSet     bool
+	updateAwaitingSet     bool
+	updateVerdictSet      bool
 )
 
 func init() {

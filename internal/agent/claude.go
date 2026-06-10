@@ -158,4 +158,3 @@ func (a *ClaudeAgent) command() string {
 	}
 	return "claude"
 }
-
