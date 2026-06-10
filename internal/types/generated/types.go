@@ -850,6 +850,16 @@ type TickCreateRequest struct {
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
 }
 
+// Single tick created. Broadcast by the DO when a previously-unknown tick is
+// synced; clients apply it identically to tick_updated.
+type TickCreatedMessage struct {
+	// Tick corresponds to the JSON schema field "tick".
+	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
+
+	// Type corresponds to the JSON schema field "type".
+	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
+}
+
 // Client request to delete tick
 type TickDeleteRequest struct {
 	// Id corresponds to the JSON schema field "id".
@@ -1193,7 +1203,7 @@ type TickUpdateRequest struct {
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
 }
 
-// Single tick created or updated
+// Single tick updated
 type TickUpdatedMessage struct {
 	// Tick corresponds to the JSON schema field "tick".
 	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`

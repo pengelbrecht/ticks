@@ -3,7 +3,7 @@
  * Allows programmatic event emission and write operation inspection.
  */
 
-import type { Tick } from '../types/tick.js';
+import type { Tick, BoardTick, TickColumn } from '../types/tick.js';
 import type {
   TickEvent,
   ConnectionEvent,
@@ -364,6 +364,29 @@ export class MockCommsClient implements CommsClient {
   // ===========================================================================
   // Read Operations
   // ===========================================================================
+
+  /**
+   * Fetch all ticks as BoardTick[].
+   * Derives the board view from the mock ticks configured via setMockTick(),
+   * mapping the API's isBlocked field to is_blocked and computing the kanban
+   * column the same way the live clients do.
+   */
+  async fetchTicks(): Promise<BoardTick[]> {
+    return [...this.mockTicks.values()].map((tick) => {
+      const isBlocked = tick.isBlocked;
+      let column: TickColumn = 'ready';
+      if (tick.status === 'closed') {
+        column = 'done';
+      } else if (isBlocked) {
+        column = 'blocked';
+      } else if (tick.awaiting) {
+        column = 'human';
+      } else if (tick.status === 'in_progress') {
+        column = 'agent';
+      }
+      return { ...tick, is_blocked: isBlocked, column };
+    });
+  }
 
   /**
    * Fetch server info.

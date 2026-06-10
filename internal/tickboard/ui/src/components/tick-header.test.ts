@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { LitElement } from 'lit';
+import { styleText } from '../test-utils/styles.js';
 import './tick-header.js';
 import type { TickHeader } from './tick-header.js';
 
@@ -124,9 +125,7 @@ describe('tick-header mobile view', () => {
 
     it('styles include media query for 768px breakpoint', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('@media');
       expect(cssText).toContain('768px');
@@ -134,18 +133,14 @@ describe('tick-header mobile view', () => {
 
     it('styles include media query for 480px breakpoint', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('480px');
     });
 
     it('styles hide header-center on mobile', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // header-center is hidden at 768px breakpoint
       expect(cssText).toContain('.header-center');
@@ -154,9 +149,7 @@ describe('tick-header mobile view', () => {
 
     it('styles show menu toggle on mobile', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // menu-toggle is shown at 768px breakpoint
       expect(cssText).toContain('.menu-toggle');
@@ -165,9 +158,7 @@ describe('tick-header mobile view', () => {
 
     it('styles hide repo badge on small screens', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // repo-badge is hidden at 480px breakpoint
       expect(cssText).toContain('.repo-badge');
@@ -175,9 +166,7 @@ describe('tick-header mobile view', () => {
 
     it('styles set 44px touch targets on small screens', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // 44px min touch targets for accessibility
       expect(cssText).toContain('44px');
@@ -296,9 +285,7 @@ describe('tick-header mobile view', () => {
 
     it('dot is circular (border-radius: 50%)', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.connection-status');
       expect(cssText).toContain('border-radius: 50%');
@@ -306,9 +293,7 @@ describe('tick-header mobile view', () => {
 
     it('dot has 8x8px dimensions', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('width: 8px');
       expect(cssText).toContain('height: 8px');
@@ -316,9 +301,7 @@ describe('tick-header mobile view', () => {
 
     it('connected state uses green color from Catppuccin palette', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.connection-status.connected');
       expect(cssText).toContain('var(--green, #a6e3a1)');
@@ -326,9 +309,7 @@ describe('tick-header mobile view', () => {
 
     it('connected state has glow effect (box-shadow)', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.connection-status.connected');
       expect(cssText).toContain('box-shadow');
@@ -336,9 +317,7 @@ describe('tick-header mobile view', () => {
 
     it('connecting state uses yellow color from Catppuccin palette', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.connection-status.connecting');
       expect(cssText).toContain('var(--yellow, #f9e2af)');
@@ -346,9 +325,7 @@ describe('tick-header mobile view', () => {
 
     it('connecting state has pulse animation', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.connection-status.connecting');
       expect(cssText).toContain('animation');
@@ -357,9 +334,7 @@ describe('tick-header mobile view', () => {
 
     it('disconnected state uses red color from Catppuccin palette', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.connection-status.disconnected');
       expect(cssText).toContain('var(--red, #f38ba8)');
@@ -367,9 +342,7 @@ describe('tick-header mobile view', () => {
 
     it('pulse animation keyframes are defined', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('@keyframes pulse-status');
     });
@@ -627,18 +600,14 @@ describe('tick-header mobile view', () => {
 
       it('styles define epic-id class', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
       });
 
       it('epic-id uses monospace font', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('font-family');
@@ -647,9 +616,7 @@ describe('tick-header mobile view', () => {
 
       it('epic-id has smaller font size', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('font-size: 0.75em');
@@ -657,9 +624,7 @@ describe('tick-header mobile view', () => {
 
       it('epic-id has background styling', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('background: var(--surface1)');
@@ -667,9 +632,7 @@ describe('tick-header mobile view', () => {
 
       it('epic-id has border-radius for badge appearance', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('border-radius');
@@ -677,9 +640,7 @@ describe('tick-header mobile view', () => {
 
       it('epic-id has padding', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('padding');
@@ -687,9 +648,7 @@ describe('tick-header mobile view', () => {
 
       it('epic-id has muted text color', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('color: var(--subtext0)');
@@ -697,9 +656,7 @@ describe('tick-header mobile view', () => {
 
       it('epic-id has right margin to separate from title', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.epic-id');
         expect(cssText).toContain('margin-right');
@@ -713,9 +670,7 @@ describe('tick-header mobile view', () => {
     describe('select dropdown CSS styling', () => {
       it('epic select has minimum width', () => {
         const styles = (element.constructor as typeof LitElement).styles;
-        const cssText = Array.isArray(styles)
-          ? styles.map(s => s.cssText || s.toString()).join('')
-          : styles?.cssText || styles?.toString() || '';
+        const cssText = styleText(styles);
 
         expect(cssText).toContain('.header-center sl-select');
         expect(cssText).toContain('min-width: 220px');

@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { LitElement } from 'lit';
+import { styleText } from '../test-utils/styles.js';
 import './tick-activity-feed.js';
 import type { TickActivityFeed } from './tick-activity-feed.js';
 import { $isCloudMode } from '../stores/connection.js';
@@ -38,9 +39,7 @@ describe('tick-activity-feed mobile view', () => {
   describe('component structure', () => {
     it('renders as inline-block element', async () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('display: inline-block');
     });
@@ -67,9 +66,7 @@ describe('tick-activity-feed mobile view', () => {
   describe('CSS contains mobile responsive styles', () => {
     it('styles include media query for 480px breakpoint', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('@media');
       expect(cssText).toContain('480px');
@@ -77,18 +74,14 @@ describe('tick-activity-feed mobile view', () => {
 
     it('dropdown panel has default width of 360px', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('360px');
     });
 
     it('dropdown panel adapts to full width on mobile', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // On mobile, panel should use calc(100vw - 1rem) for full width with padding
       expect(cssText).toContain('100vw');
@@ -97,9 +90,7 @@ describe('tick-activity-feed mobile view', () => {
 
     it('dropdown panel has max-width constraint', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('max-width');
     });
@@ -112,9 +103,7 @@ describe('tick-activity-feed mobile view', () => {
   describe('unread badge', () => {
     it('unread badge styles are positioned correctly', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.unread-badge');
       expect(cssText).toContain('position: absolute');
@@ -122,9 +111,7 @@ describe('tick-activity-feed mobile view', () => {
 
     it('unread badge has minimum touch-friendly size', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // Badge should have min-width of 16px for readability
       expect(cssText).toContain('min-width: 16px');
@@ -149,9 +136,7 @@ describe('tick-activity-feed mobile view', () => {
 
     it('menu has max-height to prevent overflow', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('max-height: 400px');
       expect(cssText).toContain('overflow-y: auto');
@@ -165,9 +150,7 @@ describe('tick-activity-feed mobile view', () => {
   describe('activity item styles', () => {
     it('activity items have adequate padding for touch', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.activity-item');
       expect(cssText).toContain('padding');
@@ -175,18 +158,14 @@ describe('tick-activity-feed mobile view', () => {
 
     it('activity items have hover state', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.activity-item:hover');
     });
 
     it('activity items have cursor pointer for interactivity', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('cursor: pointer');
     });
@@ -221,18 +200,14 @@ describe('tick-activity-feed mobile view', () => {
   describe('empty and loading states', () => {
     it('styles include empty state', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.empty-state');
     });
 
     it('styles include loading state', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.loading-state');
     });
@@ -245,9 +220,7 @@ describe('tick-activity-feed mobile view', () => {
   describe('color scheme', () => {
     it('uses Catppuccin color variables', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       // Check for various Catppuccin color variables
       expect(cssText).toContain('var(--green');
@@ -258,9 +231,7 @@ describe('tick-activity-feed mobile view', () => {
 
     it('trigger button uses green accent on hover', () => {
       const styles = (element.constructor as typeof LitElement).styles;
-      const cssText = Array.isArray(styles)
-        ? styles.map(s => s.cssText || s.toString()).join('')
-        : styles?.cssText || styles?.toString() || '';
+      const cssText = styleText(styles);
 
       expect(cssText).toContain('.trigger-button');
       expect(cssText).toContain('var(--green');

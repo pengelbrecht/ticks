@@ -33,6 +33,7 @@ import { parseNotes } from '../api/ticks.js';
 import type {
   StateFullMessage,
   TickUpdatedMessage,
+  TickCreatedMessage,
   TickDeletedMessage,
   ConnectedMessage,
   LocalStatusMessage,
@@ -40,6 +41,7 @@ import type {
   ErrorMessage,
   TickUpdateRequest,
   TickDeleteRequest,
+  Tick as WireTick,
 } from '../types/generated/websocket/messages.js';
 
 // =============================================================================
@@ -60,6 +62,7 @@ const MAX_RECONNECT_DELAY = 30000;
 type IncomingMessage =
   | StateFullMessage
   | TickUpdatedMessage
+  | TickCreatedMessage
   | TickDeletedMessage
   | ConnectedMessage
   | LocalStatusMessage
@@ -276,8 +279,11 @@ export class CloudCommsClient implements CommsClient {
       updated_at: new Date().toISOString(),
     };
 
-    // Send via WebSocket to DO (which broadcasts to local agent)
-    this.sendMessage({ type: 'tick_update', tick: newTick });
+    // Send via WebSocket to DO (which broadcasts to local agent).
+    // The app's Tick is a structural subset of the wire Tick (which carries an
+    // open index signature from the schema's additionalProperties); the cast is
+    // type-only and changes no runtime payload.
+    this.sendMessage({ type: 'tick_update', tick: newTick as WireTick });
 
     return newTick;
   }
@@ -302,8 +308,9 @@ export class CloudCommsClient implements CommsClient {
       updated_at: new Date().toISOString(),
     };
 
-    // Send via WebSocket to DO
-    this.sendMessage({ type: 'tick_update', tick });
+    // Send via WebSocket to DO. See note in createTick: the app Tick is a
+    // structural subset of the wire Tick, so the cast is type-only.
+    this.sendMessage({ type: 'tick_update', tick: tick as WireTick });
 
     return tick;
   }
@@ -546,7 +553,7 @@ export class CloudCommsClient implements CommsClient {
     this.emitTick({ type: 'tick:bulk', ticks: ticksMap });
   }
 
-  private handleTickUpdateMessage(msg: TickUpdatedMessage): void {
+  private handleTickUpdateMessage(msg: TickUpdatedMessage | TickCreatedMessage): void {
     console.log('[CloudComms] Tick updated:', msg.tick.id);
     // Update tick cache
     this.tickCache.set(msg.tick.id, msg.tick);
