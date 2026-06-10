@@ -182,7 +182,7 @@ SendMessage(to: "<agent-name>", message: "Reviewer feedback: <verbatim feedback>
 
 ```bash
 # Final review over everything the epic produced
-git diff <base-branch>...HEAD          # or review the merged branches together
+git diff <base-branch>...HEAD          # base branch from `tk notes <epic-id>` (see "Resuming a run"), never assumed
 # (dispatch a reviewer subagent over this diff if the epic is substantial)
 
 tk list --parent <epic-id> --status open     # anything left?

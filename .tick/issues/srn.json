@@ -1,0 +1,14 @@
+{
+  "id": "srn",
+  "title": "Add query.Roadmap epic-chain computation to internal/query",
+  "description": "Foundation tick for phase 4 (spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 tk-changes bullet 2-3). The tk roadmap command, the TUI roadmap view, and the tickboard roadmap endpoint will ALL consume this — design for those consumers.\n\nNew files: internal/query/roadmap.go + roadmap_test.go (style of plan.go/ready.go).\n\nCompute an epic-level dependency view over all ticks:\n- Nodes: every epic (any status). Edges: BlockedBy entries that point at other epics (ignore blockers pointing at tasks for chain purposes, but missing blockers = closed, same as ready.go).\n- Group into waves with Kahn-style layering like internal/wave does for tasks (do NOT import or modify internal/wave — it is task-scoped; reimplement at epic level here).\n- Per epic emit a consumer-facing status (what a UI should SHOW, not internal predicates):\n  done (closed) | active (in_progress, or open with open children) | ready (open, unblocked, has no open children but unstarted: i.e. needs planning per EpicsNeedingPlanning, reuse it) | queued (open but blocked) | gated (open + IsAwaitingHuman — carry the awaiting type for a badge).\n- Output type: Roadmap struct { Waves [][]RoadmapEpic } where RoadmapEpic has ID, Title, Status (string enum above), AwaitingType, BlockedBy []string (epic ids only), ChildrenTotal, ChildrenClosed ints (for progress display).\n\nTest cases (table-driven): linear 3-epic chain (closed, in_progress, blocked) -\u003e 3 waves, statuses done/active/queued; childless unblocked epic -\u003e ready; gated epic -\u003e gated with awaiting type; diamond dependency -\u003e correct waves; epic blocked by missing id -\u003e treated unblocked; progress counts correct with mixed-status children.\n\nRun: go test ./internal/query/... \u0026\u0026 go vet ./...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "kgh",
+  "acceptance_criteria": "go test ./internal/query/... passes with new table-driven tests; go vet clean; exported types document the status enum",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:22:56.033255Z",
+  "updated_at": "2026-06-10T13:22:56.033255Z"
+}

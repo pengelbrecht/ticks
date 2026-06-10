@@ -1,0 +1,14 @@
+{
+  "id": "2rs",
+  "title": "Learnings-cap lint: warn when .tick/learnings.md exceeds 150 lines",
+  "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md phasing row 4. The 150-line cap on .tick/learnings.md is enforced by retro compaction; this lint is the backstop that surfaces drift.\n\nChanges:\n1. New helper in a NEW file internal/tick/learnings.go (+ learnings_test.go): CheckLearningsCap(tickDir string) (lines int, over bool, err error) — counts lines of \u003ctickDir\u003e/learnings.md; missing file -\u003e (0, false, nil). Cap constant = 150, exported.\n2. cmd/tk/cmd/close.go: after successfully closing an EPIC-type tick, if over, print a one-line warning to stderr: \"warning: .tick/learnings.md is \u003cn\u003e lines (cap 150) — compact it at the next retro\". Never blocks the close.\n3. cmd/tk/cmd/status.go (the tk status command): include the same warning line in its output when over.\n\nConsumer semantics: the warning tells the orchestrator/human that retro compaction has been skipped; it must never fail a command.\n\nTest cases: 151-line file -\u003e over=true; 150 -\u003e false; missing -\u003e (0,false,nil); close of an epic with over-cap file prints warning to stderr and still closes (test at helper level + wire-level if harness allows).\n\nDo NOT touch internal/tick/tick.go or store.go (another tick edits tick.go in this wave — keep files disjoint).\n\nRun: go test ./... \u0026\u0026 go build ./...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "kgh",
+  "acceptance_criteria": "go test ./... passes incl. helper tests; closing an epic with an over-cap learnings file prints the warning and still closes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:23:23.820907Z",
+  "updated_at": "2026-06-10T13:23:23.820907Z"
+}

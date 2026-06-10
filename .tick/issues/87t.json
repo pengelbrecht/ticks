@@ -2,7 +2,7 @@
   "id": "87t",
   "title": "SKILL.md: wire roadmap guidance to tk's planning signals (action:plan, needs_planning)",
   "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 + §3. File: skills/ticks/SKILL.md only.\n\ntk now surfaces planning needs natively (shipped in phase 2):\n- tk next --json returns {\"action\":\"plan\"} when the result is an unblocked childless epic (and \"action\":\"implement\" otherwise). Human output: '\u003cid\u003e  P\u003cn\u003e epic  \u003ctitle\u003e  (needs planning — no child ticks)'.\n- tk graph \u003cepic\u003e --json returns {\"needs_planning\": true} for childless epics; human output explains planning vs blocked.\n\nUpdate the Roadmaps section (and the Step 5/quick-reference parts that mention tk next/tk graph) so the skill text uses these signals as the structural trigger:\n- When tk next returns action:plan, the move is: flesh that epic out into ticks (per the roadmap guidance + foundation-first procedure in references/tick-patterns.md), then continue with tk graph.\n- When tk graph reports needs_planning, same move.\n- Mention the action field exists on ALL tk next --json results (implement | plan) so orchestration can switch on it.\n\nKeep edits surgical — this is wiring existing guidance to existing CLI behavior, not new concepts. Match the section's current tone and bash-example style.\n\nDo NOT touch references/claude-runner.md or tick-patterns.md (other ticks own those).",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "SKILL.md mentions action:plan and needs_planning as the planning triggers in the Roadmaps section; quick-reference notes the action field; no contradictions with claude-runner.md",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T13:06:41.338242Z",
-  "updated_at": "2026-06-10T13:06:41.338242Z"
+  "updated_at": "2026-06-10T13:17:14.765046Z",
+  "closed_at": "2026-06-10T13:17:14.765046Z",
+  "closed_reason": "Roadmap planning triggers wired into SKILL.md (agent DONE, merged)"
 }

@@ -1,0 +1,17 @@
+{
+  "id": "qb5",
+  "title": "Tickboard server: GET /api/roadmap endpoint serving epic chains",
+  "description": "Spec: docs/design/execution-model-v2-epic-chaining-and-learning-loop.md §1 (tickboard roadmap awareness) — server half; the UI view is a separate follow-up tick that builds against THIS contract.\n\nRecon facts (verified): internal/tickboard/server/server.go (~2800 lines) serves REST from the .tick filesystem (GET /api/ticks with computed fields, GET /api/info with epics list, SSE for updates). No websocket data path needed.\n\nImplement GET /api/roadmap:\n- Handler in server.go (follow handleListTicks/handleInfo conventions for store access, error handling, JSON encoding, mux registration).\n- Response body: the query.Roadmap struct from internal/query/roadmap.go marshaled directly — waves of epics with id, title, status (done|active|ready|queued|gated), awaiting_type, blocked_by, children_total, children_closed. THIS IS THE CONTRACT the UI tick consumes; do not reshape it.\n- SSE: no new event type — the existing tick-update events already fire when epics change; the UI refetches. Confirm that assumption holds by reading the SSE emit path; if epic-only changes do NOT emit events, note it in your report (do not build new plumbing).\n\nTests: follow whatever server.go test conventions exist (server_test.go?) — handler test with a fixture .tick dir: 3-epic chain -\u003e expected waves/statuses. If no handler-test harness exists, test the assembly function and verify end-to-end with a manual curl against a locally started server (document commands in report).\n\nDo NOT touch the ui/ directory (follow-up tick owns it) or cmd/tk (parallel ticks own those).\n\nRun: go test ./... \u0026\u0026 go build ./...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "srn"
+  ],
+  "parent": "kgh",
+  "acceptance_criteria": "go test ./... passes; GET /api/roadmap returns the query.Roadmap JSON for a fixture repo (test- or curl-verified)",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T13:24:15.182577Z",
+  "updated_at": "2026-06-10T13:24:15.182577Z"
+}
