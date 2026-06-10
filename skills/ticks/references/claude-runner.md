@@ -385,7 +385,7 @@ Never leave orphaned `worktree-agent-*` branches unaccounted for. They carry unc
 
 ### Base branch
 
-At run start, record the run's base branch as a first-class field on the epic tick:
+The base branch is the branch the epic forked from and will merge back into (e.g. `main`) — not the epic's own working branch. At run start, record it as a first-class field on the epic tick:
 
 ```bash
 tk update <epic-id> --base-branch <name>
