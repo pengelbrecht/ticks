@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -331,24 +330,6 @@ func ResetFlags() {
 	// Reset gc flags
 	gcDryRun = false
 	gcMaxAge = "30d"
-
-	// Reset run flags
-	runMaxIterations = 50
-	runMaxCost = 0
-	runMaxTaskRetries = 3
-	runAuto = false
-	runJSONL = false
-	runVerifyOnly = false
-	runWatch = false
-	runTimeout = 30 * time.Minute
-	runPoll = 10 * time.Second
-	runDebounce = 0
-	runIncludeStandalone = false
-	runIncludeOrphans = false
-	runAll = false
-	runSkipWrapUp = false
-	runNoMerge = false
-	runPR = false
 
 	// Reset merge flags
 	mergeForce = false

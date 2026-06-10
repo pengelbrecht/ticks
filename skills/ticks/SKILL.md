@@ -259,7 +259,7 @@ Execute the epic by orchestrating subagents from this Claude Code session. The f
 
 You own all tick state; subagents only write code in their worktrees. That keeps parallel work conflict-free and tick history clean. Run wave to wave continuously — don't stop to check in between waves unless you hit a real blocker.
 
-> Ticks also ships a standalone runner (`tk run`) with its own worktree and cost-tracking machinery. It's intentionally **not** the path this skill uses right now, so execution goes through Claude orchestration instead.
+> Ticks previously shipped a standalone runner (`tk run`) with its own worktree and cost-tracking machinery. That runner has been **removed** — execution now goes exclusively through Claude orchestration as described above.
 
 ## Quick Reference
 

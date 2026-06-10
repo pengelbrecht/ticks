@@ -200,9 +200,6 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk graph <epic>` | Show dependency graph |
 | `tk list` | List issues with filters |
 | `tk view` | Interactive TUI |
-| `tk run <epic>` | Run agent on epic |
-| `tk run --board` | Start web board UI |
-| `tk run --cloud` | Board with cloud sync |
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
 | `tk snippet` | Output CLAUDE.md content |
@@ -222,68 +219,6 @@ tk view
 - `a`: approve awaiting tick
 - `x`: reject awaiting tick
 - `q`: quit
-
-## Web Board
-
-```bash
-# Run with local board UI
-tk run --board
-
-# Run agent on epic with board
-tk run abc --board
-
-# Board on custom port
-tk run --board --port 8080
-```
-
-Opens a web kanban board at `http://localhost:3000` with real-time updates. Built with Lit web components and Shoelace UI.
-
-- Drag-free kanban columns: Blocked, Agent Queue, In Progress, Needs Human, Done
-- Real-time SSE updates when ticks change
-- Mobile-responsive with tab navigation
-- Keyboard navigation (`hjkl`, `?` for help)
-- PWA support for offline use
-
-See `internal/tickboard/ui/README.md` for development docs.
-
-## Cloud Sync
-
-Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
-
-### Setup
-
-1. Get a token from https://ticks.sh/settings
-2. Add to `~/.ticksrc`:
-   ```
-   token=your-token-here
-   ```
-3. Run with `--cloud` flag:
-   ```bash
-   tk run abc --cloud    # Agent + board + cloud sync
-   tk run --cloud        # Board + cloud sync, no agent
-   ```
-
-### How It Works
-
-- Local `tk run --cloud` connects to Cloudflare Durable Object
-- File changes sync to cloud in real-time (~50ms)
-- Cloud UI edits sync back to local
-- Works offline—changes queue and sync on reconnect
-
-### Privacy
-
-- Ticks stored in Cloudflare Durable Objects
-- Only accessible with your token
-- Project isolation enforced
-- No telemetry or analytics
-
-## Wrapup Steps
-
-When an epic completes, `tk run` executes a wrap-up phase. Shell-based steps are configured in `.tick/config.yaml` under `wrap_up`.
-
-For agent-driven wrapup, create `.tick/wrapup.md` with a markdown description of post-epic tasks (e.g., update changelog, run linters, write migration notes). The agent decomposes these into steps and executes them automatically after the shell steps.
-
-Use `--skip-wrap-up` to skip both shell and agent wrapup steps.
 
 ## Dependency Graph
 
@@ -313,47 +248,6 @@ Critical path: 3 waves (minimum sequential steps)
 ```
 
 Use `--json` for machine-readable output (useful for agents planning parallel work).
-
-## Parallel Execution
-
-Run multiple tasks concurrently using git worktrees for isolation:
-
-```bash
-tk run abc123 --parallel 3    # Run 3 tasks in parallel
-```
-
-Each parallel worker gets its own git worktree, preventing file conflicts between concurrent tasks. Changes are merged back to the main branch as tasks complete.
-
-### How It Works
-
-1. `tk run` analyzes the dependency graph to find tasks that can run in parallel
-2. Creates isolated git worktrees for each worker
-3. Spawns agents that work independently without file conflicts
-4. Merges completed work back to the main branch
-5. Proceeds to the next wave of parallelizable tasks
-
-### Planning Parallel Work
-
-Use `tk graph` to understand how many parallel workers make sense:
-
-```bash
-tk graph abc123
-```
-
-The "max parallel" stat tells you the optimal `--parallel` value. Setting it higher than the maximum parallelizable tasks at any wave just wastes resources.
-
-### Combining with Other Flags
-
-```bash
-# Parallel execution with cost limit
-tk run abc123 --parallel 3 --max-cost 10.00
-
-# Parallel execution in watch mode
-tk run abc123 --parallel 2 --watch
-
-# Parallel execution with iteration limit per task
-tk run abc123 --parallel 4 --max-iterations 20
-```
 
 ## Search and Filtering
 

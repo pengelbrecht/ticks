@@ -158,7 +158,7 @@ tk notes <id>                         # List notes
 
 ## Running an Epic
 
-This skill runs epics by orchestrating Claude Code subagents — see `claude-runner.md`. The standalone `tk run` runner (and its `tk resume` / `tk checkpoints` / `tk merge` companions) is intentionally out of scope here for now, so it isn't documented in this reference.
+This skill runs epics by orchestrating Claude Code subagents — see `claude-runner.md`. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed, so it isn't documented in this reference. The `tk merge` command remains available for merging a completed epic's worktree branch.
 
 ## Web Board
 

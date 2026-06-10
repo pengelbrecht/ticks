@@ -2,7 +2,7 @@
 
 Run a Ticks epic by orchestrating subagents from your current Claude Code session. You read the dependency graph, launch one subagent per ready tick — each in its own isolated git worktree — and integrate their work wave by wave.
 
-This is the way the skill executes ticks. (Ticks also ships a standalone runner, `tk run`, with its own worktree and cost-tracking machinery. It's intentionally out of scope here for now — see `SKILL.md`.)
+This is the way the skill executes ticks. (Ticks previously shipped a standalone runner, `tk run`, with its own worktree and cost-tracking machinery. That runner has been removed — Claude orchestration is now the only execution path. See `SKILL.md`.)
 
 ## Mental model
 
