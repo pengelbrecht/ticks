@@ -195,6 +195,7 @@
         "requestId": { "type": "string" },
         "operation": { "$ref": "#/$defs/TickOperationType" },
         "tickId": { "type": "string" },
+        "actor": { "type": "string", "description": "Identity of the cloud user who initiated the operation (e.g. email). Used to attribute activity log entries." },
         "payload": {
           "type": "object",
           "properties": {
