@@ -13,24 +13,24 @@ func TestLogActivity(t *testing.T) {
 	dir := t.TempDir()
 	tickDir := filepath.Join(dir, ".tick")
 	os.MkdirAll(filepath.Join(tickDir, "issues"), 0o755)
-	
+
 	store := NewStore(tickDir)
-	
+
 	err := store.LogActivity("test123", ActivityCreate, "tester@example.com", "epic1", map[string]interface{}{"title": "Test Tick"})
 	if err != nil {
 		t.Fatalf("LogActivity failed: %v", err)
 	}
-	
+
 	// Read back
 	activities, err := store.ReadActivity(10)
 	if err != nil {
 		t.Fatalf("ReadActivity failed: %v", err)
 	}
-	
+
 	if len(activities) != 1 {
 		t.Fatalf("Expected 1 activity, got %d", len(activities))
 	}
-	
+
 	if activities[0].TickID != "test123" {
 		t.Errorf("Expected tickID 'test123', got '%s'", activities[0].TickID)
 	}

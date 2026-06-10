@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	base36Chars  = "abcdefghijklmnopqrstuvwxyz0123456789"
-	minIDLength  = 3
-	maxIDLength  = 4
-	maxAttempts  = 3
+	base36Chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	minIDLength = 3
+	maxIDLength = 4
+	maxAttempts = 3
 )
 
 // IDGenerator produces random base36 tick IDs.

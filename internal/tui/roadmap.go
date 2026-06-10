@@ -15,12 +15,12 @@ import (
 // conventions in model.go but express the higher-level epic status enum from
 // query.ComputeRoadmap.
 //
-//   done   — green  ✓  (same as StatusClosed)
-//   active — blue   ●  (same as StatusInProgress)
-//   ready  — gray   ○  (open, needs planning — matches the tk roadmap CLI
-//            convention; the "needs planning" annotation carries the meaning)
-//   queued — gray   ○  (open, blocked by another open epic)
-//   gated  — yellow ◐  (same as StatusAwaiting)
+//	done   — green  ✓  (same as StatusClosed)
+//	active — blue   ●  (same as StatusInProgress)
+//	ready  — gray   ○  (open, needs planning — matches the tk roadmap CLI
+//	         convention; the "needs planning" annotation carries the meaning)
+//	queued — gray   ○  (open, blocked by another open epic)
+//	gated  — yellow ◐  (same as StatusAwaiting)
 var (
 	roadmapStatusDoneStyle   = styles.StatusClosedStyle     // green
 	roadmapStatusActiveStyle = styles.StatusInProgressStyle // blue
@@ -60,7 +60,7 @@ func renderRoadmapStatusGlyph(status string) string {
 //
 // Visual layout per epic line:
 //
-//	  <glyph> <id>  [closed/total] <title> [gate-badge] [← blocked by: id1 id2]
+//	<glyph> <id>  [closed/total] <title> [gate-badge] [← blocked by: id1 id2]
 //
 // Each wave is preceded by a "Wave N" header (1-indexed).
 func RenderRoadmap(allTicks []tick.Tick, width int) string {
@@ -94,7 +94,7 @@ func RenderRoadmap(allTicks []tick.Tick, width int) string {
 // renderRoadmapEpicLine renders one epic line within the roadmap.
 // Format:
 //
-//	  <glyph> <id>  [closed/total]  <title>  [gate:<type>]  (needs planning)  [← blocked by: id1 id2]
+//	<glyph> <id>  [closed/total]  <title>  [gate:<type>]  (needs planning)  [← blocked by: id1 id2]
 func renderRoadmapEpicLine(epic query.RoadmapEpic, width int) string {
 	glyph := renderRoadmapStatusGlyph(epic.Status)
 

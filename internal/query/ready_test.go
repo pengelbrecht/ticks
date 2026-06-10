@@ -57,11 +57,11 @@ func TestReadyExcludesAwaitingTicks(t *testing.T) {
 	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
 	awaiting := "approval"
 	items := []tick.Tick{
-		{ID: "a", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                         // ready
-		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},    // not ready (awaiting)
-		{ID: "c", Status: tick.StatusInProgress, CreatedAt: now, UpdatedAt: now},                   // ready
+		{ID: "a", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                            // ready
+		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},       // not ready (awaiting)
+		{ID: "c", Status: tick.StatusInProgress, CreatedAt: now, UpdatedAt: now},                      // ready
 		{ID: "d", Status: tick.StatusInProgress, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now}, // not ready (awaiting)
-		{ID: "e", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},           // not ready (manual/legacy)
+		{ID: "e", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},              // not ready (manual/legacy)
 	}
 
 	ready := Ready(items)
@@ -253,12 +253,12 @@ func TestReadyIncludeAwaitingIncludesAwaitingTicks(t *testing.T) {
 	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
 	awaiting := "approval"
 	items := []tick.Tick{
-		{ID: "a", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                         // ready
-		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},    // awaiting but included
-		{ID: "c", Status: tick.StatusInProgress, CreatedAt: now, UpdatedAt: now},                   // ready
+		{ID: "a", Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                            // ready
+		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},       // awaiting but included
+		{ID: "c", Status: tick.StatusInProgress, CreatedAt: now, UpdatedAt: now},                      // ready
 		{ID: "d", Status: tick.StatusInProgress, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now}, // awaiting but included
-		{ID: "e", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},           // manual but included
-		{ID: "f", Status: tick.StatusClosed, CreatedAt: now, UpdatedAt: now},                       // not included (closed)
+		{ID: "e", Status: tick.StatusOpen, Manual: true, CreatedAt: now, UpdatedAt: now},              // manual but included
+		{ID: "f", Status: tick.StatusClosed, CreatedAt: now, UpdatedAt: now},                          // not included (closed)
 	}
 
 	ready := ReadyIncludeAwaiting(items)
@@ -286,10 +286,10 @@ func TestReadyIncludeAwaitingRespectsOtherFilters(t *testing.T) {
 	future := now.Add(24 * time.Hour)
 	awaiting := "approval"
 	items := []tick.Tick{
-		{ID: "a", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},                                  // awaiting, included
-		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, DeferUntil: &future, CreatedAt: now, UpdatedAt: now},             // awaiting but deferred, excluded
-		{ID: "c", Status: tick.StatusOpen, Awaiting: &awaiting, BlockedBy: []string{"missing"}, CreatedAt: now, UpdatedAt: now},  // awaiting, included (missing blocker treated as closed)
-		{ID: "d", Status: tick.StatusOpen, Awaiting: &awaiting, BlockedBy: []string{"a"}, CreatedAt: now, UpdatedAt: now},        // awaiting but blocked by open tick, excluded
+		{ID: "a", Status: tick.StatusOpen, Awaiting: &awaiting, CreatedAt: now, UpdatedAt: now},                                 // awaiting, included
+		{ID: "b", Status: tick.StatusOpen, Awaiting: &awaiting, DeferUntil: &future, CreatedAt: now, UpdatedAt: now},            // awaiting but deferred, excluded
+		{ID: "c", Status: tick.StatusOpen, Awaiting: &awaiting, BlockedBy: []string{"missing"}, CreatedAt: now, UpdatedAt: now}, // awaiting, included (missing blocker treated as closed)
+		{ID: "d", Status: tick.StatusOpen, Awaiting: &awaiting, BlockedBy: []string{"a"}, CreatedAt: now, UpdatedAt: now},       // awaiting but blocked by open tick, excluded
 	}
 
 	ready := ReadyIncludeAwaiting(items)

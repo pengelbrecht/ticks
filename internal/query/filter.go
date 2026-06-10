@@ -9,13 +9,13 @@ import (
 
 // Filter describes filtering criteria for ticks.
 type Filter struct {
-	Owner   string
-	Status  string
-	Priority *int
-	Type    string
-	Label   string
-	LabelAny []string
-	Parent  string
+	Owner         string
+	Status        string
+	Priority      *int
+	Type          string
+	Label         string
+	LabelAny      []string
+	Parent        string
 	TitleContains string
 	DescContains  string
 	NotesContains string

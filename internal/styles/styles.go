@@ -17,14 +17,14 @@ import (
 // Catppuccin Mocha color palette
 const (
 	// Accent colors
-	ColorRed     = lipgloss.Color("#F38BA8") // Red
-	ColorPeach   = lipgloss.Color("#FAB387") // Peach
-	ColorYellow  = lipgloss.Color("#F9E2AF") // Yellow
-	ColorGreen   = lipgloss.Color("#A6E3A1") // Green (primary brand color)
-	ColorTeal    = lipgloss.Color("#94E2D5") // Teal
-	ColorBlue    = lipgloss.Color("#89DCEB") // Sky
-	ColorPurple  = lipgloss.Color("#CBA6F7") // Mauve
-	ColorPink    = lipgloss.Color("#F5C2E7") // Pink
+	ColorRed    = lipgloss.Color("#F38BA8") // Red
+	ColorPeach  = lipgloss.Color("#FAB387") // Peach
+	ColorYellow = lipgloss.Color("#F9E2AF") // Yellow
+	ColorGreen  = lipgloss.Color("#A6E3A1") // Green (primary brand color)
+	ColorTeal   = lipgloss.Color("#94E2D5") // Teal
+	ColorBlue   = lipgloss.Color("#89DCEB") // Sky
+	ColorPurple = lipgloss.Color("#CBA6F7") // Mauve
+	ColorPink   = lipgloss.Color("#F5C2E7") // Pink
 
 	// Text colors
 	ColorText    = lipgloss.Color("#CDD6F4") // Text

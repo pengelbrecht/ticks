@@ -56,26 +56,26 @@ var (
 
 // Tick represents a single work item on disk.
 type Tick struct {
-	ID                 string         `json:"id"`
-	Title              string         `json:"title"`
-	Description        string         `json:"description,omitempty"`
-	Notes              string         `json:"notes,omitempty"`
-	Status             string         `json:"status"`
-	Priority           int            `json:"priority"`
-	Type               string         `json:"type"`
-	Owner              string         `json:"owner"`
-	Labels             []string       `json:"labels,omitempty"`
-	BlockedBy          []string       `json:"blocked_by,omitempty"`
-	Parent             string         `json:"parent,omitempty"`
-	DiscoveredFrom     string         `json:"discovered_from,omitempty"`
-	AcceptanceCriteria string         `json:"acceptance_criteria,omitempty"`
-	DeferUntil         *time.Time     `json:"defer_until,omitempty"`
-	ExternalRef        string         `json:"external_ref,omitempty"`
-	Manual             bool           `json:"manual,omitempty"`
-	BaseBranch         string         `json:"base_branch,omitempty"`
-	Requires           *string        `json:"requires,omitempty"`
-	Awaiting           *string        `json:"awaiting,omitempty"`
-	Verdict            *string        `json:"verdict,omitempty"`
+	ID                 string     `json:"id"`
+	Title              string     `json:"title"`
+	Description        string     `json:"description,omitempty"`
+	Notes              string     `json:"notes,omitempty"`
+	Status             string     `json:"status"`
+	Priority           int        `json:"priority"`
+	Type               string     `json:"type"`
+	Owner              string     `json:"owner"`
+	Labels             []string   `json:"labels,omitempty"`
+	BlockedBy          []string   `json:"blocked_by,omitempty"`
+	Parent             string     `json:"parent,omitempty"`
+	DiscoveredFrom     string     `json:"discovered_from,omitempty"`
+	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
+	DeferUntil         *time.Time `json:"defer_until,omitempty"`
+	ExternalRef        string     `json:"external_ref,omitempty"`
+	Manual             bool       `json:"manual,omitempty"`
+	BaseBranch         string     `json:"base_branch,omitempty"`
+	Requires           *string    `json:"requires,omitempty"`
+	Awaiting           *string    `json:"awaiting,omitempty"`
+	Verdict            *string    `json:"verdict,omitempty"`
 	CreatedBy          string     `json:"created_by"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`

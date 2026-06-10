@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
 )
 
 func TestNewClient(t *testing.T) {
@@ -556,10 +555,10 @@ func TestClientProcessVerdict(t *testing.T) {
 	// Create a test task file with verdict and awaiting set
 	taskData := map[string]interface{}{
 		"id":          "verdict-test",
-		"owner":      "test",
-		"created_by": "test",
-		"created_at": "2025-01-01T00:00:00Z",
-		"updated_at": "2025-01-01T00:00:00Z",
+		"owner":       "test",
+		"created_by":  "test",
+		"created_at":  "2025-01-01T00:00:00Z",
+		"updated_at":  "2025-01-01T00:00:00Z",
 		"title":       "Test Verdict Processing",
 		"description": "A task to test verdict processing",
 		"status":      "open",
@@ -644,15 +643,15 @@ func TestClientProcessVerdictNoVerdict(t *testing.T) {
 
 	// Create task without verdict
 	taskData := map[string]interface{}{
-		"id":       "no-verdict",
+		"id":         "no-verdict",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":    "No Verdict",
-		"status":   "open",
-		"awaiting": "approval",
+		"title":      "No Verdict",
+		"status":     "open",
+		"awaiting":   "approval",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "no-verdict.json")
@@ -1511,15 +1510,15 @@ func TestGetStructuredNotesLegacyFormat(t *testing.T) {
 
 	// Create a tick file with legacy notes string
 	taskData := map[string]interface{}{
-		"id":     "legacy-notes",
+		"id":         "legacy-notes",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task with Legacy Notes",
-		"status": "open",
-		"notes":  "First note\nSecond note\nThird note",
+		"title":      "Task with Legacy Notes",
+		"status":     "open",
+		"notes":      "First note\nSecond note\nThird note",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "legacy-notes.json")
@@ -1618,15 +1617,15 @@ func TestGetNotesByAuthor(t *testing.T) {
 
 	// Create a tick file with mixed notes
 	taskData := map[string]interface{}{
-		"id":     "mixed-notes",
+		"id":         "mixed-notes",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task with Mixed Notes",
-		"status": "open",
-		"notes": "2025-01-01 10:00 - Agent note 1\n2025-01-01 10:01 - [human] Human note 1\n2025-01-01 10:02 - Agent note 2\n2025-01-01 10:03 - [human] Human note 2",
+		"title":      "Task with Mixed Notes",
+		"status":     "open",
+		"notes":      "2025-01-01 10:00 - Agent note 1\n2025-01-01 10:01 - [human] Human note 1\n2025-01-01 10:02 - Agent note 2\n2025-01-01 10:03 - [human] Human note 2",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "mixed-notes.json")
@@ -1680,15 +1679,15 @@ func TestGetHumanNotes(t *testing.T) {
 	}
 
 	taskData := map[string]interface{}{
-		"id":     "human-notes-test",
+		"id":         "human-notes-test",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task for Human Notes Test",
-		"status": "open",
-		"notes": "2025-01-01 10:00 - Agent did something\n2025-01-01 10:01 - [human] Please use approach X",
+		"title":      "Task for Human Notes Test",
+		"status":     "open",
+		"notes":      "2025-01-01 10:00 - Agent did something\n2025-01-01 10:01 - [human] Please use approach X",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "human-notes-test.json")
@@ -1725,15 +1724,15 @@ func TestGetAgentNotes(t *testing.T) {
 	}
 
 	taskData := map[string]interface{}{
-		"id":     "agent-notes-test",
+		"id":         "agent-notes-test",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task for Agent Notes Test",
-		"status": "open",
-		"notes": "2025-01-01 10:00 - Completed step 1\n2025-01-01 10:01 - [human] Use different approach\n2025-01-01 10:02 - Completed step 2",
+		"title":      "Task for Agent Notes Test",
+		"status":     "open",
+		"notes":      "2025-01-01 10:00 - Completed step 1\n2025-01-01 10:01 - [human] Use different approach\n2025-01-01 10:02 - Completed step 2",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "agent-notes-test.json")
@@ -1782,14 +1781,14 @@ func TestGetStructuredNotesEmptyNotes(t *testing.T) {
 	}
 
 	taskData := map[string]interface{}{
-		"id":     "no-notes",
+		"id":         "no-notes",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task without Notes",
-		"status": "open",
+		"title":      "Task without Notes",
+		"status":     "open",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "no-notes.json")
@@ -1863,7 +1862,6 @@ func TestNextStandaloneTaskFiltersParent(t *testing.T) {
 		t.Errorf("expected standalone task 'standalone', got %q", standaloneTasks[0].ID)
 	}
 }
-
 
 // TestNextTaskWithOptionsWithEpic tests WithEpic option delegates to NextTask
 func TestNextTaskWithOptionsWithEpic(t *testing.T) {
