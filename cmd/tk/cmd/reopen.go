@@ -62,7 +62,7 @@ func runReopen(cmd *cobra.Command, args []string) error {
 	t.ClosedReason = ""
 	t.UpdatedAt = time.Now().UTC()
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor("")); err != nil {
 		return fmt.Errorf("failed to reopen tick: %w", err)
 	}
 
