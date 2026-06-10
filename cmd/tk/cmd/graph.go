@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/github"
+	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/wave"
@@ -51,6 +52,7 @@ func init() {
 // graphOutput is the JSON output structure for agents.
 type graphOutput struct {
 	Epic         graphEpic   `json:"epic"`
+	NeedsPlanning bool       `json:"needs_planning"`
 	Stats        graphStats  `json:"stats"`
 	Waves        []graphWave `json:"waves"`
 	CriticalPath int         `json:"critical_path"`
@@ -136,8 +138,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(tasks) == 0 {
-		fmt.Printf("Epic %s has no tasks\n", epicID)
-		return nil
+		return handleChildlessEpic(cmd, epic, allTicks)
 	}
 
 	// Build dependency display maps (for rendering blockedBy/blocks info).
@@ -261,6 +262,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 				ID:    epic.ID,
 				Title: epic.Title,
 			},
+			NeedsPlanning: false,
 			Stats: graphStats{
 				TotalTasks:    len(tasks),
 				WaveCount:     len(waves),
@@ -382,6 +384,56 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s %d waves (minimum sequential steps to complete epic)\n",
 		styles.DimStyle.Render("Critical path:"), len(waves))
 
+	return nil
+}
+
+// handleChildlessEpic handles the case where a target epic has zero children (any status).
+// It uses query.EpicsNeedingPlanning to distinguish between an unblocked epic that needs
+// planning vs one that is blocked and will need planning once its blockers close.
+func handleChildlessEpic(cmd *cobra.Command, epic tick.Tick, allTicks []tick.Tick) error {
+	// Determine whether this epic is "needs planning" (unblocked) or blocked.
+	needsPlanning := query.EpicsNeedingPlanning([]tick.Tick{epic}, allTicks)
+	isReadyToplan := len(needsPlanning) > 0
+
+	if graphJSON {
+		output := graphOutput{
+			Epic: graphEpic{
+				ID:    epic.ID,
+				Title: epic.Title,
+			},
+			NeedsPlanning: true,
+			Stats:        graphStats{},
+			CriticalPath: 0,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(output)
+	}
+
+	// Human-readable output.
+	if isReadyToplan {
+		fmt.Printf(
+			"Epic %s has no child ticks — it needs planning. Flesh it out into ticks (see the ticks skill roadmap guidance), then re-run tk graph %s.\n",
+			epic.ID, epic.ID,
+		)
+	} else {
+		// Collect open blocker IDs.
+		tickIndex := make(map[string]tick.Tick, len(allTicks))
+		for _, t := range allTicks {
+			tickIndex[t.ID] = t
+		}
+		var openBlockers []string
+		for _, blockerID := range epic.BlockedBy {
+			if b, ok := tickIndex[blockerID]; ok && b.Status != tick.StatusClosed {
+				openBlockers = append(openBlockers, blockerID)
+			}
+		}
+		blockerList := strings.Join(openBlockers, ", ")
+		fmt.Printf(
+			"Epic %s has no child ticks — blocked (open blockers: %s). It will need planning when its blockers close. Re-run tk graph %s then.\n",
+			epic.ID, blockerList, epic.ID,
+		)
+	}
 	return nil
 }
 
