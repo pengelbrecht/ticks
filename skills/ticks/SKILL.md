@@ -192,6 +192,7 @@ Ticks in the same wave (no blocking relationship) run concurrently, each in its 
 - If two ticks edit the same file, make one block the other so they land in different waves
 - Use `tk graph <epic>` to see the waves and confirm ticks in the same wave touch different files
 - Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A
+- Lockfiles count: two same-wave ticks that each add a dependency will both rewrite `pnpm-lock.yaml`/`go.sum` and conflict — serialize them, or put all dependency additions in one early tick (see `references/tick-patterns.md`)
 
 ```bash
 # Create epics
@@ -254,7 +255,7 @@ Execute the epic by orchestrating subagents from this Claude Code session. The f
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
 2. For each wave, launch one subagent per ready tick — **all in one message**, each in its own git worktree (`isolation: "worktree"`), in the background.
 3. Wait for the completion notifications (no polling), merge each finished tick's branch, and update tick state.
-4. Move to the next wave; review and close the epic when everything's done.
+4. Run the test suite on the merged tree, then move to the next wave; review and close the epic when everything's done.
 
 You own all tick state; subagents only write code in their worktrees. That keeps parallel work conflict-free and tick history clean. Run wave to wave continuously — don't stop to check in between waves unless you hit a real blocker.
 
@@ -312,15 +313,18 @@ tk graph <epic-id> --json
 ```
 # 2. For each wave, launch one Agent per ready tick — all in ONE message:
 #    Agent(subagent_type: "general-purpose",
-#          name: "<epic>-w<wave>-<tick>",
 #          isolation: "worktree",
 #          run_in_background: true,
 #          mode: "bypassPermissions",
 #          model: "sonnet")   # example — pick by capability tier (see claude-runner.md)
+#    (some harness versions also take name: — check the Agent tool's schema)
 #
 # 3. Wait for completion notifications (no polling), then integrate each tick:
-git merge <agent-branch>
+git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
+git merge <agent-branch>   # if it conflicts: abort, have the agent rebase + resolve in its worktree
 tk close <tick-id> --reason "Completed via Claude orchestration"
+
+# 4. After the wave's merges land, run the test suite before launching the next wave
 ```
 
 ### Planning Parallel Execution

@@ -28,12 +28,17 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    b. Launch one Agent per tick — all in a SINGLE message — worktree-isolated, in the background
    c. Wait. The harness notifies you as each agent finishes. Do NOT poll.
    d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
-   e. When the whole wave is integrated, go to the next wave
+   e. When the whole wave is merged, run the project's test suite on the integrated tree
+   f. When the wave is integrated and green, go to the next wave
 3. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
 
 Order matters: integrate a wave's work *before* launching the next, so wave N+1 agents branch from a tree that already contains wave N's changes.
+
+**Verify the wave after merging, not just the ticks.** Each implementer ran its tests in its own worktree — against a tree that didn't contain its siblings' changes. Two branches can merge cleanly and still break each other (one renames a helper the other started calling). Disjoint files prove the merge is *textually* safe, not that the result works. So after a wave's merges land, run the project's test suite (or at minimum the build) before launching the next wave; if it fails, fix forward via `SendMessage` to the responsible implementer before anything else branches from the broken tree.
+
+**Optional: dependency-driven launching.** Waves are a barrier: nothing in wave N+1 starts until all of wave N is integrated. But a tick is actually ready the moment *its specific blockers* are merged and verified. Since you're woken per-agent anyway, you can launch a tick as soon as its last blocker integrates instead of waiting for the whole wave — a throughput win on epics with uneven waves. Wave barriers remain the simpler default and easier to audit; if you go dependency-driven, the per-tick rules below (merge, verify, then launch dependents) still apply unchanged.
 
 ### Meta-work ticks
 
@@ -82,7 +87,6 @@ Use the `Agent` tool. Spawn every tick in the current wave in **one message** so
 ```
 Agent(
   subagent_type: "general-purpose",
-  name: "<epic-slug>-w<wave>-<tick-id>",   # e.g. auth-w1-abc — readable in logs, addressable via SendMessage
   description: "Implement <tick-title>",     # 3-5 words
   prompt: <implementer prompt, see below>,
   isolation: "worktree",                     # own git worktree, auto-cleaned if it makes no changes
@@ -91,6 +95,12 @@ Agent(
   model: "sonnet"                            # example — see capability tier selection below
 )
 ```
+
+Some harness versions accept extra parameters — `name:` (e.g. `auth-w1-abc`, readable in logs and addressable via `SendMessage`) and `mode:`. Per the orchestration-evolution principle, check the Agent tool's actual schema and use what it offers; where `name` isn't supported, address the agent via the ID the Agent call returns.
+
+### Harden the boundary with a custom agent (recommended for repeated use)
+
+The "don't touch `.tick/`, don't run `tk`" rule below is enforced only by the prompt — and an autonomous implementer has the permissions to break it. If you orchestrate ticks regularly in a project, define a project-level subagent (e.g. `.claude/agents/ticks-implementer.md`) that bakes in the implementer instructions and *denies* `tk` and edits under `.tick/**` via tool permission rules (or a PreToolUse hook). Then launch with `subagent_type: "ticks-implementer"` instead of `general-purpose`. That turns the boundary from a request into a guarantee, and versions the implementer contract instead of re-pasting it per launch. Either way, the orchestrator still verifies the boundary at merge time (see "Integrating finished work").
 
 ### Choosing a capability tier per tick
 
@@ -136,11 +146,33 @@ Never force the same agent to retry on the same model with no change. If it's st
 Each implementer commits its code in its own worktree and reports its branch name. For each `DONE` tick:
 
 ```bash
+# 1. Verify the agent stayed inside its boundary (should print nothing)
+git diff --name-only HEAD...<agent-branch> -- .tick/
+
+# 2. Merge and close
 git merge <agent-branch>     # branch name comes from the agent's report
 tk close <tick-id> --reason "Completed via Claude orchestration"
 ```
 
-Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Hold that invariant: **agents implement; the orchestrator owns tick state.**
+Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Hold that invariant: **agents implement; the orchestrator owns tick state.** The check in step 1 is how you *enforce* it rather than hope for it: if the diff shows `.tick/` changes, strip them out of the merge instead of letting them collide with your state updates:
+
+```bash
+git merge --no-commit <agent-branch>
+git checkout HEAD -- .tick/          # discard the agent's .tick/ changes
+git commit
+tk note <tick-id> "Agent modified .tick/ — changes stripped at merge"
+```
+
+### When a merge conflicts
+
+Planning keeps same-wave ticks on disjoint files, but "files likely touched" is a prediction — agents drift, and shared files (lockfiles, generated code, a common router) slip through. When `git merge` reports a conflict:
+
+1. `git merge --abort` — don't hand-resolve conflicts in code you didn't write while other agents are running.
+2. `SendMessage` the implementer that owns the branch: tell it to rebase its branch onto the current integration HEAD (give it the commit hash), resolve the conflicts in its own worktree — it has full context on its changes — re-run its tests, and re-commit.
+3. Merge the rebased branch. It should now fast-forward or merge clean.
+4. If the conflict reveals a real plan problem (two ticks genuinely needed the same edit), note it on the tick and fix the partitioning — add the missing `--blocked-by` for the rest of the epic rather than fighting the same collision every wave.
+
+Only resolve a conflict yourself when it's mechanical and unambiguous (e.g. a lockfile regeneration) and you verify the result with the test suite afterward.
 
 ## Reviewing the work
 
