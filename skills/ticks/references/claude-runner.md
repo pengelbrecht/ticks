@@ -150,6 +150,100 @@ tk close <epic-id> --reason "All tasks completed via Claude orchestration"   # i
 tk list --parent <epic-id> --awaiting=        # otherwise, report what's waiting on a human
 ```
 
+Before closing the epic, run the **Epic-close retro** (see below). Write the retro report as the close reason (or as a note on the epic tick if the reason field is short).
+
+---
+
+## Epic-close retro
+
+The retro runs inside every epic close-out task, **before** the `tk close` call. It takes 6 steps.
+
+### `.tick/learnings.md` — format and conventions
+
+Operational learnings for future implementer agents live in `.tick/learnings.md`. This file travels with the tracker (`.tick/` is version-controlled by design) and is injected into every implementer prompt, so its size is a direct per-agent context tax.
+
+**Format:** short `Problem → Cause → Rule` entries, grouped under category headers. Example:
+
+```markdown
+## Build
+
+**Problem:** pnpm install fails in worktrees.
+**Cause:** `.npmrc` references a workspace root path that doesn't exist in a bare worktree checkout.
+**Rule:** Run `pnpm install --frozen-lockfile` from the package directory, not the repo root, in every implementer.
+```
+
+**Hard cap: 150 lines.** Enforce this at every retro (step 3 below).
+
+**Read fresh at point of use — never inline from the orchestrator's context.** The orchestrator session spans epic boundaries; any copy inlined before a retro is stale after one. Implementers already have the current version in their worktree. Instruct them to read the file directly (the implementer prompt template does this), and re-read it yourself at each planning and partitioning pass rather than relying on an earlier in-context copy.
+
+### Retro steps
+
+#### 1. Harvest
+
+Gather the raw material:
+
+- `tk notes <tick-id>` for every tick in the epic — look for anything an implementer learned, flagged, or worked around.
+- All `DONE_WITH_CONCERNS` reports from this epic's agents.
+- Anything you noted as orchestrator during integration: merge conflicts, re-dispatches, blocked ticks, unexpected dependencies.
+
+#### 2. Promote by tier
+
+Each learning goes to **exactly one** destination:
+
+| Learning kind | Destination |
+|---|---|
+| Rule that would have prevented a mistake, applies to any future work | `CLAUDE.md` (keep it terse; respect its size) |
+| Permanent architectural / how-the-codebase-works knowledge | `docs/` |
+| Operational gotcha for future implementer agents (test quirks, env traps, recurring build issues) | `.tick/learnings.md` |
+| One-off detail, only matters to this epic | stays in tick notes (already persisted — do nothing) |
+| A doc proven wrong by this epic | fix or delete the doc |
+
+Write the promotions to their destinations now, before moving on.
+
+#### 3. Compact `.tick/learnings.md`
+
+Re-read the file immediately after adding new entries:
+
+1. Merge duplicates (same problem stated twice, or a new rule that supersedes an old one).
+2. Delete entries the codebase has outgrown (the trap they described no longer exists).
+3. Count lines. If over 150, cut the lowest-signal entries until you are at or under the cap.
+
+The 150-line cap is hard. Compaction is the mechanism that keeps it honest — without this step the file grows indefinitely and stops being read.
+
+#### 4. Outside-in verification
+
+For each scope item of the epic, verify against the *code*, not the tick status:
+
+- The behavior exists in the code.
+- Tests cover it (and pass).
+- Acceptance commands from the tick actually run and succeed.
+
+Gaps get **fixed now** or explicitly surfaced to the human. Never silently defer an undelivered scope item into the next epic.
+
+#### 5. Drift review
+
+Skim the epic's full diff (`git diff <base-branch>...HEAD`) for agent-typical patches:
+
+- Workaround flags or suppressed errors (e.g., `--force`, `|| true`, `try/catch` with empty body).
+- Copy-paste variants that should have been a shared utility.
+- Defensive bloat added "just in case."
+- `HACK`, `workaround`, `TODO: remove`, `XXX` comments.
+
+Real drift (anything that degrades quality or increases maintenance burden) becomes cleanup ticks in the **next** epic. Scope may grow to accommodate them; it may not silently shrink.
+
+For very large epics, this step can be fanned out with `Workflow` — one subagent per diff segment — the same way a large final review can be. Single-pass is the default.
+
+#### 6. Retro report
+
+Write a short summary as the epic's close reason or as a note on the epic tick. Include:
+
+- Learnings promoted, by destination (a few bullet points per tier that received anything).
+- Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
+- Drift found and cleanup ticks created (or "none").
+- Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
+
+---
+
 ## Implementer prompt template
 
 Subagents start fresh with none of your context — give them everything. Don't make them read a plan file or guess where the task fits.
