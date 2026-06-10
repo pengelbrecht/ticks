@@ -28,9 +28,12 @@ The optional path argument is the repository directory to serve (default: the
 current directory). The board watches .tick for changes and streams them to the
 browser over Server-Sent Events.
 
+If --port is given explicitly, the board binds exactly that port and fails if
+it is busy. Without --port it starts at 3000 and takes the first free port.
+
 Examples:
-  tk board                    # Serve the current repo on port 3000
-  tk board -p 8080            # Serve on port 8080
+  tk board                    # Serve the current repo on port 3000 (or next free)
+  tk board -p 8080            # Serve on port 8080 exactly
   tk board /path/to/repo      # Serve a different repo
   tk board --cloud            # Also mirror ticks to ticks.sh (requires a token)`,
 	Args: cobra.MaximumNArgs(1),
@@ -83,14 +86,20 @@ func runBoard(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitUsage, "no .tick directory in %q (run 'tk init' first): %v", absRepo, err)
 	}
 
-	// Find an available port starting at the requested one so two boards
-	// don't collide.
-	port, err := findAvailableBoardPort(boardPort)
+	// Bind the listener BEFORE announcing anything. Probe-then-bind is racy:
+	// on macOS, SO_REUSEADDR lets a 127.0.0.1/[::1] probe succeed while a
+	// wildcard listener already holds the port, so a second board would print
+	// a banner and then fail to bind. Holding the listener up front means the
+	// banner is only ever printed for a socket we actually own.
+	listener, port, err := bindBoardListener(boardPort, cmd.Flags().Changed("port"))
 	if err != nil {
-		return NewExitError(ExitGeneric, "failed to find available port: %v", err)
+		return NewExitError(ExitGeneric, "%v", err)
 	}
+	// The server closes the listener on shutdown; this covers early-error
+	// returns below (double Close on a TCP listener is harmless).
+	defer listener.Close()
 
-	var serverOpts []server.ServerOption
+	serverOpts := []server.ServerOption{server.WithListener(listener)}
 	if boardDev {
 		serverOpts = append(serverOpts, server.WithDevMode(true))
 	}
@@ -100,16 +109,23 @@ func runBoard(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitGeneric, "failed to create board server: %v", err)
 	}
 
-	// Graceful shutdown on SIGINT/SIGTERM.
-	ctx, cancel := context.WithCancel(context.Background())
+	// Graceful shutdown on SIGINT/SIGTERM, cancellable by tests via cmd.Context().
+	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigCh
-		fmt.Fprintln(os.Stderr, "\nShutting down...")
-		cancel()
+		select {
+		case <-sigCh:
+			// Stop relaying immediately so a second Ctrl+C during a hung
+			// shutdown force-kills the process conventionally.
+			signal.Stop(sigCh)
+			fmt.Fprintln(os.Stderr, "\nShutting down...")
+			cancel()
+		case <-ctx.Done():
+			signal.Stop(sigCh)
+		}
 	}()
 
 	var wg sync.WaitGroup
@@ -118,6 +134,7 @@ func runBoard(cmd *cobra.Command, args []string) error {
 	// its own file watcher and WebSocket sync loop, so the server does not need
 	// to know about it.
 	var cloudClient *cloud.Client
+	var cloudBoardName string
 	if boardCloud {
 		cfg := cloud.LoadConfig(tickDir)
 		if cfg == nil {
@@ -132,6 +149,7 @@ Get a token at https://ticks.sh/settings`)
 		if err != nil {
 			return NewExitError(ExitGeneric, "failed to create cloud client: %v", err)
 		}
+		cloudBoardName = cfg.BoardName
 
 		wg.Add(1)
 		go func() {
@@ -140,20 +158,25 @@ Get a token at https://ticks.sh/settings`)
 				fmt.Fprintf(os.Stderr, "Cloud client error: %v\n", err)
 			}
 		}()
-
-		fmt.Printf("Cloud sync: %s\n", cfg.BoardName)
 	}
 
-	// Start the board server.
+	// Start the board server. If it fails, surface the error as the command's
+	// exit status instead of blocking until Ctrl+C.
+	var serverErr error
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if err := boardServer.Run(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fmt.Fprintf(os.Stderr, "Board server error: %v\n", err)
+			serverErr = err
+			cancel()
 		}
 	}()
 
+	// The bind already succeeded, so the banner is truthful.
 	fmt.Printf("Board running at http://localhost:%d\n", port)
+	if cloudClient != nil {
+		fmt.Printf("Cloud sync: %s\n", cloudBoardName)
+	}
 	fmt.Println("Press Ctrl+C to stop")
 
 	<-ctx.Done()
@@ -163,37 +186,44 @@ Get a token at https://ticks.sh/settings`)
 	}
 	wg.Wait()
 
+	// wg.Wait() above orders this read after the goroutine's write.
+	if serverErr != nil {
+		return NewExitError(ExitGeneric, "board server error: %v", serverErr)
+	}
 	return nil
 }
 
-// findAvailableBoardPort returns the first available port at or above startPort.
-// It probes both IPv4 and IPv6 localhost so the board doesn't collide with an
-// app bound to only one of them.
-func findAvailableBoardPort(startPort int) (int, error) {
+// bindBoardListener binds the board's TCP listener (wildcard, matching what
+// the server would bind itself) and returns it with the actual bound port.
+//
+// When the port was requested explicitly (exact=true), only that port is
+// tried — a busy port is an error, not an excuse to serve somewhere the user
+// didn't ask for. Otherwise it scans upward from startPort and takes the
+// first free port.
+func bindBoardListener(startPort int, exact bool) (net.Listener, int, error) {
+	if exact {
+		l, err := net.Listen("tcp", fmt.Sprintf(":%d", startPort))
+		if err != nil {
+			return nil, 0, fmt.Errorf("port %d is unavailable: %v (is another board already running? pick a different port with -p)", startPort, err)
+		}
+		return l, boundPort(l), nil
+	}
+
 	const maxAttempts = 100
 	for i := 0; i < maxAttempts; i++ {
 		port := startPort + i
-		if isBoardPortAvailable(port) {
-			return port, nil
+		l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			return l, boundPort(l), nil
 		}
 	}
-	return 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
+	return nil, 0, fmt.Errorf("no available port found in range %d-%d", startPort, startPort+maxAttempts-1)
 }
 
-// isBoardPortAvailable reports whether the given port is free on both IPv4 and
-// IPv6 localhost.
-func isBoardPortAvailable(port int) bool {
-	l4, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return false
+// boundPort returns the port a listener is actually bound to (resolves ":0").
+func boundPort(l net.Listener) int {
+	if addr, ok := l.Addr().(*net.TCPAddr); ok {
+		return addr.Port
 	}
-	l4.Close()
-
-	l6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", port))
-	if err != nil {
-		return false
-	}
-	l6.Close()
-
-	return true
+	return 0
 }

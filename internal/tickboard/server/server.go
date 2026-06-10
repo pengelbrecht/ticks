@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,10 +27,11 @@ var staticFS embed.FS
 
 // Server represents the ticks board HTTP server.
 type Server struct {
-	tickDir string
-	port    int
-	devMode bool // serve UI from disk instead of embedded
-	srv     *http.Server
+	tickDir  string
+	port     int
+	devMode  bool // serve UI from disk instead of embedded
+	listener net.Listener
+	srv      *http.Server
 
 	// SSE client management
 	sseClients   map[chan string]struct{}
@@ -46,6 +48,16 @@ type ServerOption func(*Server)
 func WithDevMode(enabled bool) ServerOption {
 	return func(s *Server) {
 		s.devMode = enabled
+	}
+}
+
+// WithListener makes the server serve on an already-bound listener instead of
+// binding its own ":port" socket. This lets callers bind first (eliminating
+// the probe-then-bind race) and only announce the address once the bind has
+// succeeded. The server takes over the listener and closes it on shutdown.
+func WithListener(l net.Listener) ServerOption {
+	return func(s *Server) {
+		s.listener = l
 	}
 }
 
@@ -225,7 +237,13 @@ func (s *Server) Run(ctx context.Context) error {
 	// Start server in goroutine
 	errChan := make(chan error, 1)
 	go func() {
-		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if s.listener != nil {
+			err = s.srv.Serve(s.listener)
+		} else {
+			err = s.srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			errChan <- err
 		}
 		close(errChan)
@@ -234,7 +252,6 @@ func (s *Server) Run(ctx context.Context) error {
 	// Wait for context cancellation or error
 	select {
 	case <-ctx.Done():
-		fmt.Fprintln(os.Stderr, "Shutting down...")
 		// Close watchers in background (don't block shutdown)
 		go s.watcher.Close()
 		// Graceful shutdown with short timeout

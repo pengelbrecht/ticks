@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,6 +32,24 @@ func TestBoardHelp(t *testing.T) {
 	}
 	if !strings.Contains(out, "--port") || !strings.Contains(out, "--cloud") {
 		t.Errorf("help output missing expected flags; got:\n%s", out)
+	}
+}
+
+// TestExecuteArgsHelpFlagDoesNotLeak is a regression test for the sticky
+// --help value: cobra's auto-generated help flag is read by value, so without
+// the reset in resetCobraFlags, any command run after a --help invocation in
+// the same process silently short-circuited to printing help (returning nil).
+func TestExecuteArgsHelpFlagDoesNotLeak(t *testing.T) {
+	setupTestRepo(t)
+
+	if _, err := captureStdoutArgs(t, []string{"board", "--help"}); err != nil {
+		t.Fatalf("tk board --help: %v", err)
+	}
+
+	// This must reach RunE and fail on the bad path. If the help value leaked,
+	// cobra would print help instead and return nil.
+	if err := ExecuteArgs([]string{"board", "/no/such/directory/really"}); err == nil {
+		t.Fatal("expected path error; --help value leaked across ExecuteArgs invocations")
 	}
 }
 
@@ -59,7 +80,7 @@ func TestBoardCloudWithoutToken(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TICKS_TOKEN", "")
 
-	err := ExecuteArgs([]string{"board", repoDir, "--cloud"})
+	err := ExecuteArgs([]string{"board", repoDir, "--cloud", "-p", "0"})
 	if err == nil {
 		t.Fatal("expected authentication error for --cloud without token, got nil")
 	}
@@ -68,9 +89,172 @@ func TestBoardCloudWithoutToken(t *testing.T) {
 	}
 }
 
-// TestBoardServesUIAndAPI boots the board server on an ephemeral port (the same
-// server.New/Run surface tk board uses) and verifies it serves the embedded UI
-// and the /api/ticks JSON endpoint, then shuts it down.
+// TestBoardExplicitPortInUse reproduces the blocker scenario: a wildcard
+// listener already holds the port (as another running board would). An
+// explicit -p on that port must fail fast with a clear error instead of
+// printing a banner and serving nothing.
+func TestBoardExplicitPortInUse(t *testing.T) {
+	repoDir, _ := setupTestRepo(t)
+	if err := os.MkdirAll(filepath.Join(repoDir, ".tick", "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir .tick/issues: %v", err)
+	}
+
+	// Occupy a port with a wildcard bind, like a running board does.
+	occupant, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer occupant.Close()
+	port := occupant.Addr().(*net.TCPAddr).Port
+
+	start := time.Now()
+	err = ExecuteArgs([]string{"board", repoDir, "-p", strconv.Itoa(port)})
+	if err == nil {
+		t.Fatal("expected error for explicitly requested busy port, got nil")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(port)) {
+		t.Errorf("error should name the busy port %d; got: %v", port, err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("busy-port failure took %v; expected fail-fast", elapsed)
+	}
+}
+
+// TestBoardServerErrorReturnsError verifies the failure path: if the server
+// cannot start (here: .tick exists but issues/ is missing, so the file watcher
+// fails), runBoard returns a non-nil error instead of blocking until Ctrl+C.
+func TestBoardServerErrorReturnsError(t *testing.T) {
+	repoDir, _ := setupTestRepo(t)
+	// .tick without issues/ — server.Run fails when watching the issues dir.
+	if err := os.MkdirAll(filepath.Join(repoDir, ".tick"), 0o755); err != nil {
+		t.Fatalf("mkdir .tick: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- ExecuteArgs([]string{"board", repoDir, "-p", "0"})
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected server error to propagate, got nil")
+		}
+		if !strings.Contains(err.Error(), "board server error") {
+			t.Errorf("expected board server error; got: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("runBoard blocked instead of returning the server error")
+	}
+}
+
+// TestBoardCommandWiring drives the real command end to end: runBoard binds
+// the listener first, prints the banner only for a socket it owns, serves the
+// embedded UI and API, and shuts down cleanly when the context is cancelled.
+func TestBoardCommandWiring(t *testing.T) {
+	repoDir, _ := setupTestRepo(t)
+	if err := os.MkdirAll(filepath.Join(repoDir, ".tick", "issues"), 0o755); err != nil {
+		t.Fatalf("mkdir .tick/issues: %v", err)
+	}
+
+	// Capture stdout via a pipe so the banner can be read while the command runs.
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = origStdout
+		_ = w.Close()
+		_ = r.Close()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		// -p 0 binds an ephemeral port; the banner reports the actual one.
+		errCh <- ExecuteArgsContext(ctx, []string{"board", repoDir, "-p", "0"})
+	}()
+
+	// Read stdout until the banner names the bound port; keep draining after
+	// so later prints never block on a full pipe.
+	bannerRe := regexp.MustCompile(`Board running at http://localhost:(\d+)`)
+	portCh := make(chan int, 1)
+	go func() {
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			if m := bannerRe.FindStringSubmatch(scanner.Text()); m != nil {
+				p, _ := strconv.Atoi(m[1])
+				portCh <- p
+				break
+			}
+		}
+		for scanner.Scan() {
+		}
+	}()
+
+	var port int
+	select {
+	case port = <-portCh:
+	case err := <-errCh:
+		t.Fatalf("board exited before printing the banner: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the board banner")
+	}
+
+	// The listener is bound before the banner is printed, so connections must
+	// succeed immediately — no readiness polling.
+	base := "http://127.0.0.1:" + strconv.Itoa(port)
+
+	resp, err := http.Get(base + "/api/ticks")
+	if err != nil {
+		t.Fatalf("GET /api/ticks: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/ticks status: got %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("GET /api/ticks body not JSON: %v\nbody: %s", err, body)
+	}
+	if _, ok := payload["ticks"]; !ok {
+		t.Errorf("GET /api/ticks JSON missing \"ticks\" key; got: %s", body)
+	}
+
+	resp, err = http.Get(base + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / status: got %d, want 200", resp.StatusCode)
+	}
+	indexBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	lower := strings.ToLower(string(indexBody))
+	if !strings.Contains(lower, "<!doctype html") && !strings.Contains(lower, "<html") {
+		t.Errorf("GET / did not serve HTML index; got:\n%s", indexBody)
+	}
+
+	// Cancel the command's context and confirm a clean exit.
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("board returned error on shutdown: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("board did not shut down within 10s")
+	}
+}
+
+// TestBoardServesUIAndAPI boots the server package directly on a pre-bound
+// listener (the WithListener surface tk board uses) and verifies it serves the
+// embedded UI and the /api/ticks JSON endpoint, then shuts it down.
 func TestBoardServesUIAndAPI(t *testing.T) {
 	repoDir, _ := setupTestRepo(t)
 	tickDir := filepath.Join(repoDir, ".tick")
@@ -78,12 +262,13 @@ func TestBoardServesUIAndAPI(t *testing.T) {
 		t.Fatalf("mkdir .tick/issues: %v", err)
 	}
 
-	port, err := findAvailableBoardPort(38000)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("findAvailableBoardPort: %v", err)
+		t.Fatalf("listen: %v", err)
 	}
+	port := l.Addr().(*net.TCPAddr).Port
 
-	srv, err := server.New(tickDir, port)
+	srv, err := server.New(tickDir, port, server.WithListener(l))
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -129,6 +130,13 @@ func Execute() {
 // ExecuteArgs runs the command with specific args, returning an error if the command fails.
 // This is used when we need to pass args from the legacy run() function.
 func ExecuteArgs(args []string) error {
+	return ExecuteArgsContext(context.Background(), args)
+}
+
+// ExecuteArgsContext is ExecuteArgs with a caller-supplied context. The context
+// is propagated to commands via cmd.Context(), which lets callers (tests) stop
+// long-running commands such as 'tk board'.
+func ExecuteArgsContext(ctx context.Context, args []string) error {
 	// Reset all flags to their default values before each execution.
 	// This is necessary because Cobra uses global variables for flag values,
 	// and when running multiple commands in the same process (e.g., tests),
@@ -140,8 +148,36 @@ func ExecuteArgs(args []string) error {
 	// that weren't provided in the current invocation.
 	resetCobraFlags(rootCmd)
 
+	// Cobra only copies the root context into a subcommand whose own context
+	// is still nil (cobra command.go: "if cmd.ctx == nil"). After a previous
+	// Execute in this process, subcommands keep their stale context, so a new
+	// ctx would never reach cmd.Context(). Set it explicitly everywhere.
+	setContextAll(rootCmd, ctx)
+
 	rootCmd.SetArgs(args)
-	return rootCmd.Execute()
+	return rootCmd.ExecuteContext(ctx)
+}
+
+// setContextAll sets ctx on a command and all of its subcommands.
+func setContextAll(cmd *cobra.Command, ctx context.Context) {
+	cmd.SetContext(ctx)
+	for _, sub := range cmd.Commands() {
+		setContextAll(sub, ctx)
+	}
+}
+
+// CommandNames returns the names of all visible subcommands registered on the
+// root command. main.go's legacy dispatch switch must cover every one of them;
+// its test uses this to keep the two registries in sync.
+func CommandNames() []string {
+	var names []string
+	for _, c := range rootCmd.Commands() {
+		if c.Hidden || c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		names = append(names, c.Name())
+	}
+	return names
 }
 
 // resetCobraFlags resets the Cobra flag tracking for a command and all its subcommands.

@@ -200,6 +200,8 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk graph <epic>` | Show dependency graph |
 | `tk list` | List issues with filters |
 | `tk view` | Interactive TUI |
+| `tk board` | Start web board UI |
+| `tk board --cloud` | Board with cloud sync |
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
 | `tk snippet` | Output CLAUDE.md content |
@@ -219,6 +221,62 @@ tk view
 - `a`: approve awaiting tick
 - `x`: reject awaiting tick
 - `q`: quit
+
+## Web Board
+
+```bash
+# Serve the current repo
+tk board
+
+# Board on a specific port (fails if the port is busy)
+tk board -p 8080
+
+# Serve a different repo
+tk board /path/to/repo
+
+# Serve the UI from disk for hot reload (development)
+tk board --dev
+```
+
+Opens a web kanban board at `http://localhost:3000` with real-time updates. Built with Lit web components and Shoelace UI.
+
+- Drag-free kanban columns: Blocked, Agent Queue, In Progress, Needs Human, Done
+- Real-time SSE updates when ticks change
+- Mobile-responsive with tab navigation
+- Keyboard navigation (`hjkl`, `?` for help)
+- PWA support for offline use
+
+Without `-p/--port`, the board starts at port 3000 and takes the first free port. See `internal/tickboard/ui/README.md` for development docs.
+
+## Cloud Sync
+
+Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
+
+### Setup
+
+1. Get a token from https://ticks.sh/settings
+2. Add to `~/.ticksrc`:
+   ```
+   token=your-token-here
+   ```
+3. Start the board with the `--cloud` flag:
+   ```bash
+   tk board --cloud
+   ```
+
+### How It Works
+
+- `tk board --cloud` connects to a Cloudflare Durable Object
+- File changes sync to cloud in real-time (~50ms)
+- Cloud UI edits sync back to local
+- Works offline—changes queue and sync on reconnect
+
+### Privacy
+
+- Ticks stored in Cloudflare Durable Objects
+- Only accessible with your token
+- Project isolation enforced
+- No telemetry or analytics
 
 ## Dependency Graph
 
