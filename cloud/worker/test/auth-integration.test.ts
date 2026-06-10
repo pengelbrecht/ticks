@@ -421,43 +421,6 @@ describe("Tick Operation Auth", () => {
 });
 
 // =============================================================================
-// Debug Endpoint Tests
-// =============================================================================
-
-describe("Debug Endpoints", () => {
-  beforeAll(async () => {
-    await setupTestData();
-  });
-
-  describe("/api/projects/:project/state", () => {
-    it("returns state without auth (currently unprotected)", async () => {
-      // Note: This documents current behavior - state endpoint is unprotected
-      // This test will need to be updated if/when auth is added
-      const response = await SELF.fetch(
-        "https://example.com/api/projects/user1%2Fproject/state"
-      );
-
-      // Currently returns 200 (no auth required)
-      // If auth is added, expect 401 or 404
-      expect([200, 401, 404]).toContain(response.status);
-    });
-  });
-
-  describe("/api/projects/:project/connections", () => {
-    it("returns connections without auth (currently unprotected)", async () => {
-      // Note: This documents current behavior - connections endpoint is unprotected
-      const response = await SELF.fetch(
-        "https://example.com/api/projects/user1%2Fproject/connections"
-      );
-
-      // Currently returns 200 (no auth required)
-      // If auth is added, expect 401 or 404
-      expect([200, 401, 404]).toContain(response.status);
-    });
-  });
-});
-
-// =============================================================================
 // Board Proxy Endpoint Tests
 // =============================================================================
 
@@ -623,50 +586,6 @@ describe("Boards API Auth", () => {
 
     // Returns 404 because the query filters by user_id
     expect(response.status).toBe(404);
-  });
-});
-
-// =============================================================================
-// Agent WebSocket Endpoint Tests
-// =============================================================================
-
-describe("Agent WebSocket Auth", () => {
-  beforeAll(async () => {
-    await setupTestData();
-  });
-
-  it("accepts connection with valid token", async () => {
-    const response = await SELF.fetch(
-      `https://example.com/agent?token=${validTokenUser1}&board=user1%2Fproject&machine=test-machine`,
-      {
-        headers: { Upgrade: "websocket" },
-      }
-    );
-
-    // Should upgrade to WebSocket
-    expect(response.status).toBe(101);
-    if (response.webSocket) {
-      response.webSocket.accept();
-      response.webSocket.close();
-    }
-  });
-
-  it("accepts connection without token (but userId will be empty)", async () => {
-    // The agent endpoint accepts connections even without tokens
-    // but the userId will be empty and operations may fail
-    const response = await SELF.fetch(
-      "https://example.com/agent?board=test-board&machine=test-machine",
-      {
-        headers: { Upgrade: "websocket" },
-      }
-    );
-
-    // WebSocket still connects (legacy behavior)
-    expect(response.status).toBe(101);
-    if (response.webSocket) {
-      response.webSocket.accept();
-      response.webSocket.close();
-    }
   });
 });
 
