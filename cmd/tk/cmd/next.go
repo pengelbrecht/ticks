@@ -14,6 +14,15 @@ import (
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
+// nextOutput wraps a tick with an action annotation for JSON output.
+// Action is "implement" for a ready task, "plan" for an epic needing planning.
+// The embedded tick.Tick is flattened so all tick fields are at the top level;
+// existing consumers that decode into a tick shape are unaffected by the extra key.
+type nextOutput struct {
+	tick.Tick
+	Action string `json:"action"`
+}
+
 var nextCmd = &cobra.Command{
 	Use:   "next [EPIC_ID]",
 	Short: "Show the next ready tick to work on",
@@ -24,6 +33,8 @@ Tasks marked as --manual or awaiting human are excluded by default.
 
 Agent Mode (default):
   Returns next task for agent: open, not blocked, not awaiting human.
+  When no ready task exists, falls back to the highest-priority childless
+  unblocked epic that needs planning (action=plan in JSON output).
 
 Human Mode (--awaiting):
   Returns next task awaiting human action.
@@ -101,6 +112,8 @@ func runNext(cmd *cobra.Command, args []string) error {
 	// Determine filter based on flags and positional args
 	filter := query.Filter{Owner: owner}
 
+	var epicID string // non-empty when EPIC_ID arg was given
+
 	if nextEpic {
 		// Next ready epic
 		filter.Type = tick.TypeEpic
@@ -111,6 +124,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid epic id: %w", err)
 		}
 		filter.Parent = parentID
+		epicID = parentID
 	}
 
 	filtered := query.Apply(ticks, filter)
@@ -190,25 +204,80 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	query.SortByPriorityCreatedAt(ready)
 
-	if len(ready) == 0 {
+	if len(ready) > 0 {
+		next := ready[0]
 		if nextJSON {
-			fmt.Println("null")
+			out := nextOutput{Tick: next, Action: "implement"}
+			enc := json.NewEncoder(os.Stdout)
+			if err := enc.Encode(out); err != nil {
+				return fmt.Errorf("failed to encode json: %w", err)
+			}
 			return nil
 		}
-		fmt.Println("No ready ticks")
+		fmt.Printf("%s  P%d %s  %s\n", next.ID, next.Priority, next.Type, next.Title)
 		return nil
 	}
 
-	next := ready[0]
+	// No ready tasks — check for epics needing planning (agent mode only).
+	planCandidates := selectPlanningCandidates(epicID, filter, filtered, ticks)
+	query.SortByPriorityCreatedAt(planCandidates)
+
+	if len(planCandidates) > 0 {
+		next := planCandidates[0]
+		if nextJSON {
+			out := nextOutput{Tick: next, Action: "plan"}
+			enc := json.NewEncoder(os.Stdout)
+			if err := enc.Encode(out); err != nil {
+				return fmt.Errorf("failed to encode json: %w", err)
+			}
+			return nil
+		}
+		fmt.Printf("%s  P%d epic  %s  (needs planning — no child ticks)\n", next.ID, next.Priority, next.Title)
+		return nil
+	}
 
 	if nextJSON {
-		enc := json.NewEncoder(os.Stdout)
-		if err := enc.Encode(next); err != nil {
-			return fmt.Errorf("failed to encode json: %w", err)
-		}
+		fmt.Println("null")
 		return nil
 	}
-
-	fmt.Printf("%s  P%d %s  %s\n", next.ID, next.Priority, next.Type, next.Title)
+	fmt.Println("No ready ticks")
 	return nil
+}
+
+// selectPlanningCandidates determines the set of epics to check for planning need,
+// depending on scope:
+//   - EPIC_ID form: check whether the named epic itself needs planning
+//   - --epic form or global: use the already-filtered list as candidates
+//
+// allTicks is always the full universe for blocker/child resolution.
+func selectPlanningCandidates(epicID string, filter query.Filter, filtered []tick.Tick, allTicks []tick.Tick) []tick.Tick {
+	if epicID != "" {
+		// When scoped to a specific epic, check whether that epic itself needs planning.
+		// filtered contains the children of epicID, not the epic itself, so we look it up
+		// in allTicks.
+		var epicCandidates []tick.Tick
+		for _, t := range allTicks {
+			if t.ID == epicID {
+				epicCandidates = append(epicCandidates, t)
+				break
+			}
+		}
+		return query.EpicsNeedingPlanning(epicCandidates, allTicks)
+	}
+
+	// Global or --epic scope: filtered already matches the right Type (epic or all).
+	// We need epics from the filtered set, checked against the full universe.
+	var epicCandidates []tick.Tick
+	if filter.Type == tick.TypeEpic {
+		// Already restricted to epics
+		epicCandidates = filtered
+	} else {
+		// Global scope: extract epics from filtered
+		for _, t := range filtered {
+			if t.Type == tick.TypeEpic {
+				epicCandidates = append(epicCandidates, t)
+			}
+		}
+	}
+	return query.EpicsNeedingPlanning(epicCandidates, allTicks)
 }
