@@ -1,0 +1,14 @@
+{
+  "id": "d74",
+  "title": "Add roadmap / epic-chaining authoring guidance to SKILL.md",
+  "description": "Implement spec §1 (docs/design/execution-model-v2-epic-chaining-and-learning-loop.md) in skills/ticks/SKILL.md.\n\nAdd a 'Roadmaps (multi-epic work)' section to the tick-creation guidance:\n- A roadmap is a chain of epics linked with existing --blocked-by; only the front (unblocked) epic gets child ticks; downstream epics are parent-only with rough-scope descriptions (paragraph + deliverables list).\n- When fleshing out the front epic, ALWAYS append a final child task: 'Close out \u003cepic\u003e: run epic retro, then flesh out \u003cnext epic\u003e into ticks' — real work, not a handoff marker.\n- Human gates are chosen at roadmap creation: create a downstream epic with --awaiting checkpoint or --requires approval to force a stop at that boundary; default is auto-continue.\n- Roadmap-level changes (add/remove/reorder epics) are human decisions; the agent may propose them in the retro report only.\n- Subsume the existing 'For phased specs: create ticks for the current/next phase only' note into this section (it is the same rule).\n\nFiles: skills/ticks/SKILL.md only. Match existing tone/format (imperative guidance + small bash examples).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "azw",
+  "acceptance_criteria": "SKILL.md documents roadmap chaining incl. the close-out-task convention and gate flags; old phased-spec note merged in, not duplicated; no contradiction with references/claude-runner.md",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:32:01.498892Z",
+  "updated_at": "2026-06-10T12:32:01.498892Z"
+}

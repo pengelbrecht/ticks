@@ -1,0 +1,12 @@
+{
+  "id": "azw",
+  "title": "Execution Model v2 — Phase 1: skill-side epic chaining, retro, and discipline (docs only)",
+  "description": "Implement phase 1 of docs/design/execution-model-v2-epic-chaining-and-learning-loop.md: all skill-text changes, no tk code changes.\n\nDelivers: roadmap/epic-chaining authoring guidance (spec §1), epic-close retro + .tick/learnings.md convention (§2), foundation-first partitioning procedure (§4), .tick/config.md convention (§5), discipline rules (§6).\n\nFiles: skills/ticks/SKILL.md, skills/ticks/references/claude-runner.md, skills/ticks/references/tick-patterns.md.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T12:31:15.107869Z",
+  "updated_at": "2026-06-10T12:31:15.107869Z"
+}
