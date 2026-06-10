@@ -522,3 +522,54 @@ func TestHandleTickOperation_NoActor_FallsBackToOwner(t *testing.T) {
 		t.Error("expected at least one activity entry for tick abc, found none")
 	}
 }
+
+// TestApplyRemoteTick_NoActivityLogged pins the replication/operation distinction:
+// applying remote state (applyRemoteTick / applyRemoteState) is a raw write that must
+// NOT generate local activity entries — only handleTickOperation logs activity.
+func TestApplyRemoteTick_NoActivityLogged(t *testing.T) {
+	tickDir, tk := makeTestTickDir(t)
+	client := makeTestClient(t, tickDir)
+
+	// Apply a newer remote version of the existing tick (update path).
+	updated := tk
+	updated.Title = "Updated remotely"
+	updated.UpdatedAt = tk.UpdatedAt.Add(time.Hour)
+	client.applyRemoteTick(updated)
+
+	// Apply a brand-new remote tick (create path) via full-state replication.
+	now := time.Now().UTC().Round(time.Second)
+	newTick := tick.Tick{
+		ID:        "xyz",
+		Title:     "Created remotely",
+		Status:    tick.StatusOpen,
+		Priority:  2,
+		Type:      tick.TypeTask,
+		Owner:     "owner@example.com",
+		CreatedBy: "owner@example.com",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	client.applyRemoteState(map[string]tick.Tick{"xyz": newTick})
+
+	// Both writes must have landed on disk...
+	store := tick.NewStore(tickDir)
+	got, err := store.Read("abc")
+	if err != nil {
+		t.Fatalf("read abc after applyRemoteTick: %v", err)
+	}
+	if got.Title != "Updated remotely" {
+		t.Errorf("expected remote update applied, got title %q", got.Title)
+	}
+	if _, err := store.Read("xyz"); err != nil {
+		t.Fatalf("read xyz after applyRemoteState: %v", err)
+	}
+
+	// ...but neither may have produced an activity entry.
+	activities, err := store.ReadActivity(10)
+	if err != nil {
+		t.Fatalf("ReadActivity: %v", err)
+	}
+	if len(activities) != 0 {
+		t.Errorf("expected no activity entries from replication path, got %d: %+v", len(activities), activities)
+	}
+}

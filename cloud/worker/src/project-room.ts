@@ -72,7 +72,7 @@ interface TickOperationRequest {
   requestId: string;
   operation: "add_note" | "approve" | "reject" | "close" | "reopen";
   tickId: string;
-  /** Cloud session identity (e.g. email) of the requester. Used to attribute activity log entries. */
+  /** Authenticated session user id (opaque, not an email) of the requester. Used to attribute activity log entries. */
   actor?: string;
   payload?: {
     message?: string;  // for add_note
