@@ -206,16 +206,10 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	if len(ready) > 0 {
 		next := ready[0]
-		if nextJSON {
-			out := nextOutput{Tick: next, Action: "implement"}
-			enc := json.NewEncoder(os.Stdout)
-			if err := enc.Encode(out); err != nil {
-				return fmt.Errorf("failed to encode json: %w", err)
-			}
-			return nil
-		}
-		fmt.Printf("%s  P%d %s  %s\n", next.ID, next.Priority, next.Type, next.Title)
-		return nil
+		// The action describes WHAT TO DO with the returned tick, regardless of
+		// which selection path produced it: a childless unblocked epic that wins
+		// from the ready pool still needs planning, not implementation.
+		return printNextResult(next, nextAction(next, ticks))
 	}
 
 	// No ready tasks — check for epics needing planning (agent mode only).
@@ -223,17 +217,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 	query.SortByPriorityCreatedAt(planCandidates)
 
 	if len(planCandidates) > 0 {
-		next := planCandidates[0]
-		if nextJSON {
-			out := nextOutput{Tick: next, Action: "plan"}
-			enc := json.NewEncoder(os.Stdout)
-			if err := enc.Encode(out); err != nil {
-				return fmt.Errorf("failed to encode json: %w", err)
-			}
-			return nil
-		}
-		fmt.Printf("%s  P%d epic  %s  (needs planning — no child ticks)\n", next.ID, next.Priority, next.Title)
-		return nil
+		return printNextResult(planCandidates[0], "plan")
 	}
 
 	if nextJSON {
@@ -280,4 +264,35 @@ func selectPlanningCandidates(epicID string, filter query.Filter, filtered []tic
 		}
 	}
 	return query.EpicsNeedingPlanning(epicCandidates, allTicks)
+}
+
+// nextAction returns the action label for a selected tick: "plan" when the tick
+// is an epic that needs planning (childless, open, unblocked — same criteria as
+// the planning fallback path), "implement" otherwise. allTicks is the full tick
+// universe, used for blocker and child detection.
+func nextAction(next tick.Tick, allTicks []tick.Tick) string {
+	if len(query.EpicsNeedingPlanning([]tick.Tick{next}, allTicks)) > 0 {
+		return "plan"
+	}
+	return "implement"
+}
+
+// printNextResult writes the selected tick to stdout, as JSON (with the action
+// key) when --json is set, otherwise in human-readable form. Planning results
+// use a dedicated human format flagging the missing child ticks.
+func printNextResult(next tick.Tick, action string) error {
+	if nextJSON {
+		out := nextOutput{Tick: next, Action: action}
+		enc := json.NewEncoder(os.Stdout)
+		if err := enc.Encode(out); err != nil {
+			return fmt.Errorf("failed to encode json: %w", err)
+		}
+		return nil
+	}
+	if action == "plan" {
+		fmt.Printf("%s  P%d epic  %s  (needs planning — no child ticks)\n", next.ID, next.Priority, next.Title)
+		return nil
+	}
+	fmt.Printf("%s  P%d %s  %s\n", next.ID, next.Priority, next.Type, next.Title)
+	return nil
 }

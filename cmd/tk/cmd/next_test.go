@@ -179,6 +179,54 @@ func TestSelectPlanningCandidates(t *testing.T) {
 	})
 }
 
+// TestNextAction verifies the action label for the winning tick: a childless
+// unblocked epic gets "plan" even when it was selected via the ready pool;
+// everything else gets "implement".
+func TestNextAction(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	mkEpic := func(id, status string) tick.Tick {
+		return tick.Tick{ID: id, Type: tick.TypeEpic, Status: status, Title: "Epic " + id, CreatedAt: now, UpdatedAt: now}
+	}
+	mkTask := func(id, parent string) tick.Tick {
+		return tick.Tick{ID: id, Type: tick.TypeTask, Status: tick.StatusOpen, Parent: parent, Title: "Task " + id, CreatedAt: now, UpdatedAt: now}
+	}
+
+	t.Run("childless unblocked epic from ready pool gets plan", func(t *testing.T) {
+		epic := mkEpic("e1", tick.StatusOpen)
+		allTicks := []tick.Tick{epic}
+		if got := nextAction(epic, allTicks); got != "plan" {
+			t.Errorf("nextAction = %q, want 'plan'", got)
+		}
+	})
+
+	t.Run("epic with a child gets implement", func(t *testing.T) {
+		epic := mkEpic("e1", tick.StatusOpen)
+		allTicks := []tick.Tick{epic, mkTask("t1", "e1")}
+		if got := nextAction(epic, allTicks); got != "implement" {
+			t.Errorf("nextAction = %q, want 'implement'", got)
+		}
+	})
+
+	t.Run("epic with only closed children gets implement (needs closing, not planning)", func(t *testing.T) {
+		epic := mkEpic("e1", tick.StatusOpen)
+		child := mkTask("t1", "e1")
+		child.Status = tick.StatusClosed
+		allTicks := []tick.Tick{epic, child}
+		if got := nextAction(epic, allTicks); got != "implement" {
+			t.Errorf("nextAction = %q, want 'implement'", got)
+		}
+	})
+
+	t.Run("regular task gets implement", func(t *testing.T) {
+		task := mkTask("t1", "")
+		allTicks := []tick.Tick{task}
+		if got := nextAction(task, allTicks); got != "implement" {
+			t.Errorf("nextAction = %q, want 'implement'", got)
+		}
+	})
+}
+
 func idsOf(ticks []tick.Tick) []string {
 	ids := make([]string, len(ticks))
 	for i, t := range ticks {
