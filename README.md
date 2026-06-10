@@ -60,7 +60,6 @@ With 1000 issues, median times (ms):
 | `create` | 15 | 91 |
 | `update` | 27 | 68 |
 
-Full benchmark methodology and results in `benchmarks/`.
 
 **Choose ticks if you want:**
 - Team-friendly multiplayer with owner scoping
