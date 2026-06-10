@@ -242,6 +242,106 @@ func TestUpdateStatusClosedToInProgressClearsClosureMetadata(t *testing.T) {
 	}
 }
 
+// TestUpdateStatusInProgressIdempotentReclaim verifies that re-running
+// `tk update <id> --status in_progress` on an already-in_progress tick is a
+// no-op for started_at (not silently reset) and emits no new activity entry,
+// preserving the stale-recovery invariant (started_at fresh implies
+// last_activity fresh).
+func TestUpdateStatusInProgressIdempotentReclaim(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	originalStart := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+	task := makeTestTask("ip5")
+	task.Status = tick.StatusInProgress
+	task.StartedAt = &originalStart
+	if err := store.Write(task); err != nil {
+		t.Fatalf("write in_progress task: %v", err)
+	}
+
+	activitiesBefore, err := store.ReadActivity(0)
+	if err != nil {
+		t.Fatalf("read activity before: %v", err)
+	}
+
+	if err := ExecuteArgs([]string{"update", "ip5", "--status", "in_progress"}); err != nil {
+		t.Fatalf("ExecuteArgs update --status in_progress (re-claim): %v", err)
+	}
+
+	loaded, err := store.Read("ip5")
+	if err != nil {
+		t.Fatalf("read tick after re-claim: %v", err)
+	}
+	if loaded.StartedAt == nil {
+		t.Fatal("started_at should still be set after idempotent re-claim")
+	}
+	if !loaded.StartedAt.Equal(originalStart) {
+		t.Errorf("started_at should be unchanged after re-claim: got %v, want %v", loaded.StartedAt, originalStart)
+	}
+
+	activitiesAfter, err := store.ReadActivity(0)
+	if err != nil {
+		t.Fatalf("read activity after: %v", err)
+	}
+	if len(activitiesAfter) != len(activitiesBefore) {
+		t.Errorf("idempotent re-claim should emit no new activity entry: had %d entries, now %d (%+v)",
+			len(activitiesBefore), len(activitiesAfter), activitiesAfter)
+	}
+}
+
+// TestUpdateStatusClosedToOpenClearsStartedAt verifies that reopening a
+// closed tick via `tk update <id> --status open` clears a stale started_at
+// left over from a previous in_progress->closed transition.
+func TestUpdateStatusClosedToOpenClearsStartedAt(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	task := makeClosedTestTask("ip6")
+	staleStart := time.Date(2025, 1, 9, 11, 0, 0, 0, time.UTC)
+	task.StartedAt = &staleStart
+	if err := store.Write(task); err != nil {
+		t.Fatalf("write closed task: %v", err)
+	}
+
+	if err := ExecuteArgs([]string{"update", "ip6", "--status", "open"}); err != nil {
+		t.Fatalf("ExecuteArgs update --status open: %v", err)
+	}
+
+	loaded, err := store.Read("ip6")
+	if err != nil {
+		t.Fatalf("read tick after reopen: %v", err)
+	}
+	if loaded.StartedAt != nil {
+		t.Errorf("started_at should be nil after closed->open via update, got %v", loaded.StartedAt)
+	}
+}
+
+// TestReopenClearsStartedAt verifies that `tk reopen` clears a stale
+// started_at left over from a previous in_progress->closed transition.
+func TestReopenClearsStartedAt(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	task := makeClosedTestTask("ip7")
+	staleStart := time.Date(2025, 1, 9, 11, 0, 0, 0, time.UTC)
+	task.StartedAt = &staleStart
+	if err := store.Write(task); err != nil {
+		t.Fatalf("write closed task: %v", err)
+	}
+
+	if err := ExecuteArgs([]string{"reopen", "ip7"}); err != nil {
+		t.Fatalf("ExecuteArgs reopen: %v", err)
+	}
+
+	loaded, err := store.Read("ip7")
+	if err != nil {
+		t.Fatalf("read tick after reopen: %v", err)
+	}
+	if loaded.Status != tick.StatusOpen {
+		t.Errorf("status should be open after reopen, got %q", loaded.Status)
+	}
+	if loaded.StartedAt != nil {
+		t.Errorf("started_at should be nil after tk reopen, got %v", loaded.StartedAt)
+	}
+}
+
 // TestUpdateStatusInProgressLastActivityAfterClaim verifies that after
 // `tk update <id> --status in_progress`, the last activity timestamp for
 // the tick is >= the claim time, satisfying stale-recovery requirements.

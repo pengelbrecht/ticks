@@ -60,6 +60,7 @@ func runReopen(cmd *cobra.Command, args []string) error {
 	t.Status = tick.StatusOpen
 	t.ClosedAt = nil
 	t.ClosedReason = ""
+	t.StartedAt = nil
 	t.UpdatedAt = time.Now().UTC()
 
 	if err := store.WriteAs(t, resolveActor("")); err != nil {
