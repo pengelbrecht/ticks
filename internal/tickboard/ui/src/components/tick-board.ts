@@ -45,6 +45,11 @@ import {
   fetchTickDetails,
   fetchRunStatus,
   fetchActivity,
+  // Roadmap
+  $roadmap,
+  $roadmapLoading,
+  $roadmapError,
+  loadRoadmap,
 } from '../stores/index.js';
 import type { RunEvent } from '../comms/types.js';
 import type { Activity } from '../api/ticks.js';
@@ -54,6 +59,7 @@ console.log('[TickBoard] Initializing comms module');
 initCommsAutoConnect();
 import './ticks-button.js';
 import './ticks-alert.js';
+import './roadmap-view.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -670,6 +676,9 @@ export class TickBoard extends LitElement {
   private localClientConnectedController = new StoreController(this, $localClientConnected);
   private isReadOnlyController = new StoreController(this, $isReadOnly);
   private connectionStatusController = new StoreController(this, $effectiveConnectionStatus);
+  private roadmapController = new StoreController(this, $roadmap);
+  private roadmapLoadingController = new StoreController(this, $roadmapLoading);
+  private roadmapErrorController = new StoreController(this, $roadmapError);
 
   // Getters for store values (cleaner access in templates)
   private get ticks() { return this.ticksController.value; }
@@ -685,6 +694,9 @@ export class TickBoard extends LitElement {
   private get localClientConnected() { return this.localClientConnectedController.value; }
   private get isReadOnly() { return this.isReadOnlyController.value; }
   private get connectionStatus() { return this.connectionStatusController.value; }
+  private get roadmapData() { return this.roadmapController.value; }
+  private get roadmapLoading() { return this.roadmapLoadingController.value; }
+  private get roadmapError() { return this.roadmapErrorController.value; }
 
   // ============================================================================
   // Local UI state (not synced)
@@ -704,6 +716,7 @@ export class TickBoard extends LitElement {
   // Run monitoring state
   @state() private showDashboard = false;
   @state() private dashboardActivities: Activity[] = [];
+  @state() private showRoadmap = false;
   @state() private showRunPanel = false;
   @state() private runStatus: RunStatusResponse | null = null;
   @state() private runPanelEpicId: string | null = null;
@@ -1206,8 +1219,13 @@ export class TickBoard extends LitElement {
     }
 
     // When dashboard is open, let the dashboard handle navigation/action keys.
-    // Only handle Escape and 'd' (to close the dashboard) at the board level.
-    if (this.showDashboard && e.key !== 'Escape' && e.key !== 'd' && e.key !== '?') {
+    // Only handle Escape, 'd', 'm', and '?' at the board level.
+    if (this.showDashboard && e.key !== 'Escape' && e.key !== 'd' && e.key !== 'm' && e.key !== '?') {
+      return;
+    }
+
+    // When roadmap is open, only handle Escape and 'm' at the board level.
+    if (this.showRoadmap && e.key !== 'Escape' && e.key !== 'm' && e.key !== '?') {
       return;
     }
 
@@ -1288,6 +1306,14 @@ export class TickBoard extends LitElement {
         if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
           e.preventDefault();
           this.toggleDashboard();
+        }
+        break;
+
+      // Toggle roadmap overlay: m
+      case 'm':
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          this.toggleRoadmap();
         }
         break;
     }
@@ -1372,7 +1398,9 @@ export class TickBoard extends LitElement {
    * Handle escape key: close dialogs/drawers or clear focus.
    */
   private handleEscape() {
-    if (this.showDashboard) {
+    if (this.showRoadmap) {
+      this.showRoadmap = false;
+    } else if (this.showDashboard) {
       this.showDashboard = false;
     } else if (this.showKeyboardHelp) {
       this.showKeyboardHelp = false;
@@ -1397,6 +1425,17 @@ export class TickBoard extends LitElement {
       } catch {
         this.dashboardActivities = [];
       }
+    }
+  }
+
+  /**
+   * Toggle the roadmap overlay.
+   * Fetches fresh roadmap data each time it opens.
+   */
+  private async toggleRoadmap() {
+    this.showRoadmap = !this.showRoadmap;
+    if (this.showRoadmap) {
+      await loadRoadmap();
     }
   }
 
@@ -1835,6 +1874,7 @@ export class TickBoard extends LitElement {
         @activity-click=${this.handleActivityClick}
         @run-panel-toggle=${this.toggleRunPanel}
         @dashboard-toggle=${this.toggleDashboard}
+        @roadmap-toggle=${this.toggleRoadmap}
       ></tick-header>
 
       <!-- Toast notification stack -->
@@ -1976,6 +2016,16 @@ export class TickBoard extends LitElement {
         @tick-retry=${this.handleDashboardTickRetry}
       ></tickflow-dashboard>
 
+      <!-- Roadmap overlay -->
+      ${this.showRoadmap ? html`
+        <roadmap-view
+          .roadmap=${this.roadmapData ?? null}
+          .loading=${this.roadmapLoading ?? false}
+          .error=${this.roadmapError ?? null}
+          @close=${() => { this.showRoadmap = false; }}
+        ></roadmap-view>
+      ` : nothing}
+
       <!-- Keyboard shortcuts help dialog -->
       <sl-dialog
         label="Keyboard Shortcuts"
@@ -2028,6 +2078,10 @@ export class TickBoard extends LitElement {
             <div class="shortcut-row">
               <kbd>d</kbd>
               <span>Toggle dashboard</span>
+            </div>
+            <div class="shortcut-row">
+              <kbd>m</kbd>
+              <span>Toggle roadmap</span>
             </div>
             <div class="shortcut-row">
               <kbd>?</kbd>

@@ -19,6 +19,7 @@ export interface EpicInfo {
  * @fires menu-toggle - Fired when the mobile menu button is clicked
  * @fires activity-click - Bubbled from tick-activity-feed when an activity item is clicked
  * @fires dashboard-toggle - Fired when dashboard button is clicked
+ * @fires roadmap-toggle - Fired when roadmap button is clicked
  *
  * @prop {string} repoName - Repository name to display in header badge
  * @prop {EpicInfo[]} epics - List of epics for the filter dropdown
@@ -340,6 +341,15 @@ export class TickHeader extends LitElement {
     );
   }
 
+  private handleRoadmapToggle() {
+    this.dispatchEvent(
+      new CustomEvent('roadmap-toggle', {
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
   private getConnectionTooltip(): string {
     switch (this.connectionStatus) {
       case 'connected':
@@ -419,6 +429,16 @@ export class TickHeader extends LitElement {
         </div>
 
         <div class="header-right">
+          <sl-tooltip content="Roadmap (m)">
+            <sl-button
+              variant="default"
+              size="small"
+              @click=${this.handleRoadmapToggle}
+            >
+              <sl-icon name="map"></sl-icon>
+            </sl-button>
+          </sl-tooltip>
+
           <sl-tooltip content="Dashboard (d)">
             <sl-button
               variant="default"

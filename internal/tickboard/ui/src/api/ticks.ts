@@ -400,3 +400,38 @@ export interface RunStatusResponse {
   metrics?: LiveRecord;
   awaitingTasks?: AwaitingTaskStatus[];
 }
+
+// ============================================================================
+// Roadmap Types (matching query.Roadmap from server)
+// ============================================================================
+
+/**
+ * Epic entry in a roadmap wave.
+ * Status values: "done" | "active" | "ready" | "queued" | "gated"
+ */
+export interface RoadmapEpic {
+  id: string;
+  title: string;
+  status: 'done' | 'active' | 'ready' | 'queued' | 'gated';
+  /** Awaiting type (e.g. "approval") — omitted when empty */
+  awaiting_type?: string;
+  /** IDs of blocking epics — omitted when empty */
+  blocked_by?: string[];
+  children_total: number;
+  children_closed: number;
+}
+
+/**
+ * Response from GET /api/roadmap.
+ * waves is null (not []) when there are no epics.
+ */
+export interface RoadmapResponse {
+  waves: RoadmapEpic[][] | null;
+}
+
+/**
+ * Fetch the roadmap from GET /api/roadmap.
+ */
+export async function fetchRoadmap(): Promise<RoadmapResponse> {
+  return request<RoadmapResponse>('/api/roadmap');
+}
