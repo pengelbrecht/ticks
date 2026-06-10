@@ -2,7 +2,7 @@
   "id": "f1i",
   "title": "Add epic-close retro procedure and .tick/learnings.md convention to claude-runner.md",
   "description": "Implement spec §2 (docs/design/execution-model-v2-epic-chaining-and-learning-loop.md) in skills/ticks/references/claude-runner.md.\n\nAdd an 'Epic-close retro' section (runs inside every epic close-out task, before closing the epic):\n1. Harvest: read all tick notes from the epic, all DONE_WITH_CONCERNS reports, and orchestrator integration notes (conflicts, re-dispatches, blocked ticks).\n2. Promote each learning to exactly one tier: prevention rule for any future work -\u003e CLAUDE.md (terse); permanent architecture knowledge -\u003e docs/; operational gotcha for future implementer agents -\u003e .tick/learnings.md; one-off detail -\u003e stays in tick notes (do nothing); doc proven wrong -\u003e fix or delete the doc.\n3. Compact .tick/learnings.md after adding: merge duplicates, delete outgrown entries, enforce hard cap of 150 lines.\n4. Outside-in verification: per epic scope item, verify against code/tests (not tick status); gaps are fixed now or surfaced to the human, never silently deferred.\n5. Drift review: skim the epic's full diff for agent-typical patches (workaround flags, suppressed errors, copy-paste variants, defensive bloat, HACK/workaround comments); real drift becomes cleanup ticks in the next epic.\n6. Retro report: short summary as the epic close reason / note (learnings by destination, verification table, drift found, proposed roadmap adjustments for the human).\n\nAlso define the .tick/learnings.md format where the section introduces it: short Problem -\u003e Cause -\u003e Rule entries under category headers; 150-line hard cap; read fresh at point of use, never inlined from orchestrator memory (the orchestrator session spans epics, so an inlined copy goes stale after a retro).\n\nFiles: skills/ticks/references/claude-runner.md only. Do NOT touch the implementer prompt template or add discipline rules — separate tick covers those.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "claude-runner.md has the retro section with all 6 steps and the promotion tier table; .tick/learnings.md format + 150-line cap + read-fresh rule documented",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T12:32:14.787793Z",
-  "updated_at": "2026-06-10T12:32:14.787793Z"
+  "updated_at": "2026-06-10T12:37:48.066073Z",
+  "closed_at": "2026-06-10T12:37:48.066073Z",
+  "closed_reason": "Retro procedure + .tick/learnings.md convention added to claude-runner.md via Claude orchestration (agent DONE, merged)"
 }

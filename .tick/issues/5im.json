@@ -2,7 +2,7 @@
   "id": "5im",
   "title": "Add foundation-first partitioning procedure and learnings re-read to tick-patterns.md",
   "description": "Implement spec §4 + §2 consumption point 2 (docs/design/execution-model-v2-epic-chaining-and-learning-loop.md) in skills/ticks/references/tick-patterns.md.\n\nReplace the scattered partitioning guidance ('Partitioning an Epic into Ticks' section + the 'define shared contracts first' idea) with one named, ordered procedure:\n0. Re-read .tick/learnings.md (if present) — partitioning and tick-authoring mistakes are a recurring learning category.\n1. List every deliverable in the epic.\n2. Build a work-to-file matrix: per deliverable, files created / modified.\n3. Cluster by shared files — deliverables touching the same files become sequential (--blocked-by) or merge into one tick.\n4. Extract the foundation: shared types, schemas, contracts, config, persistence -\u003e wave-1 tick(s) everything else blocks on.\n5. Maximize the parallel frontier after foundation; verify with tk graph that no same-wave ticks share files.\n\nAlso: add 're-read .tick/learnings.md before authoring' to the Definition of Ready preamble (the paragraph above the checklist).\n\nKeep the existing vertical-slicing guidance and examples — the procedure incorporates them, it does not delete them. Files: skills/ticks/references/tick-patterns.md only.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "tick-patterns.md has the 6-step (0-5) partitioning procedure; DoR preamble mentions re-reading .tick/learnings.md; vertical-slicing content preserved",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T12:32:25.80231Z",
-  "updated_at": "2026-06-10T12:32:25.80231Z"
+  "updated_at": "2026-06-10T12:37:56.935025Z",
+  "closed_at": "2026-06-10T12:37:56.935025Z",
+  "closed_reason": "Foundation-first partitioning procedure added to tick-patterns.md (agent DONE, merged)"
 }
