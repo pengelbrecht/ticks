@@ -434,10 +434,26 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 	// Human-readable output.
 	if hasChildren {
 		if allChildrenClosed {
-			fmt.Printf(
-				"Epic %s is complete — all child ticks are closed. Close it with tk close %s.\n",
-				epic.ID, epic.ID,
-			)
+			// Count the children
+			childCount := 0
+			for _, t := range allTicks {
+				if t.Parent == epic.ID {
+					childCount++
+				}
+			}
+			if epic.Status == tick.StatusClosed {
+				// Epic is already closed with all children closed
+				fmt.Printf(
+					"Epic %s is closed (all %d child ticks closed).\n",
+					epic.ID, childCount,
+				)
+			} else {
+				// Epic is open with all children closed; it needs closing
+				fmt.Printf(
+					"Epic %s is complete — all child ticks are closed. Close it with tk close %s.\n",
+					epic.ID, epic.ID,
+				)
+			}
 		} else {
 			// Children exist but none are graphable tasks (e.g. child epics).
 			fmt.Printf("Epic %s has no tasks\n", epic.ID)

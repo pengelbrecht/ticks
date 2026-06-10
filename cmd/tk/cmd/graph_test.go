@@ -290,4 +290,42 @@ func TestHandleChildlessEpicHuman(t *testing.T) {
 			t.Errorf("expected no misleading 'open blockers' message for complete epic, got: %s", output)
 		}
 	})
+
+	t.Run("closed_epic_with_closed_children_no_close_hint", func(t *testing.T) {
+		epic := tick.Tick{
+			ID:        "azw",
+			Title:     "Already Closed Epic",
+			Type:      tick.TypeEpic,
+			Status:    tick.StatusClosed,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		child := tick.Tick{
+			ID:        "c2",
+			Title:     "Done Task",
+			Type:      tick.TypeTask,
+			Status:    tick.StatusClosed,
+			Parent:    "azw",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		output := captureChildlessOutput(t, false, epic, []tick.Tick{epic, child})
+
+		// Should mention the epic is closed and complete
+		if !strings.Contains(output, "closed") {
+			t.Errorf("expected 'closed' in output for already-closed epic, got: %s", output)
+		}
+		// Should NOT suggest closing (because it's already closed)
+		if strings.Contains(output, "Close it with") {
+			t.Errorf("expected no 'Close it with' hint for already-closed epic, got: %s", output)
+		}
+		// Should NOT mention needs planning or blockers
+		if strings.Contains(output, "needs planning") {
+			t.Errorf("expected no 'needs planning' for closed epic, got: %s", output)
+		}
+		if strings.Contains(output, "open blockers") {
+			t.Errorf("expected no 'open blockers' for closed epic, got: %s", output)
+		}
+	})
 }
