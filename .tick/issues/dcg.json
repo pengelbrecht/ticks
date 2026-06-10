@@ -1,0 +1,14 @@
+{
+  "id": "dcg",
+  "title": "Decide: retire internal/agent + internal/runrecord or accept as shared packages",
+  "description": "Surfaced during epic vuq (tick 0u6): the wwv verdict said to drop internal/agent and internal/runrecord 'once importer-free', but they have live non-runner importers: (1) internal/context/generator.go - tk context generates epic context docs by running an AI agent through the agent.Agent abstraction; (2) internal/migrate/runrecord.go - tk migrate migrates historical run records; (3) internal/ticks/types.go Task.Run field; (4) board verification badges - internal/tickboard/server reads runrecord for /api/records/:tickId and kanban verification status (under Claude orchestration nothing writes new run records, so badges only ever show historical data).\n\nOptions:\nA) Accept both packages as shared data/abstraction surface; do nothing (status quo after vuq).\nB) Retire them fully: rework tk context off the agent abstraction (or delete tk context - is it used?), drop runrecord migration from tk migrate, remove Task.Run, drop verification badges from the board. Bigger; touches product behavior.\nC) Middle: keep runrecord as a read-only historical format; delete internal/agent by reworking tk context only.\n\nRecord verdict via tk note + approve. Relevant code: internal/context/generator.go, internal/migrate/runrecord.go, internal/tickboard/server/server.go handleRecords/computeVerificationStatus.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "Verdict recorded in notes and tick approved",
+  "awaiting": "input",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T18:23:16.939396Z",
+  "updated_at": "2026-06-10T18:23:16.939396Z"
+}

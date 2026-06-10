@@ -2,7 +2,7 @@
   "id": "zbj",
   "title": "Remove TickflowLease residue from the tick model",
   "description": "Context: internal/tick/tick.go carries a TickflowLease field used only by the deleted Tickflow runner for stale-work leases (the old internal/recovery consumed it; that package is already deleted). Tick.Release() still clears it. The pi tickflow harness is being deleted in a sibling tick; the lease field is dead model surface.\n\nDeliverable: remove TickflowLease from the tick model.\n1. Remove the field from the Tick struct (internal/tick/tick.go) and the clearing in Release(); remove/update any tests referencing it (internal/tick/tick_test.go).\n2. Grep 'TickflowLease|tickflow_lease' repo-wide first: if ANY consumer outside internal/tick + its tests exists (board UI types, query, schemas, generated types), STOP and report instead of deleting.\n3. Backward compat: Go json.Unmarshal ignores unknown fields, so old tick JSON files carrying tickflow_lease still load; saving simply drops the field. State this was verified (add/keep a test that a tick JSON with an unknown tickflow_lease field round-trips without error).\n\nRun: go test ./internal/tick/... and full go test ./...\n\nFiles likely touched: internal/tick/tick.go, internal/tick/tick_test.go.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,6 +13,7 @@
   "acceptance_criteria": "TickflowLease gone from model and tests; repo-wide grep clean; unknown-field round-trip test passes; go test ./... green",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T18:15:18.61919Z",
-  "updated_at": "2026-06-10T18:18:33.418182Z",
-  "started_at": "2026-06-10T18:18:33.418182Z"
+  "updated_at": "2026-06-10T18:23:16.883193Z",
+  "closed_at": "2026-06-10T18:23:16.883193Z",
+  "closed_reason": "Completed: TickflowLease type, field, validation, Release() clearing and expiry helper removed; unknown-field round-trip test proves old tick JSONs still load; full suite green"
 }
