@@ -2,7 +2,7 @@
   "id": "q19",
   "title": "Close out epic idc: retro + learnings promotion",
   "description": "Orchestrator meta-tick: run the epic-close retro per the ticks skill (harvest tick notes + agent concerns, promote learnings by tier, compact .tick/learnings.md to \u003c=150 lines, outside-in verification of every scope item, drift review, retro report as the epic close reason).",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "idc",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T16:51:37.145875Z",
-  "updated_at": "2026-06-10T17:31:20.407695Z"
+  "updated_at": "2026-06-10T17:33:19.093489Z",
+  "closed_at": "2026-06-10T17:33:19.093489Z",
+  "closed_reason": "Completed: retro run — learnings promoted (2 repo entries, 2 skill clarifications), learnings.md at 64/150 lines, outside-in verification all scope items pass (start-signal + actor verified e2e with built binary), drift review clean, report on epic tick"
 }

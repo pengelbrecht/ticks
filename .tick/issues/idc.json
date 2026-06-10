@@ -2,12 +2,15 @@
   "id": "idc",
   "title": "Orchestrator interop: board \u0026 CLI visibility for Claude-orchestrated runs",
   "description": "The repo is now driven exclusively by Claude Code as orchestrator (per docs/claude-code-swarm-architecture.md and docs/design/execution-model-v2-epic-chaining-and-learning-loop.md). The tk CLI and both boards (local tk board, cloud) predate this and have observability gaps: the open-\u003ein_progress transition emits no activity event and never sets started_at (breaking the documented stale-recovery procedure in skills/ticks/references/claude-runner.md:356), the activity feed cannot distinguish agent actions from human actions, and cloud-side operations lose requester identity. This epic wires the claim/start signal through the CLI and store, surfaces it on the board, fixes actor attribution, and updates the orchestration skill docs to match.",
-  "status": "open",
+  "notes": "2026-06-10 19:33 - RETRO REPORT (epic close):\nLearnings promoted — .tick/learnings.md: worker-test isolation rule (full suite crashes workerd; run files via npx vitest run in isolation; tracked xdq) + dual schema codegen rule (make codegen-go AND scripts/build-ui.sh on any schemas/websocket change). Skill (claude-runner.md): base-branch field semantics clarified (= fork/merge-back branch, not the epic branch); TK_ACTOR caveats qualified.\nVerification (outside-in, per scope item) — start signal: VERIFIED e2e with built binary (claim sets started_at + start entry, re-claim idempotent, release clears). Actor attribution: VERIFIED e2e (start/update/close entries carry TK_ACTOR; owner fallback intact). Elapsed badge: tests + bundle inspection. Cloud roadmap: 31 unit tests incl. manual-gating fidelity fix. Cloud actor: Go tests + isolated worker test 3/3. Skill docs: reviewer-verified against merged code.\nDrift — none beyond review findings; all 4 should-fixes fixed in-branch. Accepted tech debt: opaque userId attribution (email resolution = noted enhancement on xps), per-card 30s timer pattern, dead defensive catch in roadmap.ts, label changes emit no activity, approve/reject surface as close/note (documented).\nFollow-ups — xdq: worker test env crash + stale /agent auth tests + worker tests missing from CI.\nRoadmap proposals — none; runner-removal epic (vuq) ready except 0u6 awaits human decision on wwv.\nIntegration status — awaiting PR: https://github.com/pengelbrecht/ticks/pull/11 (CI gate on PRs).",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "base_branch": "main",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:22:31.21679Z",
-  "updated_at": "2026-06-10T17:10:18.28715Z"
+  "updated_at": "2026-06-10T17:33:19.156506Z",
+  "closed_at": "2026-06-10T17:33:19.156506Z",
+  "closed_reason": "Completed: all 6 implementation ticks + final review + retro done via Claude orchestration; awaiting PR #11 to main. Retro report in epic notes."
 }
