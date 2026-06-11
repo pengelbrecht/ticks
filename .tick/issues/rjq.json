@@ -2,7 +2,7 @@
   "id": "rjq",
   "title": "Remove stale beads merge attribute from .gitattributes",
   "description": "Remove the '.beads/issues.jsonl merge=beads' line from .gitattributes.\n\nContext: there is no registered 'beads' merge driver anywhere in the codebase (ConfigureMergeDriver only registers 'tick'). The attribute makes git silently fall back to default 3-way merge for beads JSONL files, which is wrong for an append-only log. Since we're not adding a beads driver, the line should be removed.\n\nThe beads importer (internal/beads/, cmd/tk/cmd/import.go, --import-beads flag in init) is NOT touched — only the merge attribute line.\n\nFile to change:\n- .gitattributes: remove '# Use bd merge for beads JSONL files' comment and '.beads/issues.jsonl merge=beads' line\n\nRun: grep 'beads' .gitattributes — should return nothing after the change",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,7 @@
   "acceptance_criteria": ".gitattributes has no beads-related lines; go test ./... still passes",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-11T06:28:56.659634Z",
-  "updated_at": "2026-06-11T06:28:56.659634Z"
+  "updated_at": "2026-06-11T06:32:11.544977Z",
+  "closed_at": "2026-06-11T06:32:11.544977Z",
+  "closed_reason": "Completed: removed .beads/issues.jsonl merge=beads line and comment from .gitattributes"
 }
