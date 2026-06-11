@@ -78,63 +78,6 @@ func TestTickSchema_Roundtrip(t *testing.T) {
 	t.Logf("Roundtrip successful, output size: %d bytes", len(output))
 }
 
-// TestRunRecord_Roundtrip tests RunRecord deserialization.
-func TestRunRecord_Roundtrip(t *testing.T) {
-	data, err := os.ReadFile(getFixturePath("run-record.json"))
-	if err != nil {
-		t.Fatalf("Failed to read fixture: %v", err)
-	}
-
-	var run RunRecord
-	if err := json.Unmarshal(data, &run); err != nil {
-		t.Fatalf("Failed to unmarshal run record: %v", err)
-	}
-
-	// Verify required fields
-	if run.SessionId == "" {
-		t.Error("Expected session_id to be set")
-	}
-	if run.Model == "" {
-		t.Error("Expected model to be set")
-	}
-	if !run.Success {
-		t.Error("Expected success to be true")
-	}
-	if run.NumTurns != 3 {
-		t.Errorf("Expected 3 turns, got %d", run.NumTurns)
-	}
-
-	// Verify metrics
-	if run.Metrics.InputTokens != 5000 {
-		t.Errorf("Expected 5000 input tokens, got %d", run.Metrics.InputTokens)
-	}
-	if run.Metrics.CostUsd != 0.05 {
-		t.Errorf("Expected cost 0.05, got %f", run.Metrics.CostUsd)
-	}
-
-	// Verify tools array
-	if len(run.Tools) != 2 {
-		t.Errorf("Expected 2 tools, got %d", len(run.Tools))
-	}
-	if run.Tools[0].Name != "Read" {
-		t.Errorf("Expected first tool 'Read', got %q", run.Tools[0].Name)
-	}
-
-	// Verify verification
-	if run.Verification == nil {
-		t.Error("Expected verification to be set")
-	} else if !run.Verification.AllPassed {
-		t.Error("Expected verification.all_passed to be true")
-	}
-
-	// Re-serialize
-	output, err := json.Marshal(run)
-	if err != nil {
-		t.Fatalf("Failed to marshal run record: %v", err)
-	}
-	t.Logf("Roundtrip successful, output size: %d bytes", len(output))
-}
-
 // TestAPIResponses_Roundtrip tests API response types deserialization.
 func TestAPIResponses_Roundtrip(t *testing.T) {
 	data, err := os.ReadFile(getFixturePath("api-responses.json"))
@@ -143,11 +86,10 @@ func TestAPIResponses_Roundtrip(t *testing.T) {
 	}
 
 	var fixtures struct {
-		InfoResponse       InfoResponse       `json:"infoResponse"`
-		ListTicksResponse  ListTicksResponse  `json:"listTicksResponse"`
-		TickResponse       TickResponse       `json:"tickResponse"`
-		GetTickResponse    GetTickResponse    `json:"getTickResponse"`
-		RunStatusResponse  RunStatusResponse  `json:"runStatusResponse"`
+		InfoResponse      InfoResponse      `json:"infoResponse"`
+		ListTicksResponse ListTicksResponse `json:"listTicksResponse"`
+		TickResponse      TickResponse      `json:"tickResponse"`
+		GetTickResponse   GetTickResponse   `json:"getTickResponse"`
 	}
 
 	if err := json.Unmarshal(data, &fixtures); err != nil {
@@ -186,9 +128,6 @@ func TestAPIResponses_Roundtrip(t *testing.T) {
 		if tick.Column != "human" {
 			t.Errorf("Expected column 'human', got %q", tick.Column)
 		}
-		if tick.VerificationStatus == nil || *tick.VerificationStatus != "pending" {
-			t.Error("Expected verificationStatus 'pending'")
-		}
 	})
 
 	t.Run("GetTickResponse", func(t *testing.T) {
@@ -201,26 +140,6 @@ func TestAPIResponses_Roundtrip(t *testing.T) {
 		}
 		if tick.BlockerDetails[0].Title != "Blocking task" {
 			t.Errorf("Expected blocker title 'Blocking task', got %q", tick.BlockerDetails[0].Title)
-		}
-	})
-
-	t.Run("RunStatusResponse", func(t *testing.T) {
-		status := fixtures.RunStatusResponse
-		if status.EpicId != "epic-001" {
-			t.Errorf("Expected epicId 'epic-001', got %q", status.EpicId)
-		}
-		if !status.IsRunning {
-			t.Error("Expected isRunning to be true")
-		}
-		if status.ActiveTask == nil {
-			t.Error("Expected activeTask to be set")
-		} else {
-			if status.ActiveTask.TickId != "tick-001" {
-				t.Errorf("Expected tickId 'tick-001', got %q", status.ActiveTask.TickId)
-			}
-			if status.ActiveTask.ActiveTool == nil {
-				t.Error("Expected activeTool to be set")
-			}
 		}
 	})
 }

@@ -50,6 +50,7 @@ export type ServerMessage =
   | HeartbeatResponseMessage
   | StateFullMessage
   | TickUpdatedMessage
+  | TickCreatedMessage
   | TickDeletedMessage
   | TickOperationRequest
   | TickOperationResponse
@@ -345,13 +346,24 @@ export interface Tick {
   [k: string]: unknown;
 }
 /**
- * Single tick created or updated
+ * Single tick updated
  *
  * This interface was referenced by `WebSocketMessages`'s JSON-Schema
  * via the `definition` "TickUpdatedMessage".
  */
 export interface TickUpdatedMessage {
   type: 'tick_updated';
+  tick: Tick;
+  [k: string]: unknown;
+}
+/**
+ * Single tick created. Broadcast by the DO when a previously-unknown tick is synced; clients apply it identically to tick_updated.
+ *
+ * This interface was referenced by `WebSocketMessages`'s JSON-Schema
+ * via the `definition` "TickCreatedMessage".
+ */
+export interface TickCreatedMessage {
+  type: 'tick_created';
   tick: Tick;
   [k: string]: unknown;
 }

@@ -19,17 +19,10 @@ import type {
   TickAwaiting,
 } from './tick.js';
 import type {
-  RunRecord,
-  MetricsRecord,
-  ToolRecord,
-  VerificationRecord,
-} from './run.js';
-import type {
   InfoResponse,
   ListTicksResponse,
   TickResponse,
   GetTickResponse,
-  RunStatusResponse,
   EpicInfo,
   Note,
   BlockerDetail,
@@ -107,63 +100,12 @@ describe('Schema Roundtrip Tests', () => {
     });
   });
 
-  describe('RunRecord', () => {
-    it('deserializes run-record.json fixture correctly', () => {
-      const run = readFixture('run-record.json') as RunRecord;
-
-      expect(run.session_id).toBe('sess-12345');
-      expect(run.model).toBe('claude-sonnet-4-20250514');
-      expect(run.started_at).toBe('2024-01-25T10:00:00Z');
-      expect(run.ended_at).toBe('2024-01-25T10:05:00Z');
-      expect(run.output).toContain('Task completed successfully');
-      expect(run.thinking).toContain('Let me analyze');
-      expect(run.success).toBe(true);
-      expect(run.num_turns).toBe(3);
-    });
-
-    it('deserializes metrics correctly', () => {
-      const run = readFixture('run-record.json') as RunRecord;
-      const metrics: MetricsRecord = run.metrics;
-
-      expect(metrics.input_tokens).toBe(5000);
-      expect(metrics.output_tokens).toBe(2500);
-      expect(metrics.cache_read_tokens).toBe(1000);
-      expect(metrics.cache_creation_tokens).toBe(500);
-      expect(metrics.cost_usd).toBe(0.05);
-      expect(metrics.duration_ms).toBe(300000);
-    });
-
-    it('deserializes tools array correctly', () => {
-      const run = readFixture('run-record.json') as RunRecord;
-
-      expect(run.tools).toHaveLength(2);
-
-      const firstTool: ToolRecord = run.tools![0];
-      expect(firstTool.name).toBe('Read');
-      expect(firstTool.input).toBe('/path/to/file.ts');
-      expect(firstTool.duration_ms).toBe(150);
-      expect(firstTool.is_error).toBe(false);
-    });
-
-    it('deserializes verification correctly', () => {
-      const run = readFixture('run-record.json') as RunRecord;
-      const verification: VerificationRecord | undefined = run.verification;
-
-      expect(verification).toBeDefined();
-      expect(verification!.all_passed).toBe(true);
-      expect(verification!.results).toHaveLength(1);
-      expect(verification!.results![0].verifier).toBe('git');
-      expect(verification!.results![0].passed).toBe(true);
-    });
-  });
-
   describe('API Responses', () => {
     interface ApiFixtures {
       infoResponse: InfoResponse;
       listTicksResponse: ListTicksResponse;
       tickResponse: TickResponse;
       getTickResponse: GetTickResponse;
-      runStatusResponse: RunStatusResponse;
     }
 
     const fixtures = readFixture('api-responses.json') as ApiFixtures;
@@ -207,7 +149,6 @@ describe('Schema Roundtrip Tests', () => {
       // Computed fields
       expect(tick.isBlocked).toBe(false);
       expect(tick.column).toBe('human');
-      expect(tick.verificationStatus).toBe('pending');
     });
 
     it('deserializes GetTickResponse with notesList and blockerDetails', () => {
@@ -231,28 +172,6 @@ describe('Schema Roundtrip Tests', () => {
       expect(blocker.id).toBe('tick-002');
       expect(blocker.title).toBe('Blocking task');
       expect(blocker.status).toBe('open');
-    });
-
-    it('deserializes RunStatusResponse with activeTask', () => {
-      const status = fixtures.runStatusResponse;
-
-      expect(status.epicId).toBe('epic-001');
-      expect(status.isRunning).toBe(true);
-
-      expect(status.activeTask).toBeDefined();
-      expect(status.activeTask!.tickId).toBe('tick-001');
-      expect(status.activeTask!.title).toBe('Active task');
-      expect(status.activeTask!.status).toBe('tool_use');
-      expect(status.activeTask!.numTurns).toBe(2);
-
-      // Active tool
-      expect(status.activeTask!.activeTool).toBeDefined();
-      expect(status.activeTask!.activeTool!.name).toBe('Bash');
-      expect(status.activeTask!.activeTool!.input).toBe('npm test');
-
-      // Metrics
-      expect(status.activeTask!.metrics.input_tokens).toBe(1000);
-      expect(status.activeTask!.metrics.cost_usd).toBe(0.01);
     });
   });
 });

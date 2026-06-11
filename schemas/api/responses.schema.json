@@ -9,11 +9,6 @@
       "enum": ["blocked", "ready", "agent", "human", "done"],
       "description": "Kanban column computed from tick state"
     },
-    "VerificationStatus": {
-      "type": "string",
-      "enum": ["verified", "failed", "pending"],
-      "description": "Verification status for completed tasks"
-    },
     "Note": {
       "type": "object",
       "description": "Parsed note entry from tick.notes",
@@ -83,10 +78,6 @@
             "column": {
               "$ref": "#/$defs/TickColumn",
               "description": "Computed kanban column"
-            },
-            "verificationStatus": {
-              "$ref": "#/$defs/VerificationStatus",
-              "description": "Verification status (for closed tasks only)"
             }
           }
         }
@@ -278,149 +269,6 @@
           "type": "array",
           "items": { "$ref": "../activity.schema.json" },
           "description": "List of activity entries"
-        }
-      }
-    },
-    "ActiveToolRecord": {
-      "type": "object",
-      "description": "Active tool during a live run",
-      "required": ["name"],
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Tool name"
-        },
-        "input": {
-          "type": "string",
-          "description": "Tool input (may be partial)"
-        },
-        "output": {
-          "type": "string",
-          "description": "Tool output (may be partial)"
-        },
-        "duration_ms": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Duration so far in milliseconds"
-        },
-        "is_error": {
-          "type": "boolean",
-          "description": "Whether the tool has errored"
-        }
-      }
-    },
-    "ActiveTaskStatus": {
-      "type": "object",
-      "description": "Status of the currently executing task",
-      "required": ["tickId", "title", "status", "numTurns", "metrics", "lastUpdated"],
-      "properties": {
-        "tickId": {
-          "type": "string",
-          "description": "ID of the task being executed"
-        },
-        "title": {
-          "type": "string",
-          "description": "Task title"
-        },
-        "status": {
-          "type": "string",
-          "description": "Current execution status"
-        },
-        "activeTool": {
-          "$ref": "#/$defs/ActiveToolRecord",
-          "description": "Currently executing tool (if any)"
-        },
-        "numTurns": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Number of API turns so far"
-        },
-        "metrics": {
-          "$ref": "../run.schema.json#/$defs/MetricsRecord",
-          "description": "Current metrics"
-        },
-        "lastUpdated": {
-          "type": "string",
-          "format": "date-time",
-          "description": "ISO timestamp of last update"
-        }
-      }
-    },
-    "LiveRecord": {
-      "type": "object",
-      "description": "Live run record for in-progress execution",
-      "required": ["session_id", "model", "started_at", "output", "metrics", "num_turns", "status", "last_updated"],
-      "properties": {
-        "session_id": {
-          "type": "string",
-          "description": "Session identifier"
-        },
-        "model": {
-          "type": "string",
-          "description": "Model being used"
-        },
-        "started_at": {
-          "type": "string",
-          "format": "date-time",
-          "description": "When the run started"
-        },
-        "output": {
-          "type": "string",
-          "description": "Output so far"
-        },
-        "thinking": {
-          "type": "string",
-          "description": "Thinking content so far"
-        },
-        "tools": {
-          "type": "array",
-          "items": { "$ref": "../run.schema.json#/$defs/ToolRecord" },
-          "description": "Completed tool invocations"
-        },
-        "metrics": {
-          "$ref": "../run.schema.json#/$defs/MetricsRecord",
-          "description": "Current metrics"
-        },
-        "num_turns": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Number of turns so far"
-        },
-        "status": {
-          "type": "string",
-          "description": "Current status"
-        },
-        "active_tool": {
-          "$ref": "#/$defs/ActiveToolRecord",
-          "description": "Currently executing tool"
-        },
-        "last_updated": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Last update timestamp"
-        }
-      }
-    },
-    "RunStatusResponse": {
-      "type": "object",
-      "description": "Response from GET /api/run-status/:epicId",
-      "required": ["epicId", "isRunning"],
-      "properties": {
-        "epicId": {
-          "type": "string",
-          "description": "Epic being queried"
-        },
-        "isRunning": {
-          "type": "boolean",
-          "description": "Whether there is an active run for this epic"
-        },
-        "activeTask": {
-          "$ref": "#/$defs/ActiveTaskStatus",
-          "description": "Status of currently executing task"
-        },
-        "metrics": {
-          "$ref": "#/$defs/LiveRecord",
-          "description": "Live run metrics"
         }
       }
     }

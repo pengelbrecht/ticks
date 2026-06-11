@@ -6,8 +6,6 @@
 import type { Tick } from '../types/tick.js';
 import type {
   TickEvent,
-  RunEvent,
-  ContextEvent,
   ConnectionEvent,
   TickCreate,
   TickUpdate,
@@ -15,8 +13,6 @@ import type {
   InfoResponse,
   TickDetail,
   Activity,
-  RunRecord,
-  RunStatusResponse,
 } from './types.js';
 
 // =============================================================================
@@ -24,8 +20,6 @@ import type {
 // =============================================================================
 
 export type TickEventHandler = (event: TickEvent) => void;
-export type RunEventHandler = (event: RunEvent) => void;
-export type ContextEventHandler = (event: ContextEvent) => void;
 export type ConnectionEventHandler = (event: ConnectionEvent) => void;
 
 /** Unsubscribe function returned by event subscriptions */
@@ -70,38 +64,10 @@ export interface CommsClient {
   onTick(handler: TickEventHandler): Unsubscribe;
 
   /**
-   * Subscribe to run events (task/epic progress, tool activity).
-   * @returns Unsubscribe function
-   */
-  onRun(handler: RunEventHandler): Unsubscribe;
-
-  /**
-   * Subscribe to context events (generation progress).
-   * @returns Unsubscribe function
-   */
-  onContext(handler: ContextEventHandler): Unsubscribe;
-
-  /**
    * Subscribe to connection events (connect, disconnect, errors).
    * @returns Unsubscribe function
    */
   onConnection(handler: ConnectionEventHandler): Unsubscribe;
-
-  // ===========================================================================
-  // Run Stream Subscriptions
-  // ===========================================================================
-
-  /**
-   * Subscribe to run events for a specific epic.
-   * For local mode: Opens SSE connection to /api/run-stream/:epicId
-   * For cloud mode: Filters WebSocket events by epicId
-   *
-   * Multiple subscriptions to different epics are supported.
-   *
-   * @param epicId - Epic ID to subscribe to
-   * @returns Unsubscribe function that closes the subscription
-   */
-  subscribeRun(epicId: string): Unsubscribe;
 
   // ===========================================================================
   // Write Operations (Client → Server)
@@ -181,26 +147,6 @@ export interface CommsClient {
    * @param limit - Optional limit on number of entries to return
    */
   fetchActivity(limit?: number): Promise<Activity[]>;
-
-  /**
-   * Fetch the run record for a completed tick.
-   * @param tickId - Tick ID
-   * @returns Run record or null if no record exists
-   */
-  fetchRecord(tickId: string): Promise<RunRecord | null>;
-
-  /**
-   * Fetch the current run status for an epic.
-   * @param epicId - Epic ID
-   */
-  fetchRunStatus(epicId: string): Promise<RunStatusResponse>;
-
-  /**
-   * Fetch the generated context for an epic.
-   * @param epicId - Epic ID
-   * @returns Context string or null if not generated
-   */
-  fetchContext(epicId: string): Promise<string | null>;
 
   // ===========================================================================
   // State

@@ -158,7 +158,7 @@ tk notes <id>                         # List notes
 
 ## Running an Epic
 
-This skill runs epics by orchestrating Claude Code subagents — see `claude-runner.md`. The standalone `tk run` runner (and its `tk resume` / `tk checkpoints` / `tk merge` companions) is intentionally out of scope here for now, so it isn't documented in this reference.
+This skill runs epics by orchestrating Claude Code subagents — see `claude-runner.md`. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed, so it isn't documented in this reference. The `tk merge` command remains available for merging a completed epic's worktree branch.
 
 ## Web Board
 
@@ -169,8 +169,11 @@ tk board [path] [flags]
 | Flag | Description |
 |------|-------------|
 | `-p, --port N` | Port to listen on (default 3000) |
+| `--host ADDR` | Host/IP to bind (default `127.0.0.1`; use `0.0.0.0` to expose on all interfaces / LAN) |
+| `--cloud` | Sync the board to ticks.sh (token in `~/.ticksrc`) |
+| `--dev` | Serve the UI from source instead of embedded assets |
 
-Opens a web interface for viewing and managing ticks.
+Opens a web interface for viewing and managing ticks. By default the board is only reachable from the local machine (loopback). Pass `--host 0.0.0.0` to make it accessible on the local network.
 
 ## Maintenance
 

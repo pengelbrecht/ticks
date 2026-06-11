@@ -7,7 +7,7 @@
 
 import { atom, computed, onMount } from 'nanostores';
 import type { Tick } from '../types/tick.js';
-import type { CommsClient, TickEvent, RunEvent, ContextEvent, ConnectionEvent } from '../comms/index.js';
+import type { CommsClient, TickEvent, ConnectionEvent } from '../comms/index.js';
 import { LocalCommsClient, CloudCommsClient } from '../comms/index.js';
 import {
   $isCloudMode,
@@ -65,66 +65,6 @@ export const $effectiveConnectionStatus = computed(
 );
 
 // =============================================================================
-// Run Event Dispatching
-// =============================================================================
-
-/** Registry of run event listeners */
-type RunEventListener = (event: RunEvent) => void;
-const runEventListeners = new Set<RunEventListener>();
-
-/**
- * Register a listener for run events.
- * Returns an unsubscribe function.
- */
-export function onRunEvent(listener: RunEventListener): () => void {
-  runEventListeners.add(listener);
-  return () => runEventListeners.delete(listener);
-}
-
-/**
- * Dispatch a run event to all registered listeners.
- */
-function dispatchRunEvent(event: RunEvent): void {
-  for (const listener of runEventListeners) {
-    try {
-      listener(event);
-    } catch (err) {
-      console.error('[CommsStore] Error in run event listener:', err);
-    }
-  }
-}
-
-// =============================================================================
-// Context Event Dispatching
-// =============================================================================
-
-/** Registry of context event listeners */
-type ContextEventListener = (event: ContextEvent) => void;
-const contextEventListeners = new Set<ContextEventListener>();
-
-/**
- * Register a listener for context events.
- * Returns an unsubscribe function.
- */
-export function onContextEvent(listener: ContextEventListener): () => void {
-  contextEventListeners.add(listener);
-  return () => contextEventListeners.delete(listener);
-}
-
-/**
- * Dispatch a context event to all registered listeners.
- */
-function dispatchContextEvent(event: ContextEvent): void {
-  for (const listener of contextEventListeners) {
-    try {
-      listener(event);
-    } catch (err) {
-      console.error('[CommsStore] Error in context event listener:', err);
-    }
-  }
-}
-
-// =============================================================================
 // Event Handlers
 // =============================================================================
 
@@ -159,20 +99,6 @@ function handleTickEvent(event: TickEvent): void {
       window.dispatchEvent(new CustomEvent('activity-update'));
       break;
   }
-}
-
-/**
- * Handle run events and forward to registered listeners.
- */
-function handleRunEvent(event: RunEvent): void {
-  dispatchRunEvent(event);
-}
-
-/**
- * Handle context events and forward to registered listeners.
- */
-function handleContextEvent(event: ContextEvent): void {
-  dispatchContextEvent(event);
 }
 
 /**
@@ -230,8 +156,6 @@ export async function initLocalComms(): Promise<void> {
 
   // Subscribe to events
   unsubscribers.push(client.onTick(handleTickEvent));
-  unsubscribers.push(client.onRun(handleRunEvent));
-  unsubscribers.push(client.onContext(handleContextEvent));
   unsubscribers.push(client.onConnection(handleConnectionEvent));
 
   $commsClient.set(client);
@@ -261,8 +185,6 @@ export async function initCloudComms(projectId: string): Promise<void> {
 
   // Subscribe to events
   unsubscribers.push(client.onTick(handleTickEvent));
-  unsubscribers.push(client.onRun(handleRunEvent));
-  unsubscribers.push(client.onContext(handleContextEvent));
   unsubscribers.push(client.onConnection(handleConnectionEvent));
 
   $commsClient.set(client);
@@ -321,19 +243,6 @@ function cleanup(): void {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-/**
- * Subscribe to run events for a specific epic.
- * Returns an unsubscribe function.
- */
-export function subscribeRun(epicId: string): () => void {
-  const client = $commsClient.get();
-  if (!client) {
-    console.warn('[CommsStore] Cannot subscribe to run: no client');
-    return () => {};
-  }
-  return client.subscribeRun(epicId);
-}
 
 /**
  * Get the current comms client.
@@ -419,8 +328,6 @@ import type {
   InfoResponse,
   TickDetail,
   Activity,
-  RunRecord,
-  RunStatusResponse,
 } from '../comms/index.js';
 
 /**
@@ -449,27 +356,6 @@ export async function fetchTickDetails(id: string): Promise<TickDetail> {
  */
 export async function fetchActivity(limit?: number): Promise<Activity[]> {
   return getCommsClient().fetchActivity(limit);
-}
-
-/**
- * Fetch the run record for a completed tick.
- */
-export async function fetchRecord(tickId: string): Promise<RunRecord | null> {
-  return getCommsClient().fetchRecord(tickId);
-}
-
-/**
- * Fetch the current run status for an epic.
- */
-export async function fetchRunStatus(epicId: string): Promise<RunStatusResponse> {
-  return getCommsClient().fetchRunStatus(epicId);
-}
-
-/**
- * Fetch the generated context for an epic.
- */
-export async function fetchContext(epicId: string): Promise<string | null> {
-  return getCommsClient().fetchContext(epicId);
 }
 
 // =============================================================================

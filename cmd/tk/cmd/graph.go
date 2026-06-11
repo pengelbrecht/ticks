@@ -51,11 +51,11 @@ func init() {
 
 // graphOutput is the JSON output structure for agents.
 type graphOutput struct {
-	Epic         graphEpic   `json:"epic"`
-	NeedsPlanning bool       `json:"needs_planning"`
-	Stats        graphStats  `json:"stats"`
-	Waves        []graphWave `json:"waves"`
-	CriticalPath int         `json:"critical_path"`
+	Epic          graphEpic   `json:"epic"`
+	NeedsPlanning bool        `json:"needs_planning"`
+	Stats         graphStats  `json:"stats"`
+	Waves         []graphWave `json:"waves"`
+	CriticalPath  int         `json:"critical_path"`
 }
 
 type graphEpic struct {
@@ -64,12 +64,12 @@ type graphEpic struct {
 }
 
 type graphStats struct {
-	TotalTasks     int `json:"total_tasks"`
-	WaveCount      int `json:"wave_count"`
-	MaxParallel    int `json:"max_parallel"`
-	ReadyForAgent  int `json:"ready_for_agent"`
-	AwaitingHuman  int `json:"awaiting_human"`
-	Deferred       int `json:"deferred"`
+	TotalTasks    int `json:"total_tasks"`
+	WaveCount     int `json:"wave_count"`
+	MaxParallel   int `json:"max_parallel"`
+	ReadyForAgent int `json:"ready_for_agent"`
+	AwaitingHuman int `json:"awaiting_human"`
+	Deferred      int `json:"deferred"`
 }
 
 type graphWave struct {
@@ -80,15 +80,15 @@ type graphWave struct {
 }
 
 type graphTask struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Priority     int      `json:"priority"`
-	Status       string   `json:"status"`
-	BlockedBy    []string `json:"blocked_by,omitempty"`
-	Blocks       []string `json:"blocks,omitempty"`
-	Awaiting     string   `json:"awaiting,omitempty"`
-	DeferredUntil string  `json:"deferred_until,omitempty"`
-	AgentReady   bool     `json:"agent_ready"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	Priority      int      `json:"priority"`
+	Status        string   `json:"status"`
+	BlockedBy     []string `json:"blocked_by,omitempty"`
+	Blocks        []string `json:"blocks,omitempty"`
+	Awaiting      string   `json:"awaiting,omitempty"`
+	DeferredUntil string   `json:"deferred_until,omitempty"`
+	AgentReady    bool     `json:"agent_ready"`
 }
 
 func runGraph(cmd *cobra.Command, args []string) error {

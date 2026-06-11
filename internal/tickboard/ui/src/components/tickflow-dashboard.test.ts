@@ -18,7 +18,7 @@ import { LitElement } from 'lit';
 import './tickflow-dashboard.js';
 import type { TickflowDashboard } from './tickflow-dashboard.js';
 import type { BoardTick } from '../types/tick.js';
-import type { EpicInfo, RunStatusResponse, Activity } from '../api/ticks.js';
+import type { EpicInfo, Activity } from '../api/ticks.js';
 
 // =============================================================================
 // Test Fixtures
@@ -65,31 +65,6 @@ const SAMPLE_ACTIVITIES: Activity[] = [
   { ts: new Date(Date.now() - 300_000).toISOString(), tick: 't2', action: 'create', actor: 'agent' },
   { ts: new Date(Date.now() - 600_000).toISOString(), tick: 't3', action: 'update', actor: 'human' },
 ];
-
-const ACTIVE_RUN_STATUS: RunStatusResponse = {
-  epicId: 'ep1',
-  isRunning: true,
-  activeTask: {
-    tickId: 't2',
-    title: 'Add OAuth',
-    status: 'running',
-    numTurns: 15,
-    metrics: {
-      input_tokens: 10000,
-      output_tokens: 5000,
-      cache_read_tokens: 0,
-      cache_creation_tokens: 0,
-      cost_usd: 0.42,
-      duration_ms: 30000,
-    },
-    lastUpdated: new Date().toISOString(),
-  },
-};
-
-const IDLE_RUN_STATUS: RunStatusResponse = {
-  epicId: 'ep1',
-  isRunning: false,
-};
 
 // =============================================================================
 // Helper
@@ -198,7 +173,6 @@ describe('tickflow-dashboard', () => {
       element.open = true;
       element.ticks = SAMPLE_TICKS;
       element.epics = SAMPLE_EPICS;
-      element.runStatus = IDLE_RUN_STATUS;
       await element.updateComplete;
     });
 
@@ -247,21 +221,11 @@ describe('tickflow-dashboard', () => {
       expect(value?.textContent).toBe('1');
     });
 
-    it('shows "agent idle" when run is not active', () => {
+    it('shows "with agent" detail on the in-progress card', () => {
       const cards = queryAll(element, '.summary-card');
       const agentCard = cards[3];
       const detail = agentCard?.querySelector('.summary-card-detail');
-      expect(detail?.textContent).toBe('agent idle');
-    });
-
-    it('shows "agent active" when run is active', async () => {
-      element.runStatus = ACTIVE_RUN_STATUS;
-      await element.updateComplete;
-
-      const cards = queryAll(element, '.summary-card');
-      const agentCard = cards[3];
-      const detail = agentCard?.querySelector('.summary-card-detail');
-      expect(detail?.textContent).toBe('agent active');
+      expect(detail?.textContent).toBe('with agent');
     });
 
     it('applies value-yellow class when human count > 0', () => {
@@ -526,68 +490,6 @@ describe('tickflow-dashboard', () => {
 
       const items = queryAll(element, '.activity-item');
       expect(items.length).toBe(8);
-    });
-  });
-
-  // ===========================================================================
-  // Run Status
-  // ===========================================================================
-
-  describe('run status', () => {
-    beforeEach(async () => {
-      element.open = true;
-      element.ticks = SAMPLE_TICKS;
-      await element.updateComplete;
-    });
-
-    it('shows idle state when no run status', () => {
-      const runStatus = query(element, '.run-status');
-      expect(runStatus?.classList.contains('inactive')).toBe(true);
-
-      const label = query(element, '.run-label');
-      expect(label?.textContent).toBe('Agent Idle');
-    });
-
-    it('shows active state when run is running', async () => {
-      element.runStatus = ACTIVE_RUN_STATUS;
-      await element.updateComplete;
-
-      const runStatus = query(element, '.run-status');
-      expect(runStatus?.classList.contains('active')).toBe(true);
-
-      const label = query(element, '.run-label');
-      expect(label?.textContent).toBe('Agent Running');
-    });
-
-    it('shows task ID and turn count when active', async () => {
-      element.runStatus = ACTIVE_RUN_STATUS;
-      await element.updateComplete;
-
-      const detail = query(element, '.run-detail');
-      expect(detail?.textContent).toContain('t2');
-      expect(detail?.textContent).toContain('15 turns');
-    });
-
-    it('shows "tk run" hint when idle', () => {
-      element.runStatus = IDLE_RUN_STATUS;
-
-      const detail = query(element, '.run-detail');
-      expect(detail?.textContent).toContain('tk run');
-    });
-
-    it('run indicator has active class with animation', async () => {
-      element.runStatus = ACTIVE_RUN_STATUS;
-      await element.updateComplete;
-
-      const indicator = query(element, '.run-indicator');
-      expect(indicator?.classList.contains('active')).toBe(true);
-    });
-
-    it('run indicator has inactive class when idle', () => {
-      element.runStatus = IDLE_RUN_STATUS;
-
-      const indicator = query(element, '.run-indicator');
-      expect(indicator?.classList.contains('inactive')).toBe(true);
     });
   });
 
@@ -907,13 +809,14 @@ describe('tickflow-dashboard', () => {
       expect(badgeTexts).toContain('task');
     });
 
-    it('shows overview tab as default', async () => {
+    it('shows overview content in the detail pane', async () => {
       const attentionItem = query(element, '.attention-item') as HTMLElement;
       attentionItem?.click();
-      await element.updateComplete;
+      await settled(element);
 
-      const activeTab = query(element, '.detail-tab.active');
-      expect(activeTab?.textContent).toBe('Overview');
+      const body = query(element, '.detail-tab-body');
+      expect(body).not.toBeNull();
+      expect(query(element, '.detail-meta-row')).not.toBeNull();
     });
 
     it('has Open on Board button that fires tick-select and closes dashboard', async () => {
@@ -985,16 +888,6 @@ describe('tickflow-dashboard', () => {
       await settled(element);
 
       expect(query(element, '.detail-pane')).toBeNull();
-    });
-
-    it('shows Attempts tab for task-type ticks', async () => {
-      const attentionItem = query(element, '.attention-item') as HTMLElement;
-      attentionItem?.click();
-      await element.updateComplete;
-
-      const tabs = queryAll(element, '.detail-tab');
-      const tabTexts = Array.from(tabs).map(t => t.textContent);
-      expect(tabTexts).toContain('Attempts');
     });
 
     it('switches to activity item detail on click', async () => {
@@ -1074,7 +967,6 @@ describe('tickflow-dashboard', () => {
       const cssText = getCssText(element);
       expect(cssText).toContain('@keyframes fadeIn');
       expect(cssText).toContain('@keyframes slideUp');
-      expect(cssText).toContain('@keyframes runPulse');
     });
 
     it('includes backdrop-filter blur', () => {
@@ -1085,9 +977,8 @@ describe('tickflow-dashboard', () => {
     it('includes detail pane styles', () => {
       const cssText = getCssText(element);
       expect(cssText).toContain('.detail-pane');
-      expect(cssText).toContain('.detail-tab');
+      expect(cssText).toContain('.detail-tab-body');
       expect(cssText).toContain('.detail-meta-badge');
-      expect(cssText).toContain('.run-summary');
     });
   });
 
@@ -1120,16 +1011,6 @@ describe('tickflow-dashboard', () => {
 
       const cards = queryAll(element, '.summary-card');
       expect(cards[0]?.querySelector('.summary-card-value')?.textContent).toBe('0');
-    });
-
-    it('handles null runStatus gracefully', async () => {
-      element.open = true;
-      element.ticks = SAMPLE_TICKS;
-      element.runStatus = null;
-      await element.updateComplete;
-
-      const label = query(element, '.run-label');
-      expect(label?.textContent).toBe('Agent Idle');
     });
 
     it('re-renders when ticks change', async () => {

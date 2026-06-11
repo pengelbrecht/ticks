@@ -60,7 +60,6 @@ With 1000 issues, median times (ms):
 | `create` | 15 | 91 |
 | `update` | 27 | 68 |
 
-Full benchmark methodology and results in `benchmarks/`.
 
 **Choose ticks if you want:**
 - Team-friendly multiplayer with owner scoping
@@ -201,9 +200,8 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk graph <epic>` | Show dependency graph |
 | `tk list` | List issues with filters |
 | `tk view` | Interactive TUI |
-| `tk run <epic>` | Run agent on epic |
-| `tk run --board` | Start web board UI |
-| `tk run --cloud` | Board with cloud sync |
+| `tk board` | Start web board UI |
+| `tk board --cloud` | Board with cloud sync |
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
 | `tk snippet` | Output CLAUDE.md content |
@@ -227,14 +225,20 @@ tk view
 ## Web Board
 
 ```bash
-# Run with local board UI
-tk run --board
+# Serve the current repo
+tk board
 
-# Run agent on epic with board
-tk run abc --board
+# Board on a specific port (fails if the port is busy)
+tk board -p 8080
 
-# Board on custom port
-tk run --board --port 8080
+# Serve a different repo
+tk board /path/to/repo
+
+# Expose on all interfaces (LAN / Docker)
+tk board --host 0.0.0.0
+
+# Serve the UI from disk for hot reload (development)
+tk board --dev
 ```
 
 Opens a web kanban board at `http://localhost:3000` with real-time updates. Built with Lit web components and Shoelace UI.
@@ -245,7 +249,7 @@ Opens a web kanban board at `http://localhost:3000` with real-time updates. Buil
 - Keyboard navigation (`hjkl`, `?` for help)
 - PWA support for offline use
 
-See `internal/tickboard/ui/README.md` for development docs.
+The board binds `127.0.0.1` (loopback) by default so it is only accessible from the local machine. Use `--host 0.0.0.0` to expose it on all network interfaces. Without `-p/--port`, the board starts at port 3000 and takes the first free port. See `internal/tickboard/ui/README.md` for development docs.
 
 ## Cloud Sync
 
@@ -258,15 +262,14 @@ Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
    ```
    token=your-token-here
    ```
-3. Run with `--cloud` flag:
+3. Start the board with the `--cloud` flag:
    ```bash
-   tk run abc --cloud    # Agent + board + cloud sync
-   tk run --cloud        # Board + cloud sync, no agent
+   tk board --cloud
    ```
 
 ### How It Works
 
-- Local `tk run --cloud` connects to Cloudflare Durable Object
+- `tk board --cloud` connects to a Cloudflare Durable Object
 - File changes sync to cloud in real-time (~50ms)
 - Cloud UI edits sync back to local
 - Works offline—changes queue and sync on reconnect
@@ -277,14 +280,6 @@ Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
 - Only accessible with your token
 - Project isolation enforced
 - No telemetry or analytics
-
-## Wrapup Steps
-
-When an epic completes, `tk run` executes a wrap-up phase. Shell-based steps are configured in `.tick/config.yaml` under `wrap_up`.
-
-For agent-driven wrapup, create `.tick/wrapup.md` with a markdown description of post-epic tasks (e.g., update changelog, run linters, write migration notes). The agent decomposes these into steps and executes them automatically after the shell steps.
-
-Use `--skip-wrap-up` to skip both shell and agent wrapup steps.
 
 ## Dependency Graph
 
@@ -314,47 +309,6 @@ Critical path: 3 waves (minimum sequential steps)
 ```
 
 Use `--json` for machine-readable output (useful for agents planning parallel work).
-
-## Parallel Execution
-
-Run multiple tasks concurrently using git worktrees for isolation:
-
-```bash
-tk run abc123 --parallel 3    # Run 3 tasks in parallel
-```
-
-Each parallel worker gets its own git worktree, preventing file conflicts between concurrent tasks. Changes are merged back to the main branch as tasks complete.
-
-### How It Works
-
-1. `tk run` analyzes the dependency graph to find tasks that can run in parallel
-2. Creates isolated git worktrees for each worker
-3. Spawns agents that work independently without file conflicts
-4. Merges completed work back to the main branch
-5. Proceeds to the next wave of parallelizable tasks
-
-### Planning Parallel Work
-
-Use `tk graph` to understand how many parallel workers make sense:
-
-```bash
-tk graph abc123
-```
-
-The "max parallel" stat tells you the optimal `--parallel` value. Setting it higher than the maximum parallelizable tasks at any wave just wastes resources.
-
-### Combining with Other Flags
-
-```bash
-# Parallel execution with cost limit
-tk run abc123 --parallel 3 --max-cost 10.00
-
-# Parallel execution in watch mode
-tk run abc123 --parallel 2 --watch
-
-# Parallel execution with iteration limit per task
-tk run abc123 --parallel 4 --max-iterations 20
-```
 
 ## Search and Filtering
 

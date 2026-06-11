@@ -218,4 +218,3 @@ func TestMaxWidthEmpty(t *testing.T) {
 		t.Fatalf("expected 0 max width for empty result, got %d", r.MaxWidth())
 	}
 }
-

@@ -18,7 +18,7 @@ func TestCleaner_CleanDirectory(t *testing.T) {
 	}
 
 	now := time.Now()
-	oldTime := now.Add(-60 * 24 * time.Hour) // 60 days ago
+	oldTime := now.Add(-60 * 24 * time.Hour)    // 60 days ago
 	recentTime := now.Add(-10 * 24 * time.Hour) // 10 days ago
 
 	// Create old file

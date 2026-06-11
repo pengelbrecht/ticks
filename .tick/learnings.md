@@ -21,8 +21,15 @@ action and let the implementation derive the predicate — and state the consume
 installed binary.
 **Cause:** `cmd/tk/main.go` has a legacy routing switch with a hard-coded case list; every
 cobra command must also be added there.
-**Rule:** When adding a `tk` subcommand, register it in BOTH `cmd/tk/cmd/*.go` (cobra) and the
-switch + usage text in `cmd/tk/main.go`.
+**Rule:** Register new subcommands in BOTH `cmd/tk/cmd/*.go` (cobra) and the switch + usage
+text in `cmd/tk/main.go`. `TestLegacyDispatchCoversAllCobraCommands` (main_test.go) now fails
+on omissions — keep it passing rather than skipping it.
+
+**Problem:** In-process command tests hang or silently no-op when run after other tests.
+**Cause:** cobra state leaks across in-process executions: flag values persist, the --help
+flag value short-circuits later commands, and contexts only propagate to commands with nil ctx.
+**Rule:** Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext` (cmd/tk/cmd/root.go),
+which reset flags and handle these quirks — never call `rootCmd.Execute()` directly.
 
 **Problem:** Tickboard UI changes pass `pnpm test` but don't appear in the running `tk board`.
 **Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`;
@@ -62,3 +69,14 @@ Go types updated but the UI's generated TS stale (or vice versa).
 `scripts/build-ui.sh` regenerates internal/tickboard/ui/src/types/generated/websocket/*.
 **Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
 all regenerated output together.
+
+## Orchestration
+
+**Problem:** A tick's close vanished — the tracker showed it in_progress at epic close despite
+a successful tk close hours earlier.
+**Cause:** tk mutations are working-tree file edits; an implementer agent mistakenly ran
+git-restore against the shared checkout and wiped uncommitted tick state. A later "tree is
+clean" check read the wipe as healthy.
+**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note) —
+before merging any agent branch or launching agents. If an implementer reports having touched
+the shared checkout, diff tick state against the activity log before trusting the tree.

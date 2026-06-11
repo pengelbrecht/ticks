@@ -20,8 +20,8 @@ const (
 
 // Config defines project configuration stored in .tick/config.json.
 type Config struct {
-	Version      int               `json:"version"`
-	IDLength     int               `json:"id_length"`
+	Version      int                 `json:"version"`
+	IDLength     int                 `json:"id_length"`
 	Agent        *AgentConfig        `json:"agent,omitempty"`
 	Verification *VerificationConfig `json:"verification,omitempty"`
 	Context      *ContextConfig      `json:"context,omitempty"`
@@ -235,12 +235,12 @@ type PolicyConfig struct {
 
 // Default policy values.
 const (
-	DefaultMaxAttempts              = 3
-	DefaultMaxNoProgressAttempts    = 2
-	DefaultMaxSameVerifierFailures  = 2
-	DefaultRequireCommit            = false
-	DefaultRequireVerifiersForPrio  = 0
-	DefaultSandbox                  = false
+	DefaultMaxAttempts             = 3
+	DefaultMaxNoProgressAttempts   = 2
+	DefaultMaxSameVerifierFailures = 2
+	DefaultRequireCommit           = false
+	DefaultRequireVerifiersForPrio = 0
+	DefaultSandbox                 = false
 )
 
 // GetMaxAttempts returns the max attempts per task (default 3).

@@ -438,10 +438,10 @@ func TestProcessVerdictMatrix(t *testing.T) {
 	// Comprehensive matrix test covering every awaiting+verdict combination
 	// This serves as documentation of expected behavior
 	matrix := []struct {
-		awaiting      string
-		verdictValue  string
-		expectClosed  bool
-		description   string
+		awaiting     string
+		verdictValue string
+		expectClosed bool
+		description  string
 	}{
 		// Terminal states: close on approved
 		{AwaitingWork, VerdictApproved, true, "Human completed work successfully"},

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	cobracmd "github.com/pengelbrecht/ticks/cmd/tk/cmd"
 )
 
 func TestCLIWorkflow(t *testing.T) {
@@ -2501,4 +2503,23 @@ func TestReadyAwaitingFilter(t *testing.T) {
 	_ = normalTickID
 	_ = approvalTickID
 	_ = manualTickID
+}
+
+// TestLegacyDispatchCoversAllCobraCommands ensures every visible cobra command
+// is reachable through main's legacy dispatch switch. Commands registered only
+// in cmd/tk/cmd/*.go compile and test green but are unreachable from the
+// installed binary (this caught 'tk context', and would catch the next one).
+func TestLegacyDispatchCoversAllCobraCommands(t *testing.T) {
+	for _, name := range cobracmd.CommandNames() {
+		name := name
+		t.Run(name, func(t *testing.T) {
+			out, code := captureStdout(func() int {
+				return run([]string{"tk", name, "--help"})
+			})
+			if code != exitSuccess {
+				t.Errorf("tk %s --help: exit %d — command missing from the dispatch switch or usage text in cmd/tk/main.go?\noutput: %s",
+					name, code, out)
+			}
+		})
+	}
 }

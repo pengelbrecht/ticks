@@ -58,17 +58,12 @@ export interface Tick {
   closed_reason?: string;
 }
 
-/** Verification status for completed tasks. */
-export type VerificationStatus = 'verified' | 'failed' | 'pending';
-
 /** Tick with computed board fields (returned from API). */
 export interface BoardTick extends Tick {
   /** Whether this tick is blocked by unresolved dependencies. */
   is_blocked: boolean;
   /** Computed kanban column based on status, awaiting, and blocked state. */
   column: TickColumn;
-  /** Verification status for closed tasks (undefined for open tasks or non-tasks). */
-  verification_status?: VerificationStatus;
 }
 
 /** Epic type (parent container for related tasks). */

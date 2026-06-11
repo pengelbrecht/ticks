@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -130,6 +130,13 @@ func Execute() {
 // ExecuteArgs runs the command with specific args, returning an error if the command fails.
 // This is used when we need to pass args from the legacy run() function.
 func ExecuteArgs(args []string) error {
+	return ExecuteArgsContext(context.Background(), args)
+}
+
+// ExecuteArgsContext is ExecuteArgs with a caller-supplied context. The context
+// is propagated to commands via cmd.Context(), which lets callers (tests) stop
+// long-running commands such as 'tk board'.
+func ExecuteArgsContext(ctx context.Context, args []string) error {
 	// Reset all flags to their default values before each execution.
 	// This is necessary because Cobra uses global variables for flag values,
 	// and when running multiple commands in the same process (e.g., tests),
@@ -141,8 +148,36 @@ func ExecuteArgs(args []string) error {
 	// that weren't provided in the current invocation.
 	resetCobraFlags(rootCmd)
 
+	// Cobra only copies the root context into a subcommand whose own context
+	// is still nil (cobra command.go: "if cmd.ctx == nil"). After a previous
+	// Execute in this process, subcommands keep their stale context, so a new
+	// ctx would never reach cmd.Context(). Set it explicitly everywhere.
+	setContextAll(rootCmd, ctx)
+
 	rootCmd.SetArgs(args)
-	return rootCmd.Execute()
+	return rootCmd.ExecuteContext(ctx)
+}
+
+// setContextAll sets ctx on a command and all of its subcommands.
+func setContextAll(cmd *cobra.Command, ctx context.Context) {
+	cmd.SetContext(ctx)
+	for _, sub := range cmd.Commands() {
+		setContextAll(sub, ctx)
+	}
+}
+
+// CommandNames returns the names of all visible subcommands registered on the
+// root command. main.go's legacy dispatch switch must cover every one of them;
+// its test uses this to keep the two registries in sync.
+func CommandNames() []string {
+	var names []string
+	for _, c := range rootCmd.Commands() {
+		if c.Hidden || c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		names = append(names, c.Name())
+	}
+	return names
 }
 
 // resetCobraFlags resets the Cobra flag tracking for a command and all its subcommands.
@@ -152,6 +187,14 @@ func resetCobraFlags(cmd *cobra.Command) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		f.Changed = false
 	})
+	// Cobra's auto-generated --help flag is read by value, not by Changed. If a
+	// prior invocation in this process passed --help, the value sticks to "true"
+	// and every later command short-circuits to printing help. Restore it to its
+	// default so ExecuteArgs can be reused across commands (tests, legacy run()).
+	if helpFlag := cmd.Flags().Lookup("help"); helpFlag != nil {
+		_ = helpFlag.Value.Set(helpFlag.DefValue)
+		helpFlag.Changed = false
+	}
 	for _, subCmd := range cmd.Commands() {
 		resetCobraFlags(subCmd)
 	}
@@ -332,29 +375,17 @@ func ResetFlags() {
 	gcDryRun = false
 	gcMaxAge = "30d"
 
-	// Reset run flags
-	runMaxIterations = 50
-	runMaxCost = 0
-	runMaxTaskRetries = 3
-	runAuto = false
-	runJSONL = false
-	runVerifyOnly = false
-	runWatch = false
-	runTimeout = 30 * time.Minute
-	runPoll = 10 * time.Second
-	runDebounce = 0
-	runIncludeStandalone = false
-	runIncludeOrphans = false
-	runAll = false
-	runSkipWrapUp = false
-	runNoMerge = false
-	runPR = false
-
 	// Reset merge flags
 	mergeForce = false
 	mergeDeleteBranch = true
 	mergeDryRun = false
 	mergeYes = false
+
+	// Reset board flags
+	boardPort = 3000
+	boardCloud = false
+	boardDev = false
+	boardHost = "127.0.0.1"
 }
 
 // SetVersion allows main.go to set the version at initialization

@@ -35,156 +35,12 @@ export interface ActivityUpdatedEvent {
 export type TickEvent = TickUpdatedEvent | TickDeletedEvent | TickBulkEvent | ActivityUpdatedEvent;
 
 // =============================================================================
-// Run Events
-// =============================================================================
-
-/** Metrics for a run */
-export interface RunMetrics {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  costUsd: number;
-  durationMs: number;
-}
-
-/** Tool activity info */
-export interface ToolInfo {
-  name: string;
-  input?: string;
-  output?: string;
-  durationMs?: number;
-  isError?: boolean;
-}
-
-/** Base fields for run events */
-interface RunEventBase {
-  taskId?: string;
-  epicId: string;
-  timestamp: string;
-}
-
-/** Task execution started */
-export interface RunTaskStartedEvent extends RunEventBase {
-  type: 'run:task-started';
-  taskId: string;
-  status: string;
-  numTurns: number;
-  metrics?: RunMetrics;
-}
-
-/** Intermediate task update with output */
-export interface RunTaskUpdateEvent extends RunEventBase {
-  type: 'run:task-update';
-  taskId: string;
-  output?: string;
-  status?: string;
-  numTurns?: number;
-  metrics?: RunMetrics;
-  activeTool?: ToolInfo;
-}
-
-/** Task execution completed */
-export interface RunTaskCompletedEvent extends RunEventBase {
-  type: 'run:task-completed';
-  taskId: string;
-  success: boolean;
-  numTurns: number;
-  metrics?: RunMetrics;
-}
-
-/** Tool activity during task execution */
-export interface RunToolActivityEvent extends RunEventBase {
-  type: 'run:tool-activity';
-  taskId: string;
-  tool: ToolInfo;
-}
-
-/** Epic execution started */
-export interface RunEpicStartedEvent extends RunEventBase {
-  type: 'run:epic-started';
-  status: string;
-  message?: string;
-}
-
-/** Epic execution completed */
-export interface RunEpicCompletedEvent extends RunEventBase {
-  type: 'run:epic-completed';
-  success: boolean;
-}
-
-/** Task entered awaiting-human state */
-export interface RunTaskAwaitingEvent extends RunEventBase {
-  type: 'run:task-awaiting';
-  taskId: string;
-  /** The awaiting type: work, approval, input, review, content, escalation, checkpoint */
-  awaitingType: string;
-  /** Human-readable reason from the agent signal */
-  reason?: string;
-}
-
-export type RunEvent =
-  | RunTaskStartedEvent
-  | RunTaskUpdateEvent
-  | RunTaskCompletedEvent
-  | RunToolActivityEvent
-  | RunEpicStartedEvent
-  | RunEpicCompletedEvent
-  | RunTaskAwaitingEvent;
-
-// =============================================================================
-// Context Events
-// =============================================================================
-
-/** Context generation started */
-export interface ContextGeneratingEvent {
-  type: 'context:generating';
-  epicId: string;
-  taskCount: number;
-}
-
-/** Context generation completed */
-export interface ContextGeneratedEvent {
-  type: 'context:generated';
-  epicId: string;
-  tokenCount: number;
-}
-
-/** Existing context loaded */
-export interface ContextLoadedEvent {
-  type: 'context:loaded';
-  epicId: string;
-}
-
-/** Context generation failed */
-export interface ContextFailedEvent {
-  type: 'context:failed';
-  epicId: string;
-  message: string;
-}
-
-/** Context generation skipped */
-export interface ContextSkippedEvent {
-  type: 'context:skipped';
-  epicId: string;
-  reason: string;
-}
-
-export type ContextEvent =
-  | ContextGeneratingEvent
-  | ContextGeneratedEvent
-  | ContextLoadedEvent
-  | ContextFailedEvent
-  | ContextSkippedEvent;
-
-// =============================================================================
 // Connection Events
 // =============================================================================
 
 /** Client connected to server */
 export interface ConnectionConnectedEvent {
   type: 'connection:connected';
-  epicId?: string; // Set for run stream connections
 }
 
 /** Client disconnected from server */
@@ -215,7 +71,7 @@ export type ConnectionEvent =
 // =============================================================================
 
 /** All possible communication events */
-export type CommsEvent = TickEvent | RunEvent | ContextEvent | ConnectionEvent;
+export type CommsEvent = TickEvent | ConnectionEvent;
 
 // =============================================================================
 // Write Operation Types
@@ -269,18 +125,6 @@ export type {
   EpicInfo,
   // Activity feed types
   Activity,
-  // Run record types (completed runs)
-  RunRecord,
-  MetricsRecord,
-  ToolRecord,
-  VerificationRecord,
-  VerifierResult,
-  // Run status types (live runs)
-  RunStatusResponse,
-  ActiveTaskStatus,
-  ActiveToolRecord,
-  LiveRecord,
-  AwaitingTaskStatus,
   // Tick detail types
   GetTickResponse as TickDetail,
   Note,

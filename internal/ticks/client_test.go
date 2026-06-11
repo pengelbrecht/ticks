@@ -7,9 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/pengelbrecht/ticks/internal/agent"
 )
 
 func TestNewClient(t *testing.T) {
@@ -294,193 +291,6 @@ func containsHelper(s, substr string) bool {
 	return false
 }
 
-func TestSetRunRecord(t *testing.T) {
-	// Create temp directory structure
-	tmpDir := t.TempDir()
-	tickDir := filepath.Join(tmpDir, ".tick")
-	if err := os.MkdirAll(filepath.Join(tickDir, "issues"), 0755); err != nil {
-		t.Fatalf("creating tick dir: %v", err)
-	}
-
-	// Create a RunRecord
-	record := &agent.RunRecord{
-		SessionID: "session-abc",
-		Model:     "claude-opus-4-5-20251101",
-		StartedAt: time.Now().Add(-5 * time.Minute),
-		EndedAt:   time.Now(),
-		Output:    "Task completed successfully",
-		Thinking:  "Let me think about this...",
-		Tools: []agent.ToolRecord{
-			{Name: "Read", Duration: 100, IsError: false},
-			{Name: "Edit", Duration: 200, IsError: false},
-		},
-		Metrics: agent.MetricsRecord{
-			InputTokens:  1000,
-			OutputTokens: 500,
-			CostUSD:      0.05,
-		},
-		Success:  true,
-		NumTurns: 3,
-	}
-
-	// Test SetRunRecord
-	client := NewClient(tickDir)
-	if err := client.SetRunRecord("test123", record); err != nil {
-		t.Fatalf("SetRunRecord failed: %v", err)
-	}
-
-	// Run records are now stored in .tick/logs/records/<id>.json
-	recordFile := filepath.Join(tmpDir, ".tick", "logs", "records", "test123.json")
-	data, err := os.ReadFile(recordFile)
-	if err != nil {
-		t.Fatalf("reading run record file: %v", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(data, &result); err != nil {
-		t.Fatalf("parsing run record file: %v", err)
-	}
-
-	// Check run record fields
-	if result["session_id"] != "session-abc" {
-		t.Errorf("expected session_id to be 'session-abc', got %v", result["session_id"])
-	}
-	if result["model"] != "claude-opus-4-5-20251101" {
-		t.Errorf("expected model to be 'claude-opus-4-5-20251101', got %v", result["model"])
-	}
-	if result["success"] != true {
-		t.Errorf("expected success to be true, got %v", result["success"])
-	}
-}
-
-func TestSetRunRecordNilRecord(t *testing.T) {
-	tmpDir := t.TempDir()
-	tickDir := filepath.Join(tmpDir, ".tick")
-	if err := os.MkdirAll(filepath.Join(tickDir, "issues"), 0755); err != nil {
-		t.Fatalf("creating tick dir: %v", err)
-	}
-	client := NewClient(tickDir)
-	// Should return nil without error when record is nil
-	if err := client.SetRunRecord("test123", nil); err != nil {
-		t.Errorf("SetRunRecord with nil record should return nil, got %v", err)
-	}
-
-	// Verify no file was created
-	recordFile := filepath.Join(tmpDir, ".tick", "logs", "records", "test123.json")
-	if _, err := os.Stat(recordFile); !os.IsNotExist(err) {
-		t.Errorf("expected no record file to be created for nil record")
-	}
-}
-func TestGetRunRecord(t *testing.T) {
-	// Create a temp directory structure for .tick
-	tempDir := t.TempDir()
-	tickDir := filepath.Join(tempDir, ".tick")
-	recordsDir := filepath.Join(tickDir, "logs", "records")
-	if err := os.MkdirAll(recordsDir, 0755); err != nil {
-		t.Fatalf("creating records dir: %v", err)
-	}
-
-	// Create a run record file (now stored separately from tick)
-	startTime := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
-	endTime := time.Date(2025, 1, 1, 10, 5, 0, 0, time.UTC)
-
-	recordData := map[string]interface{}{
-		"session_id": "session-xyz",
-		"model":      "claude-3-5-sonnet",
-		"started_at": startTime.Format(time.RFC3339),
-		"ended_at":   endTime.Format(time.RFC3339),
-		"output":     "Test output",
-		"tools": []map[string]interface{}{
-			{"name": "Read", "duration_ms": 100},
-		},
-		"metrics": map[string]interface{}{
-			"input_tokens":  2000,
-			"output_tokens": 1000,
-			"cost_usd":      0.10,
-		},
-		"success":   true,
-		"num_turns": 5,
-	}
-
-	data, err := json.MarshalIndent(recordData, "", "  ")
-	if err != nil {
-		t.Fatalf("marshaling record data: %v", err)
-	}
-
-	recordFile := filepath.Join(recordsDir, "test456.json")
-	if err := os.WriteFile(recordFile, data, 0644); err != nil {
-		t.Fatalf("writing record file: %v", err)
-	}
-
-	// Test GetRunRecord
-	client := NewClient(tickDir)
-	record, err := client.GetRunRecord("test456")
-	if err != nil {
-		t.Fatalf("GetRunRecord failed: %v", err)
-	}
-
-	if record == nil {
-		t.Fatal("expected non-nil record")
-	}
-	if record.SessionID != "session-xyz" {
-		t.Errorf("expected session_id 'session-xyz', got %q", record.SessionID)
-	}
-	if record.Model != "claude-3-5-sonnet" {
-		t.Errorf("expected model 'claude-3-5-sonnet', got %q", record.Model)
-	}
-	if record.Output != "Test output" {
-		t.Errorf("expected output 'Test output', got %q", record.Output)
-	}
-	if !record.Success {
-		t.Error("expected success to be true")
-	}
-	if record.NumTurns != 5 {
-		t.Errorf("expected num_turns 5, got %d", record.NumTurns)
-	}
-	if len(record.Tools) != 1 || record.Tools[0].Name != "Read" {
-		t.Errorf("expected one tool 'Read', got %+v", record.Tools)
-	}
-}
-
-func TestGetRunRecordNoRecord(t *testing.T) {
-	// Create a temp directory structure for .tick
-	tempDir := t.TempDir()
-	tickDir := filepath.Join(tempDir, ".tick")
-	recordsDir := filepath.Join(tickDir, "logs", "records")
-	if err := os.MkdirAll(recordsDir, 0755); err != nil {
-		t.Fatalf("creating records dir: %v", err)
-	}
-
-	// No run record file exists for test789
-
-	// Test GetRunRecord - should return nil, nil
-	client := NewClient(tickDir)
-	record, err := client.GetRunRecord("test789")
-	if err != nil {
-		t.Fatalf("GetRunRecord failed: %v", err)
-	}
-	if record != nil {
-		t.Errorf("expected nil record for task without run, got %+v", record)
-	}
-}
-
-func TestGetRunRecordNonexistent(t *testing.T) {
-	// Create a temp directory structure for .tick
-	tempDir := t.TempDir()
-	tickDir := filepath.Join(tempDir, ".tick")
-	// Don't create records dir - testing when the directory doesn't exist
-
-	// Test GetRunRecord for non-existent task - should return nil, nil
-	client := NewClient(tickDir)
-	record, err := client.GetRunRecord("nonexistent")
-	if err != nil {
-		t.Fatalf("GetRunRecord for nonexistent task should not error, got: %v", err)
-	}
-	if record != nil {
-		t.Errorf("expected nil record for nonexistent task, got %+v", record)
-	}
-}
-
 // Test cases for ProcessVerdict method on Task struct
 func TestTaskProcessVerdict(t *testing.T) {
 	testCases := []struct {
@@ -745,10 +555,10 @@ func TestClientProcessVerdict(t *testing.T) {
 	// Create a test task file with verdict and awaiting set
 	taskData := map[string]interface{}{
 		"id":          "verdict-test",
-		"owner":      "test",
-		"created_by": "test",
-		"created_at": "2025-01-01T00:00:00Z",
-		"updated_at": "2025-01-01T00:00:00Z",
+		"owner":       "test",
+		"created_by":  "test",
+		"created_at":  "2025-01-01T00:00:00Z",
+		"updated_at":  "2025-01-01T00:00:00Z",
 		"title":       "Test Verdict Processing",
 		"description": "A task to test verdict processing",
 		"status":      "open",
@@ -833,15 +643,15 @@ func TestClientProcessVerdictNoVerdict(t *testing.T) {
 
 	// Create task without verdict
 	taskData := map[string]interface{}{
-		"id":       "no-verdict",
+		"id":         "no-verdict",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":    "No Verdict",
-		"status":   "open",
-		"awaiting": "approval",
+		"title":      "No Verdict",
+		"status":     "open",
+		"awaiting":   "approval",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "no-verdict.json")
@@ -1700,15 +1510,15 @@ func TestGetStructuredNotesLegacyFormat(t *testing.T) {
 
 	// Create a tick file with legacy notes string
 	taskData := map[string]interface{}{
-		"id":     "legacy-notes",
+		"id":         "legacy-notes",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task with Legacy Notes",
-		"status": "open",
-		"notes":  "First note\nSecond note\nThird note",
+		"title":      "Task with Legacy Notes",
+		"status":     "open",
+		"notes":      "First note\nSecond note\nThird note",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "legacy-notes.json")
@@ -1807,15 +1617,15 @@ func TestGetNotesByAuthor(t *testing.T) {
 
 	// Create a tick file with mixed notes
 	taskData := map[string]interface{}{
-		"id":     "mixed-notes",
+		"id":         "mixed-notes",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task with Mixed Notes",
-		"status": "open",
-		"notes": "2025-01-01 10:00 - Agent note 1\n2025-01-01 10:01 - [human] Human note 1\n2025-01-01 10:02 - Agent note 2\n2025-01-01 10:03 - [human] Human note 2",
+		"title":      "Task with Mixed Notes",
+		"status":     "open",
+		"notes":      "2025-01-01 10:00 - Agent note 1\n2025-01-01 10:01 - [human] Human note 1\n2025-01-01 10:02 - Agent note 2\n2025-01-01 10:03 - [human] Human note 2",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "mixed-notes.json")
@@ -1869,15 +1679,15 @@ func TestGetHumanNotes(t *testing.T) {
 	}
 
 	taskData := map[string]interface{}{
-		"id":     "human-notes-test",
+		"id":         "human-notes-test",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task for Human Notes Test",
-		"status": "open",
-		"notes": "2025-01-01 10:00 - Agent did something\n2025-01-01 10:01 - [human] Please use approach X",
+		"title":      "Task for Human Notes Test",
+		"status":     "open",
+		"notes":      "2025-01-01 10:00 - Agent did something\n2025-01-01 10:01 - [human] Please use approach X",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "human-notes-test.json")
@@ -1914,15 +1724,15 @@ func TestGetAgentNotes(t *testing.T) {
 	}
 
 	taskData := map[string]interface{}{
-		"id":     "agent-notes-test",
+		"id":         "agent-notes-test",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task for Agent Notes Test",
-		"status": "open",
-		"notes": "2025-01-01 10:00 - Completed step 1\n2025-01-01 10:01 - [human] Use different approach\n2025-01-01 10:02 - Completed step 2",
+		"title":      "Task for Agent Notes Test",
+		"status":     "open",
+		"notes":      "2025-01-01 10:00 - Completed step 1\n2025-01-01 10:01 - [human] Use different approach\n2025-01-01 10:02 - Completed step 2",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "agent-notes-test.json")
@@ -1971,14 +1781,14 @@ func TestGetStructuredNotesEmptyNotes(t *testing.T) {
 	}
 
 	taskData := map[string]interface{}{
-		"id":     "no-notes",
+		"id":         "no-notes",
 		"type":       "task",
 		"owner":      "test",
 		"created_by": "test",
 		"created_at": "2025-01-01T00:00:00Z",
 		"updated_at": "2025-01-01T00:00:00Z",
-		"title":  "Task without Notes",
-		"status": "open",
+		"title":      "Task without Notes",
+		"status":     "open",
 	}
 	taskJSON, _ := json.MarshalIndent(taskData, "", "  ")
 	taskFile := filepath.Join(tickDir, "no-notes.json")
@@ -2052,7 +1862,6 @@ func TestNextStandaloneTaskFiltersParent(t *testing.T) {
 		t.Errorf("expected standalone task 'standalone', got %q", standaloneTasks[0].ID)
 	}
 }
-
 
 // TestNextTaskWithOptionsWithEpic tests WithEpic option delegates to NextTask
 func TestNextTaskWithOptionsWithEpic(t *testing.T) {

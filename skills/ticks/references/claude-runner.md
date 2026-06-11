@@ -2,7 +2,7 @@
 
 Run a Ticks epic by orchestrating subagents from your current Claude Code session. You read the dependency graph, launch one subagent per ready tick — each in its own isolated git worktree — and integrate their work wave by wave.
 
-This is the way the skill executes ticks. (Ticks also ships a standalone runner, `tk run`, with its own worktree and cost-tracking machinery. It's intentionally out of scope here for now — see `SKILL.md`.)
+This is the way the skill executes ticks. (Ticks previously shipped a standalone runner, `tk run`, with its own worktree and cost-tracking machinery. That runner has been removed — Claude orchestration is now the only execution path. See `SKILL.md`.)
 
 ## Mental model
 
@@ -113,15 +113,18 @@ The "don't touch `.tick/`, don't run `tk`" rule below is enforced only by the pr
 
 ### Choosing a capability tier per tick
 
-Pick the tier for each tick, not once for the run. Use the least capable tier that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical. The harness resolves each tier to the best available model at runtime; don't hardcode model names in prompts or scripts.
+Pick the tier for each tick, not once for the run. Use the least capable tier that can do the job — it's faster and cheaper, and most well-specified ticks are mechanical. The harness resolves each tier to the best available model at runtime; don't hardcode model names in prompts or scripts. This table is guidance, not enforcement: the orchestrator is assumed to run on a frontier-class model and is trusted to weigh each tick's actual complexity and pick well — round up when a "mechanical" tick hides judgment (load-bearing docs, deletions needing reference triage), and never let cost-optimizing down-tiering put an under-powered model on work that can fail subtly.
 
 | Tick shape | Tier |
 |---|---|
-| 1-2 files, complete spec, mechanical work | **fastest/cheapest** — e.g. haiku-class (dated example) |
-| Multiple files, integration concerns | **balanced default** — e.g. sonnet-class |
-| Design judgment, broad codebase understanding, ambiguous specs | **most capable** — e.g. opus-class |
+| 1-2 files, complete spec, purely mechanical (renames, list-driven deletions, config tweaks) | **fastest/cheapest** — smallest current model (haiku-class, dated example) |
+| Well-specified implementation, a few files, standard patterns — the default for most ticks | **balanced** — mid-tier workhorse (sonnet-class, dated example) |
+| Integration-heavy or subtle-correctness work: cross-layer changes, state machines, ports between languages | **strong** — large non-frontier model (opus-class, dated example) |
+| Design judgment, ambiguous specs, broad codebase understanding — anything you'd hand a senior engineer | **frontier** — the most capable model available (fable-class, dated example) |
 
-**REVIEWER-TIER RULE:** review with a model at least as capable as the one that wrote the code. Epic final reviews default to the most-capable tier.
+The tier names are the contract; the parenthesized models are dated examples — resolve each tier against what the harness offers today, and when the harness exposes fewer levels than the table, collapse adjacent tiers downward (balanced and strong merge first).
+
+**REVIEWER-TIER RULE:** review with a model at least as capable as the one that wrote the code. Epic final reviews default to the frontier tier.
 
 ### Why worktree isolation
 
@@ -165,7 +168,7 @@ tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 
 Always pass `--reason` with a concrete summary — never a bare `tk close <id>`. The reason appears in the activity feed and in the retro harvest; vague or absent reasons make the retro harder.
 
-Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Hold that invariant: **agents implement; the orchestrator owns tick state.** The check in step 1 is how you *enforce* it rather than hope for it: if the diff shows `.tick/` changes, strip them out of the merge instead of letting them collide with your state updates:
+Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Commit your tick-state mutations immediately after making them — uncommitted `.tick/` edits in the shared checkout can be wiped by a stray agent `git restore` (it has happened), and the loss looks like a clean tree. Hold that invariant: **agents implement; the orchestrator owns tick state.** The check in step 1 is how you *enforce* it rather than hope for it: if the diff shows `.tick/` changes, strip them out of the merge instead of letting them collide with your state updates:
 
 ```bash
 git merge --no-commit <agent-branch>

@@ -4,48 +4,6 @@ package generated
 
 import "time"
 
-// Status of the currently executing task
-type ActiveTaskStatus struct {
-	// Currently executing tool (if any)
-	ActiveTool *ActiveToolRecord `json:"activeTool,omitempty,omitzero" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
-
-	// ISO timestamp of last update
-	LastUpdated time.Time `json:"lastUpdated" yaml:"lastUpdated" mapstructure:"lastUpdated"`
-
-	// Current metrics
-	Metrics MetricsRecord `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-
-	// Number of API turns so far
-	NumTurns int `json:"numTurns" yaml:"numTurns" mapstructure:"numTurns"`
-
-	// Current execution status
-	Status string `json:"status" yaml:"status" mapstructure:"status"`
-
-	// ID of the task being executed
-	TickId string `json:"tickId" yaml:"tickId" mapstructure:"tickId"`
-
-	// Task title
-	Title string `json:"title" yaml:"title" mapstructure:"title"`
-}
-
-// Active tool during a live run
-type ActiveToolRecord struct {
-	// Duration so far in milliseconds
-	DurationMs *int `json:"duration_ms,omitempty,omitzero" yaml:"duration_ms,omitempty" mapstructure:"duration_ms,omitempty"`
-
-	// Tool input (may be partial)
-	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
-
-	// Whether the tool has errored
-	IsError *bool `json:"is_error,omitempty,omitzero" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
-
-	// Tool name
-	Name string `json:"name" yaml:"name" mapstructure:"name"`
-
-	// Tool output (may be partial)
-	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
-}
-
 // Response from GET /api/activity
 type ActivityResponse struct {
 	// List of activity entries
@@ -616,42 +574,6 @@ type ListTicksResponse struct {
 	Ticks []TickResponse `json:"ticks" yaml:"ticks" mapstructure:"ticks"`
 }
 
-// Live run record for in-progress execution
-type LiveRecord struct {
-	// Currently executing tool
-	ActiveTool *ActiveToolRecord `json:"active_tool,omitempty,omitzero" yaml:"active_tool,omitempty" mapstructure:"active_tool,omitempty"`
-
-	// Last update timestamp
-	LastUpdated time.Time `json:"last_updated" yaml:"last_updated" mapstructure:"last_updated"`
-
-	// Current metrics
-	Metrics MetricsRecord `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-
-	// Model being used
-	Model string `json:"model" yaml:"model" mapstructure:"model"`
-
-	// Number of turns so far
-	NumTurns int `json:"num_turns" yaml:"num_turns" mapstructure:"num_turns"`
-
-	// Output so far
-	Output string `json:"output" yaml:"output" mapstructure:"output"`
-
-	// Session identifier
-	SessionId string `json:"session_id" yaml:"session_id" mapstructure:"session_id"`
-
-	// When the run started
-	StartedAt time.Time `json:"started_at" yaml:"started_at" mapstructure:"started_at"`
-
-	// Current status
-	Status string `json:"status" yaml:"status" mapstructure:"status"`
-
-	// Thinking content so far
-	Thinking *string `json:"thinking,omitempty,omitzero" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
-
-	// Completed tool invocations
-	Tools []ToolRecord `json:"tools,omitempty,omitzero" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
-}
-
 // Local agent online/offline status
 type LocalStatusMessage struct {
 	// Connected corresponds to the JSON schema field "connected".
@@ -659,27 +581,6 @@ type LocalStatusMessage struct {
 
 	// Type corresponds to the JSON schema field "type".
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Token and cost metrics for an agent run
-type MetricsRecord struct {
-	// Number of tokens written to cache
-	CacheCreationTokens int `json:"cache_creation_tokens" yaml:"cache_creation_tokens" mapstructure:"cache_creation_tokens"`
-
-	// Number of tokens read from cache
-	CacheReadTokens int `json:"cache_read_tokens" yaml:"cache_read_tokens" mapstructure:"cache_read_tokens"`
-
-	// Total cost in USD
-	CostUsd float64 `json:"cost_usd" yaml:"cost_usd" mapstructure:"cost_usd"`
-
-	// Total duration in milliseconds
-	DurationMs int `json:"duration_ms" yaml:"duration_ms" mapstructure:"duration_ms"`
-
-	// Number of input tokens consumed
-	InputTokens int `json:"input_tokens" yaml:"input_tokens" mapstructure:"input_tokens"`
-
-	// Number of output tokens generated
-	OutputTokens int `json:"output_tokens" yaml:"output_tokens" mapstructure:"output_tokens"`
 }
 
 // Parsed note entry from tick.notes
@@ -897,70 +798,6 @@ const RunEventTypeTaskStarted RunEventType = "task-started"
 const RunEventTypeTaskUpdate RunEventType = "task-update"
 const RunEventTypeToolActivity RunEventType = "tool-activity"
 
-// Complete record of a finished agent run
-type RunRecord struct {
-	// ISO timestamp when the run ended
-	EndedAt time.Time `json:"ended_at" yaml:"ended_at" mapstructure:"ended_at"`
-
-	// Error message if the run failed
-	ErrorMsg *string `json:"error_msg,omitempty,omitzero" yaml:"error_msg,omitempty" mapstructure:"error_msg,omitempty"`
-
-	// Token and cost metrics
-	Metrics MetricsRecord `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-
-	// Model used for the run (e.g., claude-sonnet-4-20250514)
-	Model string `json:"model" yaml:"model" mapstructure:"model"`
-
-	// Number of API round-trips
-	NumTurns int `json:"num_turns" yaml:"num_turns" mapstructure:"num_turns"`
-
-	// Final output text from the agent
-	Output string `json:"output" yaml:"output" mapstructure:"output"`
-
-	// Unique session identifier
-	SessionId string `json:"session_id" yaml:"session_id" mapstructure:"session_id"`
-
-	// ISO timestamp when the run started
-	StartedAt time.Time `json:"started_at" yaml:"started_at" mapstructure:"started_at"`
-
-	// Whether the run completed successfully
-	Success bool `json:"success" yaml:"success" mapstructure:"success"`
-
-	// Thinking/reasoning content (if extended thinking was used)
-	Thinking *string `json:"thinking,omitempty,omitzero" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
-
-	// List of tool invocations during the run
-	Tools []ToolRecord `json:"tools,omitempty,omitzero" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
-
-	// Verification results (if verification was run)
-	Verification *VerificationRecord `json:"verification,omitempty,omitzero" yaml:"verification,omitempty" mapstructure:"verification,omitempty"`
-}
-
-type RunStatus string
-
-const RunStatusComplete RunStatus = "complete"
-const RunStatusError RunStatus = "error"
-
-// Response from GET /api/run-status/:epicId
-type RunStatusResponse struct {
-	// Status of currently executing task
-	ActiveTask *ActiveTaskStatus `json:"activeTask,omitempty,omitzero" yaml:"activeTask,omitempty" mapstructure:"activeTask,omitempty"`
-
-	// Epic being queried
-	EpicId string `json:"epicId" yaml:"epicId" mapstructure:"epicId"`
-
-	// Whether there is an active run for this epic
-	IsRunning bool `json:"isRunning" yaml:"isRunning" mapstructure:"isRunning"`
-
-	// Live run metrics
-	Metrics *LiveRecord `json:"metrics,omitempty,omitzero" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
-}
-
-const RunStatusStarting RunStatus = "starting"
-const RunStatusThinking RunStatus = "thinking"
-const RunStatusToolUse RunStatus = "tool_use"
-const RunStatusWriting RunStatus = "writing"
-
 // Union of all messages sent from server/DO to clients
 type ServerMessage interface{}
 
@@ -1006,6 +843,16 @@ const TickColumnReady TickColumn = "ready"
 
 // Client request to create tick
 type TickCreateRequest struct {
+	// Tick corresponds to the JSON schema field "tick".
+	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
+
+	// Type corresponds to the JSON schema field "type".
+	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
+}
+
+// Single tick created. Broadcast by the DO when a previously-unknown tick is
+// synced; clients apply it identically to tick_updated.
+type TickCreatedMessage struct {
 	// Tick corresponds to the JSON schema field "tick".
 	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
 
@@ -1175,9 +1022,6 @@ type TickResponse struct {
 
 	// Human response to an awaiting state
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
-
-	// Verification status (for closed tasks only)
-	VerificationStatus *VerificationStatus `json:"verificationStatus,omitempty,omitzero" yaml:"verificationStatus,omitempty" mapstructure:"verificationStatus,omitempty"`
 }
 
 // A single work item (task, bug, feature, epic, or chore)
@@ -1359,7 +1203,7 @@ type TickUpdateRequest struct {
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
 }
 
-// Single tick created or updated
+// Single tick updated
 type TickUpdatedMessage struct {
 	// Tick corresponds to the JSON schema field "tick".
 	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
@@ -1372,24 +1216,6 @@ type TickVerdict string
 
 const TickVerdictApproved TickVerdict = "approved"
 const TickVerdictRejected TickVerdict = "rejected"
-
-// Record of a single tool invocation
-type ToolRecord struct {
-	// Tool execution duration in milliseconds
-	DurationMs int `json:"duration_ms" yaml:"duration_ms" mapstructure:"duration_ms"`
-
-	// Tool input (may be truncated)
-	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
-
-	// Whether the tool invocation resulted in an error
-	IsError *bool `json:"is_error,omitempty,omitzero" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
-
-	// Name of the tool that was invoked
-	Name string `json:"name" yaml:"name" mapstructure:"name"`
-
-	// Tool output (may be truncated)
-	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
-}
 
 // Request body for PATCH /api/ticks/:id
 type UpdateTickRequest struct {
@@ -1407,37 +1233,4 @@ type UpdateTickRequest struct {
 
 	// New tick type
 	Type *TickType `json:"type,omitempty,omitzero" yaml:"type,omitempty" mapstructure:"type,omitempty"`
-}
-
-// Aggregated verification results for a run
-type VerificationRecord struct {
-	// Whether all verifiers passed
-	AllPassed bool `json:"all_passed" yaml:"all_passed" mapstructure:"all_passed"`
-
-	// Individual verifier results
-	Results []VerifierResult `json:"results,omitempty,omitzero" yaml:"results,omitempty" mapstructure:"results,omitempty"`
-}
-
-type VerificationStatus string
-
-const VerificationStatusFailed VerificationStatus = "failed"
-const VerificationStatusPending VerificationStatus = "pending"
-const VerificationStatusVerified VerificationStatus = "verified"
-
-// Result from a single verifier
-type VerifierResult struct {
-	// Verifier execution duration in milliseconds
-	DurationMs int `json:"duration_ms" yaml:"duration_ms" mapstructure:"duration_ms"`
-
-	// Error message if verification failed due to an error
-	Error *string `json:"error,omitempty,omitzero" yaml:"error,omitempty" mapstructure:"error,omitempty"`
-
-	// Verifier output (may be truncated)
-	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
-
-	// Whether this verifier passed
-	Passed bool `json:"passed" yaml:"passed" mapstructure:"passed"`
-
-	// Name of the verifier (e.g., git, test)
-	Verifier string `json:"verifier" yaml:"verifier" mapstructure:"verifier"`
 }

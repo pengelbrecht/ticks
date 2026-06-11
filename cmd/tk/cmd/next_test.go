@@ -163,10 +163,10 @@ func TestSelectPlanningCandidates(t *testing.T) {
 
 	t.Run("global scope: returns childless epics from filtered", func(t *testing.T) {
 		allTicks := []tick.Tick{
-			mkEpic("e1", tick.StatusOpen),        // childless → needs planning
-			mkEpic("e2", tick.StatusOpen),        // has child → no
+			mkEpic("e1", tick.StatusOpen), // childless → needs planning
+			mkEpic("e2", tick.StatusOpen), // has child → no
 			mkTask("t1", "e2"),
-			mkTask("t2", ""),                     // not an epic
+			mkTask("t2", ""), // not an epic
 		}
 		// filtered by global filter (no type restriction, so mix)
 		filtered := allTicks

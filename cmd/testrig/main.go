@@ -62,46 +62,6 @@ type Activity struct {
 	Data   map[string]interface{} `json:"data,omitempty"`
 }
 
-// RunRecord represents a completed run record.
-type RunRecord struct {
-	SessionID  string         `json:"session_id"`
-	Model      string         `json:"model"`
-	StartedAt  string         `json:"started_at"`
-	EndedAt    string         `json:"ended_at"`
-	Output     string         `json:"output"`
-	Thinking   string         `json:"thinking,omitempty"`
-	Tools      []ToolRecord   `json:"tools,omitempty"`
-	Metrics    MetricsRecord  `json:"metrics"`
-	Success    bool           `json:"success"`
-	NumTurns   int            `json:"num_turns"`
-	ErrorMsg   string         `json:"error_msg,omitempty"`
-}
-
-// MetricsRecord represents run metrics.
-type MetricsRecord struct {
-	InputTokens         int     `json:"input_tokens"`
-	OutputTokens        int     `json:"output_tokens"`
-	CacheReadTokens     int     `json:"cache_read_tokens"`
-	CacheCreationTokens int     `json:"cache_creation_tokens"`
-	CostUsd             float64 `json:"cost_usd"`
-	DurationMs          int     `json:"duration_ms"`
-}
-
-// ToolRecord represents a tool invocation.
-type ToolRecord struct {
-	Name       string `json:"name"`
-	Input      string `json:"input,omitempty"`
-	Output     string `json:"output,omitempty"`
-	DurationMs int    `json:"duration_ms"`
-	IsError    bool   `json:"is_error,omitempty"`
-}
-
-// RunStatus represents the run status for an epic.
-type RunStatus struct {
-	EpicID    string `json:"epicId"`
-	IsRunning bool   `json:"isRunning"`
-}
-
 // TestServer is the test rig server.
 type TestServer struct {
 	mu sync.RWMutex
@@ -113,21 +73,9 @@ type TestServer struct {
 	activities   []Activity
 	activitiesMu sync.RWMutex
 
-	// Run records by tick ID
-	runRecords   map[string]RunRecord
-	runRecordsMu sync.RWMutex
-
-	// Context by epic ID
-	contexts   map[string]string
-	contextsMu sync.RWMutex
-
 	// SSE clients for /api/events
 	sseClients   map[chan string]struct{}
 	sseClientsMu sync.RWMutex
-
-	// SSE clients for /api/run-stream/:epicId
-	runStreamClients   map[string]map[chan string]struct{}
-	runStreamClientsMu sync.RWMutex
 
 	// WebSocket clients for /api/sync (cloud mode simulation)
 	wsClients   map[*websocket.Conn]struct{}
@@ -150,10 +98,7 @@ func NewTestServer() *TestServer {
 	return &TestServer{
 		ticks:               make(map[string]Tick),
 		activities:          []Activity{},
-		runRecords:          make(map[string]RunRecord),
-		contexts:            make(map[string]string),
 		sseClients:          make(map[chan string]struct{}),
-		runStreamClients:    make(map[string]map[chan string]struct{}),
 		wsClients:           make(map[*websocket.Conn]struct{}),
 		writeLog:            []WriteOperation{},
 		localAgentConnected: true, // Default to connected
@@ -179,9 +124,6 @@ func (s *TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// SSE endpoints
 	case path == "/api/events" && r.Method == "GET":
 		s.handleSSE(w, r)
-	case strings.HasPrefix(path, "/api/run-stream/") && r.Method == "GET":
-		epicID := strings.TrimPrefix(path, "/api/run-stream/")
-		s.handleRunStream(w, r, epicID)
 
 	// REST endpoints for write operations
 	case path == "/api/ticks" && r.Method == "GET":
@@ -230,25 +172,11 @@ func (s *TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleGetTicks(w, r)
 	case path == "/test/clients" && r.Method == "GET":
 		s.handleGetClients(w, r)
-	case path == "/test/add-record" && r.Method == "POST":
-		s.handleAddRecord(w, r)
-	case path == "/test/add-context" && r.Method == "POST":
-		s.handleAddContext(w, r)
-
 	// Read endpoints
 	case path == "/api/info" && r.Method == "GET":
 		s.handleInfo(w, r)
 	case path == "/api/activity" && r.Method == "GET":
 		s.handleActivity(w, r)
-	case strings.HasPrefix(path, "/api/records/") && r.Method == "GET":
-		tickID := strings.TrimPrefix(path, "/api/records/")
-		s.handleGetRecord(w, r, tickID)
-	case strings.HasPrefix(path, "/api/run-status/") && r.Method == "GET":
-		epicID := strings.TrimPrefix(path, "/api/run-status/")
-		s.handleRunStatus(w, r, epicID)
-	case strings.HasPrefix(path, "/api/context/") && r.Method == "GET":
-		epicID := strings.TrimPrefix(path, "/api/context/")
-		s.handleGetContext(w, r, epicID)
 
 	// Health check
 	case path == "/health":
@@ -302,55 +230,6 @@ func (s *TestServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		case <-r.Context().Done():
 			log.Printf("[SSE] Client disconnected")
-			return
-		}
-	}
-}
-
-func (s *TestServer) handleRunStream(w http.ResponseWriter, r *http.Request, epicID string) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "SSE not supported", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// Create client channel
-	ch := make(chan string, 100)
-	s.runStreamClientsMu.Lock()
-	if s.runStreamClients[epicID] == nil {
-		s.runStreamClients[epicID] = make(map[chan string]struct{})
-	}
-	s.runStreamClients[epicID][ch] = struct{}{}
-	s.runStreamClientsMu.Unlock()
-
-	defer func() {
-		s.runStreamClientsMu.Lock()
-		delete(s.runStreamClients[epicID], ch)
-		if len(s.runStreamClients[epicID]) == 0 {
-			delete(s.runStreamClients, epicID)
-		}
-		s.runStreamClientsMu.Unlock()
-		close(ch)
-	}()
-
-	// Send connected event
-	fmt.Fprintf(w, "event: connected\ndata: {\"epicId\":\"%s\"}\n\n", epicID)
-	flusher.Flush()
-
-	log.Printf("[RunStream] Client connected for epic %s", epicID)
-
-	// Stream events
-	for {
-		select {
-		case msg := <-ch:
-			fmt.Fprintf(w, "%s\n\n", msg)
-			flusher.Flush()
-		case <-r.Context().Done():
-			log.Printf("[RunStream] Client disconnected for epic %s", epicID)
 			return
 		}
 	}
@@ -715,8 +594,7 @@ func (s *TestServer) handleReopen(w http.ResponseWriter, r *http.Request, tickID
 
 func (s *TestServer) handleEmit(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Target    string          `json:"target"`    // "sse", "run-stream", or "websocket"
-		EpicID    string          `json:"epicId"`    // For run-stream
+		Target    string          `json:"target"`    // "sse" or "websocket"
 		EventType string          `json:"eventType"` // SSE event type
 		Data      json.RawMessage `json:"data"`      // Event data
 	}
@@ -730,8 +608,6 @@ func (s *TestServer) handleEmit(w http.ResponseWriter, r *http.Request) {
 	switch input.Target {
 	case "sse":
 		s.broadcastToSSE(msg)
-	case "run-stream":
-		s.broadcastToRunStream(input.EpicID, msg)
 	case "websocket":
 		s.broadcastToWebSocket(input.Data)
 	default:
@@ -754,14 +630,6 @@ func (s *TestServer) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.activitiesMu.Lock()
 	s.activities = []Activity{}
 	s.activitiesMu.Unlock()
-
-	s.runRecordsMu.Lock()
-	s.runRecords = make(map[string]RunRecord)
-	s.runRecordsMu.Unlock()
-
-	s.contextsMu.Lock()
-	s.contexts = make(map[string]string)
-	s.contextsMu.Unlock()
 
 	s.localAgentConnected = true
 	s.failNextWrite = nil
@@ -788,8 +656,6 @@ func (s *TestServer) handleScenario(w http.ResponseWriter, r *http.Request) {
 	switch input.Name {
 	case "tick-lifecycle":
 		s.runTickLifecycleScenario()
-	case "run-complete":
-		s.runRunCompleteScenario()
 	case "connection-flaky":
 		s.runConnectionFlakyScenario()
 	default:
@@ -900,15 +766,6 @@ func (s *TestServer) handleGetClients(w http.ResponseWriter, r *http.Request) {
 	sseCount := len(s.sseClients)
 	s.sseClientsMu.RUnlock()
 
-	s.runStreamClientsMu.RLock()
-	runStreamCount := 0
-	runStreamEpics := []string{}
-	for epicID, clients := range s.runStreamClients {
-		runStreamCount += len(clients)
-		runStreamEpics = append(runStreamEpics, epicID)
-	}
-	s.runStreamClientsMu.RUnlock()
-
 	s.wsClientsMu.RLock()
 	wsCount := len(s.wsClients)
 	s.wsClientsMu.RUnlock()
@@ -920,8 +777,6 @@ func (s *TestServer) handleGetClients(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, map[string]interface{}{
 		"sse":               sseCount,
-		"runStream":         runStreamCount,
-		"runStreamEpics":    runStreamEpics,
 		"websocket":         wsCount,
 		"localAgentOnline":  s.localAgentConnected,
 		"upstreamConnected": upstreamConnected,
@@ -971,76 +826,6 @@ func (s *TestServer) handleActivity(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *TestServer) handleGetRecord(w http.ResponseWriter, r *http.Request, tickID string) {
-	s.runRecordsMu.RLock()
-	record, ok := s.runRecords[tickID]
-	s.runRecordsMu.RUnlock()
-
-	if !ok {
-		jsonError(w, "Record not found", http.StatusNotFound)
-		return
-	}
-
-	jsonResponse(w, record)
-}
-
-func (s *TestServer) handleRunStatus(w http.ResponseWriter, r *http.Request, epicID string) {
-	// For testing, always return not running
-	jsonResponse(w, RunStatus{
-		EpicID:    epicID,
-		IsRunning: false,
-	})
-}
-
-func (s *TestServer) handleGetContext(w http.ResponseWriter, r *http.Request, epicID string) {
-	s.contextsMu.RLock()
-	context, ok := s.contexts[epicID]
-	s.contextsMu.RUnlock()
-
-	if !ok {
-		jsonError(w, "Context not found", http.StatusNotFound)
-		return
-	}
-
-	// Return as plain text
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(context))
-}
-
-func (s *TestServer) handleAddRecord(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		TickID string    `json:"tickId"`
-		Record RunRecord `json:"record"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		jsonError(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	s.runRecordsMu.Lock()
-	s.runRecords[input.TickID] = input.Record
-	s.runRecordsMu.Unlock()
-
-	jsonResponse(w, map[string]string{"status": "added"})
-}
-
-func (s *TestServer) handleAddContext(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		EpicID  string `json:"epicId"`
-		Context string `json:"context"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		jsonError(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	s.contextsMu.Lock()
-	s.contexts[input.EpicID] = input.Context
-	s.contextsMu.Unlock()
-
-	jsonResponse(w, map[string]string{"status": "added"})
-}
-
 // ============================================================================
 // Scenarios
 // ============================================================================
@@ -1084,54 +869,6 @@ func (s *TestServer) runTickLifecycleScenario() {
 		s.ticks[tickID] = tick
 		s.mu.Unlock()
 		s.broadcastTickEvent("update", tickID)
-	}()
-}
-
-func (s *TestServer) runRunCompleteScenario() {
-	go func() {
-		epicID := "epic-test"
-		taskID := "task-test"
-
-		// Task started
-		s.emitRunEvent(epicID, "task-started", map[string]interface{}{
-			"taskId":   taskID,
-			"status":   "running",
-			"numTurns": 0,
-		})
-
-		time.Sleep(300 * time.Millisecond)
-
-		// Task update with tool
-		s.emitRunEvent(epicID, "task-update", map[string]interface{}{
-			"taskId":   taskID,
-			"numTurns": 1,
-			"activeTool": map[string]interface{}{
-				"name":  "Bash",
-				"input": "ls -la",
-			},
-		})
-
-		time.Sleep(300 * time.Millisecond)
-
-		// Tool activity
-		s.emitRunEvent(epicID, "tool-activity", map[string]interface{}{
-			"taskId": taskID,
-			"tool": map[string]interface{}{
-				"name":     "Bash",
-				"input":    "ls -la",
-				"output":   "file1.txt\nfile2.txt",
-				"duration": 150,
-			},
-		})
-
-		time.Sleep(300 * time.Millisecond)
-
-		// Task completed
-		s.emitRunEvent(epicID, "task-completed", map[string]interface{}{
-			"taskId":   taskID,
-			"success":  true,
-			"numTurns": 2,
-		})
 	}()
 }
 
@@ -1199,20 +936,6 @@ func (s *TestServer) broadcastToSSE(msg string) {
 	}
 }
 
-func (s *TestServer) broadcastToRunStream(epicID, msg string) {
-	s.runStreamClientsMu.RLock()
-	defer s.runStreamClientsMu.RUnlock()
-
-	if clients, ok := s.runStreamClients[epicID]; ok {
-		for ch := range clients {
-			select {
-			case ch <- msg:
-			default:
-			}
-		}
-	}
-}
-
 func (s *TestServer) broadcastToWebSocket(data []byte) {
 	s.wsClientsMu.RLock()
 	defer s.wsClientsMu.RUnlock()
@@ -1224,13 +947,6 @@ func (s *TestServer) broadcastToWebSocket(data []byte) {
 			}
 		}(conn)
 	}
-}
-
-func (s *TestServer) emitRunEvent(epicID, eventType string, data map[string]interface{}) {
-	data["timestamp"] = time.Now().Format(time.RFC3339)
-	dataBytes, _ := json.Marshal(data)
-	msg := fmt.Sprintf("event: %s\ndata: %s", eventType, string(dataBytes))
-	s.broadcastToRunStream(epicID, msg)
 }
 
 // ============================================================================
@@ -2030,7 +1746,6 @@ func main() {
 	log.Printf("Endpoints:")
 	log.Printf("  UI:        GET  /")
 	log.Printf("  SSE:       GET  /api/events")
-	log.Printf("  RunStream: GET  /api/run-stream/:epicId")
 	log.Printf("  WebSocket: WS   /api/sync")
 	log.Printf("  Control:   POST /test/emit, /test/reset, /test/scenario")
 	log.Printf("  Inspect:   GET  /test/writes, /test/ticks, /test/clients")

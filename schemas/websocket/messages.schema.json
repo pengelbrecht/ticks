@@ -143,10 +143,19 @@
     },
     "TickUpdatedMessage": {
       "type": "object",
-      "description": "Single tick created or updated",
+      "description": "Single tick updated",
       "required": ["type", "tick"],
       "properties": {
         "type": { "const": "tick_updated" },
+        "tick": { "$ref": "../tick.schema.json" }
+      }
+    },
+    "TickCreatedMessage": {
+      "type": "object",
+      "description": "Single tick created. Broadcast by the DO when a previously-unknown tick is synced; clients apply it identically to tick_updated.",
+      "required": ["type", "tick"],
+      "properties": {
+        "type": { "const": "tick_created" },
         "tick": { "$ref": "../tick.schema.json" }
       }
     },
@@ -238,6 +247,7 @@
         { "$ref": "#/$defs/HeartbeatResponseMessage" },
         { "$ref": "#/$defs/StateFullMessage" },
         { "$ref": "#/$defs/TickUpdatedMessage" },
+        { "$ref": "#/$defs/TickCreatedMessage" },
         { "$ref": "#/$defs/TickDeletedMessage" },
         { "$ref": "#/$defs/TickOperationRequest" },
         { "$ref": "#/$defs/TickOperationResponse" },

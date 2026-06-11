@@ -2,14 +2,16 @@
   "id": "wwv",
   "title": "Decide: delete or repurpose the board's live-run pipeline",
   "description": "Human decision needed before the board can be decoupled from runner internals.\n\nBackground: the local board watches .tick/logs/records/*.live.json and serves /api/run-stream/:epicId and /api/run-status/:epicId, feeding the run-output pane, cost/token metrics, and run-status indicator (internal/tickboard/server/server.go recordsWatcher ~lines 305-510, watcher.go; UI: run-output-pane.ts, tickflow-dashboard.ts). Only 'tk run' ever writes those record files, so under Claude orchestration this entire pipeline is dead weight - the panes stay empty. It is also why the board imports internal/agent and internal/runrecord.\n\nOption A - DELETE: remove the records watcher, run-stream/run-status endpoints, run-output pane and dashboard run-metrics panels; then drop internal/runrecord and internal/agent once importer-free. Simplest; the board becomes a pure tracker view (kanban, roadmap, activity, approvals). Live progress visibility comes only from activity events (start/close/notes).\nOption B - REPURPOSE: keep the pipeline shape but feed it from the orchestrator - e.g. a lightweight way for the Claude orchestrator to post wave-level run events (wave started, agent launched on tick X, merged, tests green) that the board renders where live run output used to be. More observability, but new design + skill changes, and no token-level streaming is possible from Claude subagents either way.\n\nRecommendation from the analysis: A, unless wave-level live telemetry on the board is something you actually monitor during runs; activity-feed events (start signal from the interop epic) may already cover most of the need.\n\nTo resolve: record the verdict with 'tk note \u003cthis-id\u003e \"decision: A\" --from human' (or B, with any scoping notes) and approve this tick. The follow-up implementation tick reads the decision from this tick's notes.",
-  "status": "open",
+  "notes": "2026-06-10 20:04 - [human] decision: A (delete). Remove the records watcher, run-stream/run-status endpoints, run-output pane and dashboard run-metrics panels; drop internal/agent + internal/runrecord once importer-free. Live progress visibility = activity events (start/close/notes) which the interop epic just shipped.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "vuq",
   "acceptance_criteria": "A verdict (A or B) is recorded in this tick's notes and the tick is approved",
-  "awaiting": "input",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T15:25:02.430385Z",
-  "updated_at": "2026-06-10T15:25:02.430385Z"
+  "updated_at": "2026-06-10T18:04:52.000387Z",
+  "closed_at": "2026-06-10T18:04:52.000387Z",
+  "closed_reason": "Decision recorded: A (delete the live-run pipeline)"
 }

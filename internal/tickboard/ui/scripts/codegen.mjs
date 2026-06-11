@@ -144,9 +144,22 @@ async function main() {
   }
 
   // Generate index.ts that re-exports all types
-  if (!isCheckMode) {
-    const indexContent = generateIndex(results.filter(r => r.success));
-    const indexPath = join(OUTPUT_DIR, 'index.ts');
+  const indexContent = await generateIndex(results.filter(r => r.success));
+  const indexPath = join(OUTPUT_DIR, 'index.ts');
+  if (isCheckMode) {
+    if (existsSync(indexPath)) {
+      const existing = await readFile(indexPath, 'utf-8');
+      if (existing !== indexContent) {
+        console.log('  CHANGED: index.ts');
+        hasChanges = true;
+      } else {
+        console.log('  OK: index.ts');
+      }
+    } else {
+      console.log('  MISSING: index.ts');
+      hasChanges = true;
+    }
+  } else {
     await writeFile(indexPath, indexContent);
     console.log(`  Generated: index.ts`);
   }
@@ -174,9 +187,31 @@ async function main() {
 }
 
 /**
- * Generate index.ts content that re-exports all types.
+ * Extract the names exported by a generated TypeScript module.
+ * Matches top-level `export interface/type/enum/const/class/function Name`.
  */
-function generateIndex(results) {
+function extractExportedNames(source) {
+  const names = [];
+  const re = /^export\s+(?:declare\s+)?(?:interface|type|enum|const|class|function)\s+([A-Za-z0-9_$]+)/gm;
+  let match;
+  while ((match = re.exec(source)) !== null) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
+/**
+ * Generate index.ts content that re-exports all types.
+ *
+ * Several schemas reference the shared tick.schema.json (and others), so
+ * `declareExternallyReferenced` makes the same type name (e.g. `Tick`,
+ * `Activity`) appear in multiple generated modules. A naive `export *` barrel
+ * then produces TS2308 "already exported a member" ambiguity errors. To keep
+ * regeneration deterministic and tsc-clean, the first module (in schema-file
+ * order) to export a given name wins via `export *`; later modules re-export
+ * only their non-conflicting names explicitly.
+ */
+async function generateIndex(results) {
   const lines = [
     '/* eslint-disable */',
     '/**',
@@ -187,9 +222,30 @@ function generateIndex(results) {
     '',
   ];
 
+  const claimed = new Set();
+
   for (const { outputPath } of results) {
     const relPath = './' + relative(OUTPUT_DIR, outputPath).replace(/\.ts$/, '.js');
-    lines.push(`export * from '${relPath}';`);
+    const source = await readFile(outputPath, 'utf-8');
+    const names = extractExportedNames(source);
+
+    const conflicts = names.filter((n) => claimed.has(n));
+
+    if (conflicts.length === 0) {
+      // No collisions: re-export everything and claim all names.
+      lines.push(`export * from '${relPath}';`);
+      for (const n of names) claimed.add(n);
+    } else {
+      // Some names already exported by an earlier module. Re-export only the
+      // names this module introduces, so the barrel stays unambiguous.
+      const fresh = names.filter((n) => !claimed.has(n));
+      if (fresh.length > 0) {
+        lines.push(`export { ${fresh.join(', ')} } from '${relPath}';`);
+        for (const n of fresh) claimed.add(n);
+      } else {
+        lines.push(`// (all exports of ${relPath} already re-exported above)`);
+      }
+    }
   }
 
   lines.push('');

@@ -54,13 +54,13 @@ func TestPolicyConfig_CustomValues(t *testing.T) {
 	secrets := SecretsExposureEnv
 
 	p := &PolicyConfig{
-		MaxAttempts:             &maxAttempts,
-		MaxNoProgressAttempts:   &maxNoProg,
-		MaxSameVerifierFailures: &maxVerifier,
-		RequireCommit:           &requireCommit,
+		MaxAttempts:                 &maxAttempts,
+		MaxNoProgressAttempts:       &maxNoProg,
+		MaxSameVerifierFailures:     &maxVerifier,
+		RequireCommit:               &requireCommit,
 		RequireVerifiersForPriority: &requireVerifiers,
-		Sandbox:                 &sandbox,
-		SecretsExposure:         &secrets,
+		Sandbox:                     &sandbox,
+		SecretsExposure:             &secrets,
 	}
 
 	if p.GetMaxAttempts() != 5 {

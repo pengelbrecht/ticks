@@ -37,7 +37,6 @@ codegen-go: $(GO_JSONSCHEMA)
 		--output ../$(GO_GENERATED_DIR)/types.go \
 		--resolve-extension json \
 		tick.schema.json \
-		run.schema.json \
 		activity.schema.json \
 		api/requests.schema.json \
 		api/responses.schema.json \

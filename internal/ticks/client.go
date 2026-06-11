@@ -3,14 +3,11 @@ package ticks
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/agent"
 	"github.com/pengelbrecht/ticks/internal/query"
-	"github.com/pengelbrecht/ticks/internal/runrecord"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -63,19 +60,14 @@ func splitNonEmpty(s string) []string {
 // Client provides direct access to the Ticks issue tracker via the tick.Store.
 // This avoids the overhead of exec'ing the tk CLI for each operation.
 type Client struct {
-	store          *tick.Store
-	runrecordStore *runrecord.Store
+	store *tick.Store
 }
 
 // NewClient creates a new Client using the given tick directory.
 // tickDir should be the .tick directory (e.g., "/path/to/project/.tick").
 func NewClient(tickDir string) *Client {
-	// The runrecord.Store expects the project root, not the .tick dir.
-	// Since tickDir is ".tick", the parent is the project root.
-	projectRoot := filepath.Dir(tickDir)
 	return &Client{
-		store:          tick.NewStore(tickDir),
-		runrecordStore: runrecord.NewStore(projectRoot),
+		store: tick.NewStore(tickDir),
 	}
 }
 
@@ -794,43 +786,3 @@ func (c *Client) GetHumanNotes(issueID string) ([]Note, error) {
 func (c *Client) GetAgentNotes(issueID string) ([]Note, error) {
 	return c.GetNotesByAuthor(issueID, "agent")
 }
-
-// SetRunRecord stores a RunRecord for a task.
-// The RunRecord is stored in a separate file at .tick/logs/records/<task-id>.json
-func (c *Client) SetRunRecord(taskID string, record *agent.RunRecord) error {
-	if record == nil {
-		return nil
-	}
-	return c.runrecordStore.Write(taskID, record)
-}
-
-// GetRunRecord retrieves the RunRecord for a task.
-// Returns nil if no RunRecord exists.
-func (c *Client) GetRunRecord(taskID string) (*agent.RunRecord, error) {
-	record, err := c.runrecordStore.Read(taskID)
-	if err == runrecord.ErrNotFound {
-		return nil, nil
-	}
-	return record, err
-}
-
-// Compile-time assertion that Client implements TicksClient from the engine package.
-// This is done via a type assertion using the interface methods.
-// The actual interface is defined in internal/engine/engine.go.
-var _ interface {
-	GetEpic(epicID string) (*Epic, error)
-	GetTask(taskID string) (*Task, error)
-	NextTask(epicID string) (*Task, error)
-	ListTasks(epicID string) ([]Task, error)
-	HasOpenTasks(epicID string) (bool, error)
-	CloseTask(taskID, reason string) error
-	CloseEpic(epicID, reason string) error
-	ReopenTask(taskID string) error
-	AddNote(issueID, message string, extraArgs ...string) error
-	GetNotes(epicID string) ([]string, error)
-	GetHumanNotes(issueID string) ([]Note, error)
-	SetStatus(issueID, status string) error
-	SetAwaiting(taskID, awaiting, note string) error
-	SetRunRecord(taskID string, record *agent.RunRecord) error
-	GetRunRecord(taskID string) (*agent.RunRecord, error)
-} = (*Client)(nil)

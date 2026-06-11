@@ -22,8 +22,8 @@ const (
 
 // updateCache stores the last update check result.
 type updateCache struct {
-	LastCheck      time.Time `json:"last_check"`
-	LatestVersion  string    `json:"latest_version,omitempty"`
+	LastCheck       time.Time `json:"last_check"`
+	LatestVersion   string    `json:"latest_version,omitempty"`
 	UpdateAvailable bool      `json:"update_available"`
 }
 

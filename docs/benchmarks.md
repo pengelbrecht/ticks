@@ -28,5 +28,5 @@ Compare beads and tick performance on common workflows with consistent data volu
 - Report median/p95 and total dataset size.
 
 ## Outputs
-- `benchmarks/results.json`
-- `benchmarks/summary.md`
+- `results.json`
+- `summary.md`

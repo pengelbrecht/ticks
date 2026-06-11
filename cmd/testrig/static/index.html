@@ -238,14 +238,6 @@
         <button onclick="connectWS()">Connect WebSocket</button>
         <button onclick="disconnectWS()">Disconnect WS</button>
       </div>
-      <div class="button-group">
-        <button onclick="subscribeRunStream()">Subscribe Run</button>
-        <button onclick="unsubscribeRunStream()">Unsubscribe Run</button>
-      </div>
-      <div class="form-row">
-        <label>Epic ID:</label>
-        <input type="text" id="epic-id" value="epic-test" placeholder="Epic ID">
-      </div>
     </div>
 
     <!-- Control Panel -->
@@ -254,7 +246,6 @@
 
       <div class="button-group">
         <button onclick="runScenario('tick-lifecycle')">Tick Lifecycle</button>
-        <button onclick="runScenario('run-complete')">Run Complete</button>
         <button onclick="runScenario('connection-flaky')">Flaky Connection</button>
       </div>
 
@@ -279,11 +270,6 @@
       <div class="button-group">
         <button onclick="fetchInfo()">Fetch Info</button>
         <button onclick="fetchActivity()">Fetch Activity</button>
-        <button onclick="fetchRunStatus()">Fetch Run Status</button>
-      </div>
-      <div class="button-group">
-        <button onclick="fetchRecord()">Fetch Record</button>
-        <button onclick="fetchContext()">Fetch Context</button>
       </div>
       <div id="read-result" class="log" style="max-height:100px;margin-top:0.5rem"></div>
 
@@ -310,7 +296,6 @@
   <script>
     // State
     let sseSource = null;
-    let runStreamSource = null;
     let wsConnection = null;
     let ticks = {};
     let selectedTickId = null;
@@ -404,38 +389,6 @@
       }
       updateSSEStatus('disconnected');
       log('SSE', 'Manually disconnected');
-    }
-
-    // Run Stream
-    function subscribeRunStream() {
-      const epicId = document.getElementById('epic-id').value;
-      if (runStreamSource) {
-        runStreamSource.close();
-      }
-
-      runStreamSource = new EventSource(`/api/run-stream/${epicId}`);
-
-      runStreamSource.addEventListener('connected', () => {
-        log('RunStream', `Connected to ${epicId}`);
-      });
-
-      ['task-started', 'task-update', 'task-completed', 'tool-activity', 'epic-started', 'epic-completed'].forEach(type => {
-        runStreamSource.addEventListener(type, (e) => {
-          log(`Run:${type}`, JSON.parse(e.data));
-        });
-      });
-
-      runStreamSource.onerror = () => {
-        log('RunStream', 'Error/Disconnected');
-      };
-    }
-
-    function unsubscribeRunStream() {
-      if (runStreamSource) {
-        runStreamSource.close();
-        runStreamSource = null;
-      }
-      log('RunStream', 'Unsubscribed');
     }
 
     // WebSocket Connection
@@ -672,55 +625,6 @@
         const data = await resp.json();
         log('Read:activity', { count: data.activities?.length || 0 });
         showReadResult(data);
-      } catch (e) {
-        showError(e.message);
-      }
-    }
-
-    async function fetchRunStatus() {
-      const epicId = document.getElementById('epic-id').value;
-      try {
-        const resp = await fetch(`/api/run-status/${epicId}`);
-        const data = await resp.json();
-        log('Read:run-status', data);
-        showReadResult(data);
-      } catch (e) {
-        showError(e.message);
-      }
-    }
-
-    async function fetchRecord() {
-      if (!selectedTickId) {
-        showError('No tick selected');
-        return;
-      }
-      try {
-        const resp = await fetch(`/api/records/${selectedTickId}`);
-        if (resp.status === 404) {
-          log('Read:record', { error: 'Not found' });
-          showReadResult({ error: 'Record not found' });
-          return;
-        }
-        const data = await resp.json();
-        log('Read:record', data);
-        showReadResult(data);
-      } catch (e) {
-        showError(e.message);
-      }
-    }
-
-    async function fetchContext() {
-      const epicId = document.getElementById('epic-id').value;
-      try {
-        const resp = await fetch(`/api/context/${epicId}`);
-        if (resp.status === 404) {
-          log('Read:context', { error: 'Not found' });
-          showReadResult({ error: 'Context not found' });
-          return;
-        }
-        const text = await resp.text();
-        log('Read:context', { length: text.length });
-        showReadResult({ context: text });
       } catch (e) {
         showError(e.message);
       }

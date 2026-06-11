@@ -448,31 +448,6 @@ test_add_note_flows_through_do() {
   fi
 }
 
-test_run_stream_subscription() {
-  log_test "Run Stream Subscription"
-  reset_state
-
-  # Connect SSE first
-  click_by_onclick "connectSSE()"
-  sleep 0.5
-
-  # Subscribe to run stream
-  click_by_onclick "subscribeRunStream()"
-  sleep 0.5
-
-  # Trigger a run scenario
-  run_scenario "run-complete"
-  sleep 1.5
-
-  # Check for run events in log
-  local snapshot=$(get_snapshot)
-  if echo "$snapshot" | grep -q "Run:\|task-"; then
-    log_pass "Run stream events received"
-  else
-    log_pass "Run stream subscription initiated"
-  fi
-}
-
 test_tick_lifecycle_scenario() {
   log_test "Tick Lifecycle Scenario Through DO"
   reset_state
@@ -558,7 +533,6 @@ main() {
   test_local_agent_status_update
   test_multiple_ticks_sync
   test_add_note_flows_through_do
-  test_run_stream_subscription
   test_tick_lifecycle_scenario
   test_server_reset
 

@@ -235,7 +235,7 @@ func TestRenderRoadmap_TitleInOutput(t *testing.T) {
 }
 
 func TestRenderRoadmap_QueuedStatus(t *testing.T) {
-	e1 := makeTestEpic("dep", "Dependency", tick.StatusOpen)    // wave 1 → ready
+	e1 := makeTestEpic("dep", "Dependency", tick.StatusOpen)     // wave 1 → ready
 	e2 := makeTestEpic("blk", "Blocked By Dep", tick.StatusOpen) // wave 2 → queued
 	e2.BlockedBy = []string{"dep"}
 

@@ -164,10 +164,10 @@ func TestEpicsNeedingPlanning(t *testing.T) {
 		{
 			name: "multiple epics — only childless unblocked ones returned",
 			candidates: []tick.Tick{
-				{ID: "e1", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                              // needs planning
-				{ID: "e2", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                              // has child -> no
-				{ID: "e3", Type: tick.TypeEpic, Status: tick.StatusOpen, BlockedBy: []string{"e4"}, CreatedAt: now, UpdatedAt: now},   // blocked -> no
-				{ID: "e4", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                              // needs planning
+				{ID: "e1", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                            // needs planning
+				{ID: "e2", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                            // has child -> no
+				{ID: "e3", Type: tick.TypeEpic, Status: tick.StatusOpen, BlockedBy: []string{"e4"}, CreatedAt: now, UpdatedAt: now}, // blocked -> no
+				{ID: "e4", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},                            // needs planning
 			},
 			allTicks: []tick.Tick{
 				{ID: "e1", Type: tick.TypeEpic, Status: tick.StatusOpen, CreatedAt: now, UpdatedAt: now},
