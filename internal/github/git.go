@@ -8,6 +8,26 @@ import (
 	"strings"
 )
 
+// CheckAndInstallMergeDrivers checks whether the merge drivers are registered
+// in the local git config and installs them if not. It is safe to call on
+// every command invocation — it skips the write if already configured.
+func CheckAndInstallMergeDrivers(repoRoot string) error {
+	// Guard: if repoRoot isn't actually a git repo, skip silently.
+	if _, err := os.Stat(filepath.Join(repoRoot, ".git")); err != nil {
+		return nil
+	}
+
+	cmd := exec.Command("git", "config", "--get", "merge.tick.driver")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err == nil && strings.TrimSpace(string(out)) != "" {
+		// Already configured — nothing to do.
+		return nil
+	}
+	// err != nil here means the key is absent (exit 1) — install the drivers.
+	return ConfigureMergeDriver(repoRoot)
+}
+
 const mergeAttributeLine = ".tick/issues/*.json merge=tick"
 const mergeActivityAttributeLine = ".tick/activity/activity.jsonl merge=tick-activity"
 
