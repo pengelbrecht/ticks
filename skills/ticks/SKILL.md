@@ -1,6 +1,6 @@
 ---
 name: ticks
-description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, creating ticks from a SPEC.md, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticker, epic, close the task, plan this, break this down.
+description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticker, epic, close the task, plan this, break this down.
 ---
 
 # Ticks Workflow
@@ -71,37 +71,31 @@ Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to
 
 **Why not `CLAUDE.md`?** `CLAUDE.md` is for anyone working interactively in the repo (humans and interactive agents alike). `.tick/config.md` is specifically the contract for dispatched implementer agents and is consumed programmatically. Projects may of course cross-reference one from the other, but the distinction keeps the operator-facing config separate from the interactive config.
 
-### Step 1: Check for SPEC.md
+### Step 1: Gather What's Already Known
 
-Look for a SPEC.md (or similar spec file) in the repo root.
+Before creating ticks, collect whatever requirements already exist:
 
-**If no spec exists:** Go to Step 2a (Create Spec)
-**If spec exists but incomplete:** Go to Step 2b (Complete Spec)
-**If spec is complete:** Skip to Step 3 (Create Ticks)
+- **Existing docs** — a spec, PRD, design doc, README section, or issue description (check the repo root and `docs/`, but follow whatever convention the repo uses)
+- **The conversation** — what the user has already told you
 
-### Step 2a: Create Spec Through Conversation
+Read what you find. Don't re-ask things that are already answered.
 
-Have a natural conversation with the user to understand their idea:
+### Step 2: Close the Gaps
 
-1. **Let them describe it** - Don't interrupt, let them explain the full vision
-2. **Ask clarifying questions** - Dig into unclear areas through back-and-forth dialogue
-3. **Optionally use AskUserQuestion** - For quick multiple-choice decisions
-4. **Write SPEC.md** - Once you have enough detail, generate the spec
+Judge whether you understand the work well enough to decompose it. You should be able to answer:
 
-**Conversation topics to explore:**
-- What problem does this solve? Who's it for?
-- Core features vs nice-to-haves
-- Technical constraints or preferences
-- How will users interact with it?
+- What problem does this solve, and for whom?
+- What's in scope vs. nice-to-have?
+- Any technical constraints or preferences?
 - What does "done" look like?
 
-### Step 2b: Complete Existing Spec
+If there are gaps, close them through conversation: let the user describe the full idea uninterrupted, then ask targeted questions about what's unclear (AskUserQuestion works well for quick multiple-choice decisions).
 
-If SPEC.md exists but has gaps:
+**Capture the understanding in proportion to the work:**
+- *Small, clear task* — a brief restatement of scope in conversation is enough; confirm and move on
+- *Larger feature or epic* — write it down (e.g. `SPEC.md`, or update the existing doc) so the ticks have a stable reference; if a doc already exists, fill in its gaps rather than starting over
 
-1. **Read the spec** - Identify what's missing or unclear
-2. **Ask targeted questions** - Focus on the gaps, don't re-ask obvious things
-3. **Update SPEC.md** - Fill in the missing details
+Once you can answer the questions above, proceed to creating ticks.
 
 ## Creating Good Tasks
 
@@ -136,9 +130,9 @@ tk create "Add email validation" -d "Make sure emails are valid"
 
 Run the **Definition of Ready** checklist in `references/tick-patterns.md` against each tick before creating it; see that file for the full patterns.
 
-### Step 3: Create Ticks from Spec
+### Step 3: Create Ticks from Requirements
 
-Transform the spec into ticks organized by epic.
+Transform the gathered requirements into ticks organized by epic.
 
 ### Roadmaps (multi-epic work)
 
@@ -226,7 +220,7 @@ tk create "Create Stripe API keys" --awaiting work \
 **Order for working state and fail fast.** Sequence ticks so each leaves the build green and the app runnable, and put the riskiest or most uncertain ticks early — discover a wrong assumption on tick 2, not tick 12. For a phase boundary where you want to look before continuing, create an `--awaiting checkpoint` tick; for a genuinely open question, create an `--awaiting input` tick rather than guessing.
 
 **Before running, review the epic's ticks.** Once the ticks exist, do a quick pass:
-1. **Coverage** — walk each requirement in the spec (for this phase) and point to the tick that implements it. Add ticks for any gaps.
+1. **Coverage** — walk each requirement from the gathered understanding (for this phase) and point to the tick that implements it. Add ticks for any gaps.
 2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
 3. **Naming consistency** — the same interface should be called the same thing across tick descriptions; a contract named `clearLayers` in one tick and `clearFullLayers` in another is a latent bug.
 4. **Wave safety** — run `tk graph <epic>` and confirm ticks in the same wave touch different files.
