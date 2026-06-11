@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/pengelbrecht/ticks/internal/github"
 )
 
 // resolveActor determines the actor for an activity entry using the precedence:
@@ -116,6 +118,34 @@ Human-Only Tasks (awaiting=work):
     tk list --awaiting work             # List human-only tasks`,
 	Version: Version,
 	// Run is intentionally not set - this allows subcommands or help to be shown
+
+	// PersistentPreRunE lazily registers git merge drivers on every command
+	// invocation so that fresh clones and CI environments get the drivers
+	// without requiring an explicit `tk init`.
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Skip for commands that don't need a git repo or that ARE the merge
+		// driver themselves (to avoid recursion/noise).
+		skip := map[string]bool{
+			"version":        true,
+			"upgrade":        true,
+			"snippet":        true,
+			"merge-file":     true,
+			"merge-activity": true,
+		}
+		if skip[cmd.Name()] {
+			return nil
+		}
+
+		root, err := repoRoot()
+		if err != nil {
+			// Not in a git repo — skip silently.
+			return nil
+		}
+		// Best-effort: ignore errors so a driver registration failure
+		// never blocks normal tk usage.
+		_ = github.CheckAndInstallMergeDrivers(root)
+		return nil
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
