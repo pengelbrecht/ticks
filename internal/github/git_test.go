@@ -140,23 +140,6 @@ func checkGitConfig(t *testing.T, dir, key, want string) {
 	}
 }
 
-// setupGitRepo creates a minimal git repo in a temp directory and returns its path.
-func setupGitRepo(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	runCmd := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("command %v: %v\n%s", args, err, out)
-		}
-	}
-	runCmd("git", "init")
-	runCmd("git", "config", "user.email", "test@example.com")
-	runCmd("git", "config", "user.name", "Test User")
-	return dir
-}
 
 func TestCheckAndInstallMergeDrivers_InstallsWhenAbsent(t *testing.T) {
 	dir := setupGitRepo(t)
