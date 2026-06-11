@@ -9,8 +9,11 @@ import (
 )
 
 const mergeAttributeLine = ".tick/issues/*.json merge=tick"
+const mergeActivityAttributeLine = ".tick/activity/activity.jsonl merge=tick-activity"
 
-// EnsureGitAttributes adds the tick merge driver line to .gitattributes if missing.
+// EnsureGitAttributes adds the tick and tick-activity merge driver lines to
+// .gitattributes if missing. It is idempotent — calling it when both lines
+// already exist is a no-op.
 func EnsureGitAttributes(repoRoot string) error {
 	path := filepath.Join(repoRoot, ".gitattributes")
 	data, err := os.ReadFile(path)
@@ -19,16 +22,32 @@ func EnsureGitAttributes(repoRoot string) error {
 	}
 
 	contents := string(data)
-	for _, line := range strings.Split(contents, "\n") {
-		if strings.TrimSpace(line) == mergeAttributeLine {
-			return nil
+
+	required := []string{mergeAttributeLine, mergeActivityAttributeLine}
+	var missing []string
+	for _, want := range required {
+		found := false
+		for _, line := range strings.Split(contents, "\n") {
+			if strings.TrimSpace(line) == want {
+				found = true
+				break
+			}
 		}
+		if !found {
+			missing = append(missing, want)
+		}
+	}
+
+	if len(missing) == 0 {
+		return nil
 	}
 
 	if contents != "" && !strings.HasSuffix(contents, "\n") {
 		contents += "\n"
 	}
-	contents += mergeAttributeLine + "\n"
+	for _, line := range missing {
+		contents += line + "\n"
+	}
 
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		return fmt.Errorf("write .gitattributes: %w", err)
@@ -36,12 +55,19 @@ func EnsureGitAttributes(repoRoot string) error {
 	return nil
 }
 
-// ConfigureMergeDriver sets the local git merge driver configuration.
+// ConfigureMergeDriver sets the local git merge driver configuration for both
+// the tick (JSON) and tick-activity (JSONL) drivers.
 func ConfigureMergeDriver(repoRoot string) error {
 	if err := runGitConfig(repoRoot, "merge.tick.name", "tick JSON merge"); err != nil {
 		return err
 	}
 	if err := runGitConfig(repoRoot, "merge.tick.driver", "tk merge-file %O %A %B %P"); err != nil {
+		return err
+	}
+	if err := runGitConfig(repoRoot, "merge.tick-activity.name", "tick-activity JSONL merge"); err != nil {
+		return err
+	}
+	if err := runGitConfig(repoRoot, "merge.tick-activity.driver", "tk merge-activity %O %A %B %P"); err != nil {
 		return err
 	}
 	return nil
