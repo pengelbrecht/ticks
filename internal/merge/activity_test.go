@@ -6,7 +6,11 @@ import (
 )
 
 func TestMergeActivity(t *testing.T) {
+	// Production schema uses "tick", not "tick_id". Tests use both to exercise both paths.
 	line := func(ts, tickID, action, actor string) string {
+		return `{"ts":"` + ts + `","tick":"` + tickID + `","action":"` + action + `","actor":"` + actor + `"}`
+	}
+	lineOldSchema := func(ts, tickID, action, actor string) string {
 		return `{"ts":"` + ts + `","tick_id":"` + tickID + `","action":"` + action + `","actor":"` + actor + `"}`
 	}
 
@@ -113,6 +117,15 @@ func TestMergeActivity(t *testing.T) {
 				line("2024-01-02T00:00:00Z", "abc", "update", "bob"),
 				line("2024-01-03T00:00:00Z", "abc", "close", "carol"),
 			},
+		},
+		{
+			// Old-schema entries use "tick_id"; new-schema entries use "tick".
+			// Both must be deduplicated correctly via the fallback path.
+			name:      "dedup_old_schema_tick_id_fallback",
+			ancestor:  "",
+			current:   lineOldSchema("2024-01-01T00:00:00Z", "abc", "create", "alice"),
+			other:     lineOldSchema("2024-01-01T00:00:00Z", "abc", "create", "alice"),
+			wantLines: []string{lineOldSchema("2024-01-01T00:00:00Z", "abc", "create", "alice")},
 		},
 	}
 

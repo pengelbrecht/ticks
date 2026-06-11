@@ -194,6 +194,26 @@ func TestCheckAndInstallMergeDrivers_IdempotentWhenAlreadyConfigured(t *testing.
 	}
 }
 
+func TestCheckAndInstallMergeDrivers_UpgradesExistingTickOnlyClone(t *testing.T) {
+	// Simulate a clone that already has the old tick driver but not tick-activity.
+	dir := setupGitRepo(t)
+	runCmd := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("command %v: %v\n%s", args, err, out)
+		}
+	}
+	runCmd("git", "config", "merge.tick.driver", "tk merge-file %O %A %B %P")
+
+	if err := CheckAndInstallMergeDrivers(dir); err != nil {
+		t.Fatalf("CheckAndInstallMergeDrivers: %v", err)
+	}
+
+	checkGitConfig(t, dir, "merge.tick-activity.driver", "tk merge-activity %O %A %B %P")
+}
+
 func TestCheckAndInstallMergeDrivers_NotAGitRepo(t *testing.T) {
 	// A plain temp dir (no .git) — must return nil silently.
 	dir := t.TempDir()

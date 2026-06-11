@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -56,8 +57,10 @@ func runMergeActivity(cmd *cobra.Command, args []string) error {
 	}
 	defer otherFile.Close()
 
-	// Write result to a temp file, then atomically replace current.
-	tmpFile, err := os.CreateTemp("", "merge-activity-*")
+	// Write result to a temp file in the same directory as current so that
+	// os.Rename is guaranteed to stay on the same filesystem (avoids EXDEV on
+	// Linux where TMPDIR may be a different device, e.g. tmpfs /tmp).
+	tmpFile, err := os.CreateTemp(filepath.Dir(currentPath), "merge-activity-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}

@@ -17,14 +17,16 @@ func CheckAndInstallMergeDrivers(repoRoot string) error {
 		return nil
 	}
 
-	cmd := exec.Command("git", "config", "--get", "merge.tick.driver")
+	// Probe for the newer tick-activity driver (not tick) so existing clones that
+	// already have the old tick driver but lack tick-activity get upgraded too.
+	cmd := exec.Command("git", "config", "--get", "merge.tick-activity.driver")
 	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err == nil && strings.TrimSpace(string(out)) != "" {
-		// Already configured — nothing to do.
+		// Both drivers already configured — nothing to do.
 		return nil
 	}
-	// err != nil here means the key is absent (exit 1) — install the drivers.
+	// key absent (exit 1) or empty — install / upgrade all drivers.
 	return ConfigureMergeDriver(repoRoot)
 }
 

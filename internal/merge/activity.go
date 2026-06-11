@@ -33,11 +33,12 @@ func activityKey(m map[string]json.RawMessage) string {
 	return ts + "|" + tickID + "|" + action + "|" + actor
 }
 
-// isConflictMarkerLine reports whether a line contains a git conflict marker.
+// isConflictMarkerLine reports whether a line is a git conflict marker.
+// Anchored to line start to avoid false positives from JSON payloads containing "=======".
 func isConflictMarkerLine(line string) bool {
-	return strings.Contains(line, "<<<<<<<") ||
-		strings.Contains(line, "=======") ||
-		strings.Contains(line, ">>>>>>>")
+	return strings.HasPrefix(line, "<<<<<<<") ||
+		strings.HasPrefix(line, "=======") ||
+		strings.HasPrefix(line, ">>>>>>>")
 }
 
 // parseActivityLines reads JSONL lines from r, skipping blank lines and
@@ -52,6 +53,8 @@ func parseActivityLines(r io.Reader) ([]struct {
 	}
 
 	scanner := bufio.NewScanner(r)
+	// Match the 1MB line limit used in internal/tick/store.go to handle large note entries.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
