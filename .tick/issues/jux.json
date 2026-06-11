@@ -1,0 +1,14 @@
+{
+  "id": "jux",
+  "title": "Tick merge conflict resistance: lazy drivers, merge-activity, beads attr cleanup",
+  "description": "Three improvements to make .tick file merges automatic and conflict-free in any checkout:\n\nA) Lazy driver self-registration: tk checks+installs merge drivers on startup rather than only at tk init, so CI/workers/fresh clones never silently fall back to default 3-way merge.\n\nB) EnsureGitAttributes completeness: add the .tick/activity/activity.jsonl attribute line (currently written by hand in this repo but not by EnsureGitAttributes).\n\nC) Real merge-activity driver: replace merge=union on activity.jsonl with a proper tk merge-activity driver that parses JSONL, dedupes by (ts+tick+action+actor), sorts by ts, and strips any committed conflict-marker lines.\n\nCleanup: remove the stale .beads/issues.jsonl merge=beads line from .gitattributes (no driver is registered for it; git silently falls back to default 3-way merge which is wrong for append-only JSONL). Beads importer stays untouched.",
+  "notes": "2026-06-11 08:30 - Run started on branch epic/jux-merge-conflict-resistance",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "base_branch": "epic/jux-merge-conflict-resistance",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-11T06:28:37.669021Z",
+  "updated_at": "2026-06-11T06:30:39.502391Z"
+}
