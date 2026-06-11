@@ -14,6 +14,78 @@ import (
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
+// makeTestTickDir sets up a temp .tick dir with an issues sub-dir and writes one tick file.
+// Returns tickDir and the created Tick.
+func makeTestTickDir(t *testing.T) (string, tick.Tick) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	now := time.Now().UTC().Round(time.Second)
+	awaiting := tick.AwaitingApproval
+	tk := tick.Tick{
+		ID:        "abc",
+		Title:     "Test tick",
+		Status:    tick.StatusOpen,
+		Priority:  2,
+		Type:      tick.TypeTask,
+		Owner:     "owner@example.com",
+		CreatedBy: "owner@example.com",
+		Awaiting:  &awaiting,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	data, err := json.Marshal(tk)
+	if err != nil {
+		t.Fatalf("marshal tick: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(issuesDir, tk.ID+".json"), data, 0644); err != nil {
+		t.Fatalf("write tick: %v", err)
+	}
+	return tickDir, tk
+}
+
+// makeTestClient creates a Client wired to a loopback test WebSocket server.
+// The server drains all inbound messages (so send calls don't block).
+func makeTestClient(t *testing.T, tickDir string) *Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	wsURL := "ws" + server.URL[len("http"):]
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	client, err := NewClient(Config{
+		Token:     "test-token",
+		BoardName: "myboard",
+		TickDir:   tickDir,
+	})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	client.conn = conn
+	return client
+}
+
 func TestLoadConfig_NoToken(t *testing.T) {
 	// Ensure no environment variable is set
 	os.Unsetenv(EnvToken)
@@ -370,5 +442,134 @@ func TestHandleSyncMessageRaw_RequestSyncSendsAuthoritativeSnapshot(t *testing.T
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for sync_full")
+	}
+}
+
+// TestHandleTickOperation_ActorPropagated verifies that when a tick_operation message
+// carries an actor field, the resulting activity log entry uses that actor.
+// Note: approve+awaiting_approval closes the tick (ProcessVerdict), so detectChange
+// records ActivityClose rather than ActivityApprove; we verify the actor regardless of action.
+func TestHandleTickOperation_ActorPropagated(t *testing.T) {
+	tickDir, _ := makeTestTickDir(t)
+	client := makeTestClient(t, tickDir)
+
+	req := TickOperationRequest{
+		Type:      "tick_operation",
+		RequestID: "req-001",
+		Operation: "approve",
+		TickID:    "abc",
+		Actor:     "pe@writeflow.com",
+	}
+	// Run synchronously (no goroutine) so we can check results immediately.
+	client.handleTickOperation(req)
+
+	store := tick.NewStore(tickDir)
+	activities, err := store.ReadActivity(10)
+	if err != nil {
+		t.Fatalf("ReadActivity: %v", err)
+	}
+	if len(activities) == 0 {
+		t.Fatal("expected at least one activity entry, got none")
+	}
+	// Verify every activity entry for tick abc carries the cloud actor.
+	var found bool
+	for _, a := range activities {
+		if a.TickID == "abc" {
+			found = true
+			if a.Actor != "pe@writeflow.com" {
+				t.Errorf("expected actor %q, got %q (action=%s)", "pe@writeflow.com", a.Actor, a.Action)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected at least one activity entry for tick abc, found none")
+	}
+}
+
+// TestHandleTickOperation_NoActor_FallsBackToOwner verifies that when a tick_operation
+// has no actor, the activity entry falls back to the tick's owner (backward compatibility).
+func TestHandleTickOperation_NoActor_FallsBackToOwner(t *testing.T) {
+	tickDir, tk := makeTestTickDir(t)
+	client := makeTestClient(t, tickDir)
+
+	req := TickOperationRequest{
+		Type:      "tick_operation",
+		RequestID: "req-002",
+		Operation: "approve",
+		TickID:    "abc",
+		// Actor intentionally empty — should fall back to t.Owner
+	}
+	client.handleTickOperation(req)
+
+	store := tick.NewStore(tickDir)
+	activities, err := store.ReadActivity(10)
+	if err != nil {
+		t.Fatalf("ReadActivity: %v", err)
+	}
+	if len(activities) == 0 {
+		t.Fatal("expected at least one activity entry, got none")
+	}
+	var found bool
+	for _, a := range activities {
+		if a.TickID == "abc" {
+			found = true
+			if a.Actor != tk.Owner {
+				t.Errorf("expected fallback actor %q (tick owner), got %q (action=%s)", tk.Owner, a.Actor, a.Action)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected at least one activity entry for tick abc, found none")
+	}
+}
+
+// TestApplyRemoteTick_NoActivityLogged pins the replication/operation distinction:
+// applying remote state (applyRemoteTick / applyRemoteState) is a raw write that must
+// NOT generate local activity entries — only handleTickOperation logs activity.
+func TestApplyRemoteTick_NoActivityLogged(t *testing.T) {
+	tickDir, tk := makeTestTickDir(t)
+	client := makeTestClient(t, tickDir)
+
+	// Apply a newer remote version of the existing tick (update path).
+	updated := tk
+	updated.Title = "Updated remotely"
+	updated.UpdatedAt = tk.UpdatedAt.Add(time.Hour)
+	client.applyRemoteTick(updated)
+
+	// Apply a brand-new remote tick (create path) via full-state replication.
+	now := time.Now().UTC().Round(time.Second)
+	newTick := tick.Tick{
+		ID:        "xyz",
+		Title:     "Created remotely",
+		Status:    tick.StatusOpen,
+		Priority:  2,
+		Type:      tick.TypeTask,
+		Owner:     "owner@example.com",
+		CreatedBy: "owner@example.com",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	client.applyRemoteState(map[string]tick.Tick{"xyz": newTick})
+
+	// Both writes must have landed on disk...
+	store := tick.NewStore(tickDir)
+	got, err := store.Read("abc")
+	if err != nil {
+		t.Fatalf("read abc after applyRemoteTick: %v", err)
+	}
+	if got.Title != "Updated remotely" {
+		t.Errorf("expected remote update applied, got title %q", got.Title)
+	}
+	if _, err := store.Read("xyz"); err != nil {
+		t.Fatalf("read xyz after applyRemoteState: %v", err)
+	}
+
+	// ...but neither may have produced an activity entry.
+	activities, err := store.ReadActivity(10)
+	if err != nil {
+		t.Fatalf("ReadActivity: %v", err)
+	}
+	if len(activities) != 0 {
+		t.Errorf("expected no activity entries from replication path, got %d: %+v", len(activities), activities)
 	}
 }

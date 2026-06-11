@@ -1,0 +1,17 @@
+{
+  "id": "vst",
+  "title": "Remove the built-in runner: tk run command and runner-only packages",
+  "description": "Context: execution moved to Claude Code orchestration; tk run is unused. Delete the runner-only stack (~17-19k LOC).\n\nDELETE:\n- cmd/tk/cmd/run.go (the tk run command)\n- internal/engine/ (~8.7k LOC run loop)\n- internal/wrapup/ (~2.9k)\n- internal/output/ (~2.6k, runner live-status sinks)\n- internal/runstate/ (~2.0k, only imported by internal/output/status_sink.go)\n- internal/runlog/ (~1.3k)\n- internal/budget/ (~1.1k)\n- internal/wave/runner.go + runner_test.go (wave EXECUTION; imports internal/agent + internal/runrecord)\n\nKEEP (verified non-runner dependents):\n- internal/wave/wave.go + wave_test.go - wave PLANNING, used by cmd/tk/cmd/graph.go and internal/query/roadmap.go\n- internal/worktree (tk merge), internal/context (tk context), internal/gc (tk gc), internal/config (tk init/create)\n- internal/agent and internal/runrecord - still imported by internal/tickboard/server and internal/ticks/client.go; their fate is a separate decision-gated tick. Do NOT delete them here; only trim runner-only call sites in internal/ticks/client.go that reference deleted packages (e.g. the engine interface reference near client.go:819).\n\nREPO GOTCHA (from .tick/learnings.md): cmd/tk/main.go has a legacy routing switch with a hard-coded case list plus usage text - remove the 'run' case and its usage lines there too, not just the cobra registration.\n\nAlso sweep docs: grep -rn 'tk run' README.md docs/ skills/ and remove or rewrite references to the built-in runner (the skills/ticks note that the standalone runner exists should be dropped or updated to say it was removed).\n\nVerification:\n- go build ./... \u0026\u0026 go test ./... fully green\n- grep -rn 'internal/engine|internal/wrapup|internal/output|internal/runstate|internal/runlog|internal/budget' --include='*.go' . returns nothing\n- ./tk run (built binary) reports unknown command; tk graph \u003cepic\u003e and tk merge --help still work\n\nFiles likely touched: the deletions above, cmd/tk/main.go, internal/ticks/client.go, README.md, docs/, skills/ticks/, go.mod/go.sum (tidy).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "ips"
+  ],
+  "parent": "vuq",
+  "acceptance_criteria": "Runner packages and tk run deleted with no dangling imports (grep clean); wave planning, merge, graph, board still build and their tests pass; main.go switch and usage text updated",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:25:22.986919Z",
+  "updated_at": "2026-06-10T15:25:22.986919Z"
+}

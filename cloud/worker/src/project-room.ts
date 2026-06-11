@@ -72,6 +72,8 @@ interface TickOperationRequest {
   requestId: string;
   operation: "add_note" | "approve" | "reject" | "close" | "reopen";
   tickId: string;
+  /** Authenticated session user id (opaque, not an email) of the requester. Used to attribute activity log entries. */
+  actor?: string;
   payload?: {
     message?: string;  // for add_note
     reason?: string;   // for reject, close
@@ -875,12 +877,15 @@ export class ProjectRoom extends DurableObject<Env> {
       this.pendingRequests.set(requestId, { resolve, reject, timeout });
     });
 
-    // Send operation request to local client
+    // Send operation request to local client.
+    // Populate actor from the authenticated cloud session so the local activity
+    // log records who clicked approve/reject/close in the cloud UI.
     const request: TickOperationRequest = {
       type: "tick_operation",
       requestId,
       operation,
       tickId,
+      actor: initiatingUserId || undefined,
       payload,
     };
 

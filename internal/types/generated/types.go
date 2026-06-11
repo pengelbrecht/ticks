@@ -7,7 +7,7 @@ import "time"
 // Status of the currently executing task
 type ActiveTaskStatus struct {
 	// Currently executing tool (if any)
-	ActiveTool *ActiveToolRecord `json:"activeTool,omitempty" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
+	ActiveTool *ActiveToolRecord `json:"activeTool,omitempty,omitzero" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
 
 	// ISO timestamp of last update
 	LastUpdated time.Time `json:"lastUpdated" yaml:"lastUpdated" mapstructure:"lastUpdated"`
@@ -31,19 +31,19 @@ type ActiveTaskStatus struct {
 // Active tool during a live run
 type ActiveToolRecord struct {
 	// Duration so far in milliseconds
-	DurationMs *int `json:"duration_ms,omitempty" yaml:"duration_ms,omitempty" mapstructure:"duration_ms,omitempty"`
+	DurationMs *int `json:"duration_ms,omitempty,omitzero" yaml:"duration_ms,omitempty" mapstructure:"duration_ms,omitempty"`
 
 	// Tool input (may be partial)
-	Input *string `json:"input,omitempty" yaml:"input,omitempty" mapstructure:"input,omitempty"`
+	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
 
 	// Whether the tool has errored
-	IsError *bool `json:"is_error,omitempty" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
+	IsError *bool `json:"is_error,omitempty,omitzero" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
 
 	// Tool name
 	Name string `json:"name" yaml:"name" mapstructure:"name"`
 
 	// Tool output (may be partial)
-	Output *string `json:"output,omitempty" yaml:"output,omitempty" mapstructure:"output,omitempty"`
+	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
 }
 
 // Response from GET /api/activity
@@ -61,10 +61,10 @@ type ActivitySchema struct {
 	Actor string `json:"actor" yaml:"actor" mapstructure:"actor"`
 
 	// Additional action-specific data
-	Data ActivitySchemaData `json:"data,omitempty" yaml:"data,omitempty" mapstructure:"data,omitempty"`
+	Data ActivitySchemaData `json:"data,omitempty,omitzero" yaml:"data,omitempty" mapstructure:"data,omitempty"`
 
 	// Parent epic ID if the tick belongs to an epic
-	Epic *string `json:"epic,omitempty" yaml:"epic,omitempty" mapstructure:"epic,omitempty"`
+	Epic *string `json:"epic,omitempty,omitzero" yaml:"epic,omitempty" mapstructure:"epic,omitempty"`
 
 	// ID of the tick this activity is about
 	Tick string `json:"tick" yaml:"tick" mapstructure:"tick"`
@@ -85,19 +85,19 @@ type AddNoteRequest struct {
 // Response from POST /api/ticks/:id/note
 type AddNoteResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -109,16 +109,16 @@ type AddNoteResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -127,13 +127,13 @@ type AddNoteResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Updated parsed notes
 	NotesList []Note `json:"notesList" yaml:"notesList" mapstructure:"notesList"`
@@ -142,16 +142,16 @@ type AddNoteResponse struct {
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -166,28 +166,28 @@ type AddNoteResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // Response from POST /api/ticks/:id/approve
 type ApproveTickResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// Whether the tick was closed as a result of approval
 	Closed bool `json:"closed" yaml:"closed" mapstructure:"closed"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -199,16 +199,16 @@ type ApproveTickResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -217,28 +217,28 @@ type ApproveTickResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -253,7 +253,7 @@ type ApproveTickResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // Details about a blocking tick
@@ -274,25 +274,25 @@ type ClientMessage interface{}
 // Request body for POST /api/ticks/:id/close
 type CloseTickRequest struct {
 	// Reason for closing
-	Reason *string `json:"reason,omitempty" yaml:"reason,omitempty" mapstructure:"reason,omitempty"`
+	Reason *string `json:"reason,omitempty,omitzero" yaml:"reason,omitempty" mapstructure:"reason,omitempty"`
 }
 
 // Response from POST /api/ticks/:id/close
 type CloseTickResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -304,16 +304,16 @@ type CloseTickResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -322,28 +322,28 @@ type CloseTickResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -358,7 +358,7 @@ type CloseTickResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // Server confirms WebSocket connection
@@ -373,40 +373,40 @@ type ConnectedMessage struct {
 // Request body for POST /api/ticks
 type CreateTickRequest struct {
 	// Detailed description
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// Parent epic ID
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (defaults to 2)
-	Priority *int `json:"priority,omitempty" yaml:"priority,omitempty" mapstructure:"priority,omitempty"`
+	Priority *int `json:"priority,omitempty,omitzero" yaml:"priority,omitempty" mapstructure:"priority,omitempty"`
 
 	// Pre-declared gate for closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// Title of the new tick
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 
 	// Type of tick (defaults to task)
-	Type *TickType `json:"type,omitempty" yaml:"type,omitempty" mapstructure:"type,omitempty"`
+	Type *TickType `json:"type,omitempty,omitzero" yaml:"type,omitempty" mapstructure:"type,omitempty"`
 }
 
 // Response from POST /api/ticks
 type CreateTickResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -418,16 +418,16 @@ type CreateTickResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -436,28 +436,28 @@ type CreateTickResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -472,7 +472,7 @@ type CreateTickResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // Summary info about an epic for dropdown lists
@@ -496,22 +496,22 @@ type ErrorMessage struct {
 // Detailed tick response with parsed notes and blocker details
 type GetTickResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// Details about blocking ticks
 	BlockerDetails []BlockerDetail `json:"blockerDetails" yaml:"blockerDetails" mapstructure:"blockerDetails"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -523,16 +523,16 @@ type GetTickResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -541,13 +541,13 @@ type GetTickResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Parsed notes from tick.notes
 	NotesList []Note `json:"notesList" yaml:"notesList" mapstructure:"notesList"`
@@ -556,16 +556,16 @@ type GetTickResponse struct {
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -580,13 +580,13 @@ type GetTickResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // Heartbeat ping
 type HeartbeatMessage struct {
 	// Token corresponds to the JSON schema field "token".
-	Token *string `json:"token,omitempty" yaml:"token,omitempty" mapstructure:"token,omitempty"`
+	Token *string `json:"token,omitempty,omitzero" yaml:"token,omitempty" mapstructure:"token,omitempty"`
 
 	// Type corresponds to the JSON schema field "type".
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
@@ -619,7 +619,7 @@ type ListTicksResponse struct {
 // Live run record for in-progress execution
 type LiveRecord struct {
 	// Currently executing tool
-	ActiveTool *ActiveToolRecord `json:"active_tool,omitempty" yaml:"active_tool,omitempty" mapstructure:"active_tool,omitempty"`
+	ActiveTool *ActiveToolRecord `json:"active_tool,omitempty,omitzero" yaml:"active_tool,omitempty" mapstructure:"active_tool,omitempty"`
 
 	// Last update timestamp
 	LastUpdated time.Time `json:"last_updated" yaml:"last_updated" mapstructure:"last_updated"`
@@ -646,10 +646,10 @@ type LiveRecord struct {
 	Status string `json:"status" yaml:"status" mapstructure:"status"`
 
 	// Thinking content so far
-	Thinking *string `json:"thinking,omitempty" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
+	Thinking *string `json:"thinking,omitempty,omitzero" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
 
 	// Completed tool invocations
-	Tools []ToolRecord `json:"tools,omitempty" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
+	Tools []ToolRecord `json:"tools,omitempty,omitzero" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
 }
 
 // Local agent online/offline status
@@ -685,40 +685,40 @@ type MetricsRecord struct {
 // Parsed note entry from tick.notes
 type Note struct {
 	// Note author (human or agent)
-	Author *string `json:"author,omitempty" yaml:"author,omitempty" mapstructure:"author,omitempty"`
+	Author *string `json:"author,omitempty,omitzero" yaml:"author,omitempty" mapstructure:"author,omitempty"`
 
 	// Note content
 	Text string `json:"text" yaml:"text" mapstructure:"text"`
 
 	// Timestamp portion (YYYY-MM-DD HH:MM)
-	Timestamp *string `json:"timestamp,omitempty" yaml:"timestamp,omitempty" mapstructure:"timestamp,omitempty"`
+	Timestamp *string `json:"timestamp,omitempty,omitzero" yaml:"timestamp,omitempty" mapstructure:"timestamp,omitempty"`
 }
 
 // Request body for POST /api/ticks/:id/reject
 type RejectTickRequest struct {
 	// Feedback explaining why the tick was rejected
-	Feedback *string `json:"feedback,omitempty" yaml:"feedback,omitempty" mapstructure:"feedback,omitempty"`
+	Feedback *string `json:"feedback,omitempty,omitzero" yaml:"feedback,omitempty" mapstructure:"feedback,omitempty"`
 }
 
 // Response from POST /api/ticks/:id/reject
 type RejectTickResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// Whether the tick was closed as a result of rejection
 	Closed bool `json:"closed" yaml:"closed" mapstructure:"closed"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -730,16 +730,16 @@ type RejectTickResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -748,28 +748,28 @@ type RejectTickResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -784,43 +784,43 @@ type RejectTickResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // Run event payload data
 type RunEventData struct {
 	// ActiveTool corresponds to the JSON schema field "activeTool".
-	ActiveTool *RunEventTool `json:"activeTool,omitempty" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
+	ActiveTool *RunEventTool `json:"activeTool,omitempty,omitzero" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
 
 	// Iteration corresponds to the JSON schema field "iteration".
-	Iteration *int `json:"iteration,omitempty" yaml:"iteration,omitempty" mapstructure:"iteration,omitempty"`
+	Iteration *int `json:"iteration,omitempty,omitzero" yaml:"iteration,omitempty" mapstructure:"iteration,omitempty"`
 
 	// Human-readable message
-	Message *string `json:"message,omitempty" yaml:"message,omitempty" mapstructure:"message,omitempty"`
+	Message *string `json:"message,omitempty,omitzero" yaml:"message,omitempty" mapstructure:"message,omitempty"`
 
 	// Metrics corresponds to the JSON schema field "metrics".
-	Metrics *RunEventMetrics `json:"metrics,omitempty" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
+	Metrics *RunEventMetrics `json:"metrics,omitempty,omitzero" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
 
 	// Number of API turns
-	NumTurns *int `json:"numTurns,omitempty" yaml:"numTurns,omitempty" mapstructure:"numTurns,omitempty"`
+	NumTurns *int `json:"numTurns,omitempty,omitzero" yaml:"numTurns,omitempty" mapstructure:"numTurns,omitempty"`
 
 	// Current output text
-	Output *string `json:"output,omitempty" yaml:"output,omitempty" mapstructure:"output,omitempty"`
+	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
 
 	// Status text
-	Status *string `json:"status,omitempty" yaml:"status,omitempty" mapstructure:"status,omitempty"`
+	Status *string `json:"status,omitempty,omitzero" yaml:"status,omitempty" mapstructure:"status,omitempty"`
 
 	// Success corresponds to the JSON schema field "success".
-	Success *bool `json:"success,omitempty" yaml:"success,omitempty" mapstructure:"success,omitempty"`
+	Success *bool `json:"success,omitempty,omitzero" yaml:"success,omitempty" mapstructure:"success,omitempty"`
 
 	// Number of tasks (context events)
-	TaskCount *int `json:"taskCount,omitempty" yaml:"taskCount,omitempty" mapstructure:"taskCount,omitempty"`
+	TaskCount *int `json:"taskCount,omitempty,omitzero" yaml:"taskCount,omitempty" mapstructure:"taskCount,omitempty"`
 
 	// Timestamp corresponds to the JSON schema field "timestamp".
 	Timestamp time.Time `json:"timestamp" yaml:"timestamp" mapstructure:"timestamp"`
 
 	// Token count (context events)
-	TokenCount *int `json:"tokenCount,omitempty" yaml:"tokenCount,omitempty" mapstructure:"tokenCount,omitempty"`
+	TokenCount *int `json:"tokenCount,omitempty,omitzero" yaml:"tokenCount,omitempty" mapstructure:"tokenCount,omitempty"`
 
 	// Type corresponds to the JSON schema field "type".
 	Type RunEventType `json:"type" yaml:"type" mapstructure:"type"`
@@ -838,7 +838,7 @@ type RunEventMessage struct {
 	Source RunEventSource `json:"source" yaml:"source" mapstructure:"source"`
 
 	// Task ID (if task-level event)
-	TaskId *string `json:"taskId,omitempty" yaml:"taskId,omitempty" mapstructure:"taskId,omitempty"`
+	TaskId *string `json:"taskId,omitempty,omitzero" yaml:"taskId,omitempty" mapstructure:"taskId,omitempty"`
 
 	// Type corresponds to the JSON schema field "type".
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
@@ -847,22 +847,22 @@ type RunEventMessage struct {
 // Token and cost metrics during run
 type RunEventMetrics struct {
 	// CacheCreationTokens corresponds to the JSON schema field "cacheCreationTokens".
-	CacheCreationTokens *int `json:"cacheCreationTokens,omitempty" yaml:"cacheCreationTokens,omitempty" mapstructure:"cacheCreationTokens,omitempty"`
+	CacheCreationTokens *int `json:"cacheCreationTokens,omitempty,omitzero" yaml:"cacheCreationTokens,omitempty" mapstructure:"cacheCreationTokens,omitempty"`
 
 	// CacheReadTokens corresponds to the JSON schema field "cacheReadTokens".
-	CacheReadTokens *int `json:"cacheReadTokens,omitempty" yaml:"cacheReadTokens,omitempty" mapstructure:"cacheReadTokens,omitempty"`
+	CacheReadTokens *int `json:"cacheReadTokens,omitempty,omitzero" yaml:"cacheReadTokens,omitempty" mapstructure:"cacheReadTokens,omitempty"`
 
 	// CostUsd corresponds to the JSON schema field "costUsd".
-	CostUsd *float64 `json:"costUsd,omitempty" yaml:"costUsd,omitempty" mapstructure:"costUsd,omitempty"`
+	CostUsd *float64 `json:"costUsd,omitempty,omitzero" yaml:"costUsd,omitempty" mapstructure:"costUsd,omitempty"`
 
 	// DurationMs corresponds to the JSON schema field "durationMs".
-	DurationMs *int `json:"durationMs,omitempty" yaml:"durationMs,omitempty" mapstructure:"durationMs,omitempty"`
+	DurationMs *int `json:"durationMs,omitempty,omitzero" yaml:"durationMs,omitempty" mapstructure:"durationMs,omitempty"`
 
 	// InputTokens corresponds to the JSON schema field "inputTokens".
-	InputTokens *int `json:"inputTokens,omitempty" yaml:"inputTokens,omitempty" mapstructure:"inputTokens,omitempty"`
+	InputTokens *int `json:"inputTokens,omitempty,omitzero" yaml:"inputTokens,omitempty" mapstructure:"inputTokens,omitempty"`
 
 	// OutputTokens corresponds to the JSON schema field "outputTokens".
-	OutputTokens *int `json:"outputTokens,omitempty" yaml:"outputTokens,omitempty" mapstructure:"outputTokens,omitempty"`
+	OutputTokens *int `json:"outputTokens,omitempty,omitzero" yaml:"outputTokens,omitempty" mapstructure:"outputTokens,omitempty"`
 }
 
 type RunEventSource string
@@ -874,10 +874,10 @@ const RunEventSourceSwarmSubagent RunEventSource = "swarm-subagent"
 // Active tool information
 type RunEventTool struct {
 	// Duration corresponds to the JSON schema field "duration".
-	Duration *int `json:"duration,omitempty" yaml:"duration,omitempty" mapstructure:"duration,omitempty"`
+	Duration *int `json:"duration,omitempty,omitzero" yaml:"duration,omitempty" mapstructure:"duration,omitempty"`
 
 	// Input corresponds to the JSON schema field "input".
-	Input *string `json:"input,omitempty" yaml:"input,omitempty" mapstructure:"input,omitempty"`
+	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
 
 	// Name corresponds to the JSON schema field "name".
 	Name string `json:"name" yaml:"name" mapstructure:"name"`
@@ -903,7 +903,7 @@ type RunRecord struct {
 	EndedAt time.Time `json:"ended_at" yaml:"ended_at" mapstructure:"ended_at"`
 
 	// Error message if the run failed
-	ErrorMsg *string `json:"error_msg,omitempty" yaml:"error_msg,omitempty" mapstructure:"error_msg,omitempty"`
+	ErrorMsg *string `json:"error_msg,omitempty,omitzero" yaml:"error_msg,omitempty" mapstructure:"error_msg,omitempty"`
 
 	// Token and cost metrics
 	Metrics MetricsRecord `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
@@ -927,13 +927,13 @@ type RunRecord struct {
 	Success bool `json:"success" yaml:"success" mapstructure:"success"`
 
 	// Thinking/reasoning content (if extended thinking was used)
-	Thinking *string `json:"thinking,omitempty" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
+	Thinking *string `json:"thinking,omitempty,omitzero" yaml:"thinking,omitempty" mapstructure:"thinking,omitempty"`
 
 	// List of tool invocations during the run
-	Tools []ToolRecord `json:"tools,omitempty" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
+	Tools []ToolRecord `json:"tools,omitempty,omitzero" yaml:"tools,omitempty" mapstructure:"tools,omitempty"`
 
 	// Verification results (if verification was run)
-	Verification *VerificationRecord `json:"verification,omitempty" yaml:"verification,omitempty" mapstructure:"verification,omitempty"`
+	Verification *VerificationRecord `json:"verification,omitempty,omitzero" yaml:"verification,omitempty" mapstructure:"verification,omitempty"`
 }
 
 type RunStatus string
@@ -944,7 +944,7 @@ const RunStatusError RunStatus = "error"
 // Response from GET /api/run-status/:epicId
 type RunStatusResponse struct {
 	// Status of currently executing task
-	ActiveTask *ActiveTaskStatus `json:"activeTask,omitempty" yaml:"activeTask,omitempty" mapstructure:"activeTask,omitempty"`
+	ActiveTask *ActiveTaskStatus `json:"activeTask,omitempty,omitzero" yaml:"activeTask,omitempty" mapstructure:"activeTask,omitempty"`
 
 	// Epic being queried
 	EpicId string `json:"epicId" yaml:"epicId" mapstructure:"epicId"`
@@ -953,7 +953,7 @@ type RunStatusResponse struct {
 	IsRunning bool `json:"isRunning" yaml:"isRunning" mapstructure:"isRunning"`
 
 	// Live run metrics
-	Metrics *LiveRecord `json:"metrics,omitempty" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
+	Metrics *LiveRecord `json:"metrics,omitempty,omitzero" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
 }
 
 const RunStatusStarting RunStatus = "starting"
@@ -1033,11 +1033,15 @@ type TickDeletedMessage struct {
 
 // RPC request for tick operation
 type TickOperationRequest struct {
+	// Authenticated session user id (opaque, not an email) of the cloud user who
+	// initiated the operation. Used to attribute activity log entries.
+	Actor *string `json:"actor,omitempty,omitzero" yaml:"actor,omitempty" mapstructure:"actor,omitempty"`
+
 	// Operation corresponds to the JSON schema field "operation".
 	Operation TickOperationType `json:"operation" yaml:"operation" mapstructure:"operation"`
 
 	// Payload corresponds to the JSON schema field "payload".
-	Payload *TickOperationRequestPayload `json:"payload,omitempty" yaml:"payload,omitempty" mapstructure:"payload,omitempty"`
+	Payload *TickOperationRequestPayload `json:"payload,omitempty,omitzero" yaml:"payload,omitempty" mapstructure:"payload,omitempty"`
 
 	// RequestId corresponds to the JSON schema field "requestId".
 	RequestId string `json:"requestId" yaml:"requestId" mapstructure:"requestId"`
@@ -1051,16 +1055,16 @@ type TickOperationRequest struct {
 
 type TickOperationRequestPayload struct {
 	// Message corresponds to the JSON schema field "message".
-	Message *string `json:"message,omitempty" yaml:"message,omitempty" mapstructure:"message,omitempty"`
+	Message *string `json:"message,omitempty,omitzero" yaml:"message,omitempty" mapstructure:"message,omitempty"`
 
 	// Reason corresponds to the JSON schema field "reason".
-	Reason *string `json:"reason,omitempty" yaml:"reason,omitempty" mapstructure:"reason,omitempty"`
+	Reason *string `json:"reason,omitempty,omitzero" yaml:"reason,omitempty" mapstructure:"reason,omitempty"`
 }
 
 // RPC response for tick operation
 type TickOperationResponse struct {
 	// Error corresponds to the JSON schema field "error".
-	Error *string `json:"error,omitempty" yaml:"error,omitempty" mapstructure:"error,omitempty"`
+	Error *string `json:"error,omitempty,omitzero" yaml:"error,omitempty" mapstructure:"error,omitempty"`
 
 	// RequestId corresponds to the JSON schema field "requestId".
 	RequestId string `json:"requestId" yaml:"requestId" mapstructure:"requestId"`
@@ -1069,7 +1073,7 @@ type TickOperationResponse struct {
 	Success bool `json:"success" yaml:"success" mapstructure:"success"`
 
 	// Tick corresponds to the JSON schema field "tick".
-	Tick *TickSchema_1 `json:"tick,omitempty" yaml:"tick,omitempty" mapstructure:"tick,omitempty"`
+	Tick *TickSchema_1 `json:"tick,omitempty,omitzero" yaml:"tick,omitempty" mapstructure:"tick,omitempty"`
 
 	// Type corresponds to the JSON schema field "type".
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
@@ -1092,19 +1096,19 @@ const TickRequiresReview TickRequires = "review"
 // Tick with computed board fields (used in list responses)
 type TickResponse struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// Computed kanban column
 	Column TickColumn `json:"column" yaml:"column" mapstructure:"column"`
@@ -1116,16 +1120,16 @@ type TickResponse struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -1134,28 +1138,28 @@ type TickResponse struct {
 	IsBlocked bool `json:"isBlocked" yaml:"isBlocked" mapstructure:"isBlocked"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -1170,28 +1174,28 @@ type TickResponse struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 
 	// Verification status (for closed tasks only)
-	VerificationStatus *VerificationStatus `json:"verificationStatus,omitempty" yaml:"verificationStatus,omitempty" mapstructure:"verificationStatus,omitempty"`
+	VerificationStatus *VerificationStatus `json:"verificationStatus,omitempty,omitzero" yaml:"verificationStatus,omitempty" mapstructure:"verificationStatus,omitempty"`
 }
 
 // A single work item (task, bug, feature, epic, or chore)
 type TickSchema struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// ISO timestamp when the tick was created
 	CreatedAt time.Time `json:"created_at" yaml:"created_at" mapstructure:"created_at"`
@@ -1200,43 +1204,43 @@ type TickSchema struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -1251,25 +1255,25 @@ type TickSchema struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 // A single work item (task, bug, feature, epic, or chore)
 type TickSchema_1 struct {
 	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
 	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
+	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
 	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
+	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
 
 	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
+	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
 
 	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
+	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
 
 	// ISO timestamp when the tick was created
 	CreatedAt time.Time `json:"created_at" yaml:"created_at" mapstructure:"created_at"`
@@ -1278,43 +1282,43 @@ type TickSchema_1 struct {
 	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
 
 	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
+	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
 
 	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty" yaml:"description,omitempty" mapstructure:"description,omitempty"`
+	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
 
 	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
+	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
 
 	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
+	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
 
 	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
+	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
 
 	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
+	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
 
 	// Who is responsible for this tick (agent or human)
 	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
 
 	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// Priority level (0=highest, 4=lowest)
 	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
 
 	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
@@ -1329,7 +1333,7 @@ type TickSchema_1 struct {
 	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
 
 	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
+	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
 type TickStatus string
@@ -1375,34 +1379,34 @@ type ToolRecord struct {
 	DurationMs int `json:"duration_ms" yaml:"duration_ms" mapstructure:"duration_ms"`
 
 	// Tool input (may be truncated)
-	Input *string `json:"input,omitempty" yaml:"input,omitempty" mapstructure:"input,omitempty"`
+	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
 
 	// Whether the tool invocation resulted in an error
-	IsError *bool `json:"is_error,omitempty" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
+	IsError *bool `json:"is_error,omitempty,omitzero" yaml:"is_error,omitempty" mapstructure:"is_error,omitempty"`
 
 	// Name of the tool that was invoked
 	Name string `json:"name" yaml:"name" mapstructure:"name"`
 
 	// Tool output (may be truncated)
-	Output *string `json:"output,omitempty" yaml:"output,omitempty" mapstructure:"output,omitempty"`
+	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
 }
 
 // Request body for PATCH /api/ticks/:id
 type UpdateTickRequest struct {
 	// New owner
-	Owner *string `json:"owner,omitempty" yaml:"owner,omitempty" mapstructure:"owner,omitempty"`
+	Owner *string `json:"owner,omitempty,omitzero" yaml:"owner,omitempty" mapstructure:"owner,omitempty"`
 
 	// New parent epic ID
-	Parent *string `json:"parent,omitempty" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
+	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
 
 	// New priority level
-	Priority *int `json:"priority,omitempty" yaml:"priority,omitempty" mapstructure:"priority,omitempty"`
+	Priority *int `json:"priority,omitempty,omitzero" yaml:"priority,omitempty" mapstructure:"priority,omitempty"`
 
 	// Pre-declared gate for closing
-	Requires *TickRequires `json:"requires,omitempty" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
 	// New tick type
-	Type *TickType `json:"type,omitempty" yaml:"type,omitempty" mapstructure:"type,omitempty"`
+	Type *TickType `json:"type,omitempty,omitzero" yaml:"type,omitempty" mapstructure:"type,omitempty"`
 }
 
 // Aggregated verification results for a run
@@ -1411,7 +1415,7 @@ type VerificationRecord struct {
 	AllPassed bool `json:"all_passed" yaml:"all_passed" mapstructure:"all_passed"`
 
 	// Individual verifier results
-	Results []VerifierResult `json:"results,omitempty" yaml:"results,omitempty" mapstructure:"results,omitempty"`
+	Results []VerifierResult `json:"results,omitempty,omitzero" yaml:"results,omitempty" mapstructure:"results,omitempty"`
 }
 
 type VerificationStatus string
@@ -1426,10 +1430,10 @@ type VerifierResult struct {
 	DurationMs int `json:"duration_ms" yaml:"duration_ms" mapstructure:"duration_ms"`
 
 	// Error message if verification failed due to an error
-	Error *string `json:"error,omitempty" yaml:"error,omitempty" mapstructure:"error,omitempty"`
+	Error *string `json:"error,omitempty,omitzero" yaml:"error,omitempty" mapstructure:"error,omitempty"`
 
 	// Verifier output (may be truncated)
-	Output *string `json:"output,omitempty" yaml:"output,omitempty" mapstructure:"output,omitempty"`
+	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
 
 	// Whether this verifier passed
 	Passed bool `json:"passed" yaml:"passed" mapstructure:"passed"`

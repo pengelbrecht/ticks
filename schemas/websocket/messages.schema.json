@@ -195,6 +195,7 @@
         "requestId": { "type": "string" },
         "operation": { "$ref": "#/$defs/TickOperationType" },
         "tickId": { "type": "string" },
+        "actor": { "type": "string", "description": "Authenticated session user id (opaque, not an email) of the cloud user who initiated the operation. Used to attribute activity log entries." },
         "payload": {
           "type": "object",
           "properties": {

@@ -1,0 +1,14 @@
+{
+  "id": "xdq",
+  "title": "Fix cloud/worker test suite crash (workerd + Node 24)",
+  "description": "pnpm test in cloud/worker crashes before any test runs: workerd ERR_RUNTIME_FAILURE 'inserted row already exists in table' (error points into the generated runtime, line ~10840). Verified present on main and epic/idc on 2026-06-10 — pre-existing, unrelated to recent worker changes. Likely a miniflare/vitest-pool-workers version incompatibility with Node 24. Effect: all worker-side tests are unverifiable, including the tick_operation actor-propagation test in cloud/worker/test/project-room-sync.test.ts.\n\nApproach: reproduce with 'cd cloud/worker \u0026\u0026 pnpm test'; check @cloudflare/vitest-pool-workers / miniflare / wrangler versions against their Node-24 support matrices; upgrade the test tooling (allowed to touch package.json/pnpm-lock.yaml for cloud/worker only) or pin the vitest pool to a working combination. Do NOT mock around it.\n\nRun: cd cloud/worker \u0026\u0026 pnpm test",
+  "notes": "2026-06-10 19:25 - Final epic-idc review surfaced two more pre-existing worker-test problems, related to this tick: (1) cloud/worker/test/auth-integration.test.ts has 2 failing 'Agent WebSocket Auth' tests even when run alone — they hit /agent, a route that no longer exists in cloud/worker/src/index.ts; tests are stale. (2) Worker tests are not in CI at all (.github/workflows/ci.yml runs Go + UI only), which is why both this and the workerd boot crash went unnoticed. Consider folding CI coverage into the fix.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "pnpm test in cloud/worker runs to completion with all tests executing (existing + actor-propagation test passing)",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T17:02:13.436014Z",
+  "updated_at": "2026-06-10T17:25:03.021158Z"
+}

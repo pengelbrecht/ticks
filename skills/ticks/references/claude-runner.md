@@ -22,12 +22,19 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
 
 ```
 0. Read .tick/config.md (if present) — run its Environment pre-flight checks now, before wave 1.
+   Export TK_ACTOR=orchestrator (or agent:<name>) so every tk write from this session
+   stamps activity entries with a recognisable actor — distinguishing orchestrator actions from
+   human actions in the feed. (See "Actor convention" below.)
 1. tk graph <epic> --json          → waves + max_parallel
 2. For each wave:
    a. Mark the wave's ticks in_progress
+      `tk update <id> --status in_progress` emits a 'start' activity entry and sets started_at
+      on the tick — claiming is immediately visible on the board and in the activity feed.
    b. Launch one Agent per tick — all in a SINGLE message — worktree-isolated, in the background
    c. Wait. The harness notifies you as each agent finishes. Do NOT poll.
    d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
+      Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
+      Never use a bare `tk close`.
    e. When the whole wave is merged, run the project's test suite on the integrated tree
    f. When the wave is integrated and green, go to the next wave
 3. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
@@ -68,6 +75,8 @@ Before calling `tk graph`, read `.tick/config.md` (if present). It contains up t
 - **Rules** — project-specific constraints to include verbatim in every implementer prompt.
 
 **Read it fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the file from the worktree each time you start or resume a run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
+
+**Actor convention.** Export `TK_ACTOR=orchestrator` (or `TK_ACTOR=agent:<name>`) at run start so that every `tk` command from this session stamps activity entries with a recognisable actor. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for a single call; precedence is `--actor` flag > `TK_ACTOR` env > tick-owner default. This keeps orchestrator actions distinguishable from human actions in the activity feed without any per-command overhead. Two caveats: `tk note` ignores `TK_ACTOR` (its provenance mechanism is `--from agent|human`), and because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
 **Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
 
@@ -151,8 +160,10 @@ git diff --name-only HEAD...<agent-branch> -- .tick/
 
 # 2. Merge and close
 git merge <agent-branch>     # branch name comes from the agent's report
-tk close <tick-id> --reason "Completed via Claude orchestration"
+tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 ```
+
+Always pass `--reason` with a concrete summary — never a bare `tk close <id>`. The reason appears in the activity feed and in the retro harvest; vague or absent reasons make the retro harder.
 
 Because agents only ever touch code — never `.tick/`, never `tk` — their branches change different files than your tick-state updates, so merges stay clean. Hold that invariant: **agents implement; the orchestrator owns tick state.** The check in step 1 is how you *enforce* it rather than hope for it: if the diff shows `.tick/` changes, strip them out of the merge instead of letting them collide with your state updates:
 
@@ -231,7 +242,7 @@ git diff <base-branch>...HEAD          # base branch from `tk notes <epic-id>` (
 # (dispatch a reviewer subagent over this diff if the epic is substantial)
 
 tk list --parent <epic-id> --status open     # anything left?
-tk close <epic-id> --reason "All tasks completed via Claude orchestration"   # if all done
+tk close <epic-id> --reason "Completed: all tasks merged and green"   # if all done; use a concrete summary
 tk list --parent <epic-id> --awaiting=        # otherwise, report what's waiting on a human
 ```
 
@@ -353,8 +364,10 @@ Re-entry is just re-invoking the skill. Before starting the first wave, run the 
 
 Run this **before the first wave on every (re)entry**, even on a fresh start (guarding against a crashed previous session costs nothing):
 
-1. List stuck ticks: `tk list --status in_progress --all`. The `--json` output carries a `last_activity` timestamp per tick.
-2. For each `in_progress` tick with no live agent and a meaningful last-activity age: it is stale. Reset it: `tk update <id> --status open`.
+1. List stuck ticks: `tk list --status in_progress --all --json`. The JSON output includes a `started_at` timestamp per tick (set when the tick was claimed via `--status in_progress`). `last_activity` is also available as a secondary signal.
+2. For each `in_progress` tick with no live agent: check its `started_at` age.
+   - A tick whose `started_at` is older than your staleness threshold (e.g. 30 minutes) **and** has no live agent is stale. Reset it: `tk update <id> --status open`.
+   - `last_activity` provides a secondary cross-check: because claiming a tick emits a `start` activity entry, `last_activity` is also fresh at claim time. A genuinely stale tick will show both an old `started_at` **and** an old `last_activity`.
    - **What stays closed:** any tick already closed before the session died. Completed work is never re-opened.
    - **What re-opens:** only ticks that were still in_progress when the session died — incomplete work must be re-run from the reopened tick.
 3. **Childless-epic edge case:** an `in_progress` epic with no child ticks maps to `action: implement` in `tk next`, which is unroutable — `EpicsNeedingPlanning` only considers epics with status `open`. Reset it to `open` so it correctly surfaces as `action: plan`.
@@ -372,7 +385,7 @@ Never leave orphaned `worktree-agent-*` branches unaccounted for. They carry unc
 
 ### Base branch
 
-At run start, record the run's base branch as a first-class field on the epic tick:
+The base branch is the branch the epic forked from and will merge back into (e.g. `main`) — not the epic's own working branch. At run start, record it as a first-class field on the epic tick:
 
 ```bash
 tk update <epic-id> --base-branch <name>

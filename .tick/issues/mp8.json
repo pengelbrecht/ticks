@@ -1,0 +1,17 @@
+{
+  "id": "mp8",
+  "title": "Add roadmap view to the cloud board",
+  "description": "Context: the local board has a roadmap view (internal/tickboard/ui/src/components/roadmap-view.ts, fed by the local /api/roadmap endpoint built on internal/query/roadmap.go) showing epic chains with done/active/queued badges. The cloud board has no equivalent, so someone monitoring a long Claude-orchestrated run from the cloud UI cannot see which epic is active or how the chain is progressing - only the tick-level kanban.\n\nDeliverable: a roadmap panel in the cloud board UI showing epic chains (epics linked via blocked-by) with per-epic status badge (done / active / queued / awaiting gate) and child-tick progress (closed/total). The cloud already syncs full tick state (epics included) to the Durable Object (cloud/worker/src/project-room.ts), so the chain can be computed client-side from synced ticks - mirror the chain-derivation logic of the local roadmap view rather than adding a new sync message. Match the existing cloud UI's look (Catppuccin Mocha variables, ticks-* components).\n\nTest cases:\n- two epics A \u003c- B (B blocked-by A), A has 3/4 children closed -\u003e A renders active with 3/4 progress, B renders queued\n- epic with awaiting/requires gate -\u003e gate badge rendered\n- no epics -\u003e panel hidden or empty state, no errors\n\nRun: pnpm test in cloud/worker (or wherever the cloud UI tests live - check cloud/ layout first).\n\nFiles likely touched: cloud worker UI components + tests (locate the UI source under cloud/), no Go changes expected.",
+  "notes": "2026-06-10 19:27 - Final-review fix merged: roadmap-compute.ts now gates on awaiting OR legacy manual (awaiting_type falls back to 'work'), matching Go IsAwaitingHuman semantics; +3 tests; static rebuilt on top of merged epic branch; UI websocket codegen output (actor field) committed in sync.",
+  "status": "closed",
+  "priority": 3,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "idc",
+  "acceptance_criteria": "Cloud board renders epic chains with status badges and child progress computed from synced ticks; UI tests cover the three listed cases and pass",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:24:26.417019Z",
+  "updated_at": "2026-06-10T17:27:31.4272Z",
+  "closed_at": "2026-06-10T16:56:56.420077Z",
+  "closed_reason": "Completed: cloud board roadmap view — roadmap computed client-side from synced ticks in cloud mode (roadmap-compute.ts port of internal/query/roadmap.go, 28 tests); local mode unchanged"
+}

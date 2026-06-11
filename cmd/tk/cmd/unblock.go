@@ -59,7 +59,7 @@ func runUnblock(cmd *cobra.Command, args []string) error {
 	t.BlockedBy = removeString(t.BlockedBy, blockerID)
 	t.UpdatedAt = time.Now().UTC()
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor("")); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 

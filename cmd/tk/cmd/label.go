@@ -75,7 +75,7 @@ func runLabelAdd(cmd *cobra.Command, args []string) error {
 	t.Labels = appendUnique(t.Labels, args[1])
 	t.UpdatedAt = time.Now().UTC()
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor("")); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 
@@ -107,7 +107,7 @@ func runLabelRm(cmd *cobra.Command, args []string) error {
 	t.Labels = removeString(t.Labels, args[1])
 	t.UpdatedAt = time.Now().UTC()
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor("")); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 

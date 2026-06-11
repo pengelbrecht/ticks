@@ -1,0 +1,17 @@
+{
+  "id": "xps",
+  "title": "Propagate requester identity on cloud tick operations",
+  "description": "Context: when a human approves/rejects/closes a tick from the cloud board, the cloud worker forwards a tick_operation message to the connected local client, which executes it via internal/tickboard/cloud/client.go handleTickOperation (~line 1108). The requester's identity is not captured, so the resulting activity entry shows the local default actor - the audit trail cannot tell who clicked approve in the cloud UI.\n\nDeliverable: carry the cloud requester identity end to end:\n1. schemas/websocket: add an optional actor field to the tick_operation message schema.\n2. cloud/worker/src/project-room.ts: populate actor from the authenticated cloud session when forwarding tick_operation.\n3. internal/tickboard/cloud/client.go handleTickOperation: pass the received actor through to the tick save so the activity entry records it (falls back to current behavior when absent).\n\nTest cases:\n- tick_operation with actor=\"pe@writeflow.com\" approve -\u003e local activity entry actor=\"pe@writeflow.com\"\n- tick_operation without actor -\u003e current default actor behavior (backward compatible)\n- cloud worker unit test: forwarded message includes session identity\n\nRun: go test ./internal/tickboard/... ; pnpm test in cloud/worker. NOTE (repo gotcha): src/comms/cloud.test.ts and local.test.ts in the UI are live-rig integration tests driving 'go run ./cmd/testrig -port 18787' - they auto-skip without a rig; hermetic coverage belongs in cloud-unit.test.ts / mock.test.ts. Don't 'fix' skips by mocking.\n\nFiles likely touched: schemas/websocket/, cloud/worker/src/project-room.ts (+ tests), internal/tickboard/cloud/client.go (+ tests).",
+  "notes": "2026-06-10 19:02 - Agent concerns at integration: (1) cloud/worker pnpm suite has a pre-existing workerd/Node-24 crash (ERR_RUNTIME_FAILURE 'inserted row already exists') — verified by orchestrator on the integration tree without this change; the new worker-side actor test is committed but unverifiable until that env is fixed. (2) Propagated actor is the internal session userId (e.g. user-abc123), not an email — email lookup noted as possible enhancement.\n2026-06-10 19:30 - Final-review fixes merged: replication path (applyRemoteState/applyRemoteTick) restored to raw writes — no activity logging, no validation, exactly pre-tick behavior; WriteAs only on handleTickOperation; new test pins the distinction. Actor descriptions corrected to 'authenticated session user id (opaque, not an email)' in schema, worker, client; Go types regenerated.",
+  "status": "closed",
+  "priority": 3,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "idc",
+  "acceptance_criteria": "Cloud-initiated operations record the cloud requester as activity actor; missing actor falls back to current behavior; Go and worker tests green",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:24:13.260617Z",
+  "updated_at": "2026-06-10T17:30:36.315725Z",
+  "closed_at": "2026-06-10T17:02:13.422013Z",
+  "closed_reason": "Completed: cloud tick operations carry requester identity end to end — schema actor field on tick_operation, worker populates authenticated session userId, local client writes activity via store.WriteAs(actor) with owner fallback. Go tests green; worker test added but blocked on pre-existing broken cloud/worker test env (tracked separately)."
+}

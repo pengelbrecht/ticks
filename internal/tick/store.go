@@ -135,6 +135,13 @@ func detectChange(old, new Tick) (string, map[string]interface{}) {
 		if old.Status == StatusClosed && new.Status == StatusOpen {
 			return ActivityReopen, data
 		}
+		if new.Status == StatusInProgress {
+			return ActivityStart, data
+		}
+		if old.Status == StatusInProgress && new.Status == StatusOpen {
+			data["status"] = map[string]string{"from": StatusInProgress, "to": StatusOpen}
+			return ActivityUpdate, data
+		}
 	}
 
 	// Verdict changes

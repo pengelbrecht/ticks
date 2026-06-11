@@ -148,10 +148,11 @@ type TickDeletedMessage struct {
 
 // TickOperationRequest is received from DO when cloud UI wants to perform an operation.
 type TickOperationRequest struct {
-	Type      string `json:"type"`      // "tick_operation"
-	RequestID string `json:"requestId"` // Unique ID to correlate response
-	Operation string `json:"operation"` // "add_note", "approve", "reject", "close", "reopen"
-	TickID    string `json:"tickId"`    // ID of the tick to operate on
+	Type      string `json:"type"`            // "tick_operation"
+	RequestID string `json:"requestId"`       // Unique ID to correlate response
+	Operation string `json:"operation"`       // "add_note", "approve", "reject", "close", "reopen"
+	TickID    string `json:"tickId"`          // ID of the tick to operate on
+	Actor     string `json:"actor,omitempty"` // Authenticated session user id (opaque, not an email) of the requester
 	Payload   struct {
 		Message string `json:"message,omitempty"` // For add_note
 		Reason  string `json:"reason,omitempty"`  // For reject, close
@@ -1085,6 +1086,9 @@ func (c *Client) applyRemoteDelete(id string) {
 }
 
 // writeTickLocally writes a tick to .tick/issues/, tracking as pending to avoid echo.
+// This is the replication path (applyRemoteState/applyRemoteTick): it does a raw file
+// write with no validation and no activity logging — remote-applied changes must not
+// generate local activity entries or be dropped by Validate().
 func (c *Client) writeTickLocally(t tick.Tick) {
 	path := filepath.Join(c.tickDir, "issues", t.ID+".json")
 
@@ -1100,6 +1104,24 @@ func (c *Client) writeTickLocally(t tick.Tick) {
 	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "cloud: failed to write tick %s: %v\n", t.ID, err)
+	}
+}
+
+// writeTickLocallyAs writes a tick to .tick/issues/ via the tick store, logging an
+// activity entry attributed to the given actor (empty actor falls back to t.Owner).
+// It marks the path as pending to avoid echo. Used ONLY by handleTickOperation
+// (cloud-initiated operations) — replication uses writeTickLocally, which logs nothing.
+func (c *Client) writeTickLocallyAs(t tick.Tick, actor string) {
+	path := filepath.Join(c.tickDir, "issues", t.ID+".json")
+
+	// Mark as pending to avoid echo
+	c.pendingWritesMu.Lock()
+	c.pendingWrites[path] = time.Now()
+	c.pendingWritesMu.Unlock()
+
+	store := tick.NewStore(c.tickDir)
+	if err := store.WriteAs(t, actor); err != nil {
 		fmt.Fprintf(os.Stderr, "cloud: failed to write tick %s: %v\n", t.ID, err)
 	}
 }
@@ -1230,8 +1252,9 @@ func (c *Client) handleTickOperation(req TickOperationRequest) {
 		return
 	}
 
-	// Save the tick using writeTickLocally (marks as pending to avoid echo)
-	c.writeTickLocally(t)
+	// Save the tick using writeTickLocallyAs (marks as pending, logs activity with actor).
+	// req.Actor carries the authenticated session user id (opaque); empty falls back to t.Owner.
+	c.writeTickLocallyAs(t, req.Actor)
 
 	// Send success response
 	c.sendOperationResponse(req.RequestID, &t, "")

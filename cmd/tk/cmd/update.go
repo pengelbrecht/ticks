@@ -63,6 +63,7 @@ var (
 	updateAwaiting    string
 	updateVerdict     string
 	updateBaseBranch  string
+	updateActor       string
 	updateJSON        bool
 
 	// Track which flags were explicitly set
@@ -105,6 +106,7 @@ func init() {
 	updateCmd.Flags().StringVarP(&updateRequires, "requires", "r", "", "approval gate (approval|review|content, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateAwaiting, "awaiting", "a", "", "wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateVerdict, "verdict", "v", "", "set verdict and trigger processing (approved|rejected)")
+	updateCmd.Flags().StringVar(&updateActor, "actor", "", "override actor for this activity entry (overrides TK_ACTOR env)")
 	updateCmd.Flags().BoolVar(&updateJSON, "json", false, "output as JSON")
 
 	rootCmd.AddCommand(updateCmd)
@@ -163,11 +165,31 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		t.Notes = updateNotes
 	}
 	if updateStatusSet {
-		t.Status = updateStatus
-		if updateStatus == tick.StatusClosed {
+		switch updateStatus {
+		case tick.StatusInProgress:
+			// Idempotent re-claim: an already-in_progress tick keeps its
+			// started_at (no activity entry is emitted either, so resetting
+			// it would break the stale-recovery invariant).
+			if t.Status != tick.StatusInProgress {
+				t.Start()
+			}
+			t.ClosedAt = nil
+			t.ClosedReason = ""
+		case tick.StatusOpen:
+			if t.Status == tick.StatusInProgress {
+				t.Release()
+			} else {
+				t.Status = updateStatus
+				t.StartedAt = nil
+			}
+			t.ClosedAt = nil
+			t.ClosedReason = ""
+		case tick.StatusClosed:
+			t.Status = updateStatus
 			now := time.Now().UTC()
 			t.ClosedAt = &now
-		} else {
+		default:
+			t.Status = updateStatus
 			t.ClosedAt = nil
 			t.ClosedReason = ""
 		}
@@ -273,7 +295,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor(updateActor)); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 

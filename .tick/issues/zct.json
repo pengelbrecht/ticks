@@ -1,0 +1,19 @@
+{
+  "id": "zct",
+  "title": "Update ticks skill docs: start-event semantics, started_at staleness, close-reason convention",
+  "description": "Context: the orchestration skill source lives in this repo at skills/ticks/ (SKILL.md + references/claude-runner.md). Two sections are now out of date after the start-signal change, and one convention is missing:\n\n1. claude-runner.md:27 area ('Mark the wave's ticks in_progress'): document that 'tk update \u003cid\u003e --status in_progress' now emits a 'start' activity entry and sets started_at - claiming is visible on the board.\n2. claude-runner.md:356 area (stale-state recovery): the procedure currently keys off last_activity from 'tk list --status in_progress --all --json'. Rewrite it to prefer started_at age (now present in tick JSON and tk list --json output): an in_progress tick whose started_at is older than the staleness threshold AND has no live agent is stale; last_activity remains a secondary signal. Remove the false-positive hazard where a just-claimed tick looked stale because claiming wrote no activity.\n3. Add a close-reason convention to the runner reference and the skill quick reference: orchestrator closes always pass --reason with a concrete summary, e.g. tk close \u003cid\u003e --reason \"Completed: \u003cone-line summary of what landed\u003e\" - never a bare tk close. If the actor mechanism (TK_ACTOR) has landed by then, also document exporting it at run start.\n\nVerification: grep the updated files - 'started_at' appears in the stale-recovery section; 'last_activity' is no longer the primary staleness signal; the close-reason convention appears in claude-runner.md. Docs-only change: no code, no go test impact.\n\nFiles likely touched: skills/ticks/references/claude-runner.md, skills/ticks/SKILL.md (quick-reference section).",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "vc4"
+  ],
+  "parent": "idc",
+  "acceptance_criteria": "Stale-recovery section keys on started_at with last_activity as secondary; claiming documented as emitting a start event; close-reason convention documented in runner reference and quick reference",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-10T15:24:01.284752Z",
+  "updated_at": "2026-06-10T17:03:47.539448Z",
+  "closed_at": "2026-06-10T17:03:47.539448Z",
+  "closed_reason": "Completed: skill docs updated — claiming emits start event + started_at; stale recovery keys on started_at age with last_activity secondary; close-reason convention (Completed: \u003csummary\u003e); TK_ACTOR/--actor convention documented"
+}

@@ -205,7 +205,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		UpdatedAt:          now,
 	}
 
-	if err := store.Write(t); err != nil {
+	if err := store.WriteAs(t, resolveActor("")); err != nil {
 		return fmt.Errorf("failed to write tick: %w", err)
 	}
 

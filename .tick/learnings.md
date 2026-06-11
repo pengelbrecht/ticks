@@ -45,3 +45,20 @@ integration tests, not unit tests.
 WebSocket/SSE/REST; hermetic coverage lives in cloud-unit.test.ts and mock.test.ts.
 **Rule:** They auto-run when a rig answers /health (or TICKS_LIVE_TESTS=1) and skip otherwise
 — to exercise them, start the rig (see e2e/run-cloud-tests.sh); don't "fix" skips by mocking.
+
+**Problem:** cloud/worker's full `pnpm test` crashes workerd at boot ("inserted row already
+exists in table") whenever multiple test files share the runtime; auth-integration.test.ts also
+has 2 stale tests hitting a removed /agent route (tracked: tick xdq).
+**Cause:** pre-existing vitest-pool-workers/Node-24 incompatibility plus stale tests; worker
+tests are not in CI so breakage is invisible.
+**Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
+"fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
+
+## Schema codegen
+
+**Problem:** A schemas/websocket change left generated code inconsistent across the repo —
+Go types updated but the UI's generated TS stale (or vice versa).
+**Cause:** Two codegen consumers: `make codegen-go` writes internal/types/generated/types.go;
+`scripts/build-ui.sh` regenerates internal/tickboard/ui/src/types/generated/websocket/*.
+**Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
+all regenerated output together.
