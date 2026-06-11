@@ -18,3 +18,7 @@
 - Follow Catppuccin Mocha color palette (defined in CSS variables)
 - Use Geist Sans for body text, Geist Mono for code
 - Primary color is green (#a6e3a1)
+
+## Ticks Skill
+
+The distributable skill lives in `skills/ticks/` — this is the source of truth. When updating the ticks skill (SKILL.md, references/claude-runner.md, references/tick-patterns.md, references/tk-commands.md), always edit files under `skills/ticks/`, never the installed copy at `~/.claude/skills/ticks/`.

@@ -107,6 +107,24 @@ Agent(
 
 Some harness versions accept extra parameters — `name:` (e.g. `auth-w1-abc`, readable in logs and addressable via `SendMessage`) and `mode:`. Per the orchestration-evolution principle, check the Agent tool's actual schema and use what it offers; where `name` isn't supported, address the agent via the ID the Agent call returns.
 
+### Planning tier
+
+Planning is the highest-leverage step in an epic run. A flawed implementation tick is fixable during the run (SendMessage, re-dispatch). Flawed partitioning has to be unwound before any work proceeds and affects every downstream agent.
+
+**Always plan at frontier tier** — regardless of what model the orchestrating session is running on. Because Claude supports nested subagents, you can dispatch a frontier planning agent that itself spawns cheap exploration sub-agents:
+
+1. The frontier planner spawns N cheapest-tier sub-agents in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
+2. The frontier planner synthesizes the summaries into the tick structure: partitioning, wave grouping, dependency graph, contracts-first ordering.
+3. The planning agent returns the full tick list for the orchestrator to create with `tk`.
+
+This keeps planning quality independent of the session model. A user invoking the skill in Sonnet still gets frontier-quality decomposition — the planner is a separately dispatched frontier subagent; the orchestrator's tier is irrelevant.
+
+**Exploration sub-agents:** fastest/cheapest tier. Read-only, stateless, essentially enhanced grep. A more capable model adds no value here.
+
+**Synthesis:** frontier tier. Architectural judgment is concentrated here — what contracts need defining first, what can run in parallel, where the risky bets are, what the critical path is.
+
+The "choose the least capable tier that can do the job" principle applies to planning's two distinct sub-tasks, not to planning as one undifferentiated block.
+
 ### Harden the boundary with a custom agent (recommended for repeated use)
 
 The "don't touch `.tick/`, don't run `tk`" rule below is enforced only by the prompt — and an autonomous implementer has the permissions to break it. If you orchestrate ticks regularly in a project, define a project-level subagent (e.g. `.claude/agents/ticks-implementer.md`) that bakes in the implementer instructions and *denies* `tk` and edits under `.tick/**` via tool permission rules (or a PreToolUse hook). Then launch with `subagent_type: "ticks-implementer"` instead of `general-purpose`. That turns the boundary from a request into a guarantee, and versions the implementer contract instead of re-pasting it per launch. Either way, the orchestrator still verifies the boundary at merge time (see "Integrating finished work").

@@ -132,6 +132,8 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 
 ### Step 3: Create Ticks from Requirements
 
+**Dispatch planning at frontier tier.** The decomposition step — partitioning work, sequencing dependencies, identifying wave conflicts, defining contracts-first ordering — is the highest-leverage decision in the whole epic. Always synthesize at frontier tier, even when the current session is running on a lower model. Because Claude supports nested subagents, the right shape is: dispatch a frontier planning subagent that itself spawns cheap exploration sub-agents to read the codebase, then synthesizes their findings into the tick structure. See `references/claude-runner.md` → "Planning tier" for details.
+
 Transform the gathered requirements into ticks organized by epic.
 
 ### Roadmaps (multi-epic work)
