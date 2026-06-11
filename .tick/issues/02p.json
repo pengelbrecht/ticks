@@ -1,0 +1,19 @@
+{
+  "id": "02p",
+  "title": "Lazy merge driver self-registration on every tk command",
+  "description": "Add lazy driver self-registration so merge drivers are active in any checkout that has the tk binary, regardless of whether tk init was run.\n\nThe root cause of the original conflict: drivers are registered in .git/config (not versioned). A fresh clone or CI checkout has .gitattributes saying 'use tick/tick-activity drivers' but no driver definition → silent fallback to default 3-way merge.\n\nFix: add a CheckAndInstallMergeDrivers function and call it early in the command lifecycle.\n\nFiles to modify:\n- internal/github/git.go — add CheckAndInstallMergeDrivers(repoRoot string) error:\n  - Run 'git config --get merge.tick.driver' — if empty, call ConfigureMergeDriver\n  - Skip gracefully if not in a git repo (return nil)\n  - Cheap: one git config read, only writes if missing\n- cmd/tk/cmd/root.go (or wherever PersistentPreRunE is set on rootCmd):\n  - Add PersistentPreRunE that detects repo root and calls CheckAndInstallMergeDrivers\n  - Must not break commands that run outside a git repo (tk version, tk help, etc.)\n  - Skip for merge-file and merge-activity themselves (they're called BY git, not by users)\n\nTests in internal/github/:\n- CheckAndInstallMergeDrivers: installs when missing, no-ops when already present\n- Integration: simulate fresh clone (no .git/config entries), run any tk command, verify drivers are now configured\n\nRun: go test ./internal/github/... ./cmd/tk/cmd/...",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "b3n"
+  ],
+  "parent": "jux",
+  "acceptance_criteria": "Running any tk command in a repo without prior tk init registers the drivers; CheckAndInstallMergeDrivers is idempotent; go test ./... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-11T06:29:16.346836Z",
+  "updated_at": "2026-06-11T06:39:24.466619Z",
+  "closed_at": "2026-06-11T06:39:24.466619Z",
+  "closed_reason": "Completed: CheckAndInstallMergeDrivers in git.go, PersistentPreRunE in root.go; 3 tests; duplicate helper fixed at integration"
+}

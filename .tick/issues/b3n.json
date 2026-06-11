@@ -1,0 +1,20 @@
+{
+  "id": "b3n",
+  "title": "Wire tick-activity driver: update .gitattributes, EnsureGitAttributes, ConfigureMergeDriver",
+  "description": "After the merge-activity driver lands, wire it into all the configuration points.\n\nFiles to modify:\n- .gitattributes: change '.tick/activity/activity.jsonl merge=union' to '.tick/activity/activity.jsonl merge=tick-activity'\n- internal/github/git.go — EnsureGitAttributes:\n  - Add second attribute constant: '.tick/activity/activity.jsonl merge=tick-activity'\n  - Ensure BOTH the tick and tick-activity lines are present (idempotent)\n- internal/github/git.go — ConfigureMergeDriver (or rename to ConfigureAllMergeDrivers):\n  - Also register merge.tick-activity.name and merge.tick-activity.driver ('tk merge-activity %O %A %B %P')\n  - Keep the existing tick driver registration\n\nTests in internal/github/:\n- EnsureGitAttributes: verify it writes both attribute lines when .gitattributes is empty\n- EnsureGitAttributes: verify it is idempotent when both lines already present\n- ConfigureMergeDriver: verify both tick and tick-activity drivers are configured\n\nRun: go test ./internal/github/...",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "l8h",
+    "rjq"
+  ],
+  "parent": "jux",
+  "acceptance_criteria": ".gitattributes uses merge=tick-activity; EnsureGitAttributes writes both lines; both drivers configured; go test ./internal/github/... passes",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-11T06:29:04.83302Z",
+  "updated_at": "2026-06-11T06:35:39.335156Z",
+  "closed_at": "2026-06-11T06:35:39.335156Z",
+  "closed_reason": "Completed: .gitattributes uses merge=tick-activity; EnsureGitAttributes ensures both lines idempotently; ConfigureMergeDriver registers both tick and tick-activity drivers; tests added"
+}

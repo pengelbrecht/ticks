@@ -1,0 +1,16 @@
+{
+  "id": "l8h",
+  "title": "Implement tk merge-activity JSONL driver",
+  "description": "Create a real merge driver for .tick/activity/activity.jsonl that replaces the weak merge=union approach.\n\nFiles to create/modify:\n- NEW internal/merge/activity.go — MergeActivity(ancestor, current, other io.Reader, out io.Writer) error\n  - Parse all three sides as JSONL (one JSON object per line)\n  - Dedup union: include a line if its (ts + tick_id + action + actor) key appears in either current or other\n  - Sort output by ts (ascending)\n  - Strip any lines that contain '\u003c\u003c\u003c\u003c\u003c\u003c\u003c', '=======', or '\u003e\u003e\u003e\u003e\u003e\u003e\u003e' (committed conflict markers)\n  - Write to out\n- NEW cmd/tk/cmd/mergeactivity.go — 'tk merge-activity %O %A %B %P' command wiring\n  - Same signature pattern as mergefile.go: opens the three temp files, calls merge.MergeActivity, writes result to %A (the current file)\n- cmd/tk/main.go — add 'merge-activity' to the switch case and printUsage list\n\nTest in internal/merge/ covering:\n- Basic union (lines from both sides survive)\n- Dedup (same event on both sides appears once)\n- Sort by ts (out-of-order input → sorted output)\n- Conflict-marker stripping (\u003c\u003c\u003c, ===, \u003e\u003e\u003e lines removed)\n- Empty sides (one side empty → other side's lines)\n\nRun: go test ./internal/merge/... ./cmd/tk/cmd/...",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "jux",
+  "acceptance_criteria": "go test ./internal/merge/... passes with all 5 test cases; tk merge-activity --help works; go vet ./... clean",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-11T06:28:49.447587Z",
+  "updated_at": "2026-06-11T06:33:10.878096Z",
+  "closed_at": "2026-06-11T06:33:10.878096Z",
+  "closed_reason": "Completed: tk merge-activity driver in internal/merge/activity.go, cobra command, main.go wired; 11 tests pass"
+}
