@@ -39,7 +39,7 @@ func run(args []string) int {
 	cmd := args[1]
 	if cmd != "version" && cmd != "--version" && cmd != "-v" &&
 		cmd != "upgrade" && cmd != "--help" && cmd != "-h" &&
-		cmd != "merge-file" && cmd != "snippet" {
+		cmd != "merge-file" && cmd != "merge-activity" && cmd != "snippet" {
 		if notice := update.CheckPeriodically(Version); notice != "" {
 			fmt.Fprintln(os.Stderr, notice)
 			fmt.Fprintln(os.Stderr)
@@ -47,7 +47,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "stats", "view", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board":
+	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "view", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		// Handle aliases
 		cmdArgs := args[1:]
@@ -99,7 +99,7 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, stats, view, snippet, import, approve, reject, board, version, upgrade, migrate, gc, merge")
+	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, view, snippet, import, approve, reject, board, version, upgrade, migrate, gc, merge")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")
