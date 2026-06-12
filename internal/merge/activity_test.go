@@ -15,10 +15,10 @@ func TestMergeActivity(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		ancestor string
-		current  string
-		other    string
+		name      string
+		ancestor  string
+		current   string
+		other     string
 		wantLines []string
 	}{
 		{
@@ -46,10 +46,10 @@ func TestMergeActivity(t *testing.T) {
 			},
 		},
 		{
-			name:    "dedup_same_event_both_sides",
-			ancestor: "",
-			current: line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
-			other:   line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
+			name:      "dedup_same_event_both_sides",
+			ancestor:  "",
+			current:   line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
+			other:     line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
 			wantLines: []string{line("2024-01-01T00:00:00Z", "abc", "create", "alice")},
 		},
 		{
@@ -71,14 +71,14 @@ func TestMergeActivity(t *testing.T) {
 				"=======\n" +
 				line("2024-01-01T00:00:00Z", "abc", "create", "alice") + "\n" +
 				">>>>>>> branch\n",
-			other: "",
+			other:     "",
 			wantLines: []string{line("2024-01-01T00:00:00Z", "abc", "create", "alice")},
 		},
 		{
-			name:      "empty_other_passes_current_through",
-			ancestor:  line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
-			current:   line("2024-01-01T00:00:00Z", "abc", "create", "alice") + "\n" + line("2024-01-02T00:00:00Z", "abc", "update", "alice"),
-			other:     "",
+			name:     "empty_other_passes_current_through",
+			ancestor: line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
+			current:  line("2024-01-01T00:00:00Z", "abc", "create", "alice") + "\n" + line("2024-01-02T00:00:00Z", "abc", "update", "alice"),
+			other:    "",
 			wantLines: []string{
 				line("2024-01-01T00:00:00Z", "abc", "create", "alice"),
 				line("2024-01-02T00:00:00Z", "abc", "update", "alice"),
