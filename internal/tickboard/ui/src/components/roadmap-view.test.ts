@@ -66,6 +66,7 @@ const FIXTURE_RESPONSE: RoadmapResponse = {
         id: 'ep4',
         title: 'Ready Epic',
         status: 'ready',
+        after: ['ep2'],
         children_total: 3,
         children_closed: 0,
       },
@@ -365,6 +366,53 @@ describe('roadmap-view', () => {
       await settled(element);
       const chips = queryAll(element, '.badge-blocked');
       expect(chips.length).toBe(0);
+    });
+  });
+
+  // ===========================================================================
+  // After (soft ordering) chips
+  // ===========================================================================
+
+  describe('after chips', () => {
+    it('renders a soft chip for each after id, distinct from blocked chips', async () => {
+      element.roadmap = FIXTURE_RESPONSE;
+      await settled(element);
+      const chips = queryAll(element, '.badge-after');
+      // ep4 has after: ['ep2'] → 1 chip
+      expect(chips.length).toBe(1);
+      expect(chips[0].textContent).toContain('ep2');
+      expect(chips[0].textContent).toContain('→');
+      // Distinct class: an after chip is never a blocked chip
+      expect(chips[0].classList.contains('badge-blocked')).toBe(false);
+    });
+
+    it('renders blocked and after chips side by side when both are present', async () => {
+      element.roadmap = {
+        waves: [[{
+          id: 'x',
+          title: 'Test',
+          status: 'queued',
+          blocked_by: ['ep1'],
+          after: ['ep2', 'ep3'],
+          children_total: 0,
+          children_closed: 0,
+        }]],
+      };
+      await settled(element);
+      expect(queryAll(element, '.badge-blocked').length).toBe(1);
+      const afterChips = queryAll(element, '.badge-after');
+      expect(afterChips.length).toBe(2);
+      const texts = Array.from(afterChips).map(el => el.textContent?.trim());
+      expect(texts.some(t => t?.includes('ep2'))).toBe(true);
+      expect(texts.some(t => t?.includes('ep3'))).toBe(true);
+    });
+
+    it('renders no after chips when after is absent', async () => {
+      element.roadmap = {
+        waves: [[{ id: 'x', title: 'Test', status: 'done', children_total: 1, children_closed: 1 }]],
+      };
+      await settled(element);
+      expect(queryAll(element, '.badge-after').length).toBe(0);
     });
   });
 

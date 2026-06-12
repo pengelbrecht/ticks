@@ -302,6 +302,100 @@ describe('wave assignment', () => {
 });
 
 // =============================================================================
+// After (soft ordering) — union layering, hard-only queued
+// Mirrors the Go table cases in internal/query/roadmap_test.go
+// =============================================================================
+
+describe('after edges (soft ordering)', () => {
+  it('B after A: B layers into wave 2 but stays ready (not queued)', () => {
+    // Go case: "after edge layers waves but does not queue"
+    const a = makeEpic({ id: 'eA', title: 'First' });
+    const b = makeEpic({ id: 'eB', title: 'Second', after: ['eA'] });
+    const result = computeRoadmapFromTicks([a, b]);
+
+    expect(result.waves!.length).toBe(2);
+    expect(result.waves![0].map(e => e.id)).toEqual(['eA']);
+    expect(result.waves![1].map(e => e.id)).toEqual(['eB']);
+
+    const bResult = result.waves![1][0];
+    expect(bResult.status).toBe('ready');
+    expect(bResult.after).toEqual(['eA']);
+    expect(bResult.blocked_by).toBeUndefined();
+  });
+
+  it('mixed chain: B blocked_by A queues, C after B does not', () => {
+    // Go case: "mixed chain: blocked_by queues, after does not"
+    const a = makeEpic({ id: 'eA', title: 'Base', status: 'in_progress' });
+    const b = makeEpic({ id: 'eB', title: 'Mid', blocked_by: ['eA'] });
+    const c = makeEpic({ id: 'eC', title: 'Tail', after: ['eB'] });
+    const result = computeRoadmapFromTicks([a, b, c]);
+
+    expect(result.waves!.length).toBe(3);
+    expect(result.waves![0].map(e => e.id)).toEqual(['eA']);
+    expect(result.waves![1].map(e => e.id)).toEqual(['eB']);
+    expect(result.waves![2].map(e => e.id)).toEqual(['eC']);
+
+    expect(result.waves![0][0].status).toBe('active');
+    expect(result.waves![1][0].status).toBe('queued');
+    expect(result.waves![2][0].status).toBe('ready');
+  });
+
+  it('cycle over union of blocked_by and after flushes to final wave', () => {
+    // Go case: "cycle over union of blocked_by and after flushes to final wave"
+    // eA after eB, eB blocked_by eA — a cycle only in the union graph.
+    const a = makeEpic({ id: 'eA', title: 'A', after: ['eB'] });
+    const b = makeEpic({ id: 'eB', title: 'B', blocked_by: ['eA'] });
+    const result = computeRoadmapFromTicks([a, b]);
+
+    expect(result.waves!.length).toBe(1);
+    expect(result.waves![0].map(e => e.id)).toEqual(['eA', 'eB']);
+
+    const aResult = result.waves![0].find(e => e.id === 'eA')!;
+    const bResult = result.waves![0].find(e => e.id === 'eB')!;
+    expect(aResult.status).toBe('ready');
+    expect(bResult.status).toBe('queued');
+  });
+
+  it('after targets pointing at tasks or missing ids are ignored', () => {
+    // Go case: "after entries pointing at tasks or missing ids are ignored"
+    const epic = makeEpic({ id: 'e1', title: 'Epic', after: ['t1', 'missing-id'] });
+    const task = makeTask({ id: 't1', title: 'Task', parent: '' });
+    const result = computeRoadmapFromTicks([epic, task]);
+
+    expect(result.waves!.length).toBe(1);
+    expect(result.waves![0].map(e => e.id)).toEqual(['e1']);
+
+    const e1 = result.waves![0][0];
+    expect(e1.status).toBe('ready');
+    expect(e1.after).toBeUndefined(); // non-epic and missing targets not surfaced
+  });
+
+  it('id in both blocked_by and after counts as one layering edge', () => {
+    // Go case: "id in both blocked_by and after counts as one layering edge"
+    const a = makeEpic({ id: 'eA', title: 'Base' });
+    const b = makeEpic({ id: 'eB', title: 'Dup', blocked_by: ['eA'], after: ['eA'] });
+    const result = computeRoadmapFromTicks([a, b]);
+
+    // Duplicate edge collapses to one for layering: eB lands in wave 2 via
+    // normal Kahn peeling (not a cycle flush); both edge lists surface eA.
+    expect(result.waves!.length).toBe(2);
+    expect(result.waves![0].map(e => e.id)).toEqual(['eA']);
+    expect(result.waves![1].map(e => e.id)).toEqual(['eB']);
+
+    const bResult = result.waves![1][0];
+    expect(bResult.status).toBe('queued');
+    expect(bResult.blocked_by).toEqual(['eA']);
+    expect(bResult.after).toEqual(['eA']);
+  });
+
+  it('after field is omitted (not []) when there are no epic after targets', () => {
+    const epic = makeEpic({ id: 'e1', title: 'Epic' });
+    const result = computeRoadmapFromTicks([epic]);
+    expect(result.waves![0][0].after).toBeUndefined();
+  });
+});
+
+// =============================================================================
 // Progress counts
 // =============================================================================
 
