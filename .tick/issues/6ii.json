@@ -2,7 +2,7 @@
   "id": "6ii",
   "title": "Web board: support editing after edges (TickCreate/TickUpdate + cloud round-trip)",
   "description": "Routed from epic o16 final review (nit 2). The board renders after edges but cannot edit them: internal/tickboard/ui/src/comms/types.ts ~lines 81-101 TickCreate/TickUpdate carry blocked_by but not after, and cloud.ts ~lines 296-309 updateTick builds the wire tick field-by-field so after never round-trips from a cloud edit.\n\nWork: add after?: string[] to TickCreate and TickUpdate; include after in cloud.ts updateTick field mapping; expose the field in the board create/edit forms next to the blocked-by input (same input pattern, label \"After (soft order)\"); ensure clearing works (empty -\u003e omitted). Follow CLAUDE.md: pnpm, ticks-* components, bubbles+composed events, Catppuccin Mocha.\n\nSemantics reminder for UI copy: after = preference (work these first if feasible), never blocks readiness.\n\nNote: src/comms type drift has a pre-existing tracked tick (vy0) — do not widen scope to unrelated tsc errors.\n\nTest cases: create with after -\u003e persisted; edit set/clear -\u003e round-trips through local and cloud paths (mock comms tests exist in src/comms); roadmap view reflects the change after edit.\nFiles likely touched: internal/tickboard/ui/src/comms/types.ts, src/comms/cloud.ts, the create/edit form component(s), tests alongside; rebuild embed via scripts/build-ui.sh.\nRun: cd internal/tickboard/ui \u0026\u0026 pnpm exec tsc --noEmit \u0026\u0026 targeted vitest.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,6 +10,6 @@
   "acceptance_criteria": "after settable/clearable from board create+edit forms; cloud updateTick round-trips after; targeted vitest + tsc pass",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T07:48:51.59138807Z",
-  "updated_at": "2026-06-12T07:49:39.467508259Z",
-  "started_at": "2026-06-12T07:49:39.46750807Z"
+  "updated_at": "2026-06-12T08:10:32.698814253Z",
+  "closed_at": "2026-06-12T08:10:32.698814253Z"
 }
