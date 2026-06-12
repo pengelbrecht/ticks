@@ -1,0 +1,20 @@
+{
+  "id": "dev",
+  "title": "Final review of epic o16 diff",
+  "description": "Meta-work tick (orchestrator-owned). Review the full diff of epic o16 (soft-edge rendering in tk roadmap CLI/TUI/web board + skill doc updates) against its base. Focus: (1) Go/TS roadmap compute parity — the five table cases must assert identical wave/status/after results in roadmap_test.go and roadmap-compute.test.ts; (2) visual hierarchy — after annotations/badges must read weaker than blocked-by in all three surfaces; (3) skill docs internal consistency — no remaining guidance that conflates preference with dependency; (4) embedded assets actually regenerated if the UI bundle changed. Run a reviewer subagent per references/claude-runner.md.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "63p",
+    "jba",
+    "b7t",
+    "2s4"
+  ],
+  "parent": "o16",
+  "acceptance_criteria": "epic diff reviewed; all blocker-severity findings resolved or routed as ticks before close-out unblocks",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T07:34:15.699571775Z",
+  "updated_at": "2026-06-12T07:34:15.699571775Z"
+}
