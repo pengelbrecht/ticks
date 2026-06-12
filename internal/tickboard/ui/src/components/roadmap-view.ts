@@ -335,6 +335,15 @@ export class RoadmapView extends LitElement {
       font-family: 'Geist Mono', 'SF Mono', monospace;
     }
 
+    /* Soft-ordering (after) chip — deliberately muted vs the blocked chip:
+       overlay/subtext tones, no alarm color. */
+    .badge-after {
+      background: color-mix(in srgb, var(--overlay0, #6c7086) 12%, transparent);
+      color: var(--overlay2, #9399b2);
+      border: 1px solid color-mix(in srgb, var(--overlay0, #6c7086) 30%, transparent);
+      font-family: 'Geist Mono', 'SF Mono', monospace;
+    }
+
     /* ── Progress chip ──────────────────────────────────────────────────── */
     .progress-chip {
       display: flex;
@@ -458,6 +467,12 @@ export class RoadmapView extends LitElement {
             ${epic.blocked_by && epic.blocked_by.length > 0
               ? epic.blocked_by.map(bid => html`
                   <span class="badge badge-blocked">⊘ ${bid}</span>
+                `)
+              : nothing}
+
+            ${epic.after && epic.after.length > 0
+              ? epic.after.map(aid => html`
+                  <span class="badge badge-after">→ ${aid}</span>
                 `)
               : nothing}
           </div>

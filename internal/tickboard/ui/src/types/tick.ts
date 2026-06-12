@@ -41,6 +41,7 @@ export interface Tick {
   owner: string;
   labels?: string[];
   blocked_by?: string[];
+  after?: string[];
   parent?: string;
   discovered_from?: string;
   acceptance_criteria?: string;

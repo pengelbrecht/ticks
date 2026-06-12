@@ -309,6 +309,8 @@ export interface RoadmapEpic {
   awaiting_type?: string;
   /** IDs of blocking epics — omitted when empty */
   blocked_by?: string[];
+  /** IDs of preferred-predecessor epics (soft ordering) — omitted when empty */
+  after?: string[];
   children_total: number;
   children_closed: number;
 }
