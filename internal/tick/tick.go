@@ -66,6 +66,7 @@ type Tick struct {
 	Owner              string     `json:"owner"`
 	Labels             []string   `json:"labels,omitempty"`
 	BlockedBy          []string   `json:"blocked_by,omitempty"`
+	After              []string   `json:"after,omitempty"`
 	Parent             string     `json:"parent,omitempty"`
 	DiscoveredFrom     string     `json:"discovered_from,omitempty"`
 	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`

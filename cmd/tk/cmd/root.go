@@ -258,6 +258,7 @@ func ResetFlags() {
 	createOwner = ""
 	createLabels = ""
 	createBlockedBy = nil
+	createAfter = ""
 	createParent = ""
 	createDiscoveredFrom = ""
 	createAcceptance = ""
@@ -278,6 +279,7 @@ func ResetFlags() {
 	updateOwner = ""
 	updateAddLabels = ""
 	updateRemoveLabels = ""
+	updateAfter = ""
 	updateAcceptance = ""
 	updateDefer = ""
 	updateExternalRef = ""
@@ -298,6 +300,7 @@ func ResetFlags() {
 	updateOwnerSet = false
 	updateAddLabelsSet = false
 	updateRemoveLabelsSet = false
+	updateAfterSet = false
 	updateAcceptanceSet = false
 	updateDeferSet = false
 	updateExternalRefSet = false
