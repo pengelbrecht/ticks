@@ -948,6 +948,29 @@ describe('CloudCommsClient Concurrent Operations', () => {
       expect(sentMessages).toHaveLength(1);
       expect('after' in (sentMessages[0].tick as Record<string, unknown>)).toBe(false);
     });
+
+    it('updateTick merges into cached tick — preserves parent and type', async () => {
+      // Simulate receiving a full state with a task that has a parent epic
+      mockWs.simulateMessage({
+        type: 'state_full',
+        ticks: {
+          t1: createTick({ id: 't1', title: 'Task', type: 'task', parent: 'e1' }),
+          e1: createTick({ id: 'e1', title: 'Epic', type: 'epic' }),
+        },
+      });
+
+      sentMessages = [];
+
+      // Update only the after field — all other fields should be preserved from cache
+      const result = await client.updateTick('t1', { after: ['dep1'] });
+
+      expect(sentMessages).toHaveLength(1);
+      const wire = sentMessages[0].tick as Record<string, unknown>;
+      expect(wire.after).toEqual(['dep1']);
+      expect(wire.parent).toBe('e1');   // preserved from cache
+      expect(wire.type).toBe('task');   // preserved from cache
+      expect(result.parent).toBe('e1');
+    });
   });
 
   describe('state updates during pending operations', () => {

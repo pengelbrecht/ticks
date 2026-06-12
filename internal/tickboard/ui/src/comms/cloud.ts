@@ -9,7 +9,7 @@
  * - WebSocket messages for tick updates/deletes (forwarded to local agent)
  */
 
-import type { Tick, TickStatus } from '../types/tick.js';
+import type { Tick, TickAwaiting, TickStatus } from '../types/tick.js';
 import type {
   TickEvent,
   ConnectionEvent,
@@ -292,23 +292,35 @@ export class CloudCommsClient implements CommsClient {
   async updateTick(id: string, updates: TickUpdate): Promise<Tick> {
     this.checkWritable();
 
-    // We need the current tick state to apply updates
-    // For now, create a partial tick with updates
-    const tick: Tick = {
+    // Merge updates into the cached tick to preserve fields not present in TickUpdate
+    // (parent, type, notes, created_at, owner, created_by). Without this, the worker
+    // stores the replacement tick wholesale and the local agent applies it via full-file
+    // replace, orphaning the tick from its epic and resetting created_at.
+    const cached = this.tickCache.get(id);
+    const base: Tick = cached ?? {
       id,
-      title: updates.title || '',
-      description: updates.description || '',
-      status: (updates.status || 'open') as TickStatus,
-      priority: updates.priority ?? 2,
-      labels: updates.labels,
-      blocked_by: updates.blocked_by,
-      after: updates.after,
+      title: '',
+      description: '',
+      status: 'open' as TickStatus,
+      priority: 2,
       type: 'task',
-      owner: '', // Filled in by local agent
-      created_by: '', // Filled in by local agent
+      owner: '',
+      created_by: '',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    const patch: Partial<Tick> = { updated_at: new Date().toISOString() };
+    if (updates.title !== undefined) patch.title = updates.title;
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.status !== undefined) patch.status = updates.status as TickStatus;
+    if (updates.priority !== undefined) patch.priority = updates.priority;
+    if (updates.labels !== undefined) patch.labels = updates.labels;
+    if (updates.blocked_by !== undefined) patch.blocked_by = updates.blocked_by;
+    if (updates.after !== undefined) patch.after = updates.after;
+    if (updates.awaiting !== undefined) patch.awaiting = updates.awaiting as TickAwaiting;
+
+    const tick: Tick = { ...base, ...patch };
 
     // Send via WebSocket to DO. See note in createTick: the app Tick is a
     // structural subset of the wire Tick, so the cast is type-only.
