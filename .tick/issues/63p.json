@@ -2,7 +2,7 @@
   "id": "63p",
   "title": "tk roadmap CLI: follow union edges in chain filter and annotate after edges",
   "description": "Two gaps in cmd/tk/cmd/roadmap.go now that ComputeRoadmap layers on the union of hard+soft edges and RoadmapEpic carries After []string (json after,omitempty):\n\n1. Chain filter: filterRoadmapChain (~line 51-68) computes the connected component via epic-to-epic blocked_by edges only (blockedByMap built from RoadmapEpic.BlockedBy). Soft-linked epics drop out of the scoped view — verified live: with e7c after-linked to o16, tk roadmap 4bt omitted e7c while bare tk roadmap layered it correctly in wave 3. Fix: build connectivity from the union of BlockedBy and After. Update the command Long help text (line ~22-23) which currently says \"through epic-to-epic blocked_by edges\".\n\n2. Annotation: the per-epic line renders \"← blocked by: id1 id2\" for hard edges. Add a visually softer \"← after: id1 id2\" annotation for After entries, rendered AFTER the blocked-by annotation, using a dimmer/muted style than the blocked style (this is a preference edge, not a constraint). Follow the existing style conventions in the file.\n\nTest cases (extend cmd/tk/cmd/roadmap_test.go, drive via ExecuteArgs only):\n- Epics A, B with B after A: tk roadmap A output includes B; tk roadmap B includes A.\n- Output for B contains \"after: A\" and does NOT contain \"blocked by: A\".\n- Mixed: C blocked_by A and after B -\u003e line shows both annotations, blocked-by first.\n- JSON output unchanged in shape (after key already present from compute).\n\nFiles likely touched: cmd/tk/cmd/roadmap.go, cmd/tk/cmd/roadmap_test.go.\nRun: gofmt -l cmd; go build ./...; go test -short -count=1 ./cmd/tk/...",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,6 +10,7 @@
   "acceptance_criteria": "tk roadmap \u003cepic-id\u003e includes soft-linked epics in the chain; after edges render as a distinct annotation; go test ./cmd/tk/... passes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T07:33:22.11851132Z",
-  "updated_at": "2026-06-12T07:34:24.911034958Z",
-  "started_at": "2026-06-12T07:34:24.911034595Z"
+  "updated_at": "2026-06-12T07:39:11.728813781Z",
+  "closed_at": "2026-06-12T07:39:11.728813781Z",
+  "closed_reason": "Completed: chain filter follows union edges (BFS both directions), blocked-by + muted after annotations added to CLI render (blocked-by was TUI-only — recon gap fixed), 4 new ExecuteArgs tests"
 }
