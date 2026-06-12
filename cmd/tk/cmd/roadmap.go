@@ -20,8 +20,8 @@ var roadmapCmd = &cobra.Command{
 	Long: `Show epics organised into dependency waves.
 
 Without an argument, shows all epics. With an epic ID, shows only the chain
-(transitive blockers + dependents through epic-to-epic blocked_by edges)
-containing that epic.
+(transitive blockers + dependents through epic-to-epic blocked_by and after
+edges) containing that epic.
 
 Output:
   Each line shows one epic:
@@ -30,6 +30,8 @@ Output:
   Status glyphs and colours follow tk list/graph conventions.
   "ready" epics are annotated with "needs planning".
   "gated" epics show an "awaiting:<type>" badge.
+  Hard dependency edges are annotated with "← blocked by: id1 id2";
+  soft ordering edges with a dimmer "← after: id1 id2".
 
 Examples:
   tk roadmap              # All epics, wave-ordered
@@ -49,8 +51,10 @@ func init() {
 
 // filterRoadmapChain returns a new Roadmap containing only waves/epics that are
 // part of the chain connected to epicID (transitive blockers + dependents via
-// epic-to-epic blocked_by edges). Waves that become empty after filtering are
-// omitted; wave numbering is not renumbered.
+// the union of epic-to-epic blocked_by and after edges, matching the edge set
+// ComputeRoadmap layers on — soft-linked epics stay in the scoped view). Waves
+// that become empty after filtering are omitted; wave numbering is not
+// renumbered.
 func filterRoadmapChain(roadmap query.Roadmap, epicID string) query.Roadmap {
 	// Collect all epics in the roadmap indexed by ID.
 	allEpics := make(map[string]query.RoadmapEpic)
@@ -64,16 +68,23 @@ func filterRoadmapChain(roadmap query.Roadmap, epicID string) query.Roadmap {
 		return query.Roadmap{}
 	}
 
-	// Build forward (blocker → dependents) and backward (epic → blockers) maps.
-	// blockedByMap: id → []id that THIS epic is blocked by (already in RoadmapEpic.BlockedBy).
-	// dependentsMap: id → []id of epics that list this id in their BlockedBy.
+	// Build forward (predecessor → dependents) and backward (epic → predecessors)
+	// maps over the union of hard (BlockedBy) and soft (After) edges.
+	// predsMap: id → []id this epic comes after (blocked_by ∪ after, deduped).
+	// dependentsMap: id → []id of epics that list this id as a predecessor.
+	predsMap := make(map[string][]string, len(allEpics))
 	dependentsMap := make(map[string][]string, len(allEpics))
 	for id, re := range allEpics {
-		for _, blockerID := range re.BlockedBy {
-			dependentsMap[blockerID] = append(dependentsMap[blockerID], id)
-		}
-		if _, exists := dependentsMap[id]; !exists {
-			dependentsMap[id] = nil
+		seen := make(map[string]bool)
+		for _, edges := range [][]string{re.BlockedBy, re.After} {
+			for _, predID := range edges {
+				if seen[predID] {
+					continue
+				}
+				seen[predID] = true
+				predsMap[id] = append(predsMap[id], predID)
+				dependentsMap[predID] = append(dependentsMap[predID], id)
+			}
 		}
 	}
 
@@ -86,13 +97,11 @@ func filterRoadmapChain(roadmap query.Roadmap, epicID string) query.Roadmap {
 		cur := queue[0]
 		queue = queue[1:]
 
-		// Blockers of cur (backward edge).
-		if re, ok := allEpics[cur]; ok {
-			for _, blockerID := range re.BlockedBy {
-				if !connected[blockerID] {
-					connected[blockerID] = true
-					queue = append(queue, blockerID)
-				}
+		// Predecessors of cur (backward edge).
+		for _, predID := range predsMap[cur] {
+			if !connected[predID] {
+				connected[predID] = true
+				queue = append(queue, predID)
 			}
 		}
 
@@ -209,6 +218,15 @@ func renderRoadmapHuman(roadmap query.Roadmap) error {
 				if re.AwaitingType != "" {
 					annotations = append(annotations, styles.StatusAwaitingStyle.Render("awaiting:"+re.AwaitingType))
 				}
+			}
+
+			// Dependency annotations: hard blocked_by edges first, then soft
+			// after edges in a dimmer style (a preference, not a constraint).
+			if len(re.BlockedBy) > 0 {
+				annotations = append(annotations, styles.DimStyle.Render("← blocked by: "+strings.Join(re.BlockedBy, " ")))
+			}
+			if len(re.After) > 0 {
+				annotations = append(annotations, styles.Dim.Render("← after: "+strings.Join(re.After, " ")))
 			}
 
 			annotationStr := ""
