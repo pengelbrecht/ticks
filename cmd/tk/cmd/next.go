@@ -206,7 +206,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 	}
 	ready = nonAwaiting
 
-	query.SortByPriorityCreatedAt(ready)
+	// Soft-order-aware sort: candidates whose after-targets are still open
+	// sort behind feasible-first work, but are never excluded.
+	query.SortBySoftOrderPriorityCreatedAt(ready, ticks)
 
 	if len(ready) > 0 {
 		next := ready[0]
@@ -218,7 +220,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 
 	// No ready tasks — check for epics needing planning (agent mode only).
 	planCandidates := selectPlanningCandidates(epicID, filter, filtered, ticks)
-	query.SortByPriorityCreatedAt(planCandidates)
+	query.SortBySoftOrderPriorityCreatedAt(planCandidates, ticks)
 
 	if len(planCandidates) > 0 {
 		return printNextResult(planCandidates[0], "plan")

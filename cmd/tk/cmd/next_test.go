@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,4 +262,175 @@ func idsOf(ticks []tick.Tick) []string {
 		ids[i] = t.ID
 	}
 	return ids
+}
+
+// runNextJSON executes `tk next` via ExecuteArgs with stdout captured, decoding
+// the JSON result into a map. Returns nil when the command printed "null".
+func runNextJSON(t *testing.T, args ...string) map[string]any {
+	t.Helper()
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+
+	runErr := ExecuteArgs(args)
+
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	_ = r.Close()
+
+	if runErr != nil {
+		t.Fatalf("ExecuteArgs %v: %v", args, runErr)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if out == "null" {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("unmarshal next output: %v\nraw: %s", err, out)
+	}
+	return m
+}
+
+// makeNextEpic returns an open childless epic for next-selection tests.
+func makeNextEpic(id, owner string, createdAt time.Time) tick.Tick {
+	return tick.Tick{
+		ID:        id,
+		Title:     "Epic " + id,
+		Status:    tick.StatusOpen,
+		Priority:  2,
+		Type:      tick.TypeEpic,
+		Owner:     owner,
+		CreatedBy: owner,
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
+	}
+}
+
+// TestNextEpicFeasibilitySkipsQueuedAndSoftOrderNeverHides verifies the
+// end-to-end soft-ordering effect: epic A is in_progress (claimed by another
+// agent), B is queued behind A (blocked_by A), and C is soft-ordered after B
+// (after: [B]). `tk next --epic` must skip past infeasible B and return C with
+// action "plan" — soft order never hides the only feasible epic.
+func TestNextEpicFeasibilitySkipsQueuedAndSoftOrderNeverHides(t *testing.T) {
+	_, store := setupTestRepo(t)
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	a := makeNextEpic("eA", "other-agent", now)
+	a.Status = tick.StatusInProgress
+	b := makeNextEpic("eB", "petere", now.Add(time.Minute))
+	b.BlockedBy = []string{"eA"}
+	c := makeNextEpic("eC", "petere", now.Add(2*time.Minute))
+	c.After = []string{"eB"}
+
+	for _, tk := range []tick.Tick{a, b, c} {
+		if err := store.Write(tk); err != nil {
+			t.Fatalf("write %s: %v", tk.ID, err)
+		}
+	}
+
+	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json")
+	if got == nil {
+		t.Fatal("expected a next epic, got null (soft-deferred C must not be hidden)")
+	}
+	if got["id"] != "eC" {
+		t.Errorf("next epic id: got %v, want eC", got["id"])
+	}
+	if got["action"] != "plan" {
+		t.Errorf("next epic action: got %v, want plan", got["action"])
+	}
+}
+
+// TestNextEpicSoftDeferredSortsLast verifies that among equal-priority feasible
+// epics, the one with an open after-target (C, after B) yields to the
+// undeferred one (D) even though C was created earlier.
+func TestNextEpicSoftDeferredSortsLast(t *testing.T) {
+	_, store := setupTestRepo(t)
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	a := makeNextEpic("eA", "other-agent", now)
+	a.Status = tick.StatusInProgress
+	b := makeNextEpic("eB", "petere", now.Add(time.Minute))
+	b.BlockedBy = []string{"eA"}
+	c := makeNextEpic("eC", "petere", now.Add(2*time.Minute))
+	c.After = []string{"eB"}
+	d := makeNextEpic("eD", "petere", now.Add(3*time.Minute))
+
+	for _, tk := range []tick.Tick{a, b, c, d} {
+		if err := store.Write(tk); err != nil {
+			t.Fatalf("write %s: %v", tk.ID, err)
+		}
+	}
+
+	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json")
+	if got == nil {
+		t.Fatal("expected a next epic, got null")
+	}
+	if got["id"] != "eD" {
+		t.Errorf("next epic id: got %v, want eD (undeferred wins over soft-deferred eC)", got["id"])
+	}
+	if got["action"] != "plan" {
+		t.Errorf("next epic action: got %v, want plan", got["action"])
+	}
+}
+
+// TestNextTaskSoftDeferredSortsLast verifies soft ordering for the agent-mode
+// task pool within an epic: t1 (after an open tick) yields to t2 despite being
+// created earlier, and t1 is still returned once its after-target closes.
+func TestNextTaskSoftDeferredSortsLast(t *testing.T) {
+	_, store := setupTestRepo(t)
+	now := time.Date(2025, 1, 8, 10, 0, 0, 0, time.UTC)
+
+	epic := makeNextEpic("e1", "petere", now)
+	dep := makeTestTask("dep") // open, outside the epic
+	dep.CreatedAt = now
+	dep.UpdatedAt = now
+	t1 := makeTestTask("t1")
+	t1.Parent = "e1"
+	t1.After = []string{"dep"}
+	t1.CreatedAt = now.Add(time.Minute)
+	t1.UpdatedAt = t1.CreatedAt
+	t2 := makeTestTask("t2")
+	t2.Parent = "e1"
+	t2.CreatedAt = now.Add(2 * time.Minute)
+	t2.UpdatedAt = t2.CreatedAt
+
+	for _, tk := range []tick.Tick{epic, dep, t1, t2} {
+		if err := store.Write(tk); err != nil {
+			t.Fatalf("write %s: %v", tk.ID, err)
+		}
+	}
+
+	got := runNextJSON(t, "next", "e1", "--owner", "petere", "--json")
+	if got == nil {
+		t.Fatal("expected a next task, got null")
+	}
+	if got["id"] != "t2" {
+		t.Errorf("next task id: got %v, want t2 (t1 is soft-deferred behind open dep)", got["id"])
+	}
+	if got["action"] != "implement" {
+		t.Errorf("next task action: got %v, want implement", got["action"])
+	}
+
+	// Close the after-target: t1 is no longer soft-deferred and wins on created_at.
+	dep.Status = tick.StatusClosed
+	if err := store.Write(dep); err != nil {
+		t.Fatalf("close dep: %v", err)
+	}
+
+	got = runNextJSON(t, "next", "e1", "--owner", "petere", "--json")
+	if got == nil {
+		t.Fatal("expected a next task, got null")
+	}
+	if got["id"] != "t1" {
+		t.Errorf("next task id after dep closed: got %v, want t1", got["id"])
+	}
 }
