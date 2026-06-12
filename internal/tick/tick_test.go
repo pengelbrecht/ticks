@@ -1070,6 +1070,100 @@ func TestBaseBranchJSONRoundTrip(t *testing.T) {
 	})
 }
 
+func TestAfterJSONRoundTrip(t *testing.T) {
+	now := time.Date(2025, 1, 8, 10, 30, 0, 0, time.UTC)
+	base := Tick{
+		ID:        "a1b",
+		Title:     "Fix auth",
+		Status:    StatusOpen,
+		Priority:  2,
+		Type:      TypeBug,
+		Owner:     "petere",
+		CreatedBy: "petere",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	t.Run("after_set_roundtrips", func(t *testing.T) {
+		tk := base
+		tk.After = []string{"abc"}
+
+		data, err := json.Marshal(tk)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if !strings.Contains(string(data), `"after":["abc"]`) {
+			t.Errorf("JSON missing after field: %s", data)
+		}
+
+		var decoded Tick
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(decoded.After) != 1 || decoded.After[0] != "abc" {
+			t.Errorf("After round-trip: got %v, want %v", decoded.After, []string{"abc"})
+		}
+	})
+
+	t.Run("after_nil_omitted_from_json", func(t *testing.T) {
+		tk := base
+		tk.After = nil
+
+		data, err := json.Marshal(tk)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(data), `"after"`) {
+			t.Errorf("JSON should omit nil after: %s", data)
+		}
+	})
+
+	t.Run("after_empty_omitted_from_json", func(t *testing.T) {
+		tk := base
+		tk.After = []string{}
+
+		data, err := json.Marshal(tk)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(data), `"after"`) {
+			t.Errorf("JSON should omit empty after: %s", data)
+		}
+	})
+
+	t.Run("after_unmarshal_from_json_string", func(t *testing.T) {
+		jsonStr := `{
+			"id": "a1b",
+			"title": "Fix auth",
+			"status": "open",
+			"priority": 2,
+			"type": "bug",
+			"owner": "petere",
+			"created_by": "petere",
+			"created_at": "2025-01-08T10:30:00Z",
+			"updated_at": "2025-01-08T10:30:00Z",
+			"after": ["abc", "def"]
+		}`
+
+		var decoded Tick
+		if err := json.Unmarshal([]byte(jsonStr), &decoded); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(decoded.After) != 2 || decoded.After[0] != "abc" || decoded.After[1] != "def" {
+			t.Errorf("After: got %v, want %v", decoded.After, []string{"abc", "def"})
+		}
+	})
+
+	t.Run("after_set_validates", func(t *testing.T) {
+		tk := base
+		tk.After = []string{"abc", "def"}
+
+		if err := tk.Validate(); err != nil {
+			t.Fatalf("tick with after set should be valid, got error: %v", err)
+		}
+	})
+}
+
 // TestTickflowLeaseUnknownFieldRoundTrip verifies that old tick JSON files that still
 // carry a tickflow_lease field are silently ignored on unmarshal (Go's json.Unmarshal
 // ignores unknown fields), and that the re-marshalled result simply omits the field.
