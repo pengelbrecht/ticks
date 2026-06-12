@@ -466,3 +466,4 @@
 {"ts":"2026-06-12T07:12:11.515063753Z","tick":"ogj","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"Expose after in the CLI: --after on create/update and display in tk show"}}
 {"ts":"2026-06-12T07:12:11.525338314Z","tick":"nps","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"ComputeRoadmap: layer waves on the union of blocked_by and after edges"}}
 {"ts":"2026-06-12T07:12:11.535873031Z","tick":"iyk","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"tk next: sort soft-deferred candidates last so selection skips to first feasible work"}}
+{"ts":"2026-06-12T07:17:54.985765269Z","tick":"nps","action":"close","actor":"orchestrator","epic":"4bt","data":{"reason":"Completed: ComputeRoadmap layers waves on deduped union of epic-only blocked_by+after; queued stays hard-only; RoadmapEpic.After added; 5 new table cases","title":"ComputeRoadmap: layer waves on the union of blocked_by and after edges"}}
