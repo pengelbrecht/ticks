@@ -178,6 +178,75 @@ func TestRenderRoadmap_BlockedByAnnotation(t *testing.T) {
 	}
 }
 
+func TestRenderRoadmap_AfterAnnotation(t *testing.T) {
+	t.Run("after without blocked-by", func(t *testing.T) {
+		x1 := makeTestEpic("x1", "Target One", tick.StatusOpen)
+		x2 := makeTestEpic("x2", "Target Two", tick.StatusOpen)
+		e := makeTestEpic("aft", "After Epic", tick.StatusOpen)
+		e.After = []string{"x1", "x2"}
+
+		plain := stripANSI(RenderRoadmap([]tick.Tick{x1, x2, e}, 200))
+
+		if !strings.Contains(plain, "after: x1 x2") {
+			t.Errorf("expected 'after: x1 x2' annotation, got:\n%s", plain)
+		}
+		if strings.Contains(plain, "blocked by") {
+			t.Errorf("did not expect 'blocked by' annotation, got:\n%s", plain)
+		}
+	})
+
+	t.Run("blocked-by annotation precedes after annotation", func(t *testing.T) {
+		blocker := makeTestEpic("blk", "Blocker Epic", tick.StatusOpen)
+		target := makeTestEpic("tgt", "After Target", tick.StatusOpen)
+		e := makeTestEpic("bth", "Both Epic", tick.StatusOpen)
+		e.BlockedBy = []string{"blk"}
+		e.After = []string{"tgt"}
+
+		plain := stripANSI(RenderRoadmap([]tick.Tick{blocker, target, e}, 200))
+
+		blockedIdx := strings.Index(plain, "blocked by: blk")
+		afterIdx := strings.Index(plain, "after: tgt")
+		if blockedIdx == -1 {
+			t.Fatalf("expected 'blocked by: blk' annotation, got:\n%s", plain)
+		}
+		if afterIdx == -1 {
+			t.Fatalf("expected 'after: tgt' annotation, got:\n%s", plain)
+		}
+		if blockedIdx > afterIdx {
+			t.Errorf("expected blocked-by annotation before after annotation, got:\n%s", plain)
+		}
+	})
+
+	t.Run("neither leaves the line unchanged", func(t *testing.T) {
+		e := makeTestEpic("pln", "Plain Epic", tick.StatusInProgress)
+
+		plain := stripANSI(RenderRoadmap([]tick.Tick{e}, 200))
+
+		if strings.Contains(plain, "after:") {
+			t.Errorf("did not expect 'after:' annotation, got:\n%s", plain)
+		}
+		if strings.Contains(plain, "blocked by") {
+			t.Errorf("did not expect 'blocked by' annotation, got:\n%s", plain)
+		}
+		if !strings.HasSuffix(strings.TrimRight(plain, "\n"), "Plain Epic") {
+			t.Errorf("expected line to end with the title (no trailing annotations), got:\n%s", plain)
+		}
+	})
+}
+
+func TestRoadmapAfterStyle_MutedRelativeToBlocked(t *testing.T) {
+	// The soft-ordering annotation must be visually weaker than (and distinct
+	// from) the hard blocked-by annotation.
+	afterFg := roadmapAfterStyle.GetForeground()
+	blockedFg := roadmapBlockedStyle.GetForeground()
+	if afterFg == blockedFg {
+		t.Errorf("after and blocked-by styles must use different foreground colors, both are %v", afterFg)
+	}
+	if afterFg != styles.ColorGray {
+		t.Errorf("after style should use the dimmer ColorGray (Overlay0), got %v", afterFg)
+	}
+}
+
 func TestRenderRoadmap_NeedsPlanningAnnotation(t *testing.T) {
 	awaiting := tick.AwaitingApproval
 
