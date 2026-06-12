@@ -2,6 +2,7 @@
   "id": "h3l",
   "title": "Adopt PR+CI gate for epic integration via .tick/config.md",
   "description": "Proposed in the kgh (Execution Model v2 Phase 4) retro as \"PR+CI gate adoption via .tick/config.md once repo has CI wired\". The precondition is now met: .github/workflows/ci.yml exists (gates UI typecheck and runs the cloud/worker suite, among others).\n\nContext: the orchestrator reads .tick/config.md at run start (skills/ticks/references/claude-runner.md, \"Run-start: reading .tick/config.md\"). It supports three sections — Testing (exact test commands passed to implementers), Environment (pre-flight checks run once before wave 1), Rules (project-specific constraints included verbatim in every implementer prompt). This repo has no .tick/config.md yet.\n\nWork — create .tick/config.md for this repo:\n- Testing: go test ./... ; UI: pnpm install + pnpm test in internal/tickboard/ui ; worker: pnpm install + tests in cloud/worker (pnpm, never npm/yarn, per CLAUDE.md).\n- Environment: verify go, pnpm, and git are on PATH.\n- Rules: epic integration goes through a PR + CI gate — the orchestrator pushes the epic branch, opens a PR, and the epic close-out may not complete until ci.yml is green on that PR; no direct merges of epic branches to the default branch. Keep wording concise — Rules are injected verbatim into every implementer prompt.\n\nThis tick is gated --requires approval because it adopts project policy: the human reviews the drafted config.md (especially the Rules wording) before it takes effect.\n\nFiles likely touched: .tick/config.md (new).\nVerification: file parses as the three documented sections; a dry read-through against claude-runner.md run-start procedure shows each section is actionable.",
+  "notes": "2026-06-12 07:51 - [human] Policy approved by peter@engelbrecht.dk (in-session approval prompt): PR+CI gate adopted as drafted — epic branches merge via PR with ci.yml green before close-out; no direct merges to default branch. config.md committed.",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -11,6 +12,6 @@
   "requires": "approval",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T07:00:59.181817728Z",
-  "updated_at": "2026-06-12T07:49:39.47767853Z",
+  "updated_at": "2026-06-12T07:51:32.039125201Z",
   "started_at": "2026-06-12T07:49:39.477678309Z"
 }
