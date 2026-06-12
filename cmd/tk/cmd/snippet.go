@@ -8,8 +8,8 @@ import (
 
 var snippetCmd = &cobra.Command{
 	Use:   "snippet",
-	Short: "Print CLAUDE.md snippet for AI context",
-	Long:  `Print a markdown snippet suitable for including in CLAUDE.md to give AI agents context about using tk for issue tracking.`,
+	Short: "Print agent-instructions snippet for AI context",
+	Long:  `Print a runner-neutral markdown snippet suitable for AGENTS.md, CLAUDE.md, or another AI agent instruction file.`,
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Print(snippetText)

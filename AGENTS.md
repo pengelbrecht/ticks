@@ -12,6 +12,10 @@ tk note <id> "Investigating auth flow"
 tk close <id> --reason "Fixed in this session"
 ```
 
+## Ticks Skill
+
+The distributable skill lives in `skills/ticks/` and is the source of truth. Runner-neutral behavior belongs in `skills/ticks/references/agent-runner.md`; Claude and Codex mechanics belong in their respective adapters. Keep cross-runner handoff based on git and `.tick/` state, never a harness-private session ID.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

@@ -21,4 +21,4 @@
 
 ## Ticks Skill
 
-The distributable skill lives in `skills/ticks/` — this is the source of truth. When updating the ticks skill (SKILL.md, references/claude-runner.md, references/tick-patterns.md, references/tk-commands.md), always edit files under `skills/ticks/`, never the installed copy at `~/.claude/skills/ticks/`.
+The distributable skill lives in `skills/ticks/` — this is the source of truth. Runner-neutral behavior belongs in `references/agent-runner.md`; Claude and Codex mechanics belong in their adapters. Always edit files under `skills/ticks/`, never an installed copy under a user home directory.
