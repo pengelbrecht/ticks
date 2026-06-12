@@ -460,3 +460,5 @@
 {"ts":"2026-06-12T07:01:10.951109707Z","tick":"0dq","action":"create","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"priority":2,"title":"Final review of epic e7c diff","type":"task"}}
 {"ts":"2026-06-12T07:01:19.410715173Z","tick":"yj6","action":"create","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"priority":2,"title":"Close out epic e7c: run epic retro and write the roadmap completion report","type":"task"}}
 {"ts":"2026-06-12T07:01:56.867442267Z","tick":"zlc","action":"block","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"blockers":["o16"],"title":"TUI: roadmap-native selection — navigate epics in roadmap mode and jump into them"}}
+{"ts":"2026-06-12T07:08:39.314160566Z","tick":"4bt","action":"start","actor":"orchestrator","data":{"title":"Soft ordering for roadmaps: distinguish preference (after) from dependency (blocked_by)"}}
+{"ts":"2026-06-12T07:08:39.327369527Z","tick":"8up","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"Add after field to the tick data model and JSON schema"}}

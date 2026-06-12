@@ -2,7 +2,7 @@
   "id": "8up",
   "title": "Add after field to the tick data model and JSON schema",
   "description": "Add a soft-ordering field to the tick data model, sibling to BlockedBy.\n\nContext: internal/tick/tick.go defines the Tick struct; BlockedBy is []string with json tag \"blocked_by,omitempty\" (line ~68). schemas/tick.schema.json is the JSON schema for tick files stored in .tick/issues/.\n\nWork:\n- Add After []string with json tag \"after,omitempty\" to the Tick struct, directly after BlockedBy.\n- Add the after property to schemas/tick.schema.json mirroring blocked_by (optional array of strings).\n- Doc comment must state the semantics: after expresses preferred ordering only (work these targets first if feasible); it never gates readiness — that is blocked_by. Entries are tick IDs; consumers ignore missing or closed targets.\n\nTest cases (extend internal/tick tests):\n- Marshal a Tick with After [\"abc\"] -\u003e JSON contains \"after\":[\"abc\"].\n- Marshal a Tick with empty/nil After -\u003e JSON omits the after key.\n- Unmarshal {\"after\":[\"abc\",\"def\"]} -\u003e After == [\"abc\",\"def\"].\n- Validate() on a tick with After set -\u003e no new errors (shape-only, like blocked_by).\n\nFiles likely touched: internal/tick/tick.go, internal/tick/tick_test.go, schemas/tick.schema.json.\nRun: go test ./internal/tick/...",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "after round-trips through JSON and is omitted when empty; schema lists the property; go test ./internal/tick/... passes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T06:40:36.021405393Z",
-  "updated_at": "2026-06-12T06:40:36.021405393Z"
+  "updated_at": "2026-06-12T07:08:39.327053546Z",
+  "started_at": "2026-06-12T07:08:39.327052789Z"
 }
