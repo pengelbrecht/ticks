@@ -199,6 +199,111 @@ func TestComputeIgnoresExternalBlockers(t *testing.T) {
 	}
 }
 
+func TestComputeExternalOpenBlockerWithLookup(t *testing.T) {
+	// B blocked by "ext" which is open but outside the task set. With the
+	// all-ticks lookup, B must not land in wave 1 (ext acts as a virtual
+	// wave-1 node), while A stays in wave 1.
+	tasks := []*tick.Tick{
+		makeTick("a"),
+		makeTick("b", withBlockedBy("ext")),
+	}
+	all := []tick.Tick{*tasks[0], *tasks[1], *makeTick("ext")}
+	r := Compute(tasks, all)
+	if len(r.Waves) != 2 {
+		t.Fatalf("expected 2 waves, got %d", len(r.Waves))
+	}
+	if r.Waves[0].Number != 1 || len(r.Waves[0].Tasks) != 1 || r.Waves[0].Tasks[0].ID != "a" {
+		t.Fatalf("wave 1 should be [a], got %+v", r.Waves[0])
+	}
+	if r.Waves[1].Number != 2 || len(r.Waves[1].Tasks) != 1 || r.Waves[1].Tasks[0].ID != "b" {
+		t.Fatalf("wave 2 should be [b], got %+v", r.Waves[1])
+	}
+}
+
+func TestComputeExternalClosedBlockerWithLookup(t *testing.T) {
+	// B blocked by "ext" which is closed -> B is ready (wave 1).
+	tasks := []*tick.Tick{
+		makeTick("a"),
+		makeTick("b", withBlockedBy("ext")),
+	}
+	all := []tick.Tick{*tasks[0], *tasks[1], *makeTick("ext", withStatus(tick.StatusClosed))}
+	r := Compute(tasks, all)
+	if len(r.Waves) != 1 {
+		t.Fatalf("expected 1 wave (closed external blocker ignored), got %d", len(r.Waves))
+	}
+	if len(r.Waves[0].Tasks) != 2 {
+		t.Fatalf("expected 2 tasks in wave 1, got %d", len(r.Waves[0].Tasks))
+	}
+}
+
+func TestComputeMissingBlockerWithLookup(t *testing.T) {
+	// B blocked by "gone" which is absent from the lookup -> treated as
+	// closed (orphaned reference), so B is ready.
+	tasks := []*tick.Tick{
+		makeTick("b", withBlockedBy("gone")),
+	}
+	all := []tick.Tick{*tasks[0]}
+	r := Compute(tasks, all)
+	if len(r.Waves) != 1 || r.Waves[0].Number != 1 {
+		t.Fatalf("expected b in wave 1 (missing blocker treated as closed), got %+v", r.Waves)
+	}
+}
+
+func TestComputeOnlyExternalBlockedStartsAtWaveTwo(t *testing.T) {
+	// The only task is blocked by an open external tick: no wave 1 exists,
+	// the task lands in wave 2.
+	tasks := []*tick.Tick{
+		makeTick("b", withBlockedBy("ext")),
+	}
+	all := []tick.Tick{*tasks[0], *makeTick("ext")}
+	r := Compute(tasks, all)
+	if len(r.Waves) != 1 {
+		t.Fatalf("expected 1 wave, got %d", len(r.Waves))
+	}
+	if r.Waves[0].Number != 2 {
+		t.Fatalf("expected wave number 2 for externally blocked task, got %d", r.Waves[0].Number)
+	}
+	if len(r.CycleIDs) != 0 {
+		t.Fatalf("expected no cycle, got %v", r.CycleIDs)
+	}
+}
+
+func TestComputeExternalBlockerChainDepth(t *testing.T) {
+	// a blocked by open ext, c blocked by a -> a in wave 2, c in wave 3.
+	tasks := []*tick.Tick{
+		makeTick("a", withBlockedBy("ext")),
+		makeTick("c", withBlockedBy("a")),
+	}
+	all := []tick.Tick{*tasks[0], *tasks[1], *makeTick("ext")}
+	r := Compute(tasks, all)
+	if len(r.Waves) != 2 {
+		t.Fatalf("expected 2 waves, got %d", len(r.Waves))
+	}
+	if r.Waves[0].Number != 2 || r.Waves[0].Tasks[0].ID != "a" {
+		t.Fatalf("expected a in wave 2, got %+v", r.Waves[0])
+	}
+	if r.Waves[1].Number != 3 || r.Waves[1].Tasks[0].ID != "c" {
+		t.Fatalf("expected c in wave 3, got %+v", r.Waves[1])
+	}
+}
+
+func TestComputeAwaitingBlockerWithLookup(t *testing.T) {
+	// B blocked by an awaiting-human task in the same set. The blocker is
+	// excluded from the waves but is still open, so B must not be in wave 1.
+	tasks := []*tick.Tick{
+		makeTick("a", withAwaiting(tick.AwaitingApproval)),
+		makeTick("b", withBlockedBy("a")),
+	}
+	all := []tick.Tick{*tasks[0], *tasks[1]}
+	r := Compute(tasks, all)
+	if len(r.Waves) != 1 {
+		t.Fatalf("expected 1 wave, got %d", len(r.Waves))
+	}
+	if r.Waves[0].Number != 2 || r.Waves[0].Tasks[0].ID != "b" {
+		t.Fatalf("expected b in wave 2 (blocked by open awaiting task), got %+v", r.Waves[0])
+	}
+}
+
 func TestComputePrioritySorting(t *testing.T) {
 	tasks := []*tick.Tick{
 		makeTick("c", withPriority(3)),
