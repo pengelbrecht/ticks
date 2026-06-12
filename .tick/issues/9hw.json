@@ -2,7 +2,7 @@
   "id": "9hw",
   "title": "Close out epic 4bt: run epic retro, then flesh out epic o16 into ticks",
   "description": "Meta-work tick (orchestrator-owned). Standard close-out per SKILL.md Roadmaps section: run the epic-close retro (references/claude-runner.md), promote/record learnings in .tick/learnings.md, then read epic o16 (soft ordering surfaces: roadmap rendering in CLI/TUI/web + skill docs) rough scope and partition it into child ticks using the foundation-first procedure in references/tick-patterns.md. Create o16 meta-work ticks (final review + close-out) at planning time. Then close 4bt and continue with tk graph o16.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,6 +13,7 @@
   "acceptance_criteria": "retro run and learnings recorded per claude-runner.md; epic o16 partitioned into child ticks (including its own meta-work ticks); 4bt closed",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T06:41:30.326131824Z",
-  "updated_at": "2026-06-12T07:31:00.931321854Z",
-  "started_at": "2026-06-12T07:31:00.931320909Z"
+  "updated_at": "2026-06-12T07:32:25.285740662Z",
+  "closed_at": "2026-06-12T07:32:25.285740662Z",
+  "closed_reason": "Completed: retro run, learnings recorded, e7c edge dogfood-converted to after, o16 fleshed into ticks (see o16 children)"
 }
