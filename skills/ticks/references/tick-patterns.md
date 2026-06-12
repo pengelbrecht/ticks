@@ -44,6 +44,8 @@ Use this ordered procedure every time you plan an epic. It replaces ad-hoc "defi
 
 **Step 3 — Cluster by shared files.** Deliverables that touch the same files cannot safely run in parallel. For each cluster of overlap, either make the ticks sequential with `--blocked-by`, or merge them into one tick if they are tightly coupled enough that separation adds no value.
 
+**Pick the right edge type.** Same-file overlap between ticks or epics is a real feasibility constraint — sequence it with `--blocked-by` (hard), never `--after`. A merge conflict you can predict is a dependency, not a preference. Reserve `--after` (soft) for pure ordering preference where nothing actually conflicts: it biases `tk next` ordering but never gates readiness, so a soft-deferred tick can still be picked up when its preferred predecessor is infeasible.
+
 **Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
 
 **Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so that everything that *can* run in parallel *does*. Verify with `tk graph <epic>` that no two ticks in the same wave share a file. If they do, add `--blocked-by` or re-merge until the graph is clean.
@@ -300,7 +302,7 @@ Agent has no way to verify "appropriately".
 
 ### Implicit Dependencies
 - Bad: Create tasks without explicit blockers
-- Good: Use `--blocked-by` to make order clear
+- Good: Use `--blocked-by` for real dependencies (and `--after` for mere ordering preference) to make order explicit
 
 ### Placeholders and Cross-References
 - Bad: "Add error handling as appropriate" / "Write tests for the above" / "Use the type from the schema tick"
