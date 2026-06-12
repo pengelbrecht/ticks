@@ -16,7 +16,8 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./index";
 
-// Tick structure (matches Go tick.Tick)
+// Tick structure (subset of Go tick.Tick — fields not listed here pass
+// through untouched at runtime; keep in sync where the worker reads them)
 interface Tick {
   id: string;
   title: string;
@@ -27,6 +28,8 @@ interface Tick {
   owner?: string;
   parent?: string;
   labels?: string[];
+  blocked_by?: string[];
+  after?: string[];
   notes?: Array<{
     id: string;
     content: string;

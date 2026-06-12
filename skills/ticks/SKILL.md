@@ -138,7 +138,7 @@ Transform the gathered requirements into ticks organized by epic.
 
 ### Roadmaps (multi-epic work)
 
-When the spec spans multiple epics, create a **roadmap**: a chain of epics linked with ordering edges. Two edge types exist, and choosing the right one is the core roadmap decision:
+When the spec spans multiple epics, create a **roadmap**: a set of epics linked with ordering edges. Two edge types exist, and choosing the right one is the core roadmap decision:
 
 - **`--blocked-by` = hard dependency (feasibility).** The downstream epic is never ready until the blocker closes. Use it only where the epic *genuinely needs* its predecessor — including sequencing chosen to avoid same-file merge conflicts between epics (that is a real constraint, not a preference).
 - **`--after` = soft ordering (preference).** It orders, but never gates readiness. `tk next` sorts soft-deferred candidates last but never hides them — when the preferred epic is infeasible (hard-blocked or gated), selection naturally skips ahead to the first feasible epic; no flag needed. Missing or closed `--after` targets are ignored.
