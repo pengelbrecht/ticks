@@ -31,8 +31,12 @@ var (
 	roadmapWaveHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(styles.ColorPink)
 	roadmapGateBadgeStyle  = lipgloss.NewStyle().Foreground(styles.ColorYellow)
 	roadmapBlockedStyle    = lipgloss.NewStyle().Foreground(styles.ColorDim)
-	roadmapProgressStyle   = lipgloss.NewStyle().Foreground(styles.ColorDim)
-	roadmapIDStyle         = lipgloss.NewStyle().Foreground(styles.ColorSubtext)
+	// roadmapAfterStyle renders soft-ordering (After) edges. Softer than
+	// roadmapBlockedStyle: After is a preference, never a constraint, so it
+	// gets the dimmer Overlay0 gray.
+	roadmapAfterStyle    = lipgloss.NewStyle().Foreground(styles.ColorGray)
+	roadmapProgressStyle = lipgloss.NewStyle().Foreground(styles.ColorDim)
+	roadmapIDStyle       = lipgloss.NewStyle().Foreground(styles.ColorSubtext)
 )
 
 // renderRoadmapStatusGlyph returns a colored status glyph for the given
@@ -60,7 +64,7 @@ func renderRoadmapStatusGlyph(status string) string {
 //
 // Visual layout per epic line:
 //
-//	<glyph> <id>  [closed/total] <title> [gate-badge] [← blocked by: id1 id2]
+//	<glyph> <id>  [closed/total] <title> [gate-badge] [← blocked by: id1 id2] [← after: id1 id2]
 //
 // Each wave is preceded by a "Wave N" header (1-indexed).
 func RenderRoadmap(allTicks []tick.Tick, width int) string {
@@ -94,7 +98,11 @@ func RenderRoadmap(allTicks []tick.Tick, width int) string {
 // renderRoadmapEpicLine renders one epic line within the roadmap.
 // Format:
 //
-//	<glyph> <id>  [closed/total]  <title>  [gate:<type>]  (needs planning)  [← blocked by: id1 id2]
+//	<glyph> <id>  [closed/total]  <title>  [gate:<type>]  (needs planning)  [← blocked by: id1 id2]  [← after: id1 id2]
+//
+// The after annotation marks soft-ordering (After) edges and is rendered in
+// a more muted style than the blocked-by annotation; it is omitted when the
+// epic has no After targets.
 func renderRoadmapEpicLine(epic query.RoadmapEpic, width int) string {
 	glyph := renderRoadmapStatusGlyph(epic.Status)
 
@@ -128,9 +136,17 @@ func renderRoadmapEpicLine(epic query.RoadmapEpic, width int) string {
 		)
 	}
 
+	// After annotation: soft-ordering edges, more muted than blocked-by
+	afterAnnotation := ""
+	if len(epic.After) > 0 {
+		afterAnnotation = " " + roadmapAfterStyle.Render(
+			fmt.Sprintf("← after: %s", strings.Join(epic.After, " ")),
+		)
+	}
+
 	// Indented two spaces to sit under the Wave header
-	line := fmt.Sprintf("  %s %s %s %s%s%s%s",
-		glyph, id, progress, title, gateBadge, needsPlanning, blockedAnnotation)
+	line := fmt.Sprintf("  %s %s %s %s%s%s%s%s",
+		glyph, id, progress, title, gateBadge, needsPlanning, blockedAnnotation, afterAnnotation)
 
 	return truncate(line, width)
 }
