@@ -2191,3 +2191,95 @@ func TestGetRoadmap_MethodNotAllowed(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
 	}
 }
+
+func TestCreateAndUpdateTick_After(t *testing.T) {
+	tmpDir := t.TempDir()
+	tickDir := filepath.Join(tmpDir, ".tick")
+	issuesDir := filepath.Join(tickDir, "issues")
+	if err := os.MkdirAll(issuesDir, 0755); err != nil {
+		t.Fatalf("failed to create issues dir: %v", err)
+	}
+
+	// Seed a tick with an existing after edge for the PATCH cases
+	task := baseTick("abc", "Task with after")
+	task.After = []string{"x1"}
+	createTestTick(t, issuesDir, task)
+
+	srv, err := New(tickDir, 18828)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = srv.Run(ctx) }()
+	time.Sleep(100 * time.Millisecond)
+
+	client := &http.Client{}
+
+	patch := func(body string) GetTickResponse {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPatch, "http://localhost:18828/api/ticks/abc", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("failed to create request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to request: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("PATCH /api/ticks/abc status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+		var result GetTickResponse
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		return result
+	}
+
+	// POST create with after — the field is persisted (soft ordering only,
+	// never gates readiness: the new tick must still land in ready).
+	reqBody := `{"title": "Ordered Task", "after": ["a1", "b2"]}`
+	resp, err := http.Post("http://localhost:18828/api/ticks", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("failed to request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/ticks status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	var created CreateTickResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(created.After) != 2 || created.After[0] != "a1" || created.After[1] != "b2" {
+		t.Errorf("After = %v, want [a1 b2]", created.After)
+	}
+	if created.IsBlocked {
+		t.Error("expected IsBlocked=false: after never gates readiness")
+	}
+	if created.Column != ColumnReady {
+		t.Errorf("Column = %s, want %s: after never gates readiness", created.Column, ColumnReady)
+	}
+
+	// PATCH without after leaves the existing value unchanged
+	result := patch(`{"priority": 1}`)
+	if len(result.After) != 1 || result.After[0] != "x1" {
+		t.Errorf("After = %v, want [x1] (unchanged)", result.After)
+	}
+
+	// PATCH with after replaces the whole list
+	result = patch(`{"after": ["y2", "z3"]}`)
+	if len(result.After) != 2 || result.After[0] != "y2" || result.After[1] != "z3" {
+		t.Errorf("After = %v, want [y2 z3]", result.After)
+	}
+
+	// PATCH with an empty list clears the field
+	result = patch(`{"after": []}`)
+	if len(result.After) != 0 {
+		t.Errorf("After = %v, want empty (cleared)", result.After)
+	}
+}

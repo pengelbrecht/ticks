@@ -891,6 +891,65 @@ describe('CloudCommsClient Concurrent Operations', () => {
     });
   });
 
+  describe('after (soft order) round-trip', () => {
+    it('updateTick with after round-trips through the wire mapping', async () => {
+      mockWs.simulateMessage({
+        type: 'state_full',
+        ticks: {
+          t1: createTick({ id: 't1', title: 'Tick 1' }),
+        },
+      });
+
+      sentMessages = [];
+
+      const result = await client.updateTick('t1', { title: 'Tick 1', after: ['a1'] });
+
+      // The wire tick must carry after (the mapping is field-by-field)
+      expect(sentMessages).toHaveLength(1);
+      expect((sentMessages[0].tick as { after?: string[] }).after).toEqual(['a1']);
+
+      // The returned tick reflects the update
+      expect(result.after).toEqual(['a1']);
+    });
+
+    it('updateTick without after omits the field from the wire tick', async () => {
+      sentMessages = [];
+
+      await client.updateTick('t1', { title: 'Tick 1' });
+
+      expect(sentMessages).toHaveLength(1);
+      expect('after' in (sentMessages[0].tick as Record<string, unknown>)).toBe(false);
+    });
+
+    it('updateTick with empty after sends an explicit empty list (clear)', async () => {
+      sentMessages = [];
+
+      await client.updateTick('t1', { title: 'Tick 1', after: [] });
+
+      expect(sentMessages).toHaveLength(1);
+      expect((sentMessages[0].tick as { after?: string[] }).after).toEqual([]);
+    });
+
+    it('createTick carries after when set', async () => {
+      sentMessages = [];
+
+      const result = await client.createTick({ title: 'New Tick', after: ['a1', 'b2'] });
+
+      expect(sentMessages).toHaveLength(1);
+      expect((sentMessages[0].tick as { after?: string[] }).after).toEqual(['a1', 'b2']);
+      expect(result.after).toEqual(['a1', 'b2']);
+    });
+
+    it('createTick omits after when not set', async () => {
+      sentMessages = [];
+
+      await client.createTick({ title: 'New Tick' });
+
+      expect(sentMessages).toHaveLength(1);
+      expect('after' in (sentMessages[0].tick as Record<string, unknown>)).toBe(false);
+    });
+  });
+
   describe('state updates during pending operations', () => {
     it('reflects server state changes during pending creates', async () => {
       // Start a create

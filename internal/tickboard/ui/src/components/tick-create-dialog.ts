@@ -134,6 +134,12 @@ export class TickCreateDialog extends LitElement {
       margin-top: 0.25rem;
     }
 
+    .field-help {
+      font-size: 0.75rem;
+      color: var(--subtext0);
+      margin-top: 0.25rem;
+    }
+
     .error-message {
       background: rgba(243, 139, 168, 0.15);
       border: 1px solid var(--red);
@@ -183,6 +189,9 @@ export class TickCreateDialog extends LitElement {
   private labels = '';
 
   @state()
+  private tickAfter = '';
+
+  @state()
   private awaiting: '' | 'work' | 'approval' | 'input' | 'review' = '';
 
   @query('sl-input[name="title"]')
@@ -195,6 +204,7 @@ export class TickCreateDialog extends LitElement {
     this.priority = 2;
     this.parent = '';
     this.labels = '';
+    this.tickAfter = '';
     this.awaiting = '';
     this.error = null;
     this.loading = false;
@@ -249,6 +259,11 @@ export class TickCreateDialog extends LitElement {
     this.labels = input.value;
   }
 
+  private handleAfterInput(e: Event) {
+    const input = e.target as HTMLInputElement;
+    this.tickAfter = input.value;
+  }
+
   private handleAwaitingChange(e: Event) {
     const select = e.target as HTMLSelectElement;
     this.awaiting = select.value as '' | 'work' | 'approval' | 'input' | 'review';
@@ -278,6 +293,13 @@ export class TickCreateDialog extends LitElement {
 
     if (this.parent) {
       newTick.parent = this.parent;
+    }
+
+    // after = soft ordering preference (work these first if feasible);
+    // empty input -> field omitted from the payload entirely.
+    const afterIds = this.tickAfter.split(',').map(id => id.trim()).filter(Boolean);
+    if (afterIds.length > 0) {
+      newTick.after = afterIds;
     }
 
     if (this.awaiting) {
@@ -410,6 +432,20 @@ export class TickCreateDialog extends LitElement {
             @sl-input=${this.handleLabelsInput}
             ?disabled=${this.loading}
           ></sl-input>
+        </div>
+
+        <div class="form-field">
+          <label>After (soft order)</label>
+          <sl-input
+            name="after"
+            placeholder="tick IDs, e.g. a1, b2 (comma-separated)"
+            .value=${this.tickAfter}
+            @sl-input=${this.handleAfterInput}
+            ?disabled=${this.loading}
+          ></sl-input>
+          <div class="field-help">
+            Soft ordering preference — work these ticks first if feasible. Never blocks readiness (use Blocked By for hard dependencies).
+          </div>
         </div>
 
         <div class="form-field">
