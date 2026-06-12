@@ -272,6 +272,7 @@ export class CloudCommsClient implements CommsClient {
       parent: tick.parent,
       labels: tick.labels,
       blocked_by: tick.blocked_by,
+      after: tick.after,
       awaiting: tick.awaiting,
       owner: '', // Filled in by local agent
       created_by: '', // Filled in by local agent
@@ -301,6 +302,7 @@ export class CloudCommsClient implements CommsClient {
       priority: updates.priority ?? 2,
       labels: updates.labels,
       blocked_by: updates.blocked_by,
+      after: updates.after,
       type: 'task',
       owner: '', // Filled in by local agent
       created_by: '', // Filled in by local agent

@@ -86,6 +86,8 @@ export interface TickCreate {
   parent?: string;
   labels?: string[];
   blocked_by?: string[];
+  /** Soft ordering preference (work these first if feasible) — never blocks readiness, unlike blocked_by. */
+  after?: string[];
   awaiting?: 'work' | 'approval' | 'input' | 'review' | 'content' | 'escalation' | 'checkpoint';
 }
 
@@ -97,6 +99,8 @@ export interface TickUpdate {
   priority?: number;
   labels?: string[];
   blocked_by?: string[];
+  /** Soft ordering preference (work these first if feasible) — never blocks readiness, unlike blocked_by. */
+  after?: string[];
   awaiting?: string;
 }
 

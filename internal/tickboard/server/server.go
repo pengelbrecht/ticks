@@ -1033,6 +1033,9 @@ type UpdateTickRequest struct {
 	Parent   *string `json:"parent,omitempty"`
 	Owner    *string `json:"owner,omitempty"`
 	Requires *string `json:"requires,omitempty"`
+	// After is the soft ordering preference (never gates readiness, unlike
+	// blocked_by). Present-and-empty clears the field; absent leaves it unchanged.
+	After *[]string `json:"after,omitempty"`
 }
 
 // CloseTickRequest is the request body for POST /api/ticks/:id/close.
@@ -1055,6 +1058,8 @@ type CreateTickRequest struct {
 	Priority    *int    `json:"priority,omitempty"`
 	Parent      string  `json:"parent,omitempty"`
 	Requires    *string `json:"requires,omitempty"`
+	// After is the soft ordering preference (never gates readiness, unlike blocked_by).
+	After []string `json:"after,omitempty"`
 }
 
 // CreateTickResponse is the response body for POST /api/ticks.
@@ -1449,6 +1454,15 @@ func (s *Server) handleUpdateTick(w http.ResponseWriter, r *http.Request, tickID
 			t.Requires = req.Requires
 		}
 	}
+	if req.After != nil {
+		// Replaces the whole list; an empty list clears the field
+		// (mirrors `tk update --after ""`).
+		if len(*req.After) == 0 {
+			t.After = nil
+		} else {
+			t.After = *req.After
+		}
+	}
 
 	t.UpdatedAt = time.Now()
 
@@ -1740,6 +1754,7 @@ func (s *Server) handleCreateTick(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   now,
 		Parent:      req.Parent,
 		Requires:    req.Requires,
+		After:       req.After,
 	}
 
 	// Validate the tick
