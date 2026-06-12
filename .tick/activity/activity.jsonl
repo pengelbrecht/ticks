@@ -512,3 +512,4 @@
 {"ts":"2026-06-12T08:10:32.683271556Z","tick":"iga","action":"close","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"title":"Make tk graph account for cross-epic blockers"}}
 {"ts":"2026-06-12T08:10:32.691289772Z","tick":"zlc","action":"close","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"title":"TUI: roadmap-native selection — navigate epics in roadmap mode and jump into them"}}
 {"ts":"2026-06-12T08:10:32.699099719Z","tick":"6ii","action":"close","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"title":"Web board: support editing after edges (TickCreate/TickUpdate + cloud round-trip)"}}
+{"ts":"2026-06-12T08:11:17.271716253Z","tick":"0dq","action":"note","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"note":"2026-06-12 08:11 - dispatching frontier reviewer","title":"Final review of epic e7c diff"}}
