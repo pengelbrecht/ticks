@@ -1,0 +1,14 @@
+{
+  "id": "fmg",
+  "title": "Add Codex epic runner and runner-neutral handoff protocol",
+  "description": "Generalize the shipped ticks skill so Claude Code and Codex can orchestrate the same epics. Add harness adapters, durable cross-runner handoff rules, and update project/snippet documentation to address both AGENTS.md and CLAUDE.md.\\n\\nAcceptance:\\n- Shared runner workflow is harness-neutral and links Claude and Codex adapters.\\n- Codex adapter uses supported local Codex CLI/worktree primitives.\\n- A run created by either harness can be resumed by the other using tick and git state only.\\n- go test ./... passes.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "go test ./... passes; runner docs contain no Claude-only execution claim",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T13:16:58.412297Z",
+  "updated_at": "2026-06-12T13:17:02.227851Z",
+  "started_at": "2026-06-12T13:17:02.227851Z"
+}
