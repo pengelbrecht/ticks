@@ -462,3 +462,7 @@
 {"ts":"2026-06-12T07:01:56.867442267Z","tick":"zlc","action":"block","actor":"peter@engelbrecht.dk","epic":"e7c","data":{"blockers":["o16"],"title":"TUI: roadmap-native selection — navigate epics in roadmap mode and jump into them"}}
 {"ts":"2026-06-12T07:08:39.314160566Z","tick":"4bt","action":"start","actor":"orchestrator","data":{"title":"Soft ordering for roadmaps: distinguish preference (after) from dependency (blocked_by)"}}
 {"ts":"2026-06-12T07:08:39.327369527Z","tick":"8up","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"Add after field to the tick data model and JSON schema"}}
+{"ts":"2026-06-12T07:12:11.504519626Z","tick":"8up","action":"close","actor":"orchestrator","epic":"4bt","data":{"reason":"Completed: After []string field on Tick (after,omitempty) + schema property + 5-subtest JSON round-trip coverage","title":"Add after field to the tick data model and JSON schema"}}
+{"ts":"2026-06-12T07:12:11.515063753Z","tick":"ogj","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"Expose after in the CLI: --after on create/update and display in tk show"}}
+{"ts":"2026-06-12T07:12:11.525338314Z","tick":"nps","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"ComputeRoadmap: layer waves on the union of blocked_by and after edges"}}
+{"ts":"2026-06-12T07:12:11.535873031Z","tick":"iyk","action":"start","actor":"orchestrator","epic":"4bt","data":{"title":"tk next: sort soft-deferred candidates last so selection skips to first feasible work"}}
