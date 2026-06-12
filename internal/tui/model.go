@@ -50,6 +50,7 @@ type keyMap struct {
 	Top           key.Binding
 	Bottom        key.Binding
 	Fold          key.Binding
+	Open          key.Binding
 	Focus         key.Binding
 	Search        key.Binding
 	HideClosed    key.Binding
@@ -75,6 +76,27 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Fold, k.Focus, k.Search, k.HideClosed},
 		{k.HumanQueue, k.CycleAwaiting},
 		{k.Approve, k.Reject, k.RoadmapMode, k.SwitchPane, k.Quit},
+	}
+}
+
+// roadmapHelpKeys narrows the help footer to the bindings that are active in
+// roadmap mode: move selection, open the selected epic, toggle back to the
+// tree, switch panes, quit.
+type roadmapHelpKeys struct {
+	keys keyMap
+}
+
+// ShortHelp returns roadmap-mode bindings for the short help view.
+func (r roadmapHelpKeys) ShortHelp() []key.Binding {
+	return []key.Binding{r.keys.Up, r.keys.Open, r.keys.RoadmapMode, r.keys.SwitchPane, r.keys.Quit}
+}
+
+// FullHelp returns roadmap-mode bindings for the full help view.
+func (r roadmapHelpKeys) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{r.keys.Up, r.keys.Down},
+		{r.keys.Open, r.keys.RoadmapMode},
+		{r.keys.SwitchPane, r.keys.Quit},
 	}
 }
 
@@ -106,6 +128,11 @@ var defaultKeyMap = keyMap{
 	Fold: key.NewBinding(
 		key.WithKeys(" ", "enter"),
 		key.WithHelp("space", "fold"),
+	),
+	// Open is roadmap-mode only: jump from the selected epic into the tree.
+	Open: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "open"),
 	),
 	Focus: key.NewBinding(
 		key.WithKeys("z"),
@@ -219,6 +246,12 @@ type Model struct {
 
 	// viewMode controls which content is rendered in the left pane.
 	viewMode viewModeType
+
+	// Roadmap-mode selection: epic IDs in wave order plus the selected index.
+	// Rebuilt on mode entry and on data reload (selection is kept by ID; falls
+	// back to the first epic when the selected one disappears).
+	roadmapIDs      []string
+	roadmapSelected int
 }
 
 // TUI-specific styles (layout elements)
@@ -537,6 +570,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selected < 0 {
 				m.selected = 0
 			}
+			// Roadmap selection survives the reload by ID (falls back to the
+			// first epic if it disappeared).
+			m.syncRoadmapSelection()
 			m.updateListViewportContent()
 			m.updateViewportContent()
 		}
@@ -638,12 +674,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "j", "down":
 			if m.rightPaneFocused {
 				m.viewport.LineDown(1)
+			} else if m.viewMode == viewModeRoadmap {
+				if m.roadmapSelected < len(m.roadmapIDs)-1 {
+					m.roadmapSelected++
+					m.updateListViewportContent()
+				}
 			} else if m.selected < len(m.items)-1 {
 				m.selected++
 			}
 		case "k", "up":
 			if m.rightPaneFocused {
 				m.viewport.LineUp(1)
+			} else if m.viewMode == viewModeRoadmap {
+				if m.roadmapSelected > 0 {
+					m.roadmapSelected--
+					m.updateListViewportContent()
+				}
 			} else if m.selected > 0 {
 				m.selected--
 			}
@@ -687,6 +733,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateListViewportContent()
 			m.updateViewportContent()
 		case " ", "enter":
+			// Roadmap mode: enter jumps to the selected epic in the tree;
+			// space is a no-op (folding belongs to the tree).
+			if m.viewMode == viewModeRoadmap {
+				if msg.String() == "enter" {
+					m.jumpToRoadmapEpic()
+				}
+				return m, nil
+			}
 			if len(m.items) == 0 {
 				return m, nil
 			}
@@ -764,6 +818,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewMode = viewModeTree
 			} else {
 				m.viewMode = viewModeRoadmap
+				m.syncRoadmapSelection()
 			}
 			m.updateListViewportContent()
 		}
@@ -1015,6 +1070,8 @@ func (m Model) View() string {
 		} else {
 			footerView = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render(m.statusMsg)
 		}
+	} else if m.viewMode == viewModeRoadmap {
+		footerView = m.help.View(roadmapHelpKeys{m.keys})
 	} else {
 		footerView = m.help.View(m.keys)
 	}
@@ -1179,9 +1236,23 @@ func (m *Model) updateViewportSize() {
 // updateListViewportContent sets the list viewport content and ensures selected item is visible.
 func (m *Model) updateListViewportContent() {
 	if m.viewMode == viewModeRoadmap {
-		// Roadmap mode: render the roadmap view, display-only (no selection tracking).
-		content := RenderRoadmap(m.allTicks, m.listViewport.Width)
+		// Roadmap mode: render the roadmap with the selected epic highlighted.
+		content, selectedLine := RenderRoadmapWithSelection(m.allTicks, m.listViewport.Width, m.selectedRoadmapEpicID())
 		m.listViewport.SetContent(content)
+
+		// Ensure the selected epic line is visible (wave headers and blank
+		// lines mean the line index differs from the selection index).
+		visibleHeight := m.listViewport.Height
+		if selectedLine >= 0 && visibleHeight > 0 {
+			topLine := m.listViewport.YOffset
+			bottomLine := topLine + visibleHeight - 1
+
+			if selectedLine < topLine {
+				m.listViewport.SetYOffset(selectedLine)
+			} else if selectedLine > bottomLine {
+				m.listViewport.SetYOffset(selectedLine - visibleHeight + 1)
+			}
+		}
 		return
 	}
 
@@ -1207,6 +1278,94 @@ func (m *Model) updateListViewportContent() {
 			m.listViewport.SetYOffset(m.selected - visibleHeight + 1)
 		}
 	}
+}
+
+// selectedRoadmapEpicID returns the ID of the epic selected in roadmap mode,
+// or "" when there are no epics.
+func (m *Model) selectedRoadmapEpicID() string {
+	if m.roadmapSelected >= 0 && m.roadmapSelected < len(m.roadmapIDs) {
+		return m.roadmapIDs[m.roadmapSelected]
+	}
+	return ""
+}
+
+// syncRoadmapSelection rebuilds the wave-ordered epic ID list from the current
+// ticks, keeping the selected epic by ID. If the previously selected epic is
+// gone (or nothing was selected yet), selection falls back to the first epic.
+func (m *Model) syncRoadmapSelection() {
+	prevID := m.selectedRoadmapEpicID()
+	m.roadmapIDs = roadmapEpicOrder(m.allTicks)
+	m.roadmapSelected = 0
+	for i, id := range m.roadmapIDs {
+		if id == prevID {
+			m.roadmapSelected = i
+			break
+		}
+	}
+}
+
+// jumpToRoadmapEpic switches from roadmap mode to tree mode with the currently
+// selected roadmap epic selected in the tree and shown in the detail pane.
+// Collapsed ancestors are expanded so the epic's row exists; if a filter
+// (search, focus, awaiting, hide-closed) still hides it, those are relaxed.
+func (m *Model) jumpToRoadmapEpic() {
+	id := m.selectedRoadmapEpicID()
+	if id == "" {
+		return
+	}
+	m.viewMode = viewModeTree
+
+	// Expand any collapsed ancestors so the epic's row is present.
+	byID := make(map[string]tick.Tick, len(m.allTicks))
+	for _, t := range m.allTicks {
+		byID[t.ID] = t
+	}
+	for parentID := byID[id].Parent; parentID != ""; {
+		m.collapsed[parentID] = false
+		parent, ok := byID[parentID]
+		if !ok {
+			break
+		}
+		parentID = parent.Parent
+	}
+
+	rebuild := func() int {
+		m.items = buildItems(m.allTicks, m.collapsed, m.filter, m.focusedEpic, m.hideClosed, m.awaitingFilter, m.awaitingTypeFilter)
+		for i, it := range m.items {
+			if it.Tick.ID == id {
+				return i
+			}
+		}
+		return -1
+	}
+
+	idx := rebuild()
+	if idx == -1 {
+		// The epic is hidden by an active filter. Clear them so the jump
+		// always lands (hide-closed only matters for done epics).
+		m.filter = ""
+		m.focusedEpic = ""
+		m.awaitingFilter = awaitingFilterOff
+		m.awaitingTypeFilter = ""
+		if byID[id].Status == tick.StatusClosed {
+			m.hideClosed = false
+		}
+		idx = rebuild()
+	}
+
+	if idx >= 0 {
+		m.selected = idx
+	} else {
+		// Defensive: epic vanished between roadmap render and jump.
+		if m.selected >= len(m.items) {
+			m.selected = len(m.items) - 1
+		}
+		if m.selected < 0 {
+			m.selected = 0
+		}
+	}
+	m.updateListViewportContent()
+	m.updateViewportContent()
 }
 
 // updateViewportContent sets the viewport content based on current selection.
