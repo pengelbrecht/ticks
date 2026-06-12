@@ -2,7 +2,7 @@
   "id": "uab",
   "title": "Close out epic o16: run epic retro; e7c is pre-planned — verify it and proceed",
   "description": "Meta-work tick (orchestrator-owned). Standard close-out per SKILL.md: run the epic-close retro (references/claude-runner.md), record learnings. The next epic e7c was fleshed out up front (user request) rather than just-in-time, so instead of partitioning it: re-validate its child ticks against the now-current tree — zlc becomes unblocked when o16 closes (it was hard-blocked on shared internal/tui/roadmap.go files; verify its recon facts against the TUI changes jba just made and update the tick description if line numbers or render conventions moved). Then close o16 and continue with tk graph e7c.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "retro run and learnings recorded; e7c plan re-validated against current tree (recon facts still accurate, zlc unblocked); o16 closed",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T07:34:15.711664092Z",
-  "updated_at": "2026-06-12T07:34:24.886261078Z"
+  "updated_at": "2026-06-12T07:49:26.810412582Z",
+  "closed_at": "2026-06-12T07:49:26.810412582Z",
+  "closed_reason": "Completed: retro recorded, e7c re-validated (zlc recon refreshed, scope grew by 6ii), proceeding to e7c"
 }

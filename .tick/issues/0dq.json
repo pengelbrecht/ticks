@@ -9,11 +9,12 @@
   "blocked_by": [
     "zlc",
     "h3l",
-    "iga"
+    "iga",
+    "6ii"
   ],
   "parent": "e7c",
   "acceptance_criteria": "epic diff reviewed; all blocker-severity findings resolved or routed as ticks before close-out unblocks",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T07:01:10.950692172Z",
-  "updated_at": "2026-06-12T07:01:10.950692172Z"
+  "updated_at": "2026-06-12T07:49:26.760604792Z"
 }
