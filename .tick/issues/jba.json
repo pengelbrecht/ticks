@@ -2,7 +2,7 @@
   "id": "jba",
   "title": "TUI roadmap: annotate after edges on epic lines",
   "description": "internal/tui/roadmap.go renderRoadmapEpicLine (~line 98) renders: \u003cglyph\u003e \u003cid\u003e [closed/total] \u003ctitle\u003e [gate:\u003ctype\u003e] (needs planning) [← blocked by: id1 id2] using roadmapBlockedStyle. RoadmapEpic (internal/query/roadmap.go) now carries After []string — epic-only soft-ordering targets (preference, never a constraint).\n\nWork: append an after annotation \"← after: id1 id2\" following the blocked-by annotation, in a more muted style than roadmapBlockedStyle (soft edge = weaker visual weight; define e.g. roadmapAfterStyle next to the existing styles, using a dim/overlay color consistent with internal/tui/styles.go + internal/styles conventions). Omit when After is empty. Update the format doc comment above the function.\n\nTest cases (extend the existing TUI roadmap render tests):\n- Epic with After [\"x1\",\"x2\"], no BlockedBy -\u003e line contains \"after: x1 x2\", no \"blocked by\".\n- Epic with both -\u003e blocked-by annotation precedes after annotation.\n- Epic with neither -\u003e unchanged line (no regression on existing 11 render tests).\n\nFiles likely touched: internal/tui/roadmap.go, internal/tui/roadmap_test.go.\nRun: gofmt -l internal; go build ./...; go test -short -count=1 ./internal/tui/...",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -10,6 +10,7 @@
   "acceptance_criteria": "TUI roadmap lines render a muted after annotation distinct from blocked-by; render tests cover with/without/mixed; go test ./internal/tui/... passes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-12T07:33:22.128996966Z",
-  "updated_at": "2026-06-12T07:34:24.922908985Z",
-  "started_at": "2026-06-12T07:34:24.92290842Z"
+  "updated_at": "2026-06-12T07:37:11.326334611Z",
+  "closed_at": "2026-06-12T07:37:11.326334611Z",
+  "closed_reason": "Completed: muted after annotation (Overlay0) on TUI roadmap lines, doc comments updated, 2 new tests incl. style-distinctness"
 }
