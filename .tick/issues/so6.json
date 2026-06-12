@@ -1,0 +1,19 @@
+{
+  "id": "so6",
+  "title": "Final review of epic 4bt diff",
+  "description": "Meta-work tick (orchestrator-owned). Review the full diff of epic 4bt (soft ordering: after field, CLI flags, ComputeRoadmap union layering, tk next soft-order sort) against its base branch.\n\nFocus areas: (1) the hard/soft boundary — verify nothing in query.Ready or readiness predicates consults after; (2) consistency of after handling between ComputeRoadmap layering and the softorder sort (missing/closed-target semantics must match ready.go blocker semantics); (3) schema/struct/docs agreement on the field name and omitempty behavior.\n\nRun a reviewer subagent per the skill (references/claude-runner.md, Reviewing the work). Resolve or route findings before the close-out tick unblocks.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "ogj",
+    "nps",
+    "iyk"
+  ],
+  "parent": "4bt",
+  "acceptance_criteria": "epic diff reviewed; all blocker-severity findings resolved or routed as ticks before close-out unblocks",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T06:41:21.56468009Z",
+  "updated_at": "2026-06-12T06:41:21.56468009Z"
+}

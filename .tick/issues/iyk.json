@@ -1,0 +1,17 @@
+{
+  "id": "iyk",
+  "title": "tk next: sort soft-deferred candidates last so selection skips to first feasible work",
+  "description": "Teach next-work selection to respect soft ordering without ever hiding feasible work.\n\nContext: cmd/tk/cmd/next.go selects from query.Ready(...) for agent mode (~line 187) and from query.EpicsNeedingPlanning(...) as the planning fallback (~line 220), both sorted with query.SortByPriorityCreatedAt (internal/query/filter.go line 103: priority asc, then created_at asc). The Tick struct now has After []string (json \"after,omitempty\") — soft ordering: a tick with open after-targets is still ready; it should merely sort behind candidates whose after-targets are all closed.\n\nWork:\n- New helper in internal/query (new file softorder.go): SortBySoftOrderPriorityCreatedAt(ticks []tick.Tick, allTicks []tick.Tick). Stable sort with key order: (1) soft-deferred flag, false first — true iff any after-target exists in allTicks and is not closed (missing targets treated as closed, matching blocker semantics in ready.go); (2) priority ascending; (3) created_at ascending.\n- Use the new sort in next.go for the agent-mode ready pool and the planning-candidate sort. Keep SortByPriorityCreatedAt for the --awaiting human mode (soft order is an agent-scheduling concern).\n- End-to-end effect to verify: epics A (in_progress, long-running), B (blocked_by A, childless), C (after B, childless): tk next --epic returns C with action plan — feasibility skips past queued B, and soft order does not hide C when it is the only feasible epic.\n\nTest cases:\n- Two ready tasks, equal priority: t1 has after [\u003copen tick\u003e], t2 has none -\u003e t2 sorts first.\n- t1 has after [\u003cclosed tick\u003e] -\u003e not soft-deferred; plain priority/created_at order holds.\n- Planning fallback with ready epics C (after open B) and D (no after), equal priority -\u003e D first; with only C present -\u003e C is still returned (never filtered).\n- after-target id absent from the store -\u003e treated as closed (not deferred).\n\nFiles likely touched: internal/query/softorder.go (new), internal/query/softorder_test.go (new), cmd/tk/cmd/next.go, cmd/tk/cmd/next_test.go.\nRun: go test ./internal/query/... ./cmd/tk/...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "8up"
+  ],
+  "parent": "4bt",
+  "acceptance_criteria": "soft-deferred candidates sort last but are never excluded; tk next --epic returns the feasible epic C in the A/B/C long-runner scenario; go test ./internal/query/... ./cmd/tk/... passes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T06:41:09.481019794Z",
+  "updated_at": "2026-06-12T06:41:09.481019794Z"
+}

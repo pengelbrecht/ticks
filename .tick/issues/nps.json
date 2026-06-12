@@ -1,0 +1,17 @@
+{
+  "id": "nps",
+  "title": "ComputeRoadmap: layer waves on the union of blocked_by and after edges",
+  "description": "Make the roadmap wave layout respect soft ordering while keeping feasibility statuses hard-only.\n\nContext: internal/query/roadmap.go ComputeRoadmap layers epics into waves with Kahn topological layering over epic-only blocked_by edges (epicBlockers map, ~lines 85-117), and epicConsumerStatus derives \"queued\" from those same edges (~lines 219-230). Cycles flush to a final wave. The Tick struct now has After []string (json \"after,omitempty\") — soft ordering: preference only, never feasibility; missing/closed targets ignored.\n\nWork:\n- Wave layering: build the Kahn edge set from the UNION of epic-only blocked_by and epic-only after entries (dedupe ids appearing in both; non-epic and missing targets ignored, as today). Cycle-flush behavior unchanged, now over the union graph.\n- Status: queued must keep consulting hard (blocked_by) edges only. An epic whose only open predecessors are after-targets is NOT queued — it stays ready/active/gated per the existing rules. No new status values.\n- RoadmapEpic: add After []string (json \"after,omitempty\", epic-only targets) parallel to BlockedBy, so renderers and GET /api/roadmap consumers can distinguish edge types. The tickboard server endpoint serializes query.Roadmap directly, so the API picks this up with no server change.\n\nTest cases (extend internal/query/roadmap_test.go):\n- Epics A, B where B has after [A]: B lands in wave 1; B status ready (not queued) while A open; B.After == [A].\n- Chain A \u003c- B (blocked_by A) \u003c- C (after B), A in_progress: waves [A],[B],[C]; B queued, C ready.\n- Union cycle (A after B, B blocked_by A) -\u003e both flushed to the final wave, no infinite loop.\n- after entry pointing at a task or missing id -\u003e ignored for layering and absent from RoadmapEpic.After.\n\nFiles likely touched: internal/query/roadmap.go, internal/query/roadmap_test.go.\nRun: go test ./internal/query/...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "8up"
+  ],
+  "parent": "4bt",
+  "acceptance_criteria": "waves layer on the union of hard and soft epic edges; queued derives from blocked_by only; RoadmapEpic carries After; go test ./internal/query/... passes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T06:40:59.526355126Z",
+  "updated_at": "2026-06-12T06:40:59.526355126Z"
+}

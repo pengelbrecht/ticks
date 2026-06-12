@@ -1,0 +1,12 @@
+{
+  "id": "4bt",
+  "title": "Soft ordering for roadmaps: distinguish preference (after) from dependency (blocked_by)",
+  "description": "Roadmaps currently express two distinct couplings with one edge type: temporal/priority preference (do A before B) and technical dependency (B needs A). Both are stored in blocked_by, and every consumer treats them as hard: query.Ready excludes any tick with an open blocker, so an epic that is merely later in preferred order can never surface via tk next while a long-running predecessor is open — the agent loop cannot skip ahead to the first feasible epic. The current workaround (leave the later epic unlinked) loses the roadmap ordering: the epic floats to wave 0 as if it were the front.\n\nThis epic adds a second, soft edge type: a new after field ([]string of tick IDs) on the tick, sibling to blocked_by.\n\nDecided semantics:\n- blocked_by = feasibility (hard). Unchanged everywhere; never ready until blockers close.\n- after = preference (soft). Affects ordering only, never feasibility. A tick whose after-targets are open is still ready/plannable; it sorts behind candidates whose after-targets are all closed. Skipping ahead needs no flag — it is what happens when preference and feasibility disagree.\n- Missing or closed after-targets are ignored (same semantics as missing blockers in ready.go).\n- ComputeRoadmap layers waves on the UNION of epic-only blocked_by + after edges so the visual chain preserves intended order; the queued status keeps consulting hard edges only. No new status values — a soft-deferred epic renders ready/active, and renderers annotate the edge type.\n- The field is generic (valid on tasks too), but only epic-to-epic edges affect roadmap layering, mirroring blocked_by.\n\nDeliverables: after in data model + JSON schema; --after on tk create/update + tk show display; ComputeRoadmap union layering + After on RoadmapEpic; soft-order-aware selection in tk next (ready pool and planning fallback). Rendering surfaces (CLI/TUI/web board) and skill docs are the follow-on surfaces epic.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T06:40:15.664901625Z",
+  "updated_at": "2026-06-12T06:40:15.664901625Z"
+}
