@@ -45,6 +45,10 @@ type AddNoteResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
+
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
@@ -131,6 +135,10 @@ type AddNoteResponse struct {
 type ApproveTickResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
 
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
@@ -239,6 +247,10 @@ type CloseTickRequest struct {
 type CloseTickResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
 
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
@@ -354,6 +366,10 @@ type CreateTickResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
+
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
@@ -455,6 +471,10 @@ type ErrorMessage struct {
 type GetTickResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
 
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
@@ -605,6 +625,10 @@ type RejectTickRequest struct {
 type RejectTickResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
 
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
@@ -945,6 +969,10 @@ type TickResponse struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
+
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
@@ -1029,6 +1057,10 @@ type TickSchema struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
 
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
+
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
 
@@ -1106,6 +1138,10 @@ type TickSchema struct {
 type TickSchema_1 struct {
 	// Criteria that must be met for completion
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
+
+	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
+	// readiness (use blocked_by for that). Missing or closed targets are ignored
+	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
 
 	// Current wait state - what the tick is waiting for
 	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
