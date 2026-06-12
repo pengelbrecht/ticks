@@ -66,7 +66,7 @@ With 1000 issues, median times (ms):
 - Simple flat files you can `cat` and debug
 - No daemon, no SQLite, no infrastructure
 - Git-native conflict resolution
-- Minimal agent integration (just add output of `tk snippet` to CLAUDE.md)
+- Minimal agent integration (add `tk snippet` to `AGENTS.md`, `CLAUDE.md`, or both)
 
 **Choose beads if you need:**
 - Advanced multi-agent coordination
@@ -123,11 +123,14 @@ brew upgrade pengelbrecht/tap/ticks
 
 ## Agent Integration
 
-Run `tk snippet` to get CLAUDE.md content for AI agent integration:
+Run `tk snippet` to get runner-neutral content for AI agent integration:
 
 ```bash
-tk snippet >> CLAUDE.md
+tk snippet >> AGENTS.md   # Codex and other AGENTS.md-aware tools
+tk snippet >> CLAUDE.md   # Claude Code
 ```
+
+For epic execution, the distributable skill includes a shared orchestration protocol plus Claude Code and Codex adapters. Tick files, notes, branches, and worktrees are the handoff format, so one runner can plan an epic and the other can execute or resume it.
 
 This tells agents to use ticks for persistent tracking instead of TodoWrite.
 
@@ -204,7 +207,7 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk board --cloud` | Board with cloud sync |
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
-| `tk snippet` | Output CLAUDE.md content |
+| `tk snippet` | Output runner-neutral agent instructions |
 
 All commands support `--help` for options and `--json` for machine-readable output.
 

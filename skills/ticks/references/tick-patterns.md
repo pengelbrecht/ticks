@@ -30,7 +30,7 @@ How you carve an epic into ticks matters as much as how you write each one.
 
 Use this ordered procedure every time you plan an epic. It replaces ad-hoc "define shared contracts first" intuition with a repeatable algorithm.
 
-**Step 0 — Re-read `.tick/learnings.md`.** If the file exists, read it in full before you partition. Partitioning mistakes (wrong wave boundaries, shared-file collisions, oversized foundation ticks) are a recurring learning category. This is the same re-read called for in the Definition of Ready preamble; do it here too, fresh — don't rely on an earlier in-context copy. (See `references/claude-runner.md` for the learnings file format and the 150-line cap convention.)
+**Step 0 — Re-read `.tick/learnings.md`.** If the file exists, read it in full before you partition. Partitioning mistakes (wrong wave boundaries, shared-file collisions, oversized foundation ticks) are a recurring learning category. This is the same re-read called for in the Definition of Ready preamble; do it here too, fresh — don't rely on an earlier in-context copy. (See `references/agent-runner.md` for the learnings file format and the 150-line cap convention.)
 
 **Step 1 — List every deliverable in the epic.** Write them out explicitly; don't carry them only in your head. One deliverable = one named user-visible or system behaviour to be produced.
 

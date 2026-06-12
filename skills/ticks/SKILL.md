@@ -5,7 +5,7 @@ description: Work with Ticks issue tracker and AI agent runner. Use when managin
 
 # Ticks Workflow
 
-Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, and `tk board` provides a web-based board for monitoring; epics are executed by orchestrating Claude Code subagents (see references/claude-runner.md).
+Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, and `tk board` provides a web-based board for monitoring; epics are executed by the current harness using the shared protocol in `references/agent-runner.md` and its Claude or Codex adapter.
 
 ## When to Use Ticks vs TodoWrite
 
@@ -69,7 +69,7 @@ Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to
 
 **Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
 
-**Why not `CLAUDE.md`?** `CLAUDE.md` is for anyone working interactively in the repo (humans and interactive agents alike). `.tick/config.md` is specifically the contract for dispatched implementer agents and is consumed programmatically. Projects may of course cross-reference one from the other, but the distinction keeps the operator-facing config separate from the interactive config.
+**Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. `.tick/config.md` is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
 
 ### Step 1: Gather What's Already Known
 
@@ -132,7 +132,7 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 
 ### Step 3: Create Ticks from Requirements
 
-**Dispatch planning at frontier tier.** The decomposition step — partitioning work, sequencing dependencies, identifying wave conflicts, defining contracts-first ordering — is the highest-leverage decision in the whole epic. Always synthesize at frontier tier, even when the current session is running on a lower model. Because Claude supports nested subagents, the right shape is: dispatch a frontier planning subagent that itself spawns cheap exploration sub-agents to read the codebase, then synthesizes their findings into the tick structure. See `references/claude-runner.md` → "Planning tier" for details.
+**Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
 
 Transform the gathered requirements into ticks organized by epic.
 
@@ -162,7 +162,7 @@ tk create "Close out <epic A>: run epic retro, then flesh out the next feasible 
   --blocked-by <last-task-in-A>
 ```
 
-Executing this task means: run the epic-close retro (see `references/claude-runner.md`), then pick the next **feasible** epic in soft order — skip any epic that is hard-blocked or gated — read its rough scope, partition it into child ticks, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+Executing this task means: run the epic-close retro (see `references/agent-runner.md`), then pick the next **feasible** epic in soft order — skip any epic that is hard-blocked or gated — read its rough scope, partition it into child ticks, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
 
 **Planning triggers from `tk`.** Two CLI signals tell you that an epic needs to be fleshed out now:
 
@@ -253,16 +253,16 @@ tk close <id> --reason "Completed - connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic by orchestrating subagents from this Claude Code session. The full workflow is in **`references/claude-runner.md`** — that file is the authoritative source; speak in capability tiers and harness primitives, never hardcoded model names, so the skill stays aligned with the best available tools. The shape is:
+Execute the epic from the current harness. The authoritative workflow is **`references/agent-runner.md`**; then read **`references/claude-runner.md`** or **`references/codex-runner.md`** for the active harness. The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
-2. For each wave, launch one subagent per ready tick — **all in one message**, each in its own git worktree (`isolation: "worktree"`), in the background.
-3. Wait for the completion notifications (no polling), merge each finished tick's branch, and update tick state.
+2. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
+3. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
 4. Run the test suite on the merged tree, then move to the next wave; review and close the epic when everything's done.
 
-You own all tick state; subagents only write code in their worktrees. That keeps parallel work conflict-free and tick history clean. Run wave to wave continuously — don't stop to check in between waves unless you hit a real blocker.
+You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
 
-> Ticks previously shipped a standalone runner (`tk run`) with its own worktree and cost-tracking machinery. That runner has been **removed** — execution now goes exclusively through Claude orchestration as described above.
+> Ticks previously shipped a standalone runner (`tk run`). It has been removed; execution now goes through a supported harness adapter.
 
 ## Quick Reference
 
@@ -308,13 +308,12 @@ tk reject <id> "feedback"                              # Reject with required fe
 **Close-reason convention:** always pass `--reason` with a concrete summary when closing.
 `tk close <id> --reason "Completed: <one-line summary of what landed>"` — never a bare `tk close`.
 
-**Actor convention (orchestrated runs):** export `TK_ACTOR=orchestrator` at run start so activity
-entries are stamped with a recognisable actor. Use `--actor <name>` to override for a single call.
+**Actor convention (orchestrated runs):** export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator` or `codex:orchestrator`, so activity entries preserve runner provenance. Use `--actor <name>` to override for a single call.
 Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 ### Running the Epic
 
-Drive execution from this Claude Code session (full details in `references/claude-runner.md`):
+Drive execution from the current harness (shared details in `references/agent-runner.md`; harness mapping in `claude-runner.md` or `codex-runner.md`):
 
 ```bash
 # 1. Get the dependency graph (waves + max parallelism)
@@ -322,15 +321,11 @@ tk graph <epic-id> --json
 ```
 
 ```
-# 2. For each wave, launch one Agent per ready tick — all in ONE message:
-#    Agent(subagent_type: "general-purpose",
-#          isolation: "worktree",
-#          run_in_background: true,
-#          mode: "bypassPermissions",
-#          model: "sonnet")   # example — pick by capability tier (see claude-runner.md)
-#    (some harness versions also take name: — check the Agent tool's schema)
+# 2. Select the role tier, then launch one isolated implementer per ready tick.
+#    Planning and final review use frontier settings. Implementation uses the
+#    adapter's economy/balanced/strong mapping.
 #
-# 3. Wait for completion notifications (no polling), then integrate each tick:
+# 3. Wait using the adapter's native primitive, then integrate each tick:
 git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
 git merge <agent-branch>   # if it conflicts: abort, have the agent rebase + resolve in its worktree
 tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
