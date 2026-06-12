@@ -35,8 +35,9 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    a. Mark the wave's ticks in_progress
       `tk update <id> --status in_progress` emits a 'start' activity entry and sets started_at
       on the tick — claiming is immediately visible on the board and in the activity feed.
-   b. Record each tick's deterministic branch/worktree in a durable note, then launch one
-      implementer per tick using the active harness adapter
+   b. Launch one implementer per tick using the active harness adapter, recording each
+      tick's branch/worktree in a durable note as soon as the name is known (before launch
+      when the adapter controls naming; at first report when the harness assigns it)
    c. Wait using the harness's native completion primitive. Avoid busy polling.
    d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
       Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
@@ -82,7 +83,7 @@ Before calling `tk graph`, read `.tick/config.md` (if present). It contains up t
 
 **Read it fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the file from the worktree each time you start or resume a run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
 
-**Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator` or `codex:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`.
+**Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator` or `codex:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
 **Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
 
@@ -115,7 +116,7 @@ worktree: ../.ticks-worktrees/<tick-id>
 report:   ../.ticks-worktrees/<tick-id>.report
 ```
 
-Before launch, add a note such as `runner-state: branch=tick/e1/t1 worktree=../.ticks-worktrees/t1 runner=codex`. The note is a recovery hint; git and tick status remain authoritative. Never store a harness session ID as the only way to find work.
+Add a note such as `runner-state: branch=tick/e1/t1 worktree=../.ticks-worktrees/t1 runner=codex` as soon as the branch name is known — before launch when the adapter creates the worktree itself; at first report when the harness assigns the name (the adapter documents which, and how to find branches that died before a note was written). The note is a recovery hint; git and tick status remain authoritative. Never store a harness session ID as the only way to find work.
 
 ### Planning tier
 
@@ -158,7 +159,7 @@ The tier names are the contract. Claude may map them to model classes; Codex nor
 
 Each agent gets its own working directory on its own branch, so parallel agents in a wave can't clobber each other's files or fight over the git index. That's what makes a wave safe to run wide. Worktrees that make no changes are cleaned up automatically; ones with work persist as a branch for you to merge.
 
-For a wave with a single tick — or when you deliberately want to run sequentially — you can drop `isolation: "worktree"` and let the agent work in the shared tree. Only do that when nothing else is running concurrently; concurrent agents sharing one tree is the exact problem worktrees solve.
+For a wave with a single tick — or when you deliberately want to run sequentially — you can skip worktree isolation and let the implementer work in the shared tree. Only do that when nothing else is running concurrently; concurrent agents sharing one tree is the exact problem worktrees solve.
 
 ## Waiting for completion
 
@@ -317,7 +318,7 @@ Each learning goes to **exactly one** destination:
 
 | Learning kind | Destination |
 |---|---|
-| Rule that would have prevented a mistake, applies to any future work | the repo's shared agent instructions; mirror it into `AGENTS.md` and `CLAUDE.md` when both runners are supported |
+| Rule that would have prevented a mistake, applies to any future work | the repo's shared agent instructions — keep it terse, and prefer one canonical file (with the other of `AGENTS.md`/`CLAUDE.md` pointing to it) over two drifting copies |
 | Permanent architectural / how-the-codebase-works knowledge | `docs/` |
 | Operational gotcha for future implementer agents (test quirks, env traps, recurring build issues) | `.tick/learnings.md` |
 | One-off detail, only matters to this epic | stays in tick notes (already persisted — do nothing) |
@@ -423,7 +424,7 @@ Run this **before the first wave on every (re)entry**, even on a fresh start (gu
 
 ### Worktree branch reconciliation
 
-Read `runner-state:` notes on in-progress ticks, then inspect `git worktree list` and `git branch --list 'tick/*'`. Include adapter-managed branches whose actual names were recorded in notes. For each leftover branch:
+Read `runner-state:` notes on in-progress ticks, then inspect `git worktree list` and `git branch --list 'tick/*'`. Include adapter-managed branches whose actual names were recorded in notes, and sweep the adapter's documented branch pattern for branches that died before a note was written (each adapter names its pattern). For each leftover branch:
 
 - **If its tick is already closed, or if the agent reported `DONE` before the session died:** merge the branch now (`git merge <branch>`) then delete it.
 - **If it contains incomplete but useful work:** preserve the worktree and branch. Continue or redispatch the tick there after updating it from the integration branch.

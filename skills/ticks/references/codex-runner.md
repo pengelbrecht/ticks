@@ -21,7 +21,7 @@ Create worktrees from the current integration commit, not from an assumed defaul
 ```bash
 repo=$(git rev-parse --show-toplevel)
 integration_commit=$(git rev-parse HEAD)
-codex_model="${CODEX_MODEL:-gpt-5.5}" # verify current strongest model when latest matters
+codex_model="${CODEX_MODEL:-gpt-5.5}" # default is a dated example — resolve to the current strongest Codex model
 branch="tick/<epic-id>/<tick-id>"
 worktree="$(dirname "$repo")/.ticks-worktrees/<tick-id>"
 report="$(dirname "$repo")/.ticks-worktrees/<tick-id>.report"
