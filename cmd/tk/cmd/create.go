@@ -61,6 +61,7 @@ var (
 	createOwner          string
 	createLabels         string
 	createBlockedBy      []string
+	createAfter          string
 	createParent         string
 	createDiscoveredFrom string
 	createAcceptance     string
@@ -79,6 +80,7 @@ func init() {
 	createCmd.Flags().StringVarP(&createOwner, "owner", "o", "", "owner")
 	createCmd.Flags().StringVarP(&createLabels, "labels", "l", "", "comma-separated labels")
 	createCmd.Flags().StringSliceVarP(&createBlockedBy, "blocked-by", "b", nil, "blocker ids (repeatable or comma-separated)")
+	createCmd.Flags().StringVar(&createAfter, "after", "", "soft ordering: prefer after these ticks, but do not block on them")
 	createCmd.Flags().StringVar(&createParent, "parent", "", "parent epic id")
 	createCmd.Flags().StringVar(&createDiscoveredFrom, "discovered-from", "", "source tick id")
 	createCmd.Flags().StringVar(&createAcceptance, "acceptance", "", "acceptance criteria")
@@ -192,6 +194,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Owner:              owner,
 		Labels:             splitCSV(createLabels),
 		BlockedBy:          splitCSV(strings.Join(createBlockedBy, ",")),
+		After:              splitCSV(createAfter),
 		Parent:             strings.TrimSpace(createParent),
 		DiscoveredFrom:     strings.TrimSpace(createDiscoveredFrom),
 		AcceptanceCriteria: strings.TrimSpace(createAcceptance),

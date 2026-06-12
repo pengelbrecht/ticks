@@ -141,6 +141,18 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 		lines = append(lines, styles.RenderLabel("Blocked by:")+"  "+strings.Join(blocked, ", "))
 	}
+	if len(t.After) > 0 {
+		var after []string
+		for _, target := range t.After {
+			at, err := store.Read(target)
+			if err != nil {
+				after = append(after, fmt.Sprintf("%s (unknown)", target))
+				continue
+			}
+			after = append(after, fmt.Sprintf("%s (%s)", target, at.Status))
+		}
+		lines = append(lines, styles.RenderLabel("After:")+"  "+strings.Join(after, ", "))
+	}
 	if t.Parent != "" {
 		lines = append(lines, styles.RenderLabel("Parent:")+"  "+t.Parent)
 	}
