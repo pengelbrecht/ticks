@@ -142,25 +142,24 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build dependency display maps (for rendering blockedBy/blocks info).
-	blockedBy := make(map[string][]string) // task -> tasks that block it
+	// Blocker status is resolved against ALL ticks (mirroring tk ready), so a
+	// task blocked by an open tick outside this epic is still marked blocked.
+	// Missing blockers are treated as closed (handles orphaned references).
+	blockedBy := make(map[string][]string) // task -> ticks that block it
 	blocks := make(map[string][]string)    // task -> tasks it blocks
 	inDegree := make(map[string]int)       // number of open blockers
 
-	taskSet := make(map[string]bool)
 	for _, t := range tasks {
-		taskSet[t.ID] = true
 		inDegree[t.ID] = 0
 	}
 
 	for _, t := range tasks {
 		for _, blockerID := range t.BlockedBy {
-			if taskSet[blockerID] {
-				blocker, exists := tickMap[blockerID]
-				if exists && blocker.Status != tick.StatusClosed {
-					blockedBy[t.ID] = append(blockedBy[t.ID], blockerID)
-					blocks[blockerID] = append(blocks[blockerID], t.ID)
-					inDegree[t.ID]++
-				}
+			blocker, exists := tickMap[blockerID]
+			if exists && blocker.Status != tick.StatusClosed {
+				blockedBy[t.ID] = append(blockedBy[t.ID], blockerID)
+				blocks[blockerID] = append(blocks[blockerID], t.ID)
+				inDegree[t.ID]++
 			}
 		}
 	}
@@ -169,11 +168,13 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	// wave.Compute filters out closed and awaiting-human tasks, so we pass
 	// all tasks and let it handle eligibility. For --all mode we still want
 	// closed tasks visible in the graph; we'll merge them back below.
+	// allTicks is passed so open blockers outside the epic delay their
+	// dependents past wave 1 (the first emitted wave can be Number 2).
 	taskPtrs := make([]*tick.Tick, len(tasks))
 	for i := range tasks {
 		taskPtrs[i] = &tasks[i]
 	}
-	waveResult := wave.Compute(taskPtrs)
+	waveResult := wave.Compute(taskPtrs, allTicks)
 
 	if len(waveResult.CycleIDs) > 0 {
 		fmt.Printf("\n%s Circular dependency detected among: %s\n",
@@ -207,21 +208,39 @@ func runGraph(cmd *cobra.Command, args []string) error {
 				continue
 			}
 			// Find which wave this task's deepest blocker is in, then +1.
-			bestWave := 1
+			// Wave levels may not be contiguous (wave 1 is absent when no task
+			// is unblocked), so match on level rather than slice index.
+			bestLevel := 1
 			for _, bID := range t.BlockedBy {
-				for wi, w := range waves {
+				for _, w := range waves {
 					for _, wt := range w.ticks {
-						if wt.ID == bID && wi+2 > bestWave {
-							bestWave = wi + 2
+						if wt.ID == bID && w.level+1 > bestLevel {
+							bestLevel = w.level + 1
 						}
 					}
 				}
 			}
-			// Ensure we have enough waves.
-			for len(waves) < bestWave {
-				waves = append(waves, localWave{level: len(waves) + 1})
+			// Find the wave with that level, inserting one in order if absent.
+			idx := -1
+			for i, w := range waves {
+				if w.level == bestLevel {
+					idx = i
+					break
+				}
 			}
-			waves[bestWave-1].ticks = append(waves[bestWave-1].ticks, t)
+			if idx == -1 {
+				idx = len(waves)
+				for i, w := range waves {
+					if w.level > bestLevel {
+						idx = i
+						break
+					}
+				}
+				waves = append(waves, localWave{})
+				copy(waves[idx+1:], waves[idx:])
+				waves[idx] = localWave{level: bestLevel}
+			}
+			waves[idx].ticks = append(waves[idx].ticks, t)
 			placed[t.ID] = true
 		}
 	}
@@ -361,7 +380,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, t := range w.ticks {
-			statusIcon := renderTaskStatus(t, tickMap, taskSet, now)
+			statusIcon := renderTaskStatus(t, tickMap, now)
 			blockerInfo := ""
 			if len(blockedBy[t.ID]) > 0 {
 				blockerInfo = styles.DimStyle.Render(" ← " + strings.Join(blockedBy[t.ID], ", "))
@@ -488,7 +507,7 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 }
 
 // renderTaskStatus returns a status icon for a task in the graph context.
-func renderTaskStatus(t tick.Tick, tickMap map[string]tick.Tick, taskSet map[string]bool, now time.Time) string {
+func renderTaskStatus(t tick.Tick, tickMap map[string]tick.Tick, now time.Time) string {
 	// Deferred takes precedence (shown as pending/clock)
 	if t.DeferUntil != nil && t.DeferUntil.After(now) {
 		return styles.DimStyle.Render(styles.IconPending)
@@ -499,13 +518,12 @@ func renderTaskStatus(t tick.Tick, tickMap map[string]tick.Tick, taskSet map[str
 		return styles.StatusAwaitingStyle.Render(styles.IconAwaiting)
 	}
 
-	// Check if blocked by any open task in the epic
+	// Check if blocked by any open tick (inside or outside the epic).
+	// Missing blockers are treated as closed.
 	for _, blockerID := range t.BlockedBy {
-		if taskSet[blockerID] {
-			blocker, exists := tickMap[blockerID]
-			if exists && blocker.Status != tick.StatusClosed {
-				return styles.StatusBlockedStyle.Render(styles.IconBlocked)
-			}
+		blocker, exists := tickMap[blockerID]
+		if exists && blocker.Status != tick.StatusClosed {
+			return styles.StatusBlockedStyle.Render(styles.IconBlocked)
 		}
 	}
 
