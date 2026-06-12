@@ -22,6 +22,7 @@ func Merge(base, ours, theirs tick.Tick) tick.Tick {
 
 	merged.Labels = unionStrings(ours.Labels, theirs.Labels)
 	merged.BlockedBy = unionStrings(ours.BlockedBy, theirs.BlockedBy)
+	merged.After = unionStrings(ours.After, theirs.After)
 	merged.Status = mergeStatus(ours.Status, theirs.Status)
 	merged.Priority = mergePriority(ours.Priority, theirs.Priority)
 	merged.UpdatedAt = latestTime(ours.UpdatedAt, theirs.UpdatedAt)

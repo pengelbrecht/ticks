@@ -54,6 +54,7 @@ var (
 	updateOwner        string
 	updateAddLabels    string
 	updateRemoveLabels string
+	updateAfter        string
 	updateAcceptance   string
 	updateDefer        string
 	updateExternalRef  string
@@ -76,6 +77,7 @@ var (
 	updateOwnerSet        bool
 	updateAddLabelsSet    bool
 	updateRemoveLabelsSet bool
+	updateAfterSet        bool
 	updateAcceptanceSet   bool
 	updateDeferSet        bool
 	updateExternalRefSet  bool
@@ -97,6 +99,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateOwner, "owner", "", "new owner")
 	updateCmd.Flags().StringVar(&updateAddLabels, "add-labels", "", "labels to add")
 	updateCmd.Flags().StringVar(&updateRemoveLabels, "remove-labels", "", "labels to remove")
+	updateCmd.Flags().StringVar(&updateAfter, "after", "", "soft ordering: prefer after these ticks, but do not block on them")
 	updateCmd.Flags().StringVar(&updateAcceptance, "acceptance", "", "acceptance criteria")
 	updateCmd.Flags().StringVar(&updateDefer, "defer", "", "defer until date (YYYY-MM-DD)")
 	updateCmd.Flags().StringVar(&updateExternalRef, "external-ref", "", "external reference")
@@ -123,6 +126,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updateOwnerSet = cmd.Flags().Changed("owner")
 	updateAddLabelsSet = cmd.Flags().Changed("add-labels")
 	updateRemoveLabelsSet = cmd.Flags().Changed("remove-labels")
+	updateAfterSet = cmd.Flags().Changed("after")
 	updateAcceptanceSet = cmd.Flags().Changed("acceptance")
 	updateDeferSet = cmd.Flags().Changed("defer")
 	updateExternalRefSet = cmd.Flags().Changed("external-ref")
@@ -212,6 +216,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		for _, label := range splitCSV(updateRemoveLabels) {
 			t.Labels = removeString(t.Labels, label)
 		}
+	}
+	if updateAfterSet {
+		// Replaces the whole list; --after "" clears the field.
+		t.After = splitCSV(updateAfter)
 	}
 	if updateAcceptanceSet {
 		t.AcceptanceCriteria = updateAcceptance

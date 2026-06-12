@@ -891,6 +891,88 @@ describe('CloudCommsClient Concurrent Operations', () => {
     });
   });
 
+  describe('after (soft order) round-trip', () => {
+    it('updateTick with after round-trips through the wire mapping', async () => {
+      mockWs.simulateMessage({
+        type: 'state_full',
+        ticks: {
+          t1: createTick({ id: 't1', title: 'Tick 1' }),
+        },
+      });
+
+      sentMessages = [];
+
+      const result = await client.updateTick('t1', { title: 'Tick 1', after: ['a1'] });
+
+      // The wire tick must carry after (the mapping is field-by-field)
+      expect(sentMessages).toHaveLength(1);
+      expect((sentMessages[0].tick as { after?: string[] }).after).toEqual(['a1']);
+
+      // The returned tick reflects the update
+      expect(result.after).toEqual(['a1']);
+    });
+
+    it('updateTick without after omits the field from the wire tick', async () => {
+      sentMessages = [];
+
+      await client.updateTick('t1', { title: 'Tick 1' });
+
+      expect(sentMessages).toHaveLength(1);
+      expect('after' in (sentMessages[0].tick as Record<string, unknown>)).toBe(false);
+    });
+
+    it('updateTick with empty after sends an explicit empty list (clear)', async () => {
+      sentMessages = [];
+
+      await client.updateTick('t1', { title: 'Tick 1', after: [] });
+
+      expect(sentMessages).toHaveLength(1);
+      expect((sentMessages[0].tick as { after?: string[] }).after).toEqual([]);
+    });
+
+    it('createTick carries after when set', async () => {
+      sentMessages = [];
+
+      const result = await client.createTick({ title: 'New Tick', after: ['a1', 'b2'] });
+
+      expect(sentMessages).toHaveLength(1);
+      expect((sentMessages[0].tick as { after?: string[] }).after).toEqual(['a1', 'b2']);
+      expect(result.after).toEqual(['a1', 'b2']);
+    });
+
+    it('createTick omits after when not set', async () => {
+      sentMessages = [];
+
+      await client.createTick({ title: 'New Tick' });
+
+      expect(sentMessages).toHaveLength(1);
+      expect('after' in (sentMessages[0].tick as Record<string, unknown>)).toBe(false);
+    });
+
+    it('updateTick merges into cached tick — preserves parent and type', async () => {
+      // Simulate receiving a full state with a task that has a parent epic
+      mockWs.simulateMessage({
+        type: 'state_full',
+        ticks: {
+          t1: createTick({ id: 't1', title: 'Task', type: 'task', parent: 'e1' }),
+          e1: createTick({ id: 'e1', title: 'Epic', type: 'epic' }),
+        },
+      });
+
+      sentMessages = [];
+
+      // Update only the after field — all other fields should be preserved from cache
+      const result = await client.updateTick('t1', { after: ['dep1'] });
+
+      expect(sentMessages).toHaveLength(1);
+      const wire = sentMessages[0].tick as Record<string, unknown>;
+      expect(wire.after).toEqual(['dep1']);
+      expect(wire.parent).toBe('e1');   // preserved from cache
+      expect(wire.type).toBe('task');   // preserved from cache
+      expect(result.parent).toBe('e1');
+    });
+  });
+
   describe('state updates during pending operations', () => {
     it('reflects server state changes during pending creates', async () => {
       // Start a create

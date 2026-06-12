@@ -2,13 +2,16 @@
   "id": "iga",
   "title": "Make tk graph account for cross-epic blockers",
   "description": "tk graph \u003cepic\u003e currently computes waves from tasks under the epic and only counts blockers that are also in that task set. If a task is blocked_by a tick outside the epic, graph JSON can mark it agent_ready even while the external blocker is open. Update graph/wave computation or graph command logic to use all ticks for blocker status while still rendering only the selected epic's tasks.",
-  "status": "open",
+  "notes": "2026-06-12 07:01 - Re-parented into epic e7c (roadmap follow-ups). Recon pointer: wave computation for tk graph lives alongside cmd/tk/cmd/graph.go and internal/query; the fix mirrors ready.go semantics — blocker status must be resolved against ALL ticks (missing blockers treated as closed) while rendering only the selected epic tasks.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
+  "parent": "e7c",
   "discovered_from": "b8y",
   "acceptance_criteria": "A task under epic A blocked_by an open task under epic B is not shown as agent_ready in tk graph A --json; blocked_by includes the external blocker; when external blocker closes the task becomes ready; tests cover cross-epic blocker behavior.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-05-08T08:52:43.398813Z",
-  "updated_at": "2026-05-08T08:52:43.398813Z"
+  "updated_at": "2026-06-12T08:10:32.682993394Z",
+  "closed_at": "2026-06-12T08:10:32.682993394Z"
 }

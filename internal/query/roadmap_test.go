@@ -80,6 +80,8 @@ func TestRoadmap(t *testing.T) {
 		wantAwaitingTypes map[string]string
 		// Expected blocked_by per epic id (nil = don't check)
 		wantBlockedBy map[string][]string
+		// Expected after per epic id (nil = don't check)
+		wantAfter map[string][]string
 		// Expected children counts per epic id (nil = don't check)
 		wantChildrenTotal  map[string]int
 		wantChildrenClosed map[string]int
@@ -319,6 +321,107 @@ func TestRoadmap(t *testing.T) {
 			wantWaveIDs: [][]string{{"e1", "e2", "e3"}},
 		},
 		{
+			name: "after edge layers waves but does not queue",
+			ticks: func() []tick.Tick {
+				eA := makeEpic("eA", "First", tick.StatusOpen)
+				eB := makeEpic("eB", "Second", tick.StatusOpen)
+				eB.After = []string{"eA"}
+				return []tick.Tick{eA, eB}
+			}(),
+			wantWaves:   2,
+			wantWaveIDs: [][]string{{"eA"}, {"eB"}},
+			wantStatuses: map[string]string{
+				"eA": epicStatusReady,
+				// eB's only open predecessor is an After target → not queued.
+				"eB": epicStatusReady,
+			},
+			wantBlockedBy: map[string][]string{
+				"eB": nil,
+			},
+			wantAfter: map[string][]string{
+				"eA": nil,
+				"eB": {"eA"},
+			},
+		},
+		{
+			name: "mixed chain: blocked_by queues, after does not",
+			// B blocked_by A (in_progress); C after B.
+			ticks: func() []tick.Tick {
+				eA := makeEpic("eA", "Base", tick.StatusInProgress)
+				eB := makeEpic("eB", "Mid", tick.StatusOpen)
+				eB.BlockedBy = []string{"eA"}
+				eC := makeEpic("eC", "Tail", tick.StatusOpen)
+				eC.After = []string{"eB"}
+				return []tick.Tick{eA, eB, eC}
+			}(),
+			wantWaves:   3,
+			wantWaveIDs: [][]string{{"eA"}, {"eB"}, {"eC"}},
+			wantStatuses: map[string]string{
+				"eA": epicStatusActive,
+				"eB": epicStatusQueued,
+				"eC": epicStatusReady,
+			},
+		},
+		{
+			name: "cycle over union of blocked_by and after flushes to final wave",
+			// eA after eB, eB blocked_by eA — a cycle only in the union graph.
+			ticks: func() []tick.Tick {
+				eA := makeEpic("eA", "A", tick.StatusOpen)
+				eA.After = []string{"eB"}
+				eB := makeEpic("eB", "B", tick.StatusOpen)
+				eB.BlockedBy = []string{"eA"}
+				return []tick.Tick{eA, eB}
+			}(),
+			wantWaves:   1,
+			wantWaveIDs: [][]string{{"eA", "eB"}},
+			wantStatuses: map[string]string{
+				"eA": epicStatusReady,
+				"eB": epicStatusQueued,
+			},
+		},
+		{
+			name: "after entries pointing at tasks or missing ids are ignored",
+			ticks: func() []tick.Tick {
+				e1 := makeEpic("e1", "Epic", tick.StatusOpen)
+				e1.After = []string{"t1", "missing-id"}
+				t1 := makeTask("t1", "", tick.StatusOpen)
+				return []tick.Tick{e1, t1}
+			}(),
+			wantWaves:   1,
+			wantWaveIDs: [][]string{{"e1"}},
+			wantStatuses: map[string]string{
+				"e1": epicStatusReady,
+			},
+			wantAfter: map[string][]string{
+				"e1": nil, // non-epic and missing targets not surfaced
+			},
+		},
+		{
+			name: "id in both blocked_by and after counts as one layering edge",
+			ticks: func() []tick.Tick {
+				eA := makeEpic("eA", "Base", tick.StatusOpen)
+				eB := makeEpic("eB", "Dup", tick.StatusOpen)
+				eB.BlockedBy = []string{"eA"}
+				eB.After = []string{"eA"}
+				return []tick.Tick{eA, eB}
+			}(),
+			// The duplicate edge must collapse to one for layering: eB lands
+			// in wave 1 via normal Kahn peeling (not a cycle flush), while
+			// both edge lists still surface eA.
+			wantWaves:   2,
+			wantWaveIDs: [][]string{{"eA"}, {"eB"}},
+			wantStatuses: map[string]string{
+				"eA": epicStatusReady,
+				"eB": epicStatusQueued,
+			},
+			wantBlockedBy: map[string][]string{
+				"eB": {"eA"},
+			},
+			wantAfter: map[string][]string{
+				"eB": {"eA"},
+			},
+		},
+		{
 			name: "waves are sorted by ID within wave",
 			ticks: func() []tick.Tick {
 				// Insert in reverse alphabetical order to verify sorting.
@@ -396,6 +499,28 @@ func TestRoadmap(t *testing.T) {
 				for _, b := range gotBB {
 					if !bbSet[b] {
 						t.Errorf("epic %q unexpected blocker %q in blocked_by %v", id, b, gotBB)
+					}
+				}
+			}
+
+			// Check after (epic IDs only).
+			for id, wantAfter := range tt.wantAfter {
+				re := findEpic(got, id)
+				gotAfter := re.After
+				if len(gotAfter) == 0 && len(wantAfter) == 0 {
+					continue
+				}
+				if len(gotAfter) != len(wantAfter) {
+					t.Errorf("epic %q after = %v, want %v", id, gotAfter, wantAfter)
+					continue
+				}
+				afterSet := make(map[string]bool)
+				for _, a := range wantAfter {
+					afterSet[a] = true
+				}
+				for _, a := range gotAfter {
+					if !afterSet[a] {
+						t.Errorf("epic %q unexpected target %q in after %v", id, a, gotAfter)
 					}
 				}
 			}

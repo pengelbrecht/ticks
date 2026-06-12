@@ -1,0 +1,19 @@
+{
+  "id": "o16",
+  "title": "Soft ordering surfaces: render after edges in roadmap views and update skill docs",
+  "description": "ROUGH SCOPE — flesh out into ticks when 4bt closes. Hard dependency: consumes the after field, RoadmapEpic.After, and union wave layering shipped by 4bt.\n\n- tk roadmap CLI (cmd/tk/cmd/roadmap.go) + TUI (internal/tui/roadmap.go): annotate soft edges distinctly from hard ones (e.g. \"after: x1\" alongside the existing \"blocked by: x1\" annotation); soft-deferred epics still render as ready — no new status glyphs.\n- Tickboard web roadmap: mirror union layering and the After field in internal/tickboard/ui/src/stores/roadmap-compute.ts (client-side compute used by cloud boards), and render soft edges visually distinct (dashed connector / muted badge) in internal/tickboard/ui/src/components/roadmap-view.ts. GET /api/roadmap picks up After automatically via query.Roadmap serialization — verify, no server change expected.\n- Skill docs (skills/ticks/ is the source of truth, never the installed copy): SKILL.md Roadmaps section — use --after for preferred sequence, reserve --blocked-by for true technical dependency; with parallel fronts, multiple epics can be ready at once and the close-out task fleshes out the next FEASIBLE epic in soft order. references/tk-commands.md: document --after on create/update. references/tick-patterns.md: note that sequencing chosen to avoid merge conflicts (epics touching the same files) is a hard dependency, not a preference — use blocked_by for it.\n- Tickboard UI work follows CLAUDE.md: pnpm, ticks-* components, Catppuccin Mocha.\n\nDeliverables: CLI/TUI soft-edge rendering; web roadmap soft-edge rendering with compute parity tests; skill doc updates for the preference-vs-dependency distinction.",
+  "notes": "2026-06-12 07:49 - RETRO REPORT — Epic o16 (soft ordering surfaces)\nLearnings: no new entries (file at ~107 lines). The stale-base learning from 4bt proved out: all 4 wave-1 agents hit the missing-prerequisite case, all 4 self-healed via the merge-base guard + git merge instruction — zero conflicts this epic (vs 1 in 4bt). One authoring miss worth naming in-retro only: the 63p tick asserted a CLI render convention that existed only in the TUI; implementer caught and corrected it — verify per-surface render claims when writing render ticks.\nOutside-in verification: CLI chain filter + annotations VERIFIED live (tk roadmap 4bt shows e7c via after edge with ← after: o16); TUI annotation VERIFIED (style-distinctness test); web compute parity VERIFIED case-by-case in review (5/5 mirrored tables + omission extra); skill docs VERIFIED against implementation (every CLI claim checked); embed reproducible byte-identical.\nFinal review: 0 blockers; 1 should-fix fixed inline (worker Tick subset comment + blocked_by/after); nit fixed (SKILL.md set-of-epics wording); nit routed as tick 6ii (board cannot edit after edges) into e7c; nit accepted (CLI style-hierarchy untested — relative hierarchy correct, asymmetric palette vs TUI acceptable).\nRoadmap adjustment: e7c grew by 6ii (scope growth, allowed). e7c re-validated: zlc recon updated for jba line shifts; iga/h3l recon unchanged.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "4bt"
+  ],
+  "base_branch": "claude/multi-epic-roadmap-ticks-8eqpiv",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T06:40:30.234149908Z",
+  "updated_at": "2026-06-12T07:49:26.846249792Z",
+  "closed_at": "2026-06-12T07:49:26.846249792Z",
+  "closed_reason": "Completed: after edges rendered on CLI/TUI/web with weaker-than-hard visual hierarchy, skill docs teach preference-vs-dependency, 0-blocker review"
+}

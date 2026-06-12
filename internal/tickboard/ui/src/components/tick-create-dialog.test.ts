@@ -153,6 +153,15 @@ describe('tick-create-dialog', () => {
       expect(labelsInput).not.toBeNull();
     });
 
+    it('renders after (soft order) input field', async () => {
+      const input = element.shadowRoot?.querySelector('sl-input[name="after"]');
+      expect(input).not.toBeNull();
+
+      const labels = Array.from(element.shadowRoot?.querySelectorAll('label') || []);
+      const afterLabel = labels.find(l => l.textContent?.includes('After (soft order)'));
+      expect(afterLabel).not.toBeNull();
+    });
+
     it('renders workflow select dropdown', async () => {
       const workflowSelect = Array.from(element.shadowRoot?.querySelectorAll('sl-select') || []).find(
         s => s.getAttribute('placeholder') === 'Agent task (default)'
@@ -398,6 +407,62 @@ describe('tick-create-dialog', () => {
           parent: 'e1',
         })
       );
+    });
+
+    it('includes after when set', async () => {
+      const mockTick = { id: 'abc', title: 'Test' };
+      mockCreateTick.mockResolvedValue(mockTick);
+
+      // Set title
+      const input = element.shadowRoot?.querySelector('sl-input[name="title"]') as any;
+      input.value = 'Test';
+      input.dispatchEvent(new CustomEvent('sl-input', { bubbles: true }));
+
+      // Set after (comma-separated, with whitespace and empty entries)
+      const afterInput = element.shadowRoot?.querySelector('sl-input[name="after"]') as any;
+      afterInput.value = ' a1, b2,, ';
+      afterInput.dispatchEvent(new CustomEvent('sl-input', { bubbles: true }));
+
+      await element.updateComplete;
+
+      // Submit
+      const buttons = element.shadowRoot?.querySelectorAll('ticks-button');
+      const createButton = Array.from(buttons || []).find(b => b.textContent?.includes('Create'));
+      (createButton as HTMLElement)?.click();
+
+      await vi.waitFor(() => {
+        expect(mockCreateTick).toHaveBeenCalled();
+      });
+
+      expect(mockCreateTick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          after: ['a1', 'b2'],
+        })
+      );
+    });
+
+    it('omits after when empty', async () => {
+      const mockTick = { id: 'abc', title: 'Test' };
+      mockCreateTick.mockResolvedValue(mockTick);
+
+      // Set title only — after input left empty
+      const input = element.shadowRoot?.querySelector('sl-input[name="title"]') as any;
+      input.value = 'Test';
+      input.dispatchEvent(new CustomEvent('sl-input', { bubbles: true }));
+
+      await element.updateComplete;
+
+      // Submit
+      const buttons = element.shadowRoot?.querySelectorAll('ticks-button');
+      const createButton = Array.from(buttons || []).find(b => b.textContent?.includes('Create'));
+      (createButton as HTMLElement)?.click();
+
+      await vi.waitFor(() => {
+        expect(mockCreateTick).toHaveBeenCalled();
+      });
+
+      const payload = mockCreateTick.mock.calls[0][0];
+      expect('after' in payload).toBe(false);
     });
 
     it('trims title before sending', async () => {

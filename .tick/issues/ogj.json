@@ -1,0 +1,19 @@
+{
+  "id": "ogj",
+  "title": "Expose after in the CLI: --after on create/update and display in tk show",
+  "description": "Wire the new After field ([]string, json \"after,omitempty\", added to internal/tick/tick.go by a prior tick) through the CLI. Semantics: after = preferred ordering only, never gates readiness (that is blocked_by).\n\nContext: cmd/tk/cmd/create.go wires --blocked-by/-b via a string flag parsed with splitCSV into BlockedBy (see createBlockedBy, flag registration ~line 81, struct fill ~line 194). cmd/tk/cmd/update.go updates tick fields. cmd/tk/cmd/show.go renders a \"Blocked by:\" line with per-blocker closed/open styling (~lines 69 and 132).\n\nWork:\n- tk create: add --after (comma-separated, no shorthand) -\u003e sets After, same splitCSV parsing as --blocked-by.\n- tk update: add --after to replace the whole list; explicit empty value (--after \"\") clears the field. Follow the existing convention in update.go for clearable flags.\n- tk show: render an \"After:\" line directly beneath \"Blocked by:\" using the same style helpers and the same per-target closed/open glyph treatment; omit the line when the field is empty.\n- Help text for both flags: \"soft ordering: prefer after these ticks, but do not block on them\".\n\nTest cases (extend cmd/tk/cmd tests):\n- tk create x --after a1,b2 -\u003e stored tick has after [\"a1\",\"b2\"].\n- tk update \u003cid\u003e --after c3 -\u003e after [\"c3\"]; then tk update \u003cid\u003e --after \"\" -\u003e after omitted.\n- tk show \u003cid\u003e with after set -\u003e output contains \"After:\" and the ids; without -\u003e no After line.\n\nFiles likely touched: cmd/tk/cmd/create.go, cmd/tk/cmd/update.go, cmd/tk/cmd/show.go, matching _test.go files.\nRun: go test ./cmd/tk/...",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "8up"
+  ],
+  "parent": "4bt",
+  "acceptance_criteria": "--after works on create and update (set and clear); tk show renders an After line; go test ./cmd/tk/... passes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T06:40:50.173227761Z",
+  "updated_at": "2026-06-12T07:19:20.162772167Z",
+  "closed_at": "2026-06-12T07:19:20.162772167Z",
+  "closed_reason": "Completed: --after on create/update (clearable via Changed detection), After: line in tk show, 4 ExecuteArgs tests; tick.go conflict resolved keeping 8up doc-comment version"
+}

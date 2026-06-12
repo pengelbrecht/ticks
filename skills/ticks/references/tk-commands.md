@@ -16,7 +16,8 @@ tk create "Title" [flags]
 | `-p, --priority` | Priority: 0=Critical, 1=High, 2=Medium, 3=Low, 4=Backlog |
 | `-l, --labels` | Comma-separated labels |
 | `--parent` | Parent epic ID |
-| `-b, --blocked-by` | Blocking tick ID(s) — repeat the flag or comma-separate (`-b a -b c` ≡ `-b a,c`) |
+| `-b, --blocked-by` | Blocking tick ID(s) — repeat the flag or comma-separate (`-b a -b c` ≡ `-b a,c`) — hard dependency: tick is not ready until blockers close |
+| `--after` | Soft ordering preference: tick ID(s) this tick prefers to run after. Never gates readiness — `tk next` sorts soft-deferred candidates last but never hides them. Missing or closed targets are ignored |
 | `-r, --requires` | Pre-declared approval gate: `approval`, `review`, `content` |
 | `-a, --awaiting` | Immediate human assignment: `work`, `approval`, `input`, `review`, `content`, `escalation`, `checkpoint` |
 | `--defer` | Defer until date (YYYY-MM-DD) |
@@ -39,6 +40,12 @@ tk create "Auth System" -t epic -d "Complete authentication implementation"
 
 # Task with dependencies
 tk create "Add OAuth" --parent abc --blocked-by def,ghi
+
+# Hard vs soft ordering — skip-ahead in action:
+tk create "Migrate user data" --blocked-by <a>   # b — genuinely needs long-running a; not ready until a closes
+tk create "Polish onboarding copy" --after <b>   # c — prefers to run after b, but is never blocked by it
+# While a is still open, b is infeasible — tk next skips ahead and returns c,
+# so c proceeds in parallel with a instead of waiting on the preferred order.
 
 # Task requiring approval
 tk create "Update auth flow" --requires approval -d "Security-sensitive change"
@@ -85,6 +92,8 @@ tk list --awaiting input,review # Multiple awaiting types
 tk show <id> [--json]
 ```
 
+If the tick has soft-ordering preferences, `tk show` renders them on an `After:` line, separate from its hard blockers.
+
 ## Updating Ticks
 
 ```bash
@@ -99,6 +108,7 @@ tk update <id> [flags]
 | `--status` | New status: `open`, `in_progress`, `closed` |
 | `--add-labels` / `--remove-labels` | Add or remove labels |
 | `--parent` | New parent epic (empty string to clear) |
+| `--after` | Set soft-ordering preference tick ID(s) (`--after ""` to clear) |
 | `-a, --awaiting` | Set awaiting status (or `--awaiting=` to clear) |
 | `-r, --requires` | Set approval gate (empty to clear) |
 | `-v, --verdict` | Set verdict: `approved`, `rejected` |
@@ -142,6 +152,8 @@ tk block <id> <blocker-id>...     # Add blocker(s) (id is now blocked by each bl
 tk unblock <id> <blocker-id>      # Remove blocker
 tk deps <id>                      # Show dependency tree
 ```
+
+These commands manage **hard** dependencies (`blocked_by` — feasibility: the tick is not ready until its blockers close). **Soft** ordering preferences are managed with `--after` on `tk create` / `tk update` (clear with `--after ""`); they affect `tk next` ordering only and never gate readiness.
 
 ## Notes
 

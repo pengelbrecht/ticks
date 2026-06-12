@@ -140,7 +140,6 @@ func checkGitConfig(t *testing.T, dir, key, want string) {
 	}
 }
 
-
 func TestCheckAndInstallMergeDrivers_InstallsWhenAbsent(t *testing.T) {
 	dir := setupGitRepo(t)
 

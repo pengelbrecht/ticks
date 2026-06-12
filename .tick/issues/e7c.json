@@ -1,0 +1,14 @@
+{
+  "id": "e7c",
+  "title": "Roadmap follow-ups: TUI roadmap selection, cross-epic graph blockers, PR+CI gate adoption",
+  "description": "Final epic in the soft-ordering roadmap (4bt -\u003e o16 -\u003e this). Collects the follow-ups proposed in the kgh (Execution Model v2 Phase 4) retro that were never ticked, plus the pre-existing cross-epic graph tick iga.\n\nSequencing note — this epic is itself a live example of the preference-vs-dependency distinction the roadmap ships: the epic-level blocked_by o16 edge is pure PREFERENCE (deliver surfaces before follow-ups) and is the canonical candidate to convert to the after field once 4bt lands. The one real technical coupling is carried explicitly at task level instead: zlc is blocked_by o16 because both modify internal/tui/roadmap.go (same-file sequencing is a hard dependency per tick-patterns doctrine). iga and h3l are technically independent of the rest of the roadmap and intentionally workable in parallel with it — children do not inherit epic blockers, which here is a feature.\n\nChildren are fully ticked up front at user request (deviation from the parent-only convention for downstream epics — scope here is already well understood):\n- zlc: TUI roadmap-native selection (kgh retro follow-up; TUI roadmap is display-only v1). Hard-blocked by o16 (shared TUI files).\n- iga (existing tick, re-parented): tk graph must account for cross-epic blockers.\n- h3l: PR+CI gate adoption via .tick/config.md (kgh retro follow-up; CI is now wired — .github/workflows/ci.yml). Gated --requires approval: it sets project policy.\nPlus planning-time meta-work ticks (0dq final review, yj6 close-out). This is the last epic in the roadmap, so its close-out is retro-only.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T07:00:32.71709942Z",
+  "updated_at": "2026-06-12T08:25:01.082579324Z",
+  "closed_at": "2026-06-12T08:25:01.082579324Z",
+  "closed_reason": "All ticks closed (iga, zlc, 6ii, h3l, 0dq, yj6). Epic delivered TUI roadmap selection, cross-epic graph blockers, web board after-edge editing, PR+CI gate config, and skill/hook improvements. Two review blockers found and fixed (hook JSON shape, cloud updateTick clobber). Branch pushed; PR + CI gate pending. See yj6 for full retro."
+}

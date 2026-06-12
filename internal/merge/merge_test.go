@@ -22,6 +22,17 @@ func TestMergeLabelsBlockedBy(t *testing.T) {
 	}
 }
 
+func TestMergeAfter(t *testing.T) {
+	base := tick.Tick{}
+	ours := tick.Tick{After: []string{"x", "y"}}
+	theirs := tick.Tick{After: []string{"y", "z"}}
+
+	merged := Merge(base, ours, theirs)
+	if got := strings.Join(merged.After, ","); got != "x,y,z" {
+		t.Fatalf("expected after union x,y,z, got %v", merged.After)
+	}
+}
+
 func TestMergeStatusPriority(t *testing.T) {
 	base := tick.Tick{}
 	ours := tick.Tick{Status: tick.StatusOpen, Priority: 2}

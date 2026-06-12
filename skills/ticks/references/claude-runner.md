@@ -62,7 +62,7 @@ Epic X
 
 **Final-review tick** — its work is to review the epic's full diff (run a reviewer subagent for substantial epics, per the "Reviewing the work" section above) and resolve or route any findings before the close-out tick unblocks.
 
-**Close-out tick** — this is the existing close-out convention (retro + plan the next epic). It is defined in SKILL.md's Roadmaps section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
+**Close-out tick** — this is the existing close-out convention (retro + plan the next *feasible* epic in soft order; hard-blocked or gated epics are skipped). It is defined in SKILL.md's Roadmaps section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
 
 Both meta-ticks are owned by the orchestrator, not by implementer subagents. They follow the same integrator–tick-state invariant: only the orchestrator runs `tk`; implementers never touch `.tick/`.
 
@@ -87,11 +87,13 @@ These rules complement the "run continuously" guidance above. Name them internal
 - **Scope never shrinks.** You may split, merge, or reorder ticks, and scope may grow (bugs, discovered gaps) — but only the human removes scope. If the Epic-close retro's outside-in verification finds an undelivered scope item, fix it now; never relabel it "follow-up."
 - **No known-failure closes.** A tick cannot close with failing acceptance criteria. There is no "close with known issues" state — it passes, or it stays open/blocked/awaiting.
 - **Name the stall instinct.** Completing a large body of work triggers the instinct to summarize and hand control back. Epic boundaries with a close-out tick are waypoints, not stopping points. The "run continuously" rule above is the explicit counter to this instinct.
-- **Two-tier stopping rule.** Intra-roadmap epic boundaries auto-continue (unless the downstream epic is gated with `--awaiting checkpoint` or `--requires approval`). The roadmap end — or a checkpoint/approval gate — is the hard stop where you write a completion report and yield.
+- **Two-tier stopping rule.** Intra-roadmap epic boundaries auto-continue (unless the downstream epic is gated with `--awaiting checkpoint` or `--requires approval`). Roadmaps mix hard (`--blocked-by`) and soft (`--after`) edges, so several epics can be feasible at once — continuation means the next *feasible* epic in soft order, skipping any that are hard-blocked or gated. The roadmap end — or a checkpoint/approval gate — is the hard stop where you write a completion report and yield.
 
 ## Launching agents
 
 Use the `Agent` tool. Spawn every tick in the current wave in **one message** so they truly run in parallel:
+
+**Before writing the call, pick a tier from the table in "Choosing a capability tier per tick" below and resolve it to the current model. Omitting `model=` is not "defaulting to balanced" — it silently uses frontier.**
 
 ```
 Agent(
@@ -101,7 +103,7 @@ Agent(
   isolation: "worktree",                     # own git worktree, auto-cleaned if it makes no changes
   run_in_background: true,                    # async — you're notified on completion
   mode: "bypassPermissions",                 # autonomous; shouldn't stop for tool-permission prompts
-  model: "sonnet"                            # example — see capability tier selection below
+  model: "<tier resolved to current model>"  # REQUIRED — see tier table below; never omit
 )
 ```
 
@@ -128,6 +130,8 @@ The "choose the least capable tier that can do the job" principle applies to pla
 ### Harden the boundary with a custom agent (recommended for repeated use)
 
 The "don't touch `.tick/`, don't run `tk`" rule below is enforced only by the prompt — and an autonomous implementer has the permissions to break it. If you orchestrate ticks regularly in a project, define a project-level subagent (e.g. `.claude/agents/ticks-implementer.md`) that bakes in the implementer instructions and *denies* `tk` and edits under `.tick/**` via tool permission rules (or a PreToolUse hook). Then launch with `subagent_type: "ticks-implementer"` instead of `general-purpose`. That turns the boundary from a request into a guarantee, and versions the implementer contract instead of re-pasting it per launch. Either way, the orchestrator still verifies the boundary at merge time (see "Integrating finished work").
+
+**Hook input shape:** PreToolUse hooks receive `{"tool_name": "...", "tool_input": {...}}` — the tool parameters are nested under `tool_input`, not at the top level. A hook that reads `d["file_path"]` is a no-op; it must read `d["tool_input"]["file_path"]`. Always test new hooks with the real input shape before committing them. On exit 2 (block), write the explanation to **stderr** — Claude Code feeds stderr back to the model.
 
 ### Choosing a capability tier per tick
 
@@ -378,7 +382,7 @@ Re-entry is just re-invoking the skill. Before starting the first wave, run the 
 | `action: plan` | Flesh the epic out into ticks (SKILL.md Roadmaps guidance + foundation-first procedure) |
 | `action: await` | Route to the human — something is waiting on a decision or approval |
 | Final-review tick unblocked | Review the epic's full diff (reviewer subagent for substantial epics) |
-| Close-out tick unblocked | Run the epic-close retro, then plan and continue into the next epic |
+| Close-out tick unblocked | Run the epic-close retro, then plan and continue into the next feasible epic (soft order — skip hard-blocked or gated epics) |
 | `tk next` returns nothing and all roadmap epics are closed | Roadmap end: write a completion report and stop |
 
 ### Stale state recovery

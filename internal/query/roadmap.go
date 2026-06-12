@@ -15,23 +15,29 @@ import (
 //   - "ready"  — epic is open, unblocked, and has zero children (needs planning;
 //     same predicate as EpicsNeedingPlanning, minus the awaiting/deferred checks
 //     since those become "gated").
-//   - "queued" — epic is open but blocked by at least one open epic.
+//   - "queued" — epic is open but blocked by at least one open epic. Only
+//     hard (BlockedBy) edges count; soft (After) ordering never queues.
 //   - "gated"  — epic is open and IsAwaitingHuman(); takes priority over all
 //     other statuses. AwaitingType carries the badge value.
 type RoadmapEpic struct {
-	ID             string   `json:"id"`
-	Title          string   `json:"title"`
-	Status         string   `json:"status"`
-	AwaitingType   string   `json:"awaiting_type,omitempty"`
-	BlockedBy      []string `json:"blocked_by,omitempty"` // epic IDs only
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Status       string `json:"status"`
+	AwaitingType string `json:"awaiting_type,omitempty"`
+	// BlockedBy carries hard dependency edges (epic IDs only); these gate
+	// feasibility and feed the "queued" status. After carries soft ordering
+	// edges (epic IDs only); they influence wave placement but never status,
+	// so renderers can distinguish the two edge types.
+	BlockedBy      []string `json:"blocked_by,omitempty"`
+	After          []string `json:"after,omitempty"`
 	ChildrenTotal  int      `json:"children_total"`
 	ChildrenClosed int      `json:"children_closed"`
 }
 
 // Roadmap is the result of epic-chain computation. Waves are ordered from
-// earliest (wave 0 = no epic blockers) to latest; within each wave epics are
-// sorted by ID for deterministic output. Epics that are part of a cycle (rare)
-// are placed in the final wave.
+// earliest (wave 0 = no epic predecessors, hard or soft) to latest; within
+// each wave epics are sorted by ID for deterministic output. Epics that are
+// part of a cycle (rare) are placed in the final wave.
 type Roadmap struct {
 	Waves [][]RoadmapEpic `json:"waves"`
 }
@@ -47,14 +53,20 @@ const (
 
 // ComputeRoadmap computes an epic-level dependency view over all ticks.
 //
-// Only epics (Type == TypeEpic) appear as nodes. Edges are BlockedBy entries
-// that point at another epic; task-level blockers are ignored for chain
-// purposes. Missing blockers are treated as closed (same semantics as ready.go).
+// Only epics (Type == TypeEpic) appear as nodes. Layering edges are the union
+// of BlockedBy (hard) and After (soft ordering) entries that point at another
+// epic; task-level and missing targets are ignored (missing blockers are
+// treated as closed, same semantics as ready.go). An ID appearing in both
+// BlockedBy and After counts as a single edge.
 //
 // Waves are computed with Kahn's topological layering: wave 0 contains epics
-// with no epic blockers still in the working set; each subsequent wave contains
-// epics whose blockers are all in earlier waves. Epics involved in cycles (if
-// any) are appended as a final wave.
+// with no epic predecessors still in the working set; each subsequent wave
+// contains epics whose predecessors are all in earlier waves. Epics involved
+// in cycles over the union graph (if any) are appended as a final wave.
+//
+// Status is derived from hard (BlockedBy) edges only: an epic whose only open
+// predecessors are After targets is never "queued" — soft ordering shifts
+// wave placement but never feasibility.
 func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 	// Collect all epics.
 	var epics []tick.Tick
@@ -82,30 +94,53 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 		}
 	}
 
-	// Filter BlockedBy to epic-only edges, then compute Kahn in-degrees.
-	// epicBlockers[id] = epic IDs that this epic is blocked by (epic-only).
+	// Filter BlockedBy and After to epic-only edges.
+	// epicBlockers[id] = epic IDs that this epic is hard-blocked by; feeds
+	// status ("queued") and RoadmapEpic.BlockedBy.
+	// epicAfter[id]    = epic IDs this epic prefers to come after (soft
+	// ordering); feeds RoadmapEpic.After only.
+	// layerPreds[id]   = the union of both, deduped — the Kahn edge set.
 	epicBlockers := make(map[string][]string, len(epics))
+	epicAfter := make(map[string][]string, len(epics))
+	layerPreds := make(map[string][]string, len(epics))
 	for _, e := range epics {
-		var epicDeps []string
+		var epicDeps, afterDeps, preds []string
+		seen := make(map[string]bool)
 		for _, blocker := range e.BlockedBy {
 			if epicSet[blocker] {
 				epicDeps = append(epicDeps, blocker)
+				if !seen[blocker] {
+					seen[blocker] = true
+					preds = append(preds, blocker)
+				}
 			}
 			// Task-level blockers are ignored for chain/wave computation.
 		}
+		for _, target := range e.After {
+			if epicSet[target] {
+				afterDeps = append(afterDeps, target)
+				if !seen[target] {
+					seen[target] = true
+					preds = append(preds, target)
+				}
+			}
+			// Task-level and missing after targets are likewise ignored.
+		}
 		epicBlockers[e.ID] = epicDeps
+		epicAfter[e.ID] = afterDeps
+		layerPreds[e.ID] = preds
 	}
 
 	// Kahn's algorithm: iteratively peel off zero-in-degree layers.
 	inDegree := make(map[string]int, len(epics))
-	dependents := make(map[string][]string) // blocker -> list of epics blocked by it
+	dependents := make(map[string][]string) // predecessor -> list of epics layered after it
 	epicByID := make(map[string]tick.Tick, len(epics))
 	for _, e := range epics {
 		inDegree[e.ID] = 0
 		epicByID[e.ID] = e
 	}
 	for _, e := range epics {
-		for _, dep := range epicBlockers[e.ID] {
+		for _, dep := range layerPreds[e.ID] {
 			inDegree[e.ID]++
 			dependents[dep] = append(dependents[dep], e.ID)
 		}
@@ -147,7 +182,7 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 			var waveItems []RoadmapEpic
 			for _, id := range cycleEpics {
 				e := epicByID[id]
-				waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicSet, epicByID, childrenTotal[id], childrenClosed[id]))
+				waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicAfter[id], epicByID, childrenTotal[id], childrenClosed[id]))
 			}
 			waves = append(waves, waveItems)
 			break
@@ -156,7 +191,7 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 		var waveItems []RoadmapEpic
 		for _, id := range ready {
 			e := epicByID[id]
-			waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicSet, epicByID, childrenTotal[id], childrenClosed[id]))
+			waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicAfter[id], epicByID, childrenTotal[id], childrenClosed[id]))
 		}
 		waves = append(waves, waveItems)
 
@@ -175,7 +210,9 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 }
 
 // buildRoadmapEpic computes the consumer-facing status for a single epic.
-func buildRoadmapEpic(e tick.Tick, epicDeps []string, epicSet map[string]bool, epicByID map[string]tick.Tick, totalChildren, closedChildren int) RoadmapEpic {
+// epicDeps are hard (BlockedBy) epic edges and drive status; afterDeps are
+// soft (After) epic edges and are surfaced but never affect status.
+func buildRoadmapEpic(e tick.Tick, epicDeps, afterDeps []string, epicByID map[string]tick.Tick, totalChildren, closedChildren int) RoadmapEpic {
 	re := RoadmapEpic{
 		ID:             e.ID,
 		Title:          e.Title,
@@ -183,10 +220,15 @@ func buildRoadmapEpic(e tick.Tick, epicDeps []string, epicSet map[string]bool, e
 		ChildrenClosed: closedChildren,
 	}
 
-	// Populate BlockedBy with epic IDs only (task blockers already filtered out).
+	// Populate BlockedBy and After with epic IDs only (task-level and missing
+	// targets already filtered out).
 	if len(epicDeps) > 0 {
 		re.BlockedBy = make([]string, len(epicDeps))
 		copy(re.BlockedBy, epicDeps)
+	}
+	if len(afterDeps) > 0 {
+		re.After = make([]string, len(afterDeps))
+		copy(re.After, afterDeps)
 	}
 
 	re.Status = epicConsumerStatus(e, epicDeps, epicByID, totalChildren, closedChildren)
@@ -198,6 +240,10 @@ func buildRoadmapEpic(e tick.Tick, epicDeps []string, epicSet map[string]bool, e
 
 // epicConsumerStatus returns the consumer-facing status string for an epic.
 // Priority order: gated > done > queued > active > ready.
+//
+// epicDeps must be hard (BlockedBy) epic edges only. Soft (After) edges are
+// deliberately excluded: an epic whose only open predecessors are After
+// targets stays ready/active/gated, never queued.
 //
 // Note on "active with all-closed children": an open epic whose children are all
 // closed is treated as active (not ready), because it has work already done and

@@ -68,7 +68,8 @@ Go types updated but the UI's generated TS stale (or vice versa).
 **Cause:** Two codegen consumers: `make codegen-go` writes internal/types/generated/types.go;
 `scripts/build-ui.sh` regenerates internal/tickboard/ui/src/types/generated/websocket/*.
 **Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
-all regenerated output together.
+all regenerated output together. Tick authors: spell these commands out in any tick that
+touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
 
 ## Orchestration
 
@@ -80,3 +81,20 @@ clean" check read the wipe as healthy.
 **Rule:** Commit .tick state immediately after every mutation batch (claim, close, note) —
 before merging any agent branch or launching agents. If an implementer reports having touched
 the shared checkout, diff tick state against the activity log before trusting the tree.
+
+**Problem:** Wave-2 worktree agents branched from a base missing the just-merged wave-1
+foundation commit; one re-implemented the missing field and caused a merge conflict.
+**Cause:** Harness worktrees can be created from a stale ref rather than the orchestrator's
+current HEAD.
+**Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: verify it is
+an ancestor (`git merge-base --is-ancestor <sha> HEAD`) and cherry-pick it if absent — never
+re-implement a sibling tick's work.
+
+**Problem:** Implementer agents dispatched without a `model=` parameter run at frontier tier
+by default, silently spending frontier budget on balanced/mechanical work.
+**Cause:** The Agent call template in claude-runner.md shows `model: "sonnet"` but it is one
+line in a 10-line block, not a named step. Under orchestration pressure the tier selection
+step gets skipped entirely.
+**Rule:** Before each Agent call, explicitly choose a tier from the claude-runner.md table and
+set `model=` to the matching model. Omitting it is not "defaulting to balanced" — it is
+implicitly choosing frontier. Resolve the tier per-tick, not once for the run.

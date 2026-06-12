@@ -1,0 +1,19 @@
+{
+  "id": "zlc",
+  "title": "TUI: roadmap-native selection — navigate epics in roadmap mode and jump into them",
+  "description": "The TUI roadmap view shipped display-only (v1, accepted in the kgh retro with this follow-up proposed; originally noted on closed tick tx9). Make it navigable.\n\nContext (verified): internal/tui/model.go is a single Bubbletea model (~1400 lines, two-pane: list tree + detail). viewMode (viewModeTree | viewModeRoadmap, lines ~36-41) controls the left pane; the m key toggles modes (~line 762); in roadmap mode the pane renders RenderRoadmap(m.allTicks, width) display-only with no selection tracking (~line 1183). RenderRoadmap and renderRoadmapEpicLine live in internal/tui/roadmap.go and consume query.ComputeRoadmap waves (statuses done|active|ready|queued|gated).\n\nWork:\n- Track a selected-epic cursor in roadmap mode: a flat list of epic IDs in wave order plus a selected index on the model; up/down (and existing scroll keys) move it; render the selected line highlighted using the same selection style the tree uses.\n- Enter on a selected epic: switch viewMode to tree, move the tree selection to that epic (expanding ancestors/fold state as needed so it is visible), and show it in the detail pane.\n- Selection must survive the fsnotify reload path (data refresh rebuilds content; keep the selected epic by ID, fall back to first epic if it disappeared).\n- Keep display behavior unchanged when no epics exist.\n\nTest cases (extend the existing roadmap render tests in internal/tui):\n- Roadmap with 3 epics across 2 waves: initial selection is the first epic; two down-presses select the third; rendered output marks exactly one selected line.\n- Enter on epic X -\u003e viewMode == viewModeTree and tree selection is X.\n- Reload with selected epic removed -\u003e selection falls back to first epic, no panic.\n\nFiles likely touched: internal/tui/model.go, internal/tui/roadmap.go, internal/tui/roadmap_test.go (or model tests).\nRun: go test ./internal/tui/...",
+  "notes": "2026-06-12 07:49 - Recon update at o16 close (uab): internal/tui/roadmap.go gained the after annotation (roadmapAfterStyle, Overlay0) in renderRoadmapEpicLine — line numbers shifted ~+10 from the description; format doc comment now includes [← after: ...]. model.go untouched by o16: viewMode/m-toggle/display-only render call as described. Selection highlight must not clobber either annotation style.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "o16"
+  ],
+  "parent": "e7c",
+  "acceptance_criteria": "j/k moves a visible selection across epic lines in roadmap mode; enter on a selected epic switches to tree mode with that epic selected and its detail shown; render tests cover selection highlight and the jump",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-12T07:00:49.728183248Z",
+  "updated_at": "2026-06-12T08:10:32.691013213Z",
+  "closed_at": "2026-06-12T08:10:32.691013213Z"
+}

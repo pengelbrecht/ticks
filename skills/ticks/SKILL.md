@@ -138,24 +138,31 @@ Transform the gathered requirements into ticks organized by epic.
 
 ### Roadmaps (multi-epic work)
 
-When the spec spans multiple epics that must be delivered in sequence, create a **roadmap**: a chain of epics linked with `--blocked-by`. Only the front (unblocked) epic gets child ticks. Downstream epics exist as parent-only ticks — give each a rough scope description (a paragraph plus a deliverables list), not detailed tasks. This is just-in-time detailing: future epics stay cheap to reorder or rescope.
+When the spec spans multiple epics, create a **roadmap**: a set of epics linked with ordering edges. Two edge types exist, and choosing the right one is the core roadmap decision:
+
+- **`--blocked-by` = hard dependency (feasibility).** The downstream epic is never ready until the blocker closes. Use it only where the epic *genuinely needs* its predecessor — including sequencing chosen to avoid same-file merge conflicts between epics (that is a real constraint, not a preference).
+- **`--after` = soft ordering (preference).** It orders, but never gates readiness. `tk next` sorts soft-deferred candidates last but never hides them — when the preferred epic is infeasible (hard-blocked or gated), selection naturally skips ahead to the first feasible epic; no flag needed. Missing or closed `--after` targets are ignored.
+
+Only the front epic gets child ticks. Downstream epics exist as parent-only ticks — give each a rough scope description (a paragraph plus a deliverables list), not detailed tasks. This is just-in-time detailing: future epics stay cheap to reorder or rescope.
 
 ```bash
 # Create the roadmap up front — only epic A gets child ticks now
-tk create "Auth foundation" -t epic -d "<rough scope>"                               # A — flesh out now
-tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>              # B — parent only
-tk create "Billing" -t epic -d "<rough scope>" --blocked-by <B>                      # C — parent only
+tk create "Auth foundation" -t epic -d "<rough scope>"                          # A — flesh out now
+tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>         # B — genuinely needs A's auth model
+tk create "Billing" -t epic -d "<rough scope>" --after <B>                      # C — preferred order only, no real dependency
 ```
+
+**Parallel fronts.** Because `--after` never gates readiness, more than one epic can be ready at once — the roadmap has a *front* of feasible epics, not a single head. `tk show` renders soft edges on an `After:` line; `tk roadmap` layers waves on the union of both edge types and annotates each kind distinctly (`← blocked by:` vs the softer `← after:`); queued status comes from hard edges only — an epic whose only open predecessors are soft stays ready/active.
 
 **Always append a close-out task as the final child of the front epic.** This task is real work:
 
 ```bash
-tk create "Close out <epic A>: run epic retro, then flesh out <epic B> into ticks" \
+tk create "Close out <epic A>: run epic retro, then flesh out the next feasible epic into ticks" \
   --parent <A> \
   --blocked-by <last-task-in-A>
 ```
 
-Executing this task means: run the epic-close retro (see `references/claude-runner.md`), then read epic B's rough scope, partition it into child ticks, and continue with `tk graph <B>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+Executing this task means: run the epic-close retro (see `references/claude-runner.md`), then pick the next **feasible** epic in soft order — skip any epic that is hard-blocked or gated — read its rough scope, partition it into child ticks, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
 
 **Planning triggers from `tk`.** Two CLI signals tell you that an epic needs to be fleshed out now:
 
@@ -167,11 +174,11 @@ When either signal fires, the move is: flesh the epic out into child ticks (per 
 **Human gates are chosen at roadmap creation time.** Create a downstream epic with `--awaiting checkpoint` or `--requires approval` to force a stop at that boundary. Without either flag the run auto-continues through the boundary. Default: **auto-continue**.
 
 ```bash
-# Auto-continue into epic B (default)
+# Auto-continue into epic B (default) — hard edge because B genuinely needs A
 tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>
 
-# Stop for human review before starting epic B
-tk create "Billing" -t epic -d "<rough scope>" --blocked-by <B> --awaiting checkpoint
+# Stop for human review before starting epic C — soft ordering plus a gate
+tk create "Billing" -t epic -d "<rough scope>" --after <B> --awaiting checkpoint
 ```
 
 **Roadmap-level changes — adding, removing, or reordering epics — are human decisions.** The agent may propose them in the retro report but must not execute them unilaterally.
@@ -265,7 +272,8 @@ You own all tick state; subagents only write code in their worktrees. That keeps
 tk create "Title" -d "Description" --acceptance "Tests pass"  # Task
 tk create "Title" -t epic                                     # Epic
 tk create "Title" --parent <epic-id>                          # Under epic
-tk create "Title" --blocked-by <task-id>                      # Blocked
+tk create "Title" --blocked-by <task-id>                      # Blocked (hard dependency)
+tk create "Title" --after <task-id>                           # Soft ordering preference (never blocks)
 tk create "Title" --awaiting work                             # Human task
 tk create "Title" --requires approval                         # Needs approval gate
 ```

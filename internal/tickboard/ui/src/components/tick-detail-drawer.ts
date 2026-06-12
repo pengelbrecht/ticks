@@ -12,7 +12,9 @@ import {
   closeTick,
   reopenTick,
   addNote,
+  updateTickViaComms,
 } from '../stores/comms.js';
+import type { TickUpdate } from '../comms/types.js';
 import './ticks-button.js';
 
 // Priority labels for display
@@ -469,6 +471,42 @@ export class TickDetailDrawer extends LitElement {
       margin-bottom: 0.5rem;
     }
 
+    /* After (soft order) edit field */
+    .after-edit-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .after-edit-row .after-input {
+      flex: 1;
+    }
+
+    .after-input::part(base) {
+      background: var(--surface0);
+      border-color: var(--surface1);
+    }
+
+    .after-input::part(input) {
+      color: var(--text);
+      font-size: 0.875rem;
+      font-family: var(--sl-font-mono, monospace);
+    }
+
+    .after-input::part(input)::placeholder {
+      color: var(--subtext0);
+    }
+
+    .after-hint {
+      margin-top: 0.375rem;
+      font-size: 0.75rem;
+      color: var(--subtext0);
+    }
+
+    .after-error {
+      margin-top: 0.5rem;
+    }
+
   `;
 
   @property({ attribute: false })
@@ -503,6 +541,11 @@ export class TickDetailDrawer extends LitElement {
   @state() private addNoteError = '';
   @state() private optimisticNote: Note | null = null;
 
+  // Internal state for the "After (soft order)" edit field
+  @state() private afterDraft = '';
+  @state() private savingAfter = false;
+  @state() private afterError = '';
+
   private handleDrawerHide() {
     // Reset action state when drawer closes
     this.resetActionState();
@@ -512,6 +555,15 @@ export class TickDetailDrawer extends LitElement {
         composed: true,
       })
     );
+  }
+
+  // Sync the after edit field before render when the tick changes
+  willUpdate(changedProperties: Map<string, unknown>) {
+    if (changedProperties.has('tick')) {
+      this.afterDraft = this.tick?.after?.join(', ') ?? '';
+      this.savingAfter = false;
+      this.afterError = '';
+    }
   }
 
   // Reset state when tick changes
@@ -697,6 +749,53 @@ export class TickDetailDrawer extends LitElement {
       this.addNoteError = error instanceof Error ? error.message : 'Failed to add note';
     } finally {
       this.addingNote = false;
+    }
+  }
+
+  /**
+   * Save the "After (soft order)" field.
+   * after = soft ordering preference (work these first if feasible) — it never
+   * blocks readiness, unlike blocked_by which gates readiness.
+   * Clearing the input removes the field from the tick.
+   */
+  private async handleAfterSave() {
+    const tick = this.tick;
+    if (!tick) return;
+
+    const parsed = this.afterDraft.split(',').map(id => id.trim()).filter(Boolean);
+
+    this.savingAfter = true;
+    this.afterError = '';
+
+    // Pass the current field values alongside the change: the cloud transport
+    // sends a full tick replacement built field-by-field from these updates,
+    // so omitting them would clobber the tick server-side.
+    const updates: TickUpdate = {
+      title: tick.title,
+      description: tick.description,
+      status: tick.status,
+      priority: tick.priority,
+      labels: tick.labels,
+      blocked_by: tick.blocked_by,
+      awaiting: tick.awaiting,
+      // Empty input -> empty list, which clears the field on the server.
+      after: parsed,
+    };
+
+    try {
+      await updateTickViaComms(tick.id, updates);
+      const updatedTick: BoardTick = {
+        ...tick,
+        after: parsed.length > 0 ? parsed : undefined,
+        updated_at: new Date().toISOString(),
+        is_blocked: (tick.blocked_by?.length ?? 0) > 0,
+        column: 'ready', // Placeholder; recomputed by the store
+      };
+      this.emitTickUpdated(updatedTick);
+    } catch (error) {
+      this.afterError = error instanceof Error ? error.message : 'Failed to update after';
+    } finally {
+      this.savingAfter = false;
     }
   }
 
@@ -909,6 +1008,47 @@ export class TickDetailDrawer extends LitElement {
     `;
   }
 
+  private renderAfterEdit() {
+    return html`
+      <div class="after-edit-row">
+        <sl-input
+          class="after-input"
+          placeholder="tick IDs, e.g. a1, b2 (comma-separated)"
+          .value=${this.afterDraft}
+          ?disabled=${this.savingAfter || this.readonlyMode}
+          @sl-input=${(e: Event) => {
+            this.afterDraft = (e.target as HTMLInputElement).value;
+          }}
+          @keydown=${(e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              this.handleAfterSave();
+            }
+          }}
+        ></sl-input>
+        <ticks-button
+          variant="secondary"
+          size="small"
+          ?disabled=${this.savingAfter || this.readonlyMode}
+          @click=${this.handleAfterSave}
+        >
+          ${this.savingAfter ? 'Saving...' : 'Save'}
+        </ticks-button>
+      </div>
+      <div class="after-hint">
+        Soft ordering preference — never blocks readiness. Clear the input and save to remove.
+      </div>
+      ${this.afterError
+        ? html`
+            <sl-alert variant="danger" open class="after-error">
+              <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
+              ${this.afterError}
+            </sl-alert>
+          `
+        : nothing}
+    `;
+  }
+
   private renderParent() {
     if (!this.tick?.parent) {
       return html`<span class="empty-text">None</span>`;
@@ -1094,6 +1234,12 @@ export class TickDetailDrawer extends LitElement {
         <div class="section">
           <div class="section-title">Blocked By</div>
           ${this.renderBlockers()}
+        </div>
+
+        <!-- After (soft order) -->
+        <div class="section">
+          <div class="section-title">After (soft order)</div>
+          ${this.renderAfterEdit()}
         </div>
 
         <!-- Labels -->

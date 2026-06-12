@@ -375,6 +375,154 @@ func TestRoadmapJSONShape(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// after-edge chain + annotation tests (driven via ExecuteArgs)
+// ---------------------------------------------------------------------------
+
+// writeRoadmapEpics writes the given epics into a fresh test repo.
+func writeRoadmapEpics(t *testing.T, epics ...tick.Tick) {
+	t.Helper()
+	_, store := setupTestRepo(t)
+	for _, e := range epics {
+		if err := store.Write(e); err != nil {
+			t.Fatalf("write epic %s: %v", e.ID, err)
+		}
+	}
+}
+
+// TestRoadmapChainFollowsAfterEdges verifies that the chain filter follows
+// soft (after) edges in both directions: with B after A, scoping to either
+// epic includes the other.
+func TestRoadmapChainFollowsAfterEdges(t *testing.T) {
+	epicA := makeTestEpic("aa1")
+	epicB := makeTestEpic("bb2")
+	epicB.After = []string{"aa1"}
+	writeRoadmapEpics(t, epicA, epicB)
+
+	out := captureStdout(t, func() error {
+		return ExecuteArgs([]string{"roadmap", "aa1"})
+	})
+	if !strings.Contains(out, "bb2") {
+		t.Errorf("tk roadmap aa1 should include soft-linked epic bb2; got:\n%s", out)
+	}
+
+	out = captureStdout(t, func() error {
+		return ExecuteArgs([]string{"roadmap", "bb2"})
+	})
+	if !strings.Contains(out, "aa1") {
+		t.Errorf("tk roadmap bb2 should include soft-linked epic aa1; got:\n%s", out)
+	}
+}
+
+// TestRoadmapAfterAnnotationRendered verifies that an after edge renders as
+// an "after:" annotation, not a "blocked by:" annotation.
+func TestRoadmapAfterAnnotationRendered(t *testing.T) {
+	epicA := makeTestEpic("aa1")
+	epicB := makeTestEpic("bb2")
+	epicB.After = []string{"aa1"}
+	writeRoadmapEpics(t, epicA, epicB)
+
+	out := captureStdout(t, func() error {
+		return ExecuteArgs([]string{"roadmap", "bb2"})
+	})
+	if !strings.Contains(out, "after: aa1") {
+		t.Errorf("expected 'after: aa1' annotation; got:\n%s", out)
+	}
+	if strings.Contains(out, "blocked by: aa1") {
+		t.Errorf("after edge must not render as 'blocked by: aa1'; got:\n%s", out)
+	}
+}
+
+// TestRoadmapMixedAnnotationsOrder verifies that an epic with both hard and
+// soft edges shows both annotations on its line, blocked-by first.
+func TestRoadmapMixedAnnotationsOrder(t *testing.T) {
+	epicA := makeTestEpic("aa1")
+	epicB := makeTestEpic("bb2")
+	epicC := makeTestEpic("cc3")
+	epicC.BlockedBy = []string{"aa1"}
+	epicC.After = []string{"bb2"}
+	writeRoadmapEpics(t, epicA, epicB, epicC)
+
+	out := captureStdout(t, func() error {
+		return ExecuteArgs([]string{"roadmap", "cc3"})
+	})
+
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "cc3") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("no line for epic cc3 in output:\n%s", out)
+	}
+
+	blockedIdx := strings.Index(line, "blocked by: aa1")
+	afterIdx := strings.Index(line, "after: bb2")
+	if blockedIdx < 0 {
+		t.Errorf("expected 'blocked by: aa1' on cc3 line; got: %s", line)
+	}
+	if afterIdx < 0 {
+		t.Errorf("expected 'after: bb2' on cc3 line; got: %s", line)
+	}
+	if blockedIdx >= 0 && afterIdx >= 0 && blockedIdx > afterIdx {
+		t.Errorf("blocked-by annotation must come before after annotation; got: %s", line)
+	}
+}
+
+// TestRoadmapJSONShapeWithAfter verifies that --json output keeps the
+// query.Roadmap shape with after edges present (the after key comes straight
+// from ComputeRoadmap; rendering changes must not alter the JSON).
+func TestRoadmapJSONShapeWithAfter(t *testing.T) {
+	epicA := makeTestEpic("aa1")
+	epicB := makeTestEpic("bb2")
+	epicB.After = []string{"aa1"}
+	writeRoadmapEpics(t, epicA, epicB)
+
+	out := captureStdout(t, func() error {
+		return ExecuteArgs([]string{"roadmap", "--json"})
+	})
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("unmarshal --json output: %v\noutput: %s", err, out)
+	}
+	waves, ok := m["waves"].([]any)
+	if !ok || len(waves) == 0 {
+		t.Fatalf("expected non-empty 'waves' array, got %v", m["waves"])
+	}
+
+	var found bool
+	for _, w := range waves {
+		wave, ok := w.([]any)
+		if !ok {
+			t.Fatalf("expected wave to be an array, got %T", w)
+		}
+		for _, e := range wave {
+			epic, ok := e.(map[string]any)
+			if !ok {
+				t.Fatalf("expected epic object, got %T", e)
+			}
+			for _, key := range []string{"id", "title", "status"} {
+				if _, exists := epic[key]; !exists {
+					t.Errorf("expected key %q in epic JSON; got keys: %v", key, mapKeys(epic))
+				}
+			}
+			if epic["id"] == "bb2" {
+				found = true
+				after, ok := epic["after"].([]any)
+				if !ok || len(after) != 1 || after[0] != "aa1" {
+					t.Errorf("expected bb2 'after' to be [\"aa1\"], got %v", epic["after"])
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("epic bb2 not found in JSON output:\n%s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

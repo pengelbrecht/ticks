@@ -80,6 +80,10 @@ export interface Tick {
    */
   blocked_by?: string[];
   /**
+   * Tick IDs to preferably work first if feasible; soft ordering only, never gates readiness (use blocked_by for that). Missing or closed targets are ignored
+   */
+  after?: string[];
+  /**
    * Parent epic ID if this tick belongs to an epic
    */
   parent?: string;
