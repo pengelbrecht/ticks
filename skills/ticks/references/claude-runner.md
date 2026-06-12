@@ -93,6 +93,8 @@ These rules complement the "run continuously" guidance above. Name them internal
 
 Use the `Agent` tool. Spawn every tick in the current wave in **one message** so they truly run in parallel:
 
+**Before writing the call, pick a tier from the table in "Choosing a capability tier per tick" below and resolve it to the current model. Omitting `model=` is not "defaulting to balanced" — it silently uses frontier.**
+
 ```
 Agent(
   subagent_type: "general-purpose",
@@ -101,7 +103,7 @@ Agent(
   isolation: "worktree",                     # own git worktree, auto-cleaned if it makes no changes
   run_in_background: true,                    # async — you're notified on completion
   mode: "bypassPermissions",                 # autonomous; shouldn't stop for tool-permission prompts
-  model: "sonnet"                            # example — see capability tier selection below
+  model: "<tier resolved to current model>"  # REQUIRED — see tier table below; never omit
 )
 ```
 

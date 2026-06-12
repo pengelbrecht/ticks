@@ -89,3 +89,12 @@ current HEAD.
 **Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: verify it is
 an ancestor (`git merge-base --is-ancestor <sha> HEAD`) and cherry-pick it if absent — never
 re-implement a sibling tick's work.
+
+**Problem:** Implementer agents dispatched without a `model=` parameter run at frontier tier
+by default, silently spending frontier budget on balanced/mechanical work.
+**Cause:** The Agent call template in claude-runner.md shows `model: "sonnet"` but it is one
+line in a 10-line block, not a named step. Under orchestration pressure the tier selection
+step gets skipped entirely.
+**Rule:** Before each Agent call, explicitly choose a tier from the claude-runner.md table and
+set `model=` to the matching model. Omitting it is not "defaulting to balanced" — it is
+implicitly choosing frontier. Resolve the tier per-tick, not once for the run.
