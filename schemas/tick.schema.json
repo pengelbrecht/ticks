@@ -58,6 +58,11 @@
       "items": { "type": "string" },
       "description": "IDs of ticks that block this one"
     },
+    "after": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tick IDs to preferably work first if feasible; soft ordering only, never gates readiness (use blocked_by for that). Missing or closed targets are ignored"
+    },
     "parent": {
       "type": "string",
       "description": "Parent epic ID if this tick belongs to an epic"

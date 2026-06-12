@@ -56,16 +56,20 @@ var (
 
 // Tick represents a single work item on disk.
 type Tick struct {
-	ID                 string     `json:"id"`
-	Title              string     `json:"title"`
-	Description        string     `json:"description,omitempty"`
-	Notes              string     `json:"notes,omitempty"`
-	Status             string     `json:"status"`
-	Priority           int        `json:"priority"`
-	Type               string     `json:"type"`
-	Owner              string     `json:"owner"`
-	Labels             []string   `json:"labels,omitempty"`
-	BlockedBy          []string   `json:"blocked_by,omitempty"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Notes       string   `json:"notes,omitempty"`
+	Status      string   `json:"status"`
+	Priority    int      `json:"priority"`
+	Type        string   `json:"type"`
+	Owner       string   `json:"owner"`
+	Labels      []string `json:"labels,omitempty"`
+	BlockedBy   []string `json:"blocked_by,omitempty"`
+	// After expresses preferred ordering only (work these targets first if
+	// feasible); it never gates readiness — that is BlockedBy. Entries are
+	// tick IDs; consumers ignore missing or closed targets.
+	After              []string   `json:"after,omitempty"`
 	Parent             string     `json:"parent,omitempty"`
 	DiscoveredFrom     string     `json:"discovered_from,omitempty"`
 	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
