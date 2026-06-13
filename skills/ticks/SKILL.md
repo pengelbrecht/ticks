@@ -253,7 +253,7 @@ tk close <id> --reason "Completed - connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic from the current harness. The authoritative workflow is **`references/agent-runner.md`**; then read **`references/claude-runner.md`** or **`references/codex-runner.md`** for the active harness. The shape is:
+Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code. The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
 2. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
@@ -313,7 +313,7 @@ Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 ### Running the Epic
 
-Drive execution from the current harness (shared details in `references/agent-runner.md`; harness mapping in `claude-runner.md` or `codex-runner.md`):
+Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code):
 
 ```bash
 # 1. Get the dependency graph (waves + max parallelism)

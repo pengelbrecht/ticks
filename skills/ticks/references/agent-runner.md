@@ -2,10 +2,14 @@
 
 Run a Ticks epic by orchestrating implementer agents from the current harness. Read the dependency graph, launch one implementer per ready tick in an isolated git worktree, and integrate their work wave by wave.
 
-This is the runner-neutral execution contract. Harness-specific adapters map it onto current tools:
+This is the runner-neutral execution contract. **Before reading further, identify your harness and load its adapter — do not skip this step or default to Claude Code:**
 
-- Claude Code: [`claude-runner.md`](claude-runner.md)
-- Codex: [`codex-runner.md`](codex-runner.md)
+| If you are running in… | Read next |
+|---|---|
+| Codex | [`codex-runner.md`](codex-runner.md) |
+| Claude Code | [`claude-runner.md`](claude-runner.md) |
+
+Read this file first, then the matching adapter. The adapter maps every capability in this doc to the primitives your harness actually provides.
 
 Ticks previously shipped a standalone `tk run`; it has been removed. The harness is now the orchestrator, while git and `.tick/` are the durable coordination layer.
 
