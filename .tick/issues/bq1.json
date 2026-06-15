@@ -2,7 +2,7 @@
   "id": "bq1",
   "title": "Integrate the swarm visual into the landing page",
   "description": "Place the animated swarm visual into the repositioned landing page. Blocked-by both the reposition tick (cbw, owns landing.ts structure) and the swarm-module tick (rt3, provides the component) — both edit/produce inputs this needs, so it runs after they merge.\n\nDo: import { swarmSection } from './swarm-visual' in cloud/worker/src/landing.ts and render it as a prominent section directly beneath the hero + above-the-fold differentiator strip (it is the proof of the orchestration claim). Match surrounding section spacing/responsive rules.\n\nCONTRACT: consume the 'swarmSection' string export from rt3. VERIFY: cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit; load the page and confirm the visual animates (and the reduced-motion static fallback works).",
-  "status": "open",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +14,6 @@
   "acceptance_criteria": "landing.ts imports swarmSection from ./swarm-visual and renders it as a headline section directly under the hero/above-the-fold strip; page renders with the animation; cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit clean",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:38:37.612533Z",
-  "updated_at": "2026-06-15T13:38:37.612533Z"
+  "updated_at": "2026-06-15T13:46:14.67708Z",
+  "started_at": "2026-06-15T13:46:14.67708Z"
 }
