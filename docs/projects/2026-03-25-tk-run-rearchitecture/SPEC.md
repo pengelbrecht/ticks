@@ -1,5 +1,7 @@
 # tk run Rearchitecture Specification
 
+> **Archived / superseded.** This spec proposed rearchitecting the standalone `tk run` runner; that runner was subsequently removed entirely rather than rearchitected. Orchestration is now harness-driven and runner-neutral (Claude Code and Codex), with `.tick/` + git as the durable coordination layer. Retained as a historical record. See [`skills/ticks/references/agent-runner.md`](../../../skills/ticks/references/agent-runner.md) for the current contract.
+
 **Created:** 2026-03-25
 **Status:** Draft
 

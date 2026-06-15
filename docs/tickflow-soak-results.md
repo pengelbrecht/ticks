@@ -1,5 +1,7 @@
 # Tickflow Soak Test Results & Baseline Reference
 
+> **Archived / superseded.** These results baseline the standalone `tk run` runner, which has been removed. Orchestration is now harness-driven and runner-neutral. Retained as a historical record. See [`skills/ticks/references/agent-runner.md`](../skills/ticks/references/agent-runner.md) for the current contract.
+
 > This document records soak test baselines, historical results, and
 > interpretation guidance for the Tickflow soak test suite defined in
 > [tickflow-soak-scenarios.md](tickflow-soak-scenarios.md).

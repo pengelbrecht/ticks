@@ -1,5 +1,7 @@
 # Wrapup Harness Specification
 
+> **Archived / superseded.** This draft spec assumed the standalone `tk run` runner, which has been removed. Its post-run "wrapup" concept now lives as the orchestrator's final-review and close-out (retro) ticks in the runner-neutral skill. Retained as a historical record. See [`skills/ticks/references/agent-runner.md`](../../../skills/ticks/references/agent-runner.md) for the current contract.
+
 **Created:** 2026-04-05
 **Status:** Draft
 
