@@ -428,11 +428,11 @@ export const docsPage = `<!DOCTYPE html>
 <span class="cmd">tk</span> init          <span class="comment"># creates .tick/ — commit it to git</span></pre></div>
 
       <h3>Create and move issues</h3>
-      <div class="code-block"><pre><span class="comment"># Create a new issue (opens editor for title + description)</span>
-<span class="cmd">tk</span> create
+      <div class="code-block"><pre><span class="comment"># Create a new issue with a title</span>
+<span class="cmd">tk</span> create <span class="str">"Fix login bug"</span>
 
-<span class="comment"># Mark an issue ready to work on</span>
-<span class="cmd">tk</span> ready <span class="str">&lt;id&gt;</span>
+<span class="comment"># List tasks that are ready to work on</span>
+<span class="cmd">tk</span> ready
 
 <span class="comment"># Pull the next ready issue onto your plate</span>
 <span class="cmd">tk</span> next
@@ -446,11 +446,11 @@ export const docsPage = `<!DOCTYPE html>
 
       <h3>Common status transitions</h3>
       <ul>
-        <li><code>tk create</code> — new issue in <em>backlog</em></li>
-        <li><code>tk ready &lt;id&gt;</code> — move to <em>ready</em> (scheduled for work)</li>
+        <li><code>tk create "Title"</code> — new issue in <em>backlog</em></li>
+        <li><code>tk ready</code> — list tasks that are ready to work on</li>
         <li><code>tk next</code> — claim the top-priority ready issue (<em>in-progress</em>)</li>
-        <li><code>tk done &lt;id&gt;</code> — close as completed</li>
-        <li><code>tk block &lt;id&gt;</code> — mark blocked with a reason</li>
+        <li><code>tk close &lt;id&gt; --reason "..."</code> — close as completed</li>
+        <li><code>tk block &lt;id&gt; &lt;blocker-id&gt;</code> — declare that &lt;id&gt; is blocked by &lt;blocker-id&gt;</li>
       </ul>
 
       <p>For the full command reference, see the <a href="https://github.com/pengelbrecht/ticks#readme" target="_blank">GitHub README</a>.</p>
@@ -464,10 +464,10 @@ export const docsPage = `<!DOCTYPE html>
       <h3>Plan an epic</h3>
       <p>Create a parent epic tick and break it down into child ticks with dependencies. The ticks skill (loaded automatically by Claude Code) can help you plan:</p>
       <div class="code-block"><pre><span class="comment"># Create parent epic</span>
-<span class="cmd">tk</span> create  <span class="comment"># set type=epic, e.g. "Redesign auth flow"</span>
+<span class="cmd">tk</span> create <span class="str">"Redesign auth flow"</span> <span class="flag">--type</span> epic
 
 <span class="comment"># Add child ticks that belong to the epic</span>
-<span class="cmd">tk</span> create  <span class="comment"># reference the epic id as parent</span></pre></div>
+<span class="cmd">tk</span> create <span class="str">"Set up DB schema"</span> <span class="flag">--parent</span> <span class="str">&lt;epic-id&gt;</span></pre></div>
 
       <h3>Visualize the dependency graph</h3>
       <p>Before dispatching agents, print the wave structure so you can see which ticks can run in parallel and which must wait:</p>
@@ -491,8 +491,8 @@ export const docsPage = `<!DOCTYPE html>
 <span class="comment"># "run the next wave of epic &lt;epic-id&gt;"</span>
 <span class="comment">#</span>
 <span class="comment"># Under the hood it does something equivalent to:</span>
-<span class="cmd">git</span> worktree add .worktrees/abc feature/abc
-<span class="cmd">git</span> worktree add .worktrees/def feature/def
+<span class="cmd">git</span> worktree add ../.ticks-worktrees/abc tick/auth/abc
+<span class="cmd">git</span> worktree add ../.ticks-worktrees/def tick/auth/def
 <span class="comment"># ... one worktree per tick in the wave</span></pre></div>
 
       <div class="callout">
@@ -502,12 +502,12 @@ export const docsPage = `<!DOCTYPE html>
       <h3>Integrate wave by wave</h3>
       <p>After each wave completes, review and merge the worktrees in dependency order before proceeding to the next wave:</p>
       <div class="code-block"><pre><span class="comment"># Review each worktree's diff, run tests, then merge</span>
-<span class="cmd">git</span> merge feature/abc
-<span class="cmd">git</span> merge feature/def
+<span class="cmd">git</span> merge tick/auth/abc
+<span class="cmd">git</span> merge tick/auth/def
 
-<span class="comment"># Mark ticks done, then trigger Wave 2</span>
-<span class="cmd">tk</span> done abc
-<span class="cmd">tk</span> done def</pre></div>
+<span class="comment"># Close ticks, then trigger Wave 2</span>
+<span class="cmd">tk</span> close abc <span class="flag">--reason</span> <span class="str">"Completed: DB schema landed"</span>
+<span class="cmd">tk</span> close def <span class="flag">--reason</span> <span class="str">"Completed: auth middleware landed"</span></pre></div>
 
       <p>The ticks skill tracks which waves have been integrated and what is still pending, so you can hand off and resume at any point without losing context.</p>
     </div>
@@ -540,7 +540,7 @@ export const docsPage = `<!DOCTYPE html>
 
   <footer>
     <a href="/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 28" height="22"><defs><filter id="glow-f" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1"/><feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur2"/><feMerge><feMergeNode in="blur1"/><feMergeNode in="blur2"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><text x="32" y="14" font-family="ui-monospace, monospace" font-size="18" font-weight="600" fill="#A6E3A1" text-anchor="middle" dominant-baseline="central" filter="url(#glow-f)">tk_</text></svg></a>
-    <p>Multiplayer-first issue tracking for AI coding agents</p>
+    <p>The issue tracker your AI agents run on.</p>
     <p style="margin-top: 1rem;">
       <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a> ·
       <a href="https://github.com/pengelbrecht/ticks#readme" target="_blank">Documentation</a> ·

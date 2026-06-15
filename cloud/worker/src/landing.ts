@@ -617,7 +617,7 @@ export const landingPage = `<!DOCTYPE html>
 <span class="cmd">tk</span> init
 
 <span class="comment"># Plan an epic and chain dependencies</span>
-<span class="cmd">tk</span> create <span class="flag">--type</span> feature <span class="flag">--title</span> "Add user authentication"
+<span class="cmd">tk</span> create <span class="flag">--type</span> feature <span class="str">"Add user authentication"</span>
 
 <span class="comment"># Inspect the dependency graph and parallel waves</span>
 <span class="cmd">tk</span> graph my-epic
