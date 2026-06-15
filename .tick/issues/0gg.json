@@ -1,0 +1,12 @@
+{
+  "id": "0gg",
+  "title": "Orchestration-first promo site \u0026 docs refresh",
+  "description": "Reposition the ticks.sh promo site (cloud/worker/src/landing.ts) and supporting docs from the old standalone-runner / issue-tracker story to the agent-orchestration story, while keeping the issue-tracker foundation as a co-equal pillar.\n\nFull plan and rationale: docs/promo-website-orchestration-update-roadmap.md\n\nDecisions (locked with user 2026-06-15):\n- Hero = Candidate A: 'The issue tracker your AI agents run on.'\n- Swarm visual = animated CSS/SVG (option B), with prefers-reduced-motion static fallback.\n- Scope = Everything: website + first-party /docs page + refresh stale design docs.\n\nWhy now: the current site's primary CTA ('tk run epic --board') references a REMOVED command and is live-broken.\n\nVerification (from .tick/config.md): worker changes verified with 'cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit' plus targeted vitest; epic integrates via PR + green CI (no direct merge to main). landing.ts is a worker file, NOT the UI — build-ui.sh does not apply.",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-15T13:36:09.155291Z",
+  "updated_at": "2026-06-15T13:36:09.155291Z"
+}

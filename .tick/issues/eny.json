@@ -1,0 +1,14 @@
+{
+  "id": "eny",
+  "title": "Add first-party /docs (quickstart) page + route",
+  "description": "Add an on-site docs/quickstart page so the site's 'Docs' links stay first-party instead of bouncing to GitHub. Spec: docs/promo-website-orchestration-update-roadmap.md (Phase 3 / docs strategy).\n\nDeliverables:\n- New file cloud/worker/src/docs-page.ts exporting the page HTML (reuse sharedStyles/brand tokens; mirror landing.ts patterns).\n- Wire route in cloud/worker/src/index.ts: serve it at '/docs' (this is the URL contract the landing-page nav points to). Follow the existing routing style in index.ts (e.g. the '/' and '/login' handlers).\n- Content: install -\u003e tk init -\u003e create/track issues -\u003e plan an epic -\u003e orchestrate via the ticks skill (tk graph, parallel worktree agents, wave-by-wave) -\u003e tk board. Cover BOTH pillars (tracker + orchestration). Link out to the GitHub README for depth. Use only real tk commands (no 'tk run').\n\nFILE SAFETY: this tick touches docs-page.ts (new) + index.ts only — it must NOT edit landing.ts (the nav link is owned by the reposition tick). VERIFY: cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit, and curl/confirm /docs renders.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "0gg",
+  "acceptance_criteria": "GET /docs serves a Catppuccin-styled quickstart page covering tracker + orchestration; route wired in cloud/worker/src/index.ts; page reachable; cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit clean",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-15T13:38:16.181208Z",
+  "updated_at": "2026-06-15T13:38:16.181208Z"
+}
