@@ -41,7 +41,7 @@ ls .tick/ 2>/dev/null || tk init
 
 **3. tk installed:**
 ```bash
-which tk || echo "Install: curl -fsSL https://raw.githubusercontent.com/pengelbrecht/ticks/main/scripts/install.sh | sh"
+which tk || echo "Install: curl -fsSL https://ticks.sh/install | sh"
 ```
 
 **4. Git tracking (important):**
