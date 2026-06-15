@@ -1,5 +1,7 @@
 # Claude Code Swarm Architecture
 
+> **Archived / superseded.** This document predates the runner-neutral orchestration model. It describes Claude Code's internal swarm API (`TeammateTool`, `ExitPlanMode`/`launchSwarm`, `~/.claude/teams/`) and the now-removed standalone `tk run` command. The current orchestration contract — harness-as-orchestrator, Claude Code + Codex, tick files / notes / branches / worktrees as the durable handoff format — lives in [`skills/ticks/references/agent-runner.md`](../skills/ticks/references/agent-runner.md).
+
 Research findings on how team spawning and parallel agent execution works in Claude Code.
 
 ## Overview
