@@ -2,7 +2,7 @@
   "id": "cbw",
   "title": "Reposition landing page copy \u0026 structure",
   "description": "Rewrite the promo copy/structure in cloud/worker/src/landing.ts for the orchestration-first story while keeping the issue-tracker foundation as a co-equal pillar. Single file = this is the spine of the landing.ts chain. Spec: docs/promo-website-orchestration-update-roadmap.md (sections 1, 1.1, 1.2, 4).\n\nScope (all within landing.ts):\n1. HERO (Candidate A): H1 'The issue tracker your AI agents run on.' Sub: 'Fast, git-native task tracking built for AI agents — that also orchestrates them. Plan a roadmap, run agents in parallel, ship wave by wave.' Keep brand/glow/Catppuccin; only words change.\n2. ABOVE-THE-FOLD differentiator strip directly under the hero CTAs (slim chip/row, existing brand tokens — NOT a full section). Carry the user-prioritized hooks:\n   - Cost / right-tier: 'Right model for each job — frontier where it pays off, cheaper tiers for the rest. Stop paying premium rates to run one model on everything.'\n   - Parallel + managed worktrees: 'Many agents in parallel, each in its own auto-managed git worktree — no babysitting.'\n   - Fully git-tracked, no required backend: 'Your issues are JSON in your repo. No daemon, no database, no backend required — cloud sync is optional.'\n3. FEATURE GRID -\u003e two labelled pillars (3 cards each) per spec section 4:\n   Pillar 1 'A great issue tracker for agents': persistent memory; yours-in-git/no-backend-required; lightning-fast \u0026 agent-native.\n   Pillar 2 'That orchestrates them': parallel with managed worktrees; right-model-for-each-job; roadmaps/ordering/handoff.\n4. HOW IT WORKS: rewrite step 3 around invoking the ticks skill (Claude Code or Codex) + tk graph/tk board, and REPLACE the broken 'tk run epic --board' / 'tk run epic --cloud' lines (the live-broken CTA) with real, working commands only.\n5. NAV: point the 'Docs' link to on-site '/docs' (contract with the docs-page tick). 'Read the Docs' CTA -\u003e /docs too.\n\nHONESTY CONSTRAINTS: no specific model names (skill is model-agnostic); cloud sync is opt-in, never imply 'no cloud at all'; every command shown must exist in the cobra command set.\n\nVERIFY: cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit (worker file, NOT UI — build-ui.sh does not apply). Visually confirm no 'tk run' remains: grep -n 'tk run' cloud/worker/src/landing.ts returns nothing.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "Hero uses Candidate A headline+sub; above-the-fold differentiator strip present (cost/tier, parallel+worktrees, git/no-backend); feature grid shows two labelled pillars (3+3 cards); how-it-works step 3 + code block use ONLY real tk commands (zero 'tk run'); nav Docs -\u003e /docs; cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit clean",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:38:16.115419Z",
-  "updated_at": "2026-06-15T13:38:16.115419Z"
+  "updated_at": "2026-06-15T13:40:17.187185Z",
+  "started_at": "2026-06-15T13:40:17.187185Z"
 }

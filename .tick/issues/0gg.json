@@ -6,7 +6,8 @@
   "priority": 1,
   "type": "epic",
   "owner": "noreply@anthropic.com",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:36:09.155291Z",
-  "updated_at": "2026-06-15T13:36:09.155291Z"
+  "updated_at": "2026-06-15T13:40:17.142382Z"
 }

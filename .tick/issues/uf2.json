@@ -2,7 +2,7 @@
   "id": "uf2",
   "title": "Refresh or archive design/claude-tasks-integration.md for runner-neutral model",
   "description": "docs/design/claude-tasks-integration.md (Jan, Claude-specific) predates the runner-neutral shift. Same treatment as the swarm-architecture doc: update to the current model (harness-orchestrated, Claude + Codex, no standalone 'tk run') cross-referencing skills/ticks/references/agent-runner.md, OR prepend an 'Archived / superseded by \u003cpointer\u003e' banner if purely historical.\n\nFILE SAFETY: edits only this file. No code, no tests.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 3,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "docs/design/claude-tasks-integration.md either updated to current runner-neutral orchestration language or clearly marked archived/superseded with a pointer",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:38:16.241682Z",
-  "updated_at": "2026-06-15T13:38:16.241682Z"
+  "updated_at": "2026-06-15T13:40:17.279378Z",
+  "started_at": "2026-06-15T13:40:17.279378Z"
 }

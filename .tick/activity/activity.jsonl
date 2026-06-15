@@ -529,3 +529,8 @@
 {"ts":"2026-06-15T13:38:37.612801Z","tick":"bq1","action":"create","actor":"claude:orchestrator","epic":"0gg","data":{"priority":1,"title":"Integrate the swarm visual into the landing page","type":"task"}}
 {"ts":"2026-06-15T13:38:37.684805Z","tick":"67j","action":"create","actor":"claude:orchestrator","epic":"0gg","data":{"priority":1,"title":"Final review of epic 0gg diff","type":"task"}}
 {"ts":"2026-06-15T13:38:37.752651Z","tick":"81u","action":"create","actor":"claude:orchestrator","epic":"0gg","data":{"priority":1,"title":"Close out epic 0gg: retro + plan next feasible work","type":"task"}}
+{"ts":"2026-06-15T13:40:17.187448Z","tick":"cbw","action":"start","actor":"claude:orchestrator","epic":"0gg","data":{"title":"Reposition landing page copy \u0026 structure"}}
+{"ts":"2026-06-15T13:40:17.210922Z","tick":"rt3","action":"start","actor":"claude:orchestrator","epic":"0gg","data":{"title":"Build animated 'see the swarm' visual as a standalone worker module"}}
+{"ts":"2026-06-15T13:40:17.233973Z","tick":"eny","action":"start","actor":"claude:orchestrator","epic":"0gg","data":{"title":"Add first-party /docs (quickstart) page + route"}}
+{"ts":"2026-06-15T13:40:17.256541Z","tick":"ub0","action":"start","actor":"claude:orchestrator","epic":"0gg","data":{"title":"Refresh or archive claude-code-swarm-architecture.md for runner-neutral model"}}
+{"ts":"2026-06-15T13:40:17.279611Z","tick":"uf2","action":"start","actor":"claude:orchestrator","epic":"0gg","data":{"title":"Refresh or archive design/claude-tasks-integration.md for runner-neutral model"}}
