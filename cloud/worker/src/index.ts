@@ -10,6 +10,7 @@
 
 import * as auth from "./auth";
 import { landingPage } from "./landing";
+import { docsPage } from "./docs-page";
 import type { ProjectRoom } from "./project-room";
 
 export interface Env {
@@ -487,6 +488,13 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
         "https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh",
         302
       );
+    }
+
+    // Docs / quickstart page
+    if (url.pathname === "/docs") {
+      return new Response(docsPage, {
+        headers: { "Content-Type": "text/html" },
+      });
     }
 
     // Landing page at root
