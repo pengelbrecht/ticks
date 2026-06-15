@@ -38,6 +38,18 @@ User-prioritized messages that must read clearly near the top of the page (not b
 
 Treat #1–#3 plus the orchestration headline as the above-the-fold story; the two-pillar feature grid (§4) then expands each with detail below the fold.
 
+### 1.3 — Structured ticks vs. unstructured markdown (the real competitor)
+
+ticks' most common "competitor" isn't another tracker — it's a **flat markdown file**: a `TODO.md`, a `plan.md`, or the agent's own in-session TodoWrite list. The page should make the case for *structured* ticks over prose lists, because that's the comparison most visitors are actually making.
+
+**The argument — and it ties straight into orchestration:** a markdown checklist can't be *executed by a fleet*. You cannot compute parallel waves, a dependency graph, or a critical path from prose. You can't query "what's ready and unblocked for me right now" across a team. You can't merge two agents' edits to the same list without conflicts. Structured ticks (status, priority, `blocked_by`/`after` edges, owners, acceptance criteria, notes — each a JSON file) are exactly the substrate that makes `tk graph`, waves, and runner-neutral handoff possible. **Unstructured notes can't be orchestrated; structured ticks can.** Plus the foundation properties: survives context compaction, queryable in ~35ms, git-merge-clean.
+
+**Where it goes:** a concise treatment — either a short "Why structured ticks, not a markdown checklist?" block, or folded into the Pillar-1 cards (persistent memory / agent-native) with one sharp line that names the markdown-file comparison explicitly. Keep it tight; it's an objection-handler, not a section that competes with the hero.
+
+### 1.4 — Multiplayer: demote from lead to supporting property
+
+The old site led with "**Multiplayer-first** issue tracking." Multiplayer (owner scoping so a team of humans+agents share one repo without stepping on each other) is a **genuine, differentiating property — but not the lead**. Keep it; present it as a supporting strength (a feature card or a line under the tracker pillar), not the headline. The lead is orchestration + the tracker foundation; multiplayer reinforces the "built for teams of agents" angle below the fold.
+
 ---
 
 ## 2. What's broken or stale right now
