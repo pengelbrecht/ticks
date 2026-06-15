@@ -3,6 +3,8 @@
  * Uses ticks brand guidelines: Geist fonts, Catppuccin Mocha, green primary
  */
 
+import { swarmSection } from "./swarm-visual";
+
 const sharedStyles = `
   @import url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/style.css');
   @import url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/style.css');
@@ -44,8 +46,8 @@ export const landingPage = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="ticks - Multiplayer-first issue tracking for AI coding agents. Git-native, lightning fast.">
-  <title>ticks — Issue tracking for AI agents</title>
+  <meta name="description" content="ticks — the issue tracker your AI agents run on. Fast, git-native task tracking built for AI agents — that also orchestrates them in parallel, wave by wave.">
+  <title>ticks — The issue tracker your AI agents run on</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     ${sharedStyles}
@@ -196,6 +198,47 @@ export const landingPage = `<!DOCTYPE html>
       50% { opacity: 1; }
     }
 
+    /* Differentiator strip (above the fold) */
+    .differentiators {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-top: 2.5rem;
+      max-width: 920px;
+    }
+
+    .diff-chip {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.625rem;
+      flex: 1 1 260px;
+      max-width: 300px;
+      text-align: left;
+      background: rgba(30, 30, 46, 0.6);
+      border: 1px solid var(--surface);
+      border-radius: 10px;
+      padding: 0.875rem 1rem;
+    }
+
+    .diff-chip .diff-icon {
+      color: var(--green);
+      font-size: 1rem;
+      line-height: 1.5;
+      flex-shrink: 0;
+    }
+
+    .diff-chip p {
+      font-size: 0.8125rem;
+      color: var(--subtext);
+      line-height: 1.5;
+    }
+
+    .diff-chip p strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
     /* Features */
     section {
       padding: 6rem 2rem;
@@ -225,6 +268,60 @@ export const landingPage = `<!DOCTYPE html>
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 1.5rem;
+    }
+
+    .objection {
+      background: var(--base);
+      border: 1px solid var(--surface);
+      border-left: 3px solid var(--green);
+      border-radius: 12px;
+      padding: 1.75rem 2rem;
+      margin-bottom: 3.5rem;
+    }
+
+    .objection h3 {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.625rem;
+    }
+
+    .objection p {
+      font-size: 0.9375rem;
+      color: var(--subtext);
+      line-height: 1.65;
+    }
+
+    .objection p strong { color: var(--text); font-weight: 600; }
+    .objection code {
+      font-family: var(--font-mono);
+      background: var(--surface);
+      padding: 0.0625rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      color: var(--green);
+    }
+
+    .pillar { margin-bottom: 3.5rem; }
+    .pillar:last-child { margin-bottom: 0; }
+
+    .pillar-label {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.625rem;
+    }
+
+    .pillar-label .pillar-tag {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--green);
     }
 
     .feature-card {
@@ -384,7 +481,7 @@ export const landingPage = `<!DOCTYPE html>
     <a href="/" class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 28" height="28"><defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1"/><feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur2"/><feMerge><feMergeNode in="blur1"/><feMergeNode in="blur2"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><text x="32" y="14" font-family="ui-monospace, monospace" font-size="18" font-weight="600" fill="#A6E3A1" text-anchor="middle" dominant-baseline="central" filter="url(#glow)">tk_</text></svg></a>
     <div class="nav-links">
       <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a>
-      <a href="https://github.com/pengelbrecht/ticks#readme" target="_blank">Docs</a>
+      <a href="/docs">Docs</a>
       <a href="/login" class="btn btn-primary">Sign In</a>
     </div>
   </nav>
@@ -405,55 +502,96 @@ export const landingPage = `<!DOCTYPE html>
       </svg>
     </div>
     <h1><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 50" height="80"><defs><filter id="glow-hero" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur1"/><feGaussianBlur in="SourceGraphic" stdDeviation="1" result="blur2"/><feMerge><feMergeNode in="blur1"/><feMergeNode in="blur2"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><text x="70" y="25" font-family="ui-monospace, monospace" font-size="36" font-weight="600" fill="#A6E3A1" text-anchor="middle" dominant-baseline="central" filter="url(#glow-hero)">ticks</text></svg></h1>
-    <p class="hero-tagline">Multiplayer-first issue tracking for AI coding agents</p>
-    <p class="hero-sub">Git-native. Lightning fast. Built for the AI era.</p>
+    <p class="hero-tagline">The issue tracker your AI agents run on.</p>
+    <p class="hero-sub">Fast, git-native task tracking built for AI agents — that also orchestrates them. Plan a roadmap, run agents in parallel, ship wave by wave.</p>
     <div class="hero-buttons">
       <a href="/login" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/pengelbrecht/ticks" class="btn btn-secondary" target="_blank">View on GitHub</a>
     </div>
+    <div class="differentiators">
+      <div class="diff-chip">
+        <span class="diff-icon">◇</span>
+        <p><strong>Right model for each job</strong> — frontier where it pays off, cheaper tiers for the rest. Stop paying premium rates to run one model on everything.</p>
+      </div>
+      <div class="diff-chip">
+        <span class="diff-icon">◇</span>
+        <p><strong>Many agents in parallel</strong>, each in its own auto-managed git worktree — no babysitting.</p>
+      </div>
+      <div class="diff-chip">
+        <span class="diff-icon">◇</span>
+        <p><strong>Your issues are JSON in your repo.</strong> No daemon, no database, no backend required — cloud sync is optional.</p>
+      </div>
+    </div>
     <span class="scroll-hint">↓</span>
   </header>
 
+  ${swarmSection}
+
   <section id="features">
     <p class="section-label">Features</p>
-    <h2 class="section-title">Everything AI agents need to stay organized</h2>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">🧠</div>
-        <h3>Persistent Memory</h3>
-        <p>Issues survive context compaction, session restarts, and switching between AI tools. Your agent never loses track.</p>
+    <h2 class="section-title">A great issue tracker for agents — that orchestrates them too</h2>
+
+    <div class="objection">
+      <h3>Why structured ticks, not a markdown checklist?</h3>
+      <p>Because <strong>unstructured notes can't be orchestrated — structured ticks can.</strong> You can't compute parallel waves, a dependency graph, a critical path, or "what's ready and unblocked for me right now" from prose in a <code>TODO.md</code> or an agent's throwaway todo list — and two agents editing one markdown file collide. Structured ticks (status, priority, <code>blocked_by</code>/<code>after</code> edges, owners, acceptance, notes — each a JSON file) are exactly what make <code>tk graph</code>, waves, and cross-runner handoff possible.</p>
+    </div>
+
+    <div class="pillar">
+      <h3 class="pillar-label"><span class="pillar-tag">Pillar 1</span> A great issue tracker for agents</h3>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🧠</div>
+          <h3>Persistent memory</h3>
+          <p>Issues survive context compaction, session restarts, and switching between AI tools. Agents never lose the thread.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📁</div>
+          <h3>Yours, in git — no backend required</h3>
+          <p>One JSON file per issue, versioned with your code; a native merge driver resolves concurrent edits. No daemon, no database, no proprietary or cloud backend required. Your issues live in your repo and travel with it; cloud sync is optional and opt-in.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Lightning fast &amp; agent-native</h3>
+          <p><code>tk ready</code> returns in ~35ms over 1000 issues; <code>tk next</code> and <code>--json</code> are designed for agents to parse.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">👥</div>
+          <h3>Multiplayer by design</h3>
+          <p>A team of humans and their agents share one repo without stepping on each other. Owner scoping keeps each agent on its own ticks, so concurrent work stays conflict-free.</p>
+        </div>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">📁</div>
-        <h3>Git-Native</h3>
-        <p>Issues live as JSON files in your repo. No external service required. Branch, merge, and version control your tasks.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>Lightning Fast</h3>
-        <p>Written in Go with zero startup time. Local-first with optional cloud sync. No waiting for API calls.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Agent-Optimized</h3>
-        <p>Structured JSON format agents can parse. Priority, status, dependencies, and blocking relationships built in.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">👁️</div>
-        <h3>Real-time Board</h3>
-        <p>Watch your agent work in a beautiful Kanban view. See tasks move through columns as work progresses.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔄</div>
-        <h3>Cloud Sync</h3>
-        <p>Optional real-time sync across machines. Share boards with your team. Access from anywhere.</p>
+    </div>
+
+    <div class="pillar">
+      <h3 class="pillar-label"><span class="pillar-tag">Pillar 2</span> That orchestrates them</h3>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🔀</div>
+          <h3>Parallel, with managed worktrees</h3>
+          <p><code>tk graph</code> computes dependency waves; the orchestrator runs one agent per ready tick in its own auto-created git worktree, keeps them from clobbering each other, and integrates wave by wave. Daemon-free, no worktree babysitting.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>Right model for each job</h3>
+          <p>Frontier-tier planning where it pays off, cheaper tiers for the wide parallel implementation work. Frontier-quality decomposition without paying premium rates on every edit — the direct answer to token fatigue.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🗺️</div>
+          <h3>Roadmaps, ordering &amp; handoff</h3>
+          <p>Chain epics with hard (<code>blocked_by</code>) and soft (<code>after</code>) edges; runner-neutral across Claude Code and Codex, with branches/worktrees/notes as the durable handoff format so any runner can resume any epic. Humans stay in the loop via approval/review/checkpoint gates.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📚</div>
+          <h3>Gets smarter every epic</h3>
+          <p>Every epic ends with a structured retro that promotes what was learned — what worked, what broke — into <code>.tick/learnings.md</code> and repo docs. Every future planning pass and implementer reads that memory, so the same mistakes don't repeat and orchestration improves over time.</p>
+        </div>
       </div>
     </div>
   </section>
 
   <section id="how-it-works">
     <p class="section-label">How It Works</p>
-    <h2 class="section-title">Three commands to organized AI development</h2>
+    <h2 class="section-title">From a goal to agents shipping in parallel</h2>
     <div class="steps">
       <div class="step">
         <div class="step-number">1</div>
@@ -462,13 +600,13 @@ export const landingPage = `<!DOCTYPE html>
       </div>
       <div class="step">
         <div class="step-number">2</div>
-        <h3>Initialize</h3>
-        <p>Run <code>tk init</code> in any repo. Creates a <code>.tick/</code> directory to store issues as JSON files.</p>
+        <h3>Plan</h3>
+        <p>Run <code>tk init</code>, then break a goal into an epic with <code>tk create</code>. Chain dependencies with <code>--blocked-by</code> / <code>--after</code> so work orders itself.</p>
       </div>
       <div class="step">
         <div class="step-number">3</div>
-        <h3>Start Working</h3>
-        <p>Run <code>tk run epic --board</code> to start your agent with a real-time board. Add <code>--cloud</code> for sync.</p>
+        <h3>Orchestrate</h3>
+        <p>Invoke the <strong>ticks skill</strong> in your agent (Claude Code or Codex). It reads <code>tk graph</code> and runs one agent per wave in isolated worktrees, integrating wave by wave. Use <code>tk board</code> (add <code>--cloud</code>) to watch.</p>
       </div>
     </div>
 
@@ -483,14 +621,19 @@ export const landingPage = `<!DOCTYPE html>
 <span class="cmd">cd</span> my-project
 <span class="cmd">tk</span> init
 
-<span class="comment"># Create your first issue</span>
-<span class="cmd">tk</span> new <span class="flag">--type</span> feature <span class="flag">--title</span> "Add user authentication"
+<span class="comment"># Plan an epic and chain dependencies</span>
+<span class="cmd">tk</span> create <span class="flag">--type</span> feature <span class="str">"Add user authentication"</span>
 
-<span class="comment"># Start agent with real-time board</span>
-<span class="cmd">tk</span> run epic <span class="flag">--board</span>
+<span class="comment"># Inspect the dependency graph and parallel waves</span>
+<span class="cmd">tk</span> graph my-epic
 
-<span class="comment"># Or with cloud sync</span>
-<span class="cmd">tk</span> run epic <span class="flag">--cloud</span></pre>
+<span class="comment"># Then invoke the ticks skill in your agent (Claude Code or Codex).</span>
+<span class="comment"># It reads the graph and runs one agent per wave in isolated worktrees:</span>
+<span class="cmd">tk</span> next <span class="flag">--epic</span>
+<span class="cmd">tk</span> ready
+
+<span class="comment"># Watch the board (add --cloud for sync)</span>
+<span class="cmd">tk</span> board <span class="flag">--cloud</span></pre>
     </div>
   </section>
 
@@ -499,16 +642,16 @@ export const landingPage = `<!DOCTYPE html>
     <p>Free and open source. Set up in under a minute.</p>
     <div class="hero-buttons">
       <a href="/login" class="btn btn-primary">Create Account</a>
-      <a href="https://github.com/pengelbrecht/ticks#readme" class="btn btn-secondary" target="_blank">Read the Docs</a>
+      <a href="/docs" class="btn btn-secondary">Read the Docs</a>
     </div>
   </section>
 
   <footer>
     <a href="/" class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 28" height="28"><defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1"/><feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur2"/><feMerge><feMergeNode in="blur1"/><feMergeNode in="blur2"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><text x="32" y="14" font-family="ui-monospace, monospace" font-size="18" font-weight="600" fill="#A6E3A1" text-anchor="middle" dominant-baseline="central" filter="url(#glow)">tk_</text></svg></a>
-    <p>Multiplayer-first issue tracking for AI coding agents</p>
+    <p>The issue tracker your AI agents run on</p>
     <p style="margin-top: 1rem;">
       <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a> ·
-      <a href="https://github.com/pengelbrecht/ticks#readme" target="_blank">Documentation</a> ·
+      <a href="/docs">Documentation</a> ·
       <a href="https://github.com/pengelbrecht/ticks/issues" target="_blank">Feedback</a>
     </p>
   </footer>
@@ -1058,7 +1201,7 @@ export const appPage = `<!DOCTYPE html>
         <div id="boards-empty" class="boards-empty hidden">
           <p>No boards connected yet.</p>
           <p style="font-size: 0.875rem; color: var(--overlay);">Create a token below, then run:</p>
-          <code>TICKS_TOKEN=your-token tk run --cloud</code>
+          <code>TICKS_TOKEN=your-token tk board --cloud</code>
         </div>
       </div>
 
@@ -1335,7 +1478,7 @@ export const appPage = `<!DOCTYPE html>
 
     function openBoard(name, online) {
       if (!online) {
-        showAlert('Board Offline', 'This board is offline. Start it with: tk run --cloud');
+        showAlert('Board Offline', 'This board is offline. Start it with: tk board --cloud');
         return;
       }
       window.location.href = '/p/' + encodeURIComponent(name) + '/';

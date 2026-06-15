@@ -1,0 +1,16 @@
+{
+  "id": "0gg",
+  "title": "Orchestration-first promo site \u0026 docs refresh",
+  "description": "Reposition the ticks.sh promo site (cloud/worker/src/landing.ts) and supporting docs from the old standalone-runner / issue-tracker story to the agent-orchestration story, while keeping the issue-tracker foundation as a co-equal pillar.\n\nFull plan and rationale: docs/promo-website-orchestration-update-roadmap.md\n\nDecisions (locked with user 2026-06-15):\n- Hero = Candidate A: 'The issue tracker your AI agents run on.'\n- Swarm visual = animated CSS/SVG (option B), with prefers-reduced-motion static fallback.\n- Scope = Everything: website + first-party /docs page + refresh stale design docs.\n\nWhy now: the current site's primary CTA ('tk run epic --board') references a REMOVED command and is live-broken.\n\nVerification (from .tick/config.md): worker changes verified with 'cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit' plus targeted vitest; epic integrates via PR + green CI (no direct merge to main). landing.ts is a worker file, NOT the UI — build-ui.sh does not apply.",
+  "notes": "2026-06-15 15:57 - EPIC RETRO (0gg):\nLEARNINGS PROMOTED: .tick/learnings.md gained 'Docs \u0026 marketing copy' — agents invent tk commands in user-facing examples (tk done/--title/bare tk create/tk ready \u003cid\u003e); verify against cmd/tk/cmd/*.go.\nVERIFICATION (outside-in, via independent opus review): hero Candidate A ✓; above-fold strip (cost/tier, parallel+worktrees, git/no-backend) ✓; two-pillar feature grid ✓; structured-vs-markdown objection ✓; multiplayer demoted to supporting card ✓; animated swarm visual under hero w/ reduced-motion fallback ✓; /docs page both pillars ✓; broken 'tk run' CTA eliminated site-wide ✓; stale design docs archived (ub0/uf2) ✓. Worker tsc clean.\nDRIFT: 4 invalid-command blockers + 3 should-fixes found at review, ALL fixed this epic (no deferral).\nOUT-OF-SCOPE DEBT (propose, human decides — NOT fixed): historical internal docs still reference removed 'tk run' as history — docs/tickflow-soak-scenarios.md, docs/tickflow-soak-results.md, docs/ticker-absorption-plan.md, docs/projects/2026-03-25-tk-run-rearchitecture/SPEC.md, docs/projects/2026-04-05-wrapup-harness/SPEC.md. Recommend leaving as historical record or a separate cleanup pass.\nINTEGRATION: PR + CI gate per .tick/config.md — epic stays open until CI green; no direct merge to main.",
+  "status": "closed",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "base_branch": "main",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-15T13:36:09.155291Z",
+  "updated_at": "2026-06-15T14:03:06.385765Z",
+  "closed_at": "2026-06-15T14:03:06.385765Z",
+  "closed_reason": "Completed: orchestration-first promo site \u0026 docs refresh. 9 ticks across 4 waves merged to epic/0gg; broken tk run CTA eliminated; hero/above-fold differentiators/two-pillar grid/structured-vs-md/swarm visual/roadmaps/learning-loop/multiplayer all delivered; /docs page added; stale design docs archived. Independent review clean after fixing 4 command blockers. PR #17 green. Not merged to main (PR gate, human merges)."
+}

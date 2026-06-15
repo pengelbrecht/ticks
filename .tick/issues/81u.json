@@ -1,0 +1,20 @@
+{
+  "id": "81u",
+  "title": "Close out epic 0gg: retro + plan next feasible work",
+  "description": "Run the epic-close retro, then handle integration per .tick/config.md: push the epic branch, open a PR, and do NOT complete close-out until CI (.github/workflows/ci.yml) is green on that PR — no direct merge to main. Capture learnings (esp. any single-file-serialization friction on landing.ts) into .tick/learnings.md if material. Roadmap-level changes are a human decision — propose, don't execute.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "67j",
+    "ioc"
+  ],
+  "parent": "0gg",
+  "acceptance_criteria": "Epic retro recorded; epic branch pushed and PR opened; CI green on the PR per .tick/config.md gate; next feasible work identified or roadmap updated",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-15T13:38:37.752401Z",
+  "updated_at": "2026-06-15T14:03:06.347422Z",
+  "closed_at": "2026-06-15T14:03:06.347422Z",
+  "closed_reason": "Completed: retro recorded + learnings promoted; epic/0gg pushed, PR #17 opened, CI green (go+ui+worker pass). Integration status: awaiting human merge to main (orchestrator does not direct-merge per .tick/config.md gate)."
+}
