@@ -2,7 +2,7 @@
  * ProjectRoom Durable Object
  *
  * Real-time sync hub for a single project's tick state.
- * Handles WebSocket connections from both local (tk run) and cloud UI (browser).
+ * Handles WebSocket connections from both local (tk board --cloud) and cloud UI (browser).
  * Uses last-write-wins conflict resolution based on updatedAt timestamps.
  *
  * RPC Methods (for tick operations from cloud UI):

@@ -113,7 +113,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
         return jsonResponse({ error: "Invalid or expired token" }, 401);
       }
 
-      // Check connection type (local = tk run, cloud = browser)
+      // Check connection type (local = tk board --cloud, cloud = browser)
       const connType = url.searchParams.get("type") || "cloud";
 
       // For local connections, auto-register the board if it doesn't exist
