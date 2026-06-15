@@ -268,6 +268,38 @@ export const landingPage = `<!DOCTYPE html>
       gap: 1.5rem;
     }
 
+    .objection {
+      background: var(--base);
+      border: 1px solid var(--surface);
+      border-left: 3px solid var(--green);
+      border-radius: 12px;
+      padding: 1.75rem 2rem;
+      margin-bottom: 3.5rem;
+    }
+
+    .objection h3 {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.625rem;
+    }
+
+    .objection p {
+      font-size: 0.9375rem;
+      color: var(--subtext);
+      line-height: 1.65;
+    }
+
+    .objection p strong { color: var(--text); font-weight: 600; }
+    .objection code {
+      font-family: var(--font-mono);
+      background: var(--surface);
+      padding: 0.0625rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      color: var(--green);
+    }
+
     .pillar { margin-bottom: 3.5rem; }
     .pillar:last-child { margin-bottom: 0; }
 
@@ -495,6 +527,11 @@ export const landingPage = `<!DOCTYPE html>
     <p class="section-label">Features</p>
     <h2 class="section-title">A great issue tracker for agents — that orchestrates them too</h2>
 
+    <div class="objection">
+      <h3>Why structured ticks, not a markdown checklist?</h3>
+      <p>Because <strong>unstructured notes can't be orchestrated — structured ticks can.</strong> You can't compute parallel waves, a dependency graph, a critical path, or "what's ready and unblocked for me right now" from prose in a <code>TODO.md</code> or an agent's throwaway todo list — and two agents editing one markdown file collide. Structured ticks (status, priority, <code>blocked_by</code>/<code>after</code> edges, owners, acceptance, notes — each a JSON file) are exactly what make <code>tk graph</code>, waves, and cross-runner handoff possible.</p>
+    </div>
+
     <div class="pillar">
       <h3 class="pillar-label"><span class="pillar-tag">Pillar 1</span> A great issue tracker for agents</h3>
       <div class="features-grid">
@@ -512,6 +549,11 @@ export const landingPage = `<!DOCTYPE html>
           <div class="feature-icon">⚡</div>
           <h3>Lightning fast &amp; agent-native</h3>
           <p><code>tk ready</code> returns in ~35ms over 1000 issues; <code>tk next</code> and <code>--json</code> are designed for agents to parse.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">👥</div>
+          <h3>Multiplayer by design</h3>
+          <p>A team of humans and their agents share one repo without stepping on each other. Owner scoping keeps each agent on its own ticks, so concurrent work stays conflict-free.</p>
         </div>
       </div>
     </div>
