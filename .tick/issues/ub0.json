@@ -2,7 +2,7 @@
   "id": "ub0",
   "title": "Refresh or archive claude-code-swarm-architecture.md for runner-neutral model",
   "description": "docs/claude-code-swarm-architecture.md (last touched Jan, Claude-specific) predates runner-neutral handoff and the removal of standalone 'tk run'. Bring it in line with reality or archive it.\n\nDecide and do ONE: (a) update it to the current runner-neutral orchestration model (harness as orchestrator; Claude Code AND Codex; tick files/notes/branches/worktrees as handoff; no 'tk run'), cross-referencing skills/ticks/references/agent-runner.md; OR (b) if it's purely historical, prepend a clear 'Archived / superseded by \u003cpointer\u003e' banner and stop maintaining it. Prefer (a) if the doc still carries useful architecture content.\n\nFILE SAFETY: edits only this file. No code, no tests.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 3,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,6 +10,7 @@
   "acceptance_criteria": "docs/claude-code-swarm-architecture.md either updated to runner-neutral orchestration language (no removed tk run, no Claude-only framing) or clearly marked archived/superseded with a pointer to the current model",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:38:16.211187Z",
-  "updated_at": "2026-06-15T13:40:17.256293Z",
-  "started_at": "2026-06-15T13:40:17.256293Z"
+  "updated_at": "2026-06-15T13:42:53.478543Z",
+  "closed_at": "2026-06-15T13:42:53.478543Z",
+  "closed_reason": "Completed: archived docs/claude-code-swarm-architecture.md with superseded banner pointing to agent-runner.md (describes unbuilt Claude-internal swarm primitives, unrelated to current model)"
 }
