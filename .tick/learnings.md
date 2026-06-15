@@ -71,6 +71,19 @@ Go types updated but the UI's generated TS stale (or vice versa).
 all regenerated output together. Tick authors: spell these commands out in any tick that
 touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
 
+## Docs & marketing copy
+
+**Problem:** A user-facing page (docs/quickstart, landing) shipped copy-pasteable `tk` commands
+that don't exist — `tk done`, a `--title` flag, bare `tk create`, `tk ready <id>` — caught only
+at epic final review. This is the exact "unknown command/flag" failure a promo refresh existed
+to eliminate, reintroduced by the refresh itself.
+**Cause:** Agents writing examples guess CLI syntax from memory instead of the real cobra defs.
+**Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each against
+`cmd/tk/cmd/*.go` (`Use:`/`Args:`). Known traps: closing is `tk close <id>` (there is no
+`tk done`); `tk create` needs a positional title and has no `--title` flag; `tk ready` takes no
+args (it lists); `tk block <id> <blocker-id>` needs the blocker id. There is no `tk run`.
+Spell this verification step out in the tick.
+
 ## Orchestration
 
 **Problem:** A tick's close vanished — the tracker showed it in_progress at epic close despite
