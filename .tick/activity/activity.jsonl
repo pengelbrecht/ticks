@@ -550,3 +550,4 @@
 {"ts":"2026-06-15T13:59:46.30499Z","tick":"81u","action":"update","actor":"claude:orchestrator","epic":"0gg","data":{"status":{"from":"in_progress","to":"open"},"title":"Close out epic 0gg: retro + plan next feasible work"}}
 {"ts":"2026-06-15T13:59:46.331561Z","tick":"ioc","action":"start","actor":"claude:orchestrator","epic":"0gg","data":{"title":"Add learning-loop feature to homepage + docs"}}
 {"ts":"2026-06-15T13:59:54.957624Z","tick":"81u","action":"block","actor":"claude:orchestrator","epic":"0gg","data":{"blockers":["67j","ioc"],"title":"Close out epic 0gg: retro + plan next feasible work"}}
+{"ts":"2026-06-15T14:01:49.47817Z","tick":"ioc","action":"close","actor":"claude:orchestrator","epic":"0gg","data":{"reason":"Completed: added 'Gets smarter every epic' learning-loop card to landing Pillar-2 + docs-page mention; honest retro-\u003epromote-\u003ereuse framing, no model-training claim, tsc clean","title":"Add learning-loop feature to homepage + docs"}}

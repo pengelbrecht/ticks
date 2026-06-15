@@ -2,7 +2,7 @@
   "id": "ioc",
   "title": "Add learning-loop feature to homepage + docs",
   "description": "User-requested scope add: the learning loop is a key new feature and must be on the homepage (roadmaps already are). Add a concise Pillar-2 feature card to cloud/worker/src/landing.ts (Pillar 2 'That orchestrates them') describing the learning loop: every epic ends with a retro that harvests what worked/broke and promotes it into durable memory (.tick/learnings.md, repo docs) read by every future planning pass and implementer — so the orchestration improves over time and mistakes don't repeat. Also add a brief mention to cloud/worker/src/docs-page.ts. Spec: docs/promo-website-orchestration-update-roadmap.md section 4, Pillar 2 card 7. HONESTY: it is a structured retro-\u003epromote-\u003ereuse loop, NOT model training / black-box learning; no model/tier names; no tk run; cloud opt-in. VERIFY: cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,6 +10,7 @@
   "acceptance_criteria": "landing.ts Pillar-2 grid has a learning-loop card describing retro-\u003epromote-\u003ereuse into durable memory; docs-page mentions it; honest framing (no model-training claims, no model names); cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit clean; no tk run / no invalid commands",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:59:46.27201Z",
-  "updated_at": "2026-06-15T13:59:46.331335Z",
-  "started_at": "2026-06-15T13:59:46.331335Z"
+  "updated_at": "2026-06-15T14:01:49.477924Z",
+  "closed_at": "2026-06-15T14:01:49.477924Z",
+  "closed_reason": "Completed: added 'Gets smarter every epic' learning-loop card to landing Pillar-2 + docs-page mention; honest retro-\u003epromote-\u003ereuse framing, no model-training claim, tsc clean"
 }
