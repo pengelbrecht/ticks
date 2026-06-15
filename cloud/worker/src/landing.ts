@@ -423,6 +423,64 @@ export const landingPage = `<!DOCTYPE html>
     .code-block .cmd { color: var(--green); }
     .code-block .flag { color: var(--blue); }
 
+    /* Agent terminal (how it works) — you instruct, the agent drives the CLI */
+    .agent-term {
+      background: var(--base);
+      border: 1px solid var(--surface);
+      border-radius: 12px;
+      margin-top: 3rem;
+      overflow: hidden;
+    }
+
+    .agent-term-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      background: var(--mantle);
+      border-bottom: 1px solid var(--surface);
+    }
+
+    .agent-term-bar .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+
+    .agent-term-title {
+      margin-left: 0.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      color: var(--overlay);
+    }
+
+    .agent-term-body {
+      padding: 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      line-height: 1.75;
+      overflow-x: auto;
+    }
+
+    .agent-term-body p { margin: 0; }
+    .agent-term-body .term-you { color: var(--text); margin-bottom: 0.75rem; }
+    .agent-term-body .term-prompt { color: var(--mauve); font-weight: 600; margin-right: 0.5rem; }
+    .agent-term-body .term-agent { color: var(--subtext); margin-top: 0.75rem; }
+    .agent-term-body .term-who { color: var(--peach); font-weight: 600; margin-right: 0.625rem; }
+    .agent-term-body .term-cmd { color: var(--green); padding-left: 1.5rem; }
+    .agent-term-body .term-cmd .flag { color: var(--blue); }
+    .agent-term-body .term-cmd .str { color: var(--text); }
+    .agent-term-body .term-out { color: var(--overlay); padding-left: 1.5rem; }
+    .agent-term-body .term-out .run { color: var(--yellow); }
+    .agent-term-body .term-ok { color: var(--green); }
+    .agent-term-caption {
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      color: var(--subtext);
+      text-align: center;
+    }
+
     /* CTA */
     .cta {
       text-align: center;
@@ -601,40 +659,35 @@ export const landingPage = `<!DOCTYPE html>
       <div class="step">
         <div class="step-number">2</div>
         <h3>Plan</h3>
-        <p>Run <code>tk init</code>, then break a goal into an epic with <code>tk create</code>. Chain dependencies with <code>--blocked-by</code> / <code>--after</code> so work orders itself.</p>
+        <p>Run <code>tk init</code> once, then just describe the goal. Your agent breaks it into an epic of dependency-linked ticks — hard (<code>blocked_by</code>) and soft (<code>after</code>) edges — so the work orders itself.</p>
       </div>
       <div class="step">
         <div class="step-number">3</div>
         <h3>Orchestrate</h3>
-        <p>Invoke the <strong>ticks skill</strong> in your agent (Claude Code or Codex). It reads <code>tk graph</code> and runs one agent per wave in isolated worktrees, integrating wave by wave. Use <code>tk board</code> (add <code>--cloud</code>) to watch.</p>
+        <p>Tell your agent to run the epic. Through the <strong>ticks skill</strong> (Claude Code or Codex) it reads the dependency graph and runs one agent per wave in isolated worktrees, integrating wave by wave. Open <code>tk board</code> (add <code>--cloud</code>) to watch.</p>
       </div>
     </div>
 
-    <div class="code-block">
-      <pre><span class="comment"># Install ticks (Homebrew)</span>
-<span class="cmd">brew</span> install pengelbrecht/tap/ticks
-
-<span class="comment"># Or via curl</span>
-<span class="cmd">curl</span> <span class="flag">-fsSL</span> https://ticks.sh/install | sh
-
-<span class="comment"># Initialize in your repo</span>
-<span class="cmd">cd</span> my-project
-<span class="cmd">tk</span> init
-
-<span class="comment"># Plan an epic and chain dependencies</span>
-<span class="cmd">tk</span> create <span class="flag">--type</span> feature <span class="str">"Add user authentication"</span>
-
-<span class="comment"># Inspect the dependency graph and parallel waves</span>
-<span class="cmd">tk</span> graph my-epic
-
-<span class="comment"># Then invoke the ticks skill in your agent (Claude Code or Codex).</span>
-<span class="comment"># It reads the graph and runs one agent per wave in isolated worktrees:</span>
-<span class="cmd">tk</span> next <span class="flag">--epic</span>
-<span class="cmd">tk</span> ready
-
-<span class="comment"># Watch the board (add --cloud for sync)</span>
-<span class="cmd">tk</span> board <span class="flag">--cloud</span></pre>
+    <div class="agent-term">
+      <div class="agent-term-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="agent-term-title">your-project — your agent</span>
+      </div>
+      <div class="agent-term-body">
+        <p class="term-you"><span class="term-prompt">you ▸</span>Build authentication — plan it into an epic and run it.</p>
+        <p class="term-agent"><span class="term-who">agent</span>Breaking it down into ticks…</p>
+        <p class="term-cmd">$ tk create <span class="str">"Authentication"</span> <span class="flag">--type</span> epic</p>
+        <p class="term-cmd">$ tk create <span class="str">"DB schema"</span> <span class="flag">--parent</span> auth</p>
+        <p class="term-cmd">$ tk create <span class="str">"User model"</span> <span class="flag">--parent</span> auth <span class="flag">--blocked-by</span> schema</p>
+        <p class="term-out">5 ticks · 3 waves · max 2 parallel</p>
+        <p class="term-cmd">$ tk graph auth</p>
+        <p class="term-agent"><span class="term-who">agent</span>Launching wave 1 — two agents in isolated worktrees…</p>
+        <p class="term-out"><span class="run">▸ schema</span>  <span class="run">▸ oauth</span>  running in parallel</p>
+        <p class="term-out term-ok">✓ wave 1 merged → wave 2 unblocked</p>
+        <p class="term-out term-ok">✓ epic complete — 5 ticks, all green</p>
+      </div>
     </div>
+    <p class="agent-term-caption">You speak plain language; your agent drives the <code>tk</code> CLI. Same primitives work interactively, headless, or in CI — across Claude Code and Codex.</p>
   </section>
 
   <section class="cta">
