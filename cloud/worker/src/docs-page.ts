@@ -380,7 +380,6 @@ export const docsPage = `<!DOCTYPE html>
     <div class="nav-links">
       <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a>
       <a href="/docs">Docs</a>
-      <a href="/login" class="btn btn-primary">Sign In</a>
     </div>
   </nav>
 
@@ -406,12 +405,8 @@ export const docsPage = `<!DOCTYPE html>
     <!-- Section 1: Install -->
     <div class="doc-section" id="install">
       <h2><span class="section-num">01</span> Install</h2>
-      <p>ticks ships as a single Go binary with no runtime dependencies. Pick the method that fits your environment:</p>
+      <p>ticks ships as a single Go binary with no runtime dependencies. Install with the one-liner — macOS and Linux:</p>
 
-      <h3>Homebrew (macOS / Linux)</h3>
-      <div class="code-block"><pre><span class="cmd">brew</span> install pengelbrecht/tap/ticks</pre></div>
-
-      <h3>Install script</h3>
       <div class="code-block"><pre><span class="cmd">curl</span> <span class="flag">-fsSL</span> https://ticks.sh/install <span class="punct">|</span> sh</pre></div>
 
       <p>Verify the install:</p>
@@ -520,14 +515,9 @@ export const docsPage = `<!DOCTYPE html>
       <h2><span class="section-num">04</span> Watching Progress</h2>
       <p>Use the board to see all ticks move through their columns in real time while agents work.</p>
 
-      <h3>Local board</h3>
-      <div class="code-block"><pre><span class="cmd">tk</span> board         <span class="comment"># opens a TUI board in your terminal</span></pre></div>
+      <div class="code-block"><pre><span class="cmd">tk</span> board         <span class="comment"># opens a web board at localhost:3000</span></pre></div>
 
-      <h3>Cloud board (share with your team)</h3>
-      <div class="code-block"><pre><span class="comment"># Sync the board to ticks.sh so anyone with access can watch</span>
-<span class="cmd">tk</span> board <span class="flag">--cloud</span></pre></div>
-
-      <p>Sign in at <a href="/login">ticks.sh/login</a> to create an account, generate an API token, and access your cloud board from any browser.</p>
+      <p>The board updates live as agents move ticks through their columns — blocked, ready, in progress, needs human, done.</p>
     </div>
 
   </div>
@@ -537,7 +527,6 @@ export const docsPage = `<!DOCTYPE html>
     <p>The GitHub README covers every command, config option, and advanced workflow.</p>
     <div class="cta-buttons">
       <a href="https://github.com/pengelbrecht/ticks#readme" class="btn btn-primary" target="_blank">Full Reference on GitHub</a>
-      <a href="/login" class="btn btn-secondary">Sign in to ticks.sh</a>
     </div>
   </div>
 

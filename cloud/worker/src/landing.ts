@@ -185,6 +185,45 @@ export const landingPage = `<!DOCTYPE html>
 
     .hero-buttons .btn { padding: 0.875rem 1.75rem; font-size: 1rem; }
 
+    /* Install command CTA (primary) */
+    .install-cta {
+      display: inline-flex;
+      align-items: stretch;
+      border: 1px solid var(--green);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--base);
+      font-family: var(--font-mono);
+      max-width: 100%;
+    }
+
+    .install-cta .install-cmd {
+      padding: 0.875rem 1.125rem;
+      color: var(--text);
+      font-size: 0.9375rem;
+      white-space: nowrap;
+      overflow-x: auto;
+      user-select: all;
+    }
+
+    .install-cta .install-cmd::before { content: "$ "; color: var(--green); }
+
+    .install-cta .install-copy {
+      flex-shrink: 0;
+      border: none;
+      border-left: 1px solid var(--surface);
+      background: var(--green);
+      color: var(--crust);
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 0.875rem;
+      padding: 0 1.125rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .install-cta .install-copy:hover { background: #b8e8b3; }
+
     .scroll-hint {
       position: absolute;
       bottom: 2.5rem;
@@ -540,7 +579,6 @@ export const landingPage = `<!DOCTYPE html>
     <div class="nav-links">
       <a href="https://github.com/pengelbrecht/ticks" target="_blank">GitHub</a>
       <a href="/docs">Docs</a>
-      <a href="/login" class="btn btn-primary">Sign In</a>
     </div>
   </nav>
 
@@ -563,7 +601,10 @@ export const landingPage = `<!DOCTYPE html>
     <p class="hero-tagline">The issue tracker your AI agents run on.</p>
     <p class="hero-sub">Fast, git-native task tracking built for AI agents — that also orchestrates them. Plan a roadmap, run agents in parallel, ship wave by wave.</p>
     <div class="hero-buttons">
-      <a href="/login" class="btn btn-primary">Get Started</a>
+      <div class="install-cta">
+        <code class="install-cmd">curl -fsSL https://ticks.sh/install | sh</code>
+        <button class="install-copy" onclick="copyInstall(this)" aria-label="Copy install command">Copy</button>
+      </div>
       <a href="https://github.com/pengelbrecht/ticks" class="btn btn-secondary" target="_blank">View on GitHub</a>
     </div>
     <div class="differentiators">
@@ -577,7 +618,7 @@ export const landingPage = `<!DOCTYPE html>
       </div>
       <div class="diff-chip">
         <span class="diff-icon">◇</span>
-        <p><strong>Your issues are JSON in your repo.</strong> No daemon, no database, no backend required — cloud sync is optional.</p>
+        <p><strong>Your issues are JSON in your repo.</strong> No daemon, no database, no backend required.</p>
       </div>
     </div>
     <span class="scroll-hint">↓</span>
@@ -605,7 +646,7 @@ export const landingPage = `<!DOCTYPE html>
         <div class="feature-card">
           <div class="feature-icon">📁</div>
           <h3>Yours, in git — no backend required</h3>
-          <p>One JSON file per issue, versioned with your code; a native merge driver resolves concurrent edits. No daemon, no database, no proprietary or cloud backend required. Your issues live in your repo and travel with it; cloud sync is optional and opt-in.</p>
+          <p>One JSON file per issue, versioned with your code; a native merge driver resolves concurrent edits. No daemon, no database, no proprietary or cloud backend required. Your issues live in your repo and travel with it.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon">⚡</div>
@@ -654,7 +695,7 @@ export const landingPage = `<!DOCTYPE html>
       <div class="step">
         <div class="step-number">1</div>
         <h3>Install</h3>
-        <p>Single binary, no dependencies. Works on Mac, Linux, and Windows. <code>brew install pengelbrecht/tap/ticks</code> or <code>curl -fsSL https://ticks.sh/install | sh</code>.</p>
+        <p>Single binary, no dependencies. Works on Mac, Linux, and Windows. Install with <code>curl -fsSL https://ticks.sh/install | sh</code>.</p>
       </div>
       <div class="step">
         <div class="step-number">2</div>
@@ -664,7 +705,7 @@ export const landingPage = `<!DOCTYPE html>
       <div class="step">
         <div class="step-number">3</div>
         <h3>Orchestrate</h3>
-        <p>Tell your agent to run the epic. Through the <strong>ticks skill</strong> (Claude Code or Codex) it reads the dependency graph and runs one agent per wave in isolated worktrees, integrating wave by wave. Open <code>tk board</code> (add <code>--cloud</code>) to watch.</p>
+        <p>Tell your agent to run the epic. Through the <strong>ticks skill</strong> (Claude Code or Codex) it reads the dependency graph and runs one agent per wave in isolated worktrees, integrating wave by wave. Open <code>tk board</code> to watch.</p>
       </div>
     </div>
 
@@ -694,7 +735,10 @@ export const landingPage = `<!DOCTYPE html>
     <h2>Ready to try ticks?</h2>
     <p>Free and open source. Set up in under a minute.</p>
     <div class="hero-buttons">
-      <a href="/login" class="btn btn-primary">Create Account</a>
+      <div class="install-cta">
+        <code class="install-cmd">curl -fsSL https://ticks.sh/install | sh</code>
+        <button class="install-copy" onclick="copyInstall(this)" aria-label="Copy install command">Copy</button>
+      </div>
       <a href="/docs" class="btn btn-secondary">Read the Docs</a>
     </div>
   </section>
@@ -708,6 +752,15 @@ export const landingPage = `<!DOCTYPE html>
       <a href="https://github.com/pengelbrecht/ticks/issues" target="_blank">Feedback</a>
     </p>
   </footer>
+  <script>
+    function copyInstall(btn) {
+      navigator.clipboard.writeText('curl -fsSL https://ticks.sh/install | sh').then(function () {
+        var prev = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = prev; }, 1500);
+      });
+    }
+  </script>
 </body>
 </html>`;
 
