@@ -7,11 +7,12 @@
   "type": "task",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "67j"
+    "67j",
+    "ioc"
   ],
   "parent": "0gg",
   "acceptance_criteria": "Epic retro recorded; epic branch pushed and PR opened; CI green on the PR per .tick/config.md gate; next feasible work identified or roadmap updated",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:38:37.752401Z",
-  "updated_at": "2026-06-15T13:59:46.304704Z"
+  "updated_at": "2026-06-15T13:59:54.957384Z"
 }
