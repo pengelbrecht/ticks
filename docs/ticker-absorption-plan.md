@@ -1,5 +1,7 @@
 # Ticker Absorption Plan (into ticks)
 
+> **Archived / superseded.** This migration plan is complete and predates the removal of the standalone `tk run` runner; its `tk run` references describe the then-current execution model. Orchestration is now harness-driven and runner-neutral. Retained as a historical record. See [`skills/ticks/references/agent-runner.md`](../skills/ticks/references/agent-runner.md) for the current contract.
+
 ## Goal
 Absorb the `ticker` project into `ticks` so there is only one CLI (`tk`) and one codebase. The ticker TUI is replaced by tickboard (web-based). No `ticker` binary, repo, installer, or updater remains.
 

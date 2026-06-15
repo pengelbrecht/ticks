@@ -1,5 +1,7 @@
 # Tickflow Soak Test Scenarios & Success Criteria
 
+> **Archived / superseded.** These scenarios soak-tested the standalone `tk run` runner, which has been removed. Orchestration is now harness-driven and runner-neutral (the harness orchestrates; `.tick/` + git are the durable coordination layer). The `tk run` commands below are historical. See [`skills/ticks/references/agent-runner.md`](../skills/ticks/references/agent-runner.md) for the current contract.
+
 > Soak tests validate Tickflow's reliability, correctness, and resource hygiene
 > under sustained, realistic workloads. Each scenario targets a specific failure
 > mode that unit and integration tests cannot catch because the bug only
