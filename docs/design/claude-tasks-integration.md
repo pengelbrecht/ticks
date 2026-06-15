@@ -1,3 +1,5 @@
+> **Archived / superseded.** This document predates the runner-neutral orchestration model. It describes a proposed integration with `~/.claude/tasks/` (the Claude Code Tasks system) and a standalone `tk run` orchestrator — both of which were removed or superseded before this design was implemented. The durable coordination layer is now `.tick/` files, branches, worktrees, and harness-native primitives, and orchestration is runner-neutral (Claude Code and Codex both supported). See `skills/ticks/references/agent-runner.md` for the current orchestration contract.
+
 # Claude Code Tasks Integration
 
 ## Overview
