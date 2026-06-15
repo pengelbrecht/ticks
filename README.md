@@ -3,7 +3,7 @@
 A multiplayer-first issue tracker for AI coding agents.
 
 ```bash
-brew install pengelbrecht/tap/ticks
+curl -fsSL https://ticks.sh/install | sh
 tk init
 tk ready
 ```
@@ -74,12 +74,6 @@ With 1000 issues, median times (ms):
 
 ## Install
 
-### Homebrew (macOS/Linux)
-
-```bash
-brew install pengelbrecht/tap/ticks
-```
-
 ### Shell script (macOS/Linux)
 
 ```bash
@@ -114,11 +108,7 @@ tk close <id> --reason "Fixed"             # Complete
 ## Upgrading
 
 ```bash
-# Shell/Go installs: self-update
 tk upgrade
-
-# Homebrew
-brew upgrade pengelbrecht/tap/ticks
 ```
 
 ## Agent Integration
