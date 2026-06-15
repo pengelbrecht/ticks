@@ -580,6 +580,11 @@ export const landingPage = `<!DOCTYPE html>
           <h3>Roadmaps, ordering &amp; handoff</h3>
           <p>Chain epics with hard (<code>blocked_by</code>) and soft (<code>after</code>) edges; runner-neutral across Claude Code and Codex, with branches/worktrees/notes as the durable handoff format so any runner can resume any epic. Humans stay in the loop via approval/review/checkpoint gates.</p>
         </div>
+        <div class="feature-card">
+          <div class="feature-icon">📚</div>
+          <h3>Gets smarter every epic</h3>
+          <p>Every epic ends with a structured retro that promotes what was learned — what worked, what broke — into <code>.tick/learnings.md</code> and repo docs. Every future planning pass and implementer reads that memory, so the same mistakes don't repeat and orchestration improves over time.</p>
+        </div>
       </div>
     </div>
   </section>

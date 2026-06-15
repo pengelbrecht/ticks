@@ -510,6 +510,9 @@ export const docsPage = `<!DOCTYPE html>
 <span class="cmd">tk</span> close def <span class="flag">--reason</span> <span class="str">"Completed: auth middleware landed"</span></pre></div>
 
       <p>The ticks skill tracks which waves have been integrated and what is still pending, so you can hand off and resume at any point without losing context.</p>
+
+      <h3>Learning loop: retro → promote → reuse</h3>
+      <p>When an epic closes, run a structured retro that harvests what worked and what broke, then promotes those learnings into <code>.tick/learnings.md</code> and any relevant repo docs. Every future planning pass and implementer reads this durable, version-controlled memory — so the same mistakes don't repeat across epics and the orchestration improves over time.</p>
     </div>
 
     <!-- Section 4: Board -->
