@@ -2,6 +2,7 @@
   "id": "67j",
   "title": "Final review of epic 0gg diff",
   "description": "Review the integrated epic diff before close-out (run a reviewer subagent for the substantial parts — the landing.ts rewrite and swarm visual). Checks: (1) zero 'tk run' anywhere on the site/docs; (2) honesty — no specific model-tier names, cloud sync presented as opt-in, no 'no cloud at all' overclaim, every command shown exists in the cobra command set; (3) both pillars present and balanced; (4) above-the-fold differentiators (cost/tier, parallel+worktrees, git/no-backend) actually above the fold; (5) cd cloud/worker \u0026\u0026 pnpm exec tsc --noEmit clean on the integrated tree; (6) /docs route resolves. Resolve or route any findings before the close-out tick unblocks.",
+  "notes": "2026-06-15 15:44 - Pre-existing stale 'tk run' comments to clean up during review (outside landing/docs copy, predate epic): cloud/worker/src/project-room.ts:5 and cloud/worker/src/index.ts:116. docs-page.ts:499 is intentional (explains tk run was removed) — leave it.",
   "status": "open",
   "priority": 1,
   "type": "task",
@@ -16,5 +17,5 @@
   "acceptance_criteria": "Full epic diff reviewed; copy claims checked for honesty (no hardcoded model names, cloud=opt-in, every shown command real); worker tsc clean on integrated tree; findings resolved or routed",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-15T13:38:37.684556Z",
-  "updated_at": "2026-06-15T13:38:37.684556Z"
+  "updated_at": "2026-06-15T13:44:53.66526Z"
 }
