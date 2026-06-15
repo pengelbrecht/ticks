@@ -3,6 +3,8 @@
  * Uses ticks brand guidelines: Geist fonts, Catppuccin Mocha, green primary
  */
 
+import { swarmSection } from "./swarm-visual";
+
 const sharedStyles = `
   @import url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-sans/style.css');
   @import url('https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/style.css');
@@ -522,6 +524,8 @@ export const landingPage = `<!DOCTYPE html>
     </div>
     <span class="scroll-hint">↓</span>
   </header>
+
+  ${swarmSection}
 
   <section id="features">
     <p class="section-label">Features</p>
