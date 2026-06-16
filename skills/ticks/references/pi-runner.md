@@ -73,26 +73,35 @@ Do not clean up a blocked or incomplete worktree; it is durable handoff state.
 
 Pi can talk to many providers in one installation. Use that to route by role and tick shape without changing the shared runner contract.
 
-Recommended environment/config names for the adapter:
+Prefer repo-tracked configuration in `.tick/config.md` so routing is reviewable and travels with the project. The Pi extension should read an optional `## Pi Orchestrator` section before launching agents. Environment variables remain useful for local overrides or secrets, but they should not be the only configuration surface.
 
-| Role | Variable | Default policy |
-|---|---|---|
-| Planning synthesis | `TICKS_PI_PLANNER_MODEL` | frontier-tier model, high/xhigh thinking |
-| Exploration scouts | `TICKS_PI_SCOUT_MODEL` | cheap/fast model, read-only tools |
-| Mechanical implementation | `TICKS_PI_IMPLEMENT_ECONOMY_MODEL` | lowest model that can reliably complete the tick |
-| Normal implementation | `TICKS_PI_IMPLEMENT_BALANCED_MODEL` | balanced coding model |
-| Subtle implementation | `TICKS_PI_IMPLEMENT_STRONG_MODEL` | strong coding model, higher thinking |
-| Final/foundation review | `TICKS_PI_REVIEW_MODEL` | at least as capable as the implementer; default frontier for epic final review |
+Example `.tick/config.md` section:
 
-Examples:
+```markdown
+## Pi Orchestrator
 
-```bash
-export TICKS_PI_PLANNER_MODEL="anthropic/claude-opus-4-5:high"
-export TICKS_PI_IMPLEMENT_BALANCED_MODEL="openai/gpt-5.5:medium"
-export TICKS_PI_REVIEW_MODEL="anthropic/claude-opus-4-5:high"
+- planner_model: anthropic/claude-opus-4-5:high
+- scout_model: anthropic/claude-haiku-4-5:off
+- implement_economy_model: openai/gpt-5.5:low
+- implement_balanced_model: openai/gpt-5.5:medium
+- implement_strong_model: anthropic/claude-sonnet-4-5:high
+- review_model: anthropic/claude-opus-4-5:high
+- max_parallel: 4
 ```
 
-The orchestrator records the resolved model/provider in the `runner-state:` note for provenance, but git branch/worktree and tick status remain authoritative. Vendor choice is a scheduling detail, not durable identity; Claude may plan ticks that Pi executes with OpenAI/Codex models, and another runner may resume them later.
+Recommended local override names for the adapter:
+
+| Role | `.tick/config.md` key | Environment override | Default policy |
+|---|---|---|---|
+| Planning synthesis | `planner_model` | `TICKS_PI_PLANNER_MODEL` | frontier-tier model, high/xhigh thinking |
+| Exploration scouts | `scout_model` | `TICKS_PI_SCOUT_MODEL` | cheap/fast model, read-only tools |
+| Mechanical implementation | `implement_economy_model` | `TICKS_PI_IMPLEMENT_ECONOMY_MODEL` | lowest model that can reliably complete the tick |
+| Normal implementation | `implement_balanced_model` | `TICKS_PI_IMPLEMENT_BALANCED_MODEL` | balanced coding model |
+| Subtle implementation | `implement_strong_model` | `TICKS_PI_IMPLEMENT_STRONG_MODEL` | strong coding model, higher thinking |
+| Final/foundation review | `review_model` | `TICKS_PI_REVIEW_MODEL` | at least as capable as the implementer; default frontier for epic final review |
+| Wave cap | `max_parallel` | `TICKS_PI_MAX_PARALLEL` | cap process fan-out below `tk graph` max when desired |
+
+Resolution order: environment override > `.tick/config.md` `Pi Orchestrator` key > Pi user's current model/defaults. The orchestrator records the resolved model/provider in the `runner-state:` note for provenance, but git branch/worktree and tick status remain authoritative. Vendor choice is a scheduling detail, not durable identity; Claude may plan ticks that Pi executes with OpenAI/Codex models, and another runner may resume them later.
 
 ## Pi extension UX target
 
@@ -112,14 +121,37 @@ Important UX rule: the extension is an operator console. It may display and supe
 
 A Pi **skill** is the right place for orchestration instructions, prompt templates, runner-neutral rules, and adapter documentation. A Pi **extension** is the right place for executable orchestration UX: commands, subprocess supervision, widgets, overlays, event streaming, and boundary guards.
 
-For distribution, bundle them together as a Pi package (or keep them side by side in this repo):
+Current Pi model: a skill cannot itself contain and activate an extension. Pi packages can bundle both skills and extensions through their `package.json` `pi` manifest; generic Agent Skills installers may install only the skill files unless they explicitly understand Pi package resources. So the first-class distribution should be a Pi package, while the skill includes a bootstrap note that detects a missing extension and points the user at the package install.
+
+Recommended package layout:
 
 ```text
-pi package / repo
+ticks pi package / repo
+├── package.json                  # pi.extensions + pi.skills manifest
 ├── skills/ticks/                 # SKILL.md + references/*.md
-├── .pi/extensions/ticks-runner/   # project-local development entrypoint, or
-└── extensions/ticks-runner/       # package-distributed extension
+└── extensions/ticks-runner/      # package-distributed Pi extension
 ```
+
+Example manifest shape:
+
+```json
+{
+  "name": "@pengelbrecht/pi-ticks",
+  "keywords": ["pi-package"],
+  "pi": {
+    "skills": ["./skills"],
+    "extensions": ["./extensions"]
+  }
+}
+```
+
+Ideal user flow:
+
+```bash
+pi install git:github.com/pengelbrecht/ticks
+```
+
+If a future `npx skills add pengelbrecht/ticks` flow can install Pi package resources, great — use it as a friendlier wrapper. Until Pi or the skills installer supports that handshake, don't rely on the harness inferring extension activation from skill prose. The skill can recommend activation; the Pi package/extension mechanism performs activation.
 
 The skill should tell the model how orchestration works and when to use it; the extension should provide `/ticks-run`, `/ticks-plan`, `/ticks-status`, and the live TUI. Keeping both in one package is fine, but don't try to make the skill itself supervise processes — skills are instructions, extensions are executable code.
 
@@ -128,7 +160,7 @@ The skill should tell the model how orchestration works and when to use it; the 
 For planning, prefer Pi's subagent/process capabilities when available:
 
 1. Run several read-only scout Pi subprocesses in parallel (tools: `read,grep,find,ls`, optionally safe `bash` for code search/test discovery). Each scout maps one subsystem and returns a compact summary.
-2. Feed those summaries to a frontier planner Pi session using `TICKS_PI_PLANNER_MODEL`.
+2. Feed those summaries to a frontier planner Pi session using the configured `planner_model` (or `TICKS_PI_PLANNER_MODEL` override).
 3. The planner returns a tick list with contracts-first ordering, wave safety, tests, and meta-ticks.
 4. The orchestrator creates the ticks with `tk`; planner/scouts never mutate `.tick/`.
 
