@@ -5,7 +5,7 @@ description: Work with Ticks issue tracker and AI agent runner. Use when managin
 
 # Ticks Workflow
 
-Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, and `tk board` provides a web-based board for monitoring; epics are executed by the current harness using the shared protocol in `references/agent-runner.md` and its Claude or Codex adapter.
+Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, and `tk board` provides a web-based board for monitoring; epics are executed by the current harness using the shared protocol in `references/agent-runner.md` and its Claude, Codex, or Pi adapter.
 
 ## When to Use Ticks vs TodoWrite
 
@@ -253,7 +253,7 @@ tk close <id> --reason "Completed - connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code. The shape is:
+Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi. The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see Roadmaps above), then re-run `tk graph`.
 2. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
@@ -308,12 +308,12 @@ tk reject <id> "feedback"                              # Reject with required fe
 **Close-reason convention:** always pass `--reason` with a concrete summary when closing.
 `tk close <id> --reason "Completed: <one-line summary of what landed>"` — never a bare `tk close`.
 
-**Actor convention (orchestrated runs):** export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator` or `codex:orchestrator`, so activity entries preserve runner provenance. Use `--actor <name>` to override for a single call.
+**Actor convention (orchestrated runs):** export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, or `pi:orchestrator`, so activity entries preserve runner provenance. Use `--actor <name>` to override for a single call.
 Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 ### Running the Epic
 
-Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code):
+Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi):
 
 ```bash
 # 1. Get the dependency graph (waves + max parallelism)

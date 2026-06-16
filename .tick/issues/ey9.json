@@ -1,0 +1,15 @@
+{
+  "id": "ey9",
+  "title": "Add scratch Pi runner adapter for ticks orchestration",
+  "description": "Start over on the Pi orchestrator by documenting a fresh Pi runner adapter in the distributable ticks skill. Remove/ignore any stale local pi-runner artifacts. Update runner-neutral docs so Pi is a first-class harness alongside Claude and Codex. Capture Pi-specific opportunities: richer TUI/UX and per-role/per-tick provider routing (e.g. Claude planning, Codex/OpenAI implementation).",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "skills/ticks/references/pi-runner.md exists; agent-runner.md points Pi users to it; skill docs mention Pi as a harness; no tracked old pi orchestrator remains",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-16T06:45:51.459857Z",
+  "updated_at": "2026-06-16T06:47:23.187814Z",
+  "closed_at": "2026-06-16T06:47:23.187814Z",
+  "closed_reason": "Completed: added fresh Pi runner adapter, linked it from runner-neutral and skill docs, and removed stale local pi-runner logs"
+}

@@ -8,6 +8,7 @@ This is the runner-neutral execution contract. **Before reading further, identif
 |---|---|
 | Codex | [`codex-runner.md`](codex-runner.md) |
 | Claude Code | [`claude-runner.md`](claude-runner.md) |
+| Pi | [`pi-runner.md`](pi-runner.md) |
 
 Read this file first, then the matching adapter. The adapter maps every capability in this doc to the primitives your harness actually provides.
 
@@ -87,7 +88,7 @@ Before calling `tk graph`, read `.tick/config.md` (if present). It contains up t
 
 **Read it fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the file from the worktree each time you start or resume a run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
 
-**Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator` or `codex:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
+**Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, or `pi:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
 **Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
 
@@ -401,7 +402,7 @@ Claude may create ticks that Codex executes, Codex may create ticks that Claude 
 | Project rules and tests | `.tick/config.md`, `.tick/learnings.md`, and the active harness's instruction files |
 | Integrated work | integration branch history |
 | In-flight work | deterministic `tick/<epic>/<tick>` branch and worktree |
-| Runner provenance | activity actor such as `claude:orchestrator` or `codex:orchestrator` |
+| Runner provenance | activity actor such as `claude:orchestrator`, `codex:orchestrator`, or `pi:orchestrator` |
 | Human decisions and blockers | tick notes and awaiting state |
 
 On handoff, the incoming runner:
