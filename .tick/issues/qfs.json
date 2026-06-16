@@ -1,0 +1,13 @@
+{
+  "id": "qfs",
+  "title": "Build first-class Pi ticks orchestrator extension",
+  "description": "Implement the Pi runner as a Pi extension/package rather than relying on tmux. The extension should supervise parallel Pi subprocesses/SDK sessions for each ready tick, render wave status in Pi's TUI, expose /ticks-run /ticks-plan /ticks-status, and preserve runner-neutral durable state via git worktrees, branches, reports, and .tick files. The distributable skill can include the adapter docs and prompts, but executable UX should live as an extension bundled in a Pi package or project .pi/extensions path.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "A Pi extension exists or a detailed implementation spec is added; no tmux dependency; wave dispatch runs multiple Pi implementers concurrently; docs explain how the skill and extension are packaged together",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-06-16T06:48:44.244029Z",
+  "updated_at": "2026-06-16T06:48:44.244029Z"
+}

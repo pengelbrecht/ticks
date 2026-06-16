@@ -2,7 +2,7 @@
 
 Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability contract onto Pi. It is a fresh adapter, not a continuation of any earlier experimental `pi-runner` implementation.
 
-Pi's base harness is intentionally minimal: it does not ship built-in subagents, plan mode, or background task supervision. Treat that as a strength, but do **not** treat it as a reason to run ticks sequentially. Parallel execution is mandatory for the Pi adapter: spawn multiple Pi instances (plain subprocesses, tmux panes, or an extension/SDK supervisor), one per ready tick, each in its own git worktree.
+Pi's base harness is intentionally minimal: it does not ship built-in subagents, plan mode, or background task supervision. Treat that as a strength, but do **not** treat it as a reason to run ticks sequentially. Parallel execution is mandatory for the Pi adapter: spawn multiple Pi instances under our own supervisor, one per ready tick, each in its own git worktree. Do not add a tmux dependency; the first-class Pi path is a Pi extension or SDK supervisor.
 
 Set `TK_ACTOR=pi:orchestrator` before tracker writes.
 
@@ -19,12 +19,12 @@ Set `TK_ACTOR=pi:orchestrator` before tracker writes.
 
 ## Parallel execution without built-in subagents
 
-Pi's website says: "No sub-agents — spawn Pi instances via tmux, or build your own with extensions, or install a package that does it your way." For ticks orchestration, that maps directly to the shared runner model:
+Pi's website says: "No sub-agents — spawn Pi instances via tmux, or build your own with extensions, or install a package that does it your way." For ticks orchestration, choose the "build your own with extensions" path. The Pi adapter must not require tmux.
 
-- **One ready tick = one Pi process = one worktree.** A Pi process is the implementer agent; it does not need to be an in-process tool call.
+- **One ready tick = one supervised Pi process = one worktree.** A Pi process is the implementer agent; it does not need to be an in-process tool call.
 - **A wave launches concurrently.** Start every ready tick in the wave before waiting for any of them. Never serialize a wave just because Pi lacks built-in subagents.
-- **tmux is an observability option, not the coordination layer.** A human-friendly adapter may put each Pi process in a named tmux pane/window, but durable state is still the tick, branch, worktree, report, and log.
-- **Extensions are the preferred UX layer.** A Pi extension can supervise subprocesses, render live wave status, and expose commands, while the baseline shell adapter remains portable.
+- **The extension is the coordination layer.** It starts child Pi processes or SDK sessions, captures their JSON events, renders live status, and writes small per-tick reports.
+- **Git and `.tick/` are the durable state.** Extension memory, subprocess pids, and Pi session ids are conveniences only. Durable recovery uses tick files, branches, worktrees, reports, and logs.
 - **The SDK is the deeper integration path.** For a polished orchestrator, use Pi's SDK or extension APIs to launch and monitor multiple child sessions/processes and stream their JSON events into a dashboard.
 
 ## Baseline dispatch
@@ -96,7 +96,7 @@ The orchestrator records the resolved model/provider in the `runner-state:` note
 
 ## Pi extension UX target
 
-The long-term Pi-native orchestrator should be a project/user Pi extension, not a standalone `tk run` replacement. Its core job is to make parallel Pi subprocess execution visible and controllable. It should expose:
+The long-term Pi-native orchestrator should be a project/user Pi extension, not a standalone `tk run` replacement and not a tmux workflow. Its core job is to make parallel Pi subprocess execution visible and controllable. It should expose:
 
 - `/ticks-run <epic>` — start/resume an epic from durable `tk graph` state, launching all ready ticks in each wave concurrently.
 - `/ticks-plan <epic-or-requirements>` — run frontier planning with parallel read-only scouts and create ready ticks.
@@ -107,6 +107,21 @@ The long-term Pi-native orchestrator should be a project/user Pi extension, not 
 - Boundary hardening through `tool_call` handlers that block `tk` and `.tick/**` mutations in implementer subprocesses when the implementer is launched inside the same Pi runtime; subprocess launches must still be verified with the pre-merge `.tick/` diff check.
 
 Important UX rule: the extension is an operator console. It may display and supervise rich state, but durable orchestration state is still only git, `.tick/`, deterministic branch/worktree names, and per-tick reports.
+
+## Skill vs extension packaging
+
+A Pi **skill** is the right place for orchestration instructions, prompt templates, runner-neutral rules, and adapter documentation. A Pi **extension** is the right place for executable orchestration UX: commands, subprocess supervision, widgets, overlays, event streaming, and boundary guards.
+
+For distribution, bundle them together as a Pi package (or keep them side by side in this repo):
+
+```text
+pi package / repo
+├── skills/ticks/                 # SKILL.md + references/*.md
+├── .pi/extensions/ticks-runner/   # project-local development entrypoint, or
+└── extensions/ticks-runner/       # package-distributed extension
+```
+
+The skill should tell the model how orchestration works and when to use it; the extension should provide `/ticks-run`, `/ticks-plan`, `/ticks-status`, and the live TUI. Keeping both in one package is fine, but don't try to make the skill itself supervise processes — skills are instructions, extensions are executable code.
 
 ## Planning with Pi
 
