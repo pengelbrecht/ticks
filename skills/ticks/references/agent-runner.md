@@ -240,7 +240,18 @@ Skipping per-tick review for routine, well-specified ticks is fine — that's th
 - **Should-fix** — fix now if feasible; if deferred, record it explicitly in the retro report as accepted tech debt.
 - **Nit** — fix opportunistically; silence is fine if cost is not worth it.
 
-**Optional: fan out a substantial review.** Review is read-only, so a harness with parallel workflow support can assign one agent per axis (correctness, security, performance, spec compliance), then verify findings. A single reviewer remains the portable default.
+Tag each finding with a **confidence** as well as a severity. Severity sets the gate (a blocker stops the close); confidence sets how much to trust the finding before acting. A wide fan-out generates noise — verify low-confidence findings against the code first, and drop the ones that don't survive.
+
+**Optional: fan out a substantial review.** Review is read-only, so a harness with parallel workflow support can assign one agent per axis, then verify findings. A single reviewer remains the portable default. Pick the axes the diff earns rather than running the whole menu by reflex:
+
+- **Spec compliance** — diff matches the tick/epic scope and acceptance; nothing missing, nothing extra.
+- **Correctness** — logic, edge cases, concurrency.
+- **Security** — input handling, authorization, secrets, injection.
+- **Performance** — hot paths, N+1 queries, needless allocation.
+- **Error handling** — silent failures: swallowed exceptions, empty catch blocks, errors logged but never surfaced, `|| true`.
+- **Test quality** — behavioral coverage (do the tests actually exercise the behavior?), not line coverage; missing edge cases.
+- **Type/contract design** — do shared types and API shapes encode their invariants, or can a caller construct an invalid state? Highest-leverage on the contracts a FOUNDATION-REVIEW already targets.
+- **Comment & doc accuracy** — comments that no longer match the code, stale docs, comment rot.
 
 ## Human-in-the-loop ticks
 
@@ -363,6 +374,7 @@ Skim the epic's full diff (`git diff <base-branch>...HEAD`) for agent-typical pa
 - Copy-paste variants that should have been a shared utility.
 - Defensive bloat added "just in case."
 - `HACK`, `workaround`, `TODO: remove`, `XXX` comments.
+- Comments that no longer match the code they describe — an agent often writes a comment for the intended behavior, then changes the code without updating it.
 
 Real drift (anything that degrades quality or increases maintenance burden) becomes cleanup ticks in the **next** epic. Scope may grow to accommodate them; it may not silently shrink.
 

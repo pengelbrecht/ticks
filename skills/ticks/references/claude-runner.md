@@ -10,7 +10,7 @@ Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability c
 | Parallel dispatch | Put all `Agent` calls for a wave in one message with `run_in_background: true` |
 | Completion | Agent completion notifications and the value returned by `Agent` |
 | Continuation | `SendMessage` to the named agent or returned agent ID (live agents in this session only — see "Continuation after a crash") |
-| Review | A read-only reviewer `Agent` (see "Workflow" below before reaching for fan-out) |
+| Review | A read-only reviewer `Agent` (see "Review" below for axis mapping; "Workflow" before reaching for fan-out) |
 
 Set `TK_ACTOR=claude:orchestrator` before tracker writes. For orchestrator self-isolation (the "don't run on main" rule), `EnterWorktree` gives the orchestrating session its own worktree as an alternative to creating a feature branch.
 
@@ -57,6 +57,15 @@ That leaves a window: a session that dies mid-wave has live branches with no not
 ## Workflow
 
 The execution loop does **not** fit the `Workflow` tool: a Workflow script can't run `git merge` or `tk close`, so keep wave orchestration on the `Agent` path. `Workflow` fan-out is strictly an optional upgrade to the read-only *review* step (one agent per axis, then verify findings) for epics big enough to earn it; a single reviewer `Agent` remains the default.
+
+## Review
+
+The shared doc defines the review-axis menu (spec compliance, correctness, security, performance, error handling, test quality, type/contract design, comment accuracy) and the severity + confidence output. Map those axes onto Claude subagents two ways:
+
+- **Purpose-built agents, if installed.** Claude Code's `pr-review-toolkit` plugin ships axis-specialized reviewers — `silent-failure-hunter` (error handling), `pr-test-analyzer` (test quality), `type-design-analyzer` (type/contract design), `comment-analyzer` (comment accuracy), `code-reviewer` (general quality + spec compliance), `code-simplifier` (simplification, which doubles as the retro drift pass). When a consuming repo has these — or equivalents — as `subagent_type` values, dispatch them directly, one per axis the diff earns.
+- **Otherwise, a focused `general-purpose` Agent per axis.** Give it a single axis as its remit and the shared severity + confidence format. Don't ask one agent to cover every axis at once — independent passes are the point of fan-out.
+
+Resolve the reviewer to a model **at least as capable as the implementer** (shared REVIEWER-TIER RULE), and to the frontier class for the epic final review. To parallelize, put the axis `Agent` calls in one message with `run_in_background: true`; the orchestrator then verifies findings against the code — low-confidence ones especially — before acting. Agents review; the orchestrator adjudicates.
 
 ## Boundary hardening
 
