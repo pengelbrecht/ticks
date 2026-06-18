@@ -92,6 +92,14 @@ irm https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.ps1 | iex
 go install github.com/pengelbrecht/ticks/cmd/tk@latest
 ```
 
+### Skill (Claude Code / Codex)
+
+The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan and orchestrate epics. Install it once:
+
+```bash
+npx skills add pengelbrecht/ticks
+```
+
 ## Quick Start
 
 ```bash

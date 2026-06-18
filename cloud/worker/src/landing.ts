@@ -695,7 +695,7 @@ export const landingPage = `<!DOCTYPE html>
       <div class="step">
         <div class="step-number">1</div>
         <h3>Install</h3>
-        <p>Single binary, no dependencies. Works on Mac, Linux, and Windows. Install with <code>curl -fsSL https://ticks.sh/install | sh</code>.</p>
+        <p>Single binary, no dependencies. Works on Mac, Linux, and Windows: <code>curl -fsSL https://ticks.sh/install | sh</code>. Then add the orchestration skill to Claude Code or Codex with <code>npx skills add pengelbrecht/ticks</code>.</p>
       </div>
       <div class="step">
         <div class="step-number">2</div>

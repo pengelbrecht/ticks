@@ -411,6 +411,11 @@ export const docsPage = `<!DOCTYPE html>
 
       <p>Verify the install:</p>
       <div class="code-block"><pre><span class="cmd">tk</span> <span class="flag">--version</span></pre></div>
+
+      <h3>Add the ticks skill</h3>
+      <p>The <code>tk</code> binary handles issue tracking. The <strong>ticks skill</strong> is what teaches Claude Code or Codex to plan epics and orchestrate agent swarms. Install it once per machine:</p>
+      <div class="code-block"><pre><span class="cmd">npx</span> skills add pengelbrecht/ticks</pre></div>
+      <p>Your agent picks it up automatically the next time you ask it to plan or run an epic.</p>
     </div>
 
     <!-- Section 2: Issue Tracker -->
@@ -457,7 +462,7 @@ export const docsPage = `<!DOCTYPE html>
       <p>ticks shines when you have an epic — a collection of related ticks — and want multiple AI agents to work on them in parallel, each in its own isolated git worktree, then integrate wave by wave.</p>
 
       <h3>Plan an epic</h3>
-      <p>Create a parent epic tick and break it down into child ticks with dependencies. The ticks skill (loaded automatically by Claude Code) can help you plan:</p>
+      <p>Create a parent epic tick and break it down into child ticks with dependencies. Once installed (see <a href="#install">step 01</a>), the ticks skill can help you plan:</p>
       <div class="code-block"><pre><span class="comment"># Create parent epic</span>
 <span class="cmd">tk</span> create <span class="str">"Redesign auth flow"</span> <span class="flag">--type</span> epic
 
