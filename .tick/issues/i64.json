@@ -2,7 +2,7 @@
   "id": "i64",
   "title": "New big-picture conventions reference: structure ladder + container DoR",
   "description": "Add the convention ladder and container Definition-of-Ready as a reference (design section 7). Create skills/ticks/references/big-picture.md and link it from the SKILL.md big-picture section and/or tick-patterns.md. Cover: the opt-in structure ladder (just-ship-it = epics+deps only [default], then +grouping [buckets/projects], then +dates [target_date], then +cycles [named project conventions]); a container Definition-of-Ready (mark epic only when you intend to run the children as a coordinated unit; otherwise leave a passive bucket); and cycle/milestone/initiative expressed purely as project conventions (a cycle = a project with a target_date; a milestone = a bottom-stack project; an initiative = a project of projects). Each rung additive and ignorable.\n\nMatch the vocabulary in the rewritten SKILL.md (read it first). CRITICAL: verify every tk command against cmd/tk/cmd/*.go.\n\nFiles: NEW skills/ticks/references/big-picture.md (plus a link line in SKILL.md or tick-patterns.md).",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "acceptance_criteria": "a conventions reference exists (references/big-picture.md, linked from SKILL.md and/or tick-patterns.md) covering the just-ship-it→+grouping→+dates→+cycles ladder, when to mark epic vs leave a passive bucket (container Definition-of-Ready), and cycle/milestone/initiative as project conventions; vocabulary matches SKILL.md; tk commands verified",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T15:10:01.872283979Z",
-  "updated_at": "2026-06-20T15:11:33.308229971Z"
+  "updated_at": "2026-06-20T15:17:27.467585271Z",
+  "started_at": "2026-06-20T15:17:27.467584711Z"
 }
