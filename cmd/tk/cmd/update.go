@@ -57,6 +57,7 @@ var (
 	updateAfter        string
 	updateAcceptance   string
 	updateDefer        string
+	updateTargetDate   string
 	updateExternalRef  string
 	updateParent       string
 	updateManual       string
@@ -80,6 +81,7 @@ var (
 	updateAfterSet        bool
 	updateAcceptanceSet   bool
 	updateDeferSet        bool
+	updateTargetDateSet   bool
 	updateExternalRefSet  bool
 	updateParentSet       bool
 	updateManualSet       bool
@@ -102,6 +104,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateAfter, "after", "", "soft ordering: prefer after these ticks, but do not block on them")
 	updateCmd.Flags().StringVar(&updateAcceptance, "acceptance", "", "acceptance criteria")
 	updateCmd.Flags().StringVar(&updateDefer, "defer", "", "defer until date (YYYY-MM-DD)")
+	updateCmd.Flags().StringVar(&updateTargetDate, "target-date", "", "target completion date (YYYY-MM-DD, empty to clear)")
 	updateCmd.Flags().StringVar(&updateExternalRef, "external-ref", "", "external reference")
 	updateCmd.Flags().StringVar(&updateParent, "parent", "", "parent epic id (use empty string to clear)")
 	updateCmd.Flags().StringVar(&updateManual, "manual", "", "mark as requiring human intervention (true/false)")
@@ -129,6 +132,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updateAfterSet = cmd.Flags().Changed("after")
 	updateAcceptanceSet = cmd.Flags().Changed("acceptance")
 	updateDeferSet = cmd.Flags().Changed("defer")
+	updateTargetDateSet = cmd.Flags().Changed("target-date")
 	updateExternalRefSet = cmd.Flags().Changed("external-ref")
 	updateParentSet = cmd.Flags().Changed("parent")
 	updateManualSet = cmd.Flags().Changed("manual")
@@ -233,6 +237,16 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("invalid defer date (use YYYY-MM-DD): %w", err)
 			}
 			t.DeferUntil = &parsed
+		}
+	}
+	if updateTargetDateSet {
+		if updateTargetDate == "" {
+			t.TargetDate = ""
+		} else {
+			if _, err := time.Parse(tick.TargetDateLayout, updateTargetDate); err != nil {
+				return fmt.Errorf("invalid target-date %q (use YYYY-MM-DD): %w", updateTargetDate, err)
+			}
+			t.TargetDate = updateTargetDate
 		}
 	}
 	if updateExternalRefSet {
