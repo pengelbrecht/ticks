@@ -348,9 +348,9 @@ func timelineGoldenTicks() []tick.Tick {
 // TestTimelineGolden is the teatest golden for the Timeline view: the App
 // launches at 120×40 with the Timeline golden fixtures. It navigates the
 // sidebar to the "Roadmap" smart view (j×2 from "Awaiting") which returns all
-// ticks, then switches to the Timeline content tab (hotkey "3" — List=1,
-// Roadmap=2, Timeline=3), focuses the main pane, and moves the selection down
-// once.
+// ticks, then switches to the Timeline content tab (hotkey "4" — List=1,
+// Board=2, Roadmap=3, Timeline=4), focuses the main pane, and moves the
+// selection down once.
 //
 // The injected clock (fixedNow = 2026-06-01) makes the overdue/on-track
 // classification stable regardless of real wall time.

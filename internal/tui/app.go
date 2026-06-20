@@ -135,10 +135,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.focus = focusMain
 		return a, nil
 
+	case jumpToEpicMsg:
+		// Roadmap Enter-to-jump: scope the sidebar to the epic's tree node and
+		// switch the main pane to the List view so the jump is visible. This
+		// mirrors the old model.go jumpToRoadmapEpic but via the message bus.
+		a.sidebar.SelectNode(msg.EpicID)
+		a.scope = Scope{Kind: scopeNode, Node: msg.EpicID}
+		a.activeIx = 0 // List is always index 0
+		a.reScope()
+		a.focus = focusMain
+		return a, nil
+
 	case paletteJumpMsg:
-		// Jump: move the active view's selection to the target tick, then close.
-		// JumpTo is implemented by views that support direct cursor placement
-		// (e.g. listView). Views that don't implement it simply stay put.
+		// Jump: switch to the List view first (JumpTo is only implemented by
+		// listView; staying on Board/Roadmap/Timeline would silently no-op), then
+		// move the selection to the target tick and close the palette.
+		a.activeIx = 0 // List is always index 0
+		a.reScope()
 		if jv, ok := a.activeView().(interface{ JumpTo(string) }); ok {
 			jv.JumpTo(msg.id)
 		}

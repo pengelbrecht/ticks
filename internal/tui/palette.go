@@ -13,9 +13,6 @@ import (
 
 // ── Messages emitted by the palette ──────────────────────────────────────────
 
-// paletteOpenMsg tells the App to open the palette with the current tick set.
-type paletteOpenMsg struct{}
-
 // paletteCloseMsg tells the App to close the palette and restore focus.
 type paletteCloseMsg struct{}
 
