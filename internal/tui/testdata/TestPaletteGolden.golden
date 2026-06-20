@@ -1,11 +1,11 @@
-╭──────────────────────────╮╭──────────────────────────────────────────────────────╮╭──────────────────────────────────╮
-│ NAV                      ││ ‹List›                                               ││ ep1 · Auth revamp                │
-│ VIEWS                    ││ > - ep1  ● P1 Auth revamp                            ││ ID:         ep1                  │
-│  ◳ Awaiting              ││       a1b  ● P1 token refresh                        ││ Priority:   P1                   │
-│  ◔ My ticks              ││       x9k  ○ P2 login UI polish                      ││ Type:       epic                 │
+╭──────────────────────────╮╭──────────────────────────────────────────────────────╮╭──────────────────────────────────╮
+│ NAV                      ││ ‹List›                                               ││ a1b · token refresh              │
+│ VIEWS                    ││   - ep1  ● P1 Auth revamp                            ││ ID:         a1b                  │
+│  ◳ Awaiting              ││ >     a1b  ● P1 token refresh                        ││ Priority:   P1                   │
+│  ◔ My ticks              ││       x9k  ○ P2 login UI polish                      ││ Type:       task                 │
 │  ⊹ Roadmap               ││                                                      ││ Status:     ● in_progress        │
 │  ◇ Active                ││                                                      ││ Owner:                           │
-│  ▤ Backlog               ││                                                      ││                                  │
+│  ▤ Backlog               ││                                                      ││ Parent:     ep1                  │
 │                          ││                                                      ││                                  │
 │ PROJECTS                 ││                                                      ││                                  │
 │  ▾ Auth revamp           ││                                                      ││                                  │

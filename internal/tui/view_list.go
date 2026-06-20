@@ -95,6 +95,31 @@ func (v *listView) SelectedTickID() string {
 	return ""
 }
 
+// JumpTo moves the list selection to the item with the given tick ID. If the
+// tick is not in the current scope the cursor stays at its previous position.
+// This implements the JumpTo seam consumed by App.handlePaletteJump.
+func (v *listView) JumpTo(id string) {
+	for i, it := range v.items {
+		if it.Tick.ID == id {
+			v.selected = i
+			return
+		}
+	}
+	// Target not in current scope: expand all epics and retry so a jump from
+	// the palette can reach collapsed children.
+	for k := range v.collapsed {
+		v.collapsed[k] = false
+	}
+	scoped := itemsToTicks(v.items)
+	v.items = buildListItems(scoped, v.collapsed)
+	for i, it := range v.items {
+		if it.Tick.ID == id {
+			v.selected = i
+			return
+		}
+	}
+}
+
 // Update handles list navigation and collapse/expand (ported from model.go's
 // tree handling).
 func (v *listView) Update(msg tea.Msg) (View, tea.Cmd) {
