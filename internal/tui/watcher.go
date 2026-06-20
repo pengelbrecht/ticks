@@ -11,6 +11,24 @@ import (
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
+// ticksReloadedMsg is sent when the filesystem watcher detects changes and has
+// re-listed the ticks from disk.
+type ticksReloadedMsg struct {
+	ticks []tick.Tick
+	err   error
+}
+
+// drainEvents removes any pending events from the watcher channel.
+func drainEvents(w *fsnotify.Watcher) {
+	for {
+		select {
+		case <-w.Events:
+		default:
+			return
+		}
+	}
+}
+
 // tickWatcher wraps an fsnotify watcher over the store's issues dir and emits a
 // ticksReloadedMsg when .json files change. It is the App's live-update source,
 // factored out of the legacy Model so both can share it.
