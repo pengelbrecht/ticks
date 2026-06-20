@@ -67,7 +67,7 @@ func registerViews(storePath string) *registry {
 	// Downstream view ticks append here, one line each:
 	// reg.add(newBoardView(storePath))    // tick: board
 	reg.add(newRoadmapView(storePath))  // tick: roadmap
-	// reg.add(newTimelineView(storePath)) // tick: timeline
+	reg.add(newTimelineView(storePath)) // tick: timeline
 	return reg
 }
 
