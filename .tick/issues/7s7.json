@@ -1,0 +1,20 @@
+{
+  "id": "7s7",
+  "title": "Recursive descendant progress rollup",
+  "description": "Replace the one-level child count (currently epic-only in internal/query/roadmap.go) with a recursive descendant rollup usable at any altitude: a container's progress = fraction of leaf descendants closed. Put it in a NEW file internal/query/rollup.go as a reusable function (do NOT edit roadmap.go — T6 consumes it there, in a later wave, to avoid a same-file collision). Design §3.\n\nFiles: NEW internal/query/rollup.go.",
+  "notes": "2026-06-20 14:09 - runner-state: runner=claude branch=worktree-agent-abac2988a70a7ab24",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "144"
+  ],
+  "parent": "zt6",
+  "acceptance_criteria": "rollup unit tests pass for nested project\u003eepic\u003etask trees; returns closed/total leaf-descendant counts at any altitude",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:57:13.784672292Z",
+  "updated_at": "2026-06-20T14:09:16.812034839Z",
+  "closed_at": "2026-06-20T14:09:16.812034839Z",
+  "closed_reason": "Completed: DescendantProgress(t, allTicks) recursive leaf rollup in internal/query/rollup.go; cycle-safe"
+}

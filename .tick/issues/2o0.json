@@ -1,0 +1,20 @@
+{
+  "id": "2o0",
+  "title": "tk create/update --target-date flag",
+  "description": "Add --target-date \u003cISO-day\u003e to tk create and tk update; parse/validate as a precise day. Design §9 surface.\n\nFiles: cmd/tk/cmd/create.go, cmd/tk/cmd/update.go.",
+  "notes": "2026-06-20 14:10 - runner-state: runner=claude branch=worktree-agent-afd75e679bdc9b5e0",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "144"
+  ],
+  "parent": "zt6",
+  "acceptance_criteria": "tk create --target-date and tk update --target-date set the field; invalid/non-ISO date rejected with a clear error; cmd tests pass",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:57:13.824907918Z",
+  "updated_at": "2026-06-20T14:10:54.176306629Z",
+  "closed_at": "2026-06-20T14:10:54.176306629Z",
+  "closed_reason": "Completed: --target-date flag on tk create/update with ISO-day validation; empty string clears, per existing convention"
+}

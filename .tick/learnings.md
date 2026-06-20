@@ -29,7 +29,9 @@ on omissions — keep it passing rather than skipping it.
 **Cause:** cobra state leaks across in-process executions: flag values persist, the --help
 flag value short-circuits later commands, and contexts only propagate to commands with nil ctx.
 **Rule:** Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext` (cmd/tk/cmd/root.go),
-which reset flags and handle these quirks — never call `rootCmd.Execute()` directly.
+which reset flags and handle these quirks — never call `rootCmd.Execute()` directly. When you ADD
+a persistent flag var in `cmd/tk/cmd/*.go`, also reset it in `ResetFlags()` in root.go — otherwise
+its value leaks into later in-process test executions.
 
 **Problem:** Tickboard UI changes pass `pnpm test` but don't appear in the running `tk board`.
 **Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`;
@@ -70,6 +72,15 @@ Go types updated but the UI's generated TS stale (or vice versa).
 **Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
 all regenerated output together. Tick authors: spell these commands out in any tick that
 touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
+
+**Problem:** Adding a date field to schemas/ pulled a new runtime dependency into the generated
+Go (`*types.SerializableDate` from github.com/atombender/go-jsonschema/pkg/types) where the file
+had previously imported only `time`.
+**Cause:** go-jsonschema maps JSON-Schema `format:"date"` to its own SerializableDate type.
+**Rule:** For date-only fields use `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, NOT
+`format:"date"` — generated Go/TS stay plain `string` with zero new deps; parse with a
+hand-written layout const (e.g. `tick.TargetDateLayout`). The regex is shape-only (accepts
+`2026-13-45`); Go `time.Parse` in `Validate()` is the authoritative gate, so validate there too.
 
 ## Docs & marketing copy
 

@@ -1,0 +1,20 @@
+{
+  "id": "o1r",
+  "title": "Generic containers in roadmap/queries + project-aware render",
+  "description": "De-hardcode type==epic in internal/query/roadmap.go and plan.go: treat containment generically, distinguish orchestrated containers (epics) from passive ones (buckets/projects), derive project-ness from 'contains a container' (use T1 helpers). Make roadmap render walk the hierarchy and consume the T2 rollup. Backwards-compat is critical: a project-less epic roadmap must render identically. Design §1,§5,§9.\n\nFiles: internal/query/roadmap.go, internal/query/plan.go, cmd/tk/cmd/roadmap.go.",
+  "notes": "2026-06-20 14:05 - Consolidation: a new BuildChildIndex (map[string][]string) in internal/query/hierarchy.go duplicates the existing private buildChildIndex (map[string]bool) in roadmap.go/plan.go. When you rewrite roadmap/plan for generic containers, consolidate onto the public one.\n2026-06-20 14:20 - runner-state: runner=claude branch=worktree-agent-a8bdd42c186389179",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "7s7"
+  ],
+  "parent": "zt6",
+  "acceptance_criteria": "tk roadmap renders nested projects and excludes passive buckets from orchestration nodes; childless epics still surface as needs-planning; ALL existing roadmap/plan tests stay green (backwards compat)",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:57:13.849994553Z",
+  "updated_at": "2026-06-20T14:21:11.825337197Z",
+  "closed_at": "2026-06-20T14:21:11.825337197Z",
+  "closed_reason": "Completed: de-hardcoded type==epic in roadmap/plan; buckets excluded from nodes, projects grouped via Role+Parent with descendant rollup; backwards-compat verified (no existing test expectations changed)"
+}

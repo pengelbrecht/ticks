@@ -1,0 +1,20 @@
+{
+  "id": "szt",
+  "title": "Derived slip signal (overdue / on-track)",
+  "description": "Compute the slip signal from target_date + descendant status — DERIVED, never stored (design §4). overdue = past target_date with \u003e=1 open leaf descendant; on-track = has target_date, not past; undated = no signal. Reuses the rollup from T2.\n\nFiles: NEW internal/query/slip.go.",
+  "notes": "2026-06-20 14:13 - runner-state: runner=claude branch=worktree-agent-aef70f09f2d4b6cfc",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "7s7"
+  ],
+  "parent": "zt6",
+  "acceptance_criteria": "slip unit tests: overdue when past target_date with an open descendant; on-track when dated and not past; no signal when undated",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:57:13.804688496Z",
+  "updated_at": "2026-06-20T14:13:37.103531725Z",
+  "closed_at": "2026-06-20T14:13:37.103531725Z",
+  "closed_reason": "Completed: Slip(t, allTicks, now) derived overdue/on_track/none in internal/query/slip.go; deterministic (now param)"
+}
