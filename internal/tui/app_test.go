@@ -181,6 +181,86 @@ func TestQuitKey(t *testing.T) {
 	}
 }
 
+// TestRoadmapJumpSetsListView verifies that receiving a jumpToEpicMsg (emitted
+// when the user presses Enter on a selected epic in the Roadmap view) switches
+// the active content view to List and scopes the sidebar to the target epic's
+// tree node, so the jump is visible to the user.
+func TestRoadmapJumpSetsListView(t *testing.T) {
+	ticks := sampleTicks() // ep1 is the epic, children a1b and x9k, solo q2m
+	a := newTestApp(t, ticks)
+	a.width, a.height = defaultTermWidth, defaultTermHeight
+	a.applyLayout()
+
+	// Switch to the Roadmap view (index 2) so we are not already on List.
+	var m tea.Model = a
+	m, _ = m.Update(keyMsg("3")) // hotkey 3 → Roadmap (List=1, Board=2, Roadmap=3)
+	if got := m.(App).activeIx; got != 2 {
+		t.Fatalf("after '3': activeIx = %d, want 2 (Roadmap)", got)
+	}
+
+	// Deliver the jumpToEpicMsg for ep1.
+	m, _ = m.Update(jumpToEpicMsg{EpicID: "ep1"})
+	app := m.(App)
+
+	// Active view must now be List (index 0).
+	if app.activeIx != 0 {
+		t.Fatalf("after jump: activeIx = %d, want 0 (List)", app.activeIx)
+	}
+
+	// Scope must be the epic's tree node.
+	if app.scope.Kind != scopeNode {
+		t.Fatalf("after jump: scope.Kind = %v, want scopeNode", app.scope.Kind)
+	}
+	if app.scope.Node != "ep1" {
+		t.Fatalf("after jump: scope.Node = %q, want %q", app.scope.Node, "ep1")
+	}
+
+	// The list view's selection should include the target epic.
+	selID := app.activeView().(Selector).SelectedTickID()
+	if selID == "" {
+		t.Fatal("after jump: list selection is empty, want ep1 or one of its children")
+	}
+	// Focus is on Main after the jump.
+	if app.focus != focusMain {
+		t.Fatalf("after jump: focus = %v, want focusMain", app.focus)
+	}
+}
+
+// TestPaletteJumpFromNonListViewSwitchesToList verifies that a paletteJumpMsg
+// delivered while a non-List view (e.g. Roadmap) is active switches the active
+// view to List before performing the jump, so the target tick is visible.
+func TestPaletteJumpFromNonListViewSwitchesToList(t *testing.T) {
+	ticks := sampleTicks()
+	a := newTestApp(t, ticks)
+	a.width, a.height = defaultTermWidth, defaultTermHeight
+	a.applyLayout()
+
+	// Navigate the sidebar to the project node so the list has ticks.
+	var m tea.Model = a
+	for i := 0; i < 5; i++ {
+		m, _ = m.Update(keyMsg("j"))
+	}
+
+	// Switch to the Roadmap view (index 2).
+	m, _ = m.Update(keyMsg("3"))
+	if got := m.(App).activeIx; got != 2 {
+		t.Fatalf("after '3': activeIx = %d, want 2 (Roadmap)", got)
+	}
+
+	// Deliver a paletteJumpMsg for a known tick while on Roadmap.
+	m, _ = m.Update(paletteJumpMsg{id: "a1b"})
+	app := m.(App)
+
+	// Active view must be List (index 0).
+	if app.activeIx != 0 {
+		t.Fatalf("after palette jump from Roadmap: activeIx = %d, want 0 (List)", app.activeIx)
+	}
+	// Focus must be Main.
+	if app.focus != focusMain {
+		t.Fatalf("after palette jump: focus = %v, want focusMain", app.focus)
+	}
+}
+
 // TestDetailMirrorsSelection verifies the detail pane tracks the active list
 // view's selected tick (read-only detail stub seam, §6).
 func TestDetailMirrorsSelection(t *testing.T) {

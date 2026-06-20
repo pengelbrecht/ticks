@@ -262,6 +262,14 @@ func (s *Sidebar) restoreSelection(prev Scope) {
 	}
 }
 
+// SelectNode moves the sidebar cursor to the tree node for the given tick ID.
+// This is used by the App's jumpToEpicMsg handler to point the sidebar at the
+// jumped-to epic. If the ID is not present in the current row list (e.g. the
+// sidebar has no project tree for that ID) the selection is left unchanged.
+func (s *Sidebar) SelectNode(id string) {
+	s.restoreSelection(Scope{Kind: scopeNode, Node: id})
+}
+
 // Update handles navigation and collapse/expand for the sidebar (§4). It moves
 // the selection cursor (j/k or arrows), and toggles tree-node collapse on
 // space/enter. It returns the updated sidebar and whether the selected scope
