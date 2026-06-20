@@ -44,7 +44,7 @@ const (
 	editActionReopen
 	editActionSetStatus // value carries the target status
 	editActionSetPriority
-	editActionReassign  // App opens the inline owner editor
+	editActionReassign   // App opens the inline owner editor
 	editActionAddBlocker // App opens the inline blocker editor
 )
 
@@ -257,6 +257,11 @@ func fuzzyMatch(s, query string) bool {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
+// paletteBoxWidth is the total width (including border) of the command-palette
+// box. The App reads this when compositing the overlay so the centre offset and
+// the box render stay in sync (one source of truth).
+const paletteBoxWidth = 60
+
 // paletteBoxStyle is the centred overlay box.
 var paletteBoxStyle = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
@@ -272,7 +277,7 @@ var paletteDimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")) 
 // View renders the palette as a centred floating overlay. The parent App places
 // this on top of its own rendered frame.
 func (p palette) View() string {
-	const boxWidth = 60
+	const boxWidth = paletteBoxWidth
 	const maxRows = 12
 
 	// Header: the search prompt.

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/teatest"
 
 	"github.com/pengelbrecht/ticks/internal/tick"
@@ -235,6 +235,70 @@ func TestAppCtrlKOpensPalette(t *testing.T) {
 	}
 }
 
+// TestPaletteOverlaysFrame verifies the open palette is composited OVER the app
+// frame (not replacing it): the rendered output still contains backdrop content
+// (the sidebar "NAV" header) AND the palette box border, stays exactly width ×
+// height, and the box is horizontally centred near (width-paletteBoxWidth)/2.
+func TestPaletteOverlaysFrame(t *testing.T) {
+	pinTestProfile(t)
+	a := newTestApp(t, paletteTicks())
+	a.width, a.height = defaultTermWidth, defaultTermHeight
+	a.applyLayout()
+
+	// Open the palette.
+	var m tea.Model = a
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	app := m.(App)
+	out := app.View()
+
+	// Backdrop still present: the app frame shows through around the modal.
+	if !strings.Contains(out, "NAV") {
+		t.Errorf("overlay should keep backdrop visible, but %q is missing", "NAV")
+	}
+	// Palette box border present (rounded border corner glyphs).
+	if !strings.Contains(out, "╭") || !strings.Contains(out, "╮") {
+		t.Errorf("expected palette box border in output; got:\n%s", out)
+	}
+
+	// Dimensions preserved: exactly height lines, each exactly width columns.
+	lines := strings.Split(out, "\n")
+	if len(lines) != a.height {
+		t.Fatalf("frame height = %d lines, want %d", len(lines), a.height)
+	}
+	for i, ln := range lines {
+		if w := ansi.StringWidth(ln); w != a.width {
+			t.Errorf("line %d width = %d, want %d", i, w, a.width)
+		}
+	}
+
+	// Horizontal centering: the palette box's top border ╭───╮ spans ~box width
+	// and starts near (width-box)/2. The sidebar pane also draws a ╭ at column 0,
+	// so match the centred occurrence specifically.
+	wantX := (a.width - paletteBoxWidth) / 2
+	found := false
+	for _, ln := range lines {
+		// Walk every ╭ on the line; a match at the centred column is the box.
+		off := 0
+		for {
+			idx := strings.IndexRune(ln[off:], '╭')
+			if idx < 0 {
+				break
+			}
+			col := ansi.StringWidth(ln[:off+idx])
+			if col == wantX {
+				found = true
+			}
+			off += idx + len("╭")
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Errorf("palette box left border not found at centred column %d", wantX)
+	}
+}
+
 // TestAppEscClosesPalette verifies that Esc while the palette is focused
 // restores focus to focusMain.
 func TestAppEscClosesPalette(t *testing.T) {
@@ -311,12 +375,16 @@ func TestAppPaletteSwitchView(t *testing.T) {
 
 // ── teatest golden: Ctrl-K opens palette, type partial id, Enter jumps ────────
 
-// TestPaletteGolden is the §11 integration golden for the command palette.
-// It opens the palette with Ctrl-K, types a partial tick id ("a1"), and presses
-// Enter to jump the List selection. The final settled frame (showing the palette
-// overlay and/or the post-jump state with the selected tick) is golden-compared.
+// TestPaletteGolden is the §11 golden for the command palette OVERLAY. It opens
+// the palette over the composed app shell and types a partial tick id ("a1"),
+// then golden-compares the settled frame. The golden shows the palette box
+// composited OVER the app (sidebar · list · detail visible behind/around it),
+// proving the overlay rather than a blank-field replacement. We render App.View()
+// directly (not through teatest's frame stream) so the full overlaid frame is
+// captured deterministically without partial-repaint splitting.
 // Regenerate with: go test -run TestPaletteGolden -update ./internal/tui/
 func TestPaletteGolden(t *testing.T) {
+	pinTestProfile(t)
 	ticks := []tick.Tick{
 		fixtureTick("ep1", "Auth revamp", tick.StatusInProgress, 1),
 		func() tick.Tick {
@@ -334,55 +402,28 @@ func TestPaletteGolden(t *testing.T) {
 	// Mark first tick as epic.
 	ticks[0].Type = tick.TypeEpic
 
-	tm := newTestProgram(t, ticks, defaultTermWidth, defaultTermHeight)
+	a := newTestApp(t, ticks)
+	a.width, a.height = defaultTermWidth, defaultTermHeight
+	a.applyLayout()
 
-	// Step the sidebar to the Auth revamp project node (5 j-presses).
+	// Step the sidebar to the Auth revamp project node (5 j-presses), open the
+	// palette (Ctrl-K), and type the partial id "a1".
+	var m tea.Model = a
 	for i := 0; i < 5; i++ {
-		sendKey(tm, "j")
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	app := m.(App)
 
-	// Open the palette with Ctrl-K.
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlK})
+	frame := normalizeTimestamps([]byte(app.View()))
 
-	// Wait until the palette overlay appears in the output (focus label changes
-	// to "palette" in the footer).
-	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return bytes.Contains(b, []byte("[palette]"))
-	}, teatest.WithDuration(5*time.Second))
-
-	// Type partial id "a1" to narrow to "a1b".
-	sendKey(tm, "a")
-	sendKey(tm, "1")
-
-	// Move to the first tick candidate with j (skip any view-switch entries).
-	// We send a few j-presses to ensure we land on a tick candidate.
-	sendKey(tm, "j")
-	sendKey(tm, "j")
-
-	// Confirm with Enter: the palette emits paletteJumpMsg and closes.
-	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
-
-	// Wait for the palette to close (cursor block gone) and List to show
-	// "a1b" as the selected row.
-	var frame []byte
-	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		f := lastFrame(b)
-		// Post-jump: palette closed, list shows the scope, footer has palette hint.
-		if strings.Contains(f, "ctrl+k: palette") && strings.Contains(f, "[main]") {
-			frame = normalizeTimestamps([]byte(f))
-			return true
-		}
-		return false
-	}, teatest.WithDuration(5*time.Second))
-
-	// Quit cleanly.
-	sendKey(tm, "q")
-	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-
-	// Sanity: the shell wired up and the palette hint is in the footer.
-	for _, want := range []string{"ctrl+k: palette", "VIEWS", "PROJECTS"} {
+	// Sanity: backdrop app chrome shows through around the modal box, and the box
+	// border is present — i.e. the palette overlays rather than replaces.
+	for _, want := range []string{"NAV", "VIEWS", "PROJECTS", "╭", "╮", "╰", "╯", "> a1"} {
 		if !bytes.Contains(frame, []byte(want)) {
-			t.Errorf("final frame missing %q:\n%s", want, frame)
+			t.Errorf("overlaid frame missing %q:\n%s", want, frame)
 		}
 	}
 
