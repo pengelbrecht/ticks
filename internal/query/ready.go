@@ -13,16 +13,25 @@ import (
 // If allTicks is provided, it is used to look up blocker status (for when
 // candidates is a filtered subset and blockers may be outside that subset).
 func Ready(candidates []tick.Tick, allTicks ...[]tick.Tick) []tick.Tick {
-	return readyWithOptions(candidates, false, allTicks...)
+	return readyWithOptions(candidates, false, false, allTicks...)
+}
+
+// ReadyWithMode is Ready with an explicit autonomous-mode switch. When
+// autonomous is false the result is identical to Ready. When autonomous is true,
+// a tick whose ONLY reason to be gated is awaiting: checkpoint (a project
+// close-out boundary, design §5/§8) is no longer excluded. No other awaiting
+// type is affected. See gatesHuman for the exact bypass scope.
+func ReadyWithMode(candidates []tick.Tick, autonomous bool, allTicks ...[]tick.Tick) []tick.Tick {
+	return readyWithOptions(candidates, false, autonomous, allTicks...)
 }
 
 // ReadyIncludeAwaiting is like Ready but includes tasks awaiting human action.
 // Use this when displaying all ready tasks including those needing human review.
 func ReadyIncludeAwaiting(candidates []tick.Tick, allTicks ...[]tick.Tick) []tick.Tick {
-	return readyWithOptions(candidates, true, allTicks...)
+	return readyWithOptions(candidates, true, false, allTicks...)
 }
 
-func readyWithOptions(candidates []tick.Tick, includeAwaiting bool, allTicks ...[]tick.Tick) []tick.Tick {
+func readyWithOptions(candidates []tick.Tick, includeAwaiting, autonomous bool, allTicks ...[]tick.Tick) []tick.Tick {
 	lookup := candidates
 	if len(allTicks) > 0 {
 		lookup = allTicks[0]
@@ -30,7 +39,7 @@ func readyWithOptions(candidates []tick.Tick, includeAwaiting bool, allTicks ...
 	index := indexByID(lookup)
 	var out []tick.Tick
 	for _, t := range candidates {
-		if isReadyWithOptions(t, index, includeAwaiting) {
+		if isReadyWithOptions(t, index, includeAwaiting, autonomous) {
 			out = append(out, t)
 		}
 	}
@@ -58,10 +67,10 @@ func Blocked(candidates []tick.Tick, allTicks ...[]tick.Tick) []tick.Tick {
 }
 
 func isReady(t tick.Tick, index map[string]tick.Tick) bool {
-	return isReadyWithOptions(t, index, false)
+	return isReadyWithOptions(t, index, false, false)
 }
 
-func isReadyWithOptions(t tick.Tick, index map[string]tick.Tick, includeAwaiting bool) bool {
+func isReadyWithOptions(t tick.Tick, index map[string]tick.Tick, includeAwaiting, autonomous bool) bool {
 	// Both 'open' and 'in_progress' ticks are considered ready.
 	// in_progress means "started but not finished" - should be resumed.
 	if t.Status != tick.StatusOpen && t.Status != tick.StatusInProgress {
@@ -71,8 +80,11 @@ func isReadyWithOptions(t tick.Tick, index map[string]tick.Tick, includeAwaiting
 	if t.DeferUntil != nil && t.DeferUntil.After(time.Now()) {
 		return false
 	}
-	// Tasks awaiting human action are not ready for agent work (unless includeAwaiting is true)
-	if !includeAwaiting && t.IsAwaitingHuman() {
+	// Tasks awaiting human action are not ready for agent work (unless
+	// includeAwaiting is true). Under autonomous mode a pure
+	// awaiting: checkpoint boundary does not gate (gatesHuman bypasses ONLY
+	// checkpoint); every other awaiting type still gates.
+	if !includeAwaiting && gatesHuman(t, autonomous) {
 		return false
 	}
 	for _, blocker := range t.BlockedBy {

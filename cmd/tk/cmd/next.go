@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
@@ -69,6 +70,7 @@ var (
 	nextIncludeManual bool
 	nextAwaiting      string
 	nextJSON          bool
+	nextAutonomous    bool
 )
 
 // nextAwaitingSet tracks whether --awaiting flag was explicitly provided
@@ -81,6 +83,7 @@ func init() {
 	nextCmd.Flags().BoolVar(&nextIncludeManual, "include-manual", false, "include tasks marked as manual (excluded by default)")
 	nextCmd.Flags().StringVar(&nextAwaiting, "awaiting", "", "get next task awaiting human (empty = any type, or specific type(s) comma-separated)")
 	nextCmd.Flags().BoolVar(&nextJSON, "json", false, "output as JSON")
+	nextCmd.Flags().BoolVar(&nextAutonomous, "autonomous", false, "autonomous mode: flow through project-checkpoint boundaries (other awaiting types still gate); overrides policy.autonomous_mode when set")
 
 	rootCmd.AddCommand(nextCmd)
 }
@@ -108,6 +111,19 @@ func runNext(cmd *cobra.Command, args []string) error {
 	ticks, err := store.List()
 	if err != nil {
 		return fmt.Errorf("failed to list ticks: %w", err)
+	}
+
+	// Resolve autonomous mode: the --autonomous flag wins when explicitly set,
+	// otherwise fall back to policy.autonomous_mode from config (default false).
+	// When on, project-checkpoint boundaries no longer gate selection; all other
+	// awaiting types still gate.
+	autonomous := nextAutonomous
+	if !cmd.Flags().Changed("autonomous") {
+		cfg, err := config.LoadOrDefault(filepath.Join(root, ".tick", "config.json"))
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		autonomous = cfg.Policy.GetAutonomousMode()
 	}
 
 	// Determine filter based on flags and positional args
@@ -183,8 +199,10 @@ func runNext(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Agent mode: return next ready task (not awaiting)
-	ready := query.Ready(filtered, ticks)
+	// Agent mode: return next ready task (not awaiting). Under autonomous mode a
+	// pure awaiting: checkpoint boundary no longer gates; other awaiting types
+	// still gate.
+	ready := query.ReadyWithMode(filtered, autonomous, ticks)
 
 	// Exclude manual tasks by default
 	if !nextIncludeManual {
@@ -197,12 +215,17 @@ func runNext(cmd *cobra.Command, args []string) error {
 		ready = nonManual
 	}
 
-	// Exclude awaiting tasks (agent shouldn't pick these up)
+	// Exclude awaiting tasks (agent shouldn't pick these up). Under autonomous
+	// mode a pure awaiting: checkpoint boundary is NOT excluded so continuation
+	// flows through it; every other awaiting type is still excluded.
 	var nonAwaiting []tick.Tick
 	for _, t := range ready {
-		if !t.IsAwaitingHuman() {
-			nonAwaiting = append(nonAwaiting, t)
+		if t.IsAwaitingHuman() {
+			if !(autonomous && t.GetAwaitingType() == tick.AwaitingCheckpoint) {
+				continue
+			}
 		}
+		nonAwaiting = append(nonAwaiting, t)
 	}
 	ready = nonAwaiting
 
@@ -215,11 +238,11 @@ func runNext(cmd *cobra.Command, args []string) error {
 		// The action describes WHAT TO DO with the returned tick, regardless of
 		// which selection path produced it: a childless unblocked epic that wins
 		// from the ready pool still needs planning, not implementation.
-		return printNextResult(next, nextAction(next, ticks))
+		return printNextResult(next, nextActionWithMode(next, ticks, autonomous))
 	}
 
 	// No ready tasks — check for epics needing planning (agent mode only).
-	planCandidates := selectPlanningCandidates(epicID, filter, filtered, ticks)
+	planCandidates := selectPlanningCandidatesWithMode(epicID, filter, filtered, ticks, autonomous)
 	query.SortBySoftOrderPriorityCreatedAt(planCandidates, ticks)
 
 	if len(planCandidates) > 0 {
@@ -240,7 +263,17 @@ func runNext(cmd *cobra.Command, args []string) error {
 //   - --epic form or global: use the already-filtered list as candidates
 //
 // allTicks is always the full universe for blocker/child resolution.
+//
+// This wrapper preserves the pre-autonomous-mode behavior (no checkpoint
+// bypass); selectPlanningCandidatesWithMode carries the autonomous switch.
 func selectPlanningCandidates(epicID string, filter query.Filter, filtered []tick.Tick, allTicks []tick.Tick) []tick.Tick {
+	return selectPlanningCandidatesWithMode(epicID, filter, filtered, allTicks, false)
+}
+
+// selectPlanningCandidatesWithMode is selectPlanningCandidates with the
+// autonomous-mode switch. When autonomous is true, a pure awaiting: checkpoint
+// boundary no longer gates planning (other awaiting types still gate).
+func selectPlanningCandidatesWithMode(epicID string, filter query.Filter, filtered []tick.Tick, allTicks []tick.Tick, autonomous bool) []tick.Tick {
 	if epicID != "" {
 		// When scoped to a specific epic, check whether that epic itself needs planning.
 		// filtered contains the children of epicID, not the epic itself, so we look it up
@@ -252,7 +285,7 @@ func selectPlanningCandidates(epicID string, filter query.Filter, filtered []tic
 				break
 			}
 		}
-		return query.EpicsNeedingPlanning(epicCandidates, allTicks)
+		return query.EpicsNeedingPlanningWithMode(epicCandidates, autonomous, allTicks)
 	}
 
 	// Global or --epic scope: filtered already matches the right Type (epic or all).
@@ -269,15 +302,24 @@ func selectPlanningCandidates(epicID string, filter query.Filter, filtered []tic
 			}
 		}
 	}
-	return query.EpicsNeedingPlanning(epicCandidates, allTicks)
+	return query.EpicsNeedingPlanningWithMode(epicCandidates, autonomous, allTicks)
 }
 
 // nextAction returns the action label for a selected tick: "plan" when the tick
 // is an epic that needs planning (childless, open, unblocked — same criteria as
 // the planning fallback path), "implement" otherwise. allTicks is the full tick
 // universe, used for blocker and child detection.
+//
+// This wrapper preserves pre-autonomous-mode behavior; nextActionWithMode
+// carries the autonomous switch.
 func nextAction(next tick.Tick, allTicks []tick.Tick) string {
-	if len(query.EpicsNeedingPlanning([]tick.Tick{next}, allTicks)) > 0 {
+	return nextActionWithMode(next, allTicks, false)
+}
+
+// nextActionWithMode is nextAction with the autonomous-mode switch so a
+// checkpoint-awaiting epic surfaced from the ready pool is still labeled "plan".
+func nextActionWithMode(next tick.Tick, allTicks []tick.Tick, autonomous bool) string {
+	if len(query.EpicsNeedingPlanningWithMode([]tick.Tick{next}, autonomous, allTicks)) > 0 {
 		return "plan"
 	}
 	return "implement"

@@ -228,6 +228,14 @@ type PolicyConfig struct {
 	// restricted.
 	Sandbox *bool `json:"sandbox,omitempty"`
 
+	// AutonomousMode controls whether the run is fully autonomous (default
+	// false). When true, a project-checkpoint boundary (a tick whose only
+	// reason to be gated is awaiting: checkpoint) no longer halts continuation
+	// — the orchestrator flows through the project boundary without waiting for
+	// a human. It NEVER bypasses any other awaiting type: approval, input,
+	// review, content, escalation, and work always gate.
+	AutonomousMode *bool `json:"autonomous_mode,omitempty"`
+
 	// SecretsExposure controls how secrets are made available to agents
 	// (default "none"). Valid values: "none", "env", "file".
 	SecretsExposure *SecretsExposure `json:"secrets_exposure,omitempty"`
@@ -241,6 +249,7 @@ const (
 	DefaultRequireCommit           = false
 	DefaultRequireVerifiersForPrio = 0
 	DefaultSandbox                 = false
+	DefaultAutonomousMode          = false
 )
 
 // GetMaxAttempts returns the max attempts per task (default 3).
@@ -289,6 +298,16 @@ func (p *PolicyConfig) GetSandbox() bool {
 		return DefaultSandbox
 	}
 	return *p.Sandbox
+}
+
+// GetAutonomousMode returns whether autonomous mode is enabled (default false).
+// When enabled, project-checkpoint boundaries no longer gate continuation; no
+// other awaiting type is affected.
+func (p *PolicyConfig) GetAutonomousMode() bool {
+	if p == nil || p.AutonomousMode == nil {
+		return DefaultAutonomousMode
+	}
+	return *p.AutonomousMode
 }
 
 // GetSecretsExposure returns the secrets exposure mode (default "none").
