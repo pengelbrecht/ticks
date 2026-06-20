@@ -95,8 +95,18 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	storePath := filepath.Join(root, ".tick")
 	app := tui.NewApp(filtered, storePath, owner)
 	defer app.Close() // Clean up filesystem watcher
+
+	// Restore UI state persisted from the previous session. A missing file
+	// yields defaults silently; errors are soft (we still start the TUI).
+	if st, err := tui.LoadState(storePath); err == nil {
+		app.ApplyState(st)
+	}
+
 	if _, err := tea.NewProgram(app, tea.WithAltScreen()).Run(); err != nil {
 		return fmt.Errorf("failed to run tui: %w", err)
 	}
+
+	// Persist UI state for the next session. Errors are non-fatal.
+	_ = tui.SaveState(storePath, app.ExtractState())
 	return nil
 }
