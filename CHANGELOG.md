@@ -5,11 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.18.0] - 2026-06-20
+
+### Added
+
+- **Big-picture hierarchy** — generic `tick → epic → project` containers with role derivation (epic = run-as-a-unit, bucket = passive grouping, project = checkpoint boundary). Containment is free and passive; orchestration is opt-in.
+- **Target dates** — optional `target_date` (precise ISO day) on any tick, with a derived overdue / on-track slip signal. New `tk create/update --target-date` and `tk list --overdue` / `--due-before` / `--sort target_date`.
+- **Recursive continuation + project checkpoints** — the orchestration frontier ascends the project tree; project boundaries stop on a checkpoint by default. New global autonomous mode (`tk next --autonomous`, `policy.autonomous_mode`) flows through checkpoint boundaries only.
+- **`tk tui` unified terminal app** — a persistent shell with a navigation sidebar (smart views + project tree), swappable **List / Board / Roadmap / Timeline** views, a ⌘K command palette, inline editing through the store, mouse support, and persisted UI state.
 
 ### Changed
 
-- **BREAKING:** `tk view` has been removed and replaced by `tk tui`, the unified terminal app (navigation sidebar + swappable content views + detail pane). There is no `view` alias; update any scripts invoking `tk view`.
+- **BREAKING:** `tk view` has been removed and replaced by `tk tui`, the unified terminal app. There is no `view` alias; update any scripts invoking `tk view`.
 
 ## [0.7.0] - 2025-01-23
 
