@@ -138,6 +138,8 @@ Transform the gathered requirements into ticks organized by epic.
 
 ### Big picture — roadmaps, projects, and dates
 
+> Opt-in structure conventions (ladder, container DoR, cycle/milestone/initiative): `references/big-picture.md`
+
 Most work starts here: a flat roadmap of sequenced epics, dependencies, and nothing else. That is the **"just ship it"** default, and it is all you ever need for a single workstream. The features below — projects, buckets, `target_date` — layer on top when the work grows large enough to need them.
 
 #### The hierarchy: tick → epic → project
