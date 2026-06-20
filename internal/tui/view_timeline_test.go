@@ -384,8 +384,8 @@ func TestTimelineGolden(t *testing.T) {
 	// The Roadmap smart view returns allTicks — all fixtures are visible.
 	sendKey(tm, "j")
 	sendKey(tm, "j")
-	// Switch to the Timeline content tab (hotkey "3": List=1, Roadmap=2, Timeline=3).
-	sendKey(tm, "3")
+	// Switch to the Timeline content tab (hotkey "4": List=1, Board=2, Roadmap=3, Timeline=4).
+	sendKey(tm, "4")
 	// Focus the main pane.
 	tm.Send(keyMsg("tab"))
 	// Move selection down once.

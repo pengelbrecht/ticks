@@ -358,8 +358,8 @@ func TestRoadmapGolden(t *testing.T) {
 	// Row 0 = Awaiting (initial), j → My ticks, j → Roadmap.
 	sendKey(tm, "j")
 	sendKey(tm, "j")
-	// Switch to the Roadmap content tab (hotkey "2").
-	sendKey(tm, "2")
+	// Switch to the Roadmap content tab (hotkey "3": List=1, Board=2, Roadmap=3).
+	sendKey(tm, "3")
 	// Focus the main pane and move selection down once.
 	tm.Send(keyMsg("tab")) // sidebar → main
 	sendKey(tm, "j")
