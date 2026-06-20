@@ -1,0 +1,14 @@
+{
+  "id": "88s",
+  "title": "Project frontier + completion query",
+  "description": "FOUNDATION for epic vdl. New file internal/query/frontier.go with the project-tree continuation helpers the CLI wiring (V2) consumes. Reuse the wave-built contracts: hierarchy.go (Role/IsContainer/BuildChildIndex), rollup.go (DescendantProgress), and roadmap.go Parent linkage.\n\nProvide:\n- CompletedProjectsNeedingCloseout(allTicks) []tick.Tick — projects (RoleProject) whose every leaf descendant is closed but the project tick itself is still open (the boundary where a checkpoint/close-out is due). Use DescendantProgress.\n- A project-aware 'next feasible epic to plan' helper that generalizes the existing flat EpicsNeedingPlanning selection to respect project grouping + soft order (it may wrap EpicsNeedingPlanning + sort; the point is a single entry the CLI calls). Document that ascent across the tree is driven by roadmap blocked-by/after edges (already encoded), so this need not re-walk parents — it surfaces the same feasible set, project-aware.\n\nDesign: docs/design/big-picture-tracking-projects-and-hierarchy.md §5. Do NOT touch next.go or config (V2). New file + tests only.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "vdl",
+  "acceptance_criteria": "go test -short ./internal/query/... passes; tests cover: a project with all epics closed is returned by CompletedProjectsNeedingCloseout; a project with an open epic is not; next-feasible-epic respects project grouping + soft order; project-less roadmap behavior unchanged",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T14:45:00.761269783Z",
+  "updated_at": "2026-06-20T14:45:00.761269783Z"
+}

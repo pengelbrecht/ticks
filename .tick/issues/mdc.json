@@ -1,0 +1,17 @@
+{
+  "id": "mdc",
+  "title": "Integration + regression tests for recursive continuation",
+  "description": "End-to-end tests for the recursive continuation engine across the project tree. Exercise tk next / the frontier query over fixtures: a flat epic roadmap (regression — must match prior behavior), a project grouping epics with a checkpoint boundary, and the same with autonomous-mode on. \n\nThis is the backwards-compat guard for epic vdl: the project-less path MUST be unchanged. Design §5, §8.\n\nFiles: internal/query/*_test.go, cmd/tk/cmd/*_test.go (new test files; do not edit existing expectations).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "nh5"
+  ],
+  "parent": "vdl",
+  "acceptance_criteria": "go test -short ./... passes (modulo known baselines); new integration tests assert: (a) project-less epic roadmap continuation is byte-identical to before, (b) a completed project surfaces via CompletedProjectsNeedingCloseout and its checkpoint halts planning past the boundary, (c) autonomous-mode lets continuation flow through the checkpoint, (d) a project whose close-out has no checkpoint flows through",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T14:45:00.825766882Z",
+  "updated_at": "2026-06-20T14:45:00.825766882Z"
+}
