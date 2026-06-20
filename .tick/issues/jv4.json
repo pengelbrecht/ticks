@@ -2,7 +2,8 @@
   "id": "jv4",
   "title": "Editable detail pane + inline editing + palette edit actions",
   "description": "Replace the read-only detail stub with an EDITABLE detail view-model (internal/tui/view_detail.go): render metadata (status, priority, owner, parent epic, blockers, target_date), description, acceptance, notes (port buildDetailContent from model.go); inline field edits (status/owner/priority/parent/labels/target_date) via field-cycle + textinput, writing through tick.NewStore(path).WriteAs. Move doApprove/doReject out of model.go into here. Add shared edit funcs in internal/tui/edit.go (over the store) and register the palette EDIT actions (close/reopen/reassign/set status/priority/add blocker/approve/reject) by calling them -- a localized addition to palette.go. Adaptive detail behavior (design section 6): peek in 3-pane, swap-on-Enter in 2-pane, full in 1-pane (via the layout seam in app.go). Files: internal/tui/view_detail.go (new), internal/tui/edit.go (new), tests; localized edits to palette.go + app.go.",
-  "status": "in_progress",
+  "notes": "2026-06-20 16:18 - runner-state: runner=claude branch=worktree-agent-a5959794414f223d1",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,6 +15,7 @@
   "acceptance_criteria": "unit: each inline edit yields expected Tick and calls store.WriteAs (asserted vs temp .tick); approve/reject reproduce current behavior; teatest golden: edit status inline reflects in frame; on medium width Enter swaps to detail, Esc returns; edited tick re-read matches",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T15:32:52.734561372Z",
-  "updated_at": "2026-06-20T16:03:31.164266284Z",
-  "started_at": "2026-06-20T16:03:31.164265424Z"
+  "updated_at": "2026-06-20T16:18:21.93258772Z",
+  "closed_at": "2026-06-20T16:18:21.93258772Z",
+  "closed_reason": "Completed: editable detail view-model + shared edit.go write-path (editSetStatus/Owner/Priority/Parent/Labels/TargetDate/AddBlocker/Approve/Reject over store); folded doApprove/doReject; adaptive 3/2/1 detail; palette edit actions"
 }
