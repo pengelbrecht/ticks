@@ -2,6 +2,7 @@
   "id": "vdl",
   "title": "Recursive orchestration: continuation engine + project checkpoints",
   "description": "Generalize the cross-epic continuation engine to walk the project tree (design §5). Hard-depends on the container model from the data-model epic.\n\ntk next ascends past a finished epic's siblings into the parent container; project boundaries STOP on a checkpoint by default (per-project flag), with a global autonomous-mode override. Epic→epic auto-continue is unchanged; epic retro/learnings are unchanged.\n\nDeliverables:\n- recursive frontier ascent in tk next (epic→sibling→parent container)\n- project close-out checkpoint default + per-project auto-continue flag\n- global autonomous-mode switch (config / run flag)\n- regression: project-less roadmap path unchanged (two-tier stopping rule)",
+  "notes": "2026-06-20 15:09 - RETRO (epic vdl) — VERDICT SHIP.\nLearnings: none promoted — no new high-signal cross-cutting gotchas (the stale-base recurrence is already captured in learnings.md and the prompt's 'merge epic/zt6 first' handled it; the keep-old-signatures + add *WithMode-delegating-false backwards-compat pattern is standard Go practice).\nVerification (frontier review): all deliverables present + tested — CompletedProjectsNeedingCloseout, NextPlannableEpics, autonomous-mode config + GetAutonomousMode, gatesHuman checkpoint-only bypass, tk next --autonomous wiring. Backwards-compat: OFF path byte-equivalent, no existing test expectations changed.\nDrift: none. Accepted nits (non-blocking, no cleanup tick): redundant awaiting re-filter in next.go; missing nested-project/zero-leaf-project/leaf-checkpoint test cases.\nRoadmap changes proposed: none.",
   "status": "open",
   "priority": 1,
   "type": "epic",
@@ -11,5 +12,5 @@
   ],
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T13:56:24.191856768Z",
-  "updated_at": "2026-06-20T13:56:24.191856768Z"
+  "updated_at": "2026-06-20T15:09:16.747168533Z"
 }
