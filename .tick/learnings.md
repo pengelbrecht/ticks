@@ -48,13 +48,6 @@ approval in pnpm-workspace.yaml (esbuild).
 keep internal/tickboard/ui/pnpm-workspace.yaml committed. Workflow changes are only proven by
 an actual CI run, never by local tests.
 
-**Problem:** The comms suites (src/comms/cloud.test.ts, local.test.ts) are live-rig
-integration tests, not unit tests.
-**Cause:** They drive the real Go test rig (`go run ./cmd/testrig -port 18787`) over
-WebSocket/SSE/REST; hermetic coverage lives in cloud-unit.test.ts and mock.test.ts.
-**Rule:** They auto-run when a rig answers /health (or TICKS_LIVE_TESTS=1) and skip otherwise
-— to exercise them, start the rig (see e2e/run-cloud-tests.sh); don't "fix" skips by mocking.
-
 **Problem:** cloud/worker's full `pnpm test` crashes workerd at boot ("inserted row already
 exists in table") whenever multiple test files share the runtime; auth-integration.test.ts also
 has 2 stale tests hitting a removed /agent route (tracked: tick xdq).
@@ -141,3 +134,15 @@ anything a prior failed merge left staged.
 never `git add .tick/ && git commit`. And after any merge, check it actually committed
 (`git rev-parse -q --verify MERGE_HEAD` should be empty; `git status` clean) BEFORE committing
 tracker state. To recover a botched merge-commit, `git reset --hard <pre-merge-sha>` and re-merge.
+
+## TUI (internal/tui)
+
+**Problem:** Parallel view-model ticks each changed shared chrome (the view-tab strip / footer),
+so every OTHER view's teatest golden went stale at integration; and inserting a view mid-strip
+(Board at hotkey 2) shifted sibling hotkeys, making position-based golden navigation time out
+(`WaitFor` 5s) because the test landed on the wrong view.
+**Cause:** Goldens render the whole frame including shared chrome; view tab-hotkeys are positional.
+**Rule:** After integrating any view-model tick, regenerate cross-contaminated goldens
+(`go test ./internal/tui -update`) and confirm the diff is chrome-only. In view tests, reach a
+view by a stable means, not a hardcoded hotkey digit — or expect to fix sibling-view nav when a
+new view is inserted mid-strip. Tab order is List·Board·Roadmap·Timeline.
