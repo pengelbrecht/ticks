@@ -48,6 +48,7 @@ type App struct {
 
 	sidebar Sidebar
 	detail  detail
+	pal     palette // command palette overlay (§8); open via Ctrl-K
 
 	// detailVisible governs whether the detail pane replaces main in the
 	// 2/1-pane layouts (§3). In the 3-pane layout it is always shown.
@@ -126,6 +127,30 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return a.handleKey(msg)
+
+	// ── Palette messages ───────────────────────────────────────────────────
+	case paletteCloseMsg:
+		a.focus = focusMain
+		return a, nil
+
+	case paletteJumpMsg:
+		// Jump: move the active view's selection to the target tick, then close.
+		// JumpTo is implemented by views that support direct cursor placement
+		// (e.g. listView). Views that don't implement it simply stay put.
+		if jv, ok := a.activeView().(interface{ JumpTo(string) }); ok {
+			jv.JumpTo(msg.id)
+		}
+		a.syncDetail()
+		a.focus = focusMain
+		return a, nil
+
+	case paletteSwitchViewMsg:
+		if msg.viewIndex >= 0 && msg.viewIndex < a.views.len() {
+			a.activeIx = msg.viewIndex
+			a.reScope()
+		}
+		a.focus = focusMain
+		return a, nil
 	}
 
 	return a, nil
@@ -134,9 +159,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes a key message: global keys first, then routing to the
 // focused child.
 func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the palette is open, route all keys to it and handle its outputs.
+	if a.focus == focusPalette {
+		var cmd tea.Cmd
+		a.pal, cmd = a.pal.Update(msg)
+		return a, cmd
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return a, tea.Quit
+	case "ctrl+k":
+		// Open the palette: build a fresh candidate list and focus the overlay.
+		a.pal = newPalette(a.allTicks, a.views)
+		a.pal.SetSize(a.width, a.height)
+		a.focus = focusPalette
+		return a, nil
 	case "tab":
 		a.focus = focusZone((int(a.focus) + 1) % focusZoneCount)
 		a.syncDetailVisibility()
@@ -280,7 +318,19 @@ func (a App) View() string {
 	}
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
-	return body + "\n" + a.footer()
+	frame := body + "\n" + a.footer()
+
+	// When the palette is open, render it as a floating overlay centred within
+	// the shell frame. lipgloss.Place places the overlay at the top-centre of
+	// the terminal area, keeping total height stable (no extra lines).
+	if a.focus == focusPalette {
+		overlay := a.pal.View()
+		frame = lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Top,
+			overlay,
+			lipgloss.WithWhitespaceChars(""),
+		) + "\n" + a.footer()
+	}
+	return frame
 }
 
 // mainHeader builds the content-pane header: the view-tab strip (§5).
@@ -321,6 +371,7 @@ func (a App) footer() string {
 		"tab: focus",
 		"j/k: move",
 		"1: views",
+		"ctrl+k: palette",
 		"q: quit",
 	}
 	return footerStyle.Render(strings.Join(hints, "  ·  ")) +
