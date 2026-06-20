@@ -2,7 +2,8 @@
   "id": "nh5",
   "title": "Autonomous-mode: config + checkpoint bypass, wired into tk next",
   "description": "Add global autonomous-mode and the checkpoint-bypass it enables. Builds on V1.\n\n1. internal/config: add an autonomous-mode setting (e.g. Policy.AutonomousMode *bool, matching the existing *bool option style) + a resolve helper defaulting to false.\n2. Selection gating: in the planning/ready selection path (plan.go needsPlanning and/or ready.go), when autonomous-mode is enabled, treat awaiting type 'checkpoint' as NON-gating (project boundaries flow through) while keeping all other awaiting types gating. Default (off) behavior is unchanged — this is the key backwards-compat point.\n3. tk next wiring: thread the resolved mode into runNext; add a way to enable it for a run (a --autonomous flag and/or reading the config). \n\nPer-project auto-continue and the project close-out tick are CONVENTIONS handled by the skill docs (af5), not here — this tick only provides the global switch + the bypass mechanism. Design: §5, §8 (the two checkpoint knobs).\n\nFiles: internal/config/config.go, internal/query/plan.go (and/or ready.go), cmd/tk/cmd/next.go + tests.",
-  "status": "open",
+  "notes": "2026-06-20 14:59 - runner-state: runner=claude branch=worktree-agent-aa248feb6d479854f",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +14,7 @@
   "acceptance_criteria": "go test -short ./internal/config/... ./internal/query/... ./cmd/... passes; with autonomous-mode OFF a project-checkpoint (awaiting:checkpoint) gates continuation as today; with it ON, checkpoint-type awaits no longer gate planning while OTHER awaiting types still do; tk next exposes the mode",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T14:45:00.801257863Z",
-  "updated_at": "2026-06-20T14:45:00.801257863Z"
+  "updated_at": "2026-06-20T14:59:25.221823912Z",
+  "closed_at": "2026-06-20T14:59:25.221823912Z",
+  "closed_reason": "Completed: PolicyConfig.autonomous_mode + GetAutonomousMode; gatesHuman bypasses ONLY checkpoint; ReadyWithMode/EpicsNeedingPlanningWithMode; tk next --autonomous; OFF path byte-identical"
 }
