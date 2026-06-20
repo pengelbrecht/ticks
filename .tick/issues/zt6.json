@@ -1,0 +1,16 @@
+{
+  "id": "zt6",
+  "title": "Big-picture data model: generic tick→epic→project hierarchy + target_date",
+  "description": "Implement the data-model foundation from docs/design/big-picture-tracking-projects-and-hierarchy.md.\n\nGeneric recursive containment (any tick may contain ticks); role derivation (tick / epic / bucket / project); explicit epic marker = orchestration opt-in (grouping vs orchestration, §1); project = container-of-containers; recursive progress rollup; target_date field (precise ISO day, §4) with DERIVED overdue/on-track slip; plus the tk surface. Backwards-compat is about execution: simple epics and project-less roadmaps behave exactly as today.\n\nNote (config.md): schema edits must run make codegen-go AND make codegen-ts and commit regenerated output.\n\nDeliverables:\n- target_date schema field + struct + validation\n- role-derivation helpers (container detection; epic/bucket/project/empty-epic)\n- recursive descendant progress rollup\n- derived slip signal (overdue / on-track)\n- tk create/update --target-date\n- tk list --overdue/--due-before + sort by target_date\n- project-aware roadmap render (walk hierarchy; buckets excluded from orchestration nodes)\n- all existing roadmap/epic tests still green",
+  "notes": "2026-06-20 14:34 - RETRO (epic zt6) — VERDICT SHIP.\nLearnings: .tick/learnings.md +2 (schema date fields use string+pattern not format:date to avoid a go-jsonschema runtime dep; new cobra flag vars must be reset in ResetFlags). No skill/CLAUDE.md promotions — orchestration ran clean; the existing 'name the prerequisite commit SHA' learning worked as prescribed (wave-2/3 agents on a stale base merged epic/zt6 themselves).\nVerification (outside-in, frontier review): all 7 scope items present in code + green — target_date field+codegen, 5-role derivation, cycle-safe recursive rollup, derived slip, --target-date flag, date queries, generic-container roadmap (buckets excluded, projects grouped). Backwards-compat: no existing test expectations changed; project-less roadmaps byte-identical; needsPlanning preserved.\nDrift: none. Roadmap changes proposed: none.",
+  "status": "closed",
+  "priority": 1,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "base_branch": "main",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:56:24.146569545Z",
+  "updated_at": "2026-06-20T14:45:19.68590533Z",
+  "closed_at": "2026-06-20T14:45:19.68590533Z",
+  "closed_reason": "Completed: all 6 implementation ticks + final review (SHIP) merged \u0026 green on branch epic/zt6. DEFERRED: push/PR/CI/merge-to-main per .tick/config.md is held for the roadmap-end (682) checkpoint — work stacks on epic/zt6."
+}

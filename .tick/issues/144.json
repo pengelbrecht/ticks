@@ -1,0 +1,17 @@
+{
+  "id": "144",
+  "title": "Container model contract: target_date field + role derivation",
+  "description": "FOUNDATION / shared contract — everything else in this epic blocks on it.\n\nAdd target_date to the Tick model (precise ISO day, optional) in internal/tick/tick.go + schemas/tick.schema.json (then run make codegen-go AND make codegen-ts per .tick/config.md, commit regenerated output). Add role-derivation helpers in a NEW internal/query/hierarchy.go: container detection (has children) and role classification — tick (leaf,no marker) / empty-epic (leaf,marker) / epic (children,marker) / bucket (children,no marker) / project (contains a container). Epic marker stays the explicit type:epic. See design §1–2.\n\nFiles: internal/tick/tick.go, schemas/tick.schema.json, NEW internal/query/hierarchy.go.",
+  "notes": "2026-06-20 14:05 - runner-state: runner=claude branch=worktree-agent-a6b50bea6a7aec11c",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "zt6",
+  "acceptance_criteria": "go test ./internal/tick/... ./internal/query/... passes; role-derivation tests cover leaf/empty-epic/epic/bucket/project; schema validates target_date; make codegen-go \u0026\u0026 make codegen-ts clean",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:57:13.764291111Z",
+  "updated_at": "2026-06-20T14:05:20.065827772Z",
+  "closed_at": "2026-06-20T14:05:20.065827772Z",
+  "closed_reason": "Completed: added optional target_date (ISO-day string) + role-derivation helpers (RoleKind/Role/IsContainer/BuildChildIndex) in internal/query/hierarchy.go; codegen regenerated"
+}

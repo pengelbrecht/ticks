@@ -29,7 +29,9 @@ on omissions — keep it passing rather than skipping it.
 **Cause:** cobra state leaks across in-process executions: flag values persist, the --help
 flag value short-circuits later commands, and contexts only propagate to commands with nil ctx.
 **Rule:** Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext` (cmd/tk/cmd/root.go),
-which reset flags and handle these quirks — never call `rootCmd.Execute()` directly.
+which reset flags and handle these quirks — never call `rootCmd.Execute()` directly. When you ADD
+a persistent flag var in `cmd/tk/cmd/*.go`, also reset it in `ResetFlags()` in root.go — otherwise
+its value leaks into later in-process test executions.
 
 **Problem:** Tickboard UI changes pass `pnpm test` but don't appear in the running `tk board`.
 **Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`;
@@ -45,13 +47,6 @@ approval in pnpm-workspace.yaml (esbuild).
 **Rule:** Keep `package_json_file: internal/tickboard/ui/package.json` on the pnpm action and
 keep internal/tickboard/ui/pnpm-workspace.yaml committed. Workflow changes are only proven by
 an actual CI run, never by local tests.
-
-**Problem:** The comms suites (src/comms/cloud.test.ts, local.test.ts) are live-rig
-integration tests, not unit tests.
-**Cause:** They drive the real Go test rig (`go run ./cmd/testrig -port 18787`) over
-WebSocket/SSE/REST; hermetic coverage lives in cloud-unit.test.ts and mock.test.ts.
-**Rule:** They auto-run when a rig answers /health (or TICKS_LIVE_TESTS=1) and skip otherwise
-— to exercise them, start the rig (see e2e/run-cloud-tests.sh); don't "fix" skips by mocking.
 
 **Problem:** cloud/worker's full `pnpm test` crashes workerd at boot ("inserted row already
 exists in table") whenever multiple test files share the runtime; auth-integration.test.ts also
@@ -70,6 +65,15 @@ Go types updated but the UI's generated TS stale (or vice versa).
 **Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
 all regenerated output together. Tick authors: spell these commands out in any tick that
 touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
+
+**Problem:** Adding a date field to schemas/ pulled a new runtime dependency into the generated
+Go (`*types.SerializableDate` from github.com/atombender/go-jsonschema/pkg/types) where the file
+had previously imported only `time`.
+**Cause:** go-jsonschema maps JSON-Schema `format:"date"` to its own SerializableDate type.
+**Rule:** For date-only fields use `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, NOT
+`format:"date"` — generated Go/TS stay plain `string` with zero new deps; parse with a
+hand-written layout const (e.g. `tick.TargetDateLayout`). The regex is shape-only (accepts
+`2026-13-45`); Go `time.Parse` in `Validate()` is the authoritative gate, so validate there too.
 
 ## Docs & marketing copy
 
@@ -111,3 +115,34 @@ step gets skipped entirely.
 **Rule:** Before each Agent call, explicitly choose a tier from the claude-runner.md table and
 set `model=` to the matching model. Omitting it is not "defaulting to balanced" — it is
 implicitly choosing frontier. Resolve the tier per-tick, not once for the run.
+
+**Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
+`--flags` or code) silently corrupted the stored field — the backtick spans were shell
+command-substituted, embedding command output (e.g. a `tk roadmap` dump) into the description.
+**Cause:** Double-quoted shell strings still evaluate backticks and `$(...)`.
+**Rule:** Author tick descriptions/notes with SINGLE-quoted strings (or a heredoc), never
+double-quoted, whenever the text contains backticks, `$`, or `()`. Verify with `tk show <id>`
+after bulk creation — substitution failures go to stderr and are easy to miss.
+
+**Problem:** A `git merge` of an implementer branch failed/half-applied (rename + go.mod staged
+in the index), then a blind `git add .tick/ && git commit` for tracker state captured the
+half-staged merge leftovers into the tracker commit — corrupting HEAD and causing add/add
+conflicts on the retry.
+**Cause:** `git add .tick/` stages .tick, but `git commit` commits the WHOLE index, including
+anything a prior failed merge left staged.
+**Rule:** Commit orchestrator tracker state with a pathspec — `git commit .tick/ -m "..."` —
+never `git add .tick/ && git commit`. And after any merge, check it actually committed
+(`git rev-parse -q --verify MERGE_HEAD` should be empty; `git status` clean) BEFORE committing
+tracker state. To recover a botched merge-commit, `git reset --hard <pre-merge-sha>` and re-merge.
+
+## TUI (internal/tui)
+
+**Problem:** Parallel view-model ticks each changed shared chrome (the view-tab strip / footer),
+so every OTHER view's teatest golden went stale at integration; and inserting a view mid-strip
+(Board at hotkey 2) shifted sibling hotkeys, making position-based golden navigation time out
+(`WaitFor` 5s) because the test landed on the wrong view.
+**Cause:** Goldens render the whole frame including shared chrome; view tab-hotkeys are positional.
+**Rule:** After integrating any view-model tick, regenerate cross-contaminated goldens
+(`go test ./internal/tui -update`) and confirm the diff is chrome-only. In view tests, reach a
+view by a stable means, not a hardcoded hotkey digit — or expect to fix sibling-view nav when a
+new view is inserted mid-strip. Tab order is List·Board·Roadmap·Timeline.

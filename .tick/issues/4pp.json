@@ -1,0 +1,16 @@
+{
+  "id": "4pp",
+  "title": "Foundation: shell + focus routing + List view + sidebar + e2e harness scaffold",
+  "description": "FOUNDATION for epic 682 -- everything blocks on it. Architecture-first per docs/design/tui-unified-app.md (READ IT). Do NOT split the shell across parallel agents.\n\nDeliver as one coherent skeleton:\n- Rename tk view to tk tui, NO alias: rename cmd/tk/cmd/view.go to cmd/tk/cmd/tui.go (Use: tui), update the command allowlist in cmd/tk/main.go (around line 50, view -\u003e tui), note the breaking rename in CHANGELOG.md.\n- Root model (internal/tui/app.go): App struct owning focus zone {sidebar,main,detail,palette}, terminal size, active scope, active view kind, and the view registry; Update/View route to children and pick the adaptive 3/2/1-pane layout by width (design section 3). Put adaptive width logic in internal/tui/layout.go.\n- A View interface + registry + a single registerViews() seam (internal/tui/view.go) so later view ticks add themselves with ONE localized line. Interface roughly: Update(tea.Msg)(View,tea.Cmd); View() string; Title() string; Tab() string.\n- Sidebar view-model (internal/tui/sidebar.go): smart views Awaiting / My ticks / Roadmap / Active / Backlog (driven by query.Ready/Blocked/IsAwaitingHuman/owner) + collapsible project tree (query.BuildChildIndex/Role).\n- List view-model (internal/tui/view_list.go): port the existing tree render from model.go.\n- E2E harness SCAFFOLD (internal/tui/harness_test.go): add github.com/charmbracelet/x/exp/teatest to go.mod; helpers pinning color profile + teatest.WithInitialTermSize + t.TempDir() seeded .tick fixtures + timestamp normalization; one smoke golden. Replace the global COLORTERM init() hack in model.go with profile handling tests can pin.\n\nKeep model.go/roadmap.go in place as port sources (may shrink model.go; need not delete yet) so the app runs end-to-end after this tick (List + a read-only detail stub).\n\nShared Catppuccin tokens: internal/styles/styles.go.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "682",
+  "acceptance_criteria": "go test ./internal/tui/... green; root-model focus routing unit-tested with stub children (Tab cycles zones; width thresholds pick 3/2/1 panes); sidebar smart-view counts + tree collapse via Update; one teatest golden (launch 120x40 truecolor renders nav|list|detail, j/k move List selection, q quits); tmux smoke: tk tui launches + q exits 0",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T15:32:52.645501068Z",
+  "updated_at": "2026-06-20T15:52:46.896613436Z",
+  "closed_at": "2026-06-20T15:52:46.896613436Z",
+  "closed_reason": "Completed: tk tui foundation — root App model + focus routing + adaptive 3/2/1 layout + View interface/registerViews one-line seam + sidebar + List + teatest harness scaffold; tk view renamed to tk tui (no alias). (Recovered from a botched first merge.)"
+}

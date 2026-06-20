@@ -1,0 +1,40 @@
+╭──────────────────────────╮╭──────────────────────────────────────────────────────╮╭──────────────────────────────────╮
+│ NAV                      ││ ‹List› Board Roadmap Timeline                        ││ ep1 · Auth revamp                │
+│ VIEWS                    ││ > - ep1  ● P1 Auth revamp                            ││ ID:         ep1                  │
+│  ◳ Awaiting              ││       a1b  ● P1 token refresh                        ││ Type:       epic                 │
+│  ◔ My ticks              ││       x9k  ○ P2 login UI polish                      ││ ▸ Status:     ● in_progress      │
+│  ⊹ Roadmap               ││                                                      ││   Priority:   P1                 │
+│  ◇ Active                ││                                                      ││   Owner:                         │
+│  ▤ Backlog               ││                                                      ││   Parent:     (none)             │
+│                          ││                                                      ││   Labels:     (none)             │
+│ PROJECTS                 ││                                                      ││   Target:     (none)             │
+│  ▾ Auth revamp           ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+│                          ││                                                      ││                                  │
+╰──────────────────────────╯╰──────────────────────────────────────────────────────╯╰──────────────────────────────────╯
+tab: focus  ·  j/k: move  ·  1: views  ·  ctrl+k: palette  ·  q: quit  [main]

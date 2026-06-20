@@ -1,0 +1,19 @@
+{
+  "id": "ee9",
+  "title": "Close out epic zt6: run retro, then flesh out next feasible epic (vdl)",
+  "description": "Run the epic-close retro (harvest learnings → tiers, compact .tick/learnings.md, drift review, retro report). Then pick the next feasible epic in soft order — vdl (Recursive orchestration) — read its rough scope, partition into child ticks, and continue with tk graph vdl. See references/agent-runner.md.",
+  "notes": "2026-06-20 14:34 - Close-out progress: retro DONE + learnings promoted + .tick committed. REMAINING: flesh out epic vdl + continue. PAUSED at epic boundary for a user checkpoint before launching the next epic (vdl is ungated and would otherwise auto-continue).",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "smv"
+  ],
+  "parent": "zt6",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:57:13.926248699Z",
+  "updated_at": "2026-06-20T14:45:19.631901607Z",
+  "closed_at": "2026-06-20T14:45:19.631901607Z",
+  "closed_reason": "Completed: zt6 retro done + learnings promoted; next epic vdl fleshed into V1/V2/V3+review+close-out"
+}

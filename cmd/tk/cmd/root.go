@@ -248,6 +248,9 @@ func ResetFlags() {
 	listNotesContains = ""
 	listManual = false
 	listAwaiting = ""
+	listOverdue = false
+	listDueBefore = ""
+	listSort = ""
 	listJSON = false
 	listAwaitingSet = false
 
@@ -263,6 +266,7 @@ func ResetFlags() {
 	createDiscoveredFrom = ""
 	createAcceptance = ""
 	createDefer = ""
+	createTargetDate = ""
 	createExternalRef = ""
 	createManual = false
 	createRequires = ""
@@ -282,6 +286,7 @@ func ResetFlags() {
 	updateAfter = ""
 	updateAcceptance = ""
 	updateDefer = ""
+	updateTargetDate = ""
 	updateExternalRef = ""
 	updateParent = ""
 	updateManual = ""
@@ -303,6 +308,7 @@ func ResetFlags() {
 	updateAfterSet = false
 	updateAcceptanceSet = false
 	updateDeferSet = false
+	updateTargetDateSet = false
 	updateExternalRefSet = false
 	updateParentSet = false
 	updateManualSet = false
@@ -332,6 +338,7 @@ func ResetFlags() {
 	nextEpic = false
 	nextIncludeManual = false
 	nextJSON = false
+	nextAutonomous = false
 
 	// Reset blocked flags
 	blockedAll = false
@@ -377,14 +384,14 @@ func ResetFlags() {
 	// Reset labels flags
 	labelsJSON = false
 
-	// Reset view flags
-	viewAll = false
-	viewOwner = ""
-	viewStatus = ""
-	viewPriority = -1
-	viewType = ""
-	viewLabel = ""
-	viewParent = ""
+	// Reset tui flags
+	tuiAll = false
+	tuiOwner = ""
+	tuiStatus = ""
+	tuiPriority = -1
+	tuiType = ""
+	tuiLabel = ""
+	tuiParent = ""
 
 	// Reset import flags
 	importJSON = false

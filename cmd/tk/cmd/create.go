@@ -66,6 +66,7 @@ var (
 	createDiscoveredFrom string
 	createAcceptance     string
 	createDefer          string
+	createTargetDate     string
 	createExternalRef    string
 	createManual         bool
 	createRequires       string
@@ -85,6 +86,7 @@ func init() {
 	createCmd.Flags().StringVar(&createDiscoveredFrom, "discovered-from", "", "source tick id")
 	createCmd.Flags().StringVar(&createAcceptance, "acceptance", "", "acceptance criteria")
 	createCmd.Flags().StringVar(&createDefer, "defer", "", "defer until date (YYYY-MM-DD)")
+	createCmd.Flags().StringVar(&createTargetDate, "target-date", "", "target completion date (YYYY-MM-DD)")
 	createCmd.Flags().StringVar(&createExternalRef, "external-ref", "", "external reference (e.g. gh-42)")
 	createCmd.Flags().BoolVar(&createManual, "manual", false, "mark as requiring human intervention (skipped by tk next)")
 	createCmd.Flags().StringVarP(&createRequires, "requires", "r", "", "approval gate (approval|review|content)")
@@ -162,6 +164,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		deferUntil = &parsed
 	}
 
+	// Validate --target-date if provided.
+	targetDate := strings.TrimSpace(createTargetDate)
+	if targetDate != "" {
+		if _, err := time.Parse(tick.TargetDateLayout, targetDate); err != nil {
+			return fmt.Errorf("invalid target-date %q (use YYYY-MM-DD): %w", targetDate, err)
+		}
+	}
+
 	// Set requires pointer only if value provided
 	var requires *string
 	if requiresVal != "" {
@@ -199,6 +209,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		DiscoveredFrom:     strings.TrimSpace(createDiscoveredFrom),
 		AcceptanceCriteria: strings.TrimSpace(createAcceptance),
 		DeferUntil:         deferUntil,
+		TargetDate:         targetDate,
 		ExternalRef:        strings.TrimSpace(createExternalRef),
 		Manual:             false, // Never set Manual=true for new ticks; --manual maps to awaiting=work
 		Requires:           requires,

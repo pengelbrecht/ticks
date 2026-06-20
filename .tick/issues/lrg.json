@@ -1,0 +1,17 @@
+{
+  "id": "lrg",
+  "title": "Fix Roadmap Enter-to-jump (handle jumpToEpicMsg) + dead-seam nits",
+  "description": "Final review of epic 682 found two wired-but-dead paths. Fix:\n1. app.go Update has NO case for jumpToEpicMsg (emitted by view_roadmap.go on Enter), so Roadmap Enter-to-jump is a silent no-op. Add a case that sets the sidebar scope to that epic node (mirror the old jumpToRoadmapEpic in model.go) and switches the active view to List, so the jump is visible. Add a test.\n2. Palette jump (paletteJumpMsg) only works when the List view is active (JumpTo is implemented only on listView). Make a jump from any view switch to List first, then select the target. (Minimal: in the paletteJumpMsg handler, set active view to List before JumpTo.)\n3. Remove the dead paletteOpenMsg seam (palette.go ~line 17 — defined, never emitted/handled).\n4. Fix the stale comment in view_timeline_test.go (~line 351) that says Timeline=hotkey 3; it is 4 (List=1, Board=2, Roadmap=3, Timeline=4).\n\nDo NOT touch the model.go dead-code cleanup (separate follow-up tick). Files: internal/tui/app.go, internal/tui/palette.go, internal/tui/view_timeline_test.go, + a test. Reuse harness helpers. If a shared golden drifts, regenerate only the ones your change affects.",
+  "notes": "2026-06-20 16:36 - runner-state: runner=claude branch=worktree-agent-a98ef574ba7d6314a",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "682",
+  "acceptance_criteria": "go test -short ./internal/tui/... green; new test: Enter on a Roadmap-view epic sets scope to that epic and switches to List (the selected tick/scope reflects the jump); palette jump works when a non-List view is active (switches to List then selects); dead paletteOpenMsg removed; stale Timeline hotkey comment corrected",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T16:31:59.354587455Z",
+  "updated_at": "2026-06-20T16:36:22.933650128Z",
+  "closed_at": "2026-06-20T16:36:22.933650128Z",
+  "closed_reason": "Completed: jumpToEpicMsg handler (Roadmap Enter jumps to epic in List); palette jump switches to List first; SelectNode wrapper; removed dead paletteOpenMsg; fixed stale comment; +2 tests"
+}

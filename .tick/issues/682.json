@@ -1,0 +1,21 @@
+{
+  "id": "682",
+  "title": "tk tui — unified terminal app",
+  "description": "Build the unified terminal app from docs/design/tui-unified-app.md. Hard-depends on the end-state data model (project tree + target_date); soft-ordered after the skill docs; gated with a checkpoint because it is a large, distinct surface.\n\nRename tk view→tk tui (no alias). Root model + child view-models; adaptive 3/2/1-pane layout; sidebar (smart views + project tree); main pane view tabs (List/Board/Roadmap/Timeline); ⌘K palette; inline editing + mouse + persisted UI state. Architecture-first build order. Strong e2e harness is a first-class deliverable.\n\nDeliverables:\n- tk tui shell + focus routing + List view (rename, no alias)\n- ⌘K command palette\n- editable detail pane\n- Board view (4 columns; Awaiting as its own lane)\n- Roadmap tab (fold existing renderer) + Timeline (off target_date)\n- UI state persistence (.tick/.tui-state.json, gitignored)\n- e2e harness: Update unit tests + teatest goldens + tmux smokes",
+  "notes": "2026-06-20 16:38 - RETRO (epic 682, tk tui) — VERDICT SHIP (after fixes).\nLearnings: +1 to .tick/learnings.md (TUI golden cross-contamination on shared chrome + positional tab-hotkey fragility); compacted (dropped niche comms-suite entry) to stay under 150.\nVerification (frontier review): all deliverables present + tested — root App + 6 view-models behind View interface/registerViews one-line seam, adaptive 3/2/1 layout, Ctrl-K palette, editable detail + shared edit.go store write-path (HEADLINE: every edit through the store, NO .tick bypass), Board (4-col, Awaiting lane, drag), Roadmap+Timeline, persistence (.tui-state.json gitignored), mouse, teatest harness (pinned profile/size/clock). Rename tk view-\u003etk tui (no alias). Regression fixed: jumpToEpicMsg now handled (lrg).\nDrift: model.go dead Model monolith is orphaned (kept alive by roadmap_test only) -\u003e tracked follow-up 5tf (delete dead cluster, migrate roadmap_test to roadmapView, relocate live helpers/styles). Accepted nit: drag-to-Awaiting is a near-no-op (no editSetAwaiting).\nRoadmap changes proposed: none. This is the roadmap END — zt6+vdl+af5+682 all done; only standalone follow-up 5tf remains.",
+  "status": "closed",
+  "priority": 1,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "zt6"
+  ],
+  "after": [
+    "af5"
+  ],
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T13:56:24.238119065Z",
+  "updated_at": "2026-06-20T16:38:02.256348886Z",
+  "closed_at": "2026-06-20T16:38:02.256348886Z",
+  "closed_reason": "Completed: tk tui unified app — shell + 6 view-models + palette + editable detail + persistence + mouse + e2e harness; tk view renamed to tk tui; merged \u0026 green on epic/zt6; final review SHIP after fixes"
+}

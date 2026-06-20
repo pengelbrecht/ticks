@@ -84,6 +84,9 @@ var (
 	listNotesContains string
 	listManual        bool
 	listAwaiting      string
+	listOverdue       bool
+	listDueBefore     string
+	listSort          string
 	listJSON          bool
 )
 
@@ -104,6 +107,9 @@ func init() {
 	listCmd.Flags().StringVar(&listNotesContains, "notes-contains", "", "notes contains (case-insensitive)")
 	listCmd.Flags().BoolVar(&listManual, "manual", false, "show only manual tasks (requires human intervention)")
 	listCmd.Flags().StringVar(&listAwaiting, "awaiting", "", "filter by awaiting status (empty = all awaiting, or specific type(s) comma-separated)")
+	listCmd.Flags().BoolVar(&listOverdue, "overdue", false, "show only overdue ticks (past target_date with open work remaining)")
+	listCmd.Flags().StringVar(&listDueBefore, "due-before", "", "show only ticks with target_date strictly before this ISO day (YYYY-MM-DD); undated ticks excluded")
+	listCmd.Flags().StringVar(&listSort, "sort", "", "sort order: target_date (ascending, undated last); default uses priority/created_at")
 	listCmd.Flags().BoolVar(&listJSON, "json", false, "output as JSON")
 
 	rootCmd.AddCommand(listCmd)
@@ -140,6 +146,18 @@ func runList(cmd *cobra.Command, args []string) error {
 		status = ""
 	}
 
+	// Parse --due-before flag.
+	var dueBefore time.Time
+	if listDueBefore != "" {
+		d, err := time.Parse(tick.TargetDateLayout, strings.TrimSpace(listDueBefore))
+		if err != nil {
+			return fmt.Errorf("--due-before: invalid date %q (want YYYY-MM-DD): %w", listDueBefore, err)
+		}
+		dueBefore = d
+	}
+
+	now := time.Now()
+
 	filter := query.Filter{
 		Owner:         owner,
 		Status:        status,
@@ -151,6 +169,10 @@ func runList(cmd *cobra.Command, args []string) error {
 		TitleContains: strings.TrimSpace(listTitleContains),
 		DescContains:  strings.TrimSpace(listDescContains),
 		NotesContains: strings.TrimSpace(listNotesContains),
+		Overdue:       listOverdue,
+		DueBefore:     dueBefore,
+		AllTicks:      ticks,
+		Now:           now,
 	}
 
 	filtered := query.Apply(ticks, filter)
@@ -193,7 +215,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		filtered = awaitingTicks
 	}
 
-	query.SortByPriorityCreatedAt(filtered)
+	switch strings.TrimSpace(listSort) {
+	case "target_date":
+		query.SortByTargetDate(filtered)
+	default:
+		query.SortByPriorityCreatedAt(filtered)
+	}
 
 	// Resolve last-activity timestamps for in_progress ticks in a single
 	// pass over the activity log (used by both JSON and human-readable

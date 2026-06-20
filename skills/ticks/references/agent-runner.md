@@ -74,7 +74,7 @@ Epic X
 
 **Final-review tick** — its work is to review the epic's full diff (run a reviewer subagent for substantial epics, per the "Reviewing the work" section above) and resolve or route any findings before the close-out tick unblocks.
 
-**Close-out tick** — this is the existing close-out convention (retro + plan the next *feasible* epic in soft order; hard-blocked or gated epics are skipped). It is defined in SKILL.md's Roadmaps section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
+**Close-out tick** — this is the existing close-out convention (retro + plan the next *feasible* epic in soft order; hard-blocked or gated epics are skipped). It is defined in SKILL.md's Big picture section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
 
 Both meta-ticks are owned by the orchestrator, not by implementer subagents. They follow the same integrator–tick-state invariant: only the orchestrator runs `tk`; implementers never touch `.tick/`.
 
@@ -99,7 +99,10 @@ These rules complement the "run continuously" guidance above. Name them internal
 - **Scope never shrinks.** You may split, merge, or reorder ticks, and scope may grow (bugs, discovered gaps) — but only the human removes scope. If the Epic-close retro's outside-in verification finds an undelivered scope item, fix it now; never relabel it "follow-up."
 - **No known-failure closes.** A tick cannot close with failing acceptance criteria. There is no "close with known issues" state — it passes, or it stays open/blocked/awaiting.
 - **Name the stall instinct.** Completing a large body of work triggers the instinct to summarize and hand control back. Epic boundaries with a close-out tick are waypoints, not stopping points. The "run continuously" rule above is the explicit counter to this instinct.
-- **Two-tier stopping rule.** Intra-roadmap epic boundaries auto-continue (unless the downstream epic is gated with `--awaiting checkpoint` or `--requires approval`). Roadmaps mix hard (`--blocked-by`) and soft (`--after`) edges, so several epics can be feasible at once — continuation means the next *feasible* epic in soft order, skipping any that are hard-blocked or gated. The roadmap end — or a checkpoint/approval gate — is the hard stop where you write a completion report and yield.
+- **Recursive continuation frontier.** The continuation engine ascends the project tree. Within a project, epic→epic boundaries auto-continue: when one epic closes, the next feasible epic in soft order begins immediately (skipping hard-blocked or gated epics). When every epic inside a project is done, the engine reaches the **project boundary**.
+- **Project checkpoint (default: stop).** A project boundary stops for a human checkpoint by default. The project's close-out tick carries `--awaiting checkpoint`, so `tk next` surfaces it as `action: await` and the run pauses for a human to look before the next project begins. Epic→epic boundaries within a project are unaffected — they still auto-continue. The planning fallback also surfaces completed projects via `CompletedProjectsNeedingCloseout` when all leaf descendants are closed but the project tick is still open.
+- **Autonomous mode (global override).** Pass `--autonomous` to `tk next`, or set `policy.autonomous_mode: true` in `.tick/config.json`, to flow through ALL project checkpoints hands-off. Autonomous mode bypasses **only** `awaiting: checkpoint` boundaries; approval, input, review, content, escalation, and work gates are never bypassed.
+- **Per-project auto-continue (convention).** To let one project boundary flow through without enabling global autonomous mode, omit the `--awaiting checkpoint` on that project's close-out tick. The engine then auto-continues across that boundary the same way it does for epic→epic transitions.
 
 ## Launching agents
 
@@ -398,10 +401,12 @@ Re-entry is just re-invoking the skill. Before starting the first wave, run the 
 | `tk next` result | Action |
 |---|---|
 | `action: implement` | Dispatch an implementer subagent (standard wave loop) |
-| `action: plan` | Flesh the epic out into ticks (SKILL.md Roadmaps guidance + foundation-first procedure) |
-| `action: await` | Route to the human — something is waiting on a decision or approval |
+| `action: plan` | Flesh the epic out into ticks (SKILL.md Big picture guidance + foundation-first procedure) |
+| `action: await` (non-checkpoint) | Route to the human — something is waiting on a decision or approval |
+| `action: await` (checkpoint, autonomous mode on) | Project boundary: auto-continue without stopping — `tk next --autonomous` flows through it |
+| `action: await` (checkpoint, autonomous mode off) | Project boundary: write a progress report and stop for human sign-off before the next project begins |
 | Final-review tick unblocked | Review the epic's full diff (reviewer subagent for substantial epics) |
-| Close-out tick unblocked | Run the epic-close retro, then plan and continue into the next feasible epic (soft order — skip hard-blocked or gated epics) |
+| Close-out tick unblocked | Run the epic-close retro, then continue into the next feasible epic in soft order (skip hard-blocked or gated epics); if the frontier reaches a project boundary, apply the checkpoint rule above |
 | `tk next` returns nothing and all roadmap epics are closed | Roadmap end: write a completion report and stop |
 
 ### Cross-runner handoff

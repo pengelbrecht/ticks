@@ -20,23 +20,33 @@ import (
 // If allTicks is provided it is used to look up blocker status and child presence
 // (for when candidates is a filtered subset and children/blockers may live outside it).
 func EpicsNeedingPlanning(candidates []tick.Tick, allTicks ...[]tick.Tick) []tick.Tick {
+	return EpicsNeedingPlanningWithMode(candidates, false, allTicks...)
+}
+
+// EpicsNeedingPlanningWithMode is EpicsNeedingPlanning with an explicit
+// autonomous-mode switch. When autonomous is false the result is identical to
+// EpicsNeedingPlanning. When autonomous is true, an epic whose ONLY reason to be
+// gated is awaiting: checkpoint (a project close-out boundary, design §5/§8) is
+// no longer excluded — continuation flows through the project boundary. No other
+// awaiting type is affected. See gatesHuman for the exact bypass scope.
+func EpicsNeedingPlanningWithMode(candidates []tick.Tick, autonomous bool, allTicks ...[]tick.Tick) []tick.Tick {
 	lookup := candidates
 	if len(allTicks) > 0 {
 		lookup = allTicks[0]
 	}
 	index := indexByID(lookup)
-	childrenOf := buildChildIndex(lookup)
+	childIndex := BuildChildIndex(lookup)
 
 	var out []tick.Tick
 	for _, t := range candidates {
-		if needsPlanning(t, index, childrenOf) {
+		if needsPlanning(t, index, childIndex, autonomous) {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-func needsPlanning(t tick.Tick, index map[string]tick.Tick, childrenOf map[string]bool) bool {
+func needsPlanning(t tick.Tick, index map[string]tick.Tick, childIndex ChildIndex, autonomous bool) bool {
 	// Must be an epic
 	if t.Type != tick.TypeEpic {
 		return false
@@ -49,8 +59,10 @@ func needsPlanning(t tick.Tick, index map[string]tick.Tick, childrenOf map[strin
 	if t.DeferUntil != nil && t.DeferUntil.After(time.Now()) {
 		return false
 	}
-	// Not awaiting human action
-	if t.IsAwaitingHuman() {
+	// Not awaiting human action. Under autonomous mode a pure
+	// awaiting: checkpoint boundary does not gate (gatesHuman bypasses ONLY
+	// checkpoint); every other awaiting type still gates.
+	if gatesHuman(t, autonomous) {
 		return false
 	}
 	// Not blocked by any open blocker
@@ -64,20 +76,12 @@ func needsPlanning(t tick.Tick, index map[string]tick.Tick, childrenOf map[strin
 			return false
 		}
 	}
-	// Must have zero children (of any status)
-	if childrenOf[t.ID] {
+	// Must have zero children (of any status). A childless epic is RoleEmptyEpic
+	// (design §2) — the planning frontier; any epic that has become a container
+	// is already planned. IsContainer over the shared public ChildIndex is the
+	// same test the old private buildChildIndex performed.
+	if IsContainer(t, childIndex) {
 		return false
 	}
 	return true
-}
-
-// buildChildIndex returns a set of parent IDs that have at least one child in ticks.
-func buildChildIndex(ticks []tick.Tick) map[string]bool {
-	index := make(map[string]bool)
-	for _, t := range ticks {
-		if t.Parent != "" {
-			index[t.Parent] = true
-		}
-	}
-	return index
 }

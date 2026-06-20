@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** `tk view` has been removed and replaced by `tk tui`, the unified terminal app (navigation sidebar + swappable content views + detail pane). There is no `view` alias; update any scripts invoking `tk view`.
+
 ## [0.7.0] - 2025-01-23
 
 ### Added

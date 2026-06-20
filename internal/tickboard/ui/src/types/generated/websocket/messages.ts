@@ -292,6 +292,10 @@ export interface Tick {
    */
   parent?: string;
   /**
+   * Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no time-of-day, no fuzziness. Absent is the common case. Feeds the derived overdue/on-track signal and never gates execution
+   */
+  target_date?: string;
+  /**
    * ID of tick during which this tick was discovered
    */
   discovered_from?: string;

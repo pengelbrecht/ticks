@@ -1,0 +1,16 @@
+{
+  "id": "5tf",
+  "title": "Cleanup: remove dead model.go Model monolith, migrate roadmap_test, relocate live helpers",
+  "description": "Drift found at epic 682 final review: after the tk tui restructure, internal/tui/model.go (the old 1582-line Model monolith) is orphaned -- nothing in tk tui or any CLI command reaches it; only roadmap_test.go keeps it alive (it drives legacy Model to test the roadmap RENDERER). roadmap.go itself is NOT dead (roadmapView calls RenderRoadmapWithSelection/roadmapEpicOrder). model.go also still holds LIVE shared helpers/styles used by the new views, so it cannot be deleted wholesale. Plan: delete the dead Model cluster, migrate roadmap_test.go to drive roadmapView, relocate the live helpers/styles into render.go/styles_local.go. Tracked follow-up; not blocking the big-picture roadmap completion.",
+  "notes": "2026-06-20 16:48 - runner-state: runner=claude branch=worktree-agent-a90d868e6cbd5181a",
+  "status": "closed",
+  "priority": 3,
+  "type": "chore",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "dead Model/NewModel/viewMode/doApprove/doReject/jumpToRoadmapEpic/buildItems/apply*/keyMap removed from internal/tui/model.go; roadmap_test.go migrated onto roadmapView; still-live shared helpers (renderStatus/renderType/renderPriority/truncate/wrapAndIndent/splitRoots) + styles relocated to render.go/styles_local.go; go test ./internal/tui/... green",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T16:31:59.381475758Z",
+  "updated_at": "2026-06-20T16:48:12.135552804Z",
+  "closed_at": "2026-06-20T16:48:12.135552804Z",
+  "closed_reason": "Completed: deleted dead model.go monolith (-1488 lines) + model_test; relocated live helpers to render.go/styles_local.go/watcher.go; migrated roadmap_test onto new views; net -1511 lines; build/vet/tests green"
+}
