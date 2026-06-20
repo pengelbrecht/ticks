@@ -1,13 +1,13 @@
 ╭──────────────────────────╮╭──────────────────────────────────────────────────────╮╭──────────────────────────────────╮
 │ NAV                      ││ ‹List› Roadmap Timeline                              ││ a1b · token refresh              │
 │ VIEWS                    ││   - ep1  ● P1 Auth revamp                            ││ ID:         a1b                  │
-│  ◳ Awaiting              ││ >     a1b  ● P1 token refresh                        ││ Priority:   P1                   │
-│  ◔ My ticks              ││       x9k  ○ P2 login UI polish                      ││ Type:       task                 │
-│  ⊹ Roadmap               ││                                                      ││ Status:     ● in_progress        │
-│  ◇ Active                ││                                                      ││ Owner:                           │
-│  ▤ Backlog               ││                                                      ││ Parent:     ep1                  │
-│                          ││                                                      ││                                  │
-│ PROJECTS                 ││                                                      ││                                  │
+│  ◳ Awaiting              ││ >     a1b  ● P1 token refresh                        ││ Type:       task                 │
+│  ◔ My ticks              ││       x9k  ○ P2 login UI polish                      ││ ▸ Status:     ● in_progress      │
+│  ⊹ Roadmap               ││                                                      ││   Priority:   P1                 │
+│  ◇ Active                ││                                                      ││   Owner:                         │
+│  ▤ Backlog               ││                                                      ││   Parent:     ep1                │
+│                          ││                                                      ││   Labels:     (none)             │
+│ PROJECTS                 ││                                                      ││   Target:     (none)             │
 │  ▾ Auth revamp           ││                                                      ││                                  │
 │                          ││                                                      ││                                  │
 │                          ││                                                      ││                                  │

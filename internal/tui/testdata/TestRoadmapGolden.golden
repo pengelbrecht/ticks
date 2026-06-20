@@ -1,13 +1,13 @@
 ╭──────────────────────────╮╭──────────────────────────────────────────────────────╮╭──────────────────────────────────╮
 │ NAV                      ││ List ‹Roadmap› Timeline                              ││ ep2 · Billing setup              │
 │ VIEWS                    ││ Wave 1                                               ││ ID:         ep2                  │
-│  ◳ Awaiting              ││   ● ep1 [1/2] Auth revamp                            ││ Priority:   P0                   │
-│  ◔ My ticks              ││ > ○ ep2 [0/0] Billing setup (needs planning)         ││ Type:       epic                 │
-│  ⊹ Roadmap               ││                                                      ││ Status:     ○ open               │
-│  ◇ Active                ││ Wave 2                                               ││ Owner:                           │
-│  ▤ Backlog               ││   ○ ep3 [0/0] OAuth wiring ← blocked by: ep1         ││                                  │
-│                          ││                                                      ││                                  │
-│ PROJECTS                 ││                                                      ││                                  │
+│  ◳ Awaiting              ││   ● ep1 [1/2] Auth revamp                            ││ Type:       epic                 │
+│  ◔ My ticks              ││ > ○ ep2 [0/0] Billing setup (needs planning)         ││ ▸ Status:     ○ open             │
+│  ⊹ Roadmap               ││                                                      ││   Priority:   P0                 │
+│  ◇ Active                ││ Wave 2                                               ││   Owner:                         │
+│  ▤ Backlog               ││   ○ ep3 [0/0] OAuth wiring ← blocked by: ep1         ││   Parent:     (none)             │
+│                          ││                                                      ││   Labels:     (none)             │
+│ PROJECTS                 ││                                                      ││   Target:     (none)             │
 │  ▾ Auth revamp           ││                                                      ││                                  │
 │                          ││                                                      ││                                  │
 │                          ││                                                      ││                                  │
