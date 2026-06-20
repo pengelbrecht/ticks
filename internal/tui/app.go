@@ -486,15 +486,21 @@ func (a App) View() string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 	frame := body + "\n" + a.footer()
 
-	// When the palette is open, render it as a floating overlay centred within
-	// the shell frame. lipgloss.Place places the overlay at the top-centre of
-	// the terminal area, keeping total height stable (no extra lines).
+	// When the palette is open, composite its box OVER the composed frame so the
+	// app (sidebar · main · detail · footer) stays visible behind a modal box,
+	// rather than being replaced by a box on a blank field. The backdrop is
+	// dimmed so the modal pops; the box is horizontally centred with a small top
+	// offset, matching the previous top alignment. The result stays exactly
+	// a.width × a.height (overlay slices on visible columns, never grows it).
 	if a.focus == focusPalette {
-		overlay := a.pal.View()
-		frame = lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Top,
-			overlay,
-			lipgloss.WithWhitespaceChars(""),
-		) + "\n" + a.footer()
+		backdrop := paletteBackdropStyle.Render(frame)
+		box := a.pal.View()
+		x := (a.width - paletteBoxWidth) / 2
+		if x < 0 {
+			x = 0
+		}
+		const y = 1 // small top offset (keeps top alignment)
+		frame = overlay(backdrop, box, x, y)
 	}
 	return frame
 }
@@ -559,4 +565,3 @@ func (a App) focusLabel() string {
 		return "palette"
 	}
 }
-

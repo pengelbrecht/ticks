@@ -1,11 +1,11 @@
 ╭──────────────────────────╮╭──────────────────────────────────────────────────────╮╭──────────────────────────────────╮
-│ NAV                      ││ ‹List› Board Roadmap Timeline                        ││ a1b · token refresh              │
-│ VIEWS                    ││   - ep1  ● P1 Auth revamp                            ││ ID:         a1b                  │
-│  ◳ Awaiting              ││ >     a1b  ● P1 token refresh                        ││ Type:       task                 │
-│  ◔ My ticks              ││       x9k  ○ P2 login UI polish                      ││ ▸ Status:     ● in_progress      │
-│  ⊹ Roadmap               ││                                                      ││   Priority:   P1                 │
-│  ◇ Active                ││                                                      ││   Owner:                         │
-│  ▤ Backlog               ││                                                      ││   Parent:     ep1                │
+│ NAV                      ││ ╭──────────────────────────────────────────────────────────╮· Auth revamp                │
+│ VIEWS                    ││ │ > a1█                                                    │        ep1                  │
+│  ◳ Awaiting              ││ │ ──────────────────────────────────────────────────────── │:       epic                 │
+│  ◔ My ticks              ││ │ ──                                                       │atus:     ● in_progress      │
+│  ⊹ Roadmap               ││ │   a1b  token refresh                                     │iority:   P1                 │
+│  ◇ Active                ││ ╰──────────────────────────────────────────────────────────╯ner:                         │
+│  ▤ Backlog               ││                                                      ││   Parent:     (none)             │
 │                          ││                                                      ││   Labels:     (none)             │
 │ PROJECTS                 ││                                                      ││   Target:     (none)             │
 │  ▾ Auth revamp           ││                                                      ││                                  │
@@ -37,4 +37,4 @@
 │                          ││                                                      ││                                  │
 │                          ││                                                      ││                                  │
 ╰──────────────────────────╯╰──────────────────────────────────────────────────────╯╰──────────────────────────────────╯
-tab: focus  ·  j/k: move  ·  1: views  ·  ctrl+k: palette  ·  q: quit  [main]
+tab: focus  ·  j/k: move  ·  1: views  ·  ctrl+k: palette  ·  q: quit  [palette]                                        
