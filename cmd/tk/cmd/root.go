@@ -248,6 +248,9 @@ func ResetFlags() {
 	listNotesContains = ""
 	listManual = false
 	listAwaiting = ""
+	listOverdue = false
+	listDueBefore = ""
+	listSort = ""
 	listJSON = false
 	listAwaitingSet = false
 
