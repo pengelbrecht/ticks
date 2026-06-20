@@ -24,6 +24,17 @@ type RoadmapEpic struct {
 	Title        string `json:"title"`
 	Status       string `json:"status"`
 	AwaitingType string `json:"awaiting_type,omitempty"`
+	// Role is the derived structural role of this node: "epic" for an
+	// orchestration unit, or "project" for a passive grouping/checkpoint
+	// container. It is left empty for a project-less roadmap so that the only
+	// shape that exists today serialises and renders byte-for-byte as before.
+	// Buckets are never roadmap nodes. Renderers use Role+Parent to nest epics
+	// under their parent projects (walk the tree).
+	Role string `json:"role,omitempty"`
+	// Parent is the ID of this node's enclosing project, or empty when the node
+	// is at the roadmap root. Only populated when a project is present, so a
+	// project-less roadmap leaves it empty and renders flat exactly as today.
+	Parent string `json:"parent,omitempty"`
 	// BlockedBy carries hard dependency edges (epic IDs only); these gate
 	// feasibility and feed the "queued" status. After carries soft ordering
 	// edges (epic IDs only); they influence wave placement but never status,
@@ -68,13 +79,26 @@ const (
 // predecessors are After targets is never "queued" — soft ordering shifts
 // wave placement but never feasibility.
 func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
-	// Collect all epics.
+	// Index children once; role derivation and rollup both need it.
+	childIndex := BuildChildIndex(allTicks)
+
+	// Collect roadmap nodes. Two kinds of container are nodes:
+	//   - epics   (the explicit orchestration unit, RoleEpic/RoleEmptyEpic) —
+	//     exactly the set that has always appeared in the roadmap.
+	//   - projects (RoleProject — a passive container of containers) — the
+	//     big-picture grouping/checkpoint layer.
+	// Buckets (RoleBucket — passive grouping of leaves) are deliberately
+	// EXCLUDED: they are never run as a unit (design §1).
 	var epics []tick.Tick
 	epicSet := make(map[string]bool)
+	roleOf := make(map[string]RoleKind)
 	for _, t := range allTicks {
-		if t.Type == tick.TypeEpic {
+		role := Role(t, childIndex)
+		switch role {
+		case RoleEpic, RoleEmptyEpic, RoleProject:
 			epics = append(epics, t)
 			epicSet[t.ID] = true
+			roleOf[t.ID] = role
 		}
 	}
 
@@ -82,15 +106,34 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 		return Roadmap{}
 	}
 
-	// Build children stats per epic: total count and closed count.
+	// Children stats per node: a recursive rollup over ALL leaf descendants
+	// (design §3), so a container reports progress at any altitude — a project
+	// aggregates across its epics' tasks, not just its direct children. For a
+	// single-level epic this equals the old direct child count.
+	//
+	// A childless node (RoleEmptyEpic) is left at 0/0 rather than the rollup's
+	// "leaf counts itself as 1" convention: the roadmap has always reported a
+	// childless epic as having zero children (which is what marks it
+	// needs-planning), and that contract must not change.
 	childrenTotal := make(map[string]int)
 	childrenClosed := make(map[string]int)
-	for _, t := range allTicks {
-		if t.Parent != "" && epicSet[t.Parent] {
-			childrenTotal[t.Parent]++
-			if t.Status == tick.StatusClosed {
-				childrenClosed[t.Parent]++
-			}
+	for _, e := range epics {
+		if !IsContainer(e, childIndex) {
+			continue // childless → 0/0, preserving needs-planning semantics
+		}
+		closed, total := DescendantProgress(e, allTicks)
+		childrenTotal[e.ID] = total
+		childrenClosed[e.ID] = closed
+	}
+
+	// Parent linkage for tree-aware rendering: a node's Parent is its enclosing
+	// roadmap container (a project), or empty when at the root. Only project
+	// parents are recorded — an epic nested directly under another epic is not a
+	// project boundary. This stays empty for a project-less roadmap.
+	parentOf := make(map[string]string)
+	for _, e := range epics {
+		if roleOf[e.Parent] == RoleProject {
+			parentOf[e.ID] = e.Parent
 		}
 	}
 
@@ -182,7 +225,7 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 			var waveItems []RoadmapEpic
 			for _, id := range cycleEpics {
 				e := epicByID[id]
-				waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicAfter[id], epicByID, childrenTotal[id], childrenClosed[id]))
+				waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicAfter[id], epicByID, childrenTotal[id], childrenClosed[id], roleOf[id], parentOf[id]))
 			}
 			waves = append(waves, waveItems)
 			break
@@ -191,7 +234,7 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 		var waveItems []RoadmapEpic
 		for _, id := range ready {
 			e := epicByID[id]
-			waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicAfter[id], epicByID, childrenTotal[id], childrenClosed[id]))
+			waveItems = append(waveItems, buildRoadmapEpic(e, epicBlockers[id], epicAfter[id], epicByID, childrenTotal[id], childrenClosed[id], roleOf[id], parentOf[id]))
 		}
 		waves = append(waves, waveItems)
 
@@ -209,13 +252,16 @@ func ComputeRoadmap(allTicks []tick.Tick) Roadmap {
 	return Roadmap{Waves: waves}
 }
 
-// buildRoadmapEpic computes the consumer-facing status for a single epic.
-// epicDeps are hard (BlockedBy) epic edges and drive status; afterDeps are
-// soft (After) epic edges and are surfaced but never affect status.
-func buildRoadmapEpic(e tick.Tick, epicDeps, afterDeps []string, epicByID map[string]tick.Tick, totalChildren, closedChildren int) RoadmapEpic {
+// buildRoadmapEpic computes the consumer-facing status for a single roadmap
+// node. epicDeps are hard (BlockedBy) epic edges and drive status; afterDeps are
+// soft (After) epic edges and are surfaced but never affect status. role is the
+// node's derived role (RoleProject for a grouping container, otherwise an epic);
+// parentID is the enclosing project, if any.
+func buildRoadmapEpic(e tick.Tick, epicDeps, afterDeps []string, epicByID map[string]tick.Tick, totalChildren, closedChildren int, role RoleKind, parentID string) RoadmapEpic {
 	re := RoadmapEpic{
 		ID:             e.ID,
 		Title:          e.Title,
+		Parent:         parentID,
 		ChildrenTotal:  totalChildren,
 		ChildrenClosed: closedChildren,
 	}
@@ -231,11 +277,33 @@ func buildRoadmapEpic(e tick.Tick, epicDeps, afterDeps []string, epicByID map[st
 		copy(re.After, afterDeps)
 	}
 
+	if role == RoleProject {
+		// Projects are passive grouping/checkpoint nodes, not orchestration
+		// units: they are never "ready/needs planning" and carry no
+		// awaiting/queued semantics of their own. Status is purely a rollup of
+		// their descendants — done when every leaf is closed, else active.
+		re.Role = "project"
+		re.Status = projectStatus(totalChildren, closedChildren)
+		return re
+	}
+
 	re.Status = epicConsumerStatus(e, epicDeps, epicByID, totalChildren, closedChildren)
 	if re.Status == epicStatusGated {
 		re.AwaitingType = e.GetAwaitingType()
 	}
 	return re
+}
+
+// projectStatus derives a project's consumer-facing status from its recursive
+// descendant rollup. A project is "done" only when it has at least one leaf and
+// all of them are closed; otherwise it is "active" (work remains, or it is an
+// empty shell). Projects never surface as "ready"/"queued"/"gated" — those are
+// orchestration states reserved for epics.
+func projectStatus(totalChildren, closedChildren int) string {
+	if totalChildren > 0 && closedChildren == totalChildren {
+		return epicStatusDone
+	}
+	return epicStatusActive
 }
 
 // epicConsumerStatus returns the consumer-facing status string for an epic.
