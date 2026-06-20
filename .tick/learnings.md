@@ -122,3 +122,11 @@ step gets skipped entirely.
 **Rule:** Before each Agent call, explicitly choose a tier from the claude-runner.md table and
 set `model=` to the matching model. Omitting it is not "defaulting to balanced" — it is
 implicitly choosing frontier. Resolve the tier per-tick, not once for the run.
+
+**Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
+`--flags` or code) silently corrupted the stored field — the backtick spans were shell
+command-substituted, embedding command output (e.g. a `tk roadmap` dump) into the description.
+**Cause:** Double-quoted shell strings still evaluate backticks and `$(...)`.
+**Rule:** Author tick descriptions/notes with SINGLE-quoted strings (or a heredoc), never
+double-quoted, whenever the text contains backticks, `$`, or `()`. Verify with `tk show <id>`
+after bulk creation — substitution failures go to stderr and are easy to miss.

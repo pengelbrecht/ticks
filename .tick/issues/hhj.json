@@ -2,7 +2,7 @@
   "id": "hhj",
   "title": "Close out epic vdl: run retro, then flesh out next feasible epic (af5)",
   "description": "Run the epic-close retro (harvest, promote learnings, compact .tick/learnings.md, outside-in verify, drift, report). Then flesh out the next feasible epic af5 (Skill \u0026 orchestrator docs) into child ticks and continue with tk graph af5. Note for af5: the per-project auto-continue convention + project close-out-tick-with-checkpoint pattern + the autonomous-mode switch all need documenting there. See references/agent-runner.md.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "vdl",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T14:45:00.871476373Z",
-  "updated_at": "2026-06-20T14:45:00.871476373Z"
+  "updated_at": "2026-06-20T15:11:58.76609881Z",
+  "closed_at": "2026-06-20T15:11:58.76609881Z",
+  "closed_reason": "Completed: vdl retro done + learnings promoted (backtick-substitution gotcha); next epic af5 fleshed into A1/A2/A3 + review + close-out"
 }
