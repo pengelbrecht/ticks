@@ -298,12 +298,15 @@ func (p palette) View() string {
 
 	var lines []string
 	lines = append(lines, header)
-	lines = append(lines, strings.Repeat("─", boxWidth-2))
+	// boxWidth includes the border (−2) and Padding(0,1) (−2): the inner text
+	// area is boxWidth−4. The rule must match it exactly or it wraps a dangling
+	// segment onto the next line.
+	lines = append(lines, strings.Repeat("─", boxWidth-4))
 	if len(visible) == 0 {
 		lines = append(lines, paletteDimStyle.Render("  No matches"))
 	}
 	for i, c := range visible {
-		label := truncate(c.title, boxWidth-4)
+		label := truncate(c.title, boxWidth-6) // −4 inner width, −2 for the "  " indent
 		absIdx := start + i
 		if absIdx == p.selected {
 			lines = append(lines, paletteSelectedStyle.Render("  "+label))
