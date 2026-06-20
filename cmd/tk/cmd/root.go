@@ -384,14 +384,14 @@ func ResetFlags() {
 	// Reset labels flags
 	labelsJSON = false
 
-	// Reset view flags
-	viewAll = false
-	viewOwner = ""
-	viewStatus = ""
-	viewPriority = -1
-	viewType = ""
-	viewLabel = ""
-	viewParent = ""
+	// Reset tui flags
+	tuiAll = false
+	tuiOwner = ""
+	tuiStatus = ""
+	tuiPriority = -1
+	tuiType = ""
+	tuiLabel = ""
+	tuiParent = ""
 
 	// Reset import flags
 	importJSON = false

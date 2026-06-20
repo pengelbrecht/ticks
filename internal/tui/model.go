@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,11 +19,6 @@ import (
 	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
-
-func init() {
-	// Force TrueColor for terminals that misreport capabilities (e.g., TERM=screen in tmux)
-	os.Setenv("COLORTERM", "truecolor")
-}
 
 type item struct {
 	Tick    tick.Tick
