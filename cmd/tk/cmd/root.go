@@ -263,6 +263,7 @@ func ResetFlags() {
 	createDiscoveredFrom = ""
 	createAcceptance = ""
 	createDefer = ""
+	createTargetDate = ""
 	createExternalRef = ""
 	createManual = false
 	createRequires = ""
@@ -282,6 +283,7 @@ func ResetFlags() {
 	updateAfter = ""
 	updateAcceptance = ""
 	updateDefer = ""
+	updateTargetDate = ""
 	updateExternalRef = ""
 	updateParent = ""
 	updateManual = ""
@@ -303,6 +305,7 @@ func ResetFlags() {
 	updateAfterSet = false
 	updateAcceptanceSet = false
 	updateDeferSet = false
+	updateTargetDateSet = false
 	updateExternalRefSet = false
 	updateParentSet = false
 	updateManualSet = false
