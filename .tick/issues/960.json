@@ -1,0 +1,18 @@
+{
+  "id": "960",
+  "title": "Timeline view-model (gantt off target_date + slip)",
+  "description": "Add the Timeline view-model (internal/tui/view_timeline.go): gantt-style render keyed on tick.TargetDate, surfacing the derived query.Slip signal (overdue / on-track / none) per row. Pure data-to-string row renderer with an INJECTED clock (no real time) so goldens are stable. Register via ONE-LINE append in registerViews(). Blocked-by the roadmap-view tick only to serialize the registerViews() edit (merge-safety), not a real dependency. Files: internal/tui/view_timeline.go (new) + test; one-line registerViews append.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "4pp",
+    "tqs"
+  ],
+  "parent": "682",
+  "acceptance_criteria": "unit: Slip classification drives row color given injected now; rows sort by target_date; teatest golden: Timeline tab with fixed clock renders overdue vs on-track distinctly",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T15:32:52.756961855Z",
+  "updated_at": "2026-06-20T15:32:52.756961855Z"
+}

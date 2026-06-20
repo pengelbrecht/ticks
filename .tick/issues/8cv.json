@@ -1,0 +1,17 @@
+{
+  "id": "8cv",
+  "title": "Command palette (Ctrl-K) overlay: jump + switch-view",
+  "description": "Add the palette view-model (internal/tui/palette.go): Ctrl-K opens a fuzzy overlay focus-zone listing jump targets (ticks/epics/projects by id+title) and switch-view actions (List/Board/Roadmap/Timeline). Palette is a FOCUS STATE, not a registry View. Navigation actions only here (jump, switch view); EDIT actions are added by the editable-detail tick which owns the write-path. Wire via a minimal localized edit to app.go key routing + focus-zone case. Design docs/design/tui-unified-app.md section 8. Files: internal/tui/palette.go (new) + test; localized app.go edit.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "4pp"
+  ],
+  "parent": "682",
+  "acceptance_criteria": "unit: palette Update fuzzy-filters candidates, Enter emits jump/switch msg, Esc closes; teatest golden: Ctrl-K, type partial id, Enter jumps List selection + breadcrumb updates",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T15:32:52.675323526Z",
+  "updated_at": "2026-06-20T15:32:52.675323526Z"
+}

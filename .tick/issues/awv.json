@@ -1,0 +1,17 @@
+{
+  "id": "awv",
+  "title": "UI state persistence (.tick/.tui-state.json, gitignored)",
+  "description": "Add load/save of UI state to a gitignored .tick/.tui-state.json (internal/tui/state.go): last active view, selected scope+tick, collapsed tree nodes, active filters/grouping. Load in the tui command before tea.NewProgram; save on quit. Add .tick/.tui-state.json to .gitignore (next to .index.json) so it never hits the merge driver (design section 9). Independent of the view ticks. Files: internal/tui/state.go (new) + test; cmd/tk/cmd/tui.go (load/save calls); .gitignore.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "4pp"
+  ],
+  "parent": "682",
+  "acceptance_criteria": "unit: round-trip marshal/unmarshal; missing file yields defaults (no error); integration: launch, change view+selection, quit writes file in temp .tick, relaunch restores; path is gitignored",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-06-20T15:32:52.71688486Z",
+  "updated_at": "2026-06-20T15:32:52.71688486Z"
+}
