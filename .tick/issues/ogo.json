@@ -2,7 +2,7 @@
   "id": "ogo",
   "title": "Final review of epic af5 diff",
   "description": "Review the skill-docs diff for: consistency (one vocabulary across SKILL.md, agent-runner.md, big-picture.md), accuracy vs SHIPPED behavior (every tk command/flag exists in cmd/tk/cmd; flags named correctly: --target-date, --overdue, --due-before, --sort, --autonomous), faithfulness to the design docs, and that single-epic Steps 0-5 and epic retro text were left intact. Spec-compliance plus comment/doc-accuracy axes. See references/agent-runner.md.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "af5",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T15:10:01.912318115Z",
-  "updated_at": "2026-06-20T15:11:33.315493326Z"
+  "updated_at": "2026-06-20T15:24:52.697961768Z",
+  "closed_at": "2026-06-20T15:24:52.697961768Z",
+  "closed_reason": "Completed: af5 final review VERDICT SHIP, 0 blockers; CLI-accurate, vocab-consistent, faithful; 1 nit (stale Roadmaps cross-refs) fixed inline"
 }

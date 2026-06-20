@@ -2,7 +2,8 @@
   "id": "af5",
   "title": "Skill \u0026 orchestrator docs: unified super-epic narrative",
   "description": "Rewrite the skill's super-epic material as one consistent big-picture story (design §8). Blocks on the orchestration epic because the docs must reflect shipped behavior.\n\nSKILL.md 'Roadmaps' becomes a unified section covering roadmaps + projects + buckets + dates with worked examples (show, not mandate). agent-runner.md gains the recursive-frontier / project-checkpoint rule. Convention ladder + container Definition-of-Ready land in tick-patterns.md or a new references/big-picture.md. Single-epic Steps 0–5 untouched.\n\nDeliverables:\n- rewritten SKILL.md big-picture section + 3 worked examples (dated release / nested projects / passive bucket)\n- agent-runner.md stopping-rule update\n- convention ladder + container DoR reference",
-  "status": "open",
+  "notes": "2026-06-20 15:24 - RETRO (epic af5) — VERDICT SHIP.\nLearnings: none newly promoted (the backtick-substitution gotcha was already promoted earlier this run; the section-rename cross-ref staleness was fixed inline).\nVerification (review): all 3 docs (SKILL.md, agent-runner.md, big-picture.md) CLI-accurate (every tk command/flag verified vs cmd/tk/cmd), one consistent vocabulary, faithful to shipped behavior; single-epic Steps 0-5 + epic-close retro text intact.\nDrift: 3 stale 'Roadmaps' cross-references after the section rename — found by review, fixed inline (no cleanup tick needed).\nRoadmap changes proposed: none. Next feasible epic: 682 (tk tui) is GATED (--awaiting checkpoint) → roadmap end/checkpoint reached.",
+  "status": "closed",
   "priority": 1,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
@@ -11,5 +12,7 @@
   ],
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T13:56:24.216896022Z",
-  "updated_at": "2026-06-20T13:56:24.216896022Z"
+  "updated_at": "2026-06-20T15:24:52.755117398Z",
+  "closed_at": "2026-06-20T15:24:52.755117398Z",
+  "closed_reason": "Completed: unified big-picture skill docs (SKILL.md rewrite + agent-runner.md stopping rule + big-picture.md) merged \u0026 green; final review SHIP"
 }

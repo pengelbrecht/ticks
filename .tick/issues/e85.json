@@ -2,7 +2,7 @@
   "id": "e85",
   "title": "Close out epic af5: retro, then reach roadmap checkpoint",
   "description": "Run the epic-close retro (harvest, promote learnings, compact .tick/learnings.md, outside-in verify, drift, report). Then attempt to flesh the next feasible epic: the only remaining epic is 682 (tk tui), which is GATED with awaiting checkpoint, so it is SKIPPED. The roadmap has reached its checkpoint/end: write a completion report covering epics zt6 + vdl + af5 and the deferred epic/zt6 branch integration (push + PR + CI per .tick/config.md), and STOP for the human. See references/agent-runner.md (two-tier stopping rule).",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -12,5 +12,7 @@
   "parent": "af5",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T15:10:01.932236824Z",
-  "updated_at": "2026-06-20T15:11:33.322646042Z"
+  "updated_at": "2026-06-20T15:24:52.726039462Z",
+  "closed_at": "2026-06-20T15:24:52.726039462Z",
+  "closed_reason": "Completed: af5 retro done; next feasible epic 682 is gated (checkpoint) → roadmap checkpoint reached, completion report follows"
 }
