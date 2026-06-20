@@ -361,3 +361,215 @@ func TestUpdateTargetDateChangesExistingDate(t *testing.T) {
 
 // Explicit import to satisfy the tick package reference in the file (Validate test above).
 var _ = tick.TargetDateLayout
+
+// --- tk list --overdue tests ---
+
+// TestListOverdueShowsOnlyOverdue verifies that `tk list --overdue --all`
+// returns only ticks whose derived slip status is SlipOverdue.
+// We write one overdue tick (past target_date + open) and one on-track tick
+// (future target_date), then assert only the overdue one appears in JSON output.
+func TestListOverdueShowsOnlyOverdue(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	// An overdue tick: target_date in the distant past, status open.
+	overdue := makeTestTask("ov1")
+	overdue.TargetDate = "2020-01-01" // well in the past
+	if err := store.Write(overdue); err != nil {
+		t.Fatalf("write overdue tick: %v", err)
+	}
+
+	// An on-track tick: target_date in the future.
+	onTrack := makeTestTask("ok1")
+	onTrack.TargetDate = "2099-12-31"
+	if err := store.Write(onTrack); err != nil {
+		t.Fatalf("write on-track tick: %v", err)
+	}
+
+	// An undated tick (no target_date).
+	undated := makeTestTask("nd1")
+	if err := store.Write(undated); err != nil {
+		t.Fatalf("write undated tick: %v", err)
+	}
+
+	out, err := captureStdoutStr(t, func() error {
+		return ExecuteArgs([]string{"list", "--all", "--overdue", "--json"})
+	})
+	if err != nil {
+		t.Fatalf("ExecuteArgs list --overdue: %v", err)
+	}
+
+	var result struct {
+		Ticks []map[string]any `json:"ticks"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &result); jsonErr != nil {
+		t.Fatalf("unmarshal JSON: %v\nraw: %s", jsonErr, out)
+	}
+
+	if len(result.Ticks) != 1 {
+		t.Fatalf("expected 1 overdue tick, got %d: %s", len(result.Ticks), out)
+	}
+	if got := result.Ticks[0]["id"]; got != "ov1" {
+		t.Errorf("expected overdue tick id=ov1, got %v", got)
+	}
+}
+
+// --- tk list --due-before tests ---
+
+// TestListDueBeforeFiltersCorrectly verifies that `tk list --due-before DATE`
+// returns only ticks whose target_date is strictly before that day, excluding
+// undated ticks.
+func TestListDueBeforeFiltersCorrectly(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	before := makeTestTask("bf1")
+	before.TargetDate = "2026-08-15" // before 2026-09-01
+	if err := store.Write(before); err != nil {
+		t.Fatalf("write before tick: %v", err)
+	}
+
+	onCutoff := makeTestTask("oc1")
+	onCutoff.TargetDate = "2026-09-01" // not strictly before → excluded
+	if err := store.Write(onCutoff); err != nil {
+		t.Fatalf("write on-cutoff tick: %v", err)
+	}
+
+	afterCutoff := makeTestTask("af1")
+	afterCutoff.TargetDate = "2026-10-01"
+	if err := store.Write(afterCutoff); err != nil {
+		t.Fatalf("write after-cutoff tick: %v", err)
+	}
+
+	undated := makeTestTask("ud1")
+	if err := store.Write(undated); err != nil {
+		t.Fatalf("write undated tick: %v", err)
+	}
+
+	out, err := captureStdoutStr(t, func() error {
+		return ExecuteArgs([]string{"list", "--all", "--due-before", "2026-09-01", "--json"})
+	})
+	if err != nil {
+		t.Fatalf("ExecuteArgs list --due-before: %v", err)
+	}
+
+	var result struct {
+		Ticks []map[string]any `json:"ticks"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &result); jsonErr != nil {
+		t.Fatalf("unmarshal JSON: %v\nraw: %s", jsonErr, out)
+	}
+
+	if len(result.Ticks) != 1 {
+		t.Fatalf("expected 1 tick (bf1), got %d: %s", len(result.Ticks), out)
+	}
+	if got := result.Ticks[0]["id"]; got != "bf1" {
+		t.Errorf("expected bf1, got %v", got)
+	}
+}
+
+// TestListDueBeforeInvalidDateReturnsError verifies that an invalid date
+// argument to --due-before returns a non-nil error.
+func TestListDueBeforeInvalidDateReturnsError(t *testing.T) {
+	setupTestRepo(t)
+
+	_, err := captureStdoutStr(t, func() error {
+		return ExecuteArgs([]string{"list", "--all", "--due-before", "not-a-date", "--json"})
+	})
+	if err == nil {
+		t.Error("expected error for invalid --due-before date, got nil")
+	}
+}
+
+// --- tk list --sort target_date tests ---
+
+// TestListSortTargetDateOrdersAscendingUndatedLast verifies that
+// `tk list --sort target_date` returns ticks in ascending target_date order
+// with undated ticks last.
+func TestListSortTargetDateOrdersAscendingUndatedLast(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	t1 := makeTestTask("td-z")
+	t1.TargetDate = "2026-12-01"
+	if err := store.Write(t1); err != nil {
+		t.Fatalf("write t1: %v", err)
+	}
+
+	t2 := makeTestTask("td-a")
+	t2.TargetDate = "2026-07-01"
+	if err := store.Write(t2); err != nil {
+		t.Fatalf("write t2: %v", err)
+	}
+
+	t3 := makeTestTask("td-nd")
+	// no target_date → last
+	if err := store.Write(t3); err != nil {
+		t.Fatalf("write t3: %v", err)
+	}
+
+	out, err := captureStdoutStr(t, func() error {
+		return ExecuteArgs([]string{"list", "--all", "--sort", "target_date", "--json"})
+	})
+	if err != nil {
+		t.Fatalf("ExecuteArgs list --sort target_date: %v", err)
+	}
+
+	var result struct {
+		Ticks []map[string]any `json:"ticks"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &result); jsonErr != nil {
+		t.Fatalf("unmarshal JSON: %v\nraw: %s", jsonErr, out)
+	}
+
+	if len(result.Ticks) != 3 {
+		t.Fatalf("expected 3 ticks, got %d: %s", len(result.Ticks), out)
+	}
+	wantOrder := []string{"td-a", "td-z", "td-nd"}
+	for i, want := range wantOrder {
+		if got := result.Ticks[i]["id"]; got != want {
+			t.Errorf("position %d: got %v, want %v", i, got, want)
+		}
+	}
+}
+
+// TestListDefaultSortUnchangedWithoutFlag verifies that the default sort
+// (priority/created_at) is used when --sort is not passed.
+func TestListDefaultSortUnchangedWithoutFlag(t *testing.T) {
+	_, store := setupTestRepo(t)
+
+	// Two ticks: same target_date but different priorities.
+	// Without --sort target_date, priority determines order.
+	highPrio := makeTestTask("hp1")
+	highPrio.Priority = 0
+	highPrio.TargetDate = "2026-12-01"
+	if err := store.Write(highPrio); err != nil {
+		t.Fatalf("write highPrio: %v", err)
+	}
+
+	lowPrio := makeTestTask("lp1")
+	lowPrio.Priority = 3
+	lowPrio.TargetDate = "2026-07-01" // earlier date but lower priority
+	if err := store.Write(lowPrio); err != nil {
+		t.Fatalf("write lowPrio: %v", err)
+	}
+
+	out, err := captureStdoutStr(t, func() error {
+		return ExecuteArgs([]string{"list", "--all", "--json"}) // no --sort
+	})
+	if err != nil {
+		t.Fatalf("ExecuteArgs list (no sort): %v", err)
+	}
+
+	var result struct {
+		Ticks []map[string]any `json:"ticks"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &result); jsonErr != nil {
+		t.Fatalf("unmarshal JSON: %v\nraw: %s", jsonErr, out)
+	}
+
+	if len(result.Ticks) != 2 {
+		t.Fatalf("expected 2 ticks, got %d", len(result.Ticks))
+	}
+	// Default sort: priority ascending → high-prio (0) first, low-prio (3) second.
+	if got := result.Ticks[0]["id"]; got != "hp1" {
+		t.Errorf("default sort: expected hp1 first (priority 0), got %v", got)
+	}
+}
