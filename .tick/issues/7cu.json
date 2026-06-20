@@ -2,12 +2,14 @@
   "id": "7cu",
   "title": "Live panel has too much spacing before text",
   "description": "echo test",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "zfq",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-24T17:52:54.892454Z",
-  "updated_at": "2026-01-24T17:52:54.892454Z"
+  "updated_at": "2026-06-20T20:26:30.479027229Z",
+  "closed_at": "2026-06-20T20:26:30.479027229Z",
+  "closed_reason": "Outdated: scratch tick (description is 'echo test', under test epic zfq). Re-file properly if the tickboard spacing issue is real."
 }
