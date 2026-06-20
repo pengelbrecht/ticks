@@ -2,12 +2,14 @@
   "id": "3s4",
   "title": "Render command palette as an overlay over the app frame (not blank backdrop)",
   "description": "The Ctrl-K palette currently does frame = lipgloss.Place(a.width, a.height, Center, Top, box) in internal/tui/app.go View, which REPLACES the whole composed frame (sidebar|main|detail) with the box on a blank field — so the app vanishes behind the palette and it looks unanchored. Fix: composite the palette box OVER the existing frame (keep horizontal center + top alignment), so the app stays visible (optionally dimmed) behind a modal box. Add an ANSI-aware overlay helper. Keep the frame exactly a.width x a.height.",
-  "status": "in_progress",
+  "notes": "2026-06-20 18:37 - runner-state: runner=claude branch=worktree-agent-aff043d94646637ac",
+  "status": "closed",
   "priority": 2,
   "type": "chore",
   "owner": "peter@engelbrecht.dk",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-20T18:29:37.962709935Z",
-  "updated_at": "2026-06-20T18:29:37.97476802Z",
-  "started_at": "2026-06-20T18:29:37.97476759Z"
+  "updated_at": "2026-06-20T18:37:32.209296584Z",
+  "closed_at": "2026-06-20T18:37:32.209296584Z",
+  "closed_reason": "Completed: palette now composites over the dimmed app frame via ANSI-aware overlay() helper; centered, dimensions preserved; backdrop visible"
 }
