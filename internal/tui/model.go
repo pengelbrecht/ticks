@@ -827,65 +827,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// doApprove approves the tick at the given index.
+// doApprove approves the tick at the given index. The write-path now lives in
+// edit.go (editApprove) so the App detail pane and the legacy Model share one
+// store/merge spine; this method adapts that result back into the Model's
+// in-memory items/allTicks and status line.
 func (m *Model) doApprove(idx int) {
 	if idx < 0 || idx >= len(m.items) {
 		return
 	}
-
-	current := m.items[idx]
-	if !current.Tick.IsAwaitingHuman() {
-		m.statusMsg = "tick is not awaiting human decision"
-		m.statusIsError = true
-		return
-	}
-
-	if m.storePath == "" {
-		m.statusMsg = "no store path configured"
-		m.statusIsError = true
-		return
-	}
-
-	store := tick.NewStore(m.storePath)
-	t, err := store.Read(current.Tick.ID)
+	id := m.items[idx].Tick.ID
+	t, closed, err := editApprove(m.storePath, m.items[idx].Tick.Owner, id)
 	if err != nil {
-		m.statusMsg = fmt.Sprintf("failed to read tick: %v", err)
+		m.statusMsg = err.Error()
 		m.statusIsError = true
 		return
 	}
-
-	// Handle legacy manual flag
-	if t.Awaiting == nil && t.Manual {
-		t.SetAwaiting(tick.AwaitingWork)
-	}
-
-	// Set verdict and process
-	verdict := tick.VerdictApproved
-	t.Verdict = &verdict
-	t.UpdatedAt = time.Now().UTC()
-
-	closed, err := tick.ProcessVerdict(&t)
-	if err != nil {
-		m.statusMsg = fmt.Sprintf("failed to process verdict: %v", err)
-		m.statusIsError = true
-		return
-	}
-
-	if err := store.Write(t); err != nil {
-		m.statusMsg = fmt.Sprintf("failed to save tick: %v", err)
-		m.statusIsError = true
-		return
-	}
-
-	// Update the tick in our model
-	m.items[idx].Tick = t
-	for i := range m.allTicks {
-		if m.allTicks[i].ID == t.ID {
-			m.allTicks[i] = t
-			break
-		}
-	}
-
+	m.applyEditedTick(idx, t)
 	if closed {
 		m.statusMsg = fmt.Sprintf("approved %s (closed)", t.ID)
 	} else {
@@ -894,69 +851,31 @@ func (m *Model) doApprove(idx int) {
 	m.statusIsError = false
 }
 
-// doReject rejects the tick at the given index with optional feedback.
+// doReject rejects the tick at the given index with optional feedback. Like
+// doApprove it delegates the write to edit.go (editReject).
 func (m *Model) doReject(idx int, feedback string) {
 	if idx < 0 || idx >= len(m.items) {
 		return
 	}
-
-	current := m.items[idx]
-	if !current.Tick.IsAwaitingHuman() {
-		m.statusMsg = "tick is not awaiting human decision"
-		m.statusIsError = true
-		return
-	}
-
-	if m.storePath == "" {
-		m.statusMsg = "no store path configured"
-		m.statusIsError = true
-		return
-	}
-
-	store := tick.NewStore(m.storePath)
-	t, err := store.Read(current.Tick.ID)
+	id := m.items[idx].Tick.ID
+	t, closed, err := editReject(m.storePath, m.items[idx].Tick.Owner, id, feedback)
 	if err != nil {
-		m.statusMsg = fmt.Sprintf("failed to read tick: %v", err)
+		m.statusMsg = err.Error()
 		m.statusIsError = true
 		return
 	}
-
-	// Handle legacy manual flag
-	if t.Awaiting == nil && t.Manual {
-		t.SetAwaiting(tick.AwaitingWork)
+	m.applyEditedTick(idx, t)
+	if closed {
+		m.statusMsg = fmt.Sprintf("rejected %s (closed)", t.ID)
+	} else {
+		m.statusMsg = fmt.Sprintf("rejected %s (returned to agent)", t.ID)
 	}
+	m.statusIsError = false
+}
 
-	// Add feedback note if provided
-	feedback = strings.TrimSpace(feedback)
-	if feedback != "" {
-		timestamp := time.Now().Format("2006-01-02 15:04")
-		line := fmt.Sprintf("%s - [human] %s", timestamp, feedback)
-		if strings.TrimSpace(t.Notes) == "" {
-			t.Notes = line
-		} else {
-			t.Notes = strings.TrimRight(t.Notes, "\n") + "\n" + line
-		}
-	}
-
-	// Set verdict and process
-	verdict := tick.VerdictRejected
-	t.Verdict = &verdict
-	t.UpdatedAt = time.Now().UTC()
-
-	closed, err := tick.ProcessVerdict(&t)
-	if err != nil {
-		m.statusMsg = fmt.Sprintf("failed to process verdict: %v", err)
-		m.statusIsError = true
-		return
-	}
-
-	if err := store.Write(t); err != nil {
-		m.statusMsg = fmt.Sprintf("failed to save tick: %v", err)
-		m.statusIsError = true
-		return
-	}
-
-	// Update the tick in our model
+// applyEditedTick syncs a freshly-persisted tick back into the Model's items
+// row and the full allTicks slice.
+func (m *Model) applyEditedTick(idx int, t tick.Tick) {
 	m.items[idx].Tick = t
 	for i := range m.allTicks {
 		if m.allTicks[i].ID == t.ID {
@@ -964,13 +883,6 @@ func (m *Model) doReject(idx int, feedback string) {
 			break
 		}
 	}
-
-	if closed {
-		m.statusMsg = fmt.Sprintf("rejected %s (closed)", t.ID)
-	} else {
-		m.statusMsg = fmt.Sprintf("rejected %s (returned to agent)", t.ID)
-	}
-	m.statusIsError = false
 }
 
 func (m Model) View() string {
