@@ -338,6 +338,7 @@ func ResetFlags() {
 	nextEpic = false
 	nextIncludeManual = false
 	nextJSON = false
+	nextAutonomous = false
 
 	// Reset blocked flags
 	blockedAll = false
