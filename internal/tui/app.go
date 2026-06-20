@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -67,6 +68,7 @@ func NewApp(ticks []tick.Tick, storePath, owner string) App {
 		allTicks:  ticks,
 		views:     registerViews(storePath),
 		sidebar:   NewSidebar(ticks, owner),
+		detail:    newDetail(storePath, owner),
 		focus:     focusSidebar,
 	}
 	a.indexTicks()
@@ -151,9 +153,106 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.focus = focusMain
 		return a, nil
+
+	case paletteEditMsg:
+		return a.handlePaletteEdit(msg)
 	}
 
 	return a, nil
+}
+
+// handlePaletteEdit runs an EDIT action from the command palette against the
+// currently-selected tick, going through the shared edit funcs (edit.go) so the
+// tracker stays the source of truth. Free-text actions (reassign, add-blocker)
+// instead focus the detail pane and open its inline editor for the relevant
+// field. After a write it mirrors the persisted tick into shared state.
+func (a App) handlePaletteEdit(msg paletteEditMsg) (tea.Model, tea.Cmd) {
+	id := ""
+	if sel, ok := a.activeView().(Selector); ok {
+		id = sel.SelectedTickID()
+	}
+	if id == "" {
+		a.focus = focusMain
+		return a, nil
+	}
+
+	switch msg.action {
+	case editActionReassign:
+		// Open the inline owner editor in the detail pane.
+		return a.openDetailEdit(id, fieldOwner), nil
+	case editActionAddBlocker:
+		// Open the free-text blocker prompt in the detail pane.
+		if t, ok := a.byID[id]; ok {
+			tc := t
+			a.detail.SetTick(&tc)
+		}
+		a.focus = focusDetail
+		a.syncDetailVisibility()
+		a.detail.beginAddBlocker()
+		return a, nil
+	}
+
+	var (
+		t   tick.Tick
+		err error
+	)
+	switch msg.action {
+	case editActionApprove:
+		t, _, err = editApprove(a.storePath, a.owner, id)
+	case editActionReject:
+		t, _, err = editReject(a.storePath, a.owner, id, "")
+	case editActionClose:
+		t, err = editClose(a.storePath, a.owner, id, "")
+	case editActionReopen:
+		t, err = editReopen(a.storePath, a.owner, id)
+	case editActionSetStatus:
+		t, err = editSetStatus(a.storePath, a.owner, id, msg.value)
+	case editActionSetPriority:
+		p, _ := strconv.Atoi(msg.value)
+		t, err = editSetPriority(a.storePath, a.owner, id, p)
+	}
+
+	a.focus = focusMain
+	if err == nil && t.ID != "" {
+		a.mirrorEditedTick(t)
+	}
+	return a, nil
+}
+
+// openDetailEdit focuses the detail pane on the given tick and starts an inline
+// edit of the named field (used by palette free-text actions like reassign).
+func (a App) openDetailEdit(id string, f editableField) App {
+	if t, ok := a.byID[id]; ok {
+		tc := t
+		a.detail.SetTick(&tc)
+	}
+	a.focus = focusDetail
+	a.syncDetailVisibility()
+	// Position the field cursor and open its editor.
+	for i, ef := range editableFields {
+		if ef == f {
+			a.detail.fieldIdx = i
+			break
+		}
+	}
+	a.detail.beginEdit()
+	return a
+}
+
+// mirrorEditedTick syncs a persisted tick into allTicks/byID, the sidebar, the
+// active view, and the detail pane so the whole shell reflects the edit without
+// waiting for the filesystem watcher.
+func (a *App) mirrorEditedTick(t tick.Tick) {
+	for i := range a.allTicks {
+		if a.allTicks[i].ID == t.ID {
+			a.allTicks[i] = t
+			break
+		}
+	}
+	a.indexTicks()
+	a.sidebar.SetTicks(a.allTicks)
+	a.scope = a.sidebar.SelectedScope()
+	a.reScope()
 }
 
 // handleKey processes a key message: global keys first, then routing to the
@@ -163,6 +262,16 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if a.focus == focusPalette {
 		var cmd tea.Cmd
 		a.pal, cmd = a.pal.Update(msg)
+		return a, cmd
+	}
+
+	// While an inline detail edit is in progress, the textinput owns every key
+	// (including q/tab/digits): route them to the detail pane verbatim so typing
+	// does not trigger global bindings.
+	if a.focus == focusDetail && a.detail.editing {
+		var cmd tea.Cmd
+		a.detail, cmd, _ = a.detail.Update(msg)
+		a.afterDetailEdit()
 		return a, cmd
 	}
 
@@ -201,19 +310,63 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.reScope()
 		}
 	case focusMain:
+		// Adaptive detail (§6): in the 2/1-pane layouts Enter on the main pane
+		// swaps it out for the detail pane (and Esc in detail returns). In the
+		// 3-pane layout the detail is always a peek, so Enter falls through to
+		// the view (e.g. fold an epic).
+		if msg.String() == "enter" && modeForWidth(a.width) != layoutThree {
+			a.focus = focusDetail
+			a.syncDetailVisibility()
+			return a, nil
+		}
 		v, cmd := a.activeView().Update(msg)
 		a.views.replace(a.activeIx, v)
 		a.syncDetail()
 		return a, cmd
 	case focusDetail:
-		switch msg.String() {
-		case "j", "down":
-			a.detail.scroll(1)
-		case "k", "up":
-			a.detail.scroll(-1)
+		d, cmd, consumed := a.detail.Update(msg)
+		a.detail = d
+		if consumed {
+			a.afterDetailEdit()
+			return a, cmd
 		}
+		// The detail pane did not handle the key. In the 2/1-pane layouts Esc
+		// swaps back to the main pane (return-from-detail); in the 3-pane peek
+		// Esc is a no-op here.
+		if msg.String() == "esc" && modeForWidth(a.width) != layoutThree {
+			a.focus = focusMain
+			a.syncDetailVisibility()
+		}
+		return a, cmd
 	}
 	return a, nil
+}
+
+// afterDetailEdit syncs an inline detail edit back into the App's shared state:
+// the detail pane re-reads the persisted tick into a.detail.tick, so we mirror
+// that copy into allTicks/byID and re-scope the views so the list reflects the
+// change immediately (without waiting for the filesystem watcher).
+func (a *App) afterDetailEdit() {
+	t := a.detail.tick
+	if t == nil {
+		return
+	}
+	found := false
+	for i := range a.allTicks {
+		if a.allTicks[i].ID == t.ID {
+			a.allTicks[i] = *t
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	a.indexTicks()
+	a.sidebar.SetTicks(a.allTicks)
+	if sa, ok := a.activeView().(ScopeAware); ok {
+		sa.SetScope(a.scope, a.allTicks)
+	}
 }
 
 // syncDetailVisibility makes the detail pane appear when the user focuses it in
@@ -365,14 +518,17 @@ func (a App) renderPane(header, bodyText string, rect paneRect, focused bool) st
 	return style.Width(rect.width - 2).Height(rect.height - 2).Render(body)
 }
 
-// footer renders the help/status strip.
+// footer renders the help/status strip. When the detail pane is focused it
+// advertises the inline-edit keys instead of the navigation set.
 func (a App) footer() string {
-	hints := []string{
-		"tab: focus",
-		"j/k: move",
-		"1: views",
-		"ctrl+k: palette",
-		"q: quit",
+	var hints []string
+	switch {
+	case a.focus == focusDetail && a.detail.editing:
+		hints = []string{"enter: save", "esc: cancel"}
+	case a.focus == focusDetail:
+		hints = []string{"n/p: field", "e: edit", "esc: back", "ctrl+k: palette", "q: quit"}
+	default:
+		hints = []string{"tab: focus", "j/k: move", "1: views", "ctrl+k: palette", "q: quit"}
 	}
 	return footerStyle.Render(strings.Join(hints, "  ·  ")) +
 		footerStyle.Render("  ["+a.focusLabel()+"]")

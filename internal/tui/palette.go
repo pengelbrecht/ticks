@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,14 +26,40 @@ type paletteJumpMsg struct{ id string }
 // index.
 type paletteSwitchViewMsg struct{ viewIndex int }
 
+// paletteEditMsg tells the App to run an EDIT action against the currently
+// selected tick via the shared edit funcs (edit.go). The App owns the selection
+// and the store path, so the palette only carries the action and any inline
+// argument it captured (e.g. a concrete status/priority); free-text actions
+// (reassign, add-blocker) carry no value and the App opens the detail inline
+// editor instead.
+type paletteEditMsg struct {
+	action editAction
+	value  string // concrete value for set-status/set-priority; else ""
+}
+
+// editAction enumerates the palette EDIT actions (§6/§8).
+type editAction int
+
+const (
+	editActionApprove editAction = iota
+	editActionReject
+	editActionClose
+	editActionReopen
+	editActionSetStatus // value carries the target status
+	editActionSetPriority
+	editActionReassign  // App opens the inline owner editor
+	editActionAddBlocker // App opens the inline blocker editor
+)
+
 // ── Candidate ────────────────────────────────────────────────────────────────
 
-// candidateKind distinguishes the two classes of palette entry.
+// candidateKind distinguishes the classes of palette entry.
 type candidateKind int
 
 const (
 	candidateTickKind candidateKind = iota // jump to a tick/epic/project
 	candidateViewKind                      // switch the main-pane view
+	candidateEditKind                      // run an edit action on the selection
 )
 
 // candidate is one entry in the palette list.
@@ -41,6 +68,9 @@ type candidate struct {
 	id        string // tick ID (candidateTickKind only)
 	title     string // display title
 	viewIndex int    // registry index (candidateViewKind only)
+
+	action editAction // edit action (candidateEditKind only)
+	value  string     // edit argument (candidateEditKind only)
 
 	// searchKey is the lowercase string matched against the fuzzy query.
 	searchKey string
@@ -79,6 +109,9 @@ func newPalette(ticks []tick.Tick, views *registry) palette {
 		})
 	}
 
+	// Edit actions on the currently-selected tick (the App resolves "selected").
+	all = append(all, editCandidates()...)
+
 	// Jump targets: every tick/epic in the set, keyed by id + title.
 	for _, t := range ticks {
 		title := fmt.Sprintf("%s  %s", t.ID, t.Title)
@@ -93,6 +126,37 @@ func newPalette(ticks []tick.Tick, views *registry) palette {
 	p := palette{all: all}
 	p.applyFilter()
 	return p
+}
+
+// editCandidates builds the fixed set of EDIT-action palette entries. They all
+// operate on the App's currently-selected tick; the App calls the shared edit
+// funcs (edit.go) when one is confirmed. Status/priority expand to one entry per
+// concrete target so the action is a single Enter with no follow-up prompt.
+func editCandidates() []candidate {
+	var out []candidate
+	add := func(title string, a editAction, value string) {
+		out = append(out, candidate{
+			kind:      candidateEditKind,
+			title:     title,
+			action:    a,
+			value:     value,
+			searchKey: strings.ToLower(title),
+		})
+	}
+
+	add("Approve selected tick", editActionApprove, "")
+	add("Reject selected tick", editActionReject, "")
+	add("Close selected tick", editActionClose, "")
+	add("Reopen selected tick", editActionReopen, "")
+	add("Reassign selected tick…", editActionReassign, "")
+	add("Add blocker to selected tick…", editActionAddBlocker, "")
+	add("Set status → open", editActionSetStatus, tick.StatusOpen)
+	add("Set status → in_progress", editActionSetStatus, tick.StatusInProgress)
+	add("Set status → closed", editActionSetStatus, tick.StatusClosed)
+	for _, p := range []int{0, 1, 2, 3, 4} {
+		add(fmt.Sprintf("Set priority → P%d", p), editActionSetPriority, strconv.Itoa(p))
+	}
+	return out
 }
 
 // SetSize records the terminal dimensions so the overlay can be centred.
@@ -127,6 +191,9 @@ func (p palette) Update(msg tea.KeyMsg) (palette, tea.Cmd) {
 		case candidateViewKind:
 			ix := c.viewIndex
 			return p, func() tea.Msg { return paletteSwitchViewMsg{viewIndex: ix} }
+		case candidateEditKind:
+			act, val := c.action, c.value
+			return p, func() tea.Msg { return paletteEditMsg{action: act, value: val} }
 		}
 
 	case "j", "down":

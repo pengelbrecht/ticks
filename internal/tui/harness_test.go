@@ -77,6 +77,7 @@ func newTestApp(t *testing.T, ticks []tick.Tick) App {
 		allTicks: ticks,
 		views:    registerViews(""),
 		sidebar:  NewSidebar(ticks, ""),
+		detail:   newDetail("", ""),
 		focus:    focusSidebar,
 	}
 	a.indexTicks()
@@ -123,6 +124,16 @@ func fixtureTick(id, title, status string, priority int) tick.Tick {
 		CreatedAt: fixedTime,
 		UpdatedAt: fixedTime,
 	}
+}
+
+// validFixture returns a fixtureTick augmented with the fields tick.Validate()
+// requires when the tick is re-read through the store (Owner + CreatedBy). Used
+// by edit/detail tests that round-trip through the validating store.
+func validFixture(id, title, status string, priority int) tick.Tick {
+	t := fixtureTick(id, title, status, priority)
+	t.Owner = "alice"
+	t.CreatedBy = "alice"
+	return t
 }
 
 // sendKey is a small convenience around tm.Send for a single rune key.
