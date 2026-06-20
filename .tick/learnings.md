@@ -130,3 +130,14 @@ command-substituted, embedding command output (e.g. a `tk roadmap` dump) into th
 **Rule:** Author tick descriptions/notes with SINGLE-quoted strings (or a heredoc), never
 double-quoted, whenever the text contains backticks, `$`, or `()`. Verify with `tk show <id>`
 after bulk creation — substitution failures go to stderr and are easy to miss.
+
+**Problem:** A `git merge` of an implementer branch failed/half-applied (rename + go.mod staged
+in the index), then a blind `git add .tick/ && git commit` for tracker state captured the
+half-staged merge leftovers into the tracker commit — corrupting HEAD and causing add/add
+conflicts on the retry.
+**Cause:** `git add .tick/` stages .tick, but `git commit` commits the WHOLE index, including
+anything a prior failed merge left staged.
+**Rule:** Commit orchestrator tracker state with a pathspec — `git commit .tick/ -m "..."` —
+never `git add .tick/ && git commit`. And after any merge, check it actually committed
+(`git rev-parse -q --verify MERGE_HEAD` should be empty; `git status` clean) BEFORE committing
+tracker state. To recover a botched merge-commit, `git reset --hard <pre-merge-sha>` and re-merge.
