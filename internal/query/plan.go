@@ -25,18 +25,18 @@ func EpicsNeedingPlanning(candidates []tick.Tick, allTicks ...[]tick.Tick) []tic
 		lookup = allTicks[0]
 	}
 	index := indexByID(lookup)
-	childrenOf := buildChildIndex(lookup)
+	childIndex := BuildChildIndex(lookup)
 
 	var out []tick.Tick
 	for _, t := range candidates {
-		if needsPlanning(t, index, childrenOf) {
+		if needsPlanning(t, index, childIndex) {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-func needsPlanning(t tick.Tick, index map[string]tick.Tick, childrenOf map[string]bool) bool {
+func needsPlanning(t tick.Tick, index map[string]tick.Tick, childIndex ChildIndex) bool {
 	// Must be an epic
 	if t.Type != tick.TypeEpic {
 		return false
@@ -64,20 +64,12 @@ func needsPlanning(t tick.Tick, index map[string]tick.Tick, childrenOf map[strin
 			return false
 		}
 	}
-	// Must have zero children (of any status)
-	if childrenOf[t.ID] {
+	// Must have zero children (of any status). A childless epic is RoleEmptyEpic
+	// (design §2) — the planning frontier; any epic that has become a container
+	// is already planned. IsContainer over the shared public ChildIndex is the
+	// same test the old private buildChildIndex performed.
+	if IsContainer(t, childIndex) {
 		return false
 	}
 	return true
-}
-
-// buildChildIndex returns a set of parent IDs that have at least one child in ticks.
-func buildChildIndex(ticks []tick.Tick) map[string]bool {
-	index := make(map[string]bool)
-	for _, t := range ticks {
-		if t.Parent != "" {
-			index[t.Parent] = true
-		}
-	}
-	return index
 }

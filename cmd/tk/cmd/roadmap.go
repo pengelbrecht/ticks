@@ -186,6 +186,102 @@ func runRoadmap(cmd *cobra.Command, args []string) error {
 	return renderRoadmapHuman(roadmap)
 }
 
+// renderEpicLine formats one roadmap node as a single line with the given
+// leading indent, and returns it (newline-terminated). The format — glyph, bold
+// id, title, [closed/total ticks] badge, then status/dependency annotations — is
+// the long-standing roadmap line layout; the only addition is the configurable
+// indent so projects can nest their epics.
+func renderEpicLine(re query.RoadmapEpic, indent string) string {
+	glyph := renderEpicGlyph(re)
+
+	// Tick count badge.
+	ticksBadge := styles.DimStyle.Render(
+		fmt.Sprintf("[%d/%d ticks]", re.ChildrenClosed, re.ChildrenTotal),
+	)
+
+	// Status annotations.
+	var annotations []string
+	switch re.Status {
+	case "ready":
+		annotations = append(annotations, styles.StatusOpenStyle.Render("needs planning"))
+	case "gated":
+		if re.AwaitingType != "" {
+			annotations = append(annotations, styles.StatusAwaitingStyle.Render("awaiting:"+re.AwaitingType))
+		}
+	}
+
+	// Dependency annotations: hard blocked_by edges first, then soft after
+	// edges in a dimmer style (a preference, not a constraint).
+	if len(re.BlockedBy) > 0 {
+		annotations = append(annotations, styles.DimStyle.Render("← blocked by: "+strings.Join(re.BlockedBy, " ")))
+	}
+	if len(re.After) > 0 {
+		annotations = append(annotations, styles.Dim.Render("← after: "+strings.Join(re.After, " ")))
+	}
+
+	annotationStr := ""
+	if len(annotations) > 0 {
+		annotationStr = "  " + strings.Join(annotations, "  ")
+	}
+
+	return fmt.Sprintf("%s%s %s  %s  %s%s\n",
+		indent,
+		glyph,
+		styles.BoldStyle.Render(re.ID),
+		re.Title,
+		ticksBadge,
+		annotationStr,
+	)
+}
+
+// renderRoadmapTree renders a roadmap that contains at least one project as a
+// nested hierarchy: each project is a header line and its member epics (and
+// nested sub-projects) are indented beneath it, so the big-picture grouping is
+// visible at a glance. Within a container, members are listed in wave order
+// (earliest wave first), so the dependency layering is preserved; the per-epic
+// "← blocked by:" / "← after:" annotations carry the exact edges. Loose root
+// epics (not inside any project) render first, exactly as in the flat layout.
+//
+// counts is updated with each node's status for the shared summary line.
+func renderRoadmapTree(roadmap query.Roadmap, counts map[string]int) {
+	// Flatten waves into a wave-ordered list of nodes, and index nodes by id and
+	// by parent so we can walk the tree depth-first while honouring wave order.
+	var ordered []query.RoadmapEpic
+	childrenOf := make(map[string][]query.RoadmapEpic)
+	for _, wave := range roadmap.Waves {
+		for _, re := range wave {
+			ordered = append(ordered, re)
+			childrenOf[re.Parent] = append(childrenOf[re.Parent], re)
+		}
+	}
+
+	// Depth-first walk from a parent id at a given indent depth.
+	var walk func(parentID string, depth int)
+	walk = func(parentID string, depth int) {
+		indent := strings.Repeat("  ", depth+1)
+		for _, re := range childrenOf[parentID] {
+			fmt.Print(renderEpicLine(re, indent))
+			counts[re.Status]++
+			if re.Role == "project" {
+				walk(re.ID, depth+1)
+			}
+		}
+	}
+
+	// Roots are nodes with no project parent, in wave order.
+	for _, re := range ordered {
+		if re.Parent != "" {
+			continue
+		}
+		fmt.Print(renderEpicLine(re, "  "))
+		counts[re.Status]++
+		if re.Role == "project" {
+			walk(re.ID, 1)
+		}
+	}
+	fmt.Println()
+}
+
 // renderRoadmapHuman writes the human-readable roadmap to stdout.
 func renderRoadmapHuman(roadmap query.Roadmap) error {
 	// Collect summary stats across all waves.
@@ -197,54 +293,31 @@ func renderRoadmapHuman(roadmap query.Roadmap) error {
 		"gated":  0,
 	}
 
-	for waveIdx, wave := range roadmap.Waves {
-		waveNum := waveIdx + 1
-		fmt.Printf("%s\n", styles.DimStyle.Render(fmt.Sprintf("Wave %d", waveNum)))
-
+	// Detect whether any project container is present. A project-less roadmap
+	// (the only shape that exists today) renders the flat wave layout exactly as
+	// before; projects switch on the nested, tree-aware layout.
+	hasProject := false
+	for _, wave := range roadmap.Waves {
 		for _, re := range wave {
-			glyph := renderEpicGlyph(re)
-
-			// Tick count badge.
-			ticksBadge := styles.DimStyle.Render(
-				fmt.Sprintf("[%d/%d ticks]", re.ChildrenClosed, re.ChildrenTotal),
-			)
-
-			// Status annotations.
-			var annotations []string
-			switch re.Status {
-			case "ready":
-				annotations = append(annotations, styles.StatusOpenStyle.Render("needs planning"))
-			case "gated":
-				if re.AwaitingType != "" {
-					annotations = append(annotations, styles.StatusAwaitingStyle.Render("awaiting:"+re.AwaitingType))
-				}
+			if re.Role == "project" {
+				hasProject = true
 			}
-
-			// Dependency annotations: hard blocked_by edges first, then soft
-			// after edges in a dimmer style (a preference, not a constraint).
-			if len(re.BlockedBy) > 0 {
-				annotations = append(annotations, styles.DimStyle.Render("← blocked by: "+strings.Join(re.BlockedBy, " ")))
-			}
-			if len(re.After) > 0 {
-				annotations = append(annotations, styles.Dim.Render("← after: "+strings.Join(re.After, " ")))
-			}
-
-			annotationStr := ""
-			if len(annotations) > 0 {
-				annotationStr = "  " + strings.Join(annotations, "  ")
-			}
-
-			fmt.Printf("  %s %s  %s  %s%s\n",
-				glyph,
-				styles.BoldStyle.Render(re.ID),
-				re.Title,
-				ticksBadge,
-				annotationStr,
-			)
-
-			counts[re.Status]++
 		}
-		fmt.Println()
+	}
+
+	if hasProject {
+		renderRoadmapTree(roadmap, counts)
+	} else {
+		for waveIdx, wave := range roadmap.Waves {
+			waveNum := waveIdx + 1
+			fmt.Printf("%s\n", styles.DimStyle.Render(fmt.Sprintf("Wave %d", waveNum)))
+
+			for _, re := range wave {
+				fmt.Print(renderEpicLine(re, "  "))
+				counts[re.Status]++
+			}
+			fmt.Println()
+		}
 	}
 
 	// Legend.
