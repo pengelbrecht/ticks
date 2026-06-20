@@ -18,8 +18,8 @@ var tuiCmd = &cobra.Command{
 	Use:   "tui",
 	Short: "Open the unified interactive terminal app",
 	Long: `Open the unified terminal app: a persistent shell with a navigation
-sidebar, swappable content views (List today; Board/Roadmap/Timeline later),
-and a read-only detail pane.
+sidebar (smart views + project tree), swappable content views (List, Board,
+Roadmap, Timeline), an editable detail pane, and a Ctrl-K command palette.
 
 Supports filtering by owner, status, priority, type, label, and parent.`,
 	Args: cobra.NoArgs,

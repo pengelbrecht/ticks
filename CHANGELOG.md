@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-06-20
+
+### Fixed
+
+- `tk tui --help` text was stale (described only the List view and a read-only detail pane). It now accurately lists all four views (List, Board, Roadmap, Timeline), the editable detail pane, and the Ctrl-K command palette.
+
 ## [0.18.0] - 2026-06-20
 
 ### Added
