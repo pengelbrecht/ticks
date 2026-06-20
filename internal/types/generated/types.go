@@ -118,6 +118,11 @@ type AddNoteResponse struct {
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
+
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 
@@ -208,6 +213,11 @@ type ApproveTickResponse struct {
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
+
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
 
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
@@ -317,6 +327,11 @@ type CloseTickResponse struct {
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
+
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
 
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
@@ -436,6 +451,11 @@ type CreateTickResponse struct {
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
+
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 
@@ -547,6 +567,11 @@ type GetTickResponse struct {
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
+
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
 
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
@@ -698,6 +723,11 @@ type RejectTickResponse struct {
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
+
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
 
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
@@ -1039,6 +1069,11 @@ type TickResponse struct {
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
+
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 
@@ -1121,6 +1156,11 @@ type TickSchema struct {
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
 
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
+
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 
@@ -1202,6 +1242,11 @@ type TickSchema_1 struct {
 
 	// Status corresponds to the JSON schema field "status".
 	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
+
+	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
+	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
+	// overdue/on-track signal and never gates execution
+	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
 
 	// Short title describing the work item
 	Title string `json:"title" yaml:"title" mapstructure:"title"`

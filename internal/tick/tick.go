@@ -47,6 +47,10 @@ const (
 	VerdictRejected = "rejected"
 )
 
+// TargetDateLayout is the canonical format for the optional TargetDate field:
+// a precise ISO calendar day with no time-of-day component.
+const TargetDateLayout = "2006-01-02"
+
 // Valid values for workflow fields (for validation and documentation).
 var (
 	ValidRequiresValues = []string{RequiresApproval, RequiresReview, RequiresContent}
@@ -69,8 +73,13 @@ type Tick struct {
 	// After expresses preferred ordering only (work these targets first if
 	// feasible); it never gates readiness — that is BlockedBy. Entries are
 	// tick IDs; consumers ignore missing or closed targets.
-	After              []string   `json:"after,omitempty"`
-	Parent             string     `json:"parent,omitempty"`
+	After  []string `json:"after,omitempty"`
+	Parent string   `json:"parent,omitempty"`
+	// TargetDate is an optional precise ISO calendar day (e.g. "2026-09-30"):
+	// no time-of-day, no timezone, no fuzziness. Absent (empty) is the common
+	// case. It feeds the derived overdue / on-track signal (later ticks) and
+	// never gates execution.
+	TargetDate         string     `json:"target_date,omitempty"`
 	DiscoveredFrom     string     `json:"discovered_from,omitempty"`
 	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
 	DeferUntil         *time.Time `json:"defer_until,omitempty"`
@@ -132,6 +141,9 @@ func (t Tick) Validate() error {
 	if t.Verdict != nil && !isVerdictValid(*t.Verdict) {
 		errs = append(errs, fmt.Errorf("invalid verdict: %s", *t.Verdict))
 	}
+	if t.TargetDate != "" && !isTargetDateValid(t.TargetDate) {
+		errs = append(errs, fmt.Errorf("invalid target_date: %s (want %s)", t.TargetDate, TargetDateLayout))
+	}
 
 	return errors.Join(errs...)
 }
@@ -179,6 +191,15 @@ func isVerdictValid(value string) bool {
 	default:
 		return false
 	}
+}
+
+// isTargetDateValid reports whether value is a precise ISO calendar day
+// (YYYY-MM-DD) with no time-of-day component. time.Parse with a date-only
+// layout rejects any trailing time/offset, so "2026-09-30T00:00:00Z" and
+// partial dates like "2026-09" are invalid.
+func isTargetDateValid(value string) bool {
+	_, err := time.Parse(TargetDateLayout, value)
+	return err == nil
 }
 
 // IsAwaitingHuman returns true if tick is waiting for human action.
