@@ -136,23 +136,46 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 
 Transform the gathered requirements into ticks organized by epic.
 
-### Roadmaps (multi-epic work)
+### Big picture — roadmaps, projects, and dates
 
-When the spec spans multiple epics, create a **roadmap**: a set of epics linked with ordering edges. Two edge types exist, and choosing the right one is the core roadmap decision:
+Most work starts here: a flat roadmap of sequenced epics, dependencies, and nothing else. That is the **"just ship it"** default, and it is all you ever need for a single workstream. The features below — projects, buckets, `target_date` — layer on top when the work grows large enough to need them.
 
-- **`--blocked-by` = hard dependency (feasibility).** The downstream epic is never ready until the blocker closes. Use it only where the epic *genuinely needs* its predecessor — including sequencing chosen to avoid same-file merge conflicts between epics (that is a real constraint, not a preference).
-- **`--after` = soft ordering (preference).** It orders, but never gates readiness. `tk next` sorts soft-deferred candidates last but never hides them — when the preferred epic is infeasible (hard-blocked or gated), selection naturally skips ahead to the first feasible epic; no flag needed. Missing or closed `--after` targets are ignored.
+#### The hierarchy: tick → epic → project
+
+Ticks has one recursive container type. Role is derived from structure and the explicit `epic` marker:
+
+| Has children? | `epic` marker? | Children contain | Role |
+|---|---|---|---|
+| no | no | — | **tick** — atomic work |
+| no | yes | — | **empty epic** — needs planning |
+| yes | yes | any | **epic** — orchestration unit (waves, close-out, retro) |
+| yes | no | all atomic | **bucket** — passive grouping only |
+| yes | no | includes a container | **project** — grouping + human checkpoint |
+
+The core principle: **containment is free and passive; orchestration is opt-in.**
+
+- Any tick with children is a **container**: it rolls up progress and groups its descendants. No execution cost.
+- The **`-t epic`** marker turns a container into an **orchestration unit**: `tk next` runs its children as waves, it gets a close-out task and retro, it is a roadmap node. The marker means the same thing whether the epic is empty or populated — it is never derived from structure alone.
+- A container *without* the marker and with only atomic children is a **bucket** — its children flow through the normal ready queue independently, never coordinated as a unit. Use a bucket when you want to group a pile of unrelated tasks for visibility without running them as an epic.
+- A container *without* the marker that holds at least one other container is a **project**. A project groups and provides a human checkpoint (see continuation below). An "initiative" is just a project of projects — same type, different convention.
+
+#### Roadmap edges
+
+When the spec spans multiple epics, link them with ordering edges. Two types exist, and choosing correctly is the core decision:
+
+- **`--blocked-by` = hard dependency (feasibility).** The downstream epic is never ready until the blocker closes. Use it only where the epic genuinely needs its predecessor — including sequencing chosen to avoid same-file merge conflicts (that is a real constraint, not a preference).
+- **`--after` = soft ordering (preference).** It orders, but never gates readiness. `tk next` sorts soft-deferred candidates last but never hides them — when the preferred epic is infeasible, selection naturally skips ahead to the first feasible epic. Missing or closed `--after` targets are ignored.
+
+`tk roadmap` layers epics into waves on the union of both edge types and annotates each distinctly (`← blocked by:` vs the softer `← after:`); queued status comes from hard edges only — an epic whose only open predecessors are soft stays ready/active.
 
 Only the front epic gets child ticks. Downstream epics exist as parent-only ticks — give each a rough scope description (a paragraph plus a deliverables list), not detailed tasks. This is just-in-time detailing: future epics stay cheap to reorder or rescope.
 
 ```bash
 # Create the roadmap up front — only epic A gets child ticks now
-tk create "Auth foundation" -t epic -d "<rough scope>"                          # A — flesh out now
-tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>         # B — genuinely needs A's auth model
-tk create "Billing" -t epic -d "<rough scope>" --after <B>                      # C — preferred order only, no real dependency
+tk create "Auth foundation" -t epic -d "<rough scope>"                      # A — flesh out now
+tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>    # B — genuinely needs A's auth model
+tk create "Billing" -t epic -d "<rough scope>" --after <B>                 # C — preferred order only, no real dependency
 ```
-
-**Parallel fronts.** Because `--after` never gates readiness, more than one epic can be ready at once — the roadmap has a *front* of feasible epics, not a single head. `tk show` renders soft edges on an `After:` line; `tk roadmap` layers waves on the union of both edge types and annotates each kind distinctly (`← blocked by:` vs the softer `← after:`); queued status comes from hard edges only — an epic whose only open predecessors are soft stays ready/active.
 
 **Always append a close-out task as the final child of the front epic.** This task is real work:
 
@@ -162,7 +185,7 @@ tk create "Close out <epic A>: run epic retro, then flesh out the next feasible 
   --blocked-by <last-task-in-A>
 ```
 
-Executing this task means: run the epic-close retro (see `references/agent-runner.md`), then pick the next **feasible** epic in soft order — skip any epic that is hard-blocked or gated — read its rough scope, partition it into child ticks, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+Executing this task means: run the epic-close retro (see `references/agent-runner.md`), then pick the next **feasible** epic in soft order — skip any that is hard-blocked or gated — read its rough scope, partition it into child ticks, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
 
 **Planning triggers from `tk`.** Two CLI signals tell you that an epic needs to be fleshed out now:
 
@@ -171,56 +194,89 @@ Executing this task means: run the epic-close retro (see `references/agent-runne
 
 When either signal fires, the move is: flesh the epic out into child ticks (per the roadmap guidance above and the foundation-first procedure in `references/tick-patterns.md`), then continue with `tk graph <epic>`.
 
-**Human gates are chosen at roadmap creation time.** Create a downstream epic with `--awaiting checkpoint` or `--requires approval` to force a stop at that boundary. Without either flag the run auto-continues through the boundary. Default: **auto-continue**.
+**Roadmap-level changes — adding, removing, or reordering epics — are human decisions.** The agent may propose them in the retro report but must not execute them unilaterally.
+
+This rule also covers phased specs: focus on creating ticks for the current/next phase only. Future phases are downstream epics in the roadmap — parent-only, rough scope, no detailed tasks yet.
+
+#### Continuation and stopping
+
+Epics auto-continue across epic boundaries by default. **Project boundaries stop for a human checkpoint** — the project's final child carries `--awaiting checkpoint` by default, so the run pauses for a human to look before the next project begins.
 
 ```bash
 # Auto-continue into epic B (default) — hard edge because B genuinely needs A
 tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>
 
-# Stop for human review before starting epic C — soft ordering plus a gate
+# Force a human review before starting epic C — soft ordering plus a gate
 tk create "Billing" -t epic -d "<rough scope>" --after <B> --awaiting checkpoint
 ```
 
-**Roadmap-level changes — adding, removing, or reordering epics — are human decisions.** The agent may propose them in the retro report but must not execute them unilaterally.
+To run fully hands-off through all project checkpoints, pass `--autonomous` to `tk next`, or set `policy.autonomous_mode: true` in `.tick/config.json`. Other awaiting types (work, approval, input, …) still gate in autonomous mode — only checkpoint boundaries flow through.
 
-This rule also covers phased specs: focus on creating ticks for the current/next phase only. Future phases are downstream epics in the roadmap — parent-only, rough scope, no detailed tasks yet.
+#### Target dates and the slip signal
 
-**Epic organization:**
-1. Group related tasks into logical epics (auth, API, UI, etc.)
-2. Create tasks with dependencies using `--blocked-by`
-3. Mark human-required tasks with `--awaiting work`
+Any tick can carry an optional `target_date` (precise ISO day). The signal is **derived**, never stored — so it cannot go stale or produce merge conflicts:
 
-**Designing for parallel execution:**
+- **overdue** — past `target_date` with at least one open descendant.
+- **on track** — has a `target_date`, not yet past it.
+- (no date) — no signal; work is purely dependency-driven.
+
+Dates never gate execution. They produce a flag for humans and for filter queries.
+
+```bash
+tk create "v2.0 launch" -d "<release outcome>" --target-date 2026-09-30
+tk update <id> --target-date 2026-10-15   # revise the date
+tk list --overdue                          # past target_date with open work
+tk list --due-before 2026-08-01           # target_date strictly before this date
+tk list --sort target_date                # ascending; undated ticks sort last
+```
+
+#### Worked examples
+
+**Example 1 — dated release grouping epics (a project)**
+
+```bash
+# "v2.0 launch" is created without -t epic, so it is a project — it groups and
+# provides a checkpoint boundary but is not "run as a unit" itself.
+# Its epics run exactly as epics do today.
+tk create "v2.0 launch" -d "<release outcome>" --target-date 2026-09-30
+tk create "Auth revamp" -t epic --parent <v2>                    # front epic — flesh out now
+tk create "Billing"     -t epic --parent <v2> --after <auth>     # downstream — rough scope only
+tk create "Dashboard"   -t epic --parent <v2> --after <billing>
+
+# Epics auto-continue into each other. When the last one closes, the v2.0
+# project boundary stops for human sign-off. target_date feeds the overdue /
+# on-track signal; it never gates execution.
+```
+
+**Example 2 — nested projects (what Linear calls an "initiative" — pure convention)**
+
+```bash
+tk create "Q3 Platform" --target-date 2026-09-30                  # top-level project
+tk create "Payments"    --parent <q3> --target-date 2026-08-15    # sub-project (milestone-ish)
+tk create "Auth revamp" -t epic --parent <payments>               # epic under the sub-project
+
+# Each sub-project boundary is its own checkpoint; the engine ascends the tree as
+# each level completes.
+```
+
+**Example 3 — passive bucket (grouping without orchestration)**
+
+```bash
+# No -t epic means a bucket. Groups for visibility and rolls up a count;
+# the bugs inside flow through the normal ready queue independently, never
+# coordinated as a unit.
+tk create "Q3 bug triage"
+tk create "Fix flaky login test"       --parent <triage>
+tk create "Dashboard chart off-by-one" --parent <triage>
+```
+
+#### Designing for parallel execution
+
 Ticks in the same wave (no blocking relationship) run concurrently, each in its own git worktree. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file will still collide at merge time. To keep merges clean:
 - If two ticks edit the same file, make one block the other so they land in different waves
 - Use `tk graph <epic>` to see the waves and confirm ticks in the same wave touch different files
 - Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A
 - Lockfiles count: two same-wave ticks that each add a dependency will both rewrite `pnpm-lock.yaml`/`go.sum` and conflict — serialize them, or put all dependency additions in one early tick (see `references/tick-patterns.md`)
-
-```bash
-# Create epics
-tk create "Authentication" -t epic
-tk create "API Endpoints" -t epic
-
-# Create tasks with acceptance criteria
-tk create "Add JWT token generation" \
-  -d "Implement JWT signing and verification" \
-  --acceptance "JWT tests pass" \
-  --parent <auth-epic>
-
-tk create "Add login endpoint" \
-  -d "POST /api/login with email/password" \
-  --acceptance "Login endpoint tests pass" \
-  --parent <api-epic> \
-  --blocked-by <jwt-task>
-
-# Human-only tasks (skipped by tk next)
-tk create "Set up production database" --awaiting work \
-  -d "Create RDS instance and configure access"
-
-tk create "Create Stripe API keys" --awaiting work \
-  -d "Set up Stripe account and get API credentials"
-```
 
 **Slice vertically.** Carve the epic into ticks by user-visible capability (one feature front-to-back), not by layer (all schema, then all API, then all UI). Each tick should leave the system working and demoable. See `references/tick-patterns.md` for the full reasoning and the parallel-safety caveat.
 
