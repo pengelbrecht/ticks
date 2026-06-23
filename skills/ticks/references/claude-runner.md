@@ -44,6 +44,24 @@ Agent(
 )
 ```
 
+## Successful-integration cleanup
+
+This is the adapter's resolution of the shared protocol's "run the active adapter's successful-integration cleanup" step (`agent-runner.md`). **Claude isolation worktrees are not self-cleaning once they hold commits.** The harness auto-removes an `isolation: "worktree"` directory only while it is *unchanged*; every tick implementer commits code, so its worktree and `worktree-agent-*` branch persist after the run and accumulate under `.claude/worktrees/` (multi-GB leaks across a few epics). The orchestrator must remove them explicitly — do not assume the harness will.
+
+After a tick's branch is merged and the tick is closed (and only then), remove its worktree and branch:
+
+```bash
+# branch comes from the agent's report, e.g. worktree-agent-a1bdb1ab…
+git worktree remove ".claude/worktrees/${branch#worktree-}"   # path = .claude/worktrees/agent-<id>
+git branch -d "$branch"                                        # safe delete; -d fails if not merged
+```
+
+`git branch -d` (not `-D`) is the guard: it refuses to delete a branch whose commits aren't merged, so a mis-derived branch name or an un-integrated tick won't silently lose work. As with the other adapters, **do not clean up a blocked or incomplete worktree** — it is durable handoff state (see "Continuation after a crash").
+
+Note `git branch -d` checks ancestry against the *current* branch. Run cleanup while still on the epic integration branch (where the real `git merge` made the tick branch an ancestor), not after a later squash-merge to the default branch — squashing rewrites SHAs, after which `-d` can no longer recognize the branch as merged and will refuse. If a sweep finds branches stranded that way but you've confirmed their content is in the default branch, `git branch -D` is the deliberate override.
+
+If the orchestrator took its own worktree via `EnterWorktree` for self-isolation, release it with `ExitWorktree` at epic end rather than leaving it behind.
+
 ## Branch naming and crash recovery
 
 Claude-managed worktrees do not use the deterministic shared convention: the harness assigns the branch name (historically `worktree-agent-*`, under `.claude/worktrees/`), and the orchestrator only learns it from the implementer's report. So the shared protocol's "record the branch in a durable note" happens **when the report arrives**, not before launch — write `tk note <tick-id> "runner-state: runner=claude branch=<reported-branch>"` as the first integration step for every finished tick.
