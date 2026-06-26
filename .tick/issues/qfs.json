@@ -5,10 +5,10 @@
   "notes": "2026-06-16 09:00 - Plannotator feedback incorporated into pi-runner.md: prefer repo-tracked .tick/config.md Pi Orchestrator section for model/vendor routing, and clarify that skills cannot directly activate extensions under current Pi model; distribute as a Pi package bundling skills + extensions.",
   "status": "open",
   "priority": 1,
-  "type": "task",
+  "type": "epic",
   "owner": "noreply@anthropic.com",
   "acceptance_criteria": "A Pi extension exists or a detailed implementation spec is added; no tmux dependency; wave dispatch runs multiple Pi implementers concurrently; docs explain how the skill and extension are packaged together",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-16T06:48:44.244029Z",
-  "updated_at": "2026-06-16T07:00:43.330966Z"
+  "updated_at": "2026-06-26T07:16:40.954547984Z"
 }

@@ -11,7 +11,8 @@
     "cloud",
     "integration"
   ],
+  "parent": "nm8",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:32:15.359245Z",
-  "updated_at": "2026-01-22T07:32:15.359245Z"
+  "updated_at": "2026-06-26T07:16:40.889485113Z"
 }

@@ -1,7 +1,7 @@
 {
   "id": "7du",
   "title": "Display attachments in tk view (TUI)",
-  "description": "Update TUI detail pane to show attachments.\n\n## Changes to internal/tui/model.go\n\nIn buildDetailContent(), add attachments section:\n\n```\nAttachments:\n  📎 a1b2  Login page redesign (login.png, 245KB)\n  📎 c3d4  Error state (error.png, 89KB)\n\n  Press 'o' to open selected attachment in browser\n```\n\n## Implementation\n\n1. After existing metadata sections, check t.HasAttachments()\n2. Add styled \"Attachments:\" header\n3. List each attachment with icon, ID, description, filename, size\n4. Add help text for opening\n\n## Keybinding\n\nAdd 'o' keybinding to open attachment:\n1. Only active when tick has attachments\n2. If single attachment: open it directly\n3. If multiple: cycle through or show selector\n\nFor MVP: just open first attachment (or all in sequence)\n\n## Browser Open\n\nUse: exec.Command(\"open\", url) on macOS\nOr: github.com/pkg/browser package for cross-platform",
+  "description": "Show attachments in the tk tui detail pane. Update internal/tui/view_detail.go (the editable detail view-model from the 0.18 tk tui rewrite) to render an Attachments section in the metadata block. NOTE: supersedes the original plan, which referenced tk view and internal/tui/model.go/buildDetailContent -- both removed in the tk tui rewrite. Depends on the attachments data model (epic 7ab) landing first.",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -9,5 +9,5 @@
   "parent": "7ab",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-21T16:22:44.822235Z",
-  "updated_at": "2026-01-21T16:22:44.822235Z"
+  "updated_at": "2026-06-26T07:16:40.850333305Z"
 }

@@ -6,8 +6,9 @@
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
+  "parent": "c16",
   "acceptance_criteria": "tsc --noEmit reports no errors in src/comms; pnpm test still 433 passed / 69 skipped",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-06-10T14:57:07.243708Z",
-  "updated_at": "2026-06-10T14:57:07.243708Z"
+  "updated_at": "2026-06-26T07:16:40.940783941Z"
 }

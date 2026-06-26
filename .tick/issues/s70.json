@@ -6,7 +6,8 @@
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
+  "parent": "nm8",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-03-21T19:56:46.825184Z",
-  "updated_at": "2026-03-21T19:57:08.433143Z"
+  "updated_at": "2026-06-26T07:16:40.904140731Z"
 }
