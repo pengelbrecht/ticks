@@ -361,7 +361,7 @@ The 150-line cap is hard. Compaction is the mechanism that keeps it honest — w
 
 #### 4. Outside-in verification
 
-For each scope item of the epic, verify against the *code*, not the tick status:
+Verify against the *code*, not the tick status. If the epic carries a **definition of done** (its `acceptance_criteria` — see SKILL.md → "Epic definition of done"), walk that list item by item; otherwise derive the scope items from the epic's description. A goal-compatible definition of done makes this step deterministic — every item is already a runnable check. For each item:
 
 - The behavior exists in the code.
 - Tests cover it (and pass).

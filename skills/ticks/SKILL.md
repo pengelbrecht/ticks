@@ -161,6 +161,25 @@ The core principle: **containment is free and passive; orchestration is opt-in.*
 - A container *without* the marker and with only atomic children is a **bucket** — its children flow through the normal ready queue independently, never coordinated as a unit. Use a bucket when you want to group a pile of unrelated tasks for visibility without running them as an epic.
 - A container *without* the marker that holds at least one other container is a **project**. A project groups and provides a human checkpoint (see continuation below). An "initiative" is just a project of projects — same type, different convention.
 
+#### Epic definition of done (strongly encouraged)
+
+Give every epic an explicit **definition of done**: the outside-in, user-visible conditions that mean the whole epic is complete — not merely that its child ticks closed. Store it as the epic's `--acceptance`:
+
+```bash
+tk create "Auth foundation" -t epic -d "<rough scope>" \
+  --acceptance "New user can sign up, log in, and see their profile end-to-end against a real DB. \`go test ./internal/auth/...\` and the e2e signup test pass. No auth route 5xxs on the happy path."
+```
+
+Optional, but strongly encouraged — it is the single thing that lets a run know when it is *actually* finished rather than just out of ticks. The Epic-close retro verifies the code against this definition item by item (`references/agent-runner.md` → Outside-in verification); without it, the retro falls back to re-deriving scope from the epic's prose.
+
+**Make it goal-compatible.** A definition of done is *goal-compatible* when an agent can confirm it is met with no human in the loop:
+
+- **Checkable** — each item is a runnable command or an observable behavior, never "works well" or "feels polished".
+- **Bounded** — it names what is in scope and stops; "and whatever else users want" is not a done.
+- **Outside-in** — user-visible behavior and the commands that prove it, not internal implementation detail.
+
+A goal-compatible done is what makes an epic safe to hand off and walk away from (see *Goal-ready handoff*). Items that genuinely need human taste ("looks right", "feels fast") are fine to write down, but keep them behind an `--awaiting` gate instead of expecting an autonomous run to settle them.
+
 #### Roadmap edges
 
 When the spec spans multiple epics, link them with ordering edges. Two types exist, and choosing correctly is the core decision:
@@ -213,6 +232,15 @@ tk create "Billing" -t epic -d "<rough scope>" --after <B> --awaiting checkpoint
 ```
 
 To run fully hands-off through all project checkpoints, pass `--autonomous` to `tk next`, or set `policy.autonomous_mode: true` in `.tick/config.json`. Other awaiting types (work, approval, input, …) still gate in autonomous mode — only checkpoint boundaries flow through.
+
+#### Goal-ready handoff
+
+When the front epic has a goal-compatible definition of done (above), the plan is ready to hand off: the run can flesh it out, implement, review, close it, and continue down the roadmap without checking in. After planning, make this an explicit decision *with the user* rather than sliding into the run:
+
+- **Done is goal-compatible** → recommend the walk-away path and give the one command: run the epic from the harness (Step 5), adding `--autonomous` to `tk next` (or `policy.autonomous_mode: true`) to flow through project checkpoints as well.
+- **Done is missing or not goal-compatible** → say what is unclear, offer to tighten it first, or run with the default human checkpoint at each project boundary.
+
+This is where you decide *how far* the run goes before it stops for you — one epic, one project, or the whole roadmap — instead of discovering it mid-run.
 
 #### Target dates and the slip signal
 
@@ -311,7 +339,7 @@ tk close <id> --reason "Completed - connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi. The shape is:
+Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi. If you haven't already, settle the *Goal-ready handoff* decision (above) before launching: how far should this run go before it stops for a human? The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
 2. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
@@ -335,6 +363,8 @@ tk create "Title" --after <task-id>                           # Soft ordering pr
 tk create "Title" --awaiting work                             # Human task
 tk create "Title" --requires approval                         # Needs approval gate
 ```
+
+> Epics take `--acceptance` too — use it for the epic's **definition of done** (strongly encouraged; see *Epic definition of done*). A goal-compatible done is what lets you hand the epic off and walk away.
 
 > `tk` uses standard double-dash for long flags. `-acceptance`/`-parent`/`-blocked-by` (single dash) do **not** work — use `--acceptance`/`--parent`/`--blocked-by`. Single-letter shorthands like `-d`, `-t`, `-p`, `-l`, `-b` are fine.
 
