@@ -230,7 +230,7 @@ Ticks are designed to carry their own success criteria (tests in the acceptance)
 - **Always** run one final review over the epic's full diff before closing the epic (see "Closing the epic").
 - **Per-tick review is worth it** for ticks created with `--requires review`/`--requires approval`, and for any tick that needed the most-capable tier. When you want it, run a two-stage review (cheaper than debugging later):
   1. **Spec compliance** — does the diff match the tick's description + acceptance, with nothing missing and nothing extra? (Can be a quick inline check or a cheap reviewer subagent.)
-  2. **Code quality** — only after spec compliance passes. Dispatch a reviewer subagent over the tick's branch.
+  2. **Code quality** — only after spec compliance passes. Dispatch a reviewer subagent over the tick's branch. For logic-heavy diffs, include the maintainability axis (`references/code-smells.md`).
 
   If a reviewer finds issues, continue the original implementer when possible or redispatch from its branch, then re-review. Don't move on with open issues.
 
@@ -255,6 +255,7 @@ Tag each finding with a **confidence** as well as a severity. Severity sets the 
 - **Test quality** — behavioral coverage (do the tests actually exercise the behavior?), not line coverage; missing edge cases.
 - **Type/contract design** — do shared types and API shapes encode their invariants, or can a caller construct an invalid state? Highest-leverage on the contracts a FOUNDATION-REVIEW already targets.
 - **Comment & doc accuracy** — comments that no longer match the code, stale docs, comment rot.
+- **Maintainability** — structural code smells: mysterious names, duplication, feature envy, data clumps, speculative generality. A curated Fowler baseline lives in `references/code-smells.md`; each smell is a judgment call, never a hard violation. Earn this axis on logic-heavy diffs; skip it for routine ones.
 
 ## Human-in-the-loop ticks
 
