@@ -36,7 +36,15 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    stamps activity entries with a recognisable actor — distinguishing orchestrator actions from
    human actions in the feed. (See "Actor convention" below.)
 1. tk graph <epic> --json          → waves + max_parallel
-2. For each wave:
+2. EPIC-SKELETON pre-flight (self-healing): if step 1's result carries a non-empty
+   missing_process_ticks (roles no child tick has — "review", "closeout"), create the
+   missing process ticks now — before wave 1 — with `tk create --role <role>` per the
+   templates in SKILL.md's Big picture section. This repairs epics planned by older
+   skill versions, planned by other tools, or promoted to epic-hood with
+   `tk update -t epic`. Idempotent and cheap; never skip it.
+   (Older tk without missing_process_ticks: fall back to checking tk list --parent <epic>
+   for the two process ticks by hand.)
+3. For each wave:
    a. Mark the wave's ticks in_progress
       `tk update <id> --status in_progress` emits a 'start' activity entry and sets started_at
       on the tick — claiming is immediately visible on the board and in the activity feed.
@@ -49,7 +57,7 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       Never use a bare `tk close`.
    e. When the whole wave is merged, run the project's test suite on the integrated tree
    f. When the wave is integrated and green, go to the next wave
-3. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
+4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
 
@@ -61,16 +69,20 @@ Order matters: integrate a wave's work *before* launching the next, so wave N+1 
 
 ### Meta-work ticks
 
-When the orchestrator fleshes an epic into implementation ticks, it also creates two **process ticks** at planning time:
+This section defines the semantics of the **EPIC-SKELETON invariant** (stated, with `tk create` templates, in SKILL.md's Big picture section — the two docs name the same invariant so they cannot drift apart silently). When the orchestrator fleshes an epic into implementation ticks, it also creates two **process ticks** at planning time:
 
 ```
 Epic X
 ├── (implementation ticks, waves as usual)
-├── "Final review of epic X diff"            --blocked-by <every last-wave implementation tick>
-└── "Close out epic X: retro + plan (next)"  --blocked-by <final review tick>
+├── "Final review of epic X diff"            --role review    --blocked-by <every last-wave implementation tick>
+└── "Close out epic X: retro + plan (next)"  --role closeout  --blocked-by <final review tick>
 ```
 
+The `--role` flag is what makes the skeleton machine-detectable: `tk graph <epic> --json` reports `missing_process_ticks` from it (see the pre-flight in the loop above), and `tk next --json` carries the tick's `role` so the orchestrator routes a review or closeout tick without parsing its title. Legacy process ticks created without a role can be tagged after the fact with `tk update <id> --role review|closeout`.
+
 **Why at planning time:** with these ticks in the tracker from the start, every `tk next` result maps to exactly one action — implement, review, or close out. A session that dies mid-run resumes by re-invoking the skill and calling `tk next`; no state reconstruction is needed (see *Resuming a run*).
+
+**Why also a run-start pre-flight (step 1 of the loop):** planning time is the primary creation point, but epics reach run time through other doors — planned by an older skill version, planned by another tool, or promoted with `tk update -t epic` (which bypasses the planning flow entirely). The pre-flight check repairs all of these before wave 1.
 
 **Final-review tick** — its work is to review the epic's full diff (run a reviewer subagent for substantial epics, per the "Reviewing the work" section above) and resolve or route any findings before the close-out tick unblocks.
 
@@ -406,8 +418,8 @@ Re-entry is just re-invoking the skill. Before starting the first wave, run the 
 | `action: await` (non-checkpoint) | Route to the human — something is waiting on a decision or approval |
 | `action: await` (checkpoint, autonomous mode on) | Project boundary: auto-continue without stopping — `tk next --autonomous` flows through it |
 | `action: await` (checkpoint, autonomous mode off) | Project boundary: write a progress report and stop for human sign-off before the next project begins |
-| Final-review tick unblocked | Review the epic's full diff (reviewer subagent for substantial epics) |
-| Close-out tick unblocked | Run the epic-close retro, then continue into the next feasible epic in soft order (skip hard-blocked or gated epics); if the frontier reaches a project boundary, apply the checkpoint rule above |
+| Final-review tick unblocked (`role: review` in the JSON) | Review the epic's full diff (reviewer subagent for substantial epics) |
+| Close-out tick unblocked (`role: closeout` in the JSON) | Run the epic-close retro, then continue into the next feasible epic in soft order (skip hard-blocked or gated epics); if the frontier reaches a project boundary, apply the checkpoint rule above |
 | `tk next` returns nothing and all roadmap epics are closed | Roadmap end: write a completion report and stop |
 
 ### Cross-runner handoff

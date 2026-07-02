@@ -49,7 +49,11 @@ Examples:
 
   # Task blocked by several ticks (repeat the flag or comma-separate)
   tk create "Wire checkout UI" -b abc123 -b def456
-  tk create "Wire checkout UI" --blocked-by abc123,def456`,
+  tk create "Wire checkout UI" --blocked-by abc123,def456
+
+  # Epic process ticks (EPIC-SKELETON): final review, then close-out
+  tk create "Final review of epic diff" --parent abc123 --role review -b t1,t2
+  tk create "Close out epic: retro + plan next" --parent abc123 --role closeout -b rev1`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runCreate,
 }
@@ -71,6 +75,7 @@ var (
 	createManual         bool
 	createRequires       string
 	createAwaiting       string
+	createRole           string
 	createJSON           bool
 )
 
@@ -91,6 +96,7 @@ func init() {
 	createCmd.Flags().BoolVar(&createManual, "manual", false, "mark as requiring human intervention (skipped by tk next)")
 	createCmd.Flags().StringVarP(&createRequires, "requires", "r", "", "approval gate (approval|review|content)")
 	createCmd.Flags().StringVarP(&createAwaiting, "awaiting", "a", "", "wait state (work|approval|input|review|content|escalation|checkpoint)")
+	createCmd.Flags().StringVar(&createRole, "role", "", "process-tick role in an epic skeleton (review|closeout)")
 	createCmd.Flags().BoolVar(&createJSON, "json", false, "output as JSON")
 
 	rootCmd.AddCommand(createCmd)
@@ -121,6 +127,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			// valid
 		default:
 			return NewExitError(ExitUsage, "invalid awaiting value: %s (must be work, approval, input, review, content, escalation, or checkpoint)", awaitingVal)
+		}
+	}
+
+	// Validate role flag if provided
+	roleVal := strings.TrimSpace(createRole)
+	if roleVal != "" {
+		switch roleVal {
+		case tick.RoleReview, tick.RoleCloseout:
+			// valid
+		default:
+			return NewExitError(ExitUsage, "invalid role value: %s (must be review or closeout)", roleVal)
+		}
+		if strings.TrimSpace(createType) == tick.TypeEpic {
+			return NewExitError(ExitUsage, "--role marks a process tick inside an epic; it cannot be set on an epic itself")
 		}
 	}
 
@@ -214,6 +234,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Manual:             false, // Never set Manual=true for new ticks; --manual maps to awaiting=work
 		Requires:           requires,
 		Awaiting:           awaiting,
+		Role:               roleVal,
 		CreatedBy:          creator,
 		CreatedAt:          now,
 		UpdatedAt:          now,

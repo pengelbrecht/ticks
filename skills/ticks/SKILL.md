@@ -157,7 +157,7 @@ Ticks has one recursive container type. Role is derived from structure and the e
 The core principle: **containment is free and passive; orchestration is opt-in.**
 
 - Any tick with children is a **container**: it rolls up progress and groups its descendants. No execution cost.
-- The **`-t epic`** marker turns a container into an **orchestration unit**: `tk next` runs its children as waves, it gets a close-out task and retro, it is a roadmap node. The marker means the same thing whether the epic is empty or populated — it is never derived from structure alone.
+- The **`-t epic`** marker turns a container into an **orchestration unit**: `tk next` runs its children as waves, it gets the EPIC-SKELETON process ticks (final review + close-out/retro — see below), it is a roadmap node. The marker means the same thing whether the epic is empty or populated — it is never derived from structure alone. **Promoting an existing container to an epic (`tk update <id> -t epic`) triggers the EPIC-SKELETON check immediately** — promotion bypasses the normal planning flow, so verify/create the two process ticks at the moment of promotion, not later.
 - A container *without* the marker and with only atomic children is a **bucket** — its children flow through the normal ready queue independently, never coordinated as a unit. Use a bucket when you want to group a pile of unrelated tasks for visibility without running them as an epic.
 - A container *without* the marker that holds at least one other container is a **project**. A project groups and provides a human checkpoint (see continuation below). An "initiative" is just a project of projects — same type, different convention.
 
@@ -198,20 +198,29 @@ tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>    # B �
 tk create "Billing" -t epic -d "<rough scope>" --after <B>                 # C — preferred order only, no real dependency
 ```
 
-**Always append a close-out task as the final child of the front epic.** This task is real work:
+**EPIC-SKELETON invariant: every runnable epic ends with two process ticks — a final-review tick, then a close-out tick.** Create both at planning time, immediately after the implementation ticks, whenever an epic gets child ticks (front epic now; downstream epics when their close-out fleshes them out):
 
 ```bash
+# 1. Final review — blocked by every last-wave implementation tick
+tk create "Final review of <epic A> diff" \
+  --parent <A> --role review \
+  --blocked-by <last-wave-tick-1> --blocked-by <last-wave-tick-2>   # every last-wave tick
+
+# 2. Close-out — blocked by the final review, always the last child
 tk create "Close out <epic A>: run epic retro, then flesh out the next feasible epic into ticks" \
-  --parent <A> \
-  --blocked-by <last-task-in-A>
+  --parent <A> --role closeout \
+  --blocked-by <final-review-tick>
 ```
 
-Executing this task means: run the epic-close retro (see `references/agent-runner.md`), then pick the next **feasible** epic in soft order — skip any that is hard-blocked or gated — read its rough scope, partition it into child ticks, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+The `--role review|closeout` flag makes the skeleton **structural**: `tk graph <epic> --json` reports `missing_process_ticks` (the roles no child carries) from this field, so a missing or incomplete skeleton is detected mechanically, never by title-matching. If an epic already has these ticks without roles, repair with `tk update <id> --role review|closeout`.
 
-**Planning triggers from `tk`.** Two CLI signals tell you that an epic needs to be fleshed out now:
+The final-review tick's work is reviewing the epic's full diff and resolving or routing findings before close-out unblocks (full semantics: `references/agent-runner.md` → "Meta-work ticks"). Executing the close-out means: run the epic-close retro (see `references/agent-runner.md`), then pick the next **feasible** epic in soft order — skip any that is hard-blocked or gated — read its rough scope, partition it into child ticks **including its own EPIC-SKELETON pair**, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+
+**Planning triggers from `tk`.** Three CLI signals tell you that an epic needs planning or repair now:
 
 - `tk next <roadmap-epic> --json` returns `{"action":"plan",...}` when the next item is an unblocked childless epic. Human-readable output looks like `<id>  P<n> epic  <title>  (needs planning — no child ticks)`. The `action` field is present on **all** `tk next --json` results: `implement` for a ready task, `plan` for an unplannable epic, and `await` for `--awaiting` mode results — so orchestration can branch on it directly.
 - `tk graph <epic> --json` returns `{"needs_planning": true,...}` when that specific epic is plannable now (zero children and unblocked). Blocked childless epics and fully-closed-children epics carry `false` with explanatory human output.
+- `tk graph <epic> --json` returns `missing_process_ticks` (e.g. `["review","closeout"]`) when the epic has children but its EPIC-SKELETON is incomplete — no child carries that `--role`. The fix is repair, not replanning: create the missing process ticks (templates above). Empty array means the skeleton is complete; for a childless epic it is also empty because `needs_planning` is the signal and planning creates the skeleton.
 
 When either signal fires, the move is: flesh the epic out into child ticks (per the roadmap guidance above and the foundation-first procedure in `references/tick-patterns.md`), then continue with `tk graph <epic>`.
 
@@ -342,9 +351,10 @@ tk close <id> --reason "Completed - connection string in .env"
 Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi. If you haven't already, settle the *Goal-ready handoff* decision (above) before launching: how far should this run go before it stops for a human? The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
-2. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
-3. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
-4. Run the test suite on the merged tree, then move to the next wave; review and close the epic when everything's done.
+2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
+3. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
+4. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
+5. Run the test suite on the merged tree, then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
 
@@ -362,6 +372,8 @@ tk create "Title" --blocked-by <task-id>                      # Blocked (hard de
 tk create "Title" --after <task-id>                           # Soft ordering preference (never blocks)
 tk create "Title" --awaiting work                             # Human task
 tk create "Title" --requires approval                         # Needs approval gate
+tk create "Title" --parent <epic> --role review               # Epic's final-review process tick
+tk create "Title" --parent <epic> --role closeout             # Epic's close-out process tick
 ```
 
 > Epics take `--acceptance` too — use it for the epic's **definition of done** (strongly encouraged; see *Epic definition of done*). A goal-compatible done is what lets you hand the epic off and walk away.
@@ -380,7 +392,8 @@ tk next <epic-id> --json     # JSON: action field is "implement" | "plan" | "awa
 tk blocked                   # Blocked tasks
 tk list --awaiting=          # Tasks awaiting human
 tk graph <epic-id>           # Dependency graph with parallelization
-tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks
+tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks;
+                             # non-empty missing_process_ticks means EPIC-SKELETON needs repair
 ```
 
 ### Managing

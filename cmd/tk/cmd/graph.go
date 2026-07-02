@@ -51,11 +51,16 @@ func init() {
 
 // graphOutput is the JSON output structure for agents.
 type graphOutput struct {
-	Epic          graphEpic   `json:"epic"`
-	NeedsPlanning bool        `json:"needs_planning"`
-	Stats         graphStats  `json:"stats"`
-	Waves         []graphWave `json:"waves"`
-	CriticalPath  int         `json:"critical_path"`
+	Epic          graphEpic `json:"epic"`
+	NeedsPlanning bool      `json:"needs_planning"`
+	// MissingProcessTicks lists the EPIC-SKELETON roles ("review", "closeout")
+	// that no child tick carries. Empty means the skeleton is complete — or the
+	// epic has no children at all, in which case needs_planning is the signal
+	// and planning is expected to create the skeleton along with the work ticks.
+	MissingProcessTicks []string    `json:"missing_process_ticks"`
+	Stats               graphStats  `json:"stats"`
+	Waves               []graphWave `json:"waves"`
+	CriticalPath        int         `json:"critical_path"`
 }
 
 type graphEpic struct {
@@ -84,11 +89,33 @@ type graphTask struct {
 	Title         string   `json:"title"`
 	Priority      int      `json:"priority"`
 	Status        string   `json:"status"`
+	Role          string   `json:"role,omitempty"`
 	BlockedBy     []string `json:"blocked_by,omitempty"`
 	Blocks        []string `json:"blocks,omitempty"`
 	Awaiting      string   `json:"awaiting,omitempty"`
 	DeferredUntil string   `json:"deferred_until,omitempty"`
 	AgentReady    bool     `json:"agent_ready"`
+}
+
+// missingProcessRoles returns the EPIC-SKELETON roles no child of the epic
+// carries, in canonical order (review before closeout). Children of any status
+// count — a closed process tick still satisfies the skeleton. Callers should
+// only report this for epics that have at least one child; a childless epic's
+// signal is needs_planning, and planning creates the skeleton.
+func missingProcessRoles(epicID string, allTicks []tick.Tick) []string {
+	present := make(map[string]bool)
+	for _, t := range allTicks {
+		if t.Parent == epicID && t.Role != "" {
+			present[t.Role] = true
+		}
+	}
+	missing := []string{}
+	for _, role := range []string{tick.RoleReview, tick.RoleCloseout} {
+		if !present[role] {
+			missing = append(missing, role)
+		}
+	}
+	return missing
 }
 
 func runGraph(cmd *cobra.Command, args []string) error {
@@ -274,6 +301,8 @@ func runGraph(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	missingProcess := missingProcessRoles(epicID, allTicks)
+
 	// JSON output for agents
 	if graphJSON {
 		output := graphOutput{
@@ -281,7 +310,8 @@ func runGraph(cmd *cobra.Command, args []string) error {
 				ID:    epic.ID,
 				Title: epic.Title,
 			},
-			NeedsPlanning: false,
+			NeedsPlanning:       false,
+			MissingProcessTicks: missingProcess,
 			Stats: graphStats{
 				TotalTasks:    len(tasks),
 				WaveCount:     len(waves),
@@ -311,6 +341,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 					Title:      t.Title,
 					Priority:   t.Priority,
 					Status:     t.Status,
+					Role:       t.Role,
 					BlockedBy:  blockedBy[t.ID],
 					Blocks:     blocks[t.ID],
 					AgentReady: agentReady,
@@ -347,6 +378,11 @@ func runGraph(cmd *cobra.Command, args []string) error {
 			parts = append(parts, fmt.Sprintf("%d deferred", deferred))
 		}
 		fmt.Printf("%s %s\n", styles.DimStyle.Render("       "), strings.Join(parts, ", "))
+	}
+	if len(missingProcess) > 0 {
+		fmt.Printf("%s epic skeleton incomplete — missing process ticks: %s (create with tk create --role <role> --parent %s)\n",
+			styles.StatusBlockedStyle.Render("!"),
+			strings.Join(missingProcess, ", "), epic.ID)
 	}
 	fmt.Println()
 
@@ -435,15 +471,24 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 	needsPlanning := query.EpicsNeedingPlanning([]tick.Tick{epic}, allTicks)
 	isReadyToPlan := len(needsPlanning) > 0
 
+	// The skeleton signal only applies once children exist (e.g. all children
+	// closed but the epic never got its process ticks). With zero children the
+	// signal is needs_planning; planning creates the skeleton.
+	missingProcess := []string{}
+	if hasChildren {
+		missingProcess = missingProcessRoles(epic.ID, allTicks)
+	}
+
 	if graphJSON {
 		output := graphOutput{
 			Epic: graphEpic{
 				ID:    epic.ID,
 				Title: epic.Title,
 			},
-			NeedsPlanning: isReadyToPlan,
-			Stats:         graphStats{},
-			CriticalPath:  0,
+			NeedsPlanning:       isReadyToPlan,
+			MissingProcessTicks: missingProcess,
+			Stats:               graphStats{},
+			CriticalPath:        0,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -472,6 +517,12 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 					"Epic %s is complete — all child ticks are closed. Close it with tk close %s.\n",
 					epic.ID, epic.ID,
 				)
+				if len(missingProcess) > 0 {
+					fmt.Printf(
+						"! epic skeleton incomplete — missing process ticks: %s. Create and run them before closing (tk create --role <role> --parent %s).\n",
+						strings.Join(missingProcess, ", "), epic.ID,
+					)
+				}
 			}
 		} else {
 			// Children exist but none are graphable tasks (e.g. child epics).

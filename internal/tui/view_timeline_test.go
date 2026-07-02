@@ -35,7 +35,7 @@ func timelineFixtureTicks() []tick.Tick {
 		ID: "ov1", Title: "Overdue epic", Status: tick.StatusInProgress,
 		Type:       tick.TypeEpic,
 		TargetDate: "2026-01-15", // past relative to fixedNow (2026-06-01)
-		CreatedAt: now, UpdatedAt: now, CreatedBy: "test", Owner: "test",
+		CreatedAt:  now, UpdatedAt: now, CreatedBy: "test", Owner: "test",
 	}
 	// open child makes t1 overdue (not all work landed).
 	c1 := tick.Tick{
@@ -48,7 +48,7 @@ func timelineFixtureTicks() []tick.Tick {
 		ID: "ok1", Title: "On-track epic", Status: tick.StatusOpen,
 		Type:       tick.TypeEpic,
 		TargetDate: "2026-12-31",
-		CreatedAt: now, UpdatedAt: now, CreatedBy: "test", Owner: "test",
+		CreatedAt:  now, UpdatedAt: now, CreatedBy: "test", Owner: "test",
 	}
 	// t3: undated → SlipNone.
 	t3 := tick.Tick{
@@ -112,7 +112,7 @@ func TestTimelineView_SlipClassification(t *testing.T) {
 		id       string
 		wantSlip query.SlipStatus
 	}{
-		{"ov1", query.SlipOverdue},  // past date + open child
+		{"ov1", query.SlipOverdue}, // past date + open child
 		{"ok1", query.SlipOnTrack}, // future date
 		{"no1", query.SlipNone},    // undated
 	}
@@ -324,7 +324,7 @@ func timelineGoldenTicks() []tick.Tick {
 		ID: "ov1", Title: "Auth revamp (overdue)", Status: tick.StatusInProgress,
 		Type:       tick.TypeEpic,
 		TargetDate: "2026-01-15",
-		CreatedAt: base, UpdatedAt: base, CreatedBy: "test", Owner: "test",
+		CreatedAt:  base, UpdatedAt: base, CreatedBy: "test", Owner: "test",
 	}
 	overdueChild := tick.Tick{
 		ID: "ov1c", Title: "token refresh", Status: tick.StatusOpen,
@@ -335,7 +335,7 @@ func timelineGoldenTicks() []tick.Tick {
 		ID: "ok1", Title: "Billing setup (on-track)", Status: tick.StatusOpen,
 		Type:       tick.TypeEpic,
 		TargetDate: "2026-12-31",
-		CreatedAt: base, UpdatedAt: base, CreatedBy: "test", Owner: "test",
+		CreatedAt:  base, UpdatedAt: base, CreatedBy: "test", Owner: "test",
 	}
 	undatedTask := tick.Tick{
 		ID: "no1", Title: "Undated chore", Status: tick.StatusOpen,

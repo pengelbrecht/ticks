@@ -20,6 +20,7 @@ tk create "Title" [flags]
 | `--after` | Soft ordering preference: tick ID(s) this tick prefers to run after. Never gates readiness — `tk next` sorts soft-deferred candidates last but never hides them. Missing or closed targets are ignored |
 | `-r, --requires` | Pre-declared approval gate: `approval`, `review`, `content` |
 | `-a, --awaiting` | Immediate human assignment: `work`, `approval`, `input`, `review`, `content`, `escalation`, `checkpoint` |
+| `--role` | Process-tick role in an epic's EPIC-SKELETON: `review` (final review) or `closeout` (retro + plan next). Structural — `tk graph --json` detects a missing skeleton from this field. Not valid on epics themselves |
 | `--defer` | Defer until date (YYYY-MM-DD) |
 | `--external-ref` | External reference (e.g., gh-42) |
 
@@ -52,6 +53,10 @@ tk create "Update auth flow" --requires approval -d "Security-sensitive change"
 
 # Human-only task (skipped by agent)
 tk create "Configure AWS credentials" --awaiting work
+
+# EPIC-SKELETON process ticks (see SKILL.md Big picture)
+tk create "Final review of epic diff" --parent <epic> --role review -b <last-wave-ticks>
+tk create "Close out epic: retro + plan next" --parent <epic> --role closeout -b <review-tick>
 ```
 
 ## Listing Ticks
@@ -112,6 +117,7 @@ tk update <id> [flags]
 | `-a, --awaiting` | Set awaiting status (or `--awaiting=` to clear) |
 | `-r, --requires` | Set approval gate (empty to clear) |
 | `-v, --verdict` | Set verdict: `approved`, `rejected` |
+| `--role` | Set process-tick role: `review`, `closeout` (`--role ""` to clear); used to repair an epic whose skeleton ticks exist but lack roles |
 
 (`tk update` has no single-letter shorthands except `-a`, `-r`, `-v` — use the long form for the rest.)
 
@@ -151,6 +157,8 @@ tk reject <id> "feedback"   # Reject — feedback message is required (added as 
 tk block <id> <blocker-id>...     # Add blocker(s) (id is now blocked by each blocker-id)
 tk unblock <id> <blocker-id>      # Remove blocker
 tk deps <id>                      # Show dependency tree
+tk graph <epic-id> [--json]       # Waves + parallelism; JSON carries needs_planning and
+                                  # missing_process_ticks (EPIC-SKELETON roles no child has)
 ```
 
 These commands manage **hard** dependencies (`blocked_by` — feasibility: the tick is not ready until its blockers close). **Soft** ordering preferences are managed with `--after` on `tk create` / `tk update` (clear with `--after ""`); they affect `tk next` ordering only and never gate readiness.

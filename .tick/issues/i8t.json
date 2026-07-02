@@ -1,0 +1,15 @@
+{
+  "id": "i8t",
+  "title": "EPIC-SKELETON detection in tk: surface missing process ticks mechanically",
+  "description": "Skill docs now define the EPIC-SKELETON invariant (every runnable epic ends with a final-review tick then a close-out tick; see skills/ticks/SKILL.md Big picture + references/agent-runner.md Meta-work ticks). Today the runner pre-flight detects/repairs via prose + title matching. Make tk emit the signal instead:\n\n- tk graph \u003cepic\u003e --json returns missing_process_ticks: [\"final-review\",\"close-out\"] when the skeleton is incomplete\n- Ideally structural rather than title-matching: a --role review|closeout flag on tk create, persisted on the tick\n- Detect in tk, repair in skill — keeps CLI runner-neutral; no auto-scaffolding on -t epic\n\nRationale: mechanical signals beat prose; mirrors needs_planning:true and tk next action fields.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "tk graph --json includes missing_process_ticks for epics lacking the skeleton; role is stored structurally, not inferred from titles; covered by Go tests",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-02T06:26:12.575362Z",
+  "updated_at": "2026-07-02T06:44:30.644955Z",
+  "closed_at": "2026-07-02T06:44:30.644955Z",
+  "closed_reason": "Completed: structural role field (review|closeout) on ticks; --role on tk create/update; tk graph --json returns missing_process_ticks with human-output warning; role surfaces in graph wave tasks and tk next --json; schema + codegen regenerated; Go + UI tests green; skill docs updated to use the mechanical signal"
+}

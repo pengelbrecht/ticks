@@ -226,7 +226,7 @@ func TestNextPlannableEpics_SoftOrderDeferred(t *testing.T) {
 	// e1 has a soft-order preference for e2 (which is still open), so e1 is
 	// soft-deferred and should sort behind e3 despite having a higher priority.
 	e1 := frontierEpicAfter("e1", "", tick.StatusOpen, "e2")
-	e1.Priority = 1 // higher priority, but soft-deferred
+	e1.Priority = 1                                   // higher priority, but soft-deferred
 	e2 := makeEpic("e2", "e2 title", tick.StatusOpen) // the after-target
 	e2.Priority = 2
 	e3 := makeEpic("e3", "e3 title", tick.StatusOpen) // no soft-defer

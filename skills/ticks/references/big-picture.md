@@ -80,8 +80,9 @@ Before creating a container, decide its role — the tool enforces nothing here;
 deliberate convention:
 
 **Mark it `-t epic` only when you intend to run its children as a coordinated unit** (waves,
-close-out task, retro). The `epic` marker means: "run these children with `tk graph` waves,
-auto-coordinate them, harvest a retro at the end."
+final-review + close-out process ticks, retro — the EPIC-SKELETON invariant in SKILL.md). The
+`epic` marker means: "run these children with `tk graph` waves, auto-coordinate them, harvest
+a retro at the end."
 
 **Leave it unmarked (no `-t epic`) when you just want to group.** An unmarked container is a
 passive bucket or project — containment is free and passive; orchestration is opt-in.
@@ -100,6 +101,10 @@ grouping convenience into an orchestration unit that demands planning.
 | Pile of unrelated tasks for visibility | `tk create "<title>"` (no `-t epic`) |
 
 A container can always be promoted later (`tk update <id> -t epic`) once you decide to run it.
+Promotion triggers the EPIC-SKELETON check immediately (see SKILL.md's Big picture section):
+run `tk graph <id> --json` and create the process ticks it lists in `missing_process_ticks`
+(`tk create --role review|closeout`) at the moment of promotion — promotion bypasses the
+normal planning flow, so nothing else will create them.
 
 ---
 

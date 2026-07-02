@@ -312,6 +312,10 @@ export interface Tick {
    */
   verdict?: 'approved' | 'rejected';
   /**
+   * Process-tick role in an epic's skeleton: review (final review) or closeout (retro + plan next). Absent means a normal work tick
+   */
+  role?: 'review' | 'closeout';
+  /**
    * Who created this tick
    */
   created_by: string;

@@ -575,8 +575,8 @@ func TestBoardView_MousePressReleaseDragCmd(t *testing.T) {
 	press := tea.MouseMsg{
 		Action: tea.MouseActionPress,
 		Button: tea.MouseButtonLeft,
-		X:      5,  // x=5 → column 0
-		Y:      2,  // y=2 → first card (after header)
+		X:      5, // x=5 → column 0
+		Y:      2, // y=2 → first card (after header)
 	}
 	v2, _ := v.Update(press)
 	bv2 := v2.(*boardView)

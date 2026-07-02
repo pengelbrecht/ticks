@@ -156,6 +156,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if t.Parent != "" {
 		lines = append(lines, styles.RenderLabel("Parent:")+"  "+t.Parent)
 	}
+	if t.Role != "" {
+		lines = append(lines, styles.RenderLabel("Role:")+"  "+t.Role+" (epic process tick)")
+	}
 	if t.Type == tick.TypeEpic && strings.TrimSpace(t.BaseBranch) != "" {
 		lines = append(lines, styles.RenderLabel("Base branch:")+"  "+t.BaseBranch)
 	}

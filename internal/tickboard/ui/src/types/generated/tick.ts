@@ -40,6 +40,13 @@ export type TickAwaiting = 'work' | 'approval' | 'input' | 'review' | 'content' 
  * via the `definition` "TickVerdict".
  */
 export type TickVerdict = 'approved' | 'rejected';
+/**
+ * Process-tick role in an epic's skeleton
+ *
+ * This interface was referenced by `Tick`'s JSON-Schema
+ * via the `definition` "TickRole".
+ */
+export type TickRole = 'review' | 'closeout';
 
 /**
  * A single work item (task, bug, feature, epic, or chore)
@@ -123,6 +130,10 @@ export interface Tick {
    * Human response to an awaiting state
    */
   verdict?: 'approved' | 'rejected';
+  /**
+   * Process-tick role in an epic's skeleton: review (final review) or closeout (retro + plan next). Absent means a normal work tick
+   */
+  role?: 'review' | 'closeout';
   /**
    * Who created this tick
    */

@@ -43,10 +43,10 @@ func TestDescendantProgress_NestedTree(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		tickID      string
-		wantClosed  int
-		wantTotal   int
+		name       string
+		tickID     string
+		wantClosed int
+		wantTotal  int
 	}{
 		{
 			// Project sees all 5 leaf tasks: 3 closed, 2 open.

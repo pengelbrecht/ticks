@@ -126,7 +126,7 @@ func TestProjectlessRegression_SoftOrderAfterEdge(t *testing.T) {
 		return tk
 	}
 
-	eFirst := mkEpic("eFirst", 2, base)                        // no constraints
+	eFirst := mkEpic("eFirst", 2, base)                          // no constraints
 	eLate := mkEpic("eLate", 1, base.Add(time.Minute), "eFirst") // higher prio but soft-deferred behind eFirst
 
 	all := []tick.Tick{eFirst, eLate}
@@ -215,7 +215,7 @@ func TestCheckpointHalts_ProjectCompletionAndPlanningGate(t *testing.T) {
 		ID: "eB1", Title: "Epic B1", Status: tick.StatusOpen,
 		Type: tick.TypeEpic, Parent: "projB",
 		BlockedBy: []string{"closeoutA"},
-		Owner: "test", CreatedBy: "test",
+		Owner:     "test", CreatedBy: "test",
 		CreatedAt: base.Add(3 * time.Minute), UpdatedAt: base.Add(3 * time.Minute),
 	}
 
@@ -354,7 +354,7 @@ func TestAutonomousMode_FullProjectFixture(t *testing.T) {
 		ID: "eB1", Title: "Epic B1", Status: tick.StatusOpen,
 		Type: tick.TypeEpic, Parent: "projB",
 		BlockedBy: []string{"closeoutA"},
-		Owner: "test", CreatedBy: "test",
+		Owner:     "test", CreatedBy: "test",
 		CreatedAt: base.Add(3 * time.Minute), UpdatedAt: base.Add(3 * time.Minute),
 	}
 
@@ -449,7 +449,7 @@ func TestNoCheckpointFlowsThrough(t *testing.T) {
 	// Close-out epic with NO awaiting state: it should flow through in OFF mode.
 	closeoutA := tick.Tick{
 		ID: "closeoutA", Title: "Project A close-out", Status: tick.StatusOpen,
-		Type: tick.TypeEpic, // No Awaiting field set
+		Type:  tick.TypeEpic, // No Awaiting field set
 		Owner: "test", CreatedBy: "test",
 		CreatedAt: base.Add(time.Minute), UpdatedAt: base.Add(time.Minute),
 	}

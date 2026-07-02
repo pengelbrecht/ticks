@@ -64,6 +64,7 @@ var (
 	updateRequires     string
 	updateAwaiting     string
 	updateVerdict      string
+	updateRole         string
 	updateBaseBranch   string
 	updateActor        string
 	updateJSON         bool
@@ -89,6 +90,7 @@ var (
 	updateRequiresSet     bool
 	updateAwaitingSet     bool
 	updateVerdictSet      bool
+	updateRoleSet         bool
 )
 
 func init() {
@@ -112,6 +114,7 @@ func init() {
 	updateCmd.Flags().StringVarP(&updateRequires, "requires", "r", "", "approval gate (approval|review|content, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateAwaiting, "awaiting", "a", "", "wait state (work|approval|input|review|content|escalation|checkpoint, empty to clear)")
 	updateCmd.Flags().StringVarP(&updateVerdict, "verdict", "v", "", "set verdict and trigger processing (approved|rejected)")
+	updateCmd.Flags().StringVar(&updateRole, "role", "", "process-tick role in an epic skeleton (review|closeout, empty to clear)")
 	updateCmd.Flags().StringVar(&updateActor, "actor", "", "override actor for this activity entry (overrides TK_ACTOR env)")
 	updateCmd.Flags().BoolVar(&updateJSON, "json", false, "output as JSON")
 
@@ -140,6 +143,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updateRequiresSet = cmd.Flags().Changed("requires")
 	updateAwaitingSet = cmd.Flags().Changed("awaiting")
 	updateVerdictSet = cmd.Flags().Changed("verdict")
+	updateRoleSet = cmd.Flags().Changed("role")
 
 	root, err := repoRoot()
 	if err != nil {
@@ -295,6 +299,21 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 				t.SetAwaiting(updateAwaiting)
 			default:
 				return NewExitError(ExitUsage, "invalid awaiting value: %s (must be work, approval, input, review, content, escalation, or checkpoint)", updateAwaiting)
+			}
+		}
+	}
+	if updateRoleSet {
+		if updateRole == "" {
+			t.Role = ""
+		} else {
+			switch updateRole {
+			case tick.RoleReview, tick.RoleCloseout:
+				if t.Type == tick.TypeEpic {
+					return NewExitError(ExitUsage, "--role marks a process tick inside an epic; it cannot be set on an epic itself")
+				}
+				t.Role = updateRole
+			default:
+				return NewExitError(ExitUsage, "invalid role value: %s (must be review or closeout)", updateRole)
 			}
 		}
 	}

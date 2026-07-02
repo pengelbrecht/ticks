@@ -45,9 +45,9 @@ func boardColumnLabel(col boardColumn) string {
 // as a tea.Cmd result. The Board handles it directly in its own Update to go
 // through the shared edit write-path.
 type boardDragMsg struct {
-	tickID    string
-	fromCol   boardColumn
-	toCol     boardColumn
+	tickID  string
+	fromCol boardColumn
+	toCol   boardColumn
 }
 
 // boardCard is a single card in the kanban grid.
@@ -480,4 +480,3 @@ func renderBoardStatus(t tick.Tick) string {
 	}
 	return renderStatus(t.Status)
 }
-

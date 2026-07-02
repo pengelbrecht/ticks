@@ -26,8 +26,8 @@ var (
 
 // timelineRow is the precomputed display row derived from a single tick.
 type timelineRow struct {
-	t      tick.Tick
-	slip   query.SlipStatus
+	t       tick.Tick
+	slip    query.SlipStatus
 	dateFmt string // formatted target_date or "(no date)"
 }
 

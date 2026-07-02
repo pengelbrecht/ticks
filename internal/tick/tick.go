@@ -47,6 +47,18 @@ const (
 	VerdictRejected = "rejected"
 )
 
+// Role values (process ticks in an epic's EPIC-SKELETON).
+// A runnable epic ends with two process ticks: a final-review tick
+// (role=review) blocked by every last-wave implementation tick, and a
+// close-out tick (role=closeout) blocked by the final-review tick.
+// The role is structural so orchestrators can detect a missing skeleton
+// mechanically (tk graph --json → missing_process_ticks) instead of
+// matching tick titles.
+const (
+	RoleReview   = "review"
+	RoleCloseout = "closeout"
+)
+
 // TargetDateLayout is the canonical format for the optional TargetDate field:
 // a precise ISO calendar day with no time-of-day component.
 const TargetDateLayout = "2006-01-02"
@@ -56,6 +68,7 @@ var (
 	ValidRequiresValues = []string{RequiresApproval, RequiresReview, RequiresContent}
 	ValidAwaitingValues = []string{AwaitingWork, AwaitingApproval, AwaitingInput, AwaitingReview, AwaitingContent, AwaitingEscalation, AwaitingCheckpoint}
 	ValidVerdictValues  = []string{VerdictApproved, VerdictRejected}
+	ValidRoleValues     = []string{RoleReview, RoleCloseout}
 )
 
 // Tick represents a single work item on disk.
@@ -79,7 +92,12 @@ type Tick struct {
 	// no time-of-day, no timezone, no fuzziness. Absent (empty) is the common
 	// case. It feeds the derived overdue / on-track signal (later ticks) and
 	// never gates execution.
-	TargetDate         string     `json:"target_date,omitempty"`
+	TargetDate string `json:"target_date,omitempty"`
+	// Role marks a process tick in an epic's EPIC-SKELETON: "review" for the
+	// final-review tick, "closeout" for the close-out/retro tick. Empty (the
+	// common case) means a normal work tick. Structural, not title-derived —
+	// tk graph --json reports missing_process_ticks from this field.
+	Role               string     `json:"role,omitempty"`
 	DiscoveredFrom     string     `json:"discovered_from,omitempty"`
 	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
 	DeferUntil         *time.Time `json:"defer_until,omitempty"`
@@ -144,6 +162,9 @@ func (t Tick) Validate() error {
 	if t.TargetDate != "" && !isTargetDateValid(t.TargetDate) {
 		errs = append(errs, fmt.Errorf("invalid target_date: %s (want %s)", t.TargetDate, TargetDateLayout))
 	}
+	if t.Role != "" && !isRoleValid(t.Role) {
+		errs = append(errs, fmt.Errorf("invalid role: %s", t.Role))
+	}
 
 	return errors.Join(errs...)
 }
@@ -187,6 +208,15 @@ func isAwaitingValid(value string) bool {
 func isVerdictValid(value string) bool {
 	switch value {
 	case VerdictApproved, VerdictRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+func isRoleValid(value string) bool {
+	switch value {
+	case RoleReview, RoleCloseout:
 		return true
 	default:
 		return false

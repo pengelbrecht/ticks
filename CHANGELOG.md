@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-07-02
+
+### Added
+
+- **Structural EPIC-SKELETON detection** — new optional `role` field on ticks (`review` | `closeout`) marking an epic's two process ticks (final review, close-out/retro). Set with `tk create --role` / `tk update --role` (rejected on epics themselves; `--role ""` clears). `tk graph <epic> --json` now returns `missing_process_ticks` — the skeleton roles no child tick carries — so orchestrators detect and repair an incomplete epic skeleton mechanically instead of by title-matching; human output warns inline. Wave tasks in `tk graph --json` and `tk next --json` results carry `role` so review/close-out ticks route without prose parsing. Empty for childless epics (there `needs_planning` is the signal; planning creates the skeleton).
+
 ## [0.18.1] - 2026-06-20
 
 ### Fixed

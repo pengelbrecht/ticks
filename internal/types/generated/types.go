@@ -112,6 +112,10 @@ type AddNoteResponse struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
+
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
@@ -207,6 +211,10 @@ type ApproveTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
@@ -321,6 +329,10 @@ type CloseTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
@@ -445,6 +457,10 @@ type CreateTickResponse struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
+
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
@@ -561,6 +577,10 @@ type GetTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
@@ -717,6 +737,10 @@ type RejectTickResponse struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
@@ -1063,6 +1087,10 @@ type TickResponse struct {
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
 
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
+
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
 
@@ -1086,6 +1114,11 @@ type TickResponse struct {
 	// Human response to an awaiting state
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
+
+type TickRole string
+
+const TickRoleCloseout TickRole = "closeout"
+const TickRoleReview TickRole = "review"
 
 // A single work item (task, bug, feature, epic, or chore)
 type TickSchema struct {
@@ -1149,6 +1182,10 @@ type TickSchema struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
@@ -1236,6 +1273,10 @@ type TickSchema_1 struct {
 
 	// Pre-declared gate that must be satisfied before closing
 	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
+
+	// Process-tick role in an epic's skeleton: review (final review) or closeout
+	// (retro + plan next). Absent means a normal work tick
+	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
 
 	// ISO timestamp when the tick entered in_progress status
 	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`

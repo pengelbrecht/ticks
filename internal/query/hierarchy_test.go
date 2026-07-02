@@ -97,9 +97,9 @@ func TestRole_ProjectWithBucketChild(t *testing.T) {
 	// A project whose nested container is itself a plain bucket (not an epic):
 	// container-ness, not the epic marker, makes the parent a project.
 	ticks := []tick.Tick{
-		mk("p1", tick.TypeTask, ""),     // project
-		mk("b1", tick.TypeTask, "p1"),   // child bucket (plain container)
-		mk("leaf", tick.TypeBug, "b1"),  // grandchild leaf
+		mk("p1", tick.TypeTask, ""),      // project
+		mk("b1", tick.TypeTask, "p1"),    // child bucket (plain container)
+		mk("leaf", tick.TypeBug, "b1"),   // grandchild leaf
 		mk("loose", tick.TypeTask, "p1"), // a loose leaf directly under the project
 	}
 	idx := BuildChildIndex(ticks)

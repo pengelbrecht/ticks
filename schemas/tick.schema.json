@@ -105,6 +105,10 @@
       "$ref": "#/$defs/TickVerdict",
       "description": "Human response to an awaiting state"
     },
+    "role": {
+      "$ref": "#/$defs/TickRole",
+      "description": "Process-tick role in an epic's skeleton: review (final review) or closeout (retro + plan next). Absent means a normal work tick"
+    },
     "created_by": {
       "type": "string",
       "description": "Who created this tick"
@@ -159,6 +163,11 @@
       "type": "string",
       "enum": ["approved", "rejected"],
       "description": "Human response to an awaiting tick"
+    },
+    "TickRole": {
+      "type": "string",
+      "enum": ["review", "closeout"],
+      "description": "Process-tick role in an epic's skeleton"
     }
   }
 }
