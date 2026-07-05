@@ -153,6 +153,10 @@ The profile is the run's **inferred** understanding of how this project builds, 
 
 **Shared-state caution.** Recipes that share mutable state with the main checkout (e.g. linking a dependency directory) are fast but add a boundary rule: implementers must NOT run dependency installs in a shared-deps worktree — an install mutates the shared directory under every sibling. Give dependency-adding ticks a privately provisioned worktree or run them solo; this extends the existing lockfile-serialization rule from the commits to the act itself.
 
+**Parallelism must pay for itself (economic gate).** Provisioning is a cost (installs, per-worktree resources); parallelism is a saving — roughly *(wave width − 1) × average tick duration*. Before provisioning a wave wide, check that the saving clearly exceeds the total provisioning cost, using the costs the profile records. A 2-wide wave of ten-minute ticks fails the test; a 3-wide wave of hour-long features passes easily. When the gate fails, run the wave sequentially **as a deliberate, noted choice** — the "never silently degrade" rule forbids drift, not judgment. Note the venue map already shrinks the bill: implementers only need worktrees runnable for the *in-worktree* tiers (typically typecheck/lint/unit); heavy shared tiers run post-merge, once per merge, not N times.
+
+**Amortize: pool worktrees.** Instead of create → provision → destroy per tick, keep provisioned worktrees and reuse them for successive ticks: reset to the current integration commit between ticks (`git checkout <integration-commit>` + `git clean -fd`), start each tick on a fresh branch. One provisioning then pays for many ticks — which shifts the economic gate toward parallelism on long epics. Cleanup moves from per-tick to pool retirement (epic end).
+
 ### Post-merge verification (serial venue)
 
 When the profile routes a tier post-merge, verification for that tier moves from the implementers to you:
