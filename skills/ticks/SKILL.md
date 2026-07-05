@@ -78,6 +78,12 @@ Legacy names remain aliases: **Environment** = `At run start`, **Rules** = `For 
 
 **Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. `.tick/config.md` is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
 
+**6. Project execution profile (`.tick/profile.md`) — inferred, not hand-authored:**
+
+At run start the orchestrator characterizes how the project builds, runs, and tests, and maintains the result across runs: the worktree **provisioning recipe** (what a fresh worktree needs before it can build and test — dependency dirs are gitignored, so a bare worktree is not runnable), the **test-tier→venue map** (which tiers verify in-worktree in parallel vs post-merge serially, because they touch a shared singleton like one test DB), and the services the project needs. Safety-biased: a tier runs in parallel only on positive evidence of isolation. Re-derived only when its inputs change; near-free otherwise. See `references/agent-runner.md` → "Project execution profile".
+
+Planning consumes the profile: it determines both wave width and where verification runs. `.tick/config.md` overrides it only for facts the repo cannot reveal (out-of-repo shared resources such as a staging DB or rate-limited API). Humans author none of it.
+
 ### Step 1: Gather What's Already Known
 
 Before creating ticks, collect whatever requirements already exist:
@@ -318,7 +324,7 @@ tk create "Dashboard chart off-by-one" --parent <triage>
 
 #### Designing for parallel execution
 
-Ticks in the same wave (no blocking relationship) run concurrently, each in its own git worktree. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file will still collide at merge time. To keep merges clean:
+Ticks in the same wave (no blocking relationship) run concurrently, each in its own git worktree. A wave is safe to run wide only if its ticks (1) touch disjoint files, (2) either share no un-isolable test resource or the run verifies that tier serially post-merge (see the project execution profile — Step 0 item 6), and (3) run in **provisioned** (runnable) worktrees. File-disjointness is necessary but not sufficient. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file will still collide at merge time. To keep merges clean:
 - If two ticks edit the same file, make one block the other so they land in different waves
 - Use `tk graph <epic>` to see the waves and confirm ticks in the same wave touch different files
 - Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A

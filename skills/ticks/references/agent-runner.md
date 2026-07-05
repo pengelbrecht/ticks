@@ -36,6 +36,10 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    Export TK_ACTOR=<runner>:orchestrator so every tk write from this session
    stamps activity entries with a recognisable actor — distinguishing orchestrator actions from
    human actions in the feed. (See "Actor convention" below.)
+0.5 Establish the project execution profile: read .tick/profile.md; if missing or stale,
+   characterize the project now — before wave 1 — and write it (see "Project execution
+   profile" below). It supplies the worktree provisioning recipe and the per-tier verify
+   venues this loop depends on.
 1. tk graph <epic> --json          → waves + max_parallel
 2. EPIC-SKELETON pre-flight (self-healing): if step 1's result carries a non-empty
    missing_process_ticks (roles no child tick has — "review", "closeout"), create the
@@ -51,12 +55,19 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       on the tick — claiming is immediately visible on the board and in the activity feed.
    b. Launch one implementer per tick using the active harness adapter, recording each
       tick's branch/worktree in a durable note as soon as the name is known (before launch
-      when the adapter controls naming; at first report when the harness assigns it)
+      when the adapter controls naming; at first report when the harness assigns it).
+      Every worktree must be provisioned runnable per the profile before implementation
+      starts — by you before dispatch, or by the implementer as its first step when the
+      harness creates the worktree at launch (see "Provisioning: runnable worktrees")
    c. Wait using the harness's native completion primitive. Avoid busy polling.
    d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
       Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
       Never use a bare `tk close`.
+      If the profile routes any test tier post-merge, integrate serially on a merge
+      candidate instead: git merge --no-commit → run that tier → green: commit + close;
+      red: abort + continue/redispatch (see "Post-merge verification (serial venue)")
    e. When the whole wave is merged, run the project's test suite on the integrated tree
+      (tiers already verified per merge candidate need not be re-run here)
    f. Re-read .tick/config.md and run any steps in `At wave end` (no-op if absent)
    g. When the wave is integrated and green, go to the next wave
 4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
@@ -111,6 +122,46 @@ Absent or empty sections are no-ops — the file is purely additive. **Re-read t
 **Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, or `pi:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
 **Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
+
+### Project execution profile (`.tick/profile.md`)
+
+The profile is the run's **inferred** understanding of how this project builds, runs, and tests — generated and maintained by the orchestrator, never hand-authored. It exists because two facts govern how wide a wave can safely run, and neither lives in tick data:
+
+- **Runnability** — what a fresh worktree needs before it can build and test. Dependency directories (`node_modules`, a venv, `target/`) are gitignored, so a bare worktree is an isolated *source* tree, not a runnable one.
+- **Test-tier venues** — for each test tier (typecheck, lint, unit, integration, e2e), where it can safely run: **in-worktree** (parallel-safe, or isolable by provisioning a private resource) or **post-merge** (the tier touches a shared singleton — one test DB, a fixed port, a global service — that concurrent runs would corrupt).
+
+**Project-start characterization (idempotent, incremental).** At step 0.5 of the loop:
+
+1. Load what is known: the existing profile, `.tick/config.md` (overrides), `.tick/learnings.md`, CI config, the test-runner config, the package manager and ignore files.
+2. If the profile's recorded inputs (lockfile hash, test-harness config) are unchanged, keep it as-is — the normal, near-free case.
+3. Otherwise characterize (read-only exploration, cheap tier): derive the provisioning recipe, the tier→venue map, and the services the project needs; record evidence and a confidence per item.
+4. Write the profile. Planning consumes it — it determines both wave width and verify venues.
+
+**Safety bias (hard rule).** Route a tier in-worktree only on **positive evidence of isolation** — per-test transactions, schema-per-worker, testcontainers, per-worker ports. Absence of evidence of sharing is NOT evidence of isolation; default to post-merge. Mis-parallelizing corrupts waves silently; mis-serializing only costs speed.
+
+**Runtime tripwire.** Static invalidation has false negatives — a new test hitting a fixed port changes testability without touching anything that looks like "setup." If parallel in-worktree verifies turn flaky or nondeterministic, downgrade that tier to post-merge immediately and record why in the profile; don't wait for the next characterization.
+
+**Isolable is a cost decision, not a free tier.** Provisioning a private resource per worktree (e.g. a test database each) buys parallel verify at a real cost in memory, ports, and startup time. Record the cost in the profile and choose isolate-vs-post-merge per run; sometimes serial verify is simply cheaper.
+
+**Maintenance and routing.** The retro re-characterizes when an epic's diff touched the build/test setup; the tripwire covers what static triggers miss. `.tick/config.md` overrides the profile only for facts the repo cannot reveal — an out-of-repo shared resource (a staging DB, a rate-limited external API) — or to correct a confirmed mis-inference; note overrides with their source. To prevent drift across knowledge files: execution characteristics live in the profile, ad-hoc Problem→Cause→Rule gotchas live in learnings, human-declared out-of-repo facts live in config.
+
+### Provisioning: runnable worktrees
+
+"Isolated" means isolated **and runnable**. Before implementation starts in a tick's worktree, the profile's provisioning recipe must be applied so the tree can build and run its in-worktree tiers. Who applies it depends on the adapter: when the orchestrator creates worktrees, it provisions before dispatch; when the harness creates the worktree at agent launch, the implementer self-provisions as its FIRST step (the prompt template instructs this). The recipe is project-specific and lives in the profile — never hardcode an ecosystem's commands in skill text.
+
+**First run (no recipe yet): discover it — solo.** Make one worktree runnable by whatever means the project needs, confirm the tests actually run there, and record the recipe in the profile. Do this once, before the first parallel wave (a single-tick foundation wave is the natural slot), so N agents don't race the same discovery.
+
+**Shared-state caution.** Recipes that share mutable state with the main checkout (e.g. linking a dependency directory) are fast but add a boundary rule: implementers must NOT run dependency installs in a shared-deps worktree — an install mutates the shared directory under every sibling. Give dependency-adding ticks a privately provisioned worktree or run them solo; this extends the existing lockfile-serialization rule from the commits to the act itself.
+
+### Post-merge verification (serial venue)
+
+When the profile routes a tier post-merge, verification for that tier moves from the implementers to you:
+
+- Implementers run only their in-worktree tiers before reporting. **`DONE` then means "implemented, committed, in-worktree tiers pass" — not "acceptance fully verified."**
+- Integrate serially on a merge candidate: `git merge --no-commit <branch>` → run the post-merge tier(s) on the candidate → **green: commit the merge, then `tk close` the tick** / red: abort the merge and continue or redispatch the implementer with the failure. Never leave the integration branch red, and never start the next candidate on a red tree.
+- **Close timing.** The "no known-failure closes" invariant is enforced by you at the candidate gate: in this venue a tick closes only after its post-merge tier passes.
+- **Attribution is a heuristic.** Green-before/red-after points at the tick being merged, but the root cause can be an earlier tick's latent bug that this one merely exposed (a semantic conflict). Start with the just-merged tick; be prepared to land the fix in either.
+- Implementation still parallelizes — only candidate-merge-plus-verify is serial, and that serialization is inherent to the shared resource, not to the model.
 
 ## Discipline rules
 
@@ -189,6 +240,8 @@ Each agent gets its own working directory on its own branch, so parallel agents 
 
 For a wave with a single tick — or when you deliberately want to run sequentially — you can skip worktree isolation and let the implementer work in the shared tree. Only do that when nothing else is running concurrently; concurrent agents sharing one tree is the exact problem worktrees solve.
 
+Isolation alone is not sufficient: a bare worktree is an isolated *source* tree, not a runnable one. See "Provisioning: runnable worktrees" — an unprovisioned worktree is the classic silent cause of a run quietly degrading to shared-tree sequential execution and losing the wave's parallelism.
+
 ## Waiting for completion
 
 Use the adapter's native blocking wait or completion notifications. A blocking process wait is fine; a repeated `sleep`/status loop is not. Preserve each implementer's final report separately from verbose execution logs so integration does not require loading a full transcript.
@@ -203,6 +256,8 @@ Ask each implementer to end with one of four statuses. Structured statuses let y
 | `DONE_WITH_CONCERNS` | Done, but flagged doubts | Read the concerns. Correctness/scope doubts → resolve before integrating. Observations → note and proceed. |
 | `NEEDS_CONTEXT` | Missing info it couldn't get | Continue the same agent with the missing context, or record it and redispatch |
 | `BLOCKED` | Can't complete | See "When an agent is blocked" below |
+
+When the profile routes a tier post-merge, `DONE` covers only the in-worktree tiers; you verify the post-merge tier at the candidate gate and close the tick only after it passes (see "Post-merge verification (serial venue)").
 
 Never force the same agent to retry on the same model with no change. If it's stuck, something has to change.
 
@@ -361,6 +416,7 @@ Each learning goes to **exactly one** destination:
 | Rule that would have prevented a mistake, applies to any future work | the repo's shared agent instructions — keep it terse, and prefer one canonical file (with the other of `AGENTS.md`/`CLAUDE.md` pointing to it) over two drifting copies |
 | Permanent architectural / how-the-codebase-works knowledge | `docs/` |
 | Operational gotcha for future implementer agents (test quirks, env traps, recurring build issues) | `.tick/learnings.md` |
+| Execution characteristic (provisioning recipe, test-tier venue, service needs, parallelism fact) | `.tick/profile.md` — structured and re-derived; never duplicate it in learnings |
 | One-off detail, only matters to this epic | stays in tick notes (already persisted — do nothing) |
 | A doc proven wrong by this epic | fix or delete the doc |
 | Runner-neutral orchestration learning | `skills/ticks/references/agent-runner.md` or `tick-patterns.md` |
@@ -402,6 +458,8 @@ Skim the epic's full diff (`git diff <base-branch>...HEAD`) for agent-typical pa
 
 Real drift (anything that degrades quality or increases maintenance burden) becomes cleanup ticks in the **next** epic. Scope may grow to accommodate them; it may not silently shrink.
 
+If the epic's diff touched the build or test setup (runner config, harness, dependency layout, fixtures with shared state), re-characterize the affected `.tick/profile.md` entries as part of this step (see "Project execution profile").
+
 For very large epics, this step can be fanned out with the harness's parallel review primitive, one agent per diff segment. Single-pass is the default.
 
 #### 6. Retro report
@@ -442,6 +500,7 @@ Claude may create ticks that Codex executes, Codex may create ticks that Claude 
 |---|---|
 | Scope, acceptance, dependencies, status | tick files and `tk show` / `tk graph` |
 | Project rules and tests | `.tick/config.md`, `.tick/learnings.md`, and the active harness's instruction files |
+| Execution characteristics (provisioning recipe, tier→venue map) | `.tick/profile.md` |
 | Integrated work | integration branch history |
 | In-flight work | deterministic `tick/<epic>/<tick>` branch and worktree |
 | Runner provenance | activity actor such as `claude:orchestrator`, `codex:orchestrator`, or `pi:orchestrator` |
@@ -529,11 +588,12 @@ Epic: <epic-title> (<epic-id>)
 ## Instructions
 1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
 2. Read `.tick/config.md` (if present) — the `Testing` and `For implementers` (legacy: `Rules`) sections apply to you; the orchestrator-only `At …` sections do not.
-3. Read the repository instruction file used by your harness (`AGENTS.md`, `CLAUDE.md`, or equivalent) and any nested instruction files that apply.
-4. Read the relevant existing code before changing anything.
-5. Implement the task test-first: write the failing test, then make it pass.
-6. Run the tests named in the acceptance criteria and confirm they pass.
-7. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
+3. Read `.tick/profile.md` (if present) and make this worktree runnable FIRST: apply its provisioning recipe before changing anything. If the recipe shares dependency directories with the main checkout, do NOT run dependency installs in this worktree.
+4. Read the repository instruction file used by your harness (`AGENTS.md`, `CLAUDE.md`, or equivalent) and any nested instruction files that apply.
+5. Read the relevant existing code before changing anything.
+6. Implement the task test-first: write the failing test, then make it pass.
+7. Run the acceptance tests the profile routes in-worktree and confirm they pass. Tiers the profile routes post-merge are run by the orchestrator after your branch merges — your STATUS: DONE covers the in-worktree tiers.
+8. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
 
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
