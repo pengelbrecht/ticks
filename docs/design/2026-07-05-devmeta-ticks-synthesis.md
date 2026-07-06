@@ -275,6 +275,27 @@ Artifacts: `.tick/profile.md`, `.devmeta/increments/increment-2-par/completion.m
 
 Environment note: the engine adapted to the unpushable `origin` by merging locally without PRs — same de-facto behavior as June; logged as environment, not intervention.
 
+## 12. Run 3 verdict (2026-07-06, `bench/tix-synthesis-3`): P7 validated — with honest margins
+
+Run 3 (P6+P7, zero seeded knowledge, identical setup to run 2) delivered **F1–F5 complete in 3h10m** (first artifact commit 13:46 → checkpoint 16:57; 34 commits; **0 interventions**; 283 tests passing; gates 1–4 green, gate 5 human; tags `bench-wch-f1/f2/e3`; full record trail incl. per-epic dispatch-mode ledgers and a checkpoint dispatch postmortem).
+
+| F1–F5, identical brief | June | Calibration (orig × current) | Run 2 (P6) | **Run 3 (P6+P7)** |
+|---|---|---|---|---|
+| Wall-clock | DNF (~6h → 40%) | ~3h13m active* | 3h52m | **~3h10–3h22m*** |
+| Interventions | several | 1 (stall) | 0 | **0** |
+| Merge conflicts | — | — (sequential) | 1 mechanical | **0** (seam eliminated at planning) |
+| Isolation / records / bootstrap | none / rich / hand-config | none / rich / hand-config | full / full / inferred | **full / full (+ledgers) / inferred** |
+
+\* Measurement-basis honesty: the calibration's first commit *excludes* its ~25-min bootstrap while runs 2/3's first commits *include* theirs; on a session-kickoff basis all three land within ±10 min of each other's noise floor (run 3 also ate a ~12-min one-time browser-hang). **Verdict: run 3 decisively beats run 2 (−40m+) and statistically ties the calibration on time** — while dominating it on every non-time axis (0 vs 1 interventions, isolation, inferred bootstrap, machine-checkable resume, 3× less tracker ceremony was run 2's number and run 3 stayed lean at 20 ticks).
+
+**The falsifier did not fire** (run 3 is not slower than the calibration), and the primary claim lands in its strongest form: **P7 recovered the warm-context economy that made the original engine fast, without giving back any of P6's structural wins.** The gate used **all three dispatch modes**, each where its arithmetic won: E1 = one warm-chain (1 cold start instead of 3–4); E2 = foundation-chain then **parallel warm-chains** (measured: saved ~9.5m); E3 = two parallel-waves (saved ~17m + ~3m). Measured warm/cold ratio ≈ ⅓–½, confirming the calibration prior.
+
+**The unplanned discovery — constraint-surface partitioning.** The pre-registered hypothesis ("parallel warm-chains one per feature for E3") was beaten by the engine itself: it regrouped **across features by constraint surface** — all DB work in one tick (singleton), pure-TS contracts together, and **the `QuoteShow.tsx` seam merged into a single tick**, structurally eliminating the conflict that was run 2's only integration hiccup. Partitioning by what actually constrains concurrency (shared resources, shared files, cold-start economics) rather than by feature taxonomy is a better doctrine than the one we wrote; it should be promoted into the skill's planning guidance.
+
+**Noise floor caveat:** each cell is a single run; ±10–15 min swings from environmental one-offs (browser hangs, registry traps) are within observed variance. The robust conclusions are the structural ones — interventions, conflicts, records, bootstrap — plus the direction and rough magnitude of the P7 time effect vs run 2.
+
+Method note — shared-DB contamination check: the local Supabase singleton persists across branches, so each run inherits its predecessor's schema (run 2 inherited run 1's, calib inherited run 2's, run 3 inherits calib's — the dirty-start condition is *uniform*, hence not a bias). Forensics: the calibration authored a fully independent migration set (no file overlap with run 2's), `supabase db diff` generates from the branch's migration history via shadow DBs (leftover live-DB tables provide no shortcut — if anything they obstruct `migration up` until a reset), and every iteration's gate re-validated "applies on a **fresh** reset", which replays only the branch's own migrations. Conclusion: no cross-run DB advantage; the calibration's one real asymmetric edge remains the hand-seeded config (finding 3a).
+
 ## 9. Live-run finding (2026-07-05): the worktree-parallelism gap, and where to fix it
 
 The first synthesized-ticks benchmark run (atomic-crm, Quotes & Products) reached F1+F2 in ~2h37m vs ~5.5–6.5h for devmeta-ng/devmeta-3 to the same point — but the git graph is **fully linear, zero worktree branches**. The engine ran everything **sequentially in the shared tree**; the tick-grain parallelism lever was never pulled. So the speedup came from less ceremony + model tiering + a tighter self-correcting loop, **not** from parallel worktrees.
