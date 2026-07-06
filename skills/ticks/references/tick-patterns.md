@@ -34,25 +34,31 @@ Use this ordered procedure every time you plan an epic. It replaces ad-hoc "defi
 
 **Step 1 — List every deliverable in the epic.** Write them out explicitly; don't carry them only in your head. One deliverable = one named user-visible or system behaviour to be produced.
 
-**Step 2 — Build a work-to-file matrix.** For each deliverable, list the files it will create or modify. A rough list is fine — the goal is to surface sharing, not produce an exhaustive path inventory.
+**Step 2 — Build a work-to-constraint matrix.** For each deliverable, list the files it will create or modify — and, from `.tick/profile.md`, any **shared un-isolable resource** it touches (a singleton test DB, a migration chain, a fixed port). A rough list is fine — the goal is to surface sharing, not produce an exhaustive path inventory.
 
-| Deliverable | Files created/modified |
-|---|---|
-| User can register | `schema.sql`, `handlers/auth.go`, `ui/signup.ts` |
-| User can log in | `handlers/auth.go`, `ui/login.ts` |
-| User sees profile | `handlers/profile.go`, `ui/profile.ts` |
+| Deliverable | Files created/modified | Shared resources |
+|---|---|---|
+| User can register | `schema.sql`, `handlers/auth.go`, `ui/signup.ts` | DB (migration) |
+| User can log in | `handlers/auth.go`, `ui/login.ts` | — |
+| User sees profile | `handlers/profile.go`, `ui/profile.ts` | — |
 
-**Step 3 — Cluster by shared files.** Deliverables that touch the same files cannot safely run in parallel. For each cluster of overlap, either make the ticks sequential with `--blocked-by`, or merge them into one tick if they are tightly coupled enough that separation adds no value.
+**Step 3 — Cluster by constraint surface.** Deliverables that share a surface cannot safely run in parallel; resolve each cluster, in order of preference:
+
+1. **Seam files: merge the edits into one tick.** When two deliverables edit the same file, prefer giving that seam to a **single tick** over sequencing two ticks — a seam owned by one tick cannot conflict at merge. Sequence with `--blocked-by` only when the co-owned edits would make the tick oversized.
+2. **Shared un-isolable resources: one tick (or chain) per wave.** Work touching a post-merge-venue resource concentrates — e.g. all of a wave's DB/migration work in one tick, even across feature lines. Never two ticks touching the same singleton in one parallel wave.
+3. **Otherwise sequence** with `--blocked-by` (hard, never `--after` — a predictable conflict is a dependency, not a preference).
 
 **Pick the right edge type.** Same-file overlap between ticks or epics is a real feasibility constraint — sequence it with `--blocked-by` (hard), never `--after`. A merge conflict you can predict is a dependency, not a preference. Reserve `--after` (soft) for pure ordering preference where nothing actually conflicts: it biases `tk next` ordering but never gates readiness, so a soft-deferred tick can still be picked up when its preferred predecessor is infeasible.
+
+**Step 3.5 — Group for warm-chains (cold-start cohesion).** Small (≲20-min), same-subsystem ticks that would otherwise dispatch as separate fresh implementers group into an ordered **warm-chain** (see `agent-runner.md` → "Dispatch modes and the economic gate"). Partitioning and dispatch-mode selection are one joint decision against the profile — cut the work knowing how each group will run, don't partition first and price later.
 
 **Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
 
 **Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so that everything that *can* run in parallel *does*. Verify with `tk graph <epic>` that no two ticks in the same wave share a file. If they do, add `--blocked-by` or re-merge until the graph is clean.
 
-### Vertical slicing (the backbone principle)
+### Vertical slicing (the default shape — constraint surfaces override it)
 
-The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to define what each tick does.
+The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to define what each tick does — **within a constraint group**. Vertical slicing is the right default when no constraint surface says otherwise; when surfaces conflict with feature taxonomy, the surfaces win. It is correct — not a violation — for a partition to group one wave's DB work across features (the shared-singleton rule), co-own a seam file across features (one tick owns the seam), or chain small same-subsystem ticks across a feature boundary. Partition by what actually constrains concurrency; slice vertically inside those bounds.
 
 **Slice vertically, not horizontally.** Don't make a "schema" tick, an "API" tick, and a "UI" tick — each is useless until the others land, and nothing is demoable until the very end. Instead slice by user-visible capability, so each tick takes one feature front-to-back and leaves the system working:
 

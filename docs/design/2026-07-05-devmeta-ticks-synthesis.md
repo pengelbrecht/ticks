@@ -173,6 +173,23 @@ Heuristics over false precision: **chain** small (≲20-min), same-subsystem tic
 
 **Experiment (run 3, pre-registered):** `bench/tix-synthesis-3`, same brief, zero seeded knowledge, P6+P7 skill, same roadmap shape as run 2. Hypothesis: the gate picks warm-chains for E1/E2's small-tick waves and parallel warm-chains (one per feature) for E3; **target: beat both 3h15m (calibration) and 3h52m (run 2) with 0 interventions and full records.** Falsifier: if run 3 lands slower than the calibration, the chain overhead (chain planning + per-tick reporting) exceeds the cold-start saving and P7 needs rework.
 
+### P8 — Constraint-surface partitioning (planning doctrine; codifies run 3's discovery)
+
+*Added 2026-07-06 after run 3 (§12). Not new machinery — a doctrine promotion: run 3's E3 partition beat the pre-registered hypothesis by regrouping work across feature lines, and the skill text should say why so the behavior is contractual rather than emergent.*
+
+**The doctrine.** Partition an epic by its **constraint surfaces**, jointly, with dispatch-mode selection in the loop — not by feature taxonomy with file-checks bolted on:
+
+1. **Shared files (seams):** when two deliverables edit the same file, prefer **merging the edits into one tick** over sequencing two ticks — a seam owned by one tick cannot conflict (run 3 unified the `QuoteShow.tsx` status-control + download-button edits and deleted run 2's only conflict). Sequence only when the edits are too large to co-own.
+2. **Shared un-isolable resources (from the profile):** work touching a shared singleton (one test DB, a migration chain) concentrates into **one tick or chain per wave** — "never two DB-touching ticks in the same parallel wave" generalized to any post-merge-venue resource.
+3. **Cold-start cohesion (from the gate):** small, same-subsystem ticks group into **warm-chains**; only hour-scale or genuinely unrelated work earns fresh parallel implementers.
+4. **Vertical slicing is demoted to the default *within* a constraint group** — the right shape when no surface says otherwise, overridable across feature lines when surfaces conflict with taxonomy (run 3's E3: DB-together horizontally, contracts-together, UI-seam-together, edge-function-alone).
+
+**Consequence:** partitioning, dispatch modes, and verify venues become one joint decision against the profile, not pipeline stages. The work-to-file matrix becomes a **work-to-constraint matrix** (files + resources + cohesion).
+
+**Evidence status (honest):** derived from one observed instance (run 3 E3, 0 conflicts, ~20m saved) plus first-principles unification of rules the skill already carries separately (lockfile serialization, wave-safety, foundation extraction, DB doctrine, chain heuristic). No dedicated experiment needed — P8 codifies what the P7 engine already did; the next real project validates it incidentally.
+
+**Diff surface:** `tick-patterns.md` (partitioning procedure: constraint matrix, seam-merge preference, resource clustering, vertical-slicing demotion), `SKILL.md` (parallel-design section: name the doctrine), `agent-runner.md` (planning tier: co-design with the gate). Skill-prose only.
+
 ### P4 — Full rewrite: devmeta v4 as a native skill
 Rewrite DevMeta as a proper skill (SKILL.md + references, progressive disclosure) that adopts ticks' execution protocol wholesale (per-tick worktrees, roles, tiers, structural skeleton) but keeps DevMeta vocabulary and the record system as first-class protocol steps. Reference the ticks skill's files rather than copying them.
 Pros: maximum control and coherence. Cons: you become the maintainer of a second orchestration protocol that will trail upstream. Only worth it if you decide to *diverge* philosophically (e.g., keep feature-level workers).
