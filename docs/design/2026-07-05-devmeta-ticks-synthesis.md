@@ -155,6 +155,24 @@ The better shape: **strict routing, free content** — replace topic sections wi
 
 Nuances: (a) determinism here is *contractual* (skill text instructs the consultation), the same trust level as the retro procedure itself — not code-enforced; (b) an optional Phase-2 `tk` assist would make routing near-mechanical: when `tk next --json` returns a `role: closeout` tick, embed the `## At epic close-out` content in the payload, so the orchestrator doesn't even need to remember to read the file — mirrors the v2 spec's own "Phase 1 skill-only, Phase 2 CLI" pattern; (c) `tk init` could scaffold a template config.md with all named sections empty + comments, making the contract discoverable; (d) locally (P1′) you adopt the identical section names now, with the pointer-in-close-out-tick as interim wiring — when upstream wires it natively, the pointer becomes redundant and nothing else changes.
 
+### P7 — Warm-chain dispatch + cold-start-aware economic gate (from the calibration run; recovers devmeta's feature economy)
+
+*Added 2026-07-06 after the calibration verdict (§11): warm-sequential beat cold-parallel on raw wall-clock (3h15 vs 3h52) because the economic gate priced provisioning but not **cold starts** — a fresh per-tick implementer re-reads the world (20–35 min/tick) where a warm worker, amortizing codebase understanding across tasks, does comparable work in 4–9 min.*
+
+**The proposal — a third dispatch mode.** Between solo-tick and parallel-wave, add **warm-chain**: one implementer executes an ordered chain of related ticks in one worktree, one branch, one context — committing per tick (`tick <id>: …`, preserving the audit trail), reporting per-tick status lines, still never touching `tk` (the orchestrator closes each chain tick at integration). A chain integrates like one unit: one candidate merge, one post-merge gate; per-tick attribution survives in the commits. Chains compose with parallelism: **K disjoint chains run in parallel worktrees** — which is exactly devmeta's feature-worker model (the one idea the synthesis discarded, and the v2 spec's deferred open question #1) recovered *inside* ticks mechanics: worktree isolation, orchestrator-owned state, structural skeleton, and the retro all unchanged.
+
+**The gate, refined.** Per wave, compare honestly:
+- *parallel-wave wall* ≈ max(cold tick times) + width × serial-gate time + provisioning
+- *warm-chain(s) wall* ≈ per chain: first task cold + rest warm (~⅓–½ of cold), chains in parallel
+
+Heuristics over false precision: **chain** small (≲20-min), same-subsystem ticks; **go wide** with fresh implementers when ticks are hour-scale (cold-start amortizes inside the tick) or genuinely unrelated; **parallel chains** when a wave partitions into 2–3 cohesive groups. The profile records the *observed* warm/cold ratio after the first epic so later gates use measured numbers, not folklore.
+
+**Sizing doctrine shifts (consciously):** tick-patterns' "1–3 agent iterations per tick" was calibrated to cold implementers. Under warm-chains, small ticks stay legitimate *as chain links* — the unit of dispatch becomes the chain, while the tick remains the unit of tracking, attribution, and resume (a dead chain resumes from its last committed tick).
+
+**Where it lives:** skill only (agent-runner: dispatch-modes section + chain prompt variant + retro "dispatch-mode ledger"; claude-runner: chain = one Agent, SendMessage continuation; profile: warm/cold ratio). No tk changes. Upstream story: completes the pitch as the empirical answer to the v2 spec's own open question, with the run-2 vs calibration pair as evidence.
+
+**Experiment (run 3, pre-registered):** `bench/tix-synthesis-3`, same brief, zero seeded knowledge, P6+P7 skill, same roadmap shape as run 2. Hypothesis: the gate picks warm-chains for E1/E2's small-tick waves and parallel warm-chains (one per feature) for E3; **target: beat both 3h15m (calibration) and 3h52m (run 2) with 0 interventions and full records.** Falsifier: if run 3 lands slower than the calibration, the chain overhead (chain planning + per-tick reporting) exceeds the cold-start saving and P7 needs rework.
+
 ### P4 — Full rewrite: devmeta v4 as a native skill
 Rewrite DevMeta as a proper skill (SKILL.md + references, progressive disclosure) that adopts ticks' execution protocol wholesale (per-tick worktrees, roles, tiers, structural skeleton) but keeps DevMeta vocabulary and the record system as first-class protocol steps. Reference the ticks skill's files rather than copying them.
 Pros: maximum control and coherence. Cons: you become the maintainer of a second orchestration protocol that will trail upstream. Only worth it if you decide to *diverge* philosophically (e.g., keep feature-level workers).

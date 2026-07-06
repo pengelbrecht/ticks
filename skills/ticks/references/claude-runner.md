@@ -55,6 +55,8 @@ Watch the concurrency cost: N simultaneous full dependency installs can thrash d
 
 If worktrees are **pooled** across ticks (shared protocol → "Amortize: pool worktrees"), the manual-worktree dispatch path above is the natural fit (harness-created `isolation: "worktree"` trees are single-shot); run the successful-integration cleanup below at pool retirement (epic end), not per tick.
 
+**Warm-chain mapping.** A chain is **one `Agent` call** with the chain prompt variant (shared protocol → "Warm-chain prompt variant") — the warm context lives inside that single agent, so never split a chain across Agent calls. Mid-chain course corrections use `SendMessage` to the live agent; after a crash, redispatch a fresh Agent into the same worktree/branch pointed at the first un-committed tick (completed prefix stays merged-able). Tier note: a chain aggregates several ticks' worth of judgment — resolve the chain's model tier from its *hardest* link, not its average.
+
 ## Successful-integration cleanup
 
 This is the adapter's resolution of the shared protocol's "run the active adapter's successful-integration cleanup" step (`agent-runner.md`). **Claude isolation worktrees are not self-cleaning once they hold commits.** The harness auto-removes an `isolation: "worktree"` directory only while it is *unchanged*; every tick implementer commits code, so its worktree and `worktree-agent-*` branch persist after the run and accumulate under `.claude/worktrees/` (multi-GB leaks across a few epics). The orchestrator must remove them explicitly — do not assume the harness will.

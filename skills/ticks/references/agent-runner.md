@@ -134,8 +134,8 @@ The profile is the run's **inferred** understanding of how this project builds, 
 
 1. Load what is known: the existing profile, `.tick/config.md` (overrides), `.tick/learnings.md`, CI config, the test-runner config, the package manager and ignore files.
 2. If the profile's recorded inputs (lockfile hash, test-harness config) are unchanged, keep it as-is — the normal, near-free case.
-3. Otherwise characterize (read-only exploration, cheap tier): derive the provisioning recipe, the tier→venue map, and the services the project needs; record evidence and a confidence per item.
-4. Write the profile. Planning consumes it — it determines both wave width and verify venues.
+3. Otherwise characterize (read-only exploration, cheap tier): derive the provisioning recipe, the tier→venue map, and the services the project needs; record evidence and a confidence per item. The profile also carries the **observed warm/cold task-time ratio** once the first epic supplies data (see "Dispatch modes and the economic gate") — it parameterizes the gate.
+4. Write the profile. Planning consumes it — it determines wave width, verify venues, and dispatch modes.
 
 **Safety bias (hard rule).** Route a tier in-worktree only on **positive evidence of isolation** — per-test transactions, schema-per-worker, testcontainers, per-worker ports. Absence of evidence of sharing is NOT evidence of isolation; default to post-merge. Mis-parallelizing corrupts waves silently; mis-serializing only costs speed.
 
@@ -153,9 +153,24 @@ The profile is the run's **inferred** understanding of how this project builds, 
 
 **Shared-state caution.** Recipes that share mutable state with the main checkout (e.g. linking a dependency directory) are fast but add a boundary rule: implementers must NOT run dependency installs in a shared-deps worktree — an install mutates the shared directory under every sibling. Give dependency-adding ticks a privately provisioned worktree or run them solo; this extends the existing lockfile-serialization rule from the commits to the act itself.
 
-**Parallelism must pay for itself (economic gate).** Provisioning is a cost (installs, per-worktree resources); parallelism is a saving — roughly *(wave width − 1) × average tick duration*. Before provisioning a wave wide, check that the saving clearly exceeds the total provisioning cost, using the costs the profile records. A 2-wide wave of ten-minute ticks fails the test; a 3-wide wave of hour-long features passes easily. When the gate fails, run the wave sequentially **as a deliberate, noted choice** — the "never silently degrade" rule forbids drift, not judgment. Note the venue map already shrinks the bill: implementers only need worktrees runnable for the *in-worktree* tiers (typically typecheck/lint/unit); heavy shared tiers run post-merge, once per merge, not N times.
+### Dispatch modes and the economic gate
 
-**Amortize: pool worktrees.** Instead of create → provision → destroy per tick, keep provisioned worktrees and reuse them for successive ticks: reset to the current integration commit between ticks (`git checkout <integration-commit>` + `git clean -fd`), start each tick on a fresh branch. One provisioning then pays for many ticks — which shifts the economic gate toward parallelism on long epics. Cleanup moves from per-tick to pool retirement (epic end).
+Three ways to execute ready work; pick per wave, deliberately, and note the choice:
+
+1. **Solo-tick** — a single ready tick; shared tree or one worktree (existing rules).
+2. **Parallel-wave** — one fresh implementer per tick in provisioned worktrees (the P6 default for wide waves of substantial ticks).
+3. **Warm-chain** — one implementer executes an **ordered chain of related ticks** in one worktree, one branch, one warm context: committing per tick (`tick <id>: …` — the audit trail survives), reporting a status line per tick, still never touching `tk`. The chain integrates as one unit (one candidate merge, one post-merge gate); the orchestrator closes each chain tick at integration from the per-tick report lines. Chains compose with parallelism: **K disjoint chains run in K parallel worktrees.** A dead chain resumes from its last committed tick.
+
+**The gate prices BOTH provisioning and cold starts.** A fresh implementer pays a cold-start tax — reading learnings/config/instructions/code before productive work — that a warm worker pays once per chain, not once per tick. Empirically the warm/cold per-task ratio can reach ⅓–½ on small ticks. Compare per wave:
+
+- *parallel-wave wall* ≈ max(cold tick times) + width × serial-gate time + provisioning
+- *warm-chain(s) wall* ≈ per chain: first task cold + remaining tasks warm; disjoint chains in parallel
+
+Heuristics over false precision: **chain** small (≲20-min), same-subsystem ticks; **go wide with fresh implementers** when ticks are hour-scale (the cold start amortizes inside the tick) or genuinely unrelated; **parallel warm-chains** when the wave partitions into 2–3 cohesive, file-disjoint groups. When any gate fails, sequential is the correct, *noted* choice — "never silently degrade" forbids drift, not judgment. Record the observed warm/cold ratio in the profile after the first epic and use measured numbers thereafter.
+
+**Chain protocol details:** chain ticks must be internally sequential-or-disjoint (no two chains share files — same rule as wave safety); mark the whole chain's ticks `in_progress` at dispatch; the chain prompt lists the ticks in order with each description + acceptance inline (same self-contained rule as single-tick prompts); the implementer runs the in-worktree tiers after each tick and commits before starting the next; `DONE` per tick in the final report, one line each. Note the venue map still shrinks the bill: worktrees need only the in-worktree tiers; shared tiers run post-merge per *chain*, not per tick.
+
+**Amortize: pool worktrees.** Instead of create → provision → destroy per tick, keep provisioned worktrees and reuse them for successive ticks or chains: reset to the current integration commit between assignments (`git checkout <integration-commit>` + `git clean -fd`), start each on a fresh branch. One provisioning then pays for many ticks. Cleanup moves from per-tick to pool retirement (epic end).
 
 ### Post-merge verification (serial venue)
 
@@ -473,6 +488,7 @@ Write a short summary. If `.tick/config.md` → `At epic close-out` names a repo
 - Learnings promoted, by destination (a few bullet points per tier that received anything).
 - Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
 - Drift found and cleanup ticks created (or "none").
+- **Dispatch-mode ledger:** per wave — mode chosen (solo / parallel-wave / warm-chain(s)), the gate arithmetic, and observed warm vs cold task times (update the profile's warm/cold ratio).
 - Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
 
 #### 7. Configured close-out steps
@@ -614,6 +630,10 @@ Epic: <epic-title> (<epic-id>)
   STATUS: NEEDS_CONTEXT — <what you need>
   STATUS: BLOCKED — <why>
 ```
+
+### Warm-chain prompt variant
+
+For a chain assignment, adapt the template: under `## Task`, list the chain's ticks **in order**, each with its full description and acceptance inline (a chain implementer sees only its prompt — same self-contained rule). Replace instruction 6–8 with: *implement the ticks strictly in order; after each, run the in-worktree tiers and commit `tick <tick-id>: <summary>` before starting the next; if a tick blocks, report and stop the chain there (completed ticks stay committed).* The report ends with **one status line per tick** (`<tick-id>: DONE | BLOCKED — reason`), so the orchestrator can close exactly the completed prefix at integration.
 
 ## Current limitations
 
