@@ -233,6 +233,30 @@ Every P6 mechanism fired and is evidenced in-repo:
 
 Artifacts: `.tick/profile.md`, `.devmeta/increments/increment-2-par/completion.md` (+ `ia-cycles/`), tags `bench-par-*`. Open items were correctly left human: interactive Gate-5 smoke, the pre-existing Prettier/CRLF decision, `tk close urf`. **Caveat for the benchmark claim:** run 2 vs the June runs confounds engine and model generations — a calibration run of the *original devmeta* on current models (planned: `bench/devmeta-calib`) isolates the engine effect.
 
+## 11. Calibration verdict (2026-07-06, `bench/devmeta-calib`): original devmeta × current models — and a surprise
+
+**The run completed the full brief** — the first original-devmeta run ever to do so: F1–F5 shipped, five iterations + five I&A cycles, tags `iteration-1-cal.1–.5`, all gates 1–4 verified per-iteration, increment closed with a completion report. Timeline (git-authoritative): start ≈09:05 → close 12:48 = 3h43m wall, **≈3h15m active** (minus the ~30-min stall gap). 35 commits, 71 tracker ticks, **1 human intervention**.
+
+| F1–F5 complete | Original × June | Original × current | P6 × current |
+|---|---|---|---|
+| Wall-clock (active) | never finished (F1+F2 ≈ 5.5–6.5h) | **~3h15m** | 3h52m |
+| Interventions | several restarts | **1** (boundary stall) | **0** |
+| Tracker objects | — | 71 ticks | 22 ticks |
+| Config required | hand-authored | hand-authored (seeded) | **none (inferred)** |
+| Git graph | linear | linear (sequential) | 3× 3-wide parallel waves |
+
+**Finding 1 — models dominate raw speed.** June's engines died at 40% scope after ~6h; the same engine on current models finished everything in ~3h15m. The bulk of run 2's speedup over June was model uplift, not engine.
+
+**Finding 2 — the stall reproduced; continuation robustness is an engine property.** The session halted at the 1.1R→1.2 boundary ("Let me create its branch and start on T1" — then stopped), on the same models that crossed every boundary and checkpoint under structural continuation with zero interventions. Prose rules lose to tick-structural routing exactly where devmeta history predicted.
+
+**Finding 3 — the surprise: warm-sequential edged out cold-parallel on raw time (3h15 vs 3h52).** Three honest causes: (a) the calibration was *seeded* with a hand config while P6 spent ~12 min bootstrapping its profile; (b) P6 paid its machinery costs (probe, per-candidate serial gates, three frontier adversarial reviews); (c) most importantly, **the cold-start tax**: calib's single warm worker did tasks in ~4–9 min that cost run 2's fresh per-tick implementers 20–35 min each, because a warm worker amortizes codebase understanding across tasks while every fresh implementer re-reads the world. On narrow waves of small ticks with fast models, that tax cancels the parallelism dividend.
+
+**Implication — the economic gate is incomplete (P6 refinement #2).** The gate priced *provisioning* but not *cold starts*. True comparison per wave: `width × cold-tick-time (parallel, wall = max + serial gates)` vs `Σ warm-task-time (sequential, one context)`. The refined rule: parallelize when ticks are large enough that cold-start amortizes (hour-scale, deep work) or the wave is wide; hand a chain of small related ticks to **one warm worker** instead. This empirically vindicates the "feature-worker mode" that Peter's own execution-model-v2 spec deferred as open question #1 — the synthesis should propose it as a *third dispatch mode* (solo-tick / parallel-wave / warm-chain), selected by the same economic gate. DevMeta's feature-as-unit-of-context, which the synthesis discarded, turns out to encode a real economy the tick-pure model lacks.
+
+**What P6 retains decisively:** zero interventions (structural continuation), zero-config bootstrap, machine-checkable resume, 3× less tracker ceremony, worktree isolation as a safety property (calib's shared-tree was safe only because sequential), and the parallel headroom for briefs wider than this one. **What the original engine proved it still owns:** warm-context throughput and a narrative record that demonstrably transferred knowledge across iterations (the cents→whole-currency flag from 1.1R landed correctly in 1.3's trigger).
+
+Environment note: the engine adapted to the unpushable `origin` by merging locally without PRs — same de-facto behavior as June; logged as environment, not intervention.
+
 ## 9. Live-run finding (2026-07-05): the worktree-parallelism gap, and where to fix it
 
 The first synthesized-ticks benchmark run (atomic-crm, Quotes & Products) reached F1+F2 in ~2h37m vs ~5.5–6.5h for devmeta-ng/devmeta-3 to the same point — but the git graph is **fully linear, zero worktree branches**. The engine ran everything **sequentially in the shared tree**; the tick-grain parallelism lever was never pulled. So the speedup came from less ceremony + model tiering + a tighter self-correcting loop, **not** from parallel worktrees.
