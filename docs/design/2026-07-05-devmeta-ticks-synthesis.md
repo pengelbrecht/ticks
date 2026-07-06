@@ -210,6 +210,29 @@ Four pieces, one contract:
 
 What you keep: predictability (cadence now enforced *structurally* by project/epic/close-out ticks — stronger than prose), the increment record dirs, the local-adaptation hook, deep I&A (inside close-out ticks). What you gain: tick-grain parallelism, model tiering, drift-proof resume, upstream maintenance, cross-runner portability, human gates. What you give up: the feature layer and the PR-per-feature ceremony — both of which are the slowness.
 
+## 10. Run 2 verdict (2026-07-06): P6 validated end-to-end
+
+*(Chronologically follows section 9 — kept adjacent to the recommendation for visibility.)*
+
+Run 2 (`bench/tix-synthesis-2`, atomic-crm, same brief, **zero seeded knowledge** — no Testing/Environment config, no learnings, no profile) delivered the **entire increment F1–F5 in 3h 52m** (46 commits, ~18 subagents, 0 human interventions), stopping at the project checkpoint as designed. Comparison:
+
+| Run | Scope | Wall-clock | Git graph | Interventions |
+|---|---|---|---|---|
+| devmeta-ng / devmeta-3 (June, old models) | F1+F2, stalled at 1.2 | ~5.5–6.5 h | linear | multiple restarts |
+| Run 1 — synthesis pre-P6 | F1+F2, stopped mid-F3 | ~2h 37m | linear (no parallelism) | 0 |
+| **Run 2 — P6** | **F1–F5 complete, all epics closed** | **3h 52m** | **three 3-wide parallel waves** | **0** |
+
+Every P6 mechanism fired and is evidenced in-repo:
+- **Auto-bootstrap:** `.tick/profile.md` inferred at step 0.5 with a solo probe — including hazards no prior run knew (tsBuildInfo writes-through-junction → `--incremental false`; never `rm -rf` a junction). Independently re-derived everything run 1 had been hand-fed (ESLint-gate/prettier noise, cosmetic supabase 404) plus the functions-vitest config.
+- **Provisioning recipe:** junction `node_modules` from the main checkout — near-zero cost, validated before wave 1; no-install boundary held; cleanup respected the junction hazard (main checkout intact).
+- **Venue map, safety-biased:** typecheck+lint in-worktree; vitest (browser singleton), migrations (:54322 singleton), build → post-merge serial. Zero tripwire downgrades.
+- **Economic gate, per wave, with arithmetic** (recorded in the completion report's parallelism postmortem): ≈15s provisioning vs 40–70 min savings → three 3-wide waves; pooling assessed and skipped as a *noted* call; zero silent degradations.
+- **Candidate-merge integration:** serial merges, post-merge gates green first-try in E1/E2; in E3 the predicted `QuoteShow.tsx` seam produced exactly one mechanical conflict (~2 min, resolved per the skill's allowance; the shared FakeRest file auto-merged).
+- **Learning loop closed measurably:** run 1's mid-run hand-fixed view-grant bug became run 2's proactively-prevented non-event, from a learnings rule the run authored itself one epic earlier — and E2's contract implementer *proved* the fix (`set role authenticated; select…`) unprompted.
+- **Record contract:** three ia-cycle retros, per-epic history narrative, three tags, overview maintained, `completion.md` with gates status + postmortem + metrics scaffold; closed ticks unpruned.
+
+Artifacts: `.tick/profile.md`, `.devmeta/increments/increment-2-par/completion.md` (+ `ia-cycles/`), tags `bench-par-*`. Open items were correctly left human: interactive Gate-5 smoke, the pre-existing Prettier/CRLF decision, `tk close urf`. **Caveat for the benchmark claim:** run 2 vs the June runs confounds engine and model generations — a calibration run of the *original devmeta* on current models (planned: `bench/devmeta-calib`) isolates the engine effect.
+
 ## 9. Live-run finding (2026-07-05): the worktree-parallelism gap, and where to fix it
 
 The first synthesized-ticks benchmark run (atomic-crm, Quotes & Products) reached F1+F2 in ~2h37m vs ~5.5–6.5h for devmeta-ng/devmeta-3 to the same point — but the git graph is **fully linear, zero worktree branches**. The engine ran everything **sequentially in the shared tree**; the tick-grain parallelism lever was never pulled. So the speedup came from less ceremony + model tiering + a tighter self-correcting loop, **not** from parallel worktrees.
