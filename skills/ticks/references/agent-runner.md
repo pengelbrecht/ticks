@@ -489,6 +489,7 @@ Write a short summary. If `.tick/config.md` → `At epic close-out` names a repo
 - Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
 - Drift found and cleanup ticks created (or "none").
 - **Dispatch-mode ledger:** per wave — mode chosen (solo / parallel-wave / warm-chain(s)), the gate arithmetic, and observed warm vs cold task times (update the profile's warm/cold ratio).
+- **Review-depth ledger:** what the epic-final review ran (single-pass full diff / axis fan-out), time spent, and findings by severity. Observability only — the always-review default is unchanged; this line exists so review cost/yield accumulates as data.
 - Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
 
 #### 7. Configured close-out steps
