@@ -190,6 +190,29 @@ Heuristics over false precision: **chain** small (≲20-min), same-subsystem tic
 
 **Diff surface:** `tick-patterns.md` (partitioning procedure: constraint matrix, seam-merge preference, resource clustering, vertical-slicing demotion), `SKILL.md` (parallel-design section: name the doctrine), `agent-runner.md` (planning tier: co-design with the gate). Skill-prose only.
 
+### P9 (drafted, not implemented) — Review-depth economics: the verification gate
+
+*Drafted 2026-07-07 from the run-4 forensic: the epic-final review is the last unpriced spend in the loop. Run 4's review tail cost ~50 min (~20% of the run) on a clean, gates-green increment; run 3's cost ~15–20 min on the same scope. Neither run* chose *its depth — it emerged from session temperament, exactly the pre-P7 situation for parallelism.*
+
+**The campaign's own evidence says review value is highly variable, not that review is dispensable:** run 2's F1 review caught a silent money-corruption bug, a missing nav tab, and missing i18n; two FOUNDATION-REVIEWs caught DB-grant bugs before dependents built on them; run 4's deep tail yielded mostly polish. Sized right, review is the best spend in the run; sized by habit, it's the worst.
+
+**Mechanism — a depth ladder selected per epic by risk signals, with floors:**
+
+- **L0 gates-only** (typecheck/lint/tests/build) — mechanical, pattern-following, fully-tested diffs.
+- **L1 targeted** — balanced-tier pass over risk surfaces only (money math, auth/RLS/grants, shared contracts) plus every learnings-flagged trap surface.
+- **L2 full-diff frontier single reviewer** — today's default.
+- **L3 axis fan-out + adversarial verify** — large or risky epics.
+
+**Risk signals (all already available in-run):** tick tiers used (strong/subtle vs economy/mechanical), diff shape (load-bearing surfaces touched? tests accompanying?), implementer signals (DONE_WITH_CONCERNS, redispatches, conflicts, flaky gates), novelty (first-time subsystem vs pattern-following repetition — run 4's E2 followed E1's patterns), and the profile's accumulated **review-yield prior** (the retro records findings-per-minute by severity each epic; later gates cite measured yield, mirroring the warm/cold ratio).
+
+**Floors (never gated away):** FOUNDATION-REVIEW stays mandatory (proven cheapest-highest-leverage, twice); learnings-flagged trap surfaces always get eyes; security-relevant diffs ≥ L1; the REVIEWER-TIER rule holds whenever review runs; blocker semantics unchanged; and the retro's outside-in DoD verification is *acceptance*, not review — never gated.
+
+**The crucial asymmetry — this gate's bias runs OPPOSITE to P7's.** Economic gates share machinery, not bias direction; each follows its own failure asymmetry. Mis-parallelizing corrupts silently → parallelize only on positive evidence. Mis-*skipping* review ships bugs (unbounded downstream cost) while mis-running review costs bounded minutes → **when uncertain, review more.** The gate exists to replace habit with a recorded, auditable call (a "review-depth ledger" line in the retro, like the dispatch ledger) — not to bias toward less review. Drift countermeasure: any defect that escapes a gated-down review bumps the repo's review prior upward, permanently, in the profile.
+
+**Allocation (consistent with P6/P7/P8, with one notable difference):** skill owns the ladder + gate + ledger; profile owns the measured yield prior; **config legitimately owns the floor** — because unlike testability, *risk appetite is not inferable from the repo* ("payment code is never below L2" is a human declaration, exactly what config is for post-P6).
+
+**Status & validation path:** design only. Do NOT validate on the benchmark brief again (a sixth run would sample review-tail variance we've already characterized); validate opportunistically on the next real project, where the ledger + yield-prior data accumulates for free. Upstream: present alongside P7 as one idea — "every recurring spend in the loop gets a gate, each biased by its own failure asymmetry."
+
 ### P4 — Full rewrite: devmeta v4 as a native skill
 Rewrite DevMeta as a proper skill (SKILL.md + references, progressive disclosure) that adopts ticks' execution protocol wholesale (per-tick worktrees, roles, tiers, structural skeleton) but keeps DevMeta vocabulary and the record system as first-class protocol steps. Reference the ticks skill's files rather than copying them.
 Pros: maximum control and coherence. Cons: you become the maintainer of a second orchestration protocol that will trail upstream. Only worth it if you decide to *diverge* philosophically (e.g., keep feature-level workers).
