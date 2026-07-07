@@ -311,6 +311,26 @@ Run 3 (P6+P7, zero seeded knowledge, identical setup to run 2) delivered **F1–
 
 **Noise floor caveat:** each cell is a single run; ±10–15 min swings from environmental one-offs (browser hangs, registry traps) are within observed variance. The robust conclusions are the structural ones — interventions, conflicts, records, bootstrap — plus the direction and rough magnitude of the P7 time effect vs run 2.
 
+## 13. Run 4 verdict (2026-07-07, `bench/tix-synthesis-4`): P8 reproducibility confirmed; time hypothesis honestly mixed
+
+Run 4 (P6+P7+P8, zero seeded knowledge, structure identical to runs 2/3) delivered F1–F5 to the checkpoint in **4h02m** (23:45→03:47; 39 commits; 60 files +3295; **0 interventions; 0 merge conflicts across the entire increment**; gates 1–4 green — including, for the first time, a fully green Prettier under `--end-of-line auto`; 283 tests).
+
+**Primary hypothesis — doctrine reproducibility: SUPPORTED.** All three epics partitioned by the codified P8 rules *with the rationale citing them*: F1/F2 as warm-chains (singleton-cluster + seam-ownership + cohesion), E3 as DB-foundation → contracts → **3-wide parallel wave** with the `QuoteShow` seam owned by one tick *named "UI seam"*. No epic reverted to naive taxonomy; no seam conflict reappeared; the falsifier ("planning overhead without partition quality") did not fire — planning was the fastest of any run (~8 min to first plan). Bonus: P7's **worktree pooling** saw first live use (F2 reused F1's provisioned worktree; junction survived).
+
+**Secondary hypothesis — wall-clock ≈ run 3: NOT met** (+52 min vs 3h10m). Per-epic decomposition: E1 75m (= run 3), E2 71m (+~17m), E3 95m (+~35m). The excess sits in *execution*, not doctrine: E3's wave-2 dispatched three fresh **strong-tier** implementers on bigger tick cuts (its own gate call: "hour-scale, disjoint — first wave where parallel beats warm-chain"), plus a 2-wide review-fix pass, plus unquantifiable overnight-throughput variance; output was also the most polished of the series (prettier fully green, richest completion report). Honest reading: **P8 delivers its promised properties (reproducible partition quality, structural conflict-freedom) at no planning cost, while single-run wall-clock spread between P7/P8 configurations (~±25%) remains within the noise + workload-size variance this series cannot resolve.** Settling the time question would need repeated runs — diminishing returns for this campaign.
+
+**Campaign close — the five-run table (identical brief):**
+
+| Run | Engine × models | Outcome | Time | Interv. | Conflicts |
+|---|---|---|---|---|---|
+| June | original × old | DNF at 40% | ~6h | several | — |
+| Calibration | original × current | complete | ~3h13m active | 1 | — |
+| Run 2 | P6 | complete | 3h52m | 0 | 1 |
+| Run 3 | P6+P7 | complete | ~3h10m | 0 | 0 |
+| Run 4 | P6+P7+P8 | complete | 4h02m | 0 | 0 (doctrine-cited) |
+
+Robust conclusions across the series: structural continuation eliminates interventions; inferred bootstrap replaces hand-config; constraint-surface partitioning eliminates merge conflicts; warm-chains recover the cold-start economy; models dominate raw speed while the engine owns robustness, records, and concurrency-safety. P3+P6+P7+P8 all validated in production; the upstream package is complete.
+
 Method note — shared-DB contamination check: the local Supabase singleton persists across branches, so each run inherits its predecessor's schema (run 2 inherited run 1's, calib inherited run 2's, run 3 inherits calib's — the dirty-start condition is *uniform*, hence not a bias). Forensics: the calibration authored a fully independent migration set (no file overlap with run 2's), `supabase db diff` generates from the branch's migration history via shadow DBs (leftover live-DB tables provide no shortcut — if anything they obstruct `migration up` until a reset), and every iteration's gate re-validated "applies on a **fresh** reset", which replays only the branch's own migrations. Conclusion: no cross-run DB advantage; the calibration's one real asymmetric edge remains the hand-seeded config (finding 3a).
 
 ## 9. Live-run finding (2026-07-05): the worktree-parallelism gap, and where to fix it
