@@ -358,6 +358,19 @@ Run 4 (P6+P7+P8, zero seeded knowledge, structure identical to runs 2/3) deliver
 
 Robust conclusions across the series: structural continuation eliminates interventions; inferred bootstrap replaces hand-config; constraint-surface partitioning eliminates merge conflicts; warm-chains recover the cold-start economy; models dominate raw speed while the engine owns robustness, records, and concurrency-safety. P3+P6+P7+P8 all validated in production; the upstream package is complete.
 
+## 14. Closing reflection: steering altitude — are the Ps over-steering improving models?
+
+The campaign's own data answers a question it didn't set out to ask: *what kind of steering still matters as models improve?*
+
+- **Structure beat instruction on the identical model** (the calibration stall vs `tk next` routing): the highest-value steering is not telling the model things — it is shaping the world so the right action is the default (skeleton ticks, profile-as-file, ledgers, checkpoints).
+- **Goal-level sentences unlocked everything; procedures added little.** P6's "isolated means isolated AND runnable" produced the junction recipe, the probe, `--incremental false`, and the rm-rf hazard — none of which we wrote. Run 3 *discovered* constraint-surface partitioning from P6/P7's concepts alone, before P8 existed.
+- **P8's control arm is missing, and there is a faint anchoring signal.** Run 4 proved doctrine reproduces the behavior, but not that P6+P7 alone wouldn't have; and run 4's E3 was slightly more conservative than run 3's (contracts sequenced, not parallel) — possibly the text anchoring a stronger model below its own judgment. Over-steering at high capability manifests as a ceiling, not as errors.
+- **P8's biggest effect may have been a repeal:** demoting "slice vertically" licensed judgment the old rule (itself calibrated to weaker models) was suppressing. Much of good steering for strong models is deleting yesterday's steering.
+
+**Taxonomy — what endures vs decays:** goals/redefinitions, invariants, asymmetries (bias directions), structural affordances, and decision-recording obligations endure (the last because *human auditability* doesn't decay with model capability). Parameters belong in data (the profile), never in skill text. Procedures and numeric heuristics decay per model generation and should be compressed to principles or deleted.
+
+**Doctrine: steer at the highest altitude that still changes behavior, and re-measure that altitude each model generation** via a **steering-ablation run** — same brief, full skill vs principles-only compression (goals + invariants + asymmetries, procedures deleted); the delta IS the over-steering, measured. Verdict on the Ps: P3/P6/P7 are mostly altitude-correct (goals, invariants, economics); P8 is half-invariant (keep: seam-ownership, singleton-per-wave) and half-procedure (compressible: matrix mechanics, resolution ordering); P9's declined machinery was the over-steer we caught in time. The skill should trend toward a constitution, away from a manual.
+
 Method note — shared-DB contamination check: the local Supabase singleton persists across branches, so each run inherits its predecessor's schema (run 2 inherited run 1's, calib inherited run 2's, run 3 inherits calib's — the dirty-start condition is *uniform*, hence not a bias). Forensics: the calibration authored a fully independent migration set (no file overlap with run 2's), `supabase db diff` generates from the branch's migration history via shadow DBs (leftover live-DB tables provide no shortcut — if anything they obstruct `migration up` until a reset), and every iteration's gate re-validated "applies on a **fresh** reset", which replays only the branch's own migrations. Conclusion: no cross-run DB advantage; the calibration's one real asymmetric edge remains the hand-seeded config (finding 3a).
 
 ## 9. Live-run finding (2026-07-05): the worktree-parallelism gap, and where to fix it
