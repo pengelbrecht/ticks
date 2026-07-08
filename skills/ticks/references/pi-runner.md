@@ -2,7 +2,7 @@
 
 Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability contract onto Pi. It is a fresh adapter, not a continuation of any earlier experimental `pi-runner` implementation.
 
-Pi's base harness is intentionally minimal: it does not ship built-in subagents, plan mode, or background task supervision. Treat that as a strength, but do **not** treat it as a reason to run ticks sequentially. Parallel execution is mandatory for the Pi adapter: spawn multiple Pi instances under our own supervisor, one per ready tick, each in its own git worktree. Do not add a tmux dependency; the first-class Pi path is a Pi extension or SDK supervisor.
+Pi's base harness is intentionally minimal: it does not ship built-in subagents, plan mode, or background task supervision. Treat that as a strength, but do **not** treat it as a reason to run ticks sequentially. Parallel execution is mandatory for the Pi adapter: spawn multiple Pi instances under our own supervisor, one per dispatch unit (tick or warm-chain), each in its own git worktree. Do not add a tmux dependency; the first-class Pi path is a Pi extension or SDK supervisor.
 
 Set `TK_ACTOR=pi:orchestrator` before tracker writes.
 
@@ -11,7 +11,7 @@ Set `TK_ACTOR=pi:orchestrator` before tracker writes.
 | Shared capability | Pi primitive |
 |---|---|
 | Isolation | `git worktree add -b tick/<epic>/<tick> <path> <integration-commit>` |
-| Parallel dispatch | One background `pi --mode json -p --no-session` process per ready tick, launched by the shell/SDK supervisor with `cwd` set to that tick's worktree. Pi does not currently have a `-C` flag. |
+| Parallel dispatch | One background `pi --mode json -p --no-session` process per dispatch unit (tick or warm-chain), launched by the shell/SDK supervisor with `cwd` set to that unit's worktree. Pi does not currently have a `-C` flag. |
 | Completion | Shell `wait` for the portable adapter; Pi JSON events or SDK events captured into per-tick logs and a small final report. |
 | Continuation | Redispatch a fresh Pi process in the existing worktree/branch with prior report, review feedback, and current branch state. A Pi session id may be a convenience while live, never durable runner state. |
 | Review | A read-only Pi subprocess/session using read-only tools (`read,grep,find,ls`, plus `bash` only for safe test commands) at least as capable as the implementer. |
@@ -21,7 +21,7 @@ Set `TK_ACTOR=pi:orchestrator` before tracker writes.
 
 Pi's website says: "No sub-agents — spawn Pi instances via tmux, or build your own with extensions, or install a package that does it your way." For ticks orchestration, choose the "build your own with extensions" path. The Pi adapter must not require tmux.
 
-- **One ready tick = one supervised Pi process = one worktree.** A Pi process is the implementer agent; it does not need to be an in-process tool call.
+- **One dispatch unit (tick or warm-chain) = one supervised Pi process = one worktree.** A Pi process is the implementer agent — a chain runs as one Pi process with the shared chain prompt variant; it does not need to be an in-process tool call.
 - **A wave launches concurrently.** Start every ready tick in the wave before waiting for any of them. Never serialize a wave just because Pi lacks built-in subagents.
 - **The extension is the coordination layer.** It starts child Pi processes or SDK sessions, captures their JSON events, renders live status, and writes small per-tick reports.
 - **Git and `.tick/` are the durable state.** Extension memory, subprocess pids, and Pi session ids are conveniences only. Durable recovery uses tick files, branches, worktrees, reports, and logs.

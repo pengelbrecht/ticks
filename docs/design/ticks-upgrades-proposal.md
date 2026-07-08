@@ -37,6 +37,14 @@ All changes are skill-prose only (no `tk` binary change) except two optional CLI
 noted inline. One further change was drafted and not adopted; its reasoning is recorded at the
 end.
 
+A subsequent editorial pass rewrote the skill text so these mechanisms read as one design
+rather than additions: the run loop and mental model route through the dispatch gate natively;
+waves are consistently framed as feasibility, not a dispatch order; terminology was unified
+(test tier vs capability tier, dispatch unit); change-relative narration was removed; SKILL.md's
+prerequisites were split from a new "Project files the runner uses" section (declared / inferred /
+learned / live); and "never silently degrade" became a named discipline rule. No mechanism
+changed in that pass.
+
 ---
 
 ## Part 1 — Stand-alone engine changes
@@ -61,8 +69,8 @@ abort) so the integration branch is not left broken and a failure attributes to 
 **Observed.** The later runs provisioned runnable worktrees and executed waves in parallel; the
 profile was derived from an empty project config each run.
 
-**Touches.** `SKILL.md` Step 0 · `agent-runner.md` (profile, provisioning, venues, run-start and
-wave-end loop steps, retro re-characterisation).
+**Touches.** `SKILL.md` (project-files section) · `agent-runner.md` (profile, provisioning, venues,
+run-start and wave-end loop steps, retro re-characterisation).
 
 ### Dispatch economics: warm-chains
 
@@ -155,7 +163,7 @@ engine fork.
 content when it returns a close-out tick, so the orchestrator need not re-read config
 separately. Not required; the sections work without it.
 
-**Touches.** `SKILL.md` Step 0 (section table) · `agent-runner.md` (run-start reading, retro
+**Touches.** `SKILL.md` (project-files section table) · `agent-runner.md` (run-start reading, retro
 steps, checkpoint). Adapters unchanged.
 
 ---

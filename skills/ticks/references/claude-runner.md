@@ -14,7 +14,7 @@ Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability c
 
 Set `TK_ACTOR=claude:orchestrator` before tracker writes. For orchestrator self-isolation (the "don't run on main" rule), `EnterWorktree` gives the orchestrating session its own worktree as an alternative to creating a feature branch.
 
-## Tier resolution
+## Capability tier resolution
 
 Resolve the shared capability tiers to Claude model classes. The tier names are the contract; the parenthesized models are dated examples — resolve each against what the harness offers today, and when it exposes fewer levels, collapse adjacent tiers downward (balanced and strong merge first).
 
@@ -48,14 +48,14 @@ Agent(
 
 The harness creates the worktree **at agent launch**, so the orchestrator cannot provision it beforehand. Two resolutions of the shared protocol's provisioning step (`agent-runner.md` → "Provisioning: runnable worktrees"):
 
-- **Default: implementer self-provisions.** The shared prompt template's step 3 handles it — the agent applies the profile's recipe as its first action, before touching code. This requires the recipe to already exist in `.tick/profile.md` (discovered solo at run start, step 0.5), or the wave's agents will each rediscover it.
+- **Default: implementer self-provisions.** The shared prompt template's step 3 handles it — the agent applies the profile's recipe as its first action, before touching code. This requires the recipe to already exist in `.tick/profile.md` (discovered solo at run start, loop step 1), or the wave's agents will each rediscover it.
 - **Alternative: orchestrator-created worktrees.** When provisioning must precede the agent (heavy setup, private resources, or you want to verify runnability before paying for a dispatch), create the worktree yourself with the shared deterministic naming (`../.ticks-worktrees/<tick-id>`), provision it, then dispatch a normal `Agent` **without** `isolation: "worktree"` and point its prompt at that directory and branch.
 
 Watch the concurrency cost: N simultaneous full dependency installs can thrash disk/network — prefer profile recipes that share immutable state safely from the main checkout, and remember the shared-deps **no-install** boundary from the shared protocol. Apply the shared **economic gate** before provisioning wide — when a wave is too narrow/short to repay provisioning, deliberate-and-noted sequential is the correct call. Do NOT let a provisioning failure silently degrade the run to shared-tree sequential execution — that forfeits the wave's parallelism, which is the point of isolation; if provisioning fails, fix the recipe (or fall back deliberately and note it), don't drift.
 
 If worktrees are **pooled** across ticks (shared protocol → "Amortize: pool worktrees"), the manual-worktree dispatch path above is the natural fit (harness-created `isolation: "worktree"` trees are single-shot); run the successful-integration cleanup below at pool retirement (epic end), not per tick.
 
-**Warm-chain mapping.** A chain is **one `Agent` call** with the chain prompt variant (shared protocol → "Warm-chain prompt variant") — the warm context lives inside that single agent, so never split a chain across Agent calls. Mid-chain course corrections use `SendMessage` to the live agent; after a crash, redispatch a fresh Agent into the same worktree/branch pointed at the first un-committed tick (completed prefix stays merged-able). Tier note: a chain aggregates several ticks' worth of judgment — resolve the chain's model tier from its *hardest* link, not its average.
+**Warm-chain mapping.** A chain is **one `Agent` call** with the chain prompt variant (shared protocol → "Warm-chain prompt variant") — the warm context lives inside that single agent, so never split a chain across Agent calls. Mid-chain course corrections use `SendMessage` to the live agent; after a crash, redispatch a fresh Agent into the same worktree/branch pointed at the first un-committed tick (completed prefix stays merged-able). Tier note: a chain aggregates several ticks' worth of judgment — resolve the chain's capability tier from its *hardest* link, not its average.
 
 ## Successful-integration cleanup
 
