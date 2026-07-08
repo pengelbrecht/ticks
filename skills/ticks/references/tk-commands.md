@@ -178,7 +178,7 @@ tk notes <id>                         # List notes
 
 ## Running an Epic
 
-This skill runs epics through a runner-neutral orchestration protocol — see `agent-runner.md`, then the Claude Code or Codex adapter. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed. The `tk merge` command remains available for merging a completed epic's worktree branch.
+This skill runs epics through a runner-neutral orchestration protocol — see `agent-runner.md`, then the Claude Code, Codex, or Pi adapter. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed. The `tk merge` command remains available for merging a completed epic's worktree branch.
 
 ## Web Board
 

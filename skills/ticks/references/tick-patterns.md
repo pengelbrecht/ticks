@@ -17,7 +17,7 @@ Run this before `tk create`. A fresh subagent sees *only this tick* — not the 
 - [ ] **Verification is concrete** — a runnable test command or explicit check, never "works appropriately"
 - [ ] **Test cases spelled out** — actual inputs → expected outputs, including edge and error cases
 - [ ] **Self-contained** — no placeholders, and no reference to a type or function defined only in another tick (see *The Ideal Tick*)
-- [ ] **Files likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
+- [ ] **Files (and shared resources) likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
 - [ ] **Human gate decided** — if the tick needs a person (a decision, a secret, a review), create it with the right `--awaiting`/`--requires` flag rather than letting an agent guess
 
 The sections below are the detailed backing for each line; this checklist is just the fast gate.
@@ -46,19 +46,17 @@ Use this ordered procedure every time you plan an epic. It replaces ad-hoc "defi
 
 1. **Seam files: merge the edits into one tick.** When two deliverables edit the same file, prefer giving that seam to a **single tick** over sequencing two ticks — a seam owned by one tick cannot conflict at merge. Sequence with `--blocked-by` only when the co-owned edits would make the tick oversized.
 2. **Shared un-isolable resources: one tick (or chain) per wave.** Work touching a post-merge-venue resource concentrates — e.g. all of a wave's DB/migration work in one tick, even across feature lines. Never two ticks touching the same singleton in one parallel wave.
-3. **Otherwise sequence** with `--blocked-by` (hard, never `--after` — a predictable conflict is a dependency, not a preference).
+3. **Otherwise sequence** with `--blocked-by`. A merge conflict you can predict — between ticks or between epics — is a hard dependency, never `--after`; reserve `--after` for pure ordering preference where nothing conflicts (it biases `tk next` ordering but never gates readiness, so a soft-deferred tick can still be picked up when its preferred predecessor is infeasible).
 
-**Pick the right edge type.** Same-file overlap between ticks or epics is a real feasibility constraint — sequence it with `--blocked-by` (hard), never `--after`. A merge conflict you can predict is a dependency, not a preference. Reserve `--after` (soft) for pure ordering preference where nothing actually conflicts: it biases `tk next` ordering but never gates readiness, so a soft-deferred tick can still be picked up when its preferred predecessor is infeasible.
+**Step 4 — Group for warm-chains (cold-start cohesion).** Small (≲20-min), same-subsystem ticks that would otherwise dispatch as separate fresh implementers group into an ordered **warm-chain** (see `agent-runner.md` → "Dispatch modes and the economic gate"). Partitioning and dispatch-mode selection are one joint decision against the profile — cut the work knowing how each group will run, don't partition first and price later.
 
-**Step 3.5 — Group for warm-chains (cold-start cohesion).** Small (≲20-min), same-subsystem ticks that would otherwise dispatch as separate fresh implementers group into an ordered **warm-chain** (see `agent-runner.md` → "Dispatch modes and the economic gate"). Partitioning and dispatch-mode selection are one joint decision against the profile — cut the work knowing how each group will run, don't partition first and price later.
+**Step 5 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
 
-**Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
-
-**Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so that everything that *can* run in parallel *does*. Verify with `tk graph <epic>` that no two ticks in the same wave share a file. If they do, add `--blocked-by` or re-merge until the graph is clean.
+**Step 6 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so the graph permits everything to run in parallel that safely can. Verify with `tk graph <epic>` that no two ticks in the same wave share a file or an un-isolable resource; if they do, add `--blocked-by`, re-merge, or concentrate the resource work (Step 3) until the graph is clean. The waves are feasibility, not a dispatch order — at run time the economic gate decides whether a wave's width is spent on parallel implementers or on warm-chains.
 
 ### Vertical slicing (the default shape — constraint surfaces override it)
 
-The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to define what each tick does — **within a constraint group**. Vertical slicing is the right default when no constraint surface says otherwise; when surfaces conflict with feature taxonomy, the surfaces win. It is correct — not a violation — for a partition to group one wave's DB work across features (the shared-singleton rule), co-own a seam file across features (one tick owns the seam), or chain small same-subsystem ticks across a feature boundary. Partition by what actually constrains concurrency; slice vertically inside those bounds.
+The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to shape each tick — within the bounds the constraint surfaces set. Vertical slicing is the default; when it conflicts with a constraint surface, the surface wins. It is correct — not a violation — to group one wave's DB work across features (the shared-singleton rule), to give one tick a seam file that several features touch, or to chain small same-subsystem ticks across a feature boundary.
 
 **Slice vertically, not horizontally.** Don't make a "schema" tick, an "API" tick, and a "UI" tick — each is useless until the others land, and nothing is demoable until the very end. Instead slice by user-visible capability, so each tick takes one feature front-to-back and leaves the system working:
 
@@ -76,7 +74,7 @@ The foundation-first procedure and vertical slicing work together: vertical slic
 **Keep parallel ticks on disjoint files.** Vertical slices tend to touch shared files (the same schema file, the same router). That's fine in sequence, but ticks that run in the *same wave* each execute in their own worktree and get merged afterward — two same-wave ticks editing `router.go` will collide at merge. So:
 
 - Slice vertically to define the dependency backbone.
-- Within any wave you intend to run in parallel, make sure the ticks touch *different* files. Where they'd overlap, add a `--blocked-by` so they fall into different waves, or pull the shared edit into its own earlier tick the others depend on.
+- Within any wave you intend to run in parallel, make sure the ticks touch *different* files. Where they'd overlap, prefer giving the shared file to one tick (Step 3's seam rule), or pull the shared edit into an earlier foundation tick; sequencing with `--blocked-by` is the fallback.
 - **Watch for lockfiles and generated files.** Two ticks that each add a dependency will both rewrite `pnpm-lock.yaml` / `go.sum` / `Cargo.lock` and conflict at merge even with perfectly disjoint source files. Same for generated code, migration indexes, and barrel/export files. Either serialize dependency-adding ticks with `--blocked-by`, or pull all dependency additions into one early tick the rest depend on. Count these files in "files likely touched" — a tick that runs `pnpm add` touches the lockfile.
 - This is why every tick records its **files likely touched** (below) — it's the input to this decision. Run `tk graph <epic>` to see the waves and check for collisions before launching.
 
@@ -266,23 +264,31 @@ Run: [test command]
 
 ## Epic Structure
 
-Group related tasks under an epic:
+Group related ticks under an epic — foundation first, then vertical slices that can run in parallel, then the EPIC-SKELETON process ticks:
 
 ```bash
-# Create epic
-tk create "Search Feature" -t epic -d "Full-text search for documents"
+# Create the epic with a definition of done
+tk create "Search Feature" -t epic -d "Full-text search for documents" \
+  --acceptance "User can search documents end-to-end; go test ./internal/search/... passes"
 
-# Create tasks with dependencies
-tk create "Add search index schema" --parent <epic>
-tk create "Implement indexing service" --parent <epic> --blocked-by <schema>
-tk create "Add search API endpoint" --parent <epic> --blocked-by <indexing>
-tk create "Add search UI component" --parent <epic> --blocked-by <api>
+# Wave 1 — foundation: the contract every slice consumes
+tk create "Search index schema + query contract" --parent <epic>
+
+# Wave 2 — vertical slices on disjoint files; both block only on the foundation
+tk create "Index documents on save (service + tests)" --parent <epic> --blocked-by <schema>
+tk create "Search endpoint + results UI" --parent <epic> --blocked-by <schema>
+
+# EPIC-SKELETON — final review, then close-out (templates in SKILL.md)
+tk create "Final review of Search Feature diff" --parent <epic> --role review \
+  --blocked-by <slice-1> --blocked-by <slice-2>
+tk create "Close out Search Feature: retro + plan next epic" --parent <epic> --role closeout \
+  --blocked-by <review-tick>
 ```
 
 **Guidelines:**
-- Aim for 3-5 tasks per epic for optimal parallelization
-- Keep dependent chains in same epic
-- Independent tasks can be split across epics
+- Foundation first, vertical slices behind it on disjoint files — that is what lets a wave run wide.
+- Keep dependent chains in the same epic; genuinely independent work can be its own epic.
+- A run of small sequential ticks is fine too — it dispatches as a warm-chain (`agent-runner.md` → "Dispatch modes and the economic gate").
 
 ## Anti-Patterns
 

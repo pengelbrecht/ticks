@@ -1,6 +1,6 @@
 ---
 name: ticks
-description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticker, epic, close the task, plan this, break this down.
+description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticks, epic, close the task, plan this, break this down.
 ---
 
 # Ticks Workflow
@@ -57,9 +57,18 @@ git check-ignore .tick/
 # If it returns ".tick/", remove the entry from .gitignore
 ```
 
-**5. Per-project runner config (`.tick/config.md`):**
+### Project files the runner uses
 
-Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give runs reliable, project-specific guidance. Recognized sections are **delivery addresses, not topics**: each section name is wired deterministically to one consumption point — who reads it, when, and into whose context it goes. Content within a section is free-form; absent or empty sections are no-ops.
+Everything a run knows lives in exactly one of four homes — three files in the tracked `.tick/` directory, plus the tracker itself:
+
+| Home | Nature | Written by |
+|---|---|---|
+| `.tick/config.md` | **Declared** — the project's method, and facts the repo cannot reveal | humans |
+| `.tick/profile.md` | **Inferred** — how this repo builds, runs, and tests | the orchestrator |
+| `.tick/learnings.md` | **Learned** — operational gotchas for future implementers | the epic-close retro |
+| tick data (via `tk`) | **Live** — scope, status, dependencies, notes | the orchestrator only |
+
+**`.tick/config.md` (declared).** Optional. Recognized sections are **delivery addresses, not topics**: each section name is wired deterministically to one consumption point — who reads it, when, and into whose context it goes. Content within a section is free-form; absent or empty sections are no-ops, and if the file is missing implementers simply discover test commands themselves.
 
 | Section | Consumer | When | Context cost |
 |---|---|---|---|
@@ -74,15 +83,11 @@ Legacy names remain aliases: **Environment** = `At run start`, **Rules** = `For 
 
 **Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator re-reads the file at each consumption point (run start, wave end, close-out, checkpoint); implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
 
-**Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
-
 **Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. `.tick/config.md` is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
 
-**6. Project execution profile (`.tick/profile.md`) — inferred, not hand-authored:**
+**`.tick/profile.md` (inferred — never hand-authored).** At run start the orchestrator characterizes how the project builds, runs, and tests, and maintains the result across runs: the worktree **provisioning recipe** (what a fresh worktree needs before it can build and test — dependency dirs are gitignored, so a bare worktree is not runnable), the **test-tier→venue map** (which test tiers verify in-worktree in parallel vs post-merge serially, because they touch a shared singleton like one test DB), and the services the project needs. Safety-biased: a test tier runs in parallel only on positive evidence of isolation. Re-derived only when its inputs change; near-free otherwise. Planning consumes the profile: it determines how wide a wave can safely run, how the wave is dispatched (fresh implementer per tick vs a warm-chain), and where each test tier verifies. `.tick/config.md` overrides it only for facts the repo cannot reveal (out-of-repo shared resources such as a staging DB or rate-limited API). See `references/agent-runner.md` → "Project execution profile".
 
-At run start the orchestrator characterizes how the project builds, runs, and tests, and maintains the result across runs: the worktree **provisioning recipe** (what a fresh worktree needs before it can build and test — dependency dirs are gitignored, so a bare worktree is not runnable), the **test-tier→venue map** (which tiers verify in-worktree in parallel vs post-merge serially, because they touch a shared singleton like one test DB), and the services the project needs. Safety-biased: a tier runs in parallel only on positive evidence of isolation. Re-derived only when its inputs change; near-free otherwise. See `references/agent-runner.md` → "Project execution profile".
-
-Planning consumes the profile: it determines both wave width and where verification runs. `.tick/config.md` overrides it only for facts the repo cannot reveal (out-of-repo shared resources such as a staging DB or rate-limited API). Humans author none of it.
+**`.tick/learnings.md` (learned).** Short Problem → Cause → Rule entries for future implementers — test quirks, environment traps, recurring build issues. Every implementer reads it in full, so it carries a **hard 150-line cap**; the epic-close retro adds, merges, and prunes entries (`references/agent-runner.md` → "Epic-close retro").
 
 ### Step 1: Gather What's Already Known
 
@@ -110,17 +115,23 @@ If there are gaps, close them through conversation: let the user describe the fu
 
 Once you can answer the questions above, proceed to creating ticks.
 
-## Creating Good Tasks
+### Step 3: Create Ticks from Requirements
 
-**Every task should be an atomic, committable piece of work with tests.**
+**Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
 
-The ideal task:
+Transform the gathered requirements into ticks organized by epic. (In `tk`, `task` is simply the default tick *type*; this skill says "tick" for any tracker item.)
+
+#### What a good tick looks like
+
+**Every tick is an atomic, committable piece of work with tests.**
+
+The ideal tick:
 - Has a clear, single deliverable
 - Can be verified by running tests
 - Results in demoable software that builds on previous work
 - Is completable in 1-3 agent iterations
 
-**Good task:**
+A good tick:
 ```bash
 tk create "Add email validation to registration" \
   -d "Validate email format on blur, show error below input.
@@ -135,19 +146,13 @@ Run: go test ./internal/validation/..." \
   --parent <epic-id>
 ```
 
-**Bad task:**
+A bad tick:
 ```bash
 tk create "Add email validation" -d "Make sure emails are valid"
 # No test cases, no verification criteria - agent will guess
 ```
 
 Run the **Definition of Ready** checklist in `references/tick-patterns.md` against each tick before creating it; see that file for the full patterns.
-
-### Step 3: Create Ticks from Requirements
-
-**Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
-
-Transform the gathered requirements into ticks organized by epic.
 
 ### Big picture — roadmaps, projects, and dates
 
@@ -324,13 +329,22 @@ tk create "Dashboard chart off-by-one" --parent <triage>
 
 #### Designing for parallel execution
 
-Ticks in the same wave (no blocking relationship) run concurrently, each in its own git worktree. A wave is safe to run wide only if its ticks (1) touch disjoint files, (2) either share no un-isolable test resource or the run verifies that tier serially post-merge (see the project execution profile — Step 0 item 6), and (3) run in **provisioned** (runnable) worktrees. File-disjointness is necessary but not sufficient. Partition by **constraint surface** (seam files → one tick owns the seam; shared singletons → one DB-touching tick per wave; small cohesive ticks → warm-chains), with vertical slicing as the default shape *within* a group — surfaces override feature taxonomy (see `references/tick-patterns.md`). Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file will still collide at merge time. To keep merges clean:
-- If two ticks edit the same file, make one block the other so they land in different waves
-- Use `tk graph <epic>` to see the waves and confirm ticks in the same wave touch different files
-- Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A
-- Lockfiles count: two same-wave ticks that each add a dependency will both rewrite `pnpm-lock.yaml`/`go.sum` and conflict — serialize them, or put all dependency additions in one early tick (see `references/tick-patterns.md`)
+Ticks in the same wave (no blocking relationship between them) may run at the same time, each in its own git worktree. Treat the waves as a **feasibility map, not a dispatch order**: planning's job is to make each wave as wide as it can safely be; at run time the orchestrator decides how much of that width to actually use — one fresh implementer per tick, or several small related ticks handed as an ordered chain to a single warm implementer (see `references/agent-runner.md` → "Dispatch modes and the economic gate").
 
-**Slice vertically.** Carve the epic into ticks by user-visible capability (one feature front-to-back), not by layer (all schema, then all API, then all UI). Each tick should leave the system working and demoable. See `references/tick-patterns.md` for the full reasoning and the parallel-safety caveat.
+A wave is safe to run wide only when three things hold:
+
+1. **Disjoint files.** Worktrees stop agents from clobbering each other mid-run, but two ticks that edit the same file still collide when their branches merge.
+2. **No shared un-isolable test resource** — or the run verifies that test tier serially after each merge (see *Project files the runner uses*).
+3. **Provisioned worktrees.** A bare worktree is isolated but not runnable.
+
+**Partition by constraint surface.** When two deliverables would share a file or a resource, that shared thing — the *constraint surface* — decides the tick boundaries, not the feature list. Resolve each shared surface in this order (worked procedure in `references/tick-patterns.md`):
+
+- **A seam file both would edit → give it to one tick.** One owner cannot conflict with itself; sequencing two ticks only postpones the collision. Split and sequence with `--blocked-by` only if the combined tick would be oversized — a predictable merge conflict is a hard dependency, never `--after`.
+- **A shared singleton (one test DB, a fixed port) → at most one tick per wave touches it**, even if that groups work across feature lines.
+- **Several small ticks in the same subsystem → keep them separate, but plan them as an ordered warm-chain** so one implementer can run them back-to-back in one worktree.
+- **Lockfiles and generated files are seams too:** two same-wave ticks that each add a dependency both rewrite `pnpm-lock.yaml`/`go.sum` — put all dependency additions in one early tick, or serialize them.
+
+**Slice vertically within each constraint group.** Carve ticks by user-visible capability (one feature front-to-back), not by layer (all schema, then all API, then all UI), so every tick leaves the system working and demoable. When vertical slicing and a constraint surface disagree, the surface wins. See `references/tick-patterns.md` for the full reasoning.
 
 **Define shared contracts first.** When several ticks consume the same interface (an API shape, a DB schema, a shared type), make one tick that defines it and have the others `--blocked-by` it. A stable contract up front lets the dependents run in parallel against a known shape instead of guessing — and keeps their descriptions naming things the same way.
 
@@ -340,7 +354,7 @@ Ticks in the same wave (no blocking relationship) run concurrently, each in its 
 1. **Coverage** — walk each requirement from the gathered understanding (for this phase) and point to the tick that implements it. Add ticks for any gaps.
 2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
 3. **Naming consistency** — the same interface should be called the same thing across tick descriptions; a contract named `clearLayers` in one tick and `clearFullLayers` in another is a latent bug.
-4. **Wave safety** — run `tk graph <epic>` and confirm ticks in the same wave touch different files.
+4. **Wave safety** — run `tk graph <epic>` and confirm no two ticks in the same wave share a file or an un-isolable resource.
 
 This review is cheap and catches the partitioning mistakes that are expensive to unwind once agents are running.
 
@@ -356,22 +370,20 @@ tk blocked  # See what's waiting
 
 Walk the user through each blocking task, then close it:
 ```bash
-tk close <id> --reason "Completed - connection string in .env"
+tk close <id> --reason "Completed: connection string in .env"
 ```
 
 ### Step 5: Run the Epic
 
 Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi. If you haven't already, settle the *Goal-ready handoff* decision (above) before launching: how far should this run go before it stops for a human? The shape is:
 
-1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
+1. Establish the project execution profile (see *Project files the runner uses*), then `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
 2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
-3. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
-4. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
+3. For each wave, pick the dispatch mode — fresh implementer per tick, or warm-chains for runs of small related ticks (the economic gate in `references/agent-runner.md`) — then launch one implementer per tick or chain, each in its own provisioned git worktree, using the adapter's parallel dispatch primitive.
+4. Wait with the adapter's completion primitive, merge each finished branch, and update tick state.
 5. Run the test suite on the merged tree, then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
-
-> Ticks previously shipped a standalone runner (`tk run`). It has been removed; execution now goes through a supported harness adapter.
 
 ## Quick Reference
 
@@ -435,13 +447,16 @@ tk graph <epic-id> --json
 ```
 
 ```
-# 2. Select the role tier, then launch one isolated implementer per ready tick.
-#    Planning and final review use frontier settings. Implementation uses the
-#    adapter's economy/balanced/strong mapping.
+# 2. Pick the wave's dispatch mode (per-tick implementers or warm-chains — the
+#    economic gate in agent-runner.md), select each unit's capability tier, then launch one
+#    isolated implementer per tick or chain. Planning and final review use frontier
+#    settings. Implementation uses the adapter's economy/balanced/strong mapping.
 #
 # 3. Wait using the adapter's native primitive, then integrate each tick:
 git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
 git merge <agent-branch>   # if it conflicts: abort, have the agent rebase + resolve in its worktree
+                           # if the profile routes a test tier post-merge: verify on a candidate
+                           # merge first (agent-runner.md → "Post-merge verification")
 tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 
 # 4. After the wave's merges land, run the test suite before launching the next wave
@@ -457,12 +472,12 @@ tk graph <epic-id> --json # Machine-readable for orchestration
 ```
 
 The graph shows:
-- **Waves**: groups of ticks that can run in parallel
+- **Waves**: groups of ticks that may run in parallel (feasibility, not a dispatch order)
 - **Max parallel**: how many subagents you can launch at once in the widest wave
 - **Critical path**: minimum number of sequential waves to finish the epic
 - **Dependencies**: what each tick is blocked by
 
-Launch up to `max_parallel` subagents per wave (cap it if you want to limit cost or noise), and merge each wave before starting the next so dependent ticks build on completed work.
+The waves are feasibility, not a mandate: launch up to `max_parallel` implementers per wave, cap it to limit cost or noise, or let the economic gate (`references/agent-runner.md`) chain small related ticks through one warm implementer instead. Merge each wave before starting the next so dependent ticks build on completed work.
 
 See `references/tk-commands.md` for full reference.
 
