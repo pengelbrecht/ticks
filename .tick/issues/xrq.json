@@ -1,0 +1,18 @@
+{
+  "id": "xrq",
+  "title": "Close out Pi ticks orchestrator extension epic",
+  "description": "Run the epic close-out retro, verify the qfs definition of done outside-in, harvest learnings into the ticks skill/docs where appropriate, and decide whether any follow-up epics are needed.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "9rj"
+  ],
+  "parent": "qfs",
+  "role": "closeout",
+  "acceptance_criteria": "Epic acceptance is verified item-by-item, retro notes are recorded, follow-up ticks are filed for remaining work, and qfs is closed only if the extension/package is actually usable.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-09T11:15:55.62203Z",
+  "updated_at": "2026-07-09T11:15:55.62203Z"
+}
