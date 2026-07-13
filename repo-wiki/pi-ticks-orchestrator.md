@@ -39,17 +39,17 @@ For each wave:
 2. Create/reuse worktrees; write prompts; install the `tk` wrapper and permission friction.
 3. Claim ticks and commit tracker state.
 4. Launch Pi children concurrently; stream snapshots and periodically touch the repo+epic manifest lease.
-5. Require a valid final `STATUS:` line. Correctness/scope concerns, blocked/context/protocol/supervisor failures, or denied tracker mutations reopen for repair.
-6. Run configured Testing commands in the child worktree.
+5. Require a valid final `STATUS:` line. Correctness/scope concerns, blocked/context/protocol/supervisor failures, or denied tracker mutations reopen for repair. Dashboard cards reflect that classified outcome rather than merely the subprocess exit code.
+6. Run configured Testing commands in the child worktree. Missing executable Testing commands fail closed; they never count as a skipped/pass gate.
 7. Boundary-check, commit source if needed, and merge provisionally while retaining every branch/worktree. Persist the integrated-wave transaction.
 8. Run and persist Testing evidence on the fully merged controller. If this gate fails, keep/reopen all affected ticks, retain repair state, and stop dependents.
 9. Only after the gate passes, close the wave durably, clean worktrees/branches, and re-run `tk graph`.
 
-Ordinary implementation ticks route from public tracker metadata first (tier/labels, risk labels, priority, type, role), then conservative shape rules. Security/integration/subtle/large work is strong; a complete mechanical task naming one or two files may be economy; the default is balanced. Routing only selects among configured implementation models and never guesses a model family. The reason appears in plans, child cards, and reports. `review` and `closeout` route to dedicated controller-checkout frontier processes with strict findings/evidence schemas.
+Ordinary implementation ticks route from public tracker metadata first (tier/labels, risk labels, priority, type, role), then conservative shape rules. Security/integration/subtle/large work is strong; a complete mechanical task naming one or two files may be economy; the default is balanced. Routing only selects among configured implementation models and never guesses a model family. The reason appears in plans, child cards, and reports. `review` and `closeout` route to dedicated controller-checkout frontier processes with strict findings/evidence schemas. Closeout evidence IDs are scoped to one acceptance item, and project Rules are explicit inputs. Rules requiring external facts (for example PR CI status) create a fingerprint-bound human checkpoint; the model cannot assert those facts on its own.
 
 `/ticks-plan` is a separate two-wave supervised flow. Model-running dry-run (the default) launches 3–6 configured scouts, at least two concurrently, with only `read,grep,find,ls`; then it passes bounded subsystem/test/contract findings, target details, Testing/Rules, and tick patterns to `planner_model` at forced `xhigh`. The planner must emit only strict `ticks-plan/v1` JSON. The controller rejects unknown process/shell/tracker fields, unsafe or oversized IDs/text/files, missing/cyclic hard dependencies, model process ticks, non-atomic horizontal tasks, missing acceptance, and same-wave file overlap. Dry-run persists all telemetry and costs but performs no tracker write.
 
-Only `/ticks-plan ... --apply` mutates. It requires a clean non-default branch (plus TUI confirmation), creates or verifies only the requested epic, maps client IDs to argv-safe controller-created task IDs, wires `blocked_by`/`after`, adds role-tagged review blocked by terminal work and closeout blocked by review, then commits `.tick/`. A deterministic key, epic note, validated plan, and stepwise apply map make retries idempotent. A failed command stops and reports/commits partial tracker state rather than continuing or rolling into roadmap-level edits.
+Only `/ticks-plan ... --apply` mutates. It requires a clean non-default branch (plus TUI confirmation), records a validated base branch, creates or verifies only the requested epic, maps client IDs to argv-safe controller-created task IDs, wires `blocked_by`/`after`, adds role-tagged review blocked by terminal work and closeout blocked by review, then commits `.tick/`. Stable per-entity labels plus a deterministic key, target/parent/title/role bindings, validated plan, and stepwise apply map make retries recoverable even if the process dies after `tk create` returns but before the local state write. Planning artifact ancestors are checked for symlinks. Model-authored acceptance is prose-only and never becomes controller shell input. A failed command stops and reports/commits partial tracker state rather than continuing or rolling into roadmap-level edits.
 
 ## Durable layout
 
@@ -80,7 +80,7 @@ Planning apply recovery is keyed separately from epic execution. Retry the exact
 
 `/ticks-status [epic]` is the primary epic-execution diagnosis command. It normalizes tracker `active`/`in_progress`/`running`, separates awaiting state, failed/partial lanes, and completed cleanup debt, and retains terminal lane/artifact/decision history. Authority is tracker + integration history + git branch/worktree + reports; `runner-state:` notes are hints.
 
-- **active-run / in-progress** — find the current controller; a second execute blocks.
+- **active-run / in-progress** — find the current controller; a second execute blocks. The controller heartbeats a durable lease; losing ownership aborts and settles active child process groups before a stale takeover can proceed.
 - **stale-manifest / stale-lease** — inspect artifacts; execute reopens only after preflight and resumes the unique existing worktree.
 - **unattached-branch** — attach and continue; do not create a duplicate.
 - **missing/partial/failed report** — inspect event/report tail and redispatch in the same worktree.
@@ -89,7 +89,7 @@ Planning apply recovery is keyed separately from epic execution. Retry the exact
 - **completed-but-not-cleaned** — verify branch ancestry and durable tracker closure, then remove worktree before branch.
 - **awaiting-gate** — obtain the human decision. `--autonomous` does not currently bypass tracker selection gates.
 
-Never delete incomplete worktrees/artifacts just to clear status. They are durable handoff state.
+Never delete incomplete worktrees/artifacts just to clear status. They are durable handoff state. Retries archive fixed-name implementation, verifier, review, and closeout artifacts under bounded `attempts/` directories before writing the latest attempt.
 
 ## Operator troubleshooting
 
