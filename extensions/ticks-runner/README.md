@@ -35,9 +35,21 @@ pi -e ./extensions/ticks-runner/index.ts
 
 Lists the four primary commands.
 
-### `/ticks-plan [<epic-id-or-requirements>]`
+### `/ticks-plan <childless-epic-id> [--apply] [--scouts 3..6] [--scout-cap 2..4] [--compact]`
 
-Shows the intended Ticks planning flow and echoes the target. It does not currently launch scouts, call a planner model, or mutate the tracker. Plan with the loaded ticks skill, then use `/ticks-run` after the epic has child ticks and its `review`/`closeout` process ticks.
+### `/ticks-plan --requirements "<new epic requirements>" [--apply] [--scouts 3..6] [--scout-cap 2..4] [--compact]`
+
+`--new` is an alias for `--requirements`. Planning is automated and **model-running dry-run is the default**: without `--apply`, the command launches bounded read-only scouts in parallel, launches the configured frontier planner at `xhigh`, validates its strict JSON, persists logs/reports, and displays implementation waves, models, usage, and cost. It performs no tracker mutation. This differs from `/ticks-run` dry-run, which is a no-model graph preview.
+
+The default scouts separately map subsystems, tests, and contracts. `--scouts` may add integration, risk, and documentation scouts, but is bounded to 3–6; `--scout-cap` is bounded to 2–4 and is also capped by configured `max_parallel` (planning fails before models if configuration permits fewer than two parallel scouts). Scouts run with exactly `read,grep,find,ls`, no bash and no extensions. The planner receives requirements or existing epic details, bounded scout summaries, fresh Testing/Rules configuration, and bundled tick-authoring patterns. `scout_model` and `planner_model` must be configured; no ambient-model fallback is accepted.
+
+The planner may return only schema `ticks-plan/v1`: new-epic metadata when applicable and 1–12 implementation tasks with safe client IDs, title/description/acceptance, priority/type/tier/files, hard `blocked_by`, and optional soft `after`. Validation rejects unknown shell/tracker/process fields, malformed or oversized text, unsafe/duplicate IDs and files, missing dependencies, hard cycles, model-supplied review/closeout, non-atomic horizontal task shapes, missing acceptance, and same-wave file conflicts. Rejection occurs before controller mutation.
+
+`--apply` is the only tracker-writing mode. It requires a clean non-default branch. TUI mode also asks for explicit confirmation; in RPC/print command contexts, the flag itself is confirmation because a terminal dialog is unsafe or unavailable. The controller creates a requirements epic or freshly verifies an existing epic is open, childless, and plannable; creates/maps implementation tasks as `pi:orchestrator`; wires hard/soft edges; then appends canonical role-tagged review blocked by terminal implementation tasks and closeout blocked by review. The model cannot inject this process skeleton or change roadmap-level ordering.
+
+Tracker calls are argv-only and tracker state is committed. A deterministic idempotency key is written to controller recovery state and an epic note. Apply state persists after every successful mutation. A failed command stops immediately, commits partial tracker state when possible, and reports the epic/task mapping plus failed step. Retrying the same target reuses the validated plan and mapped IDs without rerunning models or blindly recreating tasks; if local recovery is missing but the tracker note exists, apply refuses a duplicate and identifies the prior epic.
+
+Planning feeds the live dashboard/widget. Cards show every scout and the planner with process/tool state, models, elapsed time, tokens, and cost; `c` cancels the supervised process tree. `--compact` keeps only the status/widget.
 
 ### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous] [--compact]`
 
@@ -164,6 +176,15 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
     └── waves/
         ├── wave-<n>-transaction.json
         └── wave-<n>-tests.md
+<state-root>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/
+├── apply-state.json                         # --apply recovery only
+└── attempts/<plan-run-id>/
+    ├── artifacts/scout-*/{prompt.md,events.jsonl,report.md}
+    ├── artifacts/frontier-planner/{prompt.md,events.jsonl,report.md}
+    ├── planner-output.json
+    ├── validated-plan.json
+    ├── planning-report.md
+    └── dashboard-history.json
 ```
 
 Branches are `tick/<epic>/<tick>`. Manifests are atomically written and carry no PID or Pi session ID. Event logs may be large: status lists them but never loads them. Recovery reads reports with byte/file/count limits. Each run also writes a bounded `dashboard-history.json` containing the latest normalized model plus a short status history; later status/dashboard reconstruction restores agent, verification, merge, and usage lanes from this file without reading event logs.
@@ -184,6 +205,10 @@ The extension—not a child—owns tracker state.
 The child process still has the user's OS permissions. Use containers or stronger host sandboxing for hostile code; chmod and prompts are defense in depth, not isolation.
 
 ## Recovery playbook
+
+For a partial `/ticks-plan --apply`, retry the exact same epic ID or requirements text. The deterministic `apply-state.json` reuses the validated plan and client-ID mapping. If that artifact is unavailable but the epic carries the idempotency note, the controller refuses a blind duplicate and reports the prior epic for manual inspection.
+
+For epic execution:
 
 1. Run `/ticks-status <epic>` before retrying.
 2. If a run/lease is fresh, find the live controller; do not start a duplicate.
@@ -215,7 +240,7 @@ Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/
 
 ## Known limitations
 
-- `/ticks-plan` is an informational planning entrypoint; it does not run scouts/planner or create ticks.
-- Recovery is resumable, not process-continuous: graceful session shutdown cancels and awaits child settlement; abrupt controller loss is recovered from durable tracker/git/artifact state rather than a private session handle.
-- No built-in spend cap is enforced. The dashboard reports usage/cost emitted by providers.
+- Planning/apply recovery is durable, but an interrupted model-only dry-run starts a new planning attempt rather than attaching to an old live process.
+- Epic execution recovery is resumable, not process-continuous: graceful session shutdown cancels and awaits child settlement; abrupt controller loss is recovered from durable tracker/git/artifact state rather than a private session handle.
+- Scout count/concurrency are bounded, but no dollar spend cap is enforced. The dashboard reports usage/cost emitted by providers.
 - Rich interaction requires Pi TUI. RPC receives status/widget requests and text dumps; the overlay itself is TUI-only.
