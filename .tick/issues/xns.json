@@ -1,0 +1,17 @@
+{
+  "id": "xns",
+  "title": "Inspect runner dry-run plan without changing source",
+  "description": "Synthetic ready task for the Pi orchestrator dry-run smoke test. Do not execute this task; it exists so tk graph exposes a ready implementation wave.",
+  "notes": "2026-07-13 09:41 - Smoke evidence: Pi RPC discovered ticks, ticks-plan, ticks-run, ticks-status, and ticks-dashboard. /ticks-run ixv --dry-run --worktrees reported ready tick xns, branch tick/ixv/xns, worktree .ticks-worktrees/xns, and launched no child agent. Found and fixed RPC-output/hardcoded-widget bug in c9q.",
+  "status": "closed",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "ixv",
+  "acceptance_criteria": "The runner dry-run identifies this tick as ready and prints its planned branch/worktree/log paths.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T07:40:13.18132Z",
+  "updated_at": "2026-07-13T07:41:50.999869Z",
+  "closed_at": "2026-07-13T07:41:50.999869Z",
+  "closed_reason": "Completed: dry-run RPC smoke test passed command discovery, ready-wave parsing, deterministic branch/worktree planning, and no-launch behavior."
+}

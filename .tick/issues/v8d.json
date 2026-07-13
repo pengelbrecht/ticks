@@ -1,0 +1,20 @@
+{
+  "id": "v8d",
+  "title": "Review Pi runner smoke-test evidence",
+  "description": "Review the command-discovery and dry-run evidence from the Pi runner smoke test.",
+  "status": "closed",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "xns"
+  ],
+  "parent": "ixv",
+  "role": "review",
+  "acceptance_criteria": "Evidence confirms commands load and dry-run planning is correct.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T07:40:13.218945Z",
+  "updated_at": "2026-07-13T07:41:51.048799Z",
+  "closed_at": "2026-07-13T07:41:51.048799Z",
+  "closed_reason": "Completed: reviewed /tmp/pi-runner-smoke-rpc.out; all command discovery, dry-run plan, dynamic epic widget, ready task, branch/worktree, and status checks passed."
+}

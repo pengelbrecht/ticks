@@ -1,0 +1,17 @@
+{
+  "id": "c9q",
+  "title": "Expose Ticks command output in Pi RPC mode",
+  "description": "Smoke testing found that extension commands succeeded in RPC mode but their detailed markdown was only queued as a custom next-turn message, so RPC clients saw notifications but not the plan/status body. Also the compact run widget hardcoded qfs instead of the requested epic id. Emit bounded command output through the RPC setWidget protocol and use the dynamic epic id.",
+  "notes": "2026-07-13 09:41 - Verified with python RPC harness: command discovery passed; /ticks-run ixv --dry-run --worktrees exposed xns, tick/ixv/xns, and .ticks-worktrees/xns; /ticks-status exposed status heading.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "discovered_from": "xns",
+  "acceptance_criteria": "RPC smoke test receives dry-run output lines containing the requested epic, ready tick, branch, and worktree; summary widget uses the requested epic id.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T07:41:50.880834Z",
+  "updated_at": "2026-07-13T07:41:50.954334Z",
+  "closed_at": "2026-07-13T07:41:50.954334Z",
+  "closed_reason": "Completed: RPC mode now exposes bounded markdown via the extension UI setWidget protocol, and the run summary uses plan.epicId instead of hardcoded qfs."
+}

@@ -1,0 +1,21 @@
+{
+  "id": "eqt",
+  "title": "Close out Pi runner smoke-test epic",
+  "description": "Record smoke-test results and close the disposable epic when verification is complete.",
+  "notes": "2026-07-13 09:41 - OpenAI API credential smoke check reached openai/gpt-5-nano but returned quota exceeded with zero usage; OpenAI API tokens are configured/discoverable but currently have no usable quota.",
+  "status": "closed",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "v8d"
+  ],
+  "parent": "ixv",
+  "role": "closeout",
+  "acceptance_criteria": "Smoke-test outcome is recorded and no source worktree was launched.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T07:40:13.251744Z",
+  "updated_at": "2026-07-13T07:41:51.120572Z",
+  "closed_at": "2026-07-13T07:41:51.120572Z",
+  "closed_reason": "Completed: recorded passing Pi runner dry-run evidence and OpenAI quota result; no child implementer or source worktree launched."
+}

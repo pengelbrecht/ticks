@@ -1,0 +1,15 @@
+{
+  "id": "ixv",
+  "title": "Pi orchestrator smoke-test epic",
+  "description": "Disposable tracker-only epic used to verify the Pi ticks runner command discovery, graph parsing, dry-run wave planning, worktree naming, and status output. No source implementation should be executed.",
+  "status": "closed",
+  "priority": 3,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Pi RPC discovers the ticks extension commands; /ticks-run \u003cepic\u003e --dry-run --worktrees reports the ready wave and deterministic branch/worktree plan; no child implementer is launched.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T07:40:13.094702Z",
+  "updated_at": "2026-07-13T07:41:51.201424Z",
+  "closed_at": "2026-07-13T07:41:51.201424Z",
+  "closed_reason": "Completed: Pi RPC loaded all Ticks commands and dry-run worktree planning passed against synthetic ready tick xns; no implementer was launched."
+}

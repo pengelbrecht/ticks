@@ -369,6 +369,9 @@ function formatStatus(status: StatusModel): string {
 
 function emit(pi: ExtensionAPI, ctx: ExtensionCommandContext, title: string, markdown: string, details?: Json): void {
 	if (ctx.hasUI) ctx.ui.notify(title, "info");
+	if (ctx.mode === "rpc") {
+		ctx.ui.setWidget("ticks-runner-output", markdown.split("\n").slice(0, 80));
+	}
 	pi.sendMessage({ customType: "ticks-runner", content: markdown, display: true, details }, { deliverAs: "nextTurn" });
 }
 
@@ -448,7 +451,7 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 				if (!dryRun) {
 					markdown += "\n\n⚠️ Execution is not implemented in this scaffold yet. Re-run with `--dry-run` for the supported path.";
 				}
-				ctx.ui.setWidget("ticks-runner", [`qfs: wave ${plan.readyWave ?? "-"} • ready ${plan.readyTasks.length} • cap ${plan.maxParallel}`]);
+				ctx.ui.setWidget("ticks-runner", [`${plan.epicId}: wave ${plan.readyWave ?? "-"} • ready ${plan.readyTasks.length} • cap ${plan.maxParallel}`]);
 				emit(pi, ctx, "/ticks-run dry-run", markdown, plan as unknown as Json);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-run failed", `# /ticks-run failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
