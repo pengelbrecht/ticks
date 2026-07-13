@@ -85,16 +85,20 @@ type graphWave struct {
 }
 
 type graphTask struct {
-	ID            string   `json:"id"`
-	Title         string   `json:"title"`
-	Priority      int      `json:"priority"`
-	Status        string   `json:"status"`
-	Role          string   `json:"role,omitempty"`
-	BlockedBy     []string `json:"blocked_by,omitempty"`
-	Blocks        []string `json:"blocks,omitempty"`
-	Awaiting      string   `json:"awaiting,omitempty"`
-	DeferredUntil string   `json:"deferred_until,omitempty"`
-	AgentReady    bool     `json:"agent_ready"`
+	ID                 string   `json:"id"`
+	Title              string   `json:"title"`
+	Description        string   `json:"description,omitempty"`
+	AcceptanceCriteria string   `json:"acceptance_criteria,omitempty"`
+	Priority           int      `json:"priority"`
+	Type               string   `json:"type,omitempty"`
+	Labels             []string `json:"labels,omitempty"`
+	Status             string   `json:"status"`
+	Role               string   `json:"role,omitempty"`
+	BlockedBy          []string `json:"blocked_by,omitempty"`
+	Blocks             []string `json:"blocks,omitempty"`
+	Awaiting           string   `json:"awaiting,omitempty"`
+	DeferredUntil      string   `json:"deferred_until,omitempty"`
+	AgentReady         bool     `json:"agent_ready"`
 }
 
 // missingProcessRoles returns the EPIC-SKELETON roles no child of the epic
@@ -337,14 +341,18 @@ func runGraph(cmd *cobra.Command, args []string) error {
 				agentReady := !isDeferred && !isAwaiting && !isBlocked && !isClosed
 
 				gt := graphTask{
-					ID:         t.ID,
-					Title:      t.Title,
-					Priority:   t.Priority,
-					Status:     t.Status,
-					Role:       t.Role,
-					BlockedBy:  blockedBy[t.ID],
-					Blocks:     blocks[t.ID],
-					AgentReady: agentReady,
+					ID:                 t.ID,
+					Title:              t.Title,
+					Description:        t.Description,
+					AcceptanceCriteria: t.AcceptanceCriteria,
+					Priority:           t.Priority,
+					Type:               t.Type,
+					Labels:             t.Labels,
+					Status:             t.Status,
+					Role:               t.Role,
+					BlockedBy:          blockedBy[t.ID],
+					Blocks:             blocks[t.ID],
+					AgentReady:         agentReady,
 				}
 				if t.Awaiting != nil {
 					gt.Awaiting = *t.Awaiting

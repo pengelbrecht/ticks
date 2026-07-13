@@ -46,6 +46,29 @@ test("wide rendering uses columns and --dump is the same pure renderer", () => {
 	assert.ok(lines.some((line) => line.includes("Agent cards") && line.includes("Verification lane")));
 });
 
+test("normalizes active aliases while preserving terminal agent and lane history", () => {
+	const statuses = buildDashboardModel({
+		epicId: "status",
+		agents: [
+			{ tickId: "a", status: "active", tierReason: "label" },
+			{ tickId: "b", status: "in_progress", tierReason: "priority" },
+			{ tickId: "c", status: "running", tierReason: "shape" },
+			{ tickId: "d", status: "completed", tierReason: "default", currentAction: "merged", recentOutput: ["done"] },
+			{ tickId: "e", status: "failed", tierReason: "default", error: "boom" },
+			{ tickId: "f", status: "cancelled", tierReason: "default" },
+			{ tickId: "g", status: "blocked", tierReason: "default" },
+		],
+		verification: [{ label: "terminal verifier", status: "failed", detail: "kept" }],
+		merges: [{ tickId: "d", branch: "tick/status/d", status: "passed", cleanup: "failed" }],
+	});
+	assert.deepEqual(statuses.agents.map((agent) => agent.status), ["running", "running", "running", "completed", "failed", "cancelled", "blocked"]);
+	assert.equal(statuses.agents[3].currentAction, "merged");
+	assert.deepEqual(statuses.agents[3].recentOutput, ["done"]);
+	assert.equal(statuses.verification[0].detail, "kept");
+	assert.equal(statuses.merges[0].cleanup, "failed");
+	assert.match(compactDashboardSummary(statuses).widget[0], /^3 active/);
+});
+
 test("compact status reports progress and attention without replacing global UI", () => {
 	const summary = compactDashboardSummary(model);
 	assert.match(summary.status, /qfs W2/);

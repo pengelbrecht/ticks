@@ -1,7 +1,8 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnProcessTree, terminateProcessTree } from "./process.ts";
 import type { TickRunPaths } from "./state.ts";
 
 export const SUPERVISOR_REPORT_VERSION = 1 as const;
@@ -67,6 +68,8 @@ export type ChildReport = {
 	signal: NodeJS.Signals | null;
 	model: string | null;
 	provider: string | null;
+	selectedTier?: string | null;
+	tierReason?: string | null;
 	turns: number;
 	usage: ChildUsage;
 	stopReason: string | null;
@@ -184,6 +187,8 @@ export type SuperviseChildOptions = {
 	env?: NodeJS.ProcessEnv;
 	signal?: AbortSignal;
 	onSnapshot?: (state: ChildState) => void;
+	selectedTier?: string;
+	tierReason?: string;
 	killAfterMs?: number;
 	recentLimit?: number;
 };
@@ -252,6 +257,8 @@ function markdownReport(report: ChildReport): string {
 		`- Process: exit ${report.exitCode ?? "none"}${report.signal ? `, signal ${report.signal}` : ""}`,
 		`- Elapsed: ${report.elapsedMs} ms`,
 		`- Model: ${report.provider ? `${report.provider}/` : ""}${report.model ?? "unknown"}`,
+		`- Capability tier: ${report.selectedTier ?? "unknown"}`,
+		`- Routing reason: ${report.tierReason ?? "not recorded"}`,
 		`- Turns: ${report.turns}`,
 		`- Tokens: input ${usage.inputTokens}, output ${usage.outputTokens}, cache read ${usage.cacheReadTokens}, cache write ${usage.cacheWriteTokens}, reasoning ${usage.reasoningTokens}, context ${usage.contextTokens}`,
 		`- Cost: $${usage.cost.toFixed(6)}`,
@@ -288,7 +295,7 @@ export async function superviseChild(options: SuperviseChildOptions): Promise<Ch
 	let aborted = Boolean(options.signal?.aborted);
 	let spawnError: Error | undefined;
 	let processClosed = false;
-	let killTimer: NodeJS.Timeout | undefined;
+	let termination: Promise<void> | undefined;
 	let child: ChildProcessWithoutNullStreams | undefined;
 	const state: ChildState = {
 		lifecycle: "starting",
@@ -397,10 +404,7 @@ export async function superviseChild(options: SuperviseChildOptions): Promise<Ch
 		state.lifecycle = "terminating";
 		state.currentAction = "cancelling";
 		snapshot();
-		child.kill("SIGTERM");
-		killTimer = setTimeout(() => {
-			if (!processClosed && child?.exitCode === null && child?.signalCode === null) child.kill("SIGKILL");
-		}, Math.max(0, options.killAfterMs ?? 5_000));
+		termination ??= terminateProcessTree(child, { graceMs: Math.max(0, options.killAfterMs ?? 5_000) });
 	};
 	const abortListener = () => terminate();
 
@@ -413,12 +417,12 @@ export async function superviseChild(options: SuperviseChildOptions): Promise<Ch
 				resolve();
 			};
 			try {
-				child = spawn(options.invocation.command, [...options.invocation.args], {
+				child = spawnProcessTree(options.invocation.command, options.invocation.args, {
 					cwd: options.cwd,
 					env: options.env ?? process.env,
 					shell: false,
 					stdio: ["ignore", "pipe", "pipe"],
-				});
+				}) as ChildProcessWithoutNullStreams;
 				state.lifecycle = "running";
 				snapshot();
 				child.stdout.on("data", (chunk: Buffer) => {
@@ -454,8 +458,8 @@ export async function superviseChild(options: SuperviseChildOptions): Promise<Ch
 			}
 		});
 	} finally {
+		if (termination) await termination;
 		processClosed = true;
-		if (killTimer) clearTimeout(killTimer);
 		if (options.signal) options.signal.removeEventListener("abort", abortListener);
 		parser.end();
 		fs.closeSync(logFd);
@@ -503,6 +507,8 @@ export async function superviseChild(options: SuperviseChildOptions): Promise<Ch
 		signal: exitSignal,
 		model: state.model ?? null,
 		provider: state.provider ?? null,
+		selectedTier: options.selectedTier ?? null,
+		tierReason: options.tierReason ?? null,
 		turns: state.turns,
 		usage: { ...state.usage },
 		stopReason: state.stopReason ?? null,

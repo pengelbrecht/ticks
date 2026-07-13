@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -15,12 +14,14 @@ import {
 	type DashboardModel,
 } from "./dashboard.ts";
 import { buildRunPlan, formatDryPlan, parseGraph, type RunDryPlan } from "./graph.ts";
+import { RunSettlementTracker, spawnProcessTree, terminateProcessTree } from "./process.ts";
 import {
 	formatRecoveryStatus,
 	scanRecovery,
 	type RecoverySnapshot,
 } from "./recovery.ts";
 import { formatRunResult, runEpic } from "./runner.ts";
+import { dashboardStatus, isActiveStatus, normalizeStatus } from "./status.ts";
 
 type Json = Record<string, unknown>;
 
@@ -70,23 +71,26 @@ function optionValue(tokens: string[], flag: string): string | undefined {
 
 async function run(command: string, args: string[], cwd: string, timeoutMs = 15_000): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve) => {
-		const proc = spawn(command, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const proc = spawnProcessTree(command, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
-		const timer = setTimeout(() => {
-			proc.kill("SIGTERM");
-			setTimeout(() => proc.kill("SIGKILL"), 2_000).unref();
-		}, timeoutMs);
-		proc.stdout.on("data", (data) => (stdout += data.toString()));
-		proc.stderr.on("data", (data) => (stderr += data.toString()));
+		let settled = false;
+		let termination: Promise<void> | undefined;
+		const timer = setTimeout(() => { termination ??= terminateProcessTree(proc, { graceMs: 2_000 }); }, timeoutMs);
+		const finish = async (code: number) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			if (termination) await termination;
+			resolve({ code, stdout, stderr });
+		};
+		proc.stdout?.on("data", (data) => (stdout += data.toString()));
+		proc.stderr?.on("data", (data) => (stderr += data.toString()));
 		proc.on("error", (error) => {
-			clearTimeout(timer);
-			resolve({ code: 1, stdout, stderr: stderr + error.message });
+			stderr += error.message;
+			void finish(1);
 		});
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			resolve({ code: code ?? 0, stdout, stderr });
-		});
+		proc.on("close", (code) => void finish(code ?? 0));
 	});
 }
 
@@ -170,18 +174,28 @@ function demoDashboardModel(): DashboardModel {
 }
 
 function statusDashboardModel(snapshot: RecoverySnapshot): DashboardModel {
-	const active = snapshot.items.some((item) => item.kind === "active-run" || item.kind === "in-progress");
+	const manifestStatuses = snapshot.manifests.map((item) => normalizeStatus(item.manifest?.status));
+	const active = snapshot.items.some((item) => item.kind === "active-run" || item.kind === "in-progress")
+		|| snapshot.ticks.some((tick) => isActiveStatus(tick.tracker?.status));
+	const status = active ? "running"
+		: snapshot.items.some((item) => item.kind === "awaiting-gate") || manifestStatuses.includes("awaiting") ? "awaiting"
+		: snapshot.items.some((item) => item.kind === "failed-run" || item.kind === "failed-verification") || manifestStatuses.includes("failed") ? "failed"
+		: manifestStatuses.includes("completed") ? "completed"
+		: snapshot.items.length ? "recoverable" : "idle";
 	return buildDashboardModel({
 		runId: snapshot.manifests[0]?.manifest?.runId ?? "repository-status",
 		epicId: snapshot.epicId ?? snapshot.manifests[0]?.manifest?.epicId ?? "repository",
 		epicTitle: snapshot.epicId ?? path.basename(snapshot.repoRoot),
-		status: active ? "running" : snapshot.items.length ? "recoverable" : "idle",
-		agents: snapshot.ticks.filter((tick) => tick.tracker?.status === "in_progress" || tick.branches.length || tick.worktrees.length).map((tick) => ({
+		status,
+		agents: snapshot.ticks.filter((tick) => {
+			const normalized = normalizeStatus(tick.tracker?.status);
+			return normalized === "active" || normalized === "awaiting" || normalized === "failed" || normalized === "completed" || Boolean(tick.tracker?.awaiting) || tick.branches.length > 0 || tick.worktrees.length > 0;
+		}).map((tick) => ({
 			tickId: tick.tickId,
 			title: tick.tracker?.title,
 			branch: tick.branches[0],
 			worktree: tick.worktrees[0]?.path,
-			status: tick.tracker?.awaiting ? "awaiting" : tick.tracker?.status ?? "recoverable",
+			status: tick.tracker?.awaiting ? "awaiting" : dashboardStatus(tick.tracker?.status ?? "recoverable"),
 		})),
 		recovery: snapshot.items.map((item) => ({
 			kind: item.kind,
@@ -209,8 +223,24 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 	try {
 		const planned = dashboardModelFromPlan(await buildDryPlan(cwd, target, true));
 		const recovered = statusDashboardModel(snapshot);
+		const recoveredAgents = new Map(recovered.agents.map((agent) => [agent.tickId, agent]));
+		const agents = planned.agents.map((agent) => {
+			const terminal = recoveredAgents.get(agent.tickId);
+			if (!terminal) return agent;
+			recoveredAgents.delete(agent.tickId);
+			return { ...agent, status: terminal.status, currentAction: terminal.currentAction, branch: terminal.branch === "—" ? agent.branch : terminal.branch, worktree: terminal.worktree === "—" ? agent.worktree : terminal.worktree, error: terminal.error };
+		});
 		return buildDashboardModel({
-			...planned,
+			runId: planned.runId,
+			epicId: planned.epicId,
+			epicTitle: planned.epicTitle,
+			status: recovered.status === "idle" ? planned.status : recovered.status,
+			currentWave: planned.currentWave,
+			criticalPath: planned.criticalPath,
+			waves: planned.waves,
+			agents: [...agents, ...recoveredAgents.values()],
+			verification: [...planned.verification, ...recovered.verification],
+			merges: [...planned.merges, ...recovered.merges],
 			recovery: recovered.recovery,
 			humanGates: [...planned.humanGates, ...recovered.humanGates],
 		});
@@ -220,18 +250,18 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 }
 
 export default function ticksRunnerExtension(pi: ExtensionAPI): void {
-	const activeRuns = new Set<AbortController>();
+	const activeRuns = new RunSettlementTracker();
 	pi.registerMessageRenderer("ticks-runner", (message, _options, _theme) => {
 		return new Markdown(String(message.content ?? ""), 0, 0, getMarkdownTheme());
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		activeRuns.open();
 		ctx.ui.setStatus("ticks-runner", ctx.ui.theme.fg("accent", "ticks ready"));
 	});
 
-	pi.on("session_shutdown", (_event, ctx) => {
-		for (const controller of activeRuns) controller.abort();
-		activeRuns.clear();
+	pi.on("session_shutdown", async (_event, ctx) => {
+		await activeRuns.abortAndWait();
 		ctx.ui.setStatus("ticks-runner", undefined);
 		ctx.ui.setWidget("ticks-runner", undefined);
 	});
@@ -277,9 +307,8 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 			const maxRaw = optionValue(tokens, "--max-parallel");
 			const maxParallel = hasFlag(tokens, "--max-parallel") ? maxRaw && /^\d+$/.test(maxRaw) ? Number(maxRaw) : 0 : undefined;
 			const controller = new AbortController();
-			activeRuns.add(controller);
 			try {
-				const result = await runEpic({
+				const running = runEpic({
 					cwd: ctx.cwd,
 					epicId,
 					execute,
@@ -290,14 +319,13 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 					signal: controller.signal,
 					onDashboard: (model) => updateCompactStatus(ctx, model),
 				});
+				const result = await activeRuns.track(controller, running);
 				const markdown = result.status === "dry-run" && result.plan
 					? `${formatDryPlan(result.plan)}\n\n${result.summary}`
 					: formatRunResult(result);
 				emit(pi, ctx, `/ticks-run ${result.status}`, markdown, result as unknown as Json);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-run failed", `# /ticks-run failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
-			} finally {
-				activeRuns.delete(controller);
 			}
 		},
 	});

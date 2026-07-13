@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pi Ticks orchestrator package** — the root Pi package now distributes the ticks skill and the Ticks-specific runner extension for local-path or git installation. It provides explicit opt-in epic execution, parallel isolated worktrees, model routing, durable reports/manifests, bounded recovery/status, and a TUI/RPC dashboard.
 - **Pi operator documentation** — installation, exact commands and defaults, `.tick/config.md` keys, dashboard controls, artifacts, boundary hardening, recovery playbook, tests, and process-tick limitations are now documented in the runner README, skill adapter, and repository wiki.
 
+### Changed
+
+- **Deterministic implementation capability routing** — public graph tasks now include description, acceptance criteria, type, and labels. The Pi runner selects configured economy/balanced/strong tiers from tracker metadata and conservative task shape, records its reason in plans/dashboards/reports, and keeps review/closeout execution reserved.
+- **Recovery status semantics** — tracker active aliases are normalized while awaiting, failed/partial, completed cleanup debt, terminal lane history, and manifest history remain distinct.
+
+### Fixed
+
+- **Pi process-tree cancellation** — supervised children and configured commands use POSIX process groups with TERM/KILL escalation (and a Windows-safe fallback); graceful extension shutdown aborts and awaits active run settlement.
+
 ## [0.19.0] - 2026-07-02
 
 ### Added

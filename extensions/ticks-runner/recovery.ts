@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { runSubprocess } from "./boundary.ts";
 import { listGitWorktrees, type WorktreeRecord } from "./merge.ts";
+import { isActiveStatus, isCompletedStatus } from "./status.ts";
 import {
 	DEFAULT_STALE_AFTER_MS,
 	controllerLeasePath,
@@ -31,6 +32,7 @@ export const DEFAULT_RECOVERY_LIMITS = {
 export type RecoveryKind =
 	| "active-run"
 	| "in-progress"
+	| "planned-run"
 	| "stale-manifest"
 	| "stale-lease"
 	| "stale-note"
@@ -589,7 +591,10 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		if (recovered.lease && !recovered.leaseFresh) addItem(items, { kind: "stale-lease", label: `${manifest.epicId} controller ownership expired`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `lease expired ${recovered.lease.expiresAt}`, action: "recover only after tracker and git reconciliation", artifactPaths: recovered.artifacts }, limits.items);
 		if (recovered.leaseFresh && recovered.lease?.controllerToken !== options.controllerToken) addItem(items, { kind: "active-run", label: `${manifest.epicId} has fresh controller ownership`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `lease expires ${recovered.lease.expiresAt}`, action: "do not start a duplicate runner", artifactPaths: recovered.artifacts }, limits.items);
 		else if (recovered.stale) addItem(items, { kind: "stale-manifest", label: `${manifest.epicId} run manifest is stale`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "resume from existing durable state", artifactPaths: recovered.artifacts }, limits.items);
-		else if ((manifest.status === "planned" || manifest.status === "running") && (!recovered.lease || recovered.lease.controllerToken !== options.controllerToken)) addItem(items, { kind: "active-run", label: `${manifest.epicId} run is ${manifest.status}`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "do not start a duplicate runner", artifactPaths: recovered.artifacts }, limits.items);
+		else if (isActiveStatus(manifest.status) && (!recovered.lease || recovered.lease.controllerToken !== options.controllerToken)) addItem(items, { kind: "active-run", label: `${manifest.epicId} run is ${manifest.status}`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "do not start a duplicate runner", artifactPaths: recovered.artifacts }, limits.items);
+		else if (manifest.status === "planned") addItem(items, { kind: "planned-run", label: `${manifest.epicId} run is planned`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "resume or inspect before launching", artifactPaths: recovered.artifacts }, limits.items);
+		else if (manifest.status === "awaiting") addItem(items, { kind: "awaiting-gate", label: `${manifest.epicId} run is awaiting`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "inspect tracker gates and last decisions", artifactPaths: recovered.artifacts }, limits.items);
+		else if (manifest.status === "failed") addItem(items, { kind: "failed-run", label: `${manifest.epicId} run failed`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "inspect failed verification/child lanes and resume retained state", artifactPaths: recovered.artifacts }, limits.items);
 	}
 
 	for (const state of tickStates.values()) {
@@ -598,9 +603,9 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		state.artifacts = artifacts;
 		const common = { epicId: state.epicId, tickId: state.tickId, branch: state.branches[0], worktree: state.worktrees[0]?.path, artifactPaths: artifacts, lastDecision: state.lastDecision };
 		const tickAge = tick ? newestTickAge(tick, now) : undefined;
-		if (tick?.status === "in_progress") {
+		if (isActiveStatus(tick?.status)) {
 			if (tickAge !== undefined && tickAge > staleAfter) addItem(items, { ...common, kind: "stale-lease", label: `${state.tickId} in-progress lease is stale`, detail: `last tracker activity ${Math.floor(tickAge / 60_000)}m ago`, action: "reopen for resume after duplicate checks" }, limits.items);
-			else addItem(items, { ...common, kind: "in-progress", label: `${state.tickId} is in progress`, detail: tick?.title, action: "inspect active run before takeover" }, limits.items);
+			else addItem(items, { ...common, kind: "in-progress", label: `${state.tickId} is active (${tick?.status})`, detail: tick?.title, action: "inspect active run before takeover" }, limits.items);
 		}
 		if (tick?.awaiting) addItem(items, { ...common, kind: "awaiting-gate", label: `${state.tickId} awaits ${tick.awaiting}`, detail: tick.title, action: "human decision required" }, limits.items);
 		for (const note of state.runnerNotes) {
@@ -612,7 +617,7 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		const reports = artifacts.filter((file) => artifactKind(file) === "report");
 		const expectedReports = state.manifestTicks.map((item) => item.paths.report);
 		const hasLaunchArtifact = artifacts.some((file) => file.endsWith("events.jsonl") || file.endsWith("prompt.md"));
-		if (!reports.length && (hasLaunchArtifact || (state.manifestTicks.length > 0 && tick?.status === "in_progress"))) {
+		if (!reports.length && (hasLaunchArtifact || (state.manifestTicks.length > 0 && isActiveStatus(tick?.status)))) {
 			addItem(items, { ...common, kind: "missing-report", label: `${state.tickId} child report is missing`, detail: expectedReports[0], action: "resume in the existing worktree" }, limits.items);
 		}
 		for (const report of reports) {
@@ -631,7 +636,7 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 
 		const branchesForTick = unique([...state.branches, ...state.worktrees.map((record) => record.branch).filter((value): value is string => Boolean(value))]);
 		if (branchesForTick.length > 1 || state.worktrees.length > 1) addItem(items, { ...common, kind: "duplicate-conflict", label: `${state.tickId} has conflicting recovery state`, detail: `branches=${branchesForTick.join(",") || "none"}; worktrees=${state.worktrees.map((record) => record.path).join(",") || "none"}`, action: "resolve explicitly; runner will not guess" }, limits.items);
-		const completed = tick?.status === "closed" || manifests.some((entry) => entry.manifest?.status === "completed" && entry.manifest.ticks.some((item) => item.tickId === state.tickId));
+		const completed = isCompletedStatus(tick?.status) || manifests.some((entry) => entry.manifest?.status === "completed" && entry.manifest.ticks.some((item) => item.tickId === state.tickId));
 		if (completed && (branchesForTick.length || state.worktrees.length)) addItem(items, { ...common, kind: "completed-but-not-cleaned", label: `${state.tickId} is completed but not cleaned`, branch: branchesForTick[0], worktree: state.worktrees[0]?.path, detail: "branch/worktree remains after durable completion", action: "cleanup only after integration and tracker durability are confirmed" }, limits.items);
 		else {
 			for (const record of state.worktrees) {
@@ -716,11 +721,11 @@ export function recoveryDisposition(snapshot: RecoverySnapshot, epicId: string):
 	const selected = manifests[0];
 	const pendingIntegrated = pendingIntegratedTickIds(selected);
 	const activeManifest = snapshot.items.some((item) => item.kind === "active-run" && item.epicId === epicId);
-	const freshInProgress = !pendingIntegrated.length && snapshot.ticks.some((tick) => tick.epicId === epicId && tick.tracker?.status === "in_progress" && !snapshot.items.some((item) => item.kind === "stale-lease" && item.tickId === tick.tickId));
+	const freshInProgress = !pendingIntegrated.length && snapshot.ticks.some((tick) => tick.epicId === epicId && isActiveStatus(tick.tracker?.status) && !snapshot.items.some((item) => item.kind === "stale-lease" && item.tickId === tick.tickId));
 	if (activeManifest || freshInProgress) return { status: "active", manifest: selected?.manifest, manifestPath: selected?.path, staleInProgressTickIds: [], conflicts: [] };
 	const staleInProgressTickIds = unique([
 		...snapshot.items.filter((item) => item.kind === "stale-lease" && snapshot.ticks.find((tick) => tick.tickId === item.tickId)?.epicId === epicId).map((item) => item.tickId!),
-		...pendingIntegrated.filter((tickId) => snapshot.ticks.find((tick) => tick.tickId === tickId)?.tracker?.status === "in_progress"),
+		...pendingIntegrated.filter((tickId) => isActiveStatus(snapshot.ticks.find((tick) => tick.tickId === tickId)?.tracker?.status)),
 	]).sort();
 	const useful = snapshot.ticks.some((tick) => tick.epicId === epicId && (tick.branches.length || tick.worktrees.length || tick.artifacts.length));
 	return { status: selected || useful || staleInProgressTickIds.length ? "resume" : "fresh", manifest: selected?.manifest, manifestPath: selected?.path, staleInProgressTickIds, conflicts: [] };
@@ -779,7 +784,10 @@ export function formatRecoveryStatus(snapshot: RecoverySnapshot): string {
 	const describe = (item: RecoveryItem) => [item.detail ? concise(item.detail) : "", location(item)].filter(Boolean).join("; ");
 	const active = snapshot.items.filter((item) => item.kind === "active-run" || item.kind === "in-progress");
 	const gates = snapshot.items.filter((item) => item.kind === "awaiting-gate");
-	const recovery = snapshot.items.filter((item) => !["active-run", "in-progress", "awaiting-gate"].includes(item.kind));
+	const failed = snapshot.items.filter((item) => item.kind === "failed-run" || item.kind === "failed-verification" || item.kind === "partial-report" || item.kind === "missing-report");
+	const cleanup = snapshot.items.filter((item) => item.kind === "completed-but-not-cleaned");
+	const classified = new Set([...active, ...gates, ...failed, ...cleanup]);
+	const recovery = snapshot.items.filter((item) => !classified.has(item));
 	const lines = [
 		"# Ticks Pi orchestrator status",
 		`Repo: ${snapshot.repoRoot}`,
@@ -789,14 +797,19 @@ export function formatRecoveryStatus(snapshot: RecoverySnapshot): string {
 		"",
 		`- Active/in-progress: ${active.length}`,
 		...active.slice(0, 12).map((item) => `  - ${item.label}${describe(item) ? ` — ${describe(item)}` : ""}`),
-		`- Awaiting gates: ${gates.length}`,
+		`- Awaiting: ${gates.length}`,
 		...gates.slice(0, 12).map((item) => `  - ${item.label}${describe(item) ? ` — ${describe(item)}` : ""}`),
-		`- Recovery items: ${recovery.length}`,
+		`- Failed/partial: ${failed.length}`,
+		...failed.slice(0, 16).map((item) => `  - [${item.kind}] ${item.label}${describe(item) ? ` — ${describe(item)}` : ""}${item.action ? `; ${concise(item.action)}` : ""}`),
+		`- Completed cleanup debt: ${cleanup.length}`,
+		...cleanup.slice(0, 12).map((item) => `  - ${item.label}${describe(item) ? ` — ${describe(item)}` : ""}${item.action ? `; ${concise(item.action)}` : ""}`),
+		`- Other recovery items: ${recovery.length}`,
 		...recovery.slice(0, 20).map((item) => `  - [${item.kind}] ${item.label}${describe(item) ? ` — ${describe(item)}` : ""}${item.action ? `; ${concise(item.action)}` : ""}`),
 	];
 	if (snapshot.lastDecisions.length) lines.push("", "## Last decisions", ...snapshot.lastDecisions.slice(0, 12).map((item) => `- ${item.tickId}: ${concise(item.decision)}`));
+	if (snapshot.manifests.length) lines.push("", "## Run history", ...snapshot.manifests.filter((item) => item.manifest).slice(0, 20).map((item) => `- ${item.manifest!.epicId}: ${item.manifest!.status} — updated ${item.manifest!.updatedAt}`));
 	if (snapshot.artifactPaths.length) lines.push("", "## Artifacts", ...snapshot.artifactPaths.slice(0, 20).map((item) => `- ${item}`));
-	if (!snapshot.items.length && !snapshot.artifactPaths.length) lines.push("", "No active or recoverable Pi/Ticks orchestration state found for this repository.");
+	if (!snapshot.items.length && !snapshot.artifactPaths.length && !snapshot.manifests.length) lines.push("", "No active or recoverable Pi/Ticks orchestration state found for this repository.");
 	if (snapshot.warnings.length || snapshot.truncated) lines.push("", `Scan notes: ${snapshot.truncated ? "bounded scan truncated; " : ""}${snapshot.warnings.join("; ") || "none"}`);
 	return lines.join("\n");
 }

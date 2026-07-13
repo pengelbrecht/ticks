@@ -168,6 +168,9 @@ func TestGraphMissingProcessTicks(t *testing.T) {
 		epic := makeTestEpic("epc")
 		task := makeTestTask("tc1")
 		task.Parent = "epc"
+		task.Description = "Update README.md wording"
+		task.AcceptanceCriteria = "README.md contains the corrected text"
+		task.Labels = []string{"mechanical", "tier:economy"}
 		review := makeTestTask("tc2")
 		review.Parent = "epc"
 		review.Role = tick.RoleReview
@@ -193,6 +196,13 @@ func TestGraphMissingProcessTicks(t *testing.T) {
 		}
 		if gt.Role != tick.RoleReview {
 			t.Errorf("expected role review on tc2 graph task, got %q", gt.Role)
+		}
+		implementation, _, ok := findGraphTask(out, "tc1")
+		if !ok {
+			t.Fatalf("tc1 not found in graph output")
+		}
+		if implementation.Description != task.Description || implementation.AcceptanceCriteria != task.AcceptanceCriteria || implementation.Type != task.Type || len(implementation.Labels) != 2 {
+			t.Errorf("graph task did not preserve routing metadata: %+v", implementation)
 		}
 	})
 

@@ -69,11 +69,11 @@ Before any mutation, execution requires:
 - an epic that is planned and has a complete EPIC-SKELETON;
 - no fresh active lease or ambiguous duplicate branch/worktree/manifest claim.
 
-For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, and runs configured tests in each child. Accepted branches merge provisionally with merge commits while tracker closure and cleanup remain deferred. The runner persists an integrated-wave transaction, runs and persists the post-wave gate, and only then closes the whole wave durably and cleans worktrees/branches. A failed gate keeps every affected tick open, retains repair state, and blocks dependents.
+For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, and runs configured tests in each child. On POSIX, child Pi and configured shell commands run as detached process-group leaders so TERM/KILL cancellation reaches grandchildren; Windows uses a direct-child fallback. Session shutdown aborts every active epic command and awaits its settlement before the extension runtime is torn down. Accepted branches merge provisionally with merge commits while tracker closure and cleanup remain deferred. The runner persists an integrated-wave transaction, runs and persists the post-wave gate, and only then closes the whole wave durably and cleans worktrees/branches. A failed gate keeps every affected tick open, retains repair state, and blocks dependents.
 
 ### `/ticks-status [<epic-id>]`
 
-Performs a bounded, read-only reconstruction from public tracker JSON (with issue-file compatibility fallback), manifests and reports, `runner-state:` notes, `git worktree list`, and `tick/*` branches. It reports active work, human gates, stale leases/manifests/notes, duplicate claims, orphaned worktrees, unattached branches, missing/partial/failed reports, failed verification, and completed state awaiting cleanup. Omit the epic to scan the repository namespace.
+Performs a bounded, read-only reconstruction from public tracker JSON (with issue-file compatibility fallback), manifests and reports, `runner-state:` notes, `git worktree list`, and `tick/*` branches. Tracker `active`, `in_progress`, and `running` spellings share one active classification. Awaiting manifests/gates, failed or partial lanes, and completed cleanup debt are reported separately; terminal agent, verification, merge, decision, and artifact history remains visible. Omit the epic to scan the repository namespace.
 
 ### `/ticks-dashboard [<epic-or-run-id>] [--epic <id>] [--demo] [--dump] [--width N]`
 
@@ -84,7 +84,7 @@ In TUI mode, opens the control-tower overlay. In RPC/non-TUI mode it automatical
 - `--dump`: print the same transport-neutral model and renderer used by the overlay.
 - `--width N`: text width, default `120`, clamped to at least `24`.
 
-Dashboard sections include the wave timeline, child cards and model/usage/cost, verification lane, merge queue, recovery actions/artifacts, and human gates. Controls: `Up`/`Down` selects a child, `Enter` or `Space` toggles details, and `q`, `Esc`, or `Ctrl-C` closes the overlay. The runner also maintains a compact footer/widget while active.
+Dashboard sections include the wave timeline, child cards with the selected capability tier and routing reason plus model/usage/cost, verification lane, merge queue, recovery actions/artifacts, and human gates. Controls: `Up`/`Down` selects a child, `Enter` or `Space` toggles details, and `q`, `Esc`, or `Ctrl-C` closes the overlay. The runner also maintains a compact footer/widget while active.
 
 ## Configuration
 
@@ -113,7 +113,7 @@ The extension reads `.tick/config.md` fresh. Commands are only executable when a
 - max_parallel: 4
 ```
 
-Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Commands run through `/bin/sh -lc` and stop at the first failure.
+Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Commands run through `/bin/sh -lc` on POSIX or `cmd.exe /d /s /c` on Windows and stop at the first failure.
 
 Environment overrides take precedence:
 
@@ -127,7 +127,7 @@ Environment overrides take precedence:
 | `review_model` | `TICKS_PI_REVIEW_MODEL` |
 | `max_parallel` | `TICKS_PI_MAX_PARALLEL` |
 
-Model syntax is `[provider/]model[:thinking]`. With Codex OAuth use `openai-codex/...`, not the separately billed `openai/...`. Ordinary dispatched ticks currently use `implement_balanced_model`; Pi's current/default model is used when unset. Planner/scout/economy/strong/review keys are retained for role-complete routing, but automated planning and process-tick dispatch are not yet implemented.
+Model syntax is `[provider/]model[:thinking]`. With Codex OAuth use `openai-codex/...`, not the separately billed `openai/...`. Ordinary implementation ticks route deterministically among the configured Sol capability tiers: explicit tracker tier/labels first; security, integration, subtle/large metadata and P0/P1 work conservatively use strong; complete mechanical work scoped to one or two named files may use economy; everything else uses balanced. Shape routing never invents a Luna/Terra or other model family—the configured model string is authoritative. `tk graph --json` exposes description, acceptance criteria, priority, type, labels, and role for this decision. Dry plans, dashboards, and child reports include the reason. Planner/scout/review keys remain configuration for future role execution; `review` and `closeout` tasks are reserved and are not dispatched.
 
 ## Artifacts and durable identity
 
@@ -201,7 +201,6 @@ Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/
 - `/ticks-plan` is an informational planning entrypoint; it does not run scouts/planner or create ticks.
 - Ready `role: review` and `role: closeout` ticks stop with `awaiting`. They are intentionally not sent to ordinary implementers. Final review, epic retro/close, and next-epic planning remain operator/skill work.
 - `--autonomous` currently records policy intent but the runner does not pass an autonomous flag through tracker graph selection; human gates remain blocking.
-- Automatic tick-shape classification currently routes ordinary implementation to the balanced model. Economy/strong selection is not yet automatic.
-- Recovery is resumable, not process-continuous: a Pi subprocess does not survive controller exit. Durable work does.
+- Recovery is resumable, not process-continuous: graceful session shutdown cancels and awaits child settlement; abrupt controller loss is recovered from durable tracker/git/artifact state rather than a private session handle.
 - No built-in spend cap is enforced. The dashboard reports usage/cost emitted by providers.
 - Rich interaction requires Pi TUI. RPC receives status/widget requests and text dumps; the overlay itself is TUI-only.

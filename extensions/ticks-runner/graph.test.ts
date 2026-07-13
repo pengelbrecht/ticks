@@ -23,10 +23,16 @@ const graphJson = JSON.stringify({
 	critical_path: 2,
 });
 
-test("graph parser keeps waves and rejects malformed task records", () => {
-	const graph = parseGraph(graphJson);
-	assert.equal(graph.waves.length, 2);
-	assert.equal(graph.waves[0].tasks?.[1].role, "review");
+test("graph parser preserves routing metadata and rejects malformed task records", () => {
+	const graph = parseGraph({
+		...JSON.parse(graphJson),
+		waves: [{ wave: 1, tasks: [{ id: "meta", title: "Security task", description: "Touch src/auth.ts", acceptance_criteria: "Auth tests pass", priority: 1, type: "bug", role: "", tier: "strong", labels: ["security"], files: ["src/auth.ts"], file_count: 1 }] }],
+	});
+	assert.equal(graph.waves.length, 1);
+	assert.deepEqual(graph.waves[0].tasks?.[0], {
+		id: "meta", title: "Security task", description: "Touch src/auth.ts", acceptance_criteria: "Auth tests pass", priority: 1, type: "bug", role: "", tier: "strong", labels: ["security"], files: ["src/auth.ts"], file_count: 1,
+	});
+	assert.throws(() => parseGraph({ waves: [{ tasks: [{ id: "bad", labels: "security" }] }] }), /labels must be a string array/);
 	assert.throws(() => parseGraph('{"waves":[{"tasks":[{}]}]}'), /without an id/);
 	assert.throws(() => parseGraph("not json"), /invalid JSON/);
 });
@@ -52,8 +58,9 @@ test("run planning caps ready work and routes role models", () => {
 	assert.deepEqual(plan.waves.map((wave) => wave.wave), [1, 2]);
 	assert.deepEqual(plan.workPlans.map((work) => [work.tickId, work.tier, work.model]), [
 		["a", "balanced", "openai-codex/gpt-5.6-sol:medium"],
-		["b", "review", "openai-codex/gpt-5.6-sol:xhigh"],
+		["b", "reserved", undefined],
 	]);
+	assert.match(plan.workPlans[1].tierReason, /not implemented/);
 	assert.equal(plan.workPlans[0].branch, plan.durablePaths.ticks[0].branch);
 	assert.equal(plan.workPlans[0].worktree, `/state/${plan.durablePaths.repoSlug}/worktrees/qfs/a`);
 	assert.equal(plan.workPlans[0].prompt, `${plan.durablePaths.runDir}/artifacts/a/prompt.md`);
@@ -95,7 +102,39 @@ test("run planning caps ready work and routes role models", () => {
 	assert.match(output, /prompt: .*\/artifacts\/a\/prompt\.md/);
 	assert.match(output, /report: .*\/artifacts\/a\/report\.md/);
 	assert.match(output, /log: .*\/artifacts\/a\/events\.jsonl/);
-	assert.match(output, /review \/ openai-codex\/gpt-5\.6-sol:xhigh/);
+	assert.match(output, /reserved \/ not dispatched/);
+	assert.match(output, /routing: role=review is orchestrator-owned/);
+});
+
+test("capability routing uses metadata first, conservative shape rules second, and balanced by default", () => {
+	const graph = parseGraph({
+		stats: { max_parallel: 8 },
+		waves: [{ wave: 1, ready: true, tasks: [
+			{ id: "tier", title: "Explicit", status: "open", agent_ready: true, tier: "economy", priority: 0 },
+			{ id: "label", title: "Auth", status: "open", agent_ready: true, labels: ["security"], priority: 3 },
+			{ id: "priority", title: "Urgent", status: "open", agent_ready: true, priority: 1 },
+			{ id: "mechanical", title: "Fix README wording", description: "Update README.md wording only", acceptance_criteria: "README.md contains the corrected sentence", type: "chore", status: "open", agent_ready: true, priority: 3 },
+			{ id: "shape", title: "Harden process tree cancellation", description: "Cross-platform cancellation", acceptance_criteria: "Integration test passes", status: "open", agent_ready: true, priority: 3 },
+			{ id: "large", title: "Update subsystem", description: "Apply bounded changes", acceptance_criteria: "Tests pass", file_count: 8, status: "open", agent_ready: true, priority: 3 },
+			{ id: "default", title: "Implement endpoint", status: "open", agent_ready: true, priority: 3 },
+		] }],
+	});
+	const config = resolveRunnerConfig(`## Pi Orchestrator
+- implement_economy_model: openai-codex/gpt-5.6-sol:low
+- implement_balanced_model: openai-codex/gpt-5.6-sol:medium
+- implement_strong_model: openai-codex/gpt-5.6-sol:high`, {});
+	const plan = buildRunPlan({ graph, config, repoRoot: "/repo", repoIdentity: "git@github.com:acme/widgets.git", epicId: "epic", stateRoot: "/state", worktrees: true });
+	assert.deepEqual(plan.workPlans.map((work) => [work.tickId, work.tier, work.model]), [
+		["tier", "economy", "openai-codex/gpt-5.6-sol:low"],
+		["label", "strong", "openai-codex/gpt-5.6-sol:high"],
+		["priority", "strong", "openai-codex/gpt-5.6-sol:high"],
+		["mechanical", "economy", "openai-codex/gpt-5.6-sol:low"],
+		["shape", "strong", "openai-codex/gpt-5.6-sol:high"],
+		["large", "strong", "openai-codex/gpt-5.6-sol:high"],
+		["default", "balanced", "openai-codex/gpt-5.6-sol:medium"],
+	]);
+	assert.match(plan.workPlans[3].tierReason, /mechanical task scoped to 1 file/);
+	assert.ok(plan.workPlans.every((work) => /gpt-5\.6-sol|not dispatched/.test(work.model ?? "not dispatched")), "routing varies configured Sol tiers and never invents another model family");
 });
 
 test("missing EPIC-SKELETON is a blocking preflight result", () => {

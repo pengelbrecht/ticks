@@ -149,8 +149,39 @@ test("awaiting gates, failed verification, last decisions, and completed cleanup
 	assert.ok(recovered.items.some((item) => item.kind === "awaiting-gate" && item.tickId === "gate"));
 	assert.ok(recovered.items.some((item) => item.kind === "failed-verification" && item.tickId === "gate"));
 	assert.ok(recovered.items.some((item) => item.kind === "completed-but-not-cleaned" && item.tickId === "done"));
+	assert.match(formatRecoveryStatus(recovered), /Completed cleanup debt: 1/);
 	assert.ok(recovered.lastDecisions.some((item) => item.tickId === "gate" && /awaiting product decision/.test(item.decision)));
 	assert.ok(recovered.lastDecisions.some((item) => item.tickId === "done" && /merged safely/.test(item.decision)));
+});
+
+test("status semantics normalize tracker activity and classify manifest terminal/recovery lanes", () => {
+	for (const status of ["active", "in_progress", "running"]) {
+		const f = fixture(`active-alias-${status}`);
+		issue(f.repo, { id: "t1", parent: "epic", title: "Active alias", status, updated_at: "2026-07-13T11:59:00Z" });
+		const recovered = scan(f);
+		assert.ok(recovered.items.some((item) => item.kind === "in-progress" && item.tickId === "t1"), status);
+		assert.equal(recoveryDisposition(recovered, "epic").status, "active", status);
+	}
+
+	for (const [status, kind, heading] of [
+		["planned", "planned-run", "Other recovery items"],
+		["awaiting", "awaiting-gate", "Awaiting"],
+		["failed", "failed-run", "Failed/partial"],
+	] as const) {
+		const f = fixture(`manifest-${status}`);
+		const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: [], stateRoot: f.stateRoot });
+		writeRunManifest(plan.manifest, createRunManifest(plan, status, new Date("2026-07-13T11:50:00Z")));
+		const recovered = scan(f);
+		assert.ok(recovered.items.some((item) => item.kind === kind), status);
+		assert.match(formatRecoveryStatus(recovered), new RegExp(`- ${heading}: 1`));
+	}
+
+	const completed = fixture("manifest-completed");
+	const completedPlan = planRunPaths({ repoRoot: completed.repo, repoIdentity: identity, epicId: "epic", tickIds: [], stateRoot: completed.stateRoot });
+	writeRunManifest(completedPlan.manifest, createRunManifest(completedPlan, "completed", new Date("2026-07-13T11:00:00Z")));
+	const history = formatRecoveryStatus(scan(completed));
+	assert.match(history, /## Run history[\s\S]*epic: completed/);
+	assert.doesNotMatch(history, /No active or recoverable/);
 });
 
 test("failed wave journal assigns blocking verification evidence without relying on tracker notes", () => {

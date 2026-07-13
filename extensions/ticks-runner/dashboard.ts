@@ -1,4 +1,5 @@
 import type { GraphTask, RunDryPlan } from "./graph.ts";
+import { dashboardStatus, isActiveStatus, isCompletedStatus } from "./status.ts";
 import type { ChildReport, ChildState, ChildUsage } from "./supervisor.ts";
 
 export type LaneStatus = "pending" | "running" | "passed" | "failed" | "blocked" | "skipped";
@@ -7,6 +8,7 @@ export type DashboardAgentInput = {
 	tickId: string;
 	title?: string;
 	tier?: string;
+	tierReason?: string;
 	model?: string;
 	provider?: string;
 	worktree?: string;
@@ -15,6 +17,12 @@ export type DashboardAgentInput = {
 	state?: ChildState;
 	report?: ChildReport;
 	status?: string;
+	currentAction?: string;
+	elapsedMs?: number;
+	recentOutput?: string[];
+	turns?: number;
+	usage?: ChildUsage;
+	error?: string;
 };
 
 export type VerificationItem = {
@@ -71,6 +79,7 @@ export type DashboardAgent = {
 	tickId: string;
 	title: string;
 	tier: string;
+	tierReason: string;
 	model: string;
 	provider?: string;
 	status: string;
@@ -115,32 +124,33 @@ const zeroUsage = (): ChildUsage => ({
 });
 
 function lifecycle(input: DashboardAgentInput): string {
-	if (input.status) return input.status;
-	if (input.state) return input.state.lifecycle;
-	if (input.report) return input.report.outcome;
+	if (input.status) return dashboardStatus(input.status);
+	if (input.state) return dashboardStatus(input.state.lifecycle);
+	if (input.report) return dashboardStatus(input.report.outcome);
 	return "queued";
 }
 
 /** Normalize runner snapshots into the single transport-neutral model used by TUI and --dump. */
 export function buildDashboardModel(input: DashboardInput): DashboardModel {
 	const agents = (input.agents ?? []).map((agent): DashboardAgent => {
-		const usage = { ...(agent.state?.usage ?? agent.report?.usage ?? zeroUsage()) };
+		const usage = { ...(agent.usage ?? agent.state?.usage ?? agent.report?.usage ?? zeroUsage()) };
 		return {
 			tickId: agent.tickId,
 			title: agent.title ?? "(untitled)",
-			tier: agent.tier ?? "balanced",
+			tier: agent.tier ?? agent.report?.selectedTier ?? "balanced",
+			tierReason: agent.tierReason ?? agent.report?.tierReason ?? "routing reason unavailable",
 			model: agent.model ?? agent.state?.model ?? agent.report?.model ?? "Pi default",
 			provider: agent.provider ?? agent.state?.provider ?? agent.report?.provider ?? undefined,
 			status: lifecycle(agent),
-			currentAction: agent.state?.currentAction ?? (agent.report ? agent.report.reason : "waiting"),
-			elapsedMs: agent.state?.elapsedMs ?? agent.report?.elapsedMs ?? 0,
+			currentAction: agent.currentAction ?? agent.state?.currentAction ?? (agent.report ? agent.report.reason : "waiting"),
+			elapsedMs: agent.elapsedMs ?? agent.state?.elapsedMs ?? agent.report?.elapsedMs ?? 0,
 			worktree: agent.worktree ?? agent.report?.cwd ?? "—",
 			branch: agent.branch ?? "—",
 			wave: agent.wave,
-			recentOutput: [...(agent.state?.recentOutput ?? (agent.report?.finalOutput ? [agent.report.finalOutput] : []))],
-			turns: agent.state?.turns ?? agent.report?.turns ?? 0,
+			recentOutput: [...(agent.recentOutput ?? agent.state?.recentOutput ?? (agent.report?.finalOutput ? [agent.report.finalOutput] : []))],
+			turns: agent.turns ?? agent.state?.turns ?? agent.report?.turns ?? 0,
 			usage,
-			error: agent.state?.errorMessage ?? agent.report?.errorMessage ?? undefined,
+			error: agent.error ?? agent.state?.errorMessage ?? agent.report?.errorMessage ?? undefined,
 		};
 	});
 	const usage = { ...zeroUsage(), turns: 0 };
@@ -161,7 +171,7 @@ export function buildDashboardModel(input: DashboardInput): DashboardModel {
 		runId: input.runId ?? input.epicId,
 		epicId: input.epicId,
 		epicTitle: input.epicTitle ?? input.epicId,
-		status: input.status ?? (agents.some((agent) => agent.status === "running") ? "running" : "planned"),
+		status: dashboardStatus(input.status ?? (agents.some((agent) => isActiveStatus(agent.status)) ? "running" : "planned")),
 		demo: Boolean(input.demo),
 		currentWave,
 		criticalPath: input.criticalPath,
@@ -185,11 +195,12 @@ export function dashboardModelFromPlan(plan: RunDryPlan, extras: Omit<DashboardI
 				tickId: task.id,
 				title: task.title,
 				tier: work?.tier ?? task.role ?? "balanced",
+				tierReason: work?.tierReason,
 				model: work?.model,
 				worktree: work?.worktree,
 				branch: work?.branch,
 				wave: wave.wave,
-				status: task.status === "closed" ? "completed" : task.awaiting ? "awaiting" : task.agent_ready ? "ready" : "blocked",
+				status: isCompletedStatus(task.status) ? "completed" : task.awaiting ? "awaiting" : isActiveStatus(task.status) ? "running" : task.agent_ready ? "ready" : "blocked",
 			});
 		}
 	}
@@ -252,6 +263,7 @@ function agentRows(model: DashboardModel, selected: number, expanded: boolean): 
 		const cursor = index === selected ? ">" : " ";
 		rows.push(`${cursor} ${icon(agent.status)} ${agent.tickId}  ${agent.title}`);
 		rows.push(`    W${agent.wave ?? "?"} ${agent.tier} · ${agent.model} · ${agent.status} · ${duration(agent.elapsedMs)}`);
+		rows.push(`    route: ${agent.tierReason}`);
 		rows.push(`    ${agent.currentAction}${agent.recentOutput.length ? ` · ${agent.recentOutput.at(-1)!.replace(/\s+/g, " ")}` : ""}`);
 		if (expanded && index === selected) {
 			rows.push(`    branch: ${agent.branch}`);
@@ -320,7 +332,7 @@ export function renderDashboard(model: DashboardModel, width: number, options: {
 	const lines = [
 		`TICKS CONTROL TOWER${label}`,
 		`${model.epicId} · ${model.epicTitle} · run ${model.runId} · ${model.status}`,
-		`Wave ${model.currentWave ?? "—"}/${model.waves.length || "—"} · critical path ${model.criticalPath ?? "—"} · agents ${model.agents.filter((agent) => agent.status === "running").length}/${model.agents.length} running`,
+		`Wave ${model.currentWave ?? "—"}/${model.waves.length || "—"} · critical path ${model.criticalPath ?? "—"} · agents ${model.agents.filter((agent) => isActiveStatus(agent.status)).length}/${model.agents.length} active`,
 		`Usage ${usage.turns} turns · ↑${shortNumber(usage.inputTokens)} ↓${shortNumber(usage.outputTokens)} · cache R${shortNumber(usage.cacheReadTokens)}/W${shortNumber(usage.cacheWriteTokens)} · reasoning ${shortNumber(usage.reasoningTokens)} · context ${shortNumber(usage.contextTokens)} · $${usage.cost.toFixed(4)}`,
 		"",
 		...section("Wave timeline", model.waves.map((wave) => ` ${icon(wave.status)} W${wave.wave} ${wave.status} · ${wave.taskIds.join(", ") || "empty"}`)),
@@ -339,7 +351,7 @@ export function renderDashboard(model: DashboardModel, width: number, options: {
 		lines.push(...left, "", ...right);
 	}
 	lines.push("", "↑/↓ navigate · Enter/Space details · q/Esc/Ctrl-C close");
-	return lines.map((line) => fit(line, safeWidth));
+	return lines.map((line) => fit(line, safeWidth).trimEnd());
 }
 
 /** --dump uses the exact same renderer and model as the overlay. */
@@ -348,14 +360,14 @@ export function renderDashboardText(model: DashboardModel, width = 120): string 
 }
 
 export function compactDashboardSummary(model: DashboardModel): { status: string; widget: string[] } {
-	const completed = model.agents.filter((agent) => agent.status === "completed" || agent.status === "success").length;
-	const running = model.agents.filter((agent) => agent.status === "running").length;
+	const completed = model.agents.filter((agent) => isCompletedStatus(agent.status)).length;
+	const running = model.agents.filter((agent) => isActiveStatus(agent.status)).length;
 	const attention = model.verification.filter((item) => item.status === "failed").length
 		+ model.recovery.filter((item) => item.kind !== "active-run" && item.kind !== "in-progress").length
 		+ model.humanGates.filter((gate) => (gate.status ?? "awaiting") === "awaiting").length;
 	return {
 		status: `${icon(model.status)} ${model.epicId} W${model.currentWave ?? "—"} ${completed}/${model.agents.length}${attention ? ` · ${attention} attention` : ""}`,
-		widget: [`${running} running · verify ${model.verification.filter((item) => item.status === "passed").length}/${model.verification.length} · merge ${model.merges.filter((item) => item.status === "passed").length}/${model.merges.length} · $${model.usage.cost.toFixed(4)} · ctx ${shortNumber(model.usage.contextTokens)}`],
+		widget: [`${running} active · verify ${model.verification.filter((item) => item.status === "passed").length}/${model.verification.length} · merge ${model.merges.filter((item) => item.status === "passed").length}/${model.merges.length} · $${model.usage.cost.toFixed(4)} · ctx ${shortNumber(model.usage.contextTokens)}`],
 	};
 }
 

@@ -134,12 +134,80 @@ export function loadRunnerConfig(root: string, env: Environment = process.env): 
 	return resolveRunnerConfig(markdown, env);
 }
 
-export function taskTier(task: { role?: string }): string {
-	if (task.role === "review") return "review";
-	if (task.role === "closeout") return "closeout";
-	return "balanced";
+export type CapabilityTier = "economy" | "balanced" | "strong" | "reserved";
+export type TaskRoutingInput = {
+	title?: string;
+	description?: string;
+	acceptance_criteria?: string;
+	acceptance?: string;
+	priority?: number | string;
+	type?: string;
+	role?: string;
+	tier?: string;
+	labels?: string[];
+	files?: string[];
+	file_count?: number;
+};
+export type TaskRouting = { tier: CapabilityTier; reason: string };
+
+const tierRank: Record<Exclude<CapabilityTier, "reserved">, number> = { economy: 0, balanced: 1, strong: 2 };
+
+function explicitTier(value: string | undefined): Exclude<CapabilityTier, "reserved"> | undefined {
+	const normalized = value?.trim().toLowerCase().replace(/^.*[:/]\s*/, "");
+	return normalized === "economy" || normalized === "balanced" || normalized === "strong" ? normalized : undefined;
+}
+
+function referencedFileCount(task: TaskRoutingInput): number | undefined {
+	if (Number.isSafeInteger(task.file_count) && task.file_count! >= 0) return task.file_count;
+	if (task.files?.length) return new Set(task.files.map((item) => item.trim()).filter(Boolean)).size;
+	const text = [task.title, task.description, task.acceptance_criteria, task.acceptance].filter(Boolean).join("\n");
+	const found = new Set<string>();
+	for (const match of text.matchAll(/(?:^|[\s`'"(])([\w.-]+(?:\/[\w.-]+)+|[\w-]+\.(?:md|txt|json|ya?ml|toml|ts|tsx|js|jsx|mjs|cjs|go|rs|py|sh|css|html))(?:$|[\s`'"),:])/gim)) found.add(match[1]);
+	return found.size || undefined;
+}
+
+/** Metadata wins; shape rules are deliberately conservative and never select a model family. */
+export function routeTask(task: TaskRoutingInput): TaskRouting {
+	const role = task.role?.trim().toLowerCase();
+	if (role === "review" || role === "closeout") {
+		return { tier: "reserved", reason: `role=${role} is orchestrator-owned; planner/review execution is not implemented` };
+	}
+
+	const direct = explicitTier(task.tier);
+	if (direct) return { tier: direct, reason: `tracker tier=${task.tier}` };
+	const labels = (task.labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean).sort();
+	const labelledTiers = labels.map(explicitTier).filter((tier): tier is Exclude<CapabilityTier, "reserved"> => Boolean(tier));
+	if (labelledTiers.length) {
+		const selected = labelledTiers.sort((left, right) => tierRank[right] - tierRank[left])[0];
+		return { tier: selected, reason: `tracker label selects ${selected} (${labels.join(", ")})` };
+	}
+	const metadata = [role, task.type?.trim().toLowerCase(), ...labels].filter(Boolean).join(" ");
+	if (/\b(?:security|integration|subtle|large|high-risk|high_risk)\b/.test(metadata)) {
+		return { tier: "strong", reason: `tracker metadata signals high-risk work (${metadata})` };
+	}
+	const priority = typeof task.priority === "number" ? task.priority : typeof task.priority === "string" && /^p?\d$/i.test(task.priority) ? Number(task.priority.replace(/^p/i, "")) : undefined;
+	if (priority !== undefined && priority <= 1) return { tier: "strong", reason: `tracker priority P${priority} uses the conservative strong tier` };
+
+	const text = [task.title, task.description, task.acceptance_criteria, task.acceptance].filter(Boolean).join("\n").toLowerCase();
+	const fileCount = referencedFileCount(task);
+	if (fileCount !== undefined && fileCount >= 5) return { tier: "strong", reason: `task shape names a large ${fileCount}-file scope` };
+	if (/\b(?:security|integration|subtle|migration|concurrency|authentication|authorization|process[- ]tree|cross[- ]platform|large[- ]scale)\b/.test(text)) {
+		return { tier: "strong", reason: "task shape signals integration/security/subtle cross-cutting work" };
+	}
+	const complete = Boolean(task.title?.trim() && task.description?.trim() && (task.acceptance_criteria?.trim() || task.acceptance?.trim()));
+	const mechanical = /\b(?:typo|wording|spelling|copy edit|documentation|docs|readme|rename|version bump|fixture|snapshot|formatting|generated|comment)\b/.test(text)
+		|| labels.includes("mechanical") || task.type?.trim().toLowerCase() === "chore";
+	if (complete && mechanical && fileCount !== undefined && fileCount >= 1 && fileCount <= 2) {
+		return { tier: "economy", reason: `complete mechanical task scoped to ${fileCount} file${fileCount === 1 ? "" : "s"}` };
+	}
+	return { tier: "balanced", reason: "default: no explicit capability metadata or conservative shape override" };
+}
+
+export function taskTier(task: TaskRoutingInput): string {
+	return routeTask(task).tier;
 }
 
 export function modelForTier(config: RunnerConfig, tier: string): string | undefined {
+	if (tier === "reserved") return undefined;
 	return config.models[ROLE_MODEL_KEYS[tier] ?? "implement_balanced_model"];
 }
