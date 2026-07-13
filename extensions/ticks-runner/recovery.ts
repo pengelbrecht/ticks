@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { runSubprocess } from "./boundary.ts";
+import { DASHBOARD_HISTORY_FILE, readDashboardHistory, type DashboardModel } from "./dashboard.ts";
 import { listGitWorktrees, type WorktreeRecord } from "./merge.ts";
 import { isActiveStatus, isCompletedStatus } from "./status.ts";
 import {
@@ -97,6 +98,7 @@ export type RecoveredManifest = {
 	stale: boolean;
 	malformed: boolean;
 	artifacts: string[];
+	dashboard?: DashboardModel;
 };
 
 export type RecoveredTickState = {
@@ -457,7 +459,9 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		const waveWalk = walkFiles(path.join(runDir, "waves"), artifactBudget, (file) => /wave-\d+-(?:tests\.md|transaction\.json)$/.test(path.basename(file)));
 		artifactBudget = Math.max(0, artifactBudget - waveWalk.files.length);
 		truncated ||= artifactWalk.truncated || waveWalk.truncated;
-		const artifacts = unique([...artifactWalk.files, ...waveWalk.files]).sort();
+		const dashboardPath = path.join(runDir, DASHBOARD_HISTORY_FILE);
+		const dashboardHistory = readDashboardHistory(dashboardPath, limits.fileBytes);
+		const artifacts = unique([...artifactWalk.files, ...waveWalk.files, ...(dashboardHistory ? [dashboardPath] : [])]).sort();
 		const read = (() => { try { return fs.lstatSync(manifestPath).isSymbolicLink() ? undefined : cappedRead(manifestPath, limits.fileBytes); } catch { return undefined; } })();
 		const value = read && !read.truncated ? parseJson(read.text) : undefined;
 		const claimedEpicId = isRecord(value) ? string(value.epicId) : undefined;
@@ -474,7 +478,7 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 			const updated = Date.parse(manifest.updatedAt);
 			const ageStale = !Number.isFinite(updated) || now - updated > staleAfter;
 			const stale = (manifest.status === "planned" || manifest.status === "running") && !leaseFresh && ageStale;
-			manifests.push({ path: manifestPath, runDir, manifest, claimedEpicId: manifest.epicId, lease, leaseMalformed, leaseFresh, stale, malformed: false, artifacts });
+			manifests.push({ path: manifestPath, runDir, manifest, claimedEpicId: manifest.epicId, lease, leaseMalformed, leaseFresh, stale, malformed: false, artifacts, dashboard: dashboardHistory?.latest });
 		} catch {
 			let sameIdentity = false;
 			try { sameIdentity = Boolean(claimedIdentity && normalizeRepoIdentity(claimedIdentity) === identity); } catch { /* malformed identity */ }

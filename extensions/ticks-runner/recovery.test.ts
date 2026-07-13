@@ -4,6 +4,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { buildDashboardModel, writeDashboardHistory } from "./dashboard.ts";
+import { statusDashboardModel } from "./historical.ts";
 import {
 	formatRecoveryStatus,
 	reconcileRun,
@@ -182,6 +184,27 @@ test("status semantics normalize tracker activity and classify manifest terminal
 	const history = formatRecoveryStatus(scan(completed));
 	assert.match(history, /## Run history[\s\S]*epic: completed/);
 	assert.doesNotMatch(history, /No active or recoverable/);
+});
+
+test("bounded dashboard history reconstructs agent, verifier, merge, and usage lanes", () => {
+	const f = fixture("dashboard-history");
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["agent"], stateRoot: f.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-07-13T11:00:00Z")));
+	writeDashboardHistory(plan.runDir, buildDashboardModel({
+		runId: plan.runId,
+		epicId: "epic",
+		status: "failed",
+		agents: [{ tickId: "agent", status: "failed", turns: 7, usage: { inputTokens: 11, outputTokens: 12, cacheReadTokens: 13, cacheWriteTokens: 14, reasoningTokens: 15, contextTokens: 16, cost: 0.42 } }],
+		verification: [{ tickId: "agent", label: "verifier", status: "failed", detail: "kept" }],
+		merges: [{ tickId: "agent", branch: plan.ticks[0].branch, status: "failed", detail: "conflict" }],
+	}), new Date("2026-07-13T11:01:00Z"));
+	const recovered = scan(f);
+	assert.equal(recovered.manifests[0].dashboard?.usage.cost, 0.42);
+	const model = statusDashboardModel(recovered);
+	assert.equal(model.agents[0].turns, 7);
+	assert.equal(model.verification[0].detail, "kept");
+	assert.equal(model.merges[0].detail, "conflict");
+	assert.equal(model.usage.inputTokens, 11);
 });
 
 test("failed wave journal assigns blocking verification evidence without relying on tracker notes", () => {

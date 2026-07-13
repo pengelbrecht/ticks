@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { GraphTask, RunDryPlan } from "./graph.ts";
 import { dashboardStatus, isActiveStatus, isCompletedStatus } from "./status.ts";
 import type { ChildReport, ChildState, ChildUsage } from "./supervisor.ts";
@@ -113,6 +115,28 @@ export type DashboardModel = {
 	usage: ChildUsage & { turns: number };
 };
 
+export const DASHBOARD_HISTORY_FILE = "dashboard-history.json";
+const DASHBOARD_HISTORY_VERSION = 1 as const;
+const DASHBOARD_HISTORY_LIMIT = 16;
+const DASHBOARD_HISTORY_BYTES = 128 * 1_024;
+
+type DashboardHistoryPoint = {
+	at: string;
+	status: string;
+	currentWave?: number;
+	agents: Array<{ tickId: string; status: string; currentAction: string }>;
+	verification: Array<{ label: string; tickId?: string; status: LaneStatus }>;
+	merges: Array<{ tickId: string; status: LaneStatus; cleanup?: LaneStatus }>;
+	usage: ChildUsage & { turns: number };
+};
+
+export type DashboardHistoryArtifact = {
+	version: typeof DASHBOARD_HISTORY_VERSION;
+	updatedAt: string;
+	latest: DashboardModel;
+	history: DashboardHistoryPoint[];
+};
+
 const zeroUsage = (): ChildUsage => ({
 	inputTokens: 0,
 	outputTokens: 0,
@@ -183,6 +207,84 @@ export function buildDashboardModel(input: DashboardInput): DashboardModel {
 		humanGates: [...(input.humanGates ?? [])],
 		usage,
 	};
+}
+
+function clipped(value: string | undefined, maximum = 1_024): string | undefined {
+	if (value === undefined) return undefined;
+	return value.length > maximum ? `${value.slice(0, maximum - 1)}…` : value;
+}
+
+/** Keep persisted control-tower state useful but independent of unbounded child logs. */
+export function boundedDashboardModel(model: DashboardModel): DashboardModel {
+	return {
+		...model,
+		epicTitle: clipped(model.epicTitle, 512) ?? model.epicId,
+		waves: model.waves.slice(0, 64).map((wave) => ({ ...wave, taskIds: wave.taskIds.slice(0, 128) })),
+		agents: model.agents.slice(0, 24).map((agent) => ({
+			...agent,
+			title: clipped(agent.title, 256) ?? "(untitled)",
+			tierReason: clipped(agent.tierReason, 512) ?? "routing reason unavailable",
+			currentAction: clipped(agent.currentAction, 512) ?? "waiting",
+			recentOutput: agent.recentOutput.slice(-2).map((line) => clipped(line, 512) ?? ""),
+			error: clipped(agent.error, 1_024),
+		})),
+		verification: model.verification.slice(-32).map((item) => ({ ...item, detail: clipped(item.detail, 1_024) })),
+		merges: model.merges.slice(-32).map((item) => ({ ...item, detail: clipped(item.detail, 1_024) })),
+		recovery: model.recovery.slice(-32).map((item) => ({ ...item, detail: clipped(item.detail, 1_024), action: clipped(item.action, 512), lastDecision: clipped(item.lastDecision, 1_024), artifacts: item.artifacts?.slice(0, 4) })),
+		humanGates: model.humanGates.slice(-32).map((gate) => ({ ...gate, detail: clipped(gate.detail, 1_024) })),
+	};
+}
+
+export function isDashboardModel(value: unknown): value is DashboardModel {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const model = value as Partial<DashboardModel>;
+	return model.kind === "ticks-dashboard" && model.version === 1 && typeof model.runId === "string" && typeof model.epicId === "string"
+		&& typeof model.epicTitle === "string" && typeof model.status === "string" && Array.isArray(model.waves) && Array.isArray(model.agents)
+		&& Array.isArray(model.verification) && Array.isArray(model.merges) && Array.isArray(model.recovery) && Array.isArray(model.humanGates)
+		&& Boolean(model.usage) && typeof model.usage?.cost === "number";
+}
+
+function historyPoint(model: DashboardModel, at: string): DashboardHistoryPoint {
+	return {
+		at,
+		status: model.status,
+		currentWave: model.currentWave,
+		agents: model.agents.slice(0, 24).map((agent) => ({ tickId: agent.tickId, status: agent.status, currentAction: clipped(agent.currentAction, 128) ?? "waiting" })),
+		verification: model.verification.slice(-32).map((item) => ({ label: clipped(item.label, 256) ?? "verification", tickId: item.tickId, status: item.status })),
+		merges: model.merges.slice(-32).map((item) => ({ tickId: item.tickId, status: item.status, cleanup: item.cleanup })),
+		usage: { ...model.usage },
+	};
+}
+
+function atomicJson(file: string, value: unknown): void {
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	const temporary = `${file}.${process.pid}.tmp`;
+	try {
+		fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+		fs.renameSync(temporary, file);
+	} finally { fs.rmSync(temporary, { force: true }); }
+}
+
+export function writeDashboardHistory(runDir: string, model: DashboardModel, now = new Date()): string {
+	const file = path.join(runDir, DASHBOARD_HISTORY_FILE);
+	const previous = readDashboardHistory(file);
+	const at = now.toISOString();
+	const history = [...(previous?.history ?? []), historyPoint(model, at)].slice(-DASHBOARD_HISTORY_LIMIT);
+	const artifact: DashboardHistoryArtifact = { version: DASHBOARD_HISTORY_VERSION, updatedAt: at, latest: boundedDashboardModel(model), history };
+	while (artifact.history.length > 1 && Buffer.byteLength(JSON.stringify(artifact), "utf8") > DASHBOARD_HISTORY_BYTES) artifact.history.shift();
+	if (Buffer.byteLength(JSON.stringify(artifact), "utf8") > DASHBOARD_HISTORY_BYTES) throw new Error("Bounded dashboard model exceeds dashboard history artifact limit");
+	atomicJson(file, artifact);
+	return file;
+}
+
+export function readDashboardHistory(file: string, maximumBytes = DASHBOARD_HISTORY_BYTES): DashboardHistoryArtifact | undefined {
+	try {
+		const stat = fs.lstatSync(file);
+		if (!stat.isFile() || stat.isSymbolicLink() || stat.size > maximumBytes) return undefined;
+		const value = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<DashboardHistoryArtifact>;
+		if (value.version !== DASHBOARD_HISTORY_VERSION || typeof value.updatedAt !== "string" || !isDashboardModel(value.latest) || !Array.isArray(value.history) || value.history.length > DASHBOARD_HISTORY_LIMIT) return undefined;
+		return { version: DASHBOARD_HISTORY_VERSION, updatedAt: value.updatedAt, latest: boundedDashboardModel(value.latest), history: value.history as DashboardHistoryPoint[] };
+	} catch { return undefined; }
 }
 
 export function dashboardModelFromPlan(plan: RunDryPlan, extras: Omit<DashboardInput, "epicId" | "epicTitle" | "waves" | "agents" | "currentWave" | "criticalPath"> = {}): DashboardModel {
@@ -276,7 +378,7 @@ function agentRows(model: DashboardModel, selected: number, expanded: boolean): 
 	return rows;
 }
 
-function rightRows(model: DashboardModel): string[] {
+function rightRows(model: DashboardModel, selectedGate = -1, detailGate?: string): string[] {
 	const verification = model.verification.map((item) => ` ${icon(item.status)} ${item.tickId ? `${item.tickId} ` : ""}${item.label} · ${item.status}${item.detail ? ` — ${item.detail}` : ""}`);
 	const merges = model.merges.map((item) => ` ${icon(item.status)} ${item.tickId} ${item.branch} · merge ${item.status} · boundary ${item.boundary ?? "pending"} · cleanup ${item.cleanup ?? "pending"}${item.detail ? ` — ${item.detail}` : ""}`);
 	const recovery = model.recovery.flatMap((item) => {
@@ -285,7 +387,15 @@ function rightRows(model: DashboardModel): string[] {
 		for (const artifact of (item.artifacts ?? []).slice(0, 3)) rows.push(`   artifact: ${artifact}`);
 		return rows;
 	});
-	const gates = model.humanGates.map((gate) => ` ◆ ${gate.tickId} ${gate.title} · ${gate.type}/${gate.status ?? "awaiting"}${gate.detail ? ` — ${gate.detail}` : ""}`);
+	const gates = model.humanGates.flatMap((gate, index) => {
+		const cursor = index === selectedGate ? ">" : " ";
+		const rows = [`${cursor} ◆ ${gate.tickId} ${gate.title} · ${gate.type}/${gate.status ?? "awaiting"}${gate.detail ? ` — ${gate.detail}` : ""}`];
+		if (detailGate === gate.tickId) {
+			rows.push(`    detail: ${gate.detail ?? "No additional gate detail was recorded."}`);
+			rows.push("    Press a again to approve, or x again to reject. Approval/input policy is checked against fresh tracker state.");
+		}
+		return rows;
+	});
 	return [
 		...section("Verification lane", verification),
 		"",
@@ -324,7 +434,7 @@ function pad(line: string, width: number): string {
 }
 
 /** Pure, terminal-independent dashboard renderer. No process, timers, or UI context required. */
-export function renderDashboard(model: DashboardModel, width: number, options: { selected?: number; expanded?: boolean } = {}): string[] {
+export function renderDashboard(model: DashboardModel, width: number, options: { selected?: number; expanded?: boolean; selectedGate?: number; detailGate?: string; feedback?: string } = {}): string[] {
 	const safeWidth = Math.max(24, width);
 	const selected = Math.max(0, Math.min(options.selected ?? 0, Math.max(0, model.agents.length - 1)));
 	const usage = model.usage;
@@ -334,12 +444,13 @@ export function renderDashboard(model: DashboardModel, width: number, options: {
 		`${model.epicId} · ${model.epicTitle} · run ${model.runId} · ${model.status}`,
 		`Wave ${model.currentWave ?? "—"}/${model.waves.length || "—"} · critical path ${model.criticalPath ?? "—"} · agents ${model.agents.filter((agent) => isActiveStatus(agent.status)).length}/${model.agents.length} active`,
 		`Usage ${usage.turns} turns · ↑${shortNumber(usage.inputTokens)} ↓${shortNumber(usage.outputTokens)} · cache R${shortNumber(usage.cacheReadTokens)}/W${shortNumber(usage.cacheWriteTokens)} · reasoning ${shortNumber(usage.reasoningTokens)} · context ${shortNumber(usage.contextTokens)} · $${usage.cost.toFixed(4)}`,
+		...(options.feedback ? [`Control: ${options.feedback}`] : []),
 		"",
 		...section("Wave timeline", model.waves.map((wave) => ` ${icon(wave.status)} W${wave.wave} ${wave.status} · ${wave.taskIds.join(", ") || "empty"}`)),
 		"",
 	];
 	const left = section("Agent cards", agentRows(model, selected, Boolean(options.expanded)));
-	const right = rightRows(model);
+	const right = rightRows(model, options.selectedGate, options.detailGate);
 	if (safeWidth >= 100) {
 		const gap = 3;
 		const leftWidth = Math.floor((safeWidth - gap) * 0.58);
@@ -350,7 +461,7 @@ export function renderDashboard(model: DashboardModel, width: number, options: {
 	} else {
 		lines.push(...left, "", ...right);
 	}
-	lines.push("", "↑/↓ navigate · Enter/Space details · q/Esc/Ctrl-C close");
+	lines.push("", "↑/↓ navigate agents + gates · Enter/Space details · a/x gate detail then action · c cancel run · q/Esc/Ctrl-C close");
 	return lines.map((line) => fit(line, safeWidth).trimEnd());
 }
 
@@ -376,43 +487,120 @@ export type DashboardTheme = {
 	bold: (value: string) => string;
 };
 
+export type DashboardStoreSnapshot = { model: DashboardModel; revision: number };
+
+/** Session-local mutable model. Open overlays read it at render time and subscribe only while mounted. */
+export class DashboardStore {
+	private model: DashboardModel;
+	private revision = 0;
+	private readonly listeners = new Set<() => void>();
+
+	constructor(initial: DashboardModel) { this.model = initial; }
+
+	getSnapshot(): DashboardStoreSnapshot { return { model: this.model, revision: this.revision }; }
+
+	replace(model: DashboardModel): DashboardStoreSnapshot {
+		this.model = model;
+		this.revision++;
+		for (const listener of [...this.listeners]) listener();
+		return this.getSnapshot();
+	}
+
+	subscribe(listener: () => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+}
+
+export type DashboardControlResult = { ok: boolean; message: string };
+export type DashboardController = {
+	cancel?: (expected: DashboardStoreSnapshot) => Promise<DashboardControlResult>;
+	gate?: (action: "approve" | "reject", gate: HumanGate, expected: DashboardStoreSnapshot) => Promise<DashboardControlResult>;
+};
+
 export type DashboardComponentOptions = {
-	model: DashboardModel;
+	store: DashboardStore;
 	theme: DashboardTheme;
 	requestRender: () => void;
 	close: () => void;
+	controller?: DashboardController;
 };
 
 /** Pi overlay component with local-only selection state; it never replaces the editor/footer. */
 export class DashboardComponent {
 	private selected = 0;
 	private expanded = false;
+	private detailGate?: string;
+	private feedback?: string;
+	private controlPending = false;
 	private readonly options: DashboardComponentOptions;
 	constructor(options: DashboardComponentOptions) {
 		this.options = options;
 	}
 
+	private selection(): { model: DashboardModel; agent: number; gate: number } {
+		const model = this.options.store.getSnapshot().model;
+		const maximum = Math.max(0, model.agents.length + model.humanGates.length - 1);
+		this.selected = Math.max(0, Math.min(this.selected, maximum));
+		return { model, agent: this.selected < model.agents.length ? this.selected : Math.max(0, model.agents.length - 1), gate: this.selected >= model.agents.length ? this.selected - model.agents.length : -1 };
+	}
+
 	render(width: number): string[] {
-		return renderDashboard(this.options.model, width, { selected: this.selected, expanded: this.expanded }).map((line, index) => {
+		const { model, agent, gate } = this.selection();
+		if (this.detailGate && !model.humanGates.some((item) => item.tickId === this.detailGate && (item.status ?? "awaiting") === "awaiting")) this.detailGate = undefined;
+		return renderDashboard(model, width, { selected: agent, expanded: this.expanded && gate < 0, selectedGate: gate, detailGate: this.detailGate, feedback: this.feedback }).map((line, index) => {
 			if (index === 0) return this.options.theme.fg("accent", this.options.theme.bold(line));
 			if (line.startsWith("──")) return this.options.theme.fg("muted", line);
 			if (line.startsWith(">")) return this.options.theme.fg("accent", line);
 			if (/ [!◆] /.test(line)) return this.options.theme.fg(line.includes(" ! ") ? "error" : "warning", line);
-			if (line.includes("navigate ·")) return this.options.theme.fg("dim", line);
+			if (line.includes("navigate agents")) return this.options.theme.fg("dim", line);
 			return line;
 		});
 	}
 
 	invalidate(): void {}
 
+	private async control(action: "approve" | "reject" | "cancel", gate?: HumanGate): Promise<void> {
+		if (this.controlPending) return;
+		const expected = this.options.store.getSnapshot();
+		const operation = action === "cancel" ? this.options.controller?.cancel?.(expected) : gate ? this.options.controller?.gate?.(action, gate, expected) : undefined;
+		if (!operation) {
+			this.feedback = action === "cancel" ? "No active run can be cancelled from this snapshot." : "Gate controls are unavailable for this snapshot.";
+			this.options.requestRender();
+			return;
+		}
+		this.controlPending = true;
+		this.feedback = `${action} pending…`;
+		this.options.requestRender();
+		try {
+			const result = await operation;
+			this.feedback = result.message;
+			if (result.ok && action !== "cancel") this.detailGate = undefined;
+		} catch (error) {
+			this.feedback = error instanceof Error ? error.message : String(error);
+		} finally {
+			this.controlPending = false;
+			this.options.requestRender();
+		}
+	}
+
 	handleInput(data: string): void {
 		if (data === "\u001b" || data === "\u0003" || data === "q") {
 			this.options.close();
 			return;
 		}
+		const { model, gate } = this.selection();
 		if (data === "\u001b[A") this.selected = Math.max(0, this.selected - 1);
-		else if (data === "\u001b[B") this.selected = Math.min(Math.max(0, this.options.model.agents.length - 1), this.selected + 1);
-		else if (data === "\r" || data === "\n" || data === " ") this.expanded = !this.expanded;
+		else if (data === "\u001b[B") this.selected = Math.min(Math.max(0, model.agents.length + model.humanGates.length - 1), this.selected + 1);
+		else if (data === "\r" || data === "\n" || data === " ") {
+			if (gate >= 0) this.detailGate = this.detailGate === model.humanGates[gate]?.tickId ? undefined : model.humanGates[gate]?.tickId;
+			else this.expanded = !this.expanded;
+		} else if (data === "a" || data === "x") {
+			const selectedGate = gate >= 0 ? model.humanGates[gate] : undefined;
+			if (!selectedGate) this.feedback = "Select an awaiting human gate before using a/x.";
+			else if (this.detailGate !== selectedGate.tickId) this.detailGate = selectedGate.tickId;
+			else void this.control(data === "a" ? "approve" : "reject", selectedGate);
+		} else if (data === "c") void this.control("cancel");
 		else return;
 		this.options.requestRender();
 	}
