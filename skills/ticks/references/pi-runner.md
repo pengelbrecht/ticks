@@ -2,7 +2,7 @@
 
 Read [`agent-runner.md`](agent-runner.md) first. This adapter maps that runner-neutral contract to the package implemented in `extensions/ticks-runner/`.
 
-Pi deliberately has no built-in subagents. Ticks supplies its own supervisor: one `pi --mode json -p --no-session` process per ready implementation tick, one isolated worktree and branch per process, launched concurrently up to the resolved cap. No tmux dependency is required.
+Pi deliberately has no built-in subagents. Ticks supplies its own supervisor: one `pi --mode json -p --no-session` process per ready implementation tick, one isolated worktree and branch per implementation process, launched concurrently up to the resolved cap. Review and closeout use separate read-only controller-checkout processes with no implementation worktree. No tmux dependency is required.
 
 ## Install and detect the executable layer
 
@@ -28,7 +28,7 @@ A generic skill installer may install `skills/ticks/` without the extension. Do 
 | Verification | Configured Testing commands run in each accepted child and again on the merged controller after each wave. |
 | Integration | Boundary check and provisional merge; persist/run the full-wave gate; only then close durably and clean worktrees/branches. |
 | UX | Compact footer/widget, RPC text, `/ticks-status`, and a shared-model dashboard overlay/dump. |
-| Review/closeout | Process ticks are detected and stopped for orchestrator action; dedicated subprocess behavior is not implemented yet. |
+| Review/closeout | Dedicated frontier models run read-only in the controller checkout; strict findings/acceptance schemas, persisted evidence, controller-owned repair routing, retro, and close semantics fail closed. |
 
 Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this automatically.
 
@@ -45,7 +45,7 @@ Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this autom
 
 `/ticks-run` never executes by default. Only `--execute` permits Environment checks, tracker writes, worktree creation, child launch, merges, and cleanup. Execution requires a clean non-default controller branch. Worktrees are implicit during execution. `--resume` is an explicit hint; safe reconciliation happens on every execute.
 
-`/ticks-plan` currently explains the planning flow but does not launch scouts/planner or create ticks. Use this skill's planning workflow. Ready `review` and `closeout` process ticks return `awaiting` instead of being misrouted to code implementers; perform final review and retro/closeout using the shared protocol.
+`/ticks-plan` currently explains the planning flow but does not launch scouts/planner or create ticks. Use this skill's planning workflow. Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
 See [`../../../extensions/ticks-runner/README.md`](../../../extensions/ticks-runner/README.md) for exact defaults, dashboard keys, artifacts, recovery, and current limitations.
 
@@ -95,12 +95,14 @@ Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules`
 - implement_balanced_model: openai-codex/gpt-5.6-sol:medium
 - implement_strong_model: openai-codex/gpt-5.6-sol:high
 - review_model: openai-codex/gpt-5.6-sol:xhigh
+- closeout_model: openai-codex/gpt-5.6-sol:xhigh
+- review_should_fix: repair
 - max_parallel: 4
 ```
 
-Environment override names are `TICKS_PI_PLANNER_MODEL`, `TICKS_PI_SCOUT_MODEL`, `TICKS_PI_IMPLEMENT_ECONOMY_MODEL`, `TICKS_PI_IMPLEMENT_BALANCED_MODEL`, `TICKS_PI_IMPLEMENT_STRONG_MODEL`, `TICKS_PI_REVIEW_MODEL`, and `TICKS_PI_MAX_PARALLEL`. Resolution is environment > markdown > Pi default.
+Environment override names are `TICKS_PI_PLANNER_MODEL`, `TICKS_PI_SCOUT_MODEL`, `TICKS_PI_IMPLEMENT_ECONOMY_MODEL`, `TICKS_PI_IMPLEMENT_BALANCED_MODEL`, `TICKS_PI_IMPLEMENT_STRONG_MODEL`, `TICKS_PI_REVIEW_MODEL`, `TICKS_PI_CLOSEOUT_MODEL`, `TICKS_PI_REVIEW_SHOULD_FIX`, and `TICKS_PI_MAX_PARALLEL`. Resolution is environment > markdown > Pi default.
 
-Model specs use `[provider/]model[:thinking]`. For Codex subscription/OAuth credentials use `openai-codex/<model>`, not the API-key `openai/<model>`. Ordinary implementation currently resolves through `implement_balanced_model`; automated planner/scout and economy/strong classification are not yet implemented. Review/closeout models are configured for future dedicated process-tick behavior but those ticks currently stop for the orchestrator.
+Model specs use `[provider/]model[:thinking]`. For Codex subscription/OAuth credentials use `openai-codex/<model>`, not the API-key `openai/<model>`. Ordinary implementation routes among economy/balanced/strong from explicit metadata and conservative task shape. Review and closeout have dedicated frontier process tiers; closeout falls back to the planner model only when `closeout_model` is absent. `review_should_fix` is `repair` by default or `record`; blocker findings always create blocking repair work.
 
 ## Durable state and recovery
 
@@ -118,6 +120,8 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 ```text
 <state>/<repo-slug>--<hash>/runs/<epic>--<hash>/run.json
 <run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl}
+<run>/artifacts/<review>/{epic.diff,findings.json,review-tests.md}
+<run>/artifacts/<closeout>/{acceptance-evidence.md,closeout-report.json,retro.md}
 <run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md}
 <state>/<repo-slug>--<hash>/worktrees/<epic>/<tick>/
 ```
@@ -173,8 +177,5 @@ Launch every ready tick before waiting, block on process completion rather than 
 ## Current limitations
 
 - Automated `/ticks-plan` scout/frontier execution is not implemented.
-- Dedicated final-review and closeout/retro execution is not implemented; process ticks stop explicitly.
-- `--autonomous` records intent but does not yet alter tracker graph selection.
-- Ordinary tick routing is balanced-only until tick-shape classification lands.
 - Runs resume from durable state after controller loss; live child processes do not attach to a new controller.
 - Cost is reported, not capped.

@@ -58,9 +58,12 @@ test("run planning caps ready work and routes role models", () => {
 	assert.deepEqual(plan.waves.map((wave) => wave.wave), [1, 2]);
 	assert.deepEqual(plan.workPlans.map((work) => [work.tickId, work.tier, work.model]), [
 		["a", "balanced", "openai-codex/gpt-5.6-sol:medium"],
-		["b", "reserved", undefined],
+		["b", "review", "openai-codex/gpt-5.6-sol:xhigh"],
 	]);
-	assert.match(plan.workPlans[1].tierReason, /not implemented/);
+	assert.match(plan.workPlans[1].tierReason, /dedicated frontier read-only/);
+	assert.equal(plan.workPlans[1].executionMode, "process-controller-readonly");
+	assert.equal(plan.workPlans[1].worktree, "/repo");
+	assert.equal(plan.workPlans[1].branch, "(controller checkout; read-only)");
 	assert.equal(plan.workPlans[0].branch, plan.durablePaths.ticks[0].branch);
 	assert.equal(plan.workPlans[0].worktree, `/state/${plan.durablePaths.repoSlug}/worktrees/qfs/a`);
 	assert.equal(plan.workPlans[0].prompt, `${plan.durablePaths.runDir}/artifacts/a/prompt.md`);
@@ -102,8 +105,9 @@ test("run planning caps ready work and routes role models", () => {
 	assert.match(output, /prompt: .*\/artifacts\/a\/prompt\.md/);
 	assert.match(output, /report: .*\/artifacts\/a\/report\.md/);
 	assert.match(output, /log: .*\/artifacts\/a\/events\.jsonl/);
-	assert.match(output, /reserved \/ not dispatched/);
-	assert.match(output, /routing: role=review is orchestrator-owned/);
+	assert.match(output, /review \/ openai-codex\/gpt-5\.6-sol:xhigh/);
+	assert.match(output, /routing: role=review uses the dedicated frontier read-only/);
+	assert.match(output, /execution: process-controller-readonly/);
 });
 
 test("capability routing uses metadata first, conservative shape rules second, and balanced by default", () => {

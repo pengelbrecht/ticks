@@ -6,6 +6,7 @@ import * as path from "node:path";
 import test from "node:test";
 import {
 	classifyChildReport,
+	createReadOnlyProcessInvocation,
 	mapConcurrent,
 	parseModelInvocation,
 	runConfiguredCommands,
@@ -17,6 +18,7 @@ import { acquireControllerLease, createRunManifest, planRunPaths, writeRunManife
 
 const fakeTk = path.join(import.meta.dirname, "fixtures", "runner-fake-tk.mjs");
 const fakePi = path.join(import.meta.dirname, "fixtures", "runner-child.mjs");
+const fakeProcessPi = path.join(import.meta.dirname, "fixtures", "runner-process-child.mjs");
 
 type FixtureTask = {
 	id: string;
@@ -27,6 +29,8 @@ type FixtureTask = {
 	wave?: number;
 	blocked_by?: string[];
 	role?: string;
+	awaiting?: string;
+	parent?: string;
 	started_at?: string;
 	updated_at?: string;
 };
@@ -43,10 +47,11 @@ function createFixture(name: string, tasks: FixtureTask[], options: { failTick?:
 	const stateRoot = path.join(root, "state");
 	const marker = path.join(root, "children.log");
 	const verifyLog = path.join(root, "verify.log");
+	const trackerReadLog = path.join(root, "tracker-read.log");
 	fs.mkdirSync(path.join(repo, ".tick"), { recursive: true });
 	fs.chmodSync(fakeTk, 0o700);
 	const state = {
-		epic: { id: "epic", title: "Disposable epic", description: "Fixture epic" },
+		epic: { id: "epic", title: "Disposable epic", description: "Fixture epic", acceptance_criteria: "Fixture verification passes", base_branch: "base", status: "open" },
 		missing_process_ticks: options.missing ?? [],
 		tasks: tasks.map((item, index) => ({
 			title: `Task ${item.id}`,
@@ -67,6 +72,9 @@ function createFixture(name: string, tasks: FixtureTask[], options: { failTick?:
 		"",
 		"## Pi Orchestrator",
 		"- implement_balanced_model: openai-codex/gpt-5.6-sol:medium",
+		"- review_model: openai-codex/gpt-5.6-sol:xhigh",
+		"- closeout_model: openai-codex/gpt-5.6-sol:xhigh",
+		"- review_should_fix: repair",
 		"- max_parallel: 4",
 		"",
 		"## Rules",
@@ -88,18 +96,21 @@ if (!files.length) process.exit(7);
 	command(repo, "git", "config", "user.email", "ticks-runner@example.invalid");
 	command(repo, "git", "add", "-A");
 	command(repo, "git", "commit", "-m", "fixture base");
+	command(repo, "git", "branch", "base");
 	return {
 		root,
 		repo,
 		stateRoot,
 		marker,
 		verifyLog,
+		trackerReadLog,
 		env: {
 			...process.env,
 			VERIFY_LOG: verifyLog,
 			FAIL_TICK: options.failTick,
 			FAIL_POST_WAVE: options.failPostWave ? "1" : undefined,
 			CONTROLLER_ROOT: repo,
+			FAKE_TK_READ_LOG: trackerReadLog,
 		},
 	};
 }
@@ -119,6 +130,12 @@ async function executeFixture(
 		env: fixture.env,
 		invocationForTask: ({ task }) => {
 			const selected = behavior[task.id] ?? {};
+			if (task.role === "review" || task.role === "closeout") {
+				const output = selected.detail ?? (task.role === "review"
+					? JSON.stringify({ version: 1, summary: "Clean fixture review", findings: [] })
+					: JSON.stringify({ version: 1, summary: "Acceptance passed", items: [{ id: "A1", verified: true, evidence: ["T1"], message: "Fixture verifier passed" }], retro: { summary: "Fixture closeout", learned_notes: ["Keep fixture evidence runnable."] } }));
+				return { command: process.execPath, args: [fakeProcessPi, task.id, output, fixture.marker, String(selected.delay ?? 0)] };
+			}
 			return {
 				command: process.execPath,
 				args: [fakePi, task.id, selected.status ?? "DONE", String(selected.delay ?? 0), selected.detail ?? "", fixture.marker],
@@ -128,11 +145,15 @@ async function executeFixture(
 }
 
 function readState(repo: string) {
-	return JSON.parse(fs.readFileSync(path.join(repo, ".tick", "fake-runner-state.json"), "utf8")) as { epic: { notes?: string[] }; tasks: Array<{ id: string; status: string; close_reason?: string }> };
+	return JSON.parse(fs.readFileSync(path.join(repo, ".tick", "fake-runner-state.json"), "utf8")) as { epic: { status: string; notes?: string[] }; tasks: Array<{ id: string; title: string; status: string; role?: string; blocked_by?: string[]; discovered_from?: string; close_reason?: string }> };
 }
 
 function trackerLog(repo: string): Array<Record<string, unknown>> {
-	return fs.readFileSync(path.join(repo, ".tick", "fake-runner-log.jsonl"), "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+	const mutation = fs.readFileSync(path.join(repo, ".tick", "fake-runner-log.jsonl"), "utf8");
+	const fixtureRoot = path.dirname(repo);
+	const readPath = path.join(fixtureRoot, "tracker-read.log");
+	const reads = fs.existsSync(readPath) ? fs.readFileSync(readPath, "utf8") : "";
+	return `${mutation}${reads}`.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 }
 
 function report(overrides: Partial<ChildReport> & { finalOutput?: string }): ChildReport {
@@ -167,6 +188,20 @@ test("model routing parses provider/model:thinking without truncating model punc
 	assert.deepEqual(parseModelInvocation("openai-codex/gpt-5.6-sol:medium"), { provider: "openai-codex", model: "gpt-5.6-sol", thinking: "medium" });
 	assert.deepEqual(parseModelInvocation("anthropic/claude:future"), { provider: "anthropic", model: "claude:future", thinking: undefined });
 	assert.deepEqual(parseModelInvocation("gpt-5.6-sol:high"), { model: "gpt-5.6-sol", thinking: "high" });
+});
+
+test("review invocation is frontier-configured and strictly read-only", () => {
+	const invocation = createReadOnlyProcessInvocation({
+		promptPath: "/tmp/review prompt.md",
+		model: parseModelInvocation("openai-codex/gpt-5.6-sol:xhigh"),
+		executable: "/opt/bin/pi",
+	});
+	assert.equal(invocation.command, "/opt/bin/pi");
+	assert.ok(invocation.args.includes("--no-extensions"));
+	assert.deepEqual(invocation.args.slice(invocation.args.indexOf("--tools"), invocation.args.indexOf("--tools") + 2), ["--tools", "read,grep,find,ls"]);
+	assert.equal(invocation.args.some((arg) => /(?:^|,)(?:bash|edit|write)(?:,|$)/.test(arg)), false);
+	assert.ok(invocation.args.includes("xhigh"));
+	assert.equal(invocation.args.at(-1), "@/tmp/review prompt.md");
 });
 
 test("outcome classification is conservative about concerns and supervisor/protocol failures", () => {
@@ -449,11 +484,188 @@ test("failed Environment command stops before tracker or worktree mutation", asy
 	assert.equal(readState(fixture.repo).tasks[0].status, "open");
 });
 
-test("orchestrator-owned review ticks stop explicitly without ordinary child launch", async () => {
-	const fixture = createFixture("review", [{ id: "review", role: "review" }]);
+test("missing skeleton self-repairs once with terminal dependencies before any child launch", async () => {
+	const fixture = createFixture("skeleton", [
+		{ id: "root", wave: 1 },
+		{ id: "leaf-a", wave: 2, blocked_by: ["root"] },
+		{ id: "leaf-b", wave: 2, blocked_by: ["root"] },
+	], { missing: ["review", "closeout"] });
 	const result = await executeFixture(fixture);
-	assert.equal(result.status, "awaiting");
-	assert.match(result.summary, /process tick/);
-	assert.equal(fs.existsSync(fixture.marker), false);
+	assert.equal(result.status, "completed", result.summary);
+	const state = readState(fixture.repo);
+	const review = state.tasks.find((item) => item.role === "review");
+	const closeout = state.tasks.find((item) => item.role === "closeout");
+	assert.ok(review && closeout);
+	assert.deepEqual(review.blocked_by?.sort(), ["leaf-a", "leaf-b"]);
+	assert.deepEqual(closeout.blocked_by, [review.id]);
+	assert.equal(state.tasks.filter((item) => item.role === "review").length, 1);
+	assert.equal(state.tasks.filter((item) => item.role === "closeout").length, 1);
+	let log = trackerLog(fixture.repo);
+	assert.equal(log.filter((entry) => entry.command === "create" && entry.role === "review").length, 1);
+	assert.equal(log.filter((entry) => entry.command === "create" && entry.role === "closeout").length, 1);
+	const resumed = await executeFixture(fixture);
+	assert.equal(resumed.status, "completed", resumed.summary);
+	log = trackerLog(fixture.repo);
+	assert.equal(log.filter((entry) => entry.command === "create" && entry.role === "review").length, 1, "resume does not duplicate review");
+	assert.equal(log.filter((entry) => entry.command === "create" && entry.role === "closeout").length, 1, "resume does not duplicate closeout");
+	const subjects = command(fixture.repo, "git", "log", "--format=%s").split("\n");
+	assert.ok(subjects.includes("Repair epic EPIC-SKELETON"));
+	assert.ok(subjects.indexOf("Repair epic EPIC-SKELETON") > subjects.findIndex((subject) => subject.startsWith("Start epic wave")), "repair commit predates child-start commits in git history");
+});
+
+test("unambiguous canonical legacy process ticks are tagged instead of duplicated", async () => {
+	const fixture = createFixture("legacy-skeleton", [
+		{ id: "impl", title: "Implementation", wave: 1 },
+		{ id: "legacy-review", title: "Final review of Disposable epic diff", wave: 2 },
+		{ id: "legacy-closeout", title: "Close out Disposable epic: run epic retro, then flesh out the next feasible epic into ticks", wave: 3 },
+	], { missing: ["review", "closeout"] });
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	const state = readState(fixture.repo);
+	assert.equal(state.tasks.length, 3);
+	assert.equal(state.tasks.find((item) => item.id === "legacy-review")?.role, "review");
+	assert.deepEqual(state.tasks.find((item) => item.id === "legacy-review")?.blocked_by, ["impl"]);
+	assert.equal(state.tasks.find((item) => item.id === "legacy-closeout")?.role, "closeout");
+	assert.deepEqual(state.tasks.find((item) => item.id === "legacy-closeout")?.blocked_by, ["legacy-review"]);
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "create"), false);
+});
+
+test("blocker review creates controller-owned repair ticks and leaves review open", async () => {
+	const fixture = createFixture("review-blocker", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	command(fixture.repo, "git", "add", "delivered.txt");
+	command(fixture.repo, "git", "commit", "-m", "delivered source");
+	const reviewOutput = JSON.stringify({ version: 1, summary: "One blocker", findings: [{ severity: "blocker", confidence: 0.97, file: "delivered.txt", line: 1, message: "Delivered behavior is incorrect." }] });
+	const result = await executeFixture(fixture, { review: { detail: reviewOutput } });
+	assert.equal(result.status, "blocked", result.summary);
+	const state = readState(fixture.repo);
+	const review = state.tasks.find((item) => item.id === "review")!;
+	const repair = state.tasks.find((item) => item.discovered_from === "review");
+	assert.equal(review.status, "open");
+	assert.ok(repair);
+	assert.ok(review.blocked_by?.includes(repair!.id));
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close" && entry.id === "review"), false);
+	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/epic/review"), "", "review never gets a source branch");
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "review findings schema" && item.status === "passed"));
+});
+
+test("malformed review output fails closed with full artifacts and no tracker close", async () => {
+	const fixture = createFixture("review-malformed", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	command(fixture.repo, "git", "add", "delivered.txt");
+	command(fixture.repo, "git", "commit", "-m", "delivered source");
+	const result = await executeFixture(fixture, { review: { detail: "review prose, not JSON" } });
+	assert.equal(result.status, "failed", result.summary);
 	assert.equal(readState(fixture.repo).tasks[0].status, "open");
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close"), false);
+	const artifacts = result.outcomes[0].artifacts ?? [];
+	assert.ok(artifacts.some((item) => item.endsWith("events.jsonl") && fs.existsSync(item)));
+	assert.ok(artifacts.some((item) => item.endsWith("report.md") && fs.existsSync(item)));
+	assert.ok(artifacts.some((item) => item.endsWith("findings.json") && fs.existsSync(item)));
+});
+
+test("should-fix review findings follow repair versus record policy", async () => {
+	const finding = JSON.stringify({ version: 1, summary: "Should fix", findings: [{ severity: "should-fix", confidence: 0.9, file: "delivered.txt", line: 1, message: "Improve this behavior." }] });
+	const repairFixture = createFixture("review-should-repair", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(repairFixture.repo, "delivered.txt"), "delivered\n");
+	command(repairFixture.repo, "git", "add", "delivered.txt");
+	command(repairFixture.repo, "git", "commit", "-m", "delivered source");
+	const repaired = await executeFixture(repairFixture, { review: { detail: finding } });
+	assert.equal(repaired.status, "blocked");
+	assert.ok(readState(repairFixture.repo).tasks.some((item) => item.discovered_from === "review"));
+
+	const recordFixture = createFixture("review-should-record", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(recordFixture.repo, "delivered.txt"), "delivered\n");
+	fs.writeFileSync(path.join(recordFixture.repo, ".tick", "config.md"), fs.readFileSync(path.join(recordFixture.repo, ".tick", "config.md"), "utf8").replace("review_should_fix: repair", "review_should_fix: record"));
+	command(recordFixture.repo, "git", "add", "delivered.txt", ".tick/config.md");
+	command(recordFixture.repo, "git", "commit", "-m", "delivered source with record policy");
+	const recorded = await executeFixture(recordFixture, { review: { detail: finding } });
+	assert.equal(recorded.status, "completed", recorded.summary);
+	assert.equal(readState(recordFixture.repo).tasks.length, 1);
+	assert.match(readState(recordFixture.repo).epic.notes?.join("\n") ?? "", /Accepted review should-fix debt/);
+});
+
+test("clean structured review runs final tests and closes from the controller checkout", async () => {
+	const fixture = createFixture("review-clean", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	command(fixture.repo, "git", "add", "delivered.txt");
+	command(fixture.repo, "git", "commit", "-m", "delivered source");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	assert.equal(readState(fixture.repo).tasks[0].status, "closed");
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "final review tests" && item.status === "passed"));
+	const processCard = result.dashboard?.agents.find((agent) => agent.tickId === "review");
+	assert.equal(fs.realpathSync(processCard!.worktree), fs.realpathSync(fixture.repo));
+	assert.match(processCard!.tier, /review/);
+	assert.equal(command(fixture.repo, "git", "worktree", "list", "--porcelain").match(/worktree /g)?.length, 1);
+});
+
+test("closeout verifies acceptance with runnable evidence then closes closeout and epic", async () => {
+	const fixture = createFixture("closeout-pass", [{ id: "closeout", role: "closeout" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	command(fixture.repo, "git", "add", "delivered.txt");
+	command(fixture.repo, "git", "commit", "-m", "delivered source");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	const state = readState(fixture.repo);
+	assert.equal(state.tasks[0].status, "closed");
+	assert.equal(state.epic.status, "closed");
+	assert.match(state.epic.notes?.join("\n") ?? "", /Epic retro/);
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance evidence" && item.status === "passed"));
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "closeout acceptance schema" && item.status === "passed"));
+});
+
+test("failing closeout evidence keeps closeout and epic open without invoking the verifier", async () => {
+	const fixture = createFixture("closeout-evidence-fail", [{ id: "closeout", role: "closeout" }], { failPostWave: true });
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	command(fixture.repo, "git", "add", "delivered.txt");
+	command(fixture.repo, "git", "commit", "-m", "delivered source");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "failed", result.summary);
+	assert.equal(readState(fixture.repo).tasks[0].status, "open");
+	assert.equal(readState(fixture.repo).epic.status, "open");
+	assert.equal(fs.existsSync(fixture.marker), false, "failed controller evidence prevents model launch");
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance evidence" && item.status === "failed"));
+});
+
+test("unverified or malformed closeout fails closed and leaves epic open", async () => {
+	for (const [name, output] of [
+		["unverified", JSON.stringify({ version: 1, summary: "gap", items: [{ id: "A1", verified: false, evidence: [], message: "Not delivered" }], retro: { summary: "gap", learned_notes: [] } })],
+		["malformed", "not-json"],
+	] as const) {
+		const fixture = createFixture(`closeout-${name}`, [{ id: "closeout", role: "closeout" }]);
+		fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+		command(fixture.repo, "git", "add", "delivered.txt");
+		command(fixture.repo, "git", "commit", "-m", "delivered source");
+		const result = await executeFixture(fixture, { closeout: { detail: output } });
+		assert.equal(result.status, "failed", `${name}: ${result.summary}`);
+		const state = readState(fixture.repo);
+		assert.equal(state.tasks[0].status, "open");
+		assert.equal(state.epic.status, "open");
+		assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close"), false);
+	}
+});
+
+test("autonomous selection bypasses checkpoint only and always uses tk next policy", async () => {
+	const checkpoint = createFixture("autonomous-checkpoint", [{ id: "checkpoint", awaiting: "checkpoint" }]);
+	const off = await executeFixture(checkpoint);
+	assert.equal(off.status, "blocked");
+	assert.equal(fs.existsSync(checkpoint.marker), false);
+	const on = await runEpic({
+		cwd: checkpoint.repo, epicId: "epic", execute: true, worktrees: true, autonomous: true,
+		stateRoot: checkpoint.stateRoot, tkExecutable: fakeTk, env: checkpoint.env,
+		invocationForTask: ({ task }) => ({ command: process.execPath, args: [fakePi, task.id, "DONE", "0", "", checkpoint.marker] }),
+	});
+	assert.equal(on.status, "completed", on.summary);
+	const selectionLogs = trackerLog(checkpoint.repo).filter((entry) => entry.command === "next" && entry.epicId === "epic");
+	assert.equal(selectionLogs.some((entry) => entry.autonomous === false), true);
+	assert.equal(selectionLogs.some((entry) => entry.autonomous === true), true);
+
+	for (const awaiting of ["approval", "input"]) {
+		const fixture = createFixture(`autonomous-${awaiting}`, [{ id: awaiting, awaiting }]);
+		const result = await runEpic({ cwd: fixture.repo, epicId: "epic", execute: true, worktrees: true, autonomous: true, stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env });
+		assert.equal(result.status, "blocked", `${awaiting} must remain blocking`);
+		assert.equal(readState(fixture.repo).tasks[0].status, "open");
+		assert.equal(fs.existsSync(fixture.marker), false);
+	}
 });

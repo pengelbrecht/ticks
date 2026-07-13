@@ -70,6 +70,7 @@ export type WorkPlan = {
 	model?: string;
 	tier: string;
 	tierReason: string;
+	executionMode: "implementation-worktree" | "process-controller-readonly";
 };
 
 export type RunDryPlan = {
@@ -181,12 +182,15 @@ export function buildRunPlan(options: {
 	const workPlans = readyTasks.map((task, index) => {
 		const routing = routeTask(task);
 		const durable = durablePaths.ticks[index];
+		const processRole = task.role === "review" || task.role === "closeout";
 		return {
 			...durable,
-			worktree: worktrees ? durable.worktree : durablePaths.repoRoot,
+			worktree: processRole ? durablePaths.repoRoot : worktrees ? durable.worktree : durablePaths.repoRoot,
+			branch: processRole ? "(controller checkout; read-only)" : durable.branch,
 			model: modelForTier(config, routing.tier),
 			tier: routing.tier,
 			tierReason: routing.reason,
+			executionMode: processRole ? "process-controller-readonly" : "implementation-worktree",
 		};
 	});
 	return {
@@ -237,8 +241,9 @@ export function formatDryPlan(plan: RunDryPlan): string {
 		for (const task of plan.readyTasks) {
 			const work = plan.workPlans.find((item) => item.tickId === task.id);
 			lines.push(`- ${task.id} — ${task.title ?? "(untitled)"}`);
-			lines.push(`  - tier/model: ${work?.tier ?? "balanced"}${work?.tier === "reserved" ? " / not dispatched" : work?.model ? ` / ${work.model}` : " / Pi default"}`);
+			lines.push(`  - tier/model: ${work?.tier ?? "balanced"}${work?.model ? ` / ${work.model}` : " / Pi default"}`);
 			lines.push(`  - routing: ${work?.tierReason ?? "default balanced"}`);
+			lines.push(`  - execution: ${work?.executionMode ?? "implementation-worktree"}`);
 			lines.push(`  - branch: ${work?.branch}`);
 			lines.push(`  - worktree: ${work?.worktree}`);
 			lines.push(`  - prompt: ${work?.prompt}`);
