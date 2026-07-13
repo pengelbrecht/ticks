@@ -54,6 +54,16 @@ test("compact status reports progress and attention without replacing global UI"
 	assert.match(summary.widget[0], /\$0\.2937/);
 });
 
+test("recovery panel renders durable decisions and bounded artifact paths", () => {
+	const recovered = buildDashboardModel({
+		epicId: "epic",
+		recovery: [{ kind: "failed-verification", label: "t1 verification failed", lastDecision: "redispatch in place", artifacts: ["/runs/epic/artifacts/t1/verifier.md"] }],
+	});
+	const text = renderDashboardText(recovered, 90);
+	assert.match(text, /decision: redispatch in place/);
+	assert.match(text, /artifact: \/runs\/epic\/artifacts\/t1\/verifier\.md/);
+});
+
 test("interactive component navigates, expands, and closes with all supported keys", () => {
 	let renders = 0;
 	let closes = 0;

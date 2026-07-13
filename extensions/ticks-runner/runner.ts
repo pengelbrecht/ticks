@@ -22,6 +22,12 @@ import {
 } from "./dashboard.ts";
 import { buildRunPlan, parseGraph, type GraphResult, type GraphTask, type RunDryPlan, type WorkPlan } from "./graph.ts";
 import { cleanupIntegratedWorktree, ensureGitWorktree, integrateWorktreeResult } from "./merge.ts";
+import {
+	reconcileRun,
+	recoveryDisposition,
+	scanRecovery,
+	type RecoverySnapshot,
+} from "./recovery.ts";
 import { createRunManifest, writeRunManifest, type RunManifest, type TickRunPaths } from "./state.ts";
 import {
 	createPiInvocation,
@@ -228,6 +234,8 @@ export type RunEpicOptions = {
 	worktrees?: boolean;
 	maxParallel?: number;
 	autonomous?: boolean;
+	/** Accepted as an explicit operator hint; safe recovery is automatic either way. */
+	resume?: boolean;
 	stateRoot?: string;
 	tkExecutable?: string;
 	piExecutable?: string;
@@ -395,6 +403,8 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 	const agentInputs = new Map<string, DashboardAgentInput>();
 	let activeGraph: GraphResult | undefined;
 	let currentWave: number | undefined;
+	let recovery: RecoverySnapshot | undefined;
+	let lastManifestTouch = 0;
 	const event = (type: string, detail: string, tickId?: string) => {
 		const item = { at: new Date().toISOString(), type, detail, tickId };
 		events.push(item);
@@ -416,11 +426,22 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 			agents: [...agentInputs.values()],
 			verification,
 			merges,
+			recovery: (recovery?.items ?? []).map((item) => ({
+				kind: item.kind,
+				label: item.label,
+				detail: item.detail,
+				action: item.action,
+				artifacts: item.artifactPaths,
+				lastDecision: item.lastDecision,
+			})),
+			humanGates: (activeGraph?.waves ?? []).flatMap((wave) => (wave.tasks ?? [])
+				.filter((task) => task.awaiting)
+				.map((task) => ({ tickId: task.id, title: task.title ?? "(untitled)", type: task.awaiting!, status: "awaiting" as const }))),
 		});
 		options.onDashboard?.(latestDashboard);
 	};
 	const finish = (status: EpicRunStatus, summary: string, plan?: RunDryPlan): EpicRunResult => {
-		if (manifest && manifestPath) updateManifest(manifestPath, manifest, status === "completed" ? "completed" : status === "awaiting" || status === "blocked" ? "awaiting" : status === "cancelled" || status === "failed" ? "failed" : "planned");
+		if (options.execute && manifest && manifestPath) updateManifest(manifestPath, manifest, status === "completed" ? "completed" : status === "awaiting" || status === "blocked" ? "awaiting" : status === "cancelled" || status === "failed" ? "failed" : "planned");
 		dashboard(status);
 		return { status, epicId: options.epicId, summary, wavesCompleted, outcomes, events, plan, dashboard: latestDashboard, manifest: manifestPath };
 	};
@@ -450,12 +471,37 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 		if (options.autonomous) event("policy", "Autonomous checkpoint continuation requested; non-checkpoint gates remain blocking");
 	}
 
+	// Recovery is a read-only reconciliation pass. Tracker changes happen only below,
+	// during explicit execution, after controller and Environment preflight succeed.
+	recovery = scanRecovery({ repoRoot: root, repoIdentity: identity, stateRoot, epicId: options.epicId, tkExecutable: tk, env });
+	const initialRecovery = recoveryDisposition(recovery, options.epicId);
+	if (options.execute && initialRecovery.status === "conflict") return finish("blocked", `Recovery conflict; refusing to guess or create duplicate state:\n${initialRecovery.conflicts.join("\n")}`);
+	if (options.execute && initialRecovery.status === "active") return finish("blocked", `A fresh active run or in-progress lease already claims ${identity}/${options.epicId}. Use /ticks-status ${options.epicId}; no second child was launched.`);
+	if (initialRecovery.manifest) {
+		manifest = initialRecovery.manifest;
+		manifestPath = initialRecovery.manifestPath;
+	}
+	if (options.execute && initialRecovery.staleInProgressTickIds.length) {
+		for (const tickId of initialRecovery.staleInProgressTickIds) tracker(tk, ["update", tickId, "--status", "open"], root, env);
+		trackerCommit(root, `Recover ${options.epicId}: reopen stale in-progress ticks`);
+		integration!.commit = git(root, ["rev-parse", "HEAD"]);
+		event("recovery", `Reopened stale tracker leases for in-place resume: ${initialRecovery.staleInProgressTickIds.join(", ")}`);
+		recovery = scanRecovery({ repoRoot: root, repoIdentity: identity, stateRoot, epicId: options.epicId, tkExecutable: tk, env });
+	}
+
 	for (;;) {
 		if (options.signal?.aborted) return finish("cancelled", "Run cancelled; cancellation was propagated to running children.");
 		let graph: GraphResult;
 		try { graph = parseGraph(tracker(tk, ["graph", options.epicId, "--json"], root, env)); } catch (error) { return finish("failed", error instanceof Error ? error.message : String(error)); }
 		activeGraph = graph;
 		const plan = buildRunPlan({ graph, config, repoRoot: root, repoIdentity: identity, epicId: options.epicId, stateRoot, worktrees: true });
+		const reconciled = reconcileRun(recovery, plan.durablePaths);
+		if (reconciled.status === "conflict") return finish("blocked", `Recovery conflict; refusing to guess or create duplicate state:\n${reconciled.conflicts.join("\n")}`, plan);
+		if (reconciled.status !== "active") {
+			plan.durablePaths.ticks = reconciled.tickPaths;
+			plan.workPlans = plan.workPlans.map((work) => ({ ...work, ...(reconciled.tickPaths.find((tick) => tick.tickId === work.tickId) ?? {}) }));
+		}
+		if (reconciled.resumedTickIds.length) event("recovery", `Reusing existing branch/worktree/artifacts for ${reconciled.resumedTickIds.join(", ")}`);
 		currentWave = plan.readyWave;
 		if (!options.execute) {
 			dashboard(plan.preflight.canLaunch ? "planned" : "blocked");
@@ -477,7 +523,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 		if (!manifest) {
 			manifest = createRunManifest(plan.durablePaths, "planned");
 			manifestPath = plan.durablePaths.manifest;
-		} else mergeTickPaths(manifest, plan.durablePaths.ticks);
+		}
 		mergeTickPaths(manifest, plan.durablePaths.ticks);
 		updateManifest(manifestPath!, manifest, "running");
 		dashboard("running");
@@ -486,7 +532,9 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 			for (let index = 0; index < plan.readyTasks.length; index++) {
 				const task = plan.readyTasks[index];
 				const work = plan.workPlans[index];
-				const provision = ensureGitWorktree({ repoRoot: root, worktree: work.worktree, branch: work.branch, baseRef: integration!.branch, tickId: task.id });
+				const recoveredTick = recovery.ticks.find((item) => item.tickId === task.id && item.epicId === options.epicId);
+				const baseRef = recoveredTick?.branches.includes(work.branch) ? work.branch : integration!.branch;
+				const provision = ensureGitWorktree({ repoRoot: root, worktree: work.worktree, branch: work.branch, baseRef, tickId: task.id });
 				if (provision.status === "rejected") throw new Error(provision.reason);
 				const detail = parseTickDetail(tracker(tk, ["show", task.id, "--json"], root, env), task.id);
 				const prompt = buildImplementerPrompt({ detail, epicId: options.epicId, epicTitle: graph.epic?.title, integrationCommit: provision.baseCommit, integrationBranch: integration!.branch, config });
@@ -535,6 +583,11 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 					signal: options.signal,
 					onSnapshot: (state: ChildState) => {
 						agentInputs.set(child.task.id, { ...agentInputs.get(child.task.id)!, state });
+						// updatedAt is a repo+epic lease, never process/session authority.
+						if (manifest && manifestPath && Date.now() - lastManifestTouch >= 5_000) {
+							updateManifest(manifestPath, manifest, "running");
+							lastManifestTouch = Date.now();
+						}
 						dashboard("running");
 					},
 				});

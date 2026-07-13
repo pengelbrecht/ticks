@@ -12,6 +12,7 @@ import {
 	type EpicRunResult,
 } from "./runner.ts";
 import type { ChildReport } from "./supervisor.ts";
+import { createRunManifest, planRunPaths, writeRunManifest } from "./state.ts";
 
 const fakeTk = path.join(import.meta.dirname, "fixtures", "runner-fake-tk.mjs");
 const fakePi = path.join(import.meta.dirname, "fixtures", "runner-child.mjs");
@@ -25,6 +26,8 @@ type FixtureTask = {
 	wave?: number;
 	blocked_by?: string[];
 	role?: string;
+	started_at?: string;
+	updated_at?: string;
 };
 
 function command(cwd: string, executable: string, ...args: string[]): string {
@@ -187,6 +190,19 @@ test("concurrency helper launches up to the cap before awaiting completion", asy
 	assert.ok(events.indexOf("c:start") > events.indexOf("b:end"));
 });
 
+test("dry-run recovery is read-only even when an existing manifest is selected", async () => {
+	const fixture = createFixture("dry-recovery", [{ id: "dry" }]);
+	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
+	const plan = planRunPaths({ repoRoot: fixture.repo, repoIdentity: identity, epicId: "epic", tickIds: ["dry"], stateRoot: fixture.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-01-01T00:00:00Z")));
+	const before = fs.readFileSync(plan.manifest, "utf8");
+	const result = await runEpic({ cwd: fixture.repo, epicId: "epic", execute: false, worktrees: true, stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env });
+	assert.equal(result.status, "dry-run");
+	assert.equal(fs.readFileSync(plan.manifest, "utf8"), before);
+	assert.equal(trackerLog(fixture.repo).length, 0);
+	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "");
+});
+
 test("fixture epic launches a wave in parallel, verifies after merges, closes durably, then cleans up", async () => {
 	const fixture = createFixture("parallel", [{ id: "a" }, { id: "b" }]);
 	const result = await executeFixture(fixture, { a: { delay: 180 }, b: { delay: 180 } });
@@ -211,6 +227,38 @@ test("fixture epic launches a wave in parallel, verifies after merges, closes du
 	assert.equal(command(fixture.repo, "git", "worktree", "list", "--porcelain").includes(fixture.stateRoot), false, "managed worktrees are removed after durable closes");
 	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/*"), "", "merged child branches are deleted after worktrees");
 	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "");
+});
+
+test("ordinary execute resumes an existing useful branch/worktree and creates no duplicate", async () => {
+	const fixture = createFixture("resume-useful", [{ id: "resume" }]);
+	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
+	const plan = planRunPaths({ repoRoot: fixture.repo, repoIdentity: identity, epicId: "epic", tickIds: ["resume"], stateRoot: fixture.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-01-01T00:00:00Z")));
+	fs.mkdirSync(path.dirname(plan.ticks[0].worktree), { recursive: true });
+	command(fixture.repo, "git", "worktree", "add", "-b", plan.ticks[0].branch, plan.ticks[0].worktree, "HEAD");
+	fs.writeFileSync(path.join(plan.ticks[0].worktree, "preserved.md"), "useful interrupted work\n");
+
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	assert.equal(fs.readFileSync(path.join(fixture.repo, "preserved.md"), "utf8"), "useful interrupted work\n");
+	assert.ok(result.events.some((event) => event.type === "recovery" && /resume/.test(event.detail)));
+	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/epic/*"), "", "the one resumed branch is cleaned after durable integration");
+});
+
+test("stale interrupted in-progress child is reopened and resumed in its existing worktree", async () => {
+	const fixture = createFixture("resume-stale", [{ id: "stale", status: "in_progress", started_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }]);
+	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
+	const plan = planRunPaths({ repoRoot: fixture.repo, repoIdentity: identity, epicId: "epic", tickIds: ["stale"], stateRoot: fixture.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "running", new Date("2026-01-01T00:00:00Z")));
+	fs.mkdirSync(path.dirname(plan.ticks[0].worktree), { recursive: true });
+	command(fixture.repo, "git", "worktree", "add", "-b", plan.ticks[0].branch, plan.ticks[0].worktree, "HEAD");
+	fs.writeFileSync(path.join(plan.ticks[0].worktree, "interrupted.md"), "keep this\n");
+
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	assert.equal(fs.readFileSync(path.join(fixture.repo, "interrupted.md"), "utf8"), "keep this\n");
+	assert.ok(result.events.some((event) => event.type === "recovery" && /Reopened stale/.test(event.detail)));
+	assert.ok(trackerLog(fixture.repo).some((entry) => entry.command === "update" && entry.id === "stale" && entry.status === "open"));
 });
 
 test("failed per-tick verifier persists evidence, reopens for repair, and never closes", async () => {
