@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -34,10 +35,12 @@ import {
 	parseNextSelection,
 	parseReviewReport,
 	PROCESS_READ_ONLY_TOOLS,
+	projectRules,
 	terminalImplementationTickIds,
 	unambiguousLegacyProcessTick,
 	type AcceptanceItem,
 	type EpicProcessDetail,
+	type ProjectRule,
 	type ReviewFinding,
 } from "./process-ticks.ts";
 import {
@@ -407,7 +410,7 @@ export function buildImplementerPrompt(input: {
 
 function evidenceMarkdown(title: string, evidence: readonly CommandEvidence[]): string {
 	const lines = [`# ${title}`, ""];
-	if (!evidence.length) lines.push("No executable commands were configured; gate skipped.");
+	if (!evidence.length) lines.push("FAILED: no executable commands were configured. Add at least one isolated inline-code command under `## Testing` in `.tick/config.md`, commit it, and rerun the epic.");
 	for (const item of evidence) {
 		lines.push(`## ${item.label ?? item.command}`, "", `- Command: \`${item.command.replaceAll("`", "\\`")}\``, `- Status: **${item.status}**`, `- Exit: ${item.exitCode ?? "none"}`, `- Elapsed: ${item.elapsedMs} ms`, "", "### stdout", "```text", item.stdout.slice(-16_384), "```", "", "### stderr", "```text", item.stderr.slice(-16_384), "```", "");
 	}
@@ -633,6 +636,44 @@ function processEvidenceMarkdown(title: string, evidence: ReadonlyArray<{ id: st
 	return `${lines.join("\n")}\n`;
 }
 
+function humanRuleGateFingerprint(rules: readonly ProjectRule[]): string {
+	return createHash("sha256").update(JSON.stringify(rules.map((rule) => [rule.id, rule.text]))).digest("hex").slice(0, 16);
+}
+
+function humanRuleGateApproved(input: string, expectedId: string, fingerprint: string): boolean {
+	let value: unknown;
+	try { value = JSON.parse(input); } catch { return false; }
+	if (Array.isArray(value)) value = value[0];
+	if (!value || typeof value !== "object") return false;
+	const item = value as Record<string, unknown>;
+	if (item.id !== expectedId || item.verdict !== "approved") return false;
+	const notes = Array.isArray(item.notes) ? item.notes.filter((note): note is string => typeof note === "string").join("\n") : typeof item.notes === "string" ? item.notes : "";
+	return notes.includes(`project-rule-gate:${fingerprint}`) && notes.includes(`project-rule-evidence:${fingerprint}`);
+}
+
+function humanRuleGateMarkdown(epicId: string, closeoutId: string, fingerprint: string, rules: readonly ProjectRule[]): string {
+	return [
+		"# Project Rules human checkpoint",
+		"",
+		`Epic: ${epicId}`,
+		`Closeout tick: ${closeoutId}`,
+		`Gate fingerprint: ${fingerprint}`,
+		"",
+		"The controller cannot verify these external facts locally and will not ask a model to invent proof:",
+		...rules.map((rule) => `- ${rule.id}: ${rule.text}`),
+		"",
+		"## Operator action",
+		"",
+		"1. Verify every fact above using the external system (for example, open/push the epic PR and wait for CI).",
+		`2. Record bound concrete evidence: \`tk note ${closeoutId} "project-rule-evidence:${fingerprint} <PR URL/check run/etc>" --from human\`.`,
+		`3. Approve this non-terminal checkpoint: \`tk approve ${closeoutId}\`.`,
+		`4. Commit the resulting \`.tick/\` state and rerun \`/ticks-run ${epicId}\`.`,
+		"",
+		"Approval is durable evidence only for this exact fingerprint. Changed Rules create a new checkpoint.",
+		"",
+	].join("\n");
+}
+
 function formatOutcome(outcome: AgentOutcome): string {
 	return `${outcome.tickId}: ${outcome.kind} — ${outcome.detail}`;
 }
@@ -790,11 +831,21 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		verification.push(gate);
 		dashboard("running");
 		const evidence = await runConfiguredCommands(config.testCommands, root, env, options.signal);
-		atomicText(artifact, evidenceMarkdown(`Post-wave ${waveNumber} test gate`, evidence));
+		const missing: CommandEvidence | undefined = config.testCommands.length ? undefined : {
+			label: "Testing configuration repair required",
+			command: "<configure .tick/config.md ## Testing>",
+			status: "failed",
+			exitCode: null,
+			stdout: "",
+			stderr: "No executable Testing command is configured. Add an isolated inline-code command under ## Testing, commit it, and rerun /ticks-run.",
+			elapsedMs: 0,
+		};
+		const recorded = missing ? [missing] : evidence;
+		atomicText(artifact, evidenceMarkdown(`Post-wave ${waveNumber} test gate`, recorded));
 		event("wave-gate-evidence", `Post-wave ${waveNumber} evidence persisted before tracker closure: ${artifact}`);
-		const failed = evidence.find((check) => check.status !== "passed");
+		const failed = missing ?? evidence.find((check) => check.status !== "passed");
 		gate.status = failed ? "failed" : "passed";
-		gate.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : config.testCommands.length ? `${evidence.length} command(s) passed after merges` : "No executable test commands configured";
+		gate.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : `${evidence.length} command(s) passed after merges`;
 		return { failed, artifact, gate };
 	};
 
@@ -884,7 +935,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		markProcessStarted(task, work, "review");
 		let child: ChildReport;
 		try {
-			child = await superviseProcess(task, work, buildReviewPrompt({ epic, reviewTick: task, diffArtifact, findingsArtifact }));
+			child = await superviseProcess(task, work, buildReviewPrompt({ epic, reviewTick: task, diffArtifact, findingsArtifact, rules: projectRules(config.rules) }));
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			schemaLane.status = "failed";
@@ -971,15 +1022,39 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		ensureProcessManifest(plan);
 		let epic: EpicProcessDetail;
 		let items: AcceptanceItem[];
+		let rules: ProjectRule[];
 		try {
-			archiveProcessArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "acceptance-evidence.md", "closeout-report.json", "retro.md"]);
+			archiveProcessArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "acceptance-evidence.md", "closeout-report.json", "retro.md", "project-rules-gate.md"]);
 			epic = parseEpicProcessDetail(tracker(tk, ["show", options.epicId, "--json"], root, env), options.epicId);
 			items = acceptanceItems(epic);
+			rules = projectRules(config.rules);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			failProcessOpen(task, "closeout", detail, []);
 			return finish("failed", `Closeout failed closed before verification: ${detail}`, plan);
 		}
+
+		const humanRules = rules.filter((rule) => rule.kind === "human");
+		const gateFingerprint = humanRuleGateFingerprint(humanRules);
+		let humanGateApproved = !humanRules.length;
+		if (humanRules.length) {
+			const gateState = tracker(tk, ["show", task.id, "--json"], root, env);
+			humanGateApproved = humanRuleGateApproved(gateState, task.id, gateFingerprint);
+		}
+		if (!humanGateApproved) {
+			const gateArtifact = path.join(work.artifactDir, "project-rules-gate.md");
+			atomicText(gateArtifact, humanRuleGateMarkdown(options.epicId, task.id, gateFingerprint, humanRules));
+			tracker(tk, ["note", task.id, `project-rule-gate:${gateFingerprint} External Project Rules require operator evidence and approval before closeout; instructions=${gateArtifact}`], root, env);
+			tracker(tk, ["update", task.id, "--status", "open", "--awaiting", "checkpoint"], root, env);
+			trackerCommit(root, `Gate ${options.epicId} closeout on external Project Rules`);
+			integration!.commit = git(root, ["rev-parse", "HEAD"]);
+			task.awaiting = "checkpoint";
+			const detail = `External Project Rules require operator evidence; follow ${gateArtifact}, approve checkpoint ${task.id}, commit tracker state, and rerun /ticks-run ${options.epicId}`;
+			outcomes.push({ tickId: task.id, kind: "blocked", detail, closeAllowed: false, artifacts: [gateArtifact] });
+			event("project-rules-gate", detail, task.id);
+			return finish("awaiting", detail, plan);
+		}
+
 		markProcessStarted(task, work, "closeout");
 		const evidenceArtifact = path.join(work.artifactDir, "acceptance-evidence.md");
 		const evidence: Array<{ id: string; item?: string; command: CommandEvidence }> = [];
@@ -988,28 +1063,45 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const [result] = await runConfiguredCommands([configured], root, env, options.signal);
 				if (result) evidence.push({ id: configured.evidenceId, item: `${item.id}: ${item.text}`, command: result });
 			}
+			for (let index = 0; index < config.testCommands.length; index++) {
+				const [result] = await runConfiguredCommands([config.testCommands[index]], root, env, options.signal);
+				if (result) evidence.push({ id: `${item.id}-T${index + 1}`, item: `${item.id}: ${item.text}`, command: result });
+			}
 		}
-		for (let index = 0; index < config.testCommands.length; index++) {
-			const [result] = await runConfiguredCommands([config.testCommands[index]], root, env, options.signal);
-			if (result) evidence.push({ id: `T${index + 1}`, command: result });
+		for (const rule of rules) {
+			for (const configured of rule.commands) {
+				const [result] = await runConfiguredCommands([configured], root, env, options.signal);
+				if (result) evidence.push({ id: configured.evidenceId, item: `${rule.id}: ${rule.text}`, command: result });
+			}
+			if (rule.kind === "human") evidence.push({
+				id: `${rule.id}-H1`,
+				item: `${rule.id}: ${rule.text}`,
+				command: { label: "Operator-approved external evidence", command: "<human checkpoint approval>", status: "passed", exitCode: 0, stdout: `Approved Project Rules gate ${gateFingerprint}`, stderr: "", elapsedMs: 0 },
+			});
 		}
-		atomicText(evidenceArtifact, processEvidenceMarkdown("Epic closeout acceptance evidence", evidence));
-		const evidenceLane: VerificationItem = { tickId: task.id, label: "outside-in acceptance evidence", status: "running", artifact: evidenceArtifact };
+		atomicText(evidenceArtifact, processEvidenceMarkdown("Epic closeout acceptance and Project Rules evidence", evidence));
+		const evidenceLane: VerificationItem = { tickId: task.id, label: "outside-in acceptance and rules evidence", status: "running", artifact: evidenceArtifact };
 		verification.push(evidenceLane);
 		const failedEvidence = evidence.find((entry) => entry.command.status !== "passed");
 		if (!config.testCommands.length || !evidence.length || failedEvidence) {
-			const detail = failedEvidence ? `${failedEvidence.id} failed: ${failedEvidence.command.stderr || failedEvidence.command.stdout || failedEvidence.command.status}` : !config.testCommands.length ? "No executable final configured tests are available" : "No runnable acceptance evidence is available";
+			const detail = failedEvidence
+				? `${failedEvidence.id} failed: ${failedEvidence.command.stderr || failedEvidence.command.stdout || failedEvidence.command.status}`
+				: !config.testCommands.length
+					? "No executable final configured tests are available. Add an isolated inline-code command under ## Testing in .tick/config.md, commit it, and rerun."
+					: "No runnable acceptance evidence is available";
 			evidenceLane.status = "failed";
 			evidenceLane.detail = detail;
 			failProcessOpen(task, "closeout", detail, [evidenceArtifact], "closeout-failure");
 			return finish(failedEvidence?.command.status === "cancelled" ? "cancelled" : "failed", `Closeout evidence failed closed: ${detail}`, plan);
 		}
-		const passingIds = evidence.filter((entry) => entry.command.status === "passed").map((entry) => entry.id);
+
+		const passingEvidenceByItem = new Map(items.map((item) => [item.id, new Set(evidence.filter((entry) => entry.item?.startsWith(`${item.id}:`) && entry.command.status === "passed").map((entry) => entry.id))]));
+		const passingEvidenceByRule = new Map(rules.map((rule) => [rule.id, new Set(evidence.filter((entry) => entry.item?.startsWith(`${rule.id}:`) && entry.command.status === "passed").map((entry) => entry.id))]));
 		evidenceLane.status = "passed";
-		evidenceLane.detail = `${passingIds.length} runnable evidence item(s) passed`;
+		evidenceLane.detail = `${evidence.length} item-scoped acceptance/rule evidence record(s) passed`;
 		let child: ChildReport;
 		try {
-			child = await superviseProcess(task, work, buildCloseoutPrompt({ epic, closeoutTick: task, items, evidenceArtifact, passingEvidenceIds: passingIds }));
+			child = await superviseProcess(task, work, buildCloseoutPrompt({ epic, closeoutTick: task, items, rules, evidenceArtifact, passingEvidenceByItem, passingEvidenceByRule }));
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			failProcessOpen(task, "closeout", detail, [evidenceArtifact, work.log, work.report], "closeout-failure");
@@ -1017,7 +1109,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		agentInputs.set(task.id, { ...agentInputs.get(task.id)!, report: child, status: child.outcome });
 		const reportArtifact = path.join(work.artifactDir, "closeout-report.json");
-		const reportLane: VerificationItem = { tickId: task.id, label: "closeout acceptance schema", status: "running", artifact: reportArtifact };
+		const reportLane: VerificationItem = { tickId: task.id, label: "closeout acceptance/rules schema", status: "running", artifact: reportArtifact };
 		verification.push(reportLane);
 		if (child.outcome !== "success" || !child.finalOutput) {
 			const detail = child.errorMessage ?? child.reason;
@@ -1029,10 +1121,10 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		let closeout;
 		try {
-			closeout = parseCloseoutReport(child.finalOutput, items, new Set(passingIds));
+			closeout = parseCloseoutReport(child.finalOutput, items, passingEvidenceByItem, rules, passingEvidenceByRule);
 			writeJsonArtifact(reportArtifact, closeout);
 			reportLane.status = "passed";
-			reportLane.detail = `${closeout.items.length} acceptance item(s) verified`;
+			reportLane.detail = `${closeout.items.length} acceptance item(s) and ${closeout.rules.length} Project Rule(s) verified`;
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			writeJsonArtifact(reportArtifact, { valid: false, error: detail });
@@ -1042,14 +1134,14 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			return finish("failed", `Malformed or unverified closeout failed closed: ${detail}`, plan);
 		}
 		const retroArtifact = path.join(work.artifactDir, "retro.md");
-		atomicText(retroArtifact, [`# Epic retro: ${epic.title}`, "", closeout.retro.summary, "", "## Learned notes", ...(closeout.retro.learned_notes.length ? closeout.retro.learned_notes.map((note) => `- ${note}`) : ["- None recorded."]), "", "## Verification", ...closeout.items.map((item) => `- ${item.id}: verified via ${item.evidence.join(", ")} — ${item.message}`), ""].join("\n"));
-		tracker(tk, ["note", task.id, `Closeout passed item-by-item: evidence=${evidenceArtifact}; report=${reportArtifact}; retro=${retroArtifact}`], root, env);
+		atomicText(retroArtifact, ["# Epic retro: " + epic.title, "", closeout.retro.summary, "", "## Learned notes", ...(closeout.retro.learned_notes.length ? closeout.retro.learned_notes.map((note) => `- ${note}`) : ["- None recorded."]), "", "## Acceptance verification", ...closeout.items.map((item) => `- ${item.id}: verified via ${item.evidence.join(", ")} — ${item.message}`), "", "## Project Rules", ...closeout.rules.map((rule) => `- ${rule.id}: compliant${rule.evidence.length ? ` via ${rule.evidence.join(", ")}` : " by repository inspection"} — ${rule.message}`), ""].join("\n"));
+		tracker(tk, ["note", task.id, `Closeout passed item-by-item with Project Rules enforced: evidence=${evidenceArtifact}; report=${reportArtifact}; retro=${retroArtifact}`], root, env);
 		tracker(tk, ["note", options.epicId, `Epic retro: ${closeout.retro.summary}${closeout.retro.learned_notes.length ? `\nLearned:\n${closeout.retro.learned_notes.map((note) => `- ${note}`).join("\n")}` : ""}\nArtifacts: ${retroArtifact}`], root, env);
-		tracker(tk, ["close", task.id, "--reason", `Completed: ${closeout.items.length} epic acceptance item(s) verified with runnable evidence and final tests`], root, env);
-		tracker(tk, ["close", options.epicId, "--reason", `Completed: outside-in acceptance passed item-by-item; retro=${retroArtifact}`], root, env);
+		tracker(tk, ["close", task.id, "--reason", `Completed: ${closeout.items.length} epic acceptance item(s) verified and ${closeout.rules.length} Project Rule(s) enforced`], root, env);
+		tracker(tk, ["close", options.epicId, "--reason", `Completed: outside-in acceptance and Project Rules passed item-by-item; retro=${retroArtifact}`], root, env);
 		trackerCommit(root, `Close ${options.epicId} after outside-in acceptance`);
 		integration!.commit = git(root, ["rev-parse", "HEAD"]);
-		outcomes.push({ tickId: task.id, kind: "accepted", detail: `${closeout.items.length} acceptance item(s) verified; closeout and epic closed`, closeAllowed: true, report: child, artifacts: [evidenceArtifact, work.log, work.report, reportArtifact, retroArtifact] });
+		outcomes.push({ tickId: task.id, kind: "accepted", detail: `${closeout.items.length} acceptance item(s) and ${closeout.rules.length} Project Rule(s) verified; closeout and epic closed`, closeAllowed: true, report: child, artifacts: [evidenceArtifact, work.log, work.report, reportArtifact, retroArtifact] });
 		let nextSummary = "No next feasible epic action was returned by the tracker.";
 		try {
 			const args = ["next", "--epic"];
@@ -1060,7 +1152,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		} catch (error) {
 			nextSummary = `Next-action lookup failed without changing the roadmap: ${error instanceof Error ? error.message : String(error)}`;
 		}
-		event("closeout-completed", `${closeout.items.length} acceptance item(s) passed; ${nextSummary}`, task.id);
+		event("closeout-completed", `${closeout.items.length} acceptance item(s) and ${closeout.rules.length} rule(s) passed; ${nextSummary}`, task.id);
 		return finish("completed", `Closeout passed and closed both ${task.id} and epic ${options.epicId}. ${nextSummary}`, plan);
 	};
 
@@ -1307,7 +1399,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			else outcome = classifyChildReport(execution.report);
 			const denials = readTkWrapperDenials(execution.wrapper.denialLog);
 			if (denials.length) outcome = { ...outcome, kind: "protocol-failure", detail: `Child attempted ${denials.length} forbidden tk mutation(s); see ${execution.wrapper.denialLog}`, closeAllowed: false, artifacts: [execution.wrapper.denialLog] };
-			if (outcome.closeAllowed) {
+			if (outcome.closeAllowed && config.testCommands.length) {
 				const item: VerificationItem = { tickId: execution.task.id, label: "configured verifier", status: "running", artifact: path.join(execution.work.artifactDir, "verifier.md") };
 				verification.push(item);
 				dashboard("running");
@@ -1316,7 +1408,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const failed = evidence.find((check) => check.status !== "passed");
 				if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost during verification: ${ownershipFailure()}. No integration was attempted.`);
 				item.status = failed ? "failed" : "passed";
-				item.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : config.testCommands.length ? `${evidence.length} command(s) passed` : "No executable test commands configured";
+				item.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : `${evidence.length} command(s) passed`;
 				if (failed) outcome = { tickId: execution.task.id, kind: failed.status === "cancelled" ? "cancelled" : "verifier-failure", detail: item.detail, closeAllowed: false, report: execution.report, artifacts: [item.artifact!] };
 			}
 			waveOutcomes.push(outcome);

@@ -3,9 +3,12 @@ import test from "node:test";
 import {
 	acceptanceItems,
 	applyAutonomousSelection,
+	buildCloseoutPrompt,
+	buildReviewPrompt,
 	parseCloseoutReport,
 	parseNextSelection,
 	parseReviewReport,
+	projectRules,
 	terminalImplementationTickIds,
 	unambiguousLegacyProcessTick,
 	type EpicProcessDetail,
@@ -31,26 +34,52 @@ test("review report parser is strict, bounded, and rejects tracker/path injectio
 	assert.throws(() => parseReviewReport(JSON.stringify({ version: 1, summary: "x", findings: [], command: "tk close epic" })), /unsupported field/);
 });
 
-test("closeout report requires exact item coverage and controller-issued passing evidence", () => {
+test("closeout report requires item-scoped controller evidence and rejects cross-item references", () => {
 	const items = acceptanceItems(epic);
+	const rules = projectRules(["Keep generated files synchronized."]);
 	assert.deepEqual(items.map((item) => [item.id, item.commands.map((command) => command.evidenceId)]), [["A1", []], ["A2", ["A2-C1"]]]);
-	const passing = new Set(["T1", "A2-C1"]);
-	const report = parseCloseoutReport(JSON.stringify({
+	const byItem = new Map([
+		["A1", new Set(["A1-T1"])],
+		["A2", new Set(["A2-T1", "A2-C1"])],
+	]);
+	const valid = {
 		version: 1,
 		summary: "All acceptance verified",
 		items: [
-			{ id: "A1", verified: true, evidence: ["T1"], message: "Final test covers behavior." },
+			{ id: "A1", verified: true, evidence: ["A1-T1"], message: "Item-scoped final test covers behavior." },
 			{ id: "A2", verified: true, evidence: ["A2-C1"], message: "Acceptance command passed." },
 		],
+		rules: [{ id: "R1", compliant: true, evidence: [], message: "Inspected generated files." }],
 		retro: { summary: "Kept scope", learned_notes: ["Keep evidence IDs stable."] },
-	}), items, passing);
-	assert.equal(report.items.length, 2);
-	assert.throws(() => parseCloseoutReport(JSON.stringify({
-		version: 1, summary: "invented", items: [
-			{ id: "A1", verified: true, evidence: ["SHELL:rm -rf"], message: "invented" },
-			{ id: "A2", verified: true, evidence: ["A2-C1"], message: "ok" },
-		], retro: { summary: "x", learned_notes: [] },
-	}), items, passing), /missing or failing evidence/);
+	};
+	assert.equal(parseCloseoutReport(JSON.stringify(valid), items, byItem, rules, new Map()).items.length, 2);
+	const crossed = structuredClone(valid);
+	crossed.items[0].evidence = ["A2-T1"];
+	assert.throws(() => parseCloseoutReport(JSON.stringify(crossed), items, byItem, rules, new Map()), /not issued for that item/);
+	const invented = structuredClone(valid);
+	invented.items[0].evidence = ["SHELL:rm -rf"];
+	assert.throws(() => parseCloseoutReport(JSON.stringify(invented), items, byItem, rules, new Map()), /not issued for that item/);
+});
+
+test("Project Rules are classified conservatively and embedded in both process prompts", () => {
+	const rules = projectRules([
+		"PR CI must be green before closeout.",
+		"Generated output: `node verify-generated.mjs`",
+		"Use pnpm only.",
+	]);
+	assert.deepEqual(rules.map((rule) => [rule.id, rule.kind, rule.commands[0]?.evidenceId]), [
+		["R1", "human", undefined],
+		["R2", "command", "R2-C1"],
+		["R3", "inspection", undefined],
+	]);
+	const review = buildReviewPrompt({ epic, reviewTick: { id: "review" }, diffArtifact: "/tmp/diff", findingsArtifact: "/tmp/findings", rules });
+	const closeout = buildCloseoutPrompt({ epic, closeoutTick: { id: "closeout" }, items: acceptanceItems(epic), rules, evidenceArtifact: "/tmp/evidence", passingEvidenceByItem: new Map(), passingEvidenceByRule: new Map() });
+	for (const prompt of [review, closeout]) {
+		assert.match(prompt, /PR CI must be green/);
+		assert.match(prompt, /Use pnpm only/);
+	}
+	assert.match(closeout, /A2 can never verify A1/);
+	assert.match(closeout, /do not independently assert PR or CI status/);
 });
 
 test("terminal implementation derivation excludes structural process ticks and never resolves ambiguous titles", () => {
