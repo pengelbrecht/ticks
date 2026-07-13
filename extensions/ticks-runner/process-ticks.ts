@@ -41,9 +41,22 @@ export type AcceptanceItem = {
 	text: string;
 	commands: Array<ConfiguredCommand & { evidenceId: string }>;
 };
+export type ProjectRuleKind = "inspection" | "command" | "human";
+export type ProjectRule = {
+	id: string;
+	text: string;
+	kind: ProjectRuleKind;
+	commands: Array<ConfiguredCommand & { evidenceId: string }>;
+};
 export type CloseoutItemResult = {
 	id: string;
 	verified: boolean;
+	evidence: string[];
+	message: string;
+};
+export type CloseoutRuleResult = {
+	id: string;
+	compliant: boolean;
 	evidence: string[];
 	message: string;
 };
@@ -51,6 +64,7 @@ export type CloseoutReport = {
 	version: typeof CLOSEOUT_REPORT_VERSION;
 	summary: string;
 	items: CloseoutItemResult[];
+	rules: CloseoutRuleResult[];
 	retro: { summary: string; learned_notes: string[] };
 };
 
@@ -203,9 +217,36 @@ export function acceptanceItems(detail: EpicProcessDetail): AcceptanceItem[] {
 	});
 }
 
-export function parseCloseoutReport(input: string, items: readonly AcceptanceItem[], passingEvidenceIds: ReadonlySet<string>): CloseoutReport {
+const EXTERNAL_RULE = /\b(?:human|approval|sign[- ]?off|pull request|github|gitlab|ci|continuous integration|green on|external)\b/i;
+
+/** Commands use the same isolated-inline-code grammar as Testing; otherwise external facts require a human checkpoint. */
+export function projectRules(lines: readonly string[]): ProjectRule[] {
+	if (lines.length > 64) throw new Error("Project Rules contains more than 64 items");
+	return lines.map((line, index) => {
+		const id = `R${index + 1}`;
+		const text = boundedString(line.replace(/^[-*+]\s+/, ""), `project rule ${index + 1}`, 2_000);
+		const parsed = parseExecutableCommands([text]);
+		if (parsed.commands.length) {
+			return { id, text, kind: "command", commands: parsed.commands.map((command, commandIndex) => ({ ...command, evidenceId: `${id}-C${commandIndex + 1}` })) };
+		}
+		return { id, text, kind: EXTERNAL_RULE.test(text) ? "human" : "inspection", commands: [] };
+	});
+}
+
+function boundedEvidence(value: unknown, label: string): string[] {
+	if (!Array.isArray(value) || value.length > 32 || !value.every((entry) => typeof entry === "string" && entry.length <= 64)) throw new Error(`${label} evidence must be a bounded string array`);
+	return [...new Set(value as string[])];
+}
+
+export function parseCloseoutReport(
+	input: string,
+	items: readonly AcceptanceItem[],
+	passingEvidenceByItem: ReadonlyMap<string, ReadonlySet<string>>,
+	rules: readonly ProjectRule[],
+	passingEvidenceByRule: ReadonlyMap<string, ReadonlySet<string>>,
+): CloseoutReport {
 	const value = jsonObject(input, "closeout report");
-	exactKeys(value, ["version", "summary", "items", "retro"], "closeout report");
+	exactKeys(value, ["version", "summary", "items", "rules", "retro"], "closeout report");
 	if (value.version !== CLOSEOUT_REPORT_VERSION) throw new Error(`closeout report version must be ${CLOSEOUT_REPORT_VERSION}`);
 	const summary = boundedString(value.summary, "closeout summary", 4_000);
 	if (!Array.isArray(value.items) || value.items.length !== items.length) throw new Error("closeout report must contain exactly one result per acceptance item");
@@ -218,26 +259,62 @@ export function parseCloseoutReport(input: string, items: readonly AcceptanceIte
 		if (!expected.has(id) || seen.has(id)) throw new Error(`closeout item id ${id} is missing, unknown, or duplicated`);
 		seen.add(id);
 		if (typeof result.verified !== "boolean") throw new Error(`closeout item ${id} verified must be boolean`);
-		if (!Array.isArray(result.evidence) || result.evidence.length > 32 || !result.evidence.every((entry) => typeof entry === "string" && entry.length <= 64)) throw new Error(`closeout item ${id} evidence must be a bounded string array`);
-		const evidence = [...new Set(result.evidence as string[])];
-		if (result.verified && (!evidence.length || evidence.some((evidenceId) => !passingEvidenceIds.has(evidenceId)))) {
-			throw new Error(`closeout item ${id} cites missing or failing evidence`);
+		const evidence = boundedEvidence(result.evidence, `closeout item ${id}`);
+		const allowed = passingEvidenceByItem.get(id) ?? new Set<string>();
+		if (result.verified && (!evidence.length || evidence.some((evidenceId) => !allowed.has(evidenceId)))) {
+			throw new Error(`closeout item ${id} cites evidence not issued for that item or evidence that did not pass`);
 		}
 		return { id, verified: result.verified, evidence, message: boundedString(result.message, `closeout item ${id} message`, 2_000) };
 	});
 	if (results.some((result) => !result.verified)) throw new Error(`closeout left acceptance item(s) unverified: ${results.filter((result) => !result.verified).map((result) => result.id).join(", ")}`);
+
+	if (!Array.isArray(value.rules) || value.rules.length !== rules.length) throw new Error("closeout report must contain exactly one result per project rule");
+	const expectedRules = new Map(rules.map((rule) => [rule.id, rule]));
+	const seenRules = new Set<string>();
+	const ruleResults = value.rules.map((raw, index): CloseoutRuleResult => {
+		const result = record(raw, `closeout rule ${index + 1}`);
+		exactKeys(result, ["id", "compliant", "evidence", "message"], `closeout rule ${index + 1}`);
+		const id = boundedString(result.id, `closeout rule ${index + 1} id`, 16);
+		const rule = expectedRules.get(id);
+		if (!rule || seenRules.has(id)) throw new Error(`closeout rule id ${id} is missing, unknown, or duplicated`);
+		seenRules.add(id);
+		if (typeof result.compliant !== "boolean") throw new Error(`closeout rule ${id} compliant must be boolean`);
+		const evidence = boundedEvidence(result.evidence, `closeout rule ${id}`);
+		const allowed = passingEvidenceByRule.get(id) ?? new Set<string>();
+		if (rule.kind === "inspection" && evidence.length) throw new Error(`closeout inspection rule ${id} must not invent controller evidence`);
+		if (result.compliant && rule.kind !== "inspection" && (!evidence.length || evidence.some((evidenceId) => !allowed.has(evidenceId)))) {
+			throw new Error(`closeout rule ${id} cites missing, failing, or wrong-rule evidence`);
+		}
+		return { id, compliant: result.compliant, evidence, message: boundedString(result.message, `closeout rule ${id} message`, 2_000) };
+	});
+	if (ruleResults.some((result) => !result.compliant)) throw new Error(`closeout left project rule(s) unmet: ${ruleResults.filter((result) => !result.compliant).map((result) => result.id).join(", ")}`);
 	const retro = record(value.retro, "closeout retro");
 	exactKeys(retro, ["summary", "learned_notes"], "closeout retro");
 	if (!Array.isArray(retro.learned_notes) || retro.learned_notes.length > 16) throw new Error("closeout retro learned_notes must contain at most 16 entries");
 	const learned = retro.learned_notes.map((entry, index) => boundedString(entry, `closeout learned note ${index + 1}`, 1_000));
-	return { version: CLOSEOUT_REPORT_VERSION, summary, items: results, retro: { summary: boundedString(retro.summary, "closeout retro summary", 4_000), learned_notes: learned } };
+	return { version: CLOSEOUT_REPORT_VERSION, summary, items: results, rules: ruleResults, retro: { summary: boundedString(retro.summary, "closeout retro summary", 4_000), learned_notes: learned } };
 }
 
-export function buildReviewPrompt(input: { epic: EpicProcessDetail; reviewTick: GraphTask; diffArtifact: string; findingsArtifact: string }): string {
-	return `You are the frontier final reviewer for a Ticks epic. You are running read-only in the controller checkout. You have no shell, write/edit, or tracker tools and must never attempt tracker mutations.\n\n## Epic\nID: ${input.epic.id}\nProcess tick: ${input.reviewTick.id}\nTitle: ${input.epic.title}\nDescription:\n${input.epic.description || "(none)"}\n\nAcceptance:\n${input.epic.acceptance || "(none)"}\n\nBase branch: ${input.epic.baseBranch}\nFull source diff artifact: ${input.diffArtifact}\nRequired findings artifact destination (the controller writes it after validation): ${input.findingsArtifact}\n\nRead the diff artifact completely, then inspect every relevant changed source file and applicable repository spec/instruction file. Review spec compliance, correctness, security, error handling, tests, contracts, and maintainability. Do not review .tick tracker state.\n\nReturn ONLY one strict JSON object (no fence or prose) with exactly this schema:\n{"version":1,"summary":"bounded summary","findings":[{"severity":"blocker|should-fix|nit","confidence":0.0,"file":"repo/relative/path","line":1,"message":"specific finding"}]}\nEvery finding must identify a concrete positive source line. An empty findings array is a clean review. Do not include commands or proposed tracker arguments.`;
+export function buildReviewPrompt(input: { epic: EpicProcessDetail; reviewTick: GraphTask; diffArtifact: string; findingsArtifact: string; rules: readonly ProjectRule[] }): string {
+	const rules = input.rules.length ? input.rules.map((rule) => `- ${rule.id}: ${rule.text}`).join("\n") : "- (none configured)";
+	return `You are the frontier final reviewer for a Ticks epic. You are running read-only in the controller checkout. You have no shell, write/edit, or tracker tools and must never attempt tracker mutations.\n\n## Epic\nID: ${input.epic.id}\nProcess tick: ${input.reviewTick.id}\nTitle: ${input.epic.title}\nDescription:\n${input.epic.description || "(none)"}\n\nAcceptance:\n${input.epic.acceptance || "(none)"}\n\n## Project Rules (mandatory)\n${rules}\n\nBase branch: ${input.epic.baseBranch}\nFull source diff artifact: ${input.diffArtifact}\nRequired findings artifact destination (the controller writes it after validation): ${input.findingsArtifact}\n\nRead the diff artifact completely, then inspect every relevant changed source file and applicable repository spec/instruction file. Review every Project Rule as well as spec compliance, correctness, security, error handling, tests, contracts, and maintainability. Do not claim external or human facts (for example PR CI status); the controller handles those with a human checkpoint. Do not review .tick tracker state.\n\nReturn ONLY one strict JSON object (no fence or prose) with exactly this schema:\n{"version":1,"summary":"bounded summary","findings":[{"severity":"blocker|should-fix|nit","confidence":0.0,"file":"repo/relative/path","line":1,"message":"specific finding"}]}\nEvery finding must identify a concrete positive source line. An empty findings array is a clean review. Do not include commands or proposed tracker arguments.`;
 }
 
-export function buildCloseoutPrompt(input: { epic: EpicProcessDetail; closeoutTick: GraphTask; items: readonly AcceptanceItem[]; evidenceArtifact: string; passingEvidenceIds: readonly string[] }): string {
-	const itemText = input.items.map((item) => `- ${item.id}: ${item.text}`).join("\n");
-	return `You are the frontier closeout verifier for a Ticks epic. You are running read-only in the controller checkout. You have no shell, write/edit, or tracker tools and must never attempt tracker mutations or roadmap changes.\n\n## Epic\nID: ${input.epic.id}\nProcess tick: ${input.closeoutTick.id}\nTitle: ${input.epic.title}\nDescription:\n${input.epic.description || "(none)"}\n\nAcceptance items:\n${itemText}\n\nController-run evidence artifact: ${input.evidenceArtifact}\nPassing evidence IDs: ${input.passingEvidenceIds.join(", ") || "(none)"}\n\nInspect the delivered code from the outside in and read the evidence artifact completely. For every acceptance item, verify the behavior exists, tests actually cover it, and at least one cited controller-issued evidence ID is relevant. Never claim verification from an ID not listed above. Preserve scope: mark an item false if it is missing or uncertain. Write a concise retro and learned notes, but do not invent, reorder, create, or modify roadmap work.\n\nReturn ONLY one strict JSON object (no fence or prose) with exactly this schema:\n{"version":1,"summary":"bounded summary","items":[{"id":"A1","verified":true,"evidence":["T1"],"message":"why the evidence proves this item"}],"retro":{"summary":"what worked/changed","learned_notes":["bounded reusable note"]}}`;
+export function buildCloseoutPrompt(input: {
+	epic: EpicProcessDetail;
+	closeoutTick: GraphTask;
+	items: readonly AcceptanceItem[];
+	rules: readonly ProjectRule[];
+	evidenceArtifact: string;
+	passingEvidenceByItem: ReadonlyMap<string, ReadonlySet<string>>;
+	passingEvidenceByRule: ReadonlyMap<string, ReadonlySet<string>>;
+}): string {
+	const itemText = input.items.map((item) => `- ${item.id}: ${item.text}\n  Controller IDs issued for ${item.id}: ${[...(input.passingEvidenceByItem.get(item.id) ?? [])].join(", ") || "(none)"}`).join("\n");
+	const ruleText = input.rules.length ? input.rules.map((rule) => `- ${rule.id} [${rule.kind}]: ${rule.text}\n  Controller IDs issued for ${rule.id}: ${[...(input.passingEvidenceByRule.get(rule.id) ?? [])].join(", ") || "(none)"}`).join("\n") : "- (none configured)";
+	const firstItem = input.items[0];
+	const itemExample = { id: firstItem.id, verified: true, evidence: [[...(input.passingEvidenceByItem.get(firstItem.id) ?? [])][0] ?? `${firstItem.id}-T1`], message: "why this item-scoped evidence proves the item" };
+	const firstRule = input.rules[0];
+	const ruleExample = firstRule ? [{ id: firstRule.id, compliant: true, evidence: firstRule.kind === "inspection" ? [] : [[...(input.passingEvidenceByRule.get(firstRule.id) ?? [])][0] ?? `${firstRule.id}-C1`], message: "how the rule was enforced" }] : [];
+	const schemaExample = JSON.stringify({ version: CLOSEOUT_REPORT_VERSION, summary: "bounded summary", items: [itemExample], rules: ruleExample, retro: { summary: "what worked/changed", learned_notes: ["bounded reusable note"] } });
+	return `You are the frontier closeout verifier for a Ticks epic. You are running read-only in the controller checkout. You have no shell, write/edit, or tracker tools and must never attempt tracker mutations or roadmap changes.\n\n## Epic\nID: ${input.epic.id}\nProcess tick: ${input.closeoutTick.id}\nTitle: ${input.epic.title}\nDescription:\n${input.epic.description || "(none)"}\n\n## Acceptance items\n${itemText}\n\n## Project Rules (mandatory)\n${ruleText}\n\nController-run evidence artifact: ${input.evidenceArtifact}\n\nInspect the delivered code from the outside in and read the evidence artifact completely. For every acceptance item, cite only a passing controller ID explicitly issued for that same item; an ID under A2 can never verify A1. For command/human Project Rules, cite only IDs issued for that rule. For inspection rules, inspect the repository and leave evidence empty—never invent command or human proof. Human/external facts have already been checkpointed by the controller if an ID is present; do not independently assert PR or CI status. Preserve scope: mark an item false or a rule noncompliant if missing or uncertain. Write a concise retro and learned notes, but do not invent, reorder, create, or modify roadmap work.\n\nReturn ONLY one strict JSON object (no fence or prose) with exactly this schema shape (include one entry for every listed item/rule):\n${schemaExample}`;
 }

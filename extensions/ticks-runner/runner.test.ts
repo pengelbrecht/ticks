@@ -133,7 +133,7 @@ async function executeFixture(
 			if (task.role === "review" || task.role === "closeout") {
 				const output = selected.detail ?? (task.role === "review"
 					? JSON.stringify({ version: 1, summary: "Clean fixture review", findings: [] })
-					: JSON.stringify({ version: 1, summary: "Acceptance passed", items: [{ id: "A1", verified: true, evidence: ["T1"], message: "Fixture verifier passed" }], retro: { summary: "Fixture closeout", learned_notes: ["Keep fixture evidence runnable."] } }));
+					: JSON.stringify({ version: 1, summary: "Acceptance passed", items: [{ id: "A1", verified: true, evidence: ["A1-T1"], message: "Fixture verifier passed for A1" }], rules: [{ id: "R1", compliant: true, evidence: [], message: "Fixture rule inspected" }], retro: { summary: "Fixture closeout", learned_notes: ["Keep fixture evidence runnable."] } }));
 				return { command: process.execPath, args: [fakeProcessPi, task.id, output, fixture.marker, String(selected.delay ?? 0)] };
 			}
 			return {
@@ -145,7 +145,7 @@ async function executeFixture(
 }
 
 function readState(repo: string) {
-	return JSON.parse(fs.readFileSync(path.join(repo, ".tick", "fake-runner-state.json"), "utf8")) as { epic: { status: string; notes?: string[] }; tasks: Array<{ id: string; title: string; status: string; role?: string; blocked_by?: string[]; discovered_from?: string; close_reason?: string }> };
+	return JSON.parse(fs.readFileSync(path.join(repo, ".tick", "fake-runner-state.json"), "utf8")) as { epic: { status: string; notes?: string[] }; tasks: Array<{ id: string; title: string; status: string; role?: string; awaiting?: string; verdict?: string; blocked_by?: string[]; discovered_from?: string; close_reason?: string }> };
 }
 
 function trackerLog(repo: string): Array<Record<string, unknown>> {
@@ -395,6 +395,26 @@ test("failed per-tick verifier persists evidence, reopens for repair, and never 
 	assert.equal(fs.existsSync(result.dashboard?.agents.find((agent) => agent.tickId === "bad")?.worktree ?? ""), true, "repair worktree is retained");
 });
 
+test("empty Testing fails the integrated gate, preserves merged work, and gives an actionable durable repair state", async () => {
+	const fixture = createFixture("missing-testing", [{ id: "implemented" }]);
+	const configPath = path.join(fixture.repo, ".tick", "config.md");
+	fs.writeFileSync(configPath, fs.readFileSync(configPath, "utf8").replace("- Fixture: `node verify.mjs` (the exact inline code is executable; this prose is not)", "- Add a real integrated test command before closing implementation ticks."));
+	command(fixture.repo, "git", "add", configPath);
+	command(fixture.repo, "git", "commit", "-m", "remove executable Testing gate");
+
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "failed", result.summary);
+	assert.match(result.summary, /Post-wave test gate failed after merges/);
+	assert.equal(readState(fixture.repo).tasks[0].status, "open");
+	assert.equal(fs.readFileSync(path.join(fixture.repo, "implemented.txt"), "utf8"), "implemented implemented\n", "verified child work remains merged");
+	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/implemented"), /tick\/epic\/implemented/);
+	const gate = result.dashboard?.verification.find((item) => item.label === "post-wave 1 tests");
+	assert.equal(gate?.status, "failed");
+	assert.match(gate?.detail ?? "", /configure \.tick\/config\.md ## Testing/);
+	assert.match(fs.readFileSync(gate!.artifact!, "utf8"), /Add an isolated inline-code command under ## Testing/);
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close"), false);
+});
+
 test("post-wave failure keeps affected ticks open with repair state and recovery blocks dependents", async () => {
 	const fixture = createFixture("post-wave", [
 		{ id: "base", wave: 1 },
@@ -611,8 +631,8 @@ test("closeout verifies acceptance with runnable evidence then closes closeout a
 	assert.equal(state.tasks[0].status, "closed");
 	assert.equal(state.epic.status, "closed");
 	assert.match(state.epic.notes?.join("\n") ?? "", /Epic retro/);
-	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance evidence" && item.status === "passed"));
-	assert.ok(result.dashboard?.verification.some((item) => item.label === "closeout acceptance schema" && item.status === "passed"));
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance and rules evidence" && item.status === "passed"));
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "closeout acceptance/rules schema" && item.status === "passed"));
 });
 
 test("failing closeout evidence keeps closeout and epic open without invoking the verifier", async () => {
@@ -625,12 +645,52 @@ test("failing closeout evidence keeps closeout and epic open without invoking th
 	assert.equal(readState(fixture.repo).tasks[0].status, "open");
 	assert.equal(readState(fixture.repo).epic.status, "open");
 	assert.equal(fs.existsSync(fixture.marker), false, "failed controller evidence prevents model launch");
-	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance evidence" && item.status === "failed"));
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance and rules evidence" && item.status === "failed"));
+});
+
+test("external Project Rules create a durable human checkpoint and approved evidence can legitimately close the epic", async () => {
+	const fixture = createFixture("closeout-human-rule", [{ id: "closeout", role: "closeout" }]);
+	const configPath = path.join(fixture.repo, ".tick", "config.md");
+	fs.writeFileSync(configPath, fs.readFileSync(configPath, "utf8").replace("- Fixture rule.", "- Epic integration PR CI must be green before closeout."));
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	command(fixture.repo, "git", "add", "delivered.txt", configPath);
+	command(fixture.repo, "git", "commit", "-m", "delivered source with external rule");
+
+	const gated = await executeFixture(fixture);
+	assert.equal(gated.status, "awaiting", gated.summary);
+	assert.equal(fs.existsSync(fixture.marker), false, "the model is not asked to invent external proof");
+	const gatedState = readState(fixture.repo);
+	assert.equal(gatedState.tasks[0].status, "open");
+	assert.equal(gatedState.tasks[0].awaiting, "checkpoint");
+	assert.equal(gatedState.epic.status, "open");
+	assert.match(gated.summary, /approve checkpoint closeout/);
+	const gateArtifact = gated.outcomes[0].artifacts?.[0];
+	assert.ok(gateArtifact && fs.existsSync(gateArtifact));
+	const gateInstructions = fs.readFileSync(gateArtifact!, "utf8");
+	assert.match(gateInstructions, /open\/push the epic PR and wait for CI/);
+	const fingerprint = gateInstructions.match(/Gate fingerprint: ([a-f0-9]+)/)?.[1];
+	assert.ok(fingerprint);
+
+	command(fixture.repo, fakeTk, "note", "closeout", `project-rule-evidence:${fingerprint} PR #42 CI run 123 green`);
+	command(fixture.repo, fakeTk, "approve", "closeout");
+	command(fixture.repo, "git", "add", ".tick");
+	command(fixture.repo, "git", "commit", "-m", "approve external Project Rules gate");
+	const approvedOutput = JSON.stringify({
+		version: 1,
+		summary: "Acceptance and rules passed",
+		items: [{ id: "A1", verified: true, evidence: ["A1-T1"], message: "Fixture test passed for A1" }],
+		rules: [{ id: "R1", compliant: true, evidence: ["R1-H1"], message: "Controller supplied operator approval" }],
+		retro: { summary: "Human evidence stayed human-owned", learned_notes: [] },
+	});
+	const completed = await executeFixture(fixture, { closeout: { detail: approvedOutput } });
+	assert.equal(completed.status, "completed", completed.summary);
+	assert.equal(readState(fixture.repo).tasks[0].status, "closed");
+	assert.equal(readState(fixture.repo).epic.status, "closed");
 });
 
 test("unverified or malformed closeout fails closed and leaves epic open", async () => {
 	for (const [name, output] of [
-		["unverified", JSON.stringify({ version: 1, summary: "gap", items: [{ id: "A1", verified: false, evidence: [], message: "Not delivered" }], retro: { summary: "gap", learned_notes: [] } })],
+		["unverified", JSON.stringify({ version: 1, summary: "gap", items: [{ id: "A1", verified: false, evidence: [], message: "Not delivered" }], rules: [{ id: "R1", compliant: true, evidence: [], message: "inspected" }], retro: { summary: "gap", learned_notes: [] } })],
 		["malformed", "not-json"],
 	] as const) {
 		const fixture = createFixture(`closeout-${name}`, [{ id: "closeout", role: "closeout" }]);

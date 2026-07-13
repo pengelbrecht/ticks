@@ -118,12 +118,14 @@ if (command === "list") {
 	else {
 		const status = option(argv, "--status");
 		const role = option(argv, "--role");
+		const awaiting = option(argv, "--awaiting");
 		if (status) found.status = status;
+		if (awaiting !== undefined) found.awaiting = awaiting || undefined;
 		if (role) {
 			found.role = role;
 			if (Array.isArray(state.missing_process_ticks)) state.missing_process_ticks = state.missing_process_ticks.filter((missing) => missing !== role);
 		}
-		log({ id, status: found.status, role: found.role });
+		log({ id, status: found.status, role: found.role, awaiting: found.awaiting });
 		save();
 	}
 } else if (command === "block") {
@@ -151,6 +153,7 @@ if (command === "list") {
 	else {
 		const awaiting = found.awaiting;
 		delete found.awaiting;
+		found.verdict = "approved";
 		log({ id, action: "approved", awaiting });
 		save();
 	}
