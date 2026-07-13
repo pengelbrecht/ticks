@@ -6,6 +6,16 @@
 - UI: `cd internal/tickboard/ui && pnpm install --frozen-lockfile && pnpm exec tsc --noEmit && pnpm test` (full suite has pre-existing baseline failures — implementers run targeted `pnpm exec vitest run <files>` and must not add new failures; tsc must stay clean.)
 - Worker: `cd cloud/worker && pnpm install --frozen-lockfile && pnpm exec tsc --noEmit` (full `pnpm test` has a known workerd boot crash — verify worker changes with targeted `npx vitest run test/<file>.test.ts`.)
 
+## Pi Orchestrator
+
+- planner_model: openai-codex/gpt-5.6-sol:xhigh
+- scout_model: openai-codex/gpt-5.6-sol:low
+- implement_economy_model: openai-codex/gpt-5.6-sol:low
+- implement_balanced_model: openai-codex/gpt-5.6-sol:medium
+- implement_strong_model: openai-codex/gpt-5.6-sol:high
+- review_model: openai-codex/gpt-5.6-sol:xhigh
+- max_parallel: 4
+
 ## Environment
 
 - `which go` — Go toolchain on PATH

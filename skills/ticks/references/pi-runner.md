@@ -80,12 +80,12 @@ Example `.tick/config.md` section:
 ```markdown
 ## Pi Orchestrator
 
-- planner_model: anthropic/claude-opus-4-5:high
-- scout_model: anthropic/claude-haiku-4-5:off
-- implement_economy_model: openai-codex/gpt-5.4-mini:low
-- implement_balanced_model: openai-codex/gpt-5.5:medium
-- implement_strong_model: anthropic/claude-sonnet-4-5:high
-- review_model: anthropic/claude-opus-4-5:high
+- planner_model: openai-codex/gpt-5.6-sol:xhigh
+- scout_model: openai-codex/gpt-5.6-sol:low
+- implement_economy_model: openai-codex/gpt-5.6-sol:low
+- implement_balanced_model: openai-codex/gpt-5.6-sol:medium
+- implement_strong_model: openai-codex/gpt-5.6-sol:high
+- review_model: openai-codex/gpt-5.6-sol:xhigh
 - max_parallel: 4
 ```
 
@@ -101,7 +101,7 @@ Recommended local override names for the adapter:
 | Final/foundation review | `review_model` | `TICKS_PI_REVIEW_MODEL` | at least as capable as the implementer; default frontier for epic final review |
 | Wave cap | `max_parallel` | `TICKS_PI_MAX_PARALLEL` | cap process fan-out below `tk graph` max when desired |
 
-Resolution order: environment override > `.tick/config.md` `Pi Orchestrator` key > Pi user's current model/defaults. When routing through OpenAI's Codex subscription/OAuth credentials, use Pi's `openai-codex/<model>` provider IDs, not `openai/<model>` (the latter is the separately billed API-key provider and may have no quota). The orchestrator records the resolved model/provider in the `runner-state:` note for provenance, but git branch/worktree and tick status remain authoritative. Vendor choice is a scheduling detail, not durable identity; Claude may plan ticks that Pi executes with OpenAI/Codex models, and another runner may resume them later.
+Resolution order: environment override > `.tick/config.md` `Pi Orchestrator` key > Pi user's current model/defaults. When routing through OpenAI's Codex subscription/OAuth credentials, use Pi's `openai-codex/<model>` provider IDs, not `openai/<model>` (the latter is the separately billed API-key provider and may have no quota). Prefer the current GPT-5.6 family. Until the Luna/Sol/Terra variants have documented role tradeoffs, use `gpt-5.6-sol` across tiers and vary thinking level rather than guessing that a variant name implies capability or cost. The orchestrator records the resolved model/provider in the `runner-state:` note for provenance, but git branch/worktree and tick status remain authoritative. Vendor choice is a scheduling detail, not durable identity; Claude may plan ticks that Pi executes with OpenAI/Codex models, and another runner may resume them later.
 
 ## Pi extension UX target
 
