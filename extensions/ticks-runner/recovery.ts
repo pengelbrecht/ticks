@@ -4,11 +4,16 @@ import { runSubprocess } from "./boundary.ts";
 import { listGitWorktrees, type WorktreeRecord } from "./merge.ts";
 import {
 	DEFAULT_STALE_AFTER_MS,
+	controllerLeasePath,
 	createRunId,
+	createRunManifest,
 	durableSegment,
 	normalizeRepoIdentity,
 	isRunManifest,
+	planRunPaths,
+	readControllerLease,
 	repoSlug,
+	type ControllerLease,
 	type RunManifest,
 	type RunPaths,
 	type TickRunPaths,
@@ -83,6 +88,10 @@ export type RecoveredManifest = {
 	path: string;
 	runDir: string;
 	manifest?: RunManifest;
+	claimedEpicId?: string;
+	lease?: ControllerLease;
+	leaseMalformed: boolean;
+	leaseFresh: boolean;
 	stale: boolean;
 	malformed: boolean;
 	artifacts: string[];
@@ -130,6 +139,8 @@ export type RecoveryScanOptions = {
 	limits?: Partial<typeof DEFAULT_RECOVERY_LIMITS>;
 	/** Tests and non-process callers can provide public tk JSON directly. */
 	trackerJson?: { list?: unknown; show?: unknown; graph?: unknown };
+	/** Identifies a lease this caller already acquired; never authority by itself. */
+	controllerToken?: string;
 };
 
 export type RecoveryDisposition = {
@@ -272,7 +283,7 @@ function newestTickAge(tick: TrackerTick, now: number): number | undefined {
 	return values.length ? now - Math.max(...values) : undefined;
 }
 
-function walkFiles(root: string, maximum: number, predicate?: (file: string) => boolean): { files: string[]; truncated: boolean } {
+function walkFiles(root: string, maximum: number, predicate?: (file: string) => boolean, includeSymlinks = false): { files: string[]; truncated: boolean } {
 	if (!fs.existsSync(root)) return { files: [], truncated: false };
 	if (maximum <= 0) return { files: [], truncated: true };
 	const files: string[] = [];
@@ -282,15 +293,19 @@ function walkFiles(root: string, maximum: number, predicate?: (file: string) => 
 	let truncated = false;
 	while (pending.length && files.length < maximum && entriesSeen < entryLimit) {
 		const current = pending.pop()!;
-		let entries: fs.Dirent[];
-		try { entries = fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); } catch { continue; }
-		for (const entry of entries) {
-			entriesSeen++;
-			if (files.length >= maximum || entriesSeen > entryLimit) { truncated = true; break; }
-			const item = path.join(current, entry.name);
-			if (entry.isDirectory()) pending.push(item);
-			else if (entry.isFile() && (!predicate || predicate(item))) files.push(item);
-		}
+		let directory: fs.Dir;
+		try { directory = fs.opendirSync(current); } catch { continue; }
+		try {
+			for (;;) {
+				const entry = directory.readSync();
+				if (!entry) break;
+				entriesSeen++;
+				if (files.length >= maximum || entriesSeen > entryLimit) { truncated = true; break; }
+				const item = path.join(current, entry.name);
+				if (entry.isDirectory()) pending.push(item);
+				else if ((entry.isFile() || (includeSymlinks && entry.isSymbolicLink())) && (!predicate || predicate(item))) files.push(item);
+			}
+		} finally { try { directory.closeSync(); } catch { /* malformed/unreadable directories are skipped */ } }
 	}
 	if (pending.length || entriesSeen >= entryLimit) truncated = true;
 	return { files: files.sort(), truncated };
@@ -394,8 +409,20 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 	const issuesDir = path.join(repoRoot, ".tick", "issues");
 	if (fs.existsSync(issuesDir)) {
 		let issueNames: string[] = [];
-		try { issueNames = fs.readdirSync(issuesDir).filter((name) => name.endsWith(".json")).sort(); } catch { /* warning below */ }
-		if (issueNames.length > limits.issueFiles) { issueNames = issueNames.slice(0, limits.issueFiles); truncated = true; }
+		try {
+			const directory = fs.opendirSync(issuesDir);
+			try {
+				for (;;) {
+					const entry = directory.readSync();
+					if (!entry) break;
+					if (entry.isFile() && entry.name.endsWith(".json")) {
+						if (issueNames.length >= limits.issueFiles) { truncated = true; break; }
+						issueNames.push(entry.name);
+					}
+				}
+			} finally { try { directory.closeSync(); } catch { /* ignored */ } }
+			issueNames.sort();
+		} catch { /* warning below */ }
 		let loaded = 0;
 		for (const name of issueNames) {
 			try {
@@ -417,7 +444,7 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 	}
 
 	const manifestRoot = path.join(stateRoot, slug, "runs");
-	const manifestWalk = walkFiles(manifestRoot, limits.manifests, (file) => path.basename(file) === "run.json");
+	const manifestWalk = walkFiles(manifestRoot, limits.manifests, (file) => path.basename(file) === "run.json", true);
 	truncated ||= manifestWalk.truncated;
 	const manifests: RecoveredManifest[] = [];
 	let artifactBudget = limits.artifactFiles;
@@ -429,19 +456,28 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		artifactBudget = Math.max(0, artifactBudget - waveWalk.files.length);
 		truncated ||= artifactWalk.truncated || waveWalk.truncated;
 		const artifacts = unique([...artifactWalk.files, ...waveWalk.files]).sort();
+		const read = (() => { try { return fs.lstatSync(manifestPath).isSymbolicLink() ? undefined : cappedRead(manifestPath, limits.fileBytes); } catch { return undefined; } })();
+		const value = read && !read.truncated ? parseJson(read.text) : undefined;
+		const claimedEpicId = isRecord(value) ? string(value.epicId) : undefined;
+		const claimedIdentity = isRecord(value) ? string(value.repoIdentity) : undefined;
 		try {
-			const read = cappedRead(manifestPath, limits.fileBytes);
-			const value = read.truncated ? undefined : parseJson(read.text);
-			if (!isRunManifest(value)) throw new Error("invalid or oversized manifest");
+			if (!isRunManifest(value, { manifestPath, stateRoot, repoRoot, repoIdentity: identity, epicId: options.epicId })) throw new Error("invalid or oversized manifest");
 			const manifest = value;
-			if (normalizeRepoIdentity(manifest.repoIdentity) !== identity) continue;
-			if (options.epicId && manifest.epicId !== options.epicId) continue;
+			const leasePlan = planRunPaths({ repoRoot, repoIdentity: identity, epicId: manifest.epicId, tickIds: [], stateRoot });
+			const leasePath = controllerLeasePath(leasePlan);
+			const leaseExists = (() => { try { return fs.existsSync(leasePath); } catch { return false; } })();
+			const lease = readControllerLease(leasePath, leasePlan);
+			const leaseMalformed = leaseExists && !lease;
+			const leaseFresh = Boolean(lease && Date.parse(lease.expiresAt) > now);
 			const updated = Date.parse(manifest.updatedAt);
-			const stale = (manifest.status === "planned" || manifest.status === "running") && (!Number.isFinite(updated) || now - updated > staleAfter);
-			manifests.push({ path: manifestPath, runDir, manifest, stale, malformed: false, artifacts });
+			const ageStale = !Number.isFinite(updated) || now - updated > staleAfter;
+			const stale = (manifest.status === "planned" || manifest.status === "running") && !leaseFresh && ageStale;
+			manifests.push({ path: manifestPath, runDir, manifest, claimedEpicId: manifest.epicId, lease, leaseMalformed, leaseFresh, stale, malformed: false, artifacts });
 		} catch {
-			const expected = !options.epicId || path.basename(runDir) === createRunId(identity, options.epicId);
-			if (expected) manifests.push({ path: manifestPath, runDir, stale: true, malformed: true, artifacts });
+			let sameIdentity = false;
+			try { sameIdentity = Boolean(claimedIdentity && normalizeRepoIdentity(claimedIdentity) === identity); } catch { /* malformed identity */ }
+			const expected = !options.epicId || path.basename(runDir) === createRunId(identity, options.epicId) || (claimedEpicId === options.epicId && sameIdentity);
+			if (expected) manifests.push({ path: manifestPath, runDir, claimedEpicId, leaseMalformed: false, leaseFresh: false, stale: true, malformed: true, artifacts });
 		}
 	}
 
@@ -526,8 +562,11 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 			continue;
 		}
 		const manifest = recovered.manifest!;
-		if (recovered.stale) addItem(items, { kind: "stale-manifest", label: `${manifest.epicId} run manifest is stale`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "resume from existing durable state", artifactPaths: recovered.artifacts }, limits.items);
-		else if (manifest.status === "planned" || manifest.status === "running") addItem(items, { kind: "active-run", label: `${manifest.epicId} run is ${manifest.status}`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "do not start a duplicate runner", artifactPaths: recovered.artifacts }, limits.items);
+		if (recovered.leaseMalformed) addItem(items, { kind: "invalid-manifest", label: `${manifest.epicId} controller lease is malformed`, epicId: manifest.epicId, manifestPath: recovered.path, detail: controllerLeasePath(planRunPaths({ repoRoot, repoIdentity: identity, epicId: manifest.epicId, tickIds: [], stateRoot })), action: "repair or move the lease; do not guess", artifactPaths: recovered.artifacts }, limits.items);
+		if (recovered.lease && !recovered.leaseFresh) addItem(items, { kind: "stale-lease", label: `${manifest.epicId} controller ownership expired`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `lease expired ${recovered.lease.expiresAt}`, action: "recover only after tracker and git reconciliation", artifactPaths: recovered.artifacts }, limits.items);
+		if (recovered.leaseFresh && recovered.lease?.controllerToken !== options.controllerToken) addItem(items, { kind: "active-run", label: `${manifest.epicId} has fresh controller ownership`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `lease expires ${recovered.lease.expiresAt}`, action: "do not start a duplicate runner", artifactPaths: recovered.artifacts }, limits.items);
+		else if (recovered.stale) addItem(items, { kind: "stale-manifest", label: `${manifest.epicId} run manifest is stale`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "resume from existing durable state", artifactPaths: recovered.artifacts }, limits.items);
+		else if ((manifest.status === "planned" || manifest.status === "running") && (!recovered.lease || recovered.lease.controllerToken !== options.controllerToken)) addItem(items, { kind: "active-run", label: `${manifest.epicId} run is ${manifest.status}`, epicId: manifest.epicId, manifestPath: recovered.path, detail: `last update ${manifest.updatedAt}`, action: "do not start a duplicate runner", artifactPaths: recovered.artifacts }, limits.items);
 	}
 
 	for (const state of tickStates.values()) {
@@ -616,14 +655,16 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 /** Decide whether an epic is safe to start before any tracker mutation occurs. */
 export function recoveryDisposition(snapshot: RecoverySnapshot, epicId: string): RecoveryDisposition {
 	const manifests = snapshot.manifests.filter((entry) => entry.manifest?.epicId === epicId);
-	const invalidExpected = snapshot.manifests.filter((entry) => entry.malformed && path.basename(entry.runDir) === createRunId(snapshot.repoIdentity, epicId));
+	const invalidExpected = snapshot.manifests.filter((entry) => entry.malformed && (entry.claimedEpicId === epicId || path.basename(entry.runDir) === createRunId(snapshot.repoIdentity, epicId)));
+	const invalidLease = snapshot.manifests.filter((entry) => entry.manifest?.epicId === epicId && entry.leaseMalformed);
 	const conflicts: string[] = [];
 	if (manifests.length > 1) conflicts.push(`Multiple manifests claim ${snapshot.repoIdentity}/${epicId}: ${manifests.map((entry) => entry.path).join(", ")}`);
-	if (invalidExpected.length) conflicts.push(`Expected manifest is malformed: ${invalidExpected.map((entry) => entry.path).join(", ")}`);
+	if (invalidExpected.length) conflicts.push(`Expected manifest is malformed or unsafe: ${invalidExpected.map((entry) => entry.path).join(", ")}`);
+	if (invalidLease.length) conflicts.push(`Controller lease is malformed: ${invalidLease.map((entry) => entry.path).join(", ")}`);
 	for (const item of snapshot.items) if (item.kind === "duplicate-conflict" && ((!item.epicId && !item.tickId) || item.epicId === epicId || snapshot.ticks.find((tick) => tick.tickId === item.tickId)?.epicId === epicId)) conflicts.push(item.detail ?? item.label);
 	if (conflicts.length) return { status: "conflict", staleInProgressTickIds: [], conflicts };
 	const selected = manifests[0];
-	const activeManifest = selected && !selected.stale && (selected.manifest!.status === "planned" || selected.manifest!.status === "running");
+	const activeManifest = snapshot.items.some((item) => item.kind === "active-run" && item.epicId === epicId);
 	const freshInProgress = snapshot.ticks.some((tick) => tick.epicId === epicId && tick.tracker?.status === "in_progress" && !snapshot.items.some((item) => item.kind === "stale-lease" && item.tickId === tick.tickId));
 	if (activeManifest || freshInProgress) return { status: "active", manifest: selected?.manifest, manifestPath: selected?.path, staleInProgressTickIds: [], conflicts: [] };
 	const staleInProgressTickIds = snapshot.items.filter((item) => item.kind === "stale-lease" && snapshot.ticks.find((tick) => tick.tickId === item.tickId)?.epicId === epicId).map((item) => item.tickId!).sort();
@@ -657,15 +698,23 @@ export function reconcileRun(snapshot: RecoverySnapshot, plan: RunPaths): Reconc
 			conflicts.push(`${planned.tickId} branch ${branch} has multiple worktrees: ${attached.map((item) => item.path).join(", ")}`);
 			return planned;
 		}
+		if (attached[0] && !samePath(attached[0].path, planned.worktree)) conflicts.push(`${planned.tickId} branch ${branch} is attached outside its deterministic worktree: ${attached[0].path}`);
 		const notePaths = state.runnerNotes.filter((note) => note.branch === branch && note.worktree).map((note) => note.worktree!);
 		const manifestPaths = manifestHints.filter((hint) => hint.branch === branch).map((hint) => hint.worktree);
 		const existingHints = unique([...notePaths, ...manifestPaths].filter((item) => fs.existsSync(item)));
-		const worktree = attached[0]?.path ?? existingHints[0] ?? notePaths[0] ?? manifestPaths[0] ?? planned.worktree;
+		const worktree = attached[0] && samePath(attached[0].path, planned.worktree) ? planned.worktree : existingHints[0] ?? notePaths[0] ?? manifestPaths[0] ?? planned.worktree;
 		if (!attached.length && existingHints.length > 1) conflicts.push(`${planned.tickId} has multiple occupied worktree paths: ${existingHints.join(", ")}`);
 		const artifactHint = manifestHints.find((hint) => hint.branch === branch) ?? manifestHints[0];
 		if (branches.length || attached.length || artifactHint || state.artifacts.length) resumed.push(planned.tickId);
 		return artifactHint ? { ...artifactHint, tickId: planned.tickId, branch, worktree } : { ...planned, branch, worktree };
 	});
+	if (!conflicts.length) {
+		const candidatePlan = { ...plan, ticks: tickPaths };
+		const candidateManifest = createRunManifest(candidatePlan);
+		if (!isRunManifest(candidateManifest, { manifestPath: plan.manifest, stateRoot: plan.stateRoot, repoRoot: plan.repoRoot, repoIdentity: plan.repoIdentity, epicId: plan.epicId })) {
+			conflicts.push("Recovered branch/worktree/artifact paths do not match the deterministic run plan or traverse a symlink");
+		}
+	}
 	if (conflicts.length) return { ...disposition, status: "conflict", conflicts, tickPaths: plan.ticks, resumedTickIds: [] };
 	return { ...disposition, status: disposition.status === "fresh" && resumed.length ? "resume" : disposition.status, conflicts, tickPaths, resumedTickIds: unique(resumed).sort() };
 }

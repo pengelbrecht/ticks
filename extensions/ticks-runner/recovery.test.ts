@@ -89,27 +89,25 @@ test("fresh running state is active and a malformed child report is partial", ()
 	assert.equal(recoveryDisposition(recovered, "epic").status, "active");
 });
 
-test("existing useful worktree and failed manifest are selected for in-place resume", () => {
+test("existing useful deterministic worktree and failed manifest are selected for in-place resume", () => {
 	const f = fixture("resume");
-	const customBranch = "recovery/custom-t1";
-	const customWorktree = path.join(f.root, "legacy-worktree");
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });
 	issue(f.repo, {
 		id: "t1", parent: "epic", title: "Useful work", status: "open", updated_at: "2026-07-13T10:00:00Z",
-		notes: `2026-07-13T10:00:00Z - runner-state: runner=other branch=${customBranch} worktree=${customWorktree}`,
+		notes: `2026-07-13T10:00:00Z - runner-state: runner=other branch=${plan.ticks[0].branch} worktree=${plan.ticks[0].worktree}`,
 	});
-	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });
 	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-07-13T10:00:00Z")));
-	git(f.repo, "worktree", "add", "-b", customBranch, customWorktree, "HEAD");
-	fs.writeFileSync(path.join(customWorktree, "useful.txt"), "preserve me\n");
+	fs.mkdirSync(path.dirname(plan.ticks[0].worktree), { recursive: true });
+	git(f.repo, "worktree", "add", "-b", plan.ticks[0].branch, plan.ticks[0].worktree, "HEAD");
+	fs.writeFileSync(path.join(plan.ticks[0].worktree, "useful.txt"), "preserve me\n");
 
 	const recovered = scan(f);
 	const reconciled = reconcileRun(recovered, plan);
 	assert.equal(reconciled.status, "resume");
 	assert.deepEqual(reconciled.resumedTickIds, ["t1"]);
-	assert.equal(reconciled.tickPaths[0].branch, customBranch);
-	assert.equal(fs.realpathSync(reconciled.tickPaths[0].worktree), fs.realpathSync(customWorktree));
+	assert.equal(reconciled.tickPaths[0].branch, plan.ticks[0].branch);
+	assert.equal(fs.realpathSync(reconciled.tickPaths[0].worktree), fs.realpathSync(plan.ticks[0].worktree));
 	assert.equal(fs.readFileSync(path.join(reconciled.tickPaths[0].worktree, "useful.txt"), "utf8"), "preserve me\n");
-	assert.equal(git(f.repo, "branch", "--list", "recovery/*").split(/\r?\n/).filter(Boolean).length, 1);
 });
 
 test("orphaned worktree is surfaced and duplicate branch claims block reconciliation", () => {
@@ -163,6 +161,49 @@ test("malformed expected manifest is bounded and blocks automatic resume", () =>
 	const recovered = scan(f);
 	assert.ok(recovered.items.some((item) => item.kind === "invalid-manifest"));
 	assert.equal(recoveryDisposition(recovered, "epic").status, "conflict");
+});
+
+test("matching repo and epic manifests with redirected, escaping, mismatched, or symlinked paths are conflicts", () => {
+	const attacks: Array<{ name: string; mutate: (manifest: ReturnType<typeof createRunManifest>, f: ReturnType<typeof fixture>) => void; afterWrite?: (manifest: ReturnType<typeof createRunManifest>, f: ReturnType<typeof fixture>) => void }> = [
+		{ name: "tmp-prompt", mutate: (manifest) => { manifest.ticks[0].prompt = "/tmp/attacker-prompt.md"; } },
+		{ name: "dotdot-worktree", mutate: (manifest) => { manifest.ticks[0].worktree = `${manifest.ticks[0].worktree}/../redirect`; } },
+		{ name: "wrong-branch", mutate: (manifest) => { manifest.ticks[0].branch = "tick/epic/other"; } },
+		{ name: "wrong-worktree", mutate: (manifest) => { manifest.ticks[0].worktree = path.join(path.dirname(manifest.ticks[0].worktree), "other"); } },
+		{ name: "wrong-artifact", mutate: (manifest) => { manifest.ticks[0].artifactDir = path.join(path.dirname(manifest.ticks[0].artifactDir), "other"); } },
+		{ name: "wrong-tick-id", mutate: (manifest) => { manifest.ticks[0].tickId = "other"; } },
+		{
+			name: "artifact-symlink",
+			mutate: () => {},
+			afterWrite: (manifest, f) => {
+				const outside = path.join(f.root, "outside");
+				fs.mkdirSync(outside);
+				fs.mkdirSync(path.dirname(manifest.ticks[0].artifactDir), { recursive: true });
+				fs.symlinkSync(outside, manifest.ticks[0].artifactDir, "dir");
+			},
+		},
+		{
+			name: "manifest-symlink",
+			mutate: () => {},
+			afterWrite: (manifest, f) => {
+				const manifestPath = path.resolve(manifest.ticks[0].artifactDir, "..", "..", "run.json");
+				const outside = path.join(f.root, "outside-run.json");
+				fs.writeFileSync(outside, JSON.stringify(manifest));
+				fs.rmSync(manifestPath);
+				fs.symlinkSync(outside, manifestPath);
+			},
+		},
+	];
+	for (const attack of attacks) {
+		const f = fixture(`attack-${attack.name}`);
+		const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });
+		const manifest = createRunManifest(plan, "running", new Date("2026-07-13T11:59:00Z"));
+		attack.mutate(manifest, f);
+		writeRunManifest(plan.manifest, manifest);
+		attack.afterWrite?.(manifest, f);
+		const recovered = scan(f);
+		assert.equal(recoveryDisposition(recovered, "epic").status, "conflict", attack.name);
+		assert.ok(recovered.items.some((item) => item.kind === "invalid-manifest"), attack.name);
+	}
 });
 
 test("repo namespace ignores manifests and artifacts belonging to another repository", () => {

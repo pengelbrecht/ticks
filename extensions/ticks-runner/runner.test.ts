@@ -12,7 +12,7 @@ import {
 	type EpicRunResult,
 } from "./runner.ts";
 import type { ChildReport } from "./supervisor.ts";
-import { createRunManifest, planRunPaths, writeRunManifest } from "./state.ts";
+import { acquireControllerLease, createRunManifest, planRunPaths, writeRunManifest } from "./state.ts";
 
 const fakeTk = path.join(import.meta.dirname, "fixtures", "runner-fake-tk.mjs");
 const fakePi = path.join(import.meta.dirname, "fixtures", "runner-child.mjs");
@@ -229,6 +229,33 @@ test("fixture epic launches a wave in parallel, verifies after merges, closes du
 	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "");
 });
 
+test("a heartbeat keeps a silent child owned beyond the old stale threshold and blocks duplicate launch", async () => {
+	const fixture = createFixture("silent-lease", [{ id: "silent" }]);
+	const invoke = () => runEpic({
+		cwd: fixture.repo,
+		epicId: "epic",
+		execute: true,
+		worktrees: true,
+		stateRoot: fixture.stateRoot,
+		tkExecutable: fakeTk,
+		env: fixture.env,
+		leaseDurationMs: 1_000,
+		leaseHeartbeatMs: 100,
+		recoveryStaleAfterMs: 50,
+		invocationForTask: ({ task }) => ({ command: process.execPath, args: [fakePi, task.id, "DONE", "500", "", fixture.marker] }),
+	});
+	const first = invoke();
+	for (let attempt = 0; attempt < 50 && (!fs.existsSync(fixture.marker) || !fs.readFileSync(fixture.marker, "utf8").includes("silent:start")); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+	await new Promise((resolve) => setTimeout(resolve, 180));
+	const duplicate = await invoke();
+	assert.equal(duplicate.status, "blocked");
+	assert.match(duplicate.summary, /active run|lease already owns|durable controller ownership/i);
+	const completed = await first;
+	assert.equal(completed.status, "completed", completed.summary);
+	const starts = fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.startsWith("silent:start"));
+	assert.equal(starts.length, 1, "the second controller never launches a duplicate child");
+});
+
 test("ordinary execute resumes an existing useful branch/worktree and creates no duplicate", async () => {
 	const fixture = createFixture("resume-useful", [{ id: "resume" }]);
 	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
@@ -250,6 +277,7 @@ test("stale interrupted in-progress child is reopened and resumed in its existin
 	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
 	const plan = planRunPaths({ repoRoot: fixture.repo, repoIdentity: identity, epicId: "epic", tickIds: ["stale"], stateRoot: fixture.stateRoot });
 	writeRunManifest(plan.manifest, createRunManifest(plan, "running", new Date("2026-01-01T00:00:00Z")));
+	acquireControllerLease(plan, { now: Date.now() - 5_000, durationMs: 100 });
 	fs.mkdirSync(path.dirname(plan.ticks[0].worktree), { recursive: true });
 	command(fixture.repo, "git", "worktree", "add", "-b", plan.ticks[0].branch, plan.ticks[0].worktree, "HEAD");
 	fs.writeFileSync(path.join(plan.ticks[0].worktree, "interrupted.md"), "keep this\n");
