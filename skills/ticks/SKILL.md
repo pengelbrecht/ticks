@@ -71,6 +71,18 @@ Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to
 
 **Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. `.tick/config.md` is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
 
+**6. Pi executable extension (when running an epic in Pi):**
+
+Check whether Pi registered `/ticks-run`, `/ticks-status`, and `/ticks-dashboard` (RPC clients can inspect `get_commands`). If they are absent, explain that the skill supplies instructions but cannot activate extension code, and recommend the package:
+
+```bash
+pi install git:github.com/pengelbrecht/ticks
+# Local checkout:
+pi install /absolute/path/to/ticks
+```
+
+Do not claim that loading or invoking this skill enables those commands. A generic skill installer may have installed only `skills/ticks/`. The user may install the package or choose the manual Pi adapter flow in `references/pi-runner.md`.
+
 ### Step 1: Gather What's Already Known
 
 Before creating ticks, collect whatever requirements already exist:

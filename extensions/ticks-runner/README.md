@@ -1,47 +1,205 @@
-# Ticks Runner Pi Extension
+# Ticks Runner for Pi
 
-Project/package extension for running Ticks epics from Pi.
+A Pi package extension that runs Ticks implementation waves as supervised Pi subprocesses. The package also ships the `ticks` skill. Pi is the operator console; git, `.tick/`, and repository-namespaced artifacts are the recoverable state.
 
-Commands:
+## Prerequisites and installation
 
-- `/ticks-plan <epic-or-requirements>` — planning entrypoint. The scaffold currently explains the intended planner flow.
-- `/ticks-run <epic-id> [--worktrees]` — dry-run by default; inspect waves, models, and durable paths without mutation.
-- `/ticks-run <epic-id> --execute [--resume] [--max-parallel N] [--autonomous]` — explicitly opt in to isolated worktree execution. Worktrees are implicit; safe recovery is automatic and `--resume` is only an optional explicit hint.
-- `/ticks-status [epic-id]` — reconstruct active and recoverable state from read-only tracker JSON, compatibility notes, repo-scoped manifests/artifacts, git worktrees, and `tick/*` branches.
-- `/ticks-dashboard [--dump]` — show the richer status dashboard as text or an interactive Pi overlay.
+Install the `tk` and `pi` executables first. Review the package before loading it: Pi extensions execute with your user permissions.
 
-This extension is intentionally Ticks-specific. It borrows Pi's subagent extension pattern for child process supervision, but durable orchestration state remains git + `.tick/` + per-run artifacts.
+```bash
+# Git install (user scope)
+pi install git:github.com/pengelbrecht/ticks
 
-Current module status:
+# Project-local git install; records the package in .pi/settings.json
+pi install -l git:github.com/pengelbrecht/ticks
 
-- Registers all slash commands and loads `tk graph <epic> --json` for dry-run planning and wave-by-wave continuation.
-- `runner.ts` enforces a clean non-default controller branch, runs extracted Environment checks before mutation, fetches strict tick details, provisions worktrees/guards, supervises ready children concurrently, classifies the status protocol, verifies, merges, performs durable tracker transitions as `pi:orchestrator`, runs post-wave tests, and re-graphs.
-- Derives a durable repository identity and computes repo-namespaced run manifests plus collision-resistant branch/worktree/prompt/report/log paths for ready ticks.
-- `supervisor.ts` provides a stable, non-shell child-process API for Pi JSON mode: incremental event parsing, live snapshots, usage/context/cost aggregation, durable event logs and reports, failure classification, and TERM/KILL cancellation.
-- Renders the same live dashboard model through compact TUI/RPC status and the control-tower overlay.
+# Local checkout (user or project scope)
+pi install /absolute/path/to/ticks
+pi install -l /absolute/path/to/ticks
 
-## Recovery and resume
+# Try without installing
+pi -e /absolute/path/to/ticks
+```
 
-`recovery.ts` reconciles state by normalized repository identity plus epic/tick ID—never by Pi session ID or PID. It classifies active and stale manifests/leases/notes, orphaned worktrees, unattached branches, missing/partial reports, failed child or verification reports, awaiting gates, duplicate conflicts, and completed state awaiting cleanup. Status includes the latest durable decision and bounded artifact paths; event logs are listed but never loaded.
+A local directory is referenced in place; a git source is cloned and updateable by Pi. Run `pi list` to inspect installed packages, `pi config` to enable/disable resources, and `/reload` after changing an installed local checkout. The package manifest loads both `skills/ticks/` and `extensions/ticks-runner/`. Installing only the skill with a generic skill installer does **not** activate extension code.
 
-Execution performs the same read-only scan before mutation. A stale in-progress tracker lease is reopened only during explicit `--execute`, after Environment/controller preflight. Existing useful branches and worktrees are reused or attached through `ensureGitWorktree`; conflicting duplicate claims block rather than guessing. Incomplete state is never automatically deleted. Cleanup remains gated on both integration and a durable tracker transition.
+For extension-only development:
 
-Scans are bounded by manifest, issue, artifact, and per-file byte limits. Malformed files are surfaced or ignored safely, and manifests outside the current repository namespace are ignored.
+```bash
+pi -e ./extensions/ticks-runner/index.ts
+```
 
-## Executable config bullets
+## Commands
 
-Environment and Testing commands execute only when a bullet contains exactly one Markdown inline-code span, optionally after a short label:
+### `/ticks`
+
+Lists the four primary commands.
+
+### `/ticks-plan [<epic-id-or-requirements>]`
+
+Shows the intended Ticks planning flow and echoes the target. It does not currently launch scouts, call a planner model, or mutate the tracker. Plan with the loaded ticks skill, then use `/ticks-run` after the epic has child ticks and its `review`/`closeout` process ticks.
+
+### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous]`
+
+**Dry-run is the default.** Without `--execute`, the command reads `.tick/config.md` and `tk graph <epic-id> --json`, reconstructs recovery state, and prints waves, the resolved concurrency cap, model selection, deterministic branch/worktree/artifact paths, and blocking preflight findings. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
+
+```text
+/ticks-run qfs
+/ticks-run qfs --worktrees
+/ticks-run qfs --max-parallel 2
+```
+
+`--worktrees` makes dry-run display isolated worktree paths instead of the repository root. `--max-parallel N` must be a positive integer. The effective cap is the minimum of ready work, `tk graph`'s maximum, and the command/config cap.
+
+Execution requires the explicit safety switch:
+
+```text
+/ticks-run qfs --execute
+/ticks-run qfs --execute --max-parallel 2
+/ticks-run qfs --execute --resume
+/ticks-run qfs --execute --autonomous
+```
+
+Execution always uses isolated worktrees, so `--worktrees` is implicit. `--resume` is an operator-visible hint; the same safe reconciliation runs on every execution. `--autonomous` records the requested checkpoint policy, but non-checkpoint human gates still block (see limitations).
+
+Before any mutation, execution requires:
+
+- a clean controller checkout on a non-default branch;
+- every `## Environment` bullet to be executable and passing;
+- an epic that is planned and has a complete EPIC-SKELETON;
+- no fresh active lease or ambiguous duplicate branch/worktree/manifest claim.
+
+For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, runs configured tests in each child, merges accepted branches with merge commits, closes tracker state durably, cleans integrated worktrees, runs the post-wave test gate, and re-graphs. No known failure is closed and dependents do not launch after a failed gate.
+
+### `/ticks-status [<epic-id>]`
+
+Performs a bounded, read-only reconstruction from public tracker JSON (with issue-file compatibility fallback), manifests and reports, `runner-state:` notes, `git worktree list`, and `tick/*` branches. It reports active work, human gates, stale leases/manifests/notes, duplicate claims, orphaned worktrees, unattached branches, missing/partial/failed reports, failed verification, and completed state awaiting cleanup. Omit the epic to scan the repository namespace.
+
+### `/ticks-dashboard [<epic-or-run-id>] [--epic <id>] [--demo] [--dump] [--width N]`
+
+In TUI mode, opens the control-tower overlay. In RPC/non-TUI mode it automatically emits text. Options:
+
+- `--epic <id>` (or a positional target): combine the dry plan with recovery state for an epic; an exact run ID selects that run.
+- `--demo`: render frozen fixture data without tracker state.
+- `--dump`: print the same transport-neutral model and renderer used by the overlay.
+- `--width N`: text width, default `120`, clamped to at least `24`.
+
+Dashboard sections include the wave timeline, child cards and model/usage/cost, verification lane, merge queue, recovery actions/artifacts, and human gates. Controls: `Up`/`Down` selects a child, `Enter` or `Space` toggles details, and `q`, `Esc`, or `Ctrl-C` closes the overlay. The runner also maintains a compact footer/widget while active.
+
+## Configuration
+
+The extension reads `.tick/config.md` fresh. Commands are only executable when a bullet contains exactly one Markdown inline-code span, optionally preceded by `Label:` and followed by prose:
 
 ```markdown
 ## Environment
-- `which git` — commentary is not executed
+- Git: `git --version` — checked once before any execution mutation
+- `test -n "$DATABASE_URL"`
 
 ## Testing
-- Unit: `node --test extensions/ticks-runner/*.test.ts` (commentary is not executed)
+- Runner: `node --test extensions/ticks-runner/*.test.ts` — per tick and after each merged wave
+- Go: `go test ./...`
+
+## Rules
+- Do not add npm lockfiles; use pnpm for JavaScript package operations.
+- Preserve public JSON compatibility.
+
+## Pi Orchestrator
+- planner_model: openai-codex/gpt-5.6-sol:xhigh
+- scout_model: openai-codex/gpt-5.6-sol:low
+- implement_economy_model: openai-codex/gpt-5.6-sol:low
+- implement_balanced_model: openai-codex/gpt-5.6-sol:medium
+- implement_strong_model: openai-codex/gpt-5.6-sol:high
+- review_model: openai-codex/gpt-5.6-sol:xhigh
+- max_parallel: 4
 ```
 
-Prose-only Testing bullets remain prompt hints and are never sent to a shell. A prose-only Environment bullet blocks execution because its preflight condition cannot be verified.
+Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Commands run through `/bin/sh -lc` and stop at the first failure.
 
-## Current process-tick limit
+Environment overrides take precedence:
 
-Ready ticks with `role: review` or `role: closeout` stop with an explicit orchestrator action. They are never dispatched to an ordinary code implementer until dedicated review/retro behavior is implemented.
+| Key | Override |
+|---|---|
+| `planner_model` | `TICKS_PI_PLANNER_MODEL` |
+| `scout_model` | `TICKS_PI_SCOUT_MODEL` |
+| `implement_economy_model` | `TICKS_PI_IMPLEMENT_ECONOMY_MODEL` |
+| `implement_balanced_model` | `TICKS_PI_IMPLEMENT_BALANCED_MODEL` |
+| `implement_strong_model` | `TICKS_PI_IMPLEMENT_STRONG_MODEL` |
+| `review_model` | `TICKS_PI_REVIEW_MODEL` |
+| `max_parallel` | `TICKS_PI_MAX_PARALLEL` |
+
+Model syntax is `[provider/]model[:thinking]`. With Codex OAuth use `openai-codex/...`, not the separately billed `openai/...`. Ordinary dispatched ticks currently use `implement_balanced_model`; Pi's current/default model is used when unset. Planner/scout/economy/strong/review keys are retained for role-complete routing, but automated planning and process-tick dispatch are not yet implemented.
+
+## Artifacts and durable identity
+
+The default state root is `.ticks-worktrees` beside the primary checkout. Paths are namespaced by normalized remote (or git common directory), with hashes preventing collisions between similarly named repositories:
+
+```text
+<state-root>/<repo-slug>--<hash>/
+├── worktrees/<epic>/<tick>/
+└── runs/<epic>--<hash>/
+    ├── run.json
+    ├── artifacts/<tick>/
+    │   ├── prompt.md
+    │   ├── events.jsonl
+    │   ├── report.md
+    │   ├── verifier.md
+    │   └── tk-denials.jsonl
+    └── waves/wave-<n>-tests.md
+```
+
+Branches are `tick/<epic>/<tick>`. Manifests are atomically written and carry no PID or Pi session ID. Event logs may be large: status lists them but never loads them. Recovery reads reports with byte/file/count limits.
+
+## Boundary model
+
+The extension—not a child—owns tracker state.
+
+1. Prompts forbid `tk` and `.tick/**` mutation.
+2. Each child runs in its own worktree.
+3. A child-facing `tk` wrapper allows an explicit read-only command list and records denied mutations.
+4. `.tick/` permissions add best-effort read-only friction (not a sandbox).
+5. Source staging excludes `.tick/**`.
+6. Pre-merge git diff checks reject committed tracker changes.
+7. Only the controller runs tracker writes with `TK_ACTOR=pi:orchestrator` and commits them.
+8. Cleanup occurs only after source integration and durable tracker transition.
+
+The child process still has the user's OS permissions. Use containers or stronger host sandboxing for hostile code; chmod and prompts are defense in depth, not isolation.
+
+## Recovery playbook
+
+1. Run `/ticks-status <epic>` before retrying.
+2. If a run/lease is fresh, find the live controller; do not start a duplicate.
+3. For a stale lease, inspect the listed report/log/branch/worktree. A later `/ticks-run <epic> --execute` reopens it only after clean-controller and Environment preflight, then reuses the unique state.
+4. For an unattached branch, let execution attach it to the deterministic worktree. For useful existing work, resume in place; never create a second branch.
+5. Inspect `report.md`, `verifier.md`, or `wave-*-tests.md` for failed child, protocol, verification, or post-wave gates. Repair on the retained branch/worktree, then rerun.
+6. Resolve duplicate claims or malformed manifests manually. The runner blocks rather than choosing.
+7. For `completed-but-not-cleaned`, confirm both merge ancestry and durable tracker closure before removing worktree then branch.
+8. Never delete incomplete artifacts merely to make status green. They are the cross-session/cross-runner handoff.
+
+A stale `runner-state:` note is only a hint. Repository identity + epic/tick ID, tracker status, git branches/worktrees, and reports are authoritative.
+
+## Testing
+
+No live model is needed for the suite:
+
+```bash
+node --test extensions/ticks-runner/*.test.ts
+
+# Package discovery (response must include ticks-* and skill:ticks)
+printf '%s\n' '{"type":"get_commands"}' | pi --mode rpc --no-session -e .
+
+# Extension-only discovery
+printf '%s\n' '{"type":"get_commands"}' | pi --mode rpc --no-session \
+  -e ./extensions/ticks-runner/index.ts
+```
+
+Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/ticks-dashboard --demo --dump --width 80` for read-only smoke tests.
+
+## Known limitations
+
+- `/ticks-plan` is an informational planning entrypoint; it does not run scouts/planner or create ticks.
+- Ready `role: review` and `role: closeout` ticks stop with `awaiting`. They are intentionally not sent to ordinary implementers. Final review, epic retro/close, and next-epic planning remain operator/skill work.
+- `--autonomous` currently records policy intent but the runner does not pass an autonomous flag through tracker graph selection; human gates remain blocking.
+- Automatic tick-shape classification currently routes ordinary implementation to the balanced model. Economy/strong selection is not yet automatic.
+- Recovery is resumable, not process-continuous: a Pi subprocess does not survive controller exit. Durable work does.
+- No built-in spend cap is enforced. The dashboard reports usage/cost emitted by providers.
+- Rich interaction requires Pi TUI. RPC receives status/widget requests and text dumps; the overlay itself is TUI-only.

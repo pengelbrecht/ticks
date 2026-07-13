@@ -100,6 +100,21 @@ The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan 
 npx skills add pengelbrecht/ticks
 ```
 
+### Pi skill and orchestrator
+
+The repository is also a Pi package containing the ticks skill and the executable Ticks runner extension. Install from git or a local checkout:
+
+```bash
+pi install git:github.com/pengelbrecht/ticks
+pi install -l git:github.com/pengelbrecht/ticks   # project-local
+pi install /absolute/path/to/ticks                # local development
+pi -e /absolute/path/to/ticks                     # try without installing
+```
+
+Then use `/ticks-run <epic-id>` for a non-mutating plan, `/ticks-run <epic-id> --execute` to opt in to child execution, `/ticks-status [epic-id]` for recovery, and `/ticks-dashboard --demo` or `--dump` for the control tower. Execution requires a clean non-default branch and isolated worktrees. See [`extensions/ticks-runner/README.md`](extensions/ticks-runner/README.md) for configuration, safety boundaries, and recovery.
+
+A generic skill install does not activate Pi extension code; use `pi install` (or `pi -e`) when the slash commands are needed.
+
 ## Quick Start
 
 ```bash
