@@ -34,11 +34,12 @@ export type SubprocessResult = {
 };
 
 /** Execute without a shell. Requiring an absolute cwd prevents worktree-sensitive commands from leaking to the caller's cwd. */
-export function runSubprocess(command: string, args: readonly string[], cwd: string): SubprocessResult {
+export function runSubprocess(command: string, args: readonly string[], cwd: string, env?: NodeJS.ProcessEnv): SubprocessResult {
 	if (!command) throw new Error("Subprocess command must not be empty");
 	if (!path.isAbsolute(cwd)) throw new Error(`Subprocess cwd must be absolute: ${cwd}`);
 	const result = spawnSync(command, [...args], {
 		cwd,
+		env: env ?? process.env,
 		shell: false,
 		encoding: "utf8",
 		maxBuffer: 16 * 1024 * 1024,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { modelForTier, resolveRunnerConfig } from "./config.ts";
+import { modelForTier, parseExecutableCommands, resolveRunnerConfig } from "./config.ts";
 
 const markdown = `
 # Tick Run Configuration
@@ -31,8 +31,29 @@ test("config resolution applies environment overrides and parses operational sec
 	assert.equal(modelForTier(config, "review"), "openai-codex/gpt-5.6-sol:xhigh");
 	assert.deepEqual(config.environmentChecks, ["`which git` — git is installed"]);
 	assert.deepEqual(config.testingLines, ["`node --test`"]);
+	assert.deepEqual(config.environmentCommands.map((item) => item.command), ["which git"]);
+	assert.deepEqual(config.testCommands.map((item) => item.command), ["node --test"]);
 	assert.deepEqual(config.rules, ["- Do not touch .tick."]);
 	assert.deepEqual(config.warnings, []);
+});
+
+test("executable bullet parser runs only an isolated inline-code span and never prose", () => {
+	const parsed = parseExecutableCommands([
+		"Go: `go test ./...` (known baseline note)",
+		"`pnpm test` — exact command",
+		"Run the tests with pnpm test",
+		"Prose with `rm -rf /` embedded but no Label:",
+		"UI: `pnpm test` and then `echo prose`",
+	]);
+	assert.deepEqual(parsed.commands, [
+		{ label: "Go", command: "go test ./...", source: "Go: `go test ./...` (known baseline note)" },
+		{ command: "pnpm test", source: "`pnpm test` — exact command" },
+	]);
+	assert.deepEqual(parsed.ignored, [
+		"Run the tests with pnpm test",
+		"Prose with `rm -rf /` embedded but no Label:",
+		"UI: `pnpm test` and then `echo prose`",
+	]);
 });
 
 test("config warns for API-key OpenAI routing and invalid caps", () => {

@@ -15,6 +15,7 @@ import {
 	type DashboardModel,
 } from "./dashboard.ts";
 import { buildRunPlan, formatDryPlan, parseGraph, type RunDryPlan } from "./graph.ts";
+import { formatRunResult, runEpic } from "./runner.ts";
 import { discoverRuns } from "./state.ts";
 
 type Json = Record<string, unknown>;
@@ -246,6 +247,7 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 }
 
 export default function ticksRunnerExtension(pi: ExtensionAPI): void {
+	const activeRuns = new Set<AbortController>();
 	pi.registerMessageRenderer("ticks-runner", (message, _options, _theme) => {
 		return new Markdown(String(message.content ?? ""), 0, 0, getMarkdownTheme());
 	});
@@ -255,6 +257,8 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
+		for (const controller of activeRuns) controller.abort();
+		activeRuns.clear();
 		ctx.ui.setStatus("ticks-runner", undefined);
 		ctx.ui.setWidget("ticks-runner", undefined);
 	});
@@ -280,30 +284,45 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("ticks-run", {
-		description: "Run or dry-run a Ticks epic from Pi",
-		getArgumentCompletions: () => [
-			{ value: "--dry-run", label: "--dry-run", description: "Inspect the ready wave without launching child agents" },
-			{ value: "--worktrees", label: "--worktrees", description: "Plan per-tick worktree paths" },
-		],
+		description: "Dry-run (default) or explicitly execute a Ticks epic",
+		getArgumentCompletions: (prefix) => [
+			{ value: "--execute", label: "--execute", description: "Opt in to child execution and tracker mutations" },
+			{ value: "--worktrees", label: "--worktrees", description: "Use isolated per-tick worktrees (implicit for execution)" },
+			{ value: "--max-parallel", label: "--max-parallel", description: "Override the clean-run concurrency cap" },
+			{ value: "--autonomous", label: "--autonomous", description: "Allow checkpoint continuation where supported" },
+		].filter((item) => item.value.startsWith(prefix)),
 		handler: async (args, ctx) => {
 			const tokens = shlex(args);
-			const epicId = tokens.find((token) => !token.startsWith("-"));
+			const optionArguments = new Set(["--max-parallel"]);
+			const epicId = tokens.find((token, index) => !token.startsWith("-") && !optionArguments.has(tokens[index - 1] ?? ""));
 			if (!epicId) {
-				emit(pi, ctx, "/ticks-run", "Usage: `/ticks-run <epic-id> [--dry-run] [--worktrees]`", {});
+				emit(pi, ctx, "/ticks-run", "Usage: `/ticks-run <epic-id> [--execute] [--worktrees] [--max-parallel N] [--autonomous]`\n\nDry-run is the default; execution requires `--execute`.", {});
 				return;
 			}
-			const dryRun = hasFlag(tokens, "--dry-run") || !hasFlag(tokens, "--execute");
-			const worktrees = hasFlag(tokens, "--worktrees");
+			const execute = hasFlag(tokens, "--execute");
+			const maxRaw = optionValue(tokens, "--max-parallel");
+			const maxParallel = hasFlag(tokens, "--max-parallel") ? maxRaw && /^\d+$/.test(maxRaw) ? Number(maxRaw) : 0 : undefined;
+			const controller = new AbortController();
+			activeRuns.add(controller);
 			try {
-				const plan = await buildDryPlan(ctx.cwd, epicId, worktrees);
-				let markdown = formatDryPlan(plan);
-				if (!dryRun) {
-					markdown += "\n\n⚠️ Execution is not implemented in this scaffold yet. Re-run with `--dry-run` for the supported path.";
-				}
-				updateCompactStatus(ctx, dashboardModelFromPlan(plan));
-				emit(pi, ctx, "/ticks-run dry-run", markdown, plan as unknown as Json);
+				const result = await runEpic({
+					cwd: ctx.cwd,
+					epicId,
+					execute,
+					worktrees: execute || hasFlag(tokens, "--worktrees"),
+					maxParallel,
+					autonomous: hasFlag(tokens, "--autonomous"),
+					signal: controller.signal,
+					onDashboard: (model) => updateCompactStatus(ctx, model),
+				});
+				const markdown = result.status === "dry-run" && result.plan
+					? `${formatDryPlan(result.plan)}\n\n${result.summary}`
+					: formatRunResult(result);
+				emit(pi, ctx, `/ticks-run ${result.status}`, markdown, result as unknown as Json);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-run failed", `# /ticks-run failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
+			} finally {
+				activeRuns.delete(controller);
 			}
 		},
 	});
