@@ -38,6 +38,7 @@ type RunnerConfig = {
 	environmentChecks: string[];
 	testingLines: string[];
 	rules: string[];
+	warnings: string[];
 };
 
 type WorkPlan = {
@@ -222,12 +223,16 @@ function parseRunnerConfig(root: string): RunnerConfig {
 		const value = process.env[envName] ?? piSection[key];
 		if (value) models[key] = value;
 	}
+	const warnings = Object.entries(models)
+		.filter(([, model]) => model.startsWith("openai/"))
+		.map(([key, model]) => `${key} uses ${model}; use the Codex OAuth provider form openai-codex/<model> instead`);
 	return {
 		models,
 		maxParallel: Number.isFinite(maxParallel) ? maxParallel : undefined,
 		environmentChecks: parseCommandLines(extractSection(markdown, "Environment")),
 		testingLines: parseCommandLines(extractSection(markdown, "Testing")),
 		rules: extractSection(markdown, "Rules"),
+		warnings,
 	};
 }
 
@@ -294,6 +299,9 @@ function formatDryPlan(plan: RunDryPlan): string {
 	lines.push(`Stats: ${plan.stats?.total_tasks ?? 0} tasks, ${plan.stats?.wave_count ?? 0} waves, graph max ${plan.stats?.max_parallel ?? 0}, cap ${plan.maxParallel}`);
 	if (plan.needsPlanning) lines.push("⚠️ Epic needs planning before it can run.");
 	if (plan.missingProcessTicks.length > 0) lines.push(`⚠️ Missing process ticks: ${plan.missingProcessTicks.join(", ")}`);
+	if (plan.config.warnings.length > 0) {
+		for (const warning of plan.config.warnings) lines.push(`⚠️ Model configuration: ${warning}`);
+	}
 	if (plan.config.environmentChecks.length > 0) lines.push(`Environment checks: ${plan.config.environmentChecks.join("; ")}`);
 	if (plan.config.testingLines.length > 0) lines.push(`Testing hints: ${plan.config.testingLines.join("; ")}`);
 	lines.push("");

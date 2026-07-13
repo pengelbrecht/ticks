@@ -1,0 +1,17 @@
+{
+  "id": "wen",
+  "title": "Use openai-codex provider IDs for Pi runner routing",
+  "description": "Correct Pi runner guidance and diagnostics so Codex subscription/OAuth models use openai-codex/\u003cmodel\u003e, not separately billed openai/\u003cmodel\u003e. Warn when Pi Orchestrator config or environment overrides select openai/*.",
+  "notes": "2026-07-13 09:45 - Live credential check: openai-codex/gpt-5.4-mini:low replied OK with stopReason=stop. Standard openai/gpt-5-nano returned quota exceeded; that provider is not the runner path.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "discovered_from": "c9q",
+  "acceptance_criteria": "pi-runner.md examples use openai-codex provider IDs; dry-run reports a warning for configured openai/* models; a live openai-codex model smoke request succeeds.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T07:45:59.582597Z",
+  "updated_at": "2026-07-13T07:46:15.183971Z",
+  "closed_at": "2026-07-13T07:46:15.183971Z",
+  "closed_reason": "Completed: Pi runner examples now use openai-codex IDs, docs distinguish Codex OAuth from separately billed OpenAI API, and dry-run warns on openai/* routing. Live openai-codex/gpt-5.4-mini smoke request passed."
+}
