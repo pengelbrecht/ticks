@@ -153,6 +153,31 @@ test("awaiting gates, failed verification, last decisions, and completed cleanup
 	assert.ok(recovered.lastDecisions.some((item) => item.tickId === "done" && /merged safely/.test(item.decision)));
 });
 
+test("failed wave journal assigns blocking verification evidence without relying on tracker notes", () => {
+	const f = fixture("failed-wave-journal");
+	issue(f.repo, { id: "base", parent: "epic", title: "Base", status: "open", updated_at: "2026-07-13T11:55:00Z" });
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["base"], stateRoot: f.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-07-13T11:55:00Z")));
+	const waveDir = path.join(plan.runDir, "waves");
+	const gateArtifact = path.join(waveDir, "wave-1-tests.md");
+	fs.mkdirSync(waveDir, { recursive: true });
+	fs.writeFileSync(gateArtifact, "# Post-wave gate\n- Status: **failed**\n");
+	fs.writeFileSync(path.join(waveDir, "wave-1-transaction.json"), `${JSON.stringify({
+		version: 1,
+		epicId: "epic",
+		wave: 1,
+		status: "gate-failed",
+		gateArtifact,
+		ticks: [{ tickId: "base", branch: plan.ticks[0].branch, worktree: plan.ticks[0].worktree, integration: "merged" }],
+	}, null, 2)}\n`);
+
+	const recovered = scan(f);
+	const failure = recovered.items.find((item) => item.kind === "failed-verification" && item.tickId === "base");
+	assert.ok(failure);
+	assert.ok(failure.artifactPaths.includes(gateArtifact));
+	assert.equal(recoveryDisposition(recovered, "epic").status, "resume");
+});
+
 test("malformed expected manifest is bounded and blocks automatic resume", () => {
 	const f = fixture("malformed");
 	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });

@@ -26,7 +26,7 @@ A generic skill installer may install `skills/ticks/` without the extension. Do 
 | Completion | Incremental JSONL parser, live snapshots, TERM/KILL cancellation, full event log, and compact Markdown report. |
 | Continuation | Recovery reattaches/reuses the unique existing branch/worktree/artifacts; Pi session IDs are never durable authority. |
 | Verification | Configured Testing commands run in each accepted child and again on the merged controller after each wave. |
-| Integration | Boundary check, merge commit, durable tracker close, then worktree/branch cleanup. |
+| Integration | Boundary check and provisional merge; persist/run the full-wave gate; only then close durably and clean worktrees/branches. |
 | UX | Compact footer/widget, RPC text, `/ticks-status`, and a shared-model dashboard overlay/dump. |
 | Review/closeout | Process ticks are detected and stopped for orchestrator action; dedicated subprocess behavior is not implemented yet. |
 
@@ -118,7 +118,7 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 ```text
 <state>/<repo-slug>--<hash>/runs/<epic>--<hash>/run.json
 <run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl}
-<run>/waves/wave-<n>-tests.md
+<run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md}
 <state>/<repo-slug>--<hash>/worktrees/<epic>/<tick>/
 ```
 
@@ -146,7 +146,7 @@ Use every layer; none replaces the pre-merge check:
 5. Source staging excludes `.tick/**`.
 6. Committed branch diff is checked before merge.
 7. Controller alone mutates and commits tracker state.
-8. Cleanup follows successful merge and durable close.
+8. Merge is provisional. Persisted post-wave success authorizes durable wave closes; cleanup follows those closes. Failed gates retain open ticks, branches, and worktrees.
 
 This is not an OS sandbox. Use a container or host sandbox for untrusted execution.
 

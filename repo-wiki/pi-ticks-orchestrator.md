@@ -9,7 +9,7 @@ The root is a Pi package: `package.json` loads the distributable `skills/ticks/`
 - Waves launch concurrently up to the graph/config/command cap and merge before dependent waves.
 - The controller alone mutates `.tick/`, as `pi:orchestrator`; children may read tracker state through a restricted wrapper.
 - Repository identity + epic/tick ID—not PID or Pi session ID—keys recovery.
-- Known failures stay open. Cleanup follows both source integration and durable tracker closure.
+- Known failures stay open. Wave merges are provisional; closure and cleanup follow persisted post-wave success.
 
 The supervisor borrows process/event mechanics from Pi's generic subagent example (JSON subprocesses, streaming event parsing, concurrency limits, cancellation, usage and compact UI), but adds Ticks-specific tracker waves, worktrees, boundary enforcement, merge gates, recovery, and dashboard state. It is independent of the generic `subagent` extension.
 
@@ -38,9 +38,9 @@ For each wave:
 4. Launch Pi children concurrently; stream snapshots and periodically touch the repo+epic manifest lease.
 5. Require a valid final `STATUS:` line. Correctness/scope concerns, blocked/context/protocol/supervisor failures, or denied tracker mutations reopen for repair.
 6. Run configured Testing commands in the child worktree.
-7. Boundary-check, commit source if needed, merge, close and commit tracker state, then cleanup.
-8. Run Testing commands on the merged controller. Stop dependents if this gate fails.
-9. Re-run `tk graph`.
+7. Boundary-check, commit source if needed, and merge provisionally while retaining every branch/worktree. Persist the integrated-wave transaction.
+8. Run and persist Testing evidence on the fully merged controller. If this gate fails, keep/reopen all affected ticks, retain repair state, and stop dependents.
+9. Only after the gate passes, close the wave durably, clean worktrees/branches, and re-run `tk graph`.
 
 `review` and `closeout` process ticks currently stop with `awaiting`; the skill/operator performs final review and retro/closeout. `/ticks-plan` is informational rather than an automated model launcher.
 
@@ -57,7 +57,9 @@ For each wave:
     │   ├── report.md
     │   ├── verifier.md
     │   └── tk-denials.jsonl
-    └── waves/wave-<n>-tests.md
+    └── waves/
+        ├── wave-<n>-transaction.json
+        └── wave-<n>-tests.md
 ```
 
 The manifest is atomically replaced and has no process/session identity. Status bounds manifest, issue, artifact, item, and per-file reads; it lists but never loads event logs. Cross-repository manifests are ignored.
@@ -70,7 +72,7 @@ The manifest is atomically replaced and has no process/session identity. Status 
 - **stale-manifest / stale-lease** — inspect artifacts; execute reopens only after preflight and resumes the unique existing worktree.
 - **unattached-branch** — attach and continue; do not create a duplicate.
 - **missing/partial/failed report** — inspect event/report tail and redispatch in the same worktree.
-- **failed-verification** — repair before merge/dependent launch. Post-wave failure has a `waves/` evidence file and already-merged ticks remain closed.
+- **failed-verification** — repair before merge/dependent launch. Post-wave failure has durable `waves/` transaction/evidence files; affected ticks remain open and already-merged branches/worktrees are retained. Recovery advances those branches to the integrated failure base for follow-up commits. An interruption after all merges resumes the gate without redispatch.
 - **duplicate-conflict / invalid-manifest / occupied path** — resolve explicitly. The runner never guesses.
 - **completed-but-not-cleaned** — verify branch ancestry and durable tracker closure, then remove worktree before branch.
 - **awaiting-gate** — obtain the human decision. `--autonomous` does not currently bypass tracker selection gates.

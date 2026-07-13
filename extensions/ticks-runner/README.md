@@ -69,7 +69,7 @@ Before any mutation, execution requires:
 - an epic that is planned and has a complete EPIC-SKELETON;
 - no fresh active lease or ambiguous duplicate branch/worktree/manifest claim.
 
-For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, runs configured tests in each child, merges accepted branches with merge commits, closes tracker state durably, cleans integrated worktrees, runs the post-wave test gate, and re-graphs. No known failure is closed and dependents do not launch after a failed gate.
+For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, and runs configured tests in each child. Accepted branches merge provisionally with merge commits while tracker closure and cleanup remain deferred. The runner persists an integrated-wave transaction, runs and persists the post-wave gate, and only then closes the whole wave durably and cleans worktrees/branches. A failed gate keeps every affected tick open, retains repair state, and blocks dependents.
 
 ### `/ticks-status [<epic-id>]`
 
@@ -144,7 +144,9 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
     │   ├── report.md
     │   ├── verifier.md
     │   └── tk-denials.jsonl
-    └── waves/wave-<n>-tests.md
+    └── waves/
+        ├── wave-<n>-transaction.json
+        └── wave-<n>-tests.md
 ```
 
 Branches are `tick/<epic>/<tick>`. Manifests are atomically written and carry no PID or Pi session ID. Event logs may be large: status lists them but never loads them. Recovery reads reports with byte/file/count limits.
@@ -160,7 +162,7 @@ The extension—not a child—owns tracker state.
 5. Source staging excludes `.tick/**`.
 6. Pre-merge git diff checks reject committed tracker changes.
 7. Only the controller runs tracker writes with `TK_ACTOR=pi:orchestrator` and commits them.
-8. Cleanup occurs only after source integration and durable tracker transition.
+8. Post-wave evidence is persisted before any success transition; cleanup occurs only after the whole integrated gate passes and tracker closure is durable.
 
 The child process still has the user's OS permissions. Use containers or stronger host sandboxing for hostile code; chmod and prompts are defense in depth, not isolation.
 
@@ -170,7 +172,7 @@ The child process still has the user's OS permissions. Use containers or stronge
 2. If a run/lease is fresh, find the live controller; do not start a duplicate.
 3. For a stale lease, inspect the listed report/log/branch/worktree. A later `/ticks-run <epic> --execute` reopens it only after clean-controller and Environment preflight, then reuses the unique state.
 4. For an unattached branch, let execution attach it to the deterministic worktree. For useful existing work, resume in place; never create a second branch.
-5. Inspect `report.md`, `verifier.md`, or `wave-*-tests.md` for failed child, protocol, verification, or post-wave gates. Repair on the retained branch/worktree, then rerun.
+5. Inspect `report.md`, `verifier.md`, `wave-*-transaction.json`, or `wave-*-tests.md` for failed child, protocol, interrupted integration, or post-wave gates. Failed-gate ticks stay open; repair on the retained branch/worktree, then rerun. A transaction interrupted after all merges resumes the gate without redispatch.
 6. Resolve duplicate claims or malformed manifests manually. The runner blocks rather than choosing.
 7. For `completed-but-not-cleaned`, confirm both merge ancestry and durable tracker closure before removing worktree then branch.
 8. Never delete incomplete artifacts merely to make status green. They are the cross-session/cross-runner handoff.

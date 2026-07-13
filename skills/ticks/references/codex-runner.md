@@ -42,7 +42,7 @@ pid=$!
 
 Prepare `prompt_file` from the shared implementer template. Launch every ready tick before waiting. Keep an in-memory `tick -> pid` map, then use shell `wait <pid>` for completion. This is blocking process supervision, not polling. Read the small report first; inspect the log only for failures or missing status.
 
-After a successful merge and tick close, remove the manually created worktree before deleting its merged branch:
+After the whole wave's integrated gate passes and the tick is durably closed, remove the manually created worktree before deleting its merged branch:
 
 ```bash
 git worktree remove "$worktree"

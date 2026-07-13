@@ -223,7 +223,14 @@ test("fixture epic launches a wave in parallel, verifies after merges, closes du
 	assert.deepEqual(readState(fixture.repo).tasks.map((item) => item.status), ["closed", "closed"]);
 	assert.ok(trackerLog(fixture.repo).filter((entry) => entry.command === "close").every((entry) => entry.actor === "pi:orchestrator"));
 	const subjects = command(fixture.repo, "git", "log", "--format=%s").split("\n");
-	for (const id of ["a", "b"]) assert.ok(subjects.indexOf(`Close tick ${id}: integrated`) < subjects.findIndex((subject) => subject.startsWith(`Merge tick ${id}:`)), "tracker commit is newer than merge commit");
+	const closeCommit = subjects.indexOf("Close epic wave 1 after post-wave gate");
+	assert.ok(closeCommit >= 0);
+	for (const id of ["a", "b"]) assert.ok(closeCommit < subjects.findIndex((subject) => subject.startsWith(`Merge tick ${id}:`)), "wave close commit is newer than every merge commit");
+	const evidenceEvent = result.events.findIndex((event) => event.type === "wave-gate-evidence");
+	const verifiedEvent = result.events.findIndex((event) => event.type === "wave-verified");
+	const cleanupEvents = result.events.map((event, index) => [event, index] as const).filter(([event]) => event.type === "integrated");
+	assert.ok(evidenceEvent >= 0 && evidenceEvent < verifiedEvent, "post-wave evidence is durable before tracker closure is authorized");
+	assert.ok(cleanupEvents.every(([, index]) => verifiedEvent < index), "cleanup follows the passed gate and durable close commit");
 	assert.equal(command(fixture.repo, "git", "worktree", "list", "--porcelain").includes(fixture.stateRoot), false, "managed worktrees are removed after durable closes");
 	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/*"), "", "merged child branches are deleted after worktrees");
 	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "");
@@ -302,7 +309,7 @@ test("failed per-tick verifier persists evidence, reopens for repair, and never 
 	assert.equal(fs.existsSync(result.dashboard?.agents.find((agent) => agent.tickId === "bad")?.worktree ?? ""), true, "repair worktree is retained");
 });
 
-test("post-wave failure stops dependents and records escalation evidence after the merged gate", async () => {
+test("post-wave failure keeps affected ticks open with repair state and recovery blocks dependents", async () => {
 	const fixture = createFixture("post-wave", [
 		{ id: "base", wave: 1 },
 		{ id: "dependent", wave: 2, blocked_by: ["base"] },
@@ -310,12 +317,72 @@ test("post-wave failure stops dependents and records escalation evidence after t
 	const result = await executeFixture(fixture);
 	assert.equal(result.status, "failed", result.summary);
 	assert.equal(result.wavesCompleted, 0);
+	assert.equal(result.outcomes[0].kind, "verifier-failure");
+	assert.equal(result.outcomes[0].closeAllowed, false);
 	const state = readState(fixture.repo);
-	assert.equal(state.tasks.find((item) => item.id === "base")?.status, "closed");
+	assert.equal(state.tasks.find((item) => item.id === "base")?.status, "open");
 	assert.equal(state.tasks.find((item) => item.id === "dependent")?.status, "open");
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close"), false);
 	assert.equal(fs.existsSync(path.join(fixture.repo, "dependent.txt")), false);
 	assert.match(state.epic.notes?.join("\n") ?? "", /Post-wave 1 test gate failed/);
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "post-wave 1 tests" && item.status === "failed"));
+	const repairWorktree = result.dashboard?.agents.find((agent) => agent.tickId === "base")?.worktree ?? "";
+	assert.equal(fs.existsSync(repairWorktree), true, "failed integrated worktree is retained");
+	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/base"), /tick\/epic\/base/, "failed integrated branch is retained");
+
+	const recovered = await executeFixture(fixture);
+	assert.equal(recovered.status, "failed", recovered.summary);
+	assert.ok(recovered.events.some((event) => event.type === "recovery" && /restricts launch to repair ticks/.test(event.detail)));
+	const starts = fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.includes(":start:"));
+	assert.equal(starts.filter((line) => line.startsWith("base:")).length, 2, "recovery launches a follow-up repair on the retained branch");
+	assert.equal(starts.some((line) => line.startsWith("dependent:")), false, "dependent is never launched from a failed wave artifact");
+});
+
+test("partial wave integration leaves previously merged siblings open and retained", async () => {
+	const fixture = createFixture("partial-integration", [{ id: "good" }, { id: "bad" }], { failTick: "bad" });
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "blocked", result.summary);
+	const state = readState(fixture.repo);
+	assert.deepEqual(state.tasks.map((item) => item.status), ["open", "open"]);
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close"), false);
+	assert.equal(fs.existsSync(path.join(fixture.repo, "good.txt")), true, "verified sibling was integrated");
+	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/good"), /tick\/epic\/good/);
+	assert.equal(fs.existsSync(result.dashboard?.agents.find((agent) => agent.tickId === "good")?.worktree ?? ""), true);
+});
+
+test("interrupted after all merges resumes the post-wave gate without redispatch", async () => {
+	const fixture = createFixture("interrupted-gate", [{ id: "one" }]);
+	await assert.rejects(runEpic({
+		cwd: fixture.repo,
+		epicId: "epic",
+		execute: true,
+		worktrees: true,
+		stateRoot: fixture.stateRoot,
+		tkExecutable: fakeTk,
+		env: fixture.env,
+		invocationForTask: ({ task }) => ({ command: process.execPath, args: [fakePi, task.id, "DONE", "0", "", fixture.marker] }),
+		onEvent: (event) => { if (event.type === "wave-integrated") throw new Error("simulated controller interruption"); },
+	}), /simulated controller interruption/);
+	assert.equal(readState(fixture.repo).tasks[0].status, "in_progress");
+	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/one"), /tick\/epic\/one/);
+	await new Promise((resolve) => setTimeout(resolve, 10));
+
+	const resumed = await runEpic({
+		cwd: fixture.repo,
+		epicId: "epic",
+		execute: true,
+		worktrees: true,
+		stateRoot: fixture.stateRoot,
+		tkExecutable: fakeTk,
+		env: fixture.env,
+		recoveryStaleAfterMs: 0,
+		invocationForTask: () => { throw new Error("implementer must not be redispatched after completed integration"); },
+	});
+	assert.equal(resumed.status, "completed", resumed.summary);
+	assert.ok(resumed.events.some((event) => event.type === "recovery" && /without redispatching/.test(event.detail)));
+	assert.equal(fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.startsWith("one:start")).length, 1);
+	assert.equal(readState(fixture.repo).tasks[0].status, "closed");
+	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/epic/one"), "");
 });
 
 test("failed Environment command stops before tracker or worktree mutation", async () => {
