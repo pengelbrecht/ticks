@@ -1,12 +1,21 @@
 import type { RunnerConfig } from "./config.ts";
-import { modelForTier, taskTier } from "./config.ts";
+import { modelForTier, routeTask } from "./config.ts";
 import { planRunPaths, type RunPaths } from "./state.ts";
+import { isCompletedStatus } from "./status.ts";
 
 export type GraphTask = {
 	id: string;
 	title?: string;
+	description?: string;
+	acceptance_criteria?: string;
 	status?: string;
+	priority?: number | string;
+	type?: string;
 	role?: string;
+	tier?: string;
+	labels?: string[];
+	files?: string[];
+	file_count?: number;
 	agent_ready?: boolean;
 	blocked_by?: string[];
 	blocks?: string[];
@@ -60,6 +69,7 @@ export type WorkPlan = {
 	log: string;
 	model?: string;
 	tier: string;
+	tierReason: string;
 };
 
 export type RunDryPlan = {
@@ -100,17 +110,22 @@ export function parseGraph(input: string | unknown): GraphResult {
 	if (value.missing_process_ticks !== undefined && value.missing_process_ticks !== null && !Array.isArray(value.missing_process_ticks)) {
 		throw new Error("tk graph field missing_process_ticks must be an array");
 	}
-	const waves = (value.waves ?? []) as unknown[];
-	for (const [index, wave] of waves.entries()) {
-		if (!isRecord(wave)) throw new Error(`tk graph wave ${index + 1} must be an object`);
-		if (wave.tasks !== undefined && !Array.isArray(wave.tasks)) throw new Error(`tk graph wave ${index + 1} tasks must be an array`);
-		for (const task of (wave.tasks ?? []) as unknown[]) {
-			if (!isRecord(task) || typeof task.id !== "string" || !task.id) {
-				throw new Error(`tk graph wave ${index + 1} contains a task without an id`);
+	const rawWaves = (value.waves ?? []) as unknown[];
+	const waves = rawWaves.map((rawWave, index): GraphWave => {
+		if (!isRecord(rawWave)) throw new Error(`tk graph wave ${index + 1} must be an object`);
+		if (rawWave.tasks !== undefined && !Array.isArray(rawWave.tasks)) throw new Error(`tk graph wave ${index + 1} tasks must be an array`);
+		const tasks = ((rawWave.tasks ?? []) as unknown[]).map((rawTask): GraphTask => {
+			if (!isRecord(rawTask) || typeof rawTask.id !== "string" || !rawTask.id) throw new Error(`tk graph wave ${index + 1} contains a task without an id`);
+			for (const field of ["labels", "files", "blocked_by", "blocks"] as const) {
+				if (rawTask[field] !== undefined && (!Array.isArray(rawTask[field]) || !(rawTask[field] as unknown[]).every((item) => typeof item === "string"))) {
+					throw new Error(`tk graph task ${rawTask.id} field ${field} must be a string array`);
+				}
 			}
-		}
-	}
-	return { ...(value as Omit<GraphResult, "waves">), waves: waves as GraphWave[] };
+			return { ...(rawTask as GraphTask) };
+		});
+		return { ...(rawWave as GraphWave), tasks };
+	});
+	return { ...(value as Omit<GraphResult, "waves">), waves };
 }
 
 export function firstReadyWave(graph: GraphResult): GraphWave | undefined {
@@ -151,7 +166,7 @@ export function buildRunPlan(options: {
 }): RunDryPlan {
 	const { graph, config, repoRoot, repoIdentity, epicId, stateRoot, worktrees } = options;
 	const wave = firstReadyWave(graph);
-	const readyTasks = (wave?.tasks ?? []).filter((task) => task.agent_ready !== false && task.status !== "closed");
+	const readyTasks = (wave?.tasks ?? []).filter((task) => task.agent_ready !== false && !isCompletedStatus(task.status));
 	const caps = [readyTasks.length];
 	if (config.maxParallel !== undefined) caps.push(config.maxParallel);
 	if (graph.stats?.max_parallel !== undefined && graph.stats.max_parallel > 0) caps.push(graph.stats.max_parallel);
@@ -164,13 +179,14 @@ export function buildRunPlan(options: {
 		stateRoot,
 	});
 	const workPlans = readyTasks.map((task, index) => {
-		const tier = taskTier(task);
+		const routing = routeTask(task);
 		const durable = durablePaths.ticks[index];
 		return {
 			...durable,
 			worktree: worktrees ? durable.worktree : durablePaths.repoRoot,
-			model: modelForTier(config, tier),
-			tier,
+			model: modelForTier(config, routing.tier),
+			tier: routing.tier,
+			tierReason: routing.reason,
 		};
 	});
 	return {
@@ -210,7 +226,7 @@ export function formatDryPlan(plan: RunDryPlan): string {
 	if (plan.waves.length === 0) lines.push("No waves found.");
 	for (const wave of plan.waves) {
 		const tasks = wave.tasks ?? [];
-		const ready = tasks.filter((task) => task.agent_ready && task.status !== "closed").map((task) => task.id);
+		const ready = tasks.filter((task) => task.agent_ready && !isCompletedStatus(task.status)).map((task) => task.id);
 		lines.push(`- Wave ${wave.wave ?? "?"}: ${tasks.length} task(s), parallel ${wave.parallel ?? tasks.length}${wave.ready ? ", ready" : ""}`);
 		if (ready.length > 0) lines.push(`  - ready ticks: ${ready.join(", ")}`);
 	}
@@ -221,7 +237,8 @@ export function formatDryPlan(plan: RunDryPlan): string {
 		for (const task of plan.readyTasks) {
 			const work = plan.workPlans.find((item) => item.tickId === task.id);
 			lines.push(`- ${task.id} — ${task.title ?? "(untitled)"}`);
-			lines.push(`  - tier/model: ${work?.tier ?? "balanced"}${work?.model ? ` / ${work.model}` : " / Pi default"}`);
+			lines.push(`  - tier/model: ${work?.tier ?? "balanced"}${work?.tier === "reserved" ? " / not dispatched" : work?.model ? ` / ${work.model}` : " / Pi default"}`);
+			lines.push(`  - routing: ${work?.tierReason ?? "default balanced"}`);
 			lines.push(`  - branch: ${work?.branch}`);
 			lines.push(`  - worktree: ${work?.worktree}`);
 			lines.push(`  - prompt: ${work?.prompt}`);

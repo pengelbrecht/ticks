@@ -15,14 +15,16 @@ The supervisor borrows process/event mechanics from Pi's generic subagent exampl
 
 ## Module map
 
-- `index.ts` — slash commands, TUI/RPC adaptation, active-run cancellation, compact widget, overlay entrypoint.
+- `index.ts` — slash commands, TUI/RPC adaptation, abort-and-await session shutdown, compact widget, overlay entrypoint.
 - `config.ts` — `.tick/config.md` section parsing, exact inline-code command extraction, environment precedence, model and concurrency resolution.
 - `graph.ts` — validates public `tk graph --json`, identifies ready waves, EPIC-SKELETON/planning blockers, dry plans and deterministic work plans.
 - `state.ts` — normalizes repository identity; creates collision-resistant repo/run IDs, branch/worktree/artifact paths, atomic manifests, and stale-run discovery.
-- `supervisor.ts` — spawns without a shell, incrementally decodes JSONL/UTF-8, captures current action/output/model/usage/cost, persists event logs and reports, and propagates TERM/KILL cancellation.
+- `supervisor.ts` — spawns without a shell, incrementally decodes JSONL/UTF-8, captures current action/output/model/usage/cost and capability-routing reason, persists event logs and reports, and propagates TERM/KILL cancellation.
+- `process.ts` — creates detached POSIX process groups, terminates complete descendant trees with TERM/KILL fallback, uses a Windows-safe direct-child fallback, and tracks session run settlement.
 - `boundary.ts` — absolute-cwd subprocesses, child `tk` read allowlist/denial log, best-effort `.tick/` read-only friction, and committed-diff boundary checks.
 - `merge.ts` — create/attach/reuse worktrees, exclude `.tick/` while staging, merge with merge commits, abort conflicts, and gate cleanup on ancestry + tracker durability.
 - `recovery.ts` — bounded read-only correlation of tracker JSON/fallback issues, notes, manifests/reports, worktrees, and branches; classifies active, stale, failed, partial, orphaned, duplicate, gated, and cleanup states.
+- `status.ts` — shared tracker/manifest/child status normalization while retaining distinct terminal outcomes.
 - `dashboard.ts` — one transport-neutral model for live widget, TUI overlay, RPC, demo, snapshots, and `--dump`.
 - `runner.ts` — composes preflight, recovery, preparation, concurrent supervision, protocol classification, child verification, integration, durable tracker transitions, cleanup, post-wave gates, and re-graphing.
 
@@ -42,7 +44,7 @@ For each wave:
 8. Run and persist Testing evidence on the fully merged controller. If this gate fails, keep/reopen all affected ticks, retain repair state, and stop dependents.
 9. Only after the gate passes, close the wave durably, clean worktrees/branches, and re-run `tk graph`.
 
-`review` and `closeout` process ticks currently stop with `awaiting`; the skill/operator performs final review and retro/closeout. `/ticks-plan` is informational rather than an automated model launcher.
+Ordinary implementation ticks route from public tracker metadata first (tier/labels, risk labels, priority, type, role), then conservative shape rules. Security/integration/subtle/large work is strong; a complete mechanical task naming one or two files may be economy; the default is balanced. Routing only selects among configured implementation models and never guesses a Luna/Terra family. The reason appears in plans, child cards, and reports. `review` and `closeout` process ticks remain reserved and stop with `awaiting`; the skill/operator performs final review and retro/closeout. `/ticks-plan` is informational rather than an automated model launcher.
 
 ## Durable layout
 
@@ -66,7 +68,7 @@ The manifest is atomically replaced and has no process/session identity. Status 
 
 ## Recovery model
 
-`/ticks-status [epic]` is the primary diagnosis command. Authority is tracker + integration history + git branch/worktree + reports; `runner-state:` notes are hints.
+`/ticks-status [epic]` is the primary diagnosis command. It normalizes tracker `active`/`in_progress`/`running`, separates awaiting state, failed/partial lanes, and completed cleanup debt, and retains terminal lane/artifact/decision history. Authority is tracker + integration history + git branch/worktree + reports; `runner-state:` notes are hints.
 
 - **active-run / in-progress** — find the current controller; a second execute blocks.
 - **stale-manifest / stale-lease** — inspect artifacts; execute reopens only after preflight and resumes the unique existing worktree.

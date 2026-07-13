@@ -8,6 +8,7 @@ import {
 	classifyChildReport,
 	mapConcurrent,
 	parseModelInvocation,
+	runConfiguredCommands,
 	runEpic,
 	type EpicRunResult,
 } from "./runner.ts";
@@ -176,6 +177,26 @@ test("outcome classification is conservative about concerns and supervisor/proto
 	assert.equal(classifyChildReport(report({ finalOutput: "STATUS: BLOCKED — impossible dependency" })).kind, "blocked");
 	assert.equal(classifyChildReport(report({ finalOutput: "looks done" })).kind, "protocol-failure");
 	assert.equal(classifyChildReport(report({ outcome: "failed", reason: "nonzero-exit:2" })).kind, "supervisor-failure");
+});
+
+test("configured shell cancellation kills a TERM-resistant grandchild process", { skip: process.platform === "win32" }, async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ticks-configured-tree-"));
+	const pidFile = path.join(root, "grandchild.pid");
+	const controller = new AbortController();
+	let grandchildPid: number | undefined;
+	try {
+		const source = [process.execPath, path.join(import.meta.dirname, "fixtures", "supervisor-child.mjs"), "process-tree", pidFile]
+			.map((part) => `'${part.replaceAll("'", `'\\''`)}'`).join(" ");
+		const running = runConfiguredCommands([{ command: source, source: `\`${source}\`` }], root, process.env, controller.signal);
+		for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+		grandchildPid = Number(fs.readFileSync(pidFile, "utf8"));
+		controller.abort();
+		const evidence = await running;
+		assert.equal(evidence[0].status, "cancelled");
+		assert.throws(() => process.kill(grandchildPid!, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH");
+	} finally {
+		if (grandchildPid) try { process.kill(grandchildPid, "SIGKILL"); } catch { /* already gone */ }
+	}
 });
 
 test("concurrency helper launches up to the cap before awaiting completion", async () => {

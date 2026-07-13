@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -22,6 +21,7 @@ import {
 } from "./dashboard.ts";
 import { buildRunPlan, parseGraph, type GraphResult, type GraphTask, type RunDryPlan, type WorkPlan } from "./graph.ts";
 import { cleanupIntegratedWorktree, ensureGitWorktree, integrateWorktreeResult } from "./merge.ts";
+import { spawnProcessTree, terminateProcessTree } from "./process.ts";
 import {
 	reconcileRun,
 	recoveryDisposition,
@@ -154,30 +154,34 @@ async function capture(command: string, args: readonly string[], cwd: string, en
 		let stderr = "";
 		let cancelled = Boolean(signal?.aborted);
 		let settled = false;
-		const child = spawn(command, [...args], { cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
-		const finish = (code: number | null, childSignal: NodeJS.Signals | null) => {
+		let termination: Promise<void> | undefined;
+		const child = spawnProcessTree(command, args, { cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const finish = async (code: number | null, childSignal: NodeJS.Signals | null) => {
 			if (settled) return;
 			settled = true;
 			signal?.removeEventListener("abort", abort);
+			if (termination) await termination;
 			resolve({ code, signal: childSignal, stdout, stderr, cancelled, elapsedMs: Date.now() - started });
 		};
 		const abort = () => {
 			cancelled = true;
-			child.kill("SIGTERM");
-			setTimeout(() => {
-				if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-			}, 2_000).unref();
+			termination ??= terminateProcessTree(child, { graceMs: 2_000 });
 		};
-		child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
-		child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+		child.stdout?.on("data", (chunk) => (stdout += chunk.toString()));
+		child.stderr?.on("data", (chunk) => (stderr += chunk.toString()));
 		child.on("error", (error) => {
 			stderr += error.message;
-			finish(1, null);
+			void finish(1, null);
 		});
-		child.on("close", finish);
+		child.on("close", (code, childSignal) => void finish(code, childSignal));
 		if (signal) signal.addEventListener("abort", abort, { once: true });
 		if (cancelled) abort();
 	});
+}
+
+function configuredShell(): { command: string; args: (source: string) => string[] } {
+	if (process.platform === "win32") return { command: process.env.ComSpec ?? "cmd.exe", args: (source) => ["/d", "/s", "/c", source] };
+	return { command: "/bin/sh", args: (source) => ["-lc", source] };
 }
 
 /** Commands are already extracted from inline-code spans; only that exact span reaches the shell. */
@@ -193,7 +197,8 @@ export async function runConfiguredCommands(
 			evidence.push({ label: item.label, command: item.command, status: "cancelled", exitCode: null, stdout: "", stderr: "Run cancelled", elapsedMs: 0 });
 		break;
 		}
-		const result = await capture("/bin/sh", ["-lc", item.command], cwd, env, signal);
+		const shell = configuredShell();
+		const result = await capture(shell.command, shell.args(item.command), cwd, env, signal);
 		evidence.push({
 			label: item.label,
 			command: item.command,
@@ -736,7 +741,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const wrapper = provisionChildTkWrapper({ controllerRepo: root, actualTkPath: tk, artifactRoot: path.join(work.artifactDir, "guard"), denialLog: path.join(work.artifactDir, "tk-denials.jsonl"), baseEnv: env });
 				const friction = applyTickReadOnlyFriction(work.worktree);
 				prepared.push({ task, detail, work, wrapper, friction, prompt });
-				agentInputs.set(task.id, { tickId: task.id, title: detail.title, tier: work.tier, model: work.model, worktree: work.worktree, branch: work.branch, wave: plan.readyWave, status: "ready" });
+				agentInputs.set(task.id, { tickId: task.id, title: detail.title, tier: work.tier, tierReason: work.tierReason, model: work.model, worktree: work.worktree, branch: work.branch, wave: plan.readyWave, status: "ready" });
 			}
 			for (const child of prepared) {
 				tracker(tk, ["update", child.task.id, "--status", "in_progress"], root, env);
@@ -775,6 +780,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 					artifacts: child.work,
 					env: { ...child.wrapper.environment, TK_ACTOR: ORCHESTRATOR_ACTOR },
 					signal: options.signal,
+					selectedTier: child.work.tier,
+					tierReason: child.work.tierReason,
 					onSnapshot: (state: ChildState) => {
 						agentInputs.set(child.task.id, { ...agentInputs.get(child.task.id)!, state });
 						// updatedAt is a repo+epic lease, never process/session authority.

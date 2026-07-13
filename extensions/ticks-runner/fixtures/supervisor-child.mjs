@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+
 const mode = process.argv[2];
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const assistant = (overrides = {}) => ({
@@ -51,6 +54,15 @@ if (mode === "success") {
 } else if (mode === "hang") {
 	process.on("SIGTERM", () => {});
 	send({ type: "agent_start" });
+	setInterval(() => {}, 1_000);
+} else if (mode === "process-tree") {
+	const grandchild = spawn(process.execPath, [import.meta.filename, "grandchild"], { stdio: "ignore" });
+	fs.writeFileSync(process.argv[3], String(grandchild.pid));
+	process.on("SIGTERM", () => {});
+	send({ type: "agent_start" });
+	setInterval(() => {}, 1_000);
+} else if (mode === "grandchild") {
+	process.on("SIGTERM", () => {});
 	setInterval(() => {}, 1_000);
 } else {
 	process.stderr.write(`unknown fixture mode: ${mode}\n`);

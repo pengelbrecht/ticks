@@ -77,6 +77,8 @@ test("supervisor streams rich state and persists the exact log plus compact repo
 		invocation: fixtureInvocation("success", dangerous),
 		cwd,
 		artifacts,
+		selectedTier: "strong",
+		tierReason: "security label",
 		onSnapshot: (state) => snapshots.push(state),
 	});
 
@@ -110,6 +112,8 @@ test("supervisor streams rich state and persists the exact log plus compact repo
 	const report = fs.readFileSync(artifacts.report, "utf8");
 	assert.match(report, /Outcome: \*\*success\*\*/);
 	assert.match(report, /input 11, output 7/);
+	assert.match(report, /Capability tier: strong/);
+	assert.match(report, /Routing reason: security label/);
 	assert.match(report, /final; \$\(touch should-not-exist\)/);
 	assert.doesNotMatch(report, /disposable-session-id/, "session IDs in the full transport log do not become report authority");
 	assert.doesNotThrow(() => JSON.stringify(result), "the returned report is JSON-compatible");
@@ -133,10 +137,38 @@ test("report extraction classifies model errors, missing output, and nonzero exi
 	}
 });
 
+test("AbortSignal terminates the POSIX process group including a TERM-resistant grandchild", { skip: process.platform === "win32" }, async () => {
+	const { cwd, artifacts } = tempArtifacts("process-tree");
+	const pidFile = path.join(cwd, "grandchild.pid");
+	const controller = new AbortController();
+	let grandchildPid: number | undefined;
+	try {
+		const promise = superviseChild({
+			tickId: "process-tree",
+			invocation: fixtureInvocation("process-tree", pidFile),
+			cwd,
+			artifacts,
+			signal: controller.signal,
+			killAfterMs: 50,
+		});
+		for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+		grandchildPid = Number(fs.readFileSync(pidFile, "utf8"));
+		assert.ok(Number.isSafeInteger(grandchildPid) && grandchildPid! > 0);
+		controller.abort();
+		const report = await promise;
+		assert.equal(report.outcome, "cancelled");
+		assert.throws(() => process.kill(grandchildPid!, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH", "grandchild must be gone before supervision settles");
+	} finally {
+		if (grandchildPid) try { process.kill(grandchildPid, "SIGKILL"); } catch { /* already gone */ }
+	}
+});
+
 test("AbortSignal sends TERM then KILL fallback and settles without a live timer", async () => {
 	const { cwd, artifacts } = tempArtifacts("abort");
 	const controller = new AbortController();
 	const started = Date.now();
+	let markReady!: () => void;
+	const ready = new Promise<void>((resolve) => { markReady = resolve; });
 	const promise = superviseChild({
 		tickId: "abort",
 		invocation: fixtureInvocation("hang"),
@@ -144,8 +176,10 @@ test("AbortSignal sends TERM then KILL fallback and settles without a live timer
 		artifacts,
 		signal: controller.signal,
 		killAfterMs: 50,
+		onSnapshot: (state) => { if (state.recentEvents.some((event) => event.type === "agent_start")) markReady(); },
 	});
-	setTimeout(() => controller.abort(), 50);
+	await ready;
+	controller.abort();
 	const report = await promise;
 	const elapsed = Date.now() - started;
 
