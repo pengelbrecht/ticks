@@ -2,7 +2,7 @@
   "id": "9rj",
   "title": "Final review of Pi ticks orchestrator extension diff",
   "description": "Review the full epic diff against docs/projects/2026-07-09-pi-orchestrator-extension/SPEC.md and qfs acceptance criteria. Check safety boundaries, worktree/merge correctness, Pi extension API usage, TUI fallback behavior, tests, docs, and packaging.",
-  "notes": "2026-07-13 11:44 - runner-state: runner=pi role=review base=a80357aaf86c615768bd16d5bd0c897ce4116687 branch=epic/qfs model=openai-codex/gpt-5.6-sol:xhigh\n2026-07-13 11:56 - Frontier review found blockers: false closes on post-wave failure; unvalidated recovery write paths; compliant epics stop at process ticks; command output/live dashboard gaps. Also should-fix planning stub, process-tree cancellation, status/tier routing, gate actions. Routed to mtl f2m 3ht 7m3 w8v we7; final review will rerun after all land.\n2026-07-13 14:14 - Rerunning final review after blocker fixes mtl/f2m/3ht/7m3/w8v/we7. base=a80357aaf86c615768bd16d5bd0c897ce4116687 head=e2a3f6ae216536b7102fdfca0180201fb458ef49 model=openai-codex/gpt-5.6-sol:xhigh",
+  "notes": "2026-07-13 11:44 - runner-state: runner=pi role=review base=a80357aaf86c615768bd16d5bd0c897ce4116687 branch=epic/qfs model=openai-codex/gpt-5.6-sol:xhigh\n2026-07-13 11:56 - Frontier review found blockers: false closes on post-wave failure; unvalidated recovery write paths; compliant epics stop at process ticks; command output/live dashboard gaps. Also should-fix planning stub, process-tree cancellation, status/tier routing, gate actions. Routed to mtl f2m 3ht 7m3 w8v we7; final review will rerun after all land.\n2026-07-13 14:14 - Rerunning final review after blocker fixes mtl/f2m/3ht/7m3/w8v/we7. base=a80357aaf86c615768bd16d5bd0c897ce4116687 head=e2a3f6ae216536b7102fdfca0180201fb458ef49 model=openai-codex/gpt-5.6-sol:xhigh\n2026-07-13 14:31 - Final review found blockers. Repair ticks: h36 planning trust/recovery; on8 verification/closeout evidence/rules; 4ux lease/UI/recovery truth. Full reports: /Users/peterengelbrecht/Development/.ticks-worktrees/review-qfs-2/{safety,ux}.jsonl",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -14,13 +14,16 @@
     "3ht",
     "7m3",
     "w8v",
-    "we7"
+    "we7",
+    "h36",
+    "on8",
+    "4ux"
   ],
   "parent": "qfs",
   "role": "review",
   "acceptance_criteria": "Review findings are either fixed or explicitly routed. No blocker findings remain. Full relevant tests pass on the integrated tree.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-09T11:15:55.602363Z",
-  "updated_at": "2026-07-13T12:14:23.925796Z",
+  "updated_at": "2026-07-13T12:31:15.246333Z",
   "started_at": "2026-07-13T12:14:23.891783Z"
 }

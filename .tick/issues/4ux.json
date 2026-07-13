@@ -1,0 +1,15 @@
+{
+  "id": "4ux",
+  "title": "Fix lease-loss cancellation and dashboard/recovery truthfulness",
+  "description": "Fix final-review findings: abort process trees immediately when lease ownership is lost; permit guarded detail-first review gate action; classify process review/closeout report recovery correctly; preserve retry logs/artifacts; align cards/waves with protocol, verifier, repair, and blocked outcomes. Add tests.",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Lease loss cancels live child tree before takeover; review gates are actionable under policy; valid process reports are not false partials; retry history remains inspectable; cards and wave states reflect actual outcomes; tests pass.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T12:31:02.413455Z",
+  "updated_at": "2026-07-13T12:31:02.413455Z"
+}
