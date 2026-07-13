@@ -105,6 +105,8 @@ export function ensureGitWorktree(options: {
 	branch: string;
 	baseRef: string;
 	tickId?: string;
+	/** Fast-forward a retained, already-integrated repair branch to the current integration base. */
+	advanceIfIntegrated?: boolean;
 }): WorktreeProvisionResult {
 	const repoRoot = path.resolve(options.repoRoot);
 	const worktree = path.resolve(options.worktree);
@@ -126,9 +128,15 @@ export function ensureGitWorktree(options: {
 		if (atPath.branch !== options.branch || atPath.detached || atPath.bare) {
 			return reject("worktree-identity-mismatch", `Existing worktree ${worktree} is not checked out on ${options.branch}`);
 		}
-		const head = resolveCommit(worktree, "HEAD");
+		let head = resolveCommit(worktree, "HEAD");
 		if (!isAncestor(repoRoot, baseCommit, head)) {
-			return reject("worktree-base-mismatch", `Existing branch ${options.branch} does not contain expected base ${baseCommit}`);
+			if (!options.advanceIfIntegrated || !isAncestor(repoRoot, head, baseCommit)) {
+				return reject("worktree-base-mismatch", `Existing branch ${options.branch} does not contain expected base ${baseCommit}`);
+			}
+			const dirty = requireSuccessful(runSubprocess("git", ["status", "--porcelain=v1", "--untracked-files=all"], worktree), `Cannot inspect retained worktree ${worktree}`);
+			if (dirty.stdout.trim()) return reject("repair-worktree-dirty", `Retained repair worktree ${worktree} must be clean before advancing to integrated base ${baseCommit}`);
+			requireSuccessful(runSubprocess("git", ["merge", "--ff-only", baseCommit], worktree), `Cannot advance retained repair branch ${options.branch}`);
+			head = resolveCommit(worktree, "HEAD");
 		}
 		return { status: "reused", branch: options.branch, worktree, baseCommit, head, actions: [] };
 	}

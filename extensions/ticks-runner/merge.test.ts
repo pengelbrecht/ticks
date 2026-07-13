@@ -76,6 +76,32 @@ test("deterministic worktree provisioning creates and validates reuse without re
 	assert.equal(fs.existsSync(occupied), true);
 });
 
+test("retained integrated worktree advances to the current base for unambiguous repair commits", () => {
+	const fixture = createRepository("repair-advance");
+	assert.equal(provision(fixture).status, "created");
+	fs.writeFileSync(path.join(fixture.worktree, "repair.txt"), "first attempt\n");
+	git(fixture.worktree, "add", "repair.txt");
+	git(fixture.worktree, "commit", "-m", "first attempt");
+	git(fixture.repo, "merge", "--no-ff", "-m", "integrate first attempt", fixture.branch);
+	fs.writeFileSync(path.join(fixture.repo, "sibling.txt"), "integrated sibling\n");
+	git(fixture.repo, "add", "sibling.txt");
+	git(fixture.repo, "commit", "-m", "post-merge controller state");
+	const integrationHead = git(fixture.repo, "rev-parse", "HEAD");
+
+	const advanced = ensureGitWorktree({
+		repoRoot: fixture.repo,
+		worktree: fixture.worktree,
+		branch: fixture.branch,
+		baseRef: "integration",
+		tickId: "zzu",
+		advanceIfIntegrated: true,
+	});
+	assert.equal(advanced.status, "reused");
+	assert.equal(advanced.head, integrationHead);
+	assert.equal(git(fixture.worktree, "rev-parse", "HEAD"), integrationHead);
+	assert.equal(fs.readFileSync(path.join(fixture.worktree, "sibling.txt"), "utf8"), "integrated sibling\n");
+});
+
 test("clean child source is committed, merged with --no-ff, and cleaned only after durable tracker success", () => {
 	const fixture = createRepository("clean");
 	assert.equal(provision(fixture).status, "created");

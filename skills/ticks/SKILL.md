@@ -365,8 +365,8 @@ Execute the epic from the current harness. Read **`references/agent-runner.md`**
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
 2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
 3. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
-4. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
-5. Run the test suite on the merged tree, then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
+4. Wait with the adapter's completion primitive and merge each verified branch provisionally; retain branches/worktrees and defer successful tracker transitions.
+5. Persist and run the post-wave test gate on the fully merged tree. Only on success, close the wave durably and clean up; on failure, keep all affected ticks open with repair state retained and block dependents. Then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
 

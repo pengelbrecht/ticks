@@ -452,7 +452,7 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		const runDir = path.dirname(manifestPath);
 		const artifactWalk = walkFiles(path.join(runDir, "artifacts"), artifactBudget);
 		artifactBudget = Math.max(0, artifactBudget - artifactWalk.files.length);
-		const waveWalk = walkFiles(path.join(runDir, "waves"), artifactBudget, (file) => file.endsWith(".md"));
+		const waveWalk = walkFiles(path.join(runDir, "waves"), artifactBudget, (file) => /wave-\d+-(?:tests\.md|transaction\.json)$/.test(path.basename(file)));
 		artifactBudget = Math.max(0, artifactBudget - waveWalk.files.length);
 		truncated ||= artifactWalk.truncated || waveWalk.truncated;
 		const artifacts = unique([...artifactWalk.files, ...waveWalk.files]).sort();
@@ -516,10 +516,29 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		if (!relevantEpic(tick, options.epicId)) continue;
 		stateFor(note.tickId, tick?.parent).runnerNotes.push(note);
 	}
-	for (const recovered of manifests) if (recovered.manifest) for (const tick of recovered.manifest.ticks) {
-		const state = stateFor(tick.tickId, recovered.manifest.epicId);
-		state.manifestTicks.push({ manifestPath: recovered.path, paths: tick });
-		state.artifacts.push(...recovered.artifacts.filter((file) => file === tick.prompt || file === tick.report || file === tick.log || file.startsWith(`${tick.artifactDir}${path.sep}`)));
+	for (const recovered of manifests) if (recovered.manifest) {
+		for (const tick of recovered.manifest.ticks) {
+			const state = stateFor(tick.tickId, recovered.manifest.epicId);
+			state.manifestTicks.push({ manifestPath: recovered.path, paths: tick });
+			state.artifacts.push(...recovered.artifacts.filter((file) => file === tick.prompt || file === tick.report || file === tick.log || file.startsWith(`${tick.artifactDir}${path.sep}`)));
+		}
+		for (const transaction of recovered.artifacts.filter((file) => /wave-\d+-transaction\.json$/.test(file))) {
+			try {
+				const read = cappedRead(transaction, limits.fileBytes);
+				const value = parseJson(read.text);
+				if (read.truncated || !isRecord(value) || value.status !== "gate-failed" || !Array.isArray(value.ticks)) continue;
+				const gateArtifact = string(value.gateArtifact);
+				if (!gateArtifact || !recovered.artifacts.includes(gateArtifact)) continue;
+				for (const raw of value.ticks) {
+					if (!isRecord(raw)) continue;
+					const tickId = string(raw.tickId);
+					const expected = recovered.manifest.ticks.find((tick) => tick.tickId === tickId);
+					if (tickId && expected && raw.branch === expected.branch && raw.worktree === expected.worktree) {
+						stateFor(tickId, recovered.manifest.epicId).artifacts.push(transaction, gateArtifact);
+					}
+				}
+			} catch { /* Malformed journals remain listed but cannot assign failure to ticks. */ }
+		}
 	}
 	for (const branch of branches) {
 		const inferred = identifyBranch(branch);
@@ -535,7 +554,11 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 		const managed = record.path.startsWith(`${stateRoot}${path.sep}`) || runnerNotes.some((note) => note.worktree && samePath(note.worktree, record.path));
 		stateFor(inferred.tickId, tick?.parent ?? inferred.epicId).worktrees.push({ ...record, managed });
 	}
+	const knownArtifacts = new Set(manifests.flatMap((entry) => entry.artifacts));
 	for (const state of tickStates.values()) {
+		for (const note of state.tracker?.notes ?? []) {
+			for (const match of note.matchAll(/artifact=([^;\s]+)/g)) if (knownArtifacts.has(match[1])) state.artifacts.push(match[1]);
+		}
 		for (const note of state.runnerNotes) {
 			if (note.branch && !state.branches.includes(note.branch) && branches.includes(note.branch)) state.branches.push(note.branch);
 			if (note.worktree) {
@@ -652,6 +675,33 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 	};
 }
 
+function pendingIntegratedTickIds(recovered: RecoveredManifest | undefined): string[] {
+	const manifest = recovered?.manifest;
+	if (!recovered || !manifest) return [];
+	for (const artifact of recovered.artifacts.filter((file) => /wave-\d+-transaction\.json$/.test(file))) {
+		try {
+			const read = cappedRead(artifact, DEFAULT_RECOVERY_LIMITS.fileBytes);
+			const value = parseJson(read.text);
+			const waveMatch = path.basename(artifact).match(/^wave-(\d+)-transaction\.json$/);
+			if (read.truncated || !waveMatch || !isRecord(value) || value.epicId !== manifest.epicId || value.wave !== Number(waveMatch[1])
+				|| (value.status !== "integrated" && value.status !== "verified") || !Array.isArray(value.ticks)
+				|| value.gateArtifact !== path.join(recovered.runDir, "waves", `wave-${waveMatch[1]}-tests.md`)) continue;
+			const ids: string[] = [];
+			let valid = true;
+			for (const raw of value.ticks) {
+				if (!isRecord(raw)) { valid = false; break; }
+				const tickId = string(raw.tickId);
+				const expected = manifest.ticks.find((tick) => tick.tickId === tickId);
+				if (!tickId || !expected || raw.branch !== expected.branch || raw.worktree !== expected.worktree
+					|| (raw.integration !== "merged" && raw.integration !== "no-changes")) { valid = false; break; }
+				ids.push(tickId);
+			}
+			if (valid && ids.length) return unique(ids).sort();
+		} catch { /* Malformed transaction evidence cannot authorize tracker recovery. */ }
+	}
+	return [];
+}
+
 /** Decide whether an epic is safe to start before any tracker mutation occurs. */
 export function recoveryDisposition(snapshot: RecoverySnapshot, epicId: string): RecoveryDisposition {
 	const manifests = snapshot.manifests.filter((entry) => entry.manifest?.epicId === epicId);
@@ -664,10 +714,14 @@ export function recoveryDisposition(snapshot: RecoverySnapshot, epicId: string):
 	for (const item of snapshot.items) if (item.kind === "duplicate-conflict" && ((!item.epicId && !item.tickId) || item.epicId === epicId || snapshot.ticks.find((tick) => tick.tickId === item.tickId)?.epicId === epicId)) conflicts.push(item.detail ?? item.label);
 	if (conflicts.length) return { status: "conflict", staleInProgressTickIds: [], conflicts };
 	const selected = manifests[0];
+	const pendingIntegrated = pendingIntegratedTickIds(selected);
 	const activeManifest = snapshot.items.some((item) => item.kind === "active-run" && item.epicId === epicId);
-	const freshInProgress = snapshot.ticks.some((tick) => tick.epicId === epicId && tick.tracker?.status === "in_progress" && !snapshot.items.some((item) => item.kind === "stale-lease" && item.tickId === tick.tickId));
+	const freshInProgress = !pendingIntegrated.length && snapshot.ticks.some((tick) => tick.epicId === epicId && tick.tracker?.status === "in_progress" && !snapshot.items.some((item) => item.kind === "stale-lease" && item.tickId === tick.tickId));
 	if (activeManifest || freshInProgress) return { status: "active", manifest: selected?.manifest, manifestPath: selected?.path, staleInProgressTickIds: [], conflicts: [] };
-	const staleInProgressTickIds = snapshot.items.filter((item) => item.kind === "stale-lease" && snapshot.ticks.find((tick) => tick.tickId === item.tickId)?.epicId === epicId).map((item) => item.tickId!).sort();
+	const staleInProgressTickIds = unique([
+		...snapshot.items.filter((item) => item.kind === "stale-lease" && snapshot.ticks.find((tick) => tick.tickId === item.tickId)?.epicId === epicId).map((item) => item.tickId!),
+		...pendingIntegrated.filter((tickId) => snapshot.ticks.find((tick) => tick.tickId === tickId)?.tracker?.status === "in_progress"),
+	]).sort();
 	const useful = snapshot.ticks.some((tick) => tick.epicId === epicId && (tick.branches.length || tick.worktrees.length || tick.artifacts.length));
 	return { status: selected || useful || staleInProgressTickIds.length ? "resume" : "fresh", manifest: selected?.manifest, manifestPath: selected?.path, staleInProgressTickIds, conflicts: [] };
 }

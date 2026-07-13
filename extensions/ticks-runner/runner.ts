@@ -391,6 +391,70 @@ function mergeTickPaths(manifest: RunManifest, paths: readonly TickRunPaths[]): 
 	manifest.ticks = [...byId.values()].sort((left, right) => left.tickId.localeCompare(right.tickId));
 }
 
+type WaveTransactionTick = {
+	tickId: string;
+	branch: string;
+	worktree: string;
+	title: string;
+	closeReason: string;
+	integration: "pending" | "merged" | "no-changes" | "failed";
+};
+
+type WaveTransaction = {
+	version: 1;
+	epicId: string;
+	wave: number;
+	status: "integrating" | "integrated" | "verified" | "gate-failed" | "incomplete" | "completed";
+	updatedAt: string;
+	integrationCommit?: string;
+	gateArtifact: string;
+	ticks: WaveTransactionTick[];
+};
+
+function waveTransactionPath(runDir: string, wave: number): string {
+	return path.join(runDir, "waves", `wave-${wave}-transaction.json`);
+}
+
+function writeWaveTransaction(file: string, transaction: WaveTransaction): void {
+	transaction.updatedAt = new Date().toISOString();
+	atomicText(file, `${JSON.stringify(transaction, null, 2)}\n`);
+}
+
+function readWaveTransaction(file: string, epicId: string, wave: number, manifest: RunManifest | undefined): WaveTransaction | undefined {
+	try {
+		const value = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<WaveTransaction>;
+		const expectedGateArtifact = path.join(path.dirname(file), `wave-${wave}-tests.md`);
+		if (value.version !== 1 || value.epicId !== epicId || value.wave !== wave || value.gateArtifact !== expectedGateArtifact || !Array.isArray(value.ticks)
+			|| !["integrating", "integrated", "verified", "gate-failed", "incomplete", "completed"].includes(value.status ?? "")) return undefined;
+		const known = new Map((manifest?.ticks ?? []).map((tick) => [tick.tickId, tick]));
+		const seen = new Set<string>();
+		for (const tick of value.ticks) {
+			const expected = known.get(tick.tickId);
+			if (!expected || seen.has(tick.tickId) || typeof tick.title !== "string" || typeof tick.closeReason !== "string" || tick.branch !== expected.branch || path.resolve(tick.worktree) !== expected.worktree
+				|| !["pending", "merged", "no-changes", "failed"].includes(tick.integration)) return undefined;
+			if ((value.status === "integrated" || value.status === "verified") && tick.integration !== "merged" && tick.integration !== "no-changes") return undefined;
+			seen.add(tick.tickId);
+		}
+		if (!seen.size) return undefined;
+		return value as WaveTransaction;
+	} catch {
+		return undefined;
+	}
+}
+
+function gitIsAncestor(root: string, ancestor: string, descendant: string): boolean {
+	const result = runSubprocess("git", ["merge-base", "--is-ancestor", ancestor, descendant], root);
+	if (result.status === 0) return true;
+	if (result.status === 1) return false;
+	requireSuccessful(result, `Cannot compare ${ancestor} and ${descendant}`);
+	return false;
+}
+
+function gitWorktreeClean(worktree: string): boolean {
+	const result = runSubprocess("git", ["status", "--porcelain=v1", "--untracked-files=all"], worktree);
+	return result.status === 0 && !result.stdout.trim();
+}
+
 function formatOutcome(outcome: AgentOutcome): string {
 	return `${outcome.tickId}: ${outcome.kind} — ${outcome.detail}`;
 }
@@ -529,6 +593,43 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		recovery = scan(ownership.handle?.lease.controllerToken);
 	}
 
+	const runPostWaveGate = async (waveNumber: number, runDir: string): Promise<{ failed?: CommandEvidence; artifact: string; gate: VerificationItem }> => {
+		const artifact = path.join(runDir, "waves", `wave-${waveNumber}-tests.md`);
+		const gate: VerificationItem = { label: `post-wave ${waveNumber} tests`, status: "running", artifact };
+		verification.push(gate);
+		dashboard("running");
+		const evidence = await runConfiguredCommands(config.testCommands, root, env, options.signal);
+		atomicText(artifact, evidenceMarkdown(`Post-wave ${waveNumber} test gate`, evidence));
+		event("wave-gate-evidence", `Post-wave ${waveNumber} evidence persisted before tracker closure: ${artifact}`);
+		const failed = evidence.find((check) => check.status !== "passed");
+		gate.status = failed ? "failed" : "passed";
+		gate.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : config.testCommands.length ? `${evidence.length} command(s) passed after merges` : "No executable test commands configured";
+		return { failed, artifact, gate };
+	};
+
+	const closeAndCleanupWave = (transaction: WaveTransaction, transactionFile: string, observations = new Map<string, string>()): void => {
+		for (const tick of transaction.ticks) {
+			const observation = observations.get(tick.tickId);
+			if (observation) tracker(tk, ["note", tick.tickId, `Observation from implementer: ${observation}`], root, env);
+			const graphTick = activeGraph?.waves.flatMap((wave) => wave.tasks ?? []).find((task) => task.id === tick.tickId);
+			if (graphTick?.status !== "closed") tracker(tk, ["close", tick.tickId, "--reason", tick.closeReason], root, env);
+		}
+		trackerCommit(root, `Close ${options.epicId} wave ${transaction.wave} after post-wave gate`);
+		for (const tick of transaction.ticks) {
+			let mergeItem = merges.find((item) => item.tickId === tick.tickId && item.branch === tick.branch);
+			if (!mergeItem) {
+				mergeItem = { tickId: tick.tickId, branch: tick.branch, status: "passed", boundary: "passed", cleanup: "pending" };
+				merges.push(mergeItem);
+			}
+			const cleaned = cleanupIntegratedWorktree({ repoRoot: root, integrationRef: integration!.branch, branch: tick.branch, worktree: tick.worktree, tickId: tick.tickId, trackerDurable: true });
+			mergeItem.cleanup = cleaned.status === "cleaned" ? "passed" : "failed";
+			if (cleaned.status !== "cleaned") mergeItem.detail = cleaned.reason;
+			event("integrated", `tracker close committed after post-wave evidence; cleanup ${cleaned.status}`, tick.tickId);
+		}
+		transaction.status = "completed";
+		writeWaveTransaction(transactionFile, transaction);
+	};
+
 	for (;;) {
 		if (options.signal?.aborted) return finish("cancelled", "Run cancelled; cancellation was propagated to running children.");
 		if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost: ${ownershipFailure()}. No further tracker or git mutation was attempted.`);
@@ -544,6 +645,24 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		if (reconciled.resumedTickIds.length) event("recovery", `Reusing existing branch/worktree/artifacts for ${reconciled.resumedTickIds.join(", ")}`);
 		currentWave = plan.readyWave;
+		if (options.execute) {
+			const failedWaveRepairIds = new Set(recovery.items
+				.filter((item) => item.kind === "failed-verification" && item.artifactPaths.some((artifact) => /wave-\d+-tests\.md$/.test(artifact)))
+				.map((item) => item.tickId)
+				.filter((tickId): tickId is string => Boolean(tickId)));
+			if (failedWaveRepairIds.size) {
+				const repairTasks = plan.readyTasks.filter((task) => failedWaveRepairIds.has(task.id));
+				if (!repairTasks.length) {
+					return finish("blocked", `A failed post-wave verification still blocks this epic (${[...failedWaveRepairIds].join(", ")}). Dependents were not launched; reopen/repair the affected ticks first.`, plan);
+				}
+				const repairIds = new Set(repairTasks.map((task) => task.id));
+				plan.readyTasks = repairTasks;
+				plan.workPlans = plan.workPlans.filter((work) => repairIds.has(work.tickId));
+				plan.durablePaths.ticks = plan.durablePaths.ticks.filter((tick) => repairIds.has(tick.tickId));
+				plan.maxParallel = Math.min(plan.maxParallel, repairTasks.length);
+				event("recovery", `Failed post-wave verification restricts launch to repair ticks: ${[...repairIds].join(", ")}`);
+			}
+		}
 		if (!options.execute) {
 			dashboard(plan.preflight.canLaunch ? "planned" : "blocked");
 			return finish("dry-run", "Dry-run only; no environment command, tracker mutation, worktree, or child process was executed.", plan);
@@ -551,6 +670,38 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		if (graph.needs_planning) return finish("blocked", "Epic needs planning. Repair it before execution; no child was launched.", plan);
 		if ((graph.missing_process_ticks ?? []).length) return finish("blocked", `EPIC-SKELETON repair required (${graph.missing_process_ticks!.join(", ")}). Create/tag the missing process ticks before execution; no child was launched.`, plan);
 		if (!plan.preflight.canLaunch) return finish("blocked", plan.preflight.issues.map((issue) => issue.message).join("\n"), plan);
+
+		const pendingTransactionFile = plan.readyWave === undefined ? undefined : waveTransactionPath(plan.durablePaths.runDir, plan.readyWave);
+		const pendingTransaction = pendingTransactionFile ? readWaveTransaction(pendingTransactionFile, options.epicId, plan.readyWave!, manifest) : undefined;
+		if (pendingTransaction && (pendingTransaction.status === "integrated" || pendingTransaction.status === "verified")) {
+			const unsafe = pendingTransaction.ticks.find((tick) => !gitIsAncestor(root, tick.branch, integration!.branch) || !fs.existsSync(tick.worktree));
+			if (unsafe) return finish("blocked", `Interrupted wave ${pendingTransaction.wave} cannot resume safely: retained ${unsafe.branch}/${unsafe.worktree} is missing or not integrated.`, plan);
+			event("recovery", `Resuming interrupted wave ${pendingTransaction.wave} after integration without redispatching implementers`);
+			if (pendingTransaction.status === "integrated") {
+				const gated = await runPostWaveGate(pendingTransaction.wave, plan.durablePaths.runDir);
+				if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost during recovered post-wave verification: ${ownershipFailure()}. Dependents were not launched.`);
+				if (gated.failed) {
+					pendingTransaction.status = "gate-failed";
+					writeWaveTransaction(pendingTransactionFile!, pendingTransaction);
+					for (const tick of pendingTransaction.ticks) {
+						tracker(tk, ["note", tick.tickId, `runner post-wave-verifier-failure: wave ${pendingTransaction.wave} integrated gate failed; artifact=${gated.artifact}; branch=${tick.branch}; worktree=${tick.worktree}; ${gated.gate.detail}`], root, env);
+						tracker(tk, ["update", tick.tickId, "--status", "open"], root, env);
+					}
+					tracker(tk, ["note", options.epicId, `Post-wave ${pendingTransaction.wave} test gate failed; dependents were not launched. artifact=${gated.artifact}; ${gated.gate.detail}`], root, env);
+					trackerCommit(root, `Record ${options.epicId} wave ${pendingTransaction.wave} test failure`);
+					return finish(gated.failed.status === "cancelled" ? "cancelled" : "failed", `Recovered post-wave test gate failed after merges. Affected ticks remain open with repair state retained. Evidence: ${gated.artifact}`, plan);
+				}
+				pendingTransaction.status = "verified";
+				writeWaveTransaction(pendingTransactionFile!, pendingTransaction);
+				event("wave-verified", `Recovered post-wave tests passed; tracker closure may now begin`);
+			}
+			closeAndCleanupWave(pendingTransaction, pendingTransactionFile!);
+			wavesCompleted++;
+			integration!.commit = git(root, ["rev-parse", "HEAD"]);
+			recovery = scan(ownership.handle?.lease.controllerToken);
+			continue;
+		}
+
 		if (plan.readyTasks.some((task) => task.role === "review" || task.role === "closeout")) {
 			const processTasks = plan.readyTasks.filter((task) => task.role).map((task) => `${task.id} (${task.role})`).join(", ");
 			return finish("awaiting", `Orchestrator-owned process tick is ready: ${processTasks}. Dedicated review/closeout behavior is not implemented, so ordinary implementers were not launched.`, plan);
@@ -574,8 +725,10 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const task = plan.readyTasks[index];
 				const work = plan.workPlans[index];
 				const recoveredTick = recovery.ticks.find((item) => item.tickId === task.id && item.epicId === options.epicId);
-				const baseRef = recoveredTick?.branches.includes(work.branch) ? work.branch : integration!.branch;
-				const provision = ensureGitWorktree({ repoRoot: root, worktree: work.worktree, branch: work.branch, baseRef, tickId: task.id });
+				const recoveredBranch = recoveredTick?.branches.includes(work.branch);
+				const alreadyIntegrated = Boolean(recoveredBranch && gitIsAncestor(root, work.branch, integration!.branch) && gitWorktreeClean(work.worktree));
+				const baseRef = recoveredBranch && !alreadyIntegrated ? work.branch : integration!.branch;
+				const provision = ensureGitWorktree({ repoRoot: root, worktree: work.worktree, branch: work.branch, baseRef, tickId: task.id, advanceIfIntegrated: alreadyIntegrated });
 				if (provision.status === "rejected") throw new Error(provision.reason);
 				const detail = parseTickDetail(tracker(tk, ["show", task.id, "--json"], root, env), task.id);
 				const prompt = buildImplementerPrompt({ detail, epicId: options.epicId, epicTitle: graph.epic?.title, integrationCommit: provision.baseCommit, integrationBranch: integration!.branch, config });
@@ -667,16 +820,31 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			dashboard("running");
 		}
 
+		const waveNumber = plan.readyWave ?? wavesCompleted + 1;
+		const transactionFile = waveTransactionPath(plan.durablePaths.runDir, waveNumber);
+		const transaction: WaveTransaction = {
+			version: 1,
+			epicId: options.epicId,
+			wave: waveNumber,
+			status: "integrating",
+			updatedAt: new Date().toISOString(),
+			gateArtifact: path.join(plan.durablePaths.runDir, "waves", `wave-${waveNumber}-tests.md`),
+			ticks: executions.map((execution, index) => ({
+				tickId: execution.task.id,
+				branch: execution.work.branch,
+				worktree: execution.work.worktree,
+				title: execution.detail.title,
+				closeReason: `Completed: ${execution.detail.title}`,
+				integration: waveOutcomes[index].closeAllowed ? "pending" : "failed",
+			})),
+		};
+		writeWaveTransaction(transactionFile, transaction);
+
 		for (let index = 0; index < executions.length; index++) {
 			if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost before integration: ${ownershipFailure()}. Remaining worktrees were preserved.`);
 			const execution = executions[index];
 			let outcome = waveOutcomes[index];
-			if (!outcome.closeAllowed) {
-				tracker(tk, ["note", execution.task.id, `runner ${outcome.kind}: ${outcome.detail}${outcome.artifacts?.length ? `; artifacts=${outcome.artifacts.join(",")}` : ""}`], root, env);
-				tracker(tk, ["update", execution.task.id, "--status", "open"], root, env);
-				trackerCommit(root, `Route tick ${execution.task.id}: ${outcome.kind}`);
-				continue;
-			}
+			if (!outcome.closeAllowed) continue;
 			const mergeItem: MergeItem = { tickId: execution.task.id, branch: execution.work.branch, status: "running", boundary: "running", cleanup: "pending" };
 			merges.push(mergeItem);
 			dashboard("running");
@@ -687,7 +855,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				worktree: execution.work.worktree,
 				tickId: execution.task.id,
 				commitMessage: `tick ${execution.task.id}: ${execution.detail.title}`,
-				closeReason: `Completed: ${execution.detail.title}`,
+				closeReason: transaction.ticks[index].closeReason,
 				mergeMessage: `Merge tick ${execution.task.id}: ${execution.detail.title}`,
 			});
 			if (integrated.status !== "merged" && integrated.status !== "no-changes") {
@@ -696,48 +864,67 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				mergeItem.detail = integrated.reason;
 				outcome = { ...outcome, kind: "integration-failure", detail: integrated.reason ?? integrated.status, closeAllowed: false };
 				waveOutcomes[index] = outcome;
-				tracker(tk, ["note", execution.task.id, `runner integration-failure: ${outcome.detail}`], root, env);
-				tracker(tk, ["update", execution.task.id, "--status", "open"], root, env);
-				trackerCommit(root, `Route tick ${execution.task.id}: integration failure`);
+				transaction.ticks[index].integration = "failed";
+				writeWaveTransaction(transactionFile, transaction);
 				continue;
 			}
 			mergeItem.status = "passed";
 			mergeItem.boundary = "passed";
-			if (outcome.kind === "accepted-observation") tracker(tk, ["note", execution.task.id, `Observation from implementer: ${outcome.detail}`], root, env);
-			const close = integrated.actions.find((action) => action.kind === "tracker-close");
-			if (!close || close.kind !== "tracker-close") throw new Error(`Integration for ${execution.task.id} did not produce a tracker-close action`);
-			tracker(tk, ["close", close.tickId, "--reason", close.reason], root, env);
-			trackerCommit(root, `Close tick ${execution.task.id}: integrated`);
-			const cleaned = cleanupIntegratedWorktree({ repoRoot: root, integrationRef: integration!.branch, branch: execution.work.branch, worktree: execution.work.worktree, tickId: execution.task.id, trackerDurable: true });
-			mergeItem.cleanup = cleaned.status === "cleaned" ? "passed" : "failed";
-			if (cleaned.status !== "cleaned") mergeItem.detail = cleaned.reason;
-			event("integrated", `${integrated.status}; tracker close committed; cleanup ${cleaned.status}`, execution.task.id);
+			transaction.ticks[index].integration = integrated.status;
+			writeWaveTransaction(transactionFile, transaction);
 		}
-		outcomes.push(...waveOutcomes);
 
-		const integratedCount = waveOutcomes.filter((outcome) => outcome.closeAllowed).length;
-		if (integratedCount > 0) {
-			const waveNumber = plan.readyWave ?? wavesCompleted + 1;
-			const artifact = path.join(plan.durablePaths.runDir, "waves", `wave-${waveNumber}-tests.md`);
-			const gate: VerificationItem = { label: `post-wave ${waveNumber} tests`, status: "running", artifact };
-			verification.push(gate);
-			dashboard("running");
-			const evidence = await runConfiguredCommands(config.testCommands, root, env, options.signal);
-			atomicText(artifact, evidenceMarkdown(`Post-wave ${waveNumber} test gate`, evidence));
-			const failed = evidence.find((check) => check.status !== "passed");
-			if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost during post-wave verification: ${ownershipFailure()}. Dependents were not launched.`);
-			gate.status = failed ? "failed" : "passed";
-			gate.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : config.testCommands.length ? `${evidence.length} command(s) passed after merges` : "No executable test commands configured";
-			if (failed) {
-				tracker(tk, ["note", options.epicId, `Post-wave ${waveNumber} test gate failed; dependents were not launched. artifact=${artifact}; ${gate.detail}`], root, env);
-				trackerCommit(root, `Record ${options.epicId} wave ${waveNumber} test failure`);
-				return finish(failed.status === "cancelled" ? "cancelled" : "failed", `Post-wave test gate failed after merges. Dependents remain unlaunched. Evidence: ${artifact}`);
-			}
-			wavesCompleted++;
-			event("wave-verified", `Post-wave tests passed after ${integratedCount} merge(s); recomputing tk graph`);
-		}
 		const rejected = waveOutcomes.filter((outcome) => !outcome.closeAllowed);
-		if (rejected.length) return finish(options.signal?.aborted ? "cancelled" : "blocked", `Wave stopped with ${rejected.length} routed outcome(s); no known failure was closed and dependents were not launched.`);
+		if (rejected.length) {
+			transaction.status = "incomplete";
+			transaction.integrationCommit = git(root, ["rev-parse", "HEAD"]);
+			writeWaveTransaction(transactionFile, transaction);
+			for (let index = 0; index < executions.length; index++) {
+				const execution = executions[index];
+				const outcome = waveOutcomes[index];
+				const merged = transaction.ticks[index].integration === "merged" || transaction.ticks[index].integration === "no-changes";
+				const note = merged
+					? `runner wave-incomplete: tick integrated but wave ${waveNumber} could not fully integrate; branch=${execution.work.branch}; worktree=${execution.work.worktree}; repair state retained`
+					: `runner ${outcome.kind}: ${outcome.detail}${outcome.artifacts?.length ? `; artifacts=${outcome.artifacts.join(",")}` : ""}`;
+				tracker(tk, ["note", execution.task.id, note], root, env);
+				tracker(tk, ["update", execution.task.id, "--status", "open"], root, env);
+			}
+			trackerCommit(root, `Route ${options.epicId} wave ${waveNumber}: incomplete integration`);
+			outcomes.push(...waveOutcomes);
+			return finish(options.signal?.aborted ? "cancelled" : "blocked", `Wave stopped with ${rejected.length} routed outcome(s); merged siblings remain open with branches/worktrees retained and dependents were not launched.`);
+		}
+
+		transaction.status = "integrated";
+		transaction.integrationCommit = git(root, ["rev-parse", "HEAD"]);
+		writeWaveTransaction(transactionFile, transaction);
+		event("wave-integrated", `Wave ${waveNumber} fully merged; tracker closure and cleanup remain deferred until the post-wave gate`);
+
+		const gated = await runPostWaveGate(waveNumber, plan.durablePaths.runDir);
+		if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost during post-wave verification: ${ownershipFailure()}. Dependents were not launched.`);
+		if (gated.failed) {
+			transaction.status = "gate-failed";
+			writeWaveTransaction(transactionFile, transaction);
+			for (let index = 0; index < executions.length; index++) {
+				const execution = executions[index];
+				const detail = `Post-wave ${waveNumber} verification failed after integration; branch/worktree retained for follow-up repair. ${gated.gate.detail}`;
+				waveOutcomes[index] = { ...waveOutcomes[index], kind: "verifier-failure", detail, closeAllowed: false, artifacts: [gated.artifact] };
+				tracker(tk, ["note", execution.task.id, `runner post-wave-verifier-failure: ${detail}; artifact=${gated.artifact}; branch=${execution.work.branch}; worktree=${execution.work.worktree}`], root, env);
+				tracker(tk, ["update", execution.task.id, "--status", "open"], root, env);
+			}
+			tracker(tk, ["note", options.epicId, `Post-wave ${waveNumber} test gate failed; dependents were not launched. artifact=${gated.artifact}; ${gated.gate.detail}`], root, env);
+			trackerCommit(root, `Record ${options.epicId} wave ${waveNumber} test failure`);
+			outcomes.push(...waveOutcomes);
+			return finish(gated.failed.status === "cancelled" ? "cancelled" : "failed", `Post-wave test gate failed after merges. Affected ticks remain open with branches/worktrees retained; dependents remain unlaunched. Evidence: ${gated.artifact}`);
+		}
+
+		transaction.status = "verified";
+		writeWaveTransaction(transactionFile, transaction);
+		event("wave-verified", `Post-wave tests passed after ${transaction.ticks.length} merge(s); tracker closure may now begin`);
+		const observations = new Map(waveOutcomes.filter((outcome) => outcome.kind === "accepted-observation").map((outcome) => [outcome.tickId, outcome.detail]));
+		closeAndCleanupWave(transaction, transactionFile, observations);
+		outcomes.push(...waveOutcomes);
+		wavesCompleted++;
 		integration.commit = git(root, ["rev-parse", "HEAD"]);
+		recovery = scan(ownership.handle?.lease.controllerToken);
 	}
 }

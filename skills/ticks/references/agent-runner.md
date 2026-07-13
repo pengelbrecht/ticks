@@ -52,18 +52,21 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       tick's branch/worktree in a durable note as soon as the name is known (before launch
       when the adapter controls naming; at first report when the harness assigns it)
    c. Wait using the harness's native completion primitive. Avoid busy polling.
-   d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
-      Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
-      Never use a bare `tk close`.
-   e. When the whole wave is merged, run the project's test suite on the integrated tree
-   f. When the wave is integrated and green, go to the next wave
+   d. Integrate each verified tick by merging its branch, but do not close tracker state or clean
+      branches/worktrees yet. If any sibling cannot integrate, keep every affected tick open and
+      retain all repair state, including siblings already merged.
+   e. When the whole wave is merged, persist the post-wave test evidence and run the project's
+      test suite on the integrated tree.
+   f. Only after that gate passes, close all wave ticks durably, then clean their worktrees/branches.
+      Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`.
+      Never use a bare `tk close`. Then go to the next wave.
 4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
 
 Order matters: integrate a wave's work *before* launching the next, so wave N+1 agents branch from a tree that already contains wave N's changes.
 
-**Verify the wave after merging, not just the ticks.** Each implementer ran its tests in its own worktree — against a tree that didn't contain its siblings' changes. Two branches can merge cleanly and still break each other. After a wave's merges land, run the project's test suite (or at minimum the build) before launching the next wave; if it fails, use the harness's continuation primitive or redispatch the responsible tick before anything else branches from the broken tree.
+**Verify the wave after merging, not just the ticks.** Each implementer ran its tests in its own worktree — against a tree that didn't contain its siblings' changes. Two branches can merge cleanly and still break each other. A merge is provisional until the integrated gate passes: defer every close and cleanup. If the gate fails, reopen/keep open every affected tick, note the failed evidence, retain every branch/worktree, and block dependents. For repair, advance each already-merged retained branch to the integrated failure commit before adding a follow-up commit; this avoids replaying the original change or creating a duplicate branch. Only a passed gate authorizes durable closes and cleanup.
 
 **Optional: dependency-driven launching.** Waves are a barrier: nothing in wave N+1 starts until all of wave N is integrated. But a tick is actually ready the moment *its specific blockers* are merged and verified. Since you're woken per-agent anyway, you can launch a tick as soon as its last blocker integrates instead of waiting for the whole wave — a throughput win on epics with uneven waves. Wave barriers remain the simpler default and easier to audit; if you go dependency-driven, the per-tick rules below (merge, verify, then launch dependents) still apply unchanged.
 
@@ -206,12 +209,15 @@ Each implementer commits its code in its own worktree and reports its branch nam
 # 1. Verify the agent stayed inside its boundary (should print nothing)
 git diff --name-only HEAD...<agent-branch> -- .tick/
 
-# 2. Merge and close
+# 2. Merge provisionally; keep the branch/worktree
 git merge <agent-branch>     # branch name comes from the agent's report
+
+# 3. After every wave branch is merged, run and persist the integrated test gate.
+# 4. Only when that gate passes:
 tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 ```
 
-After the close is committed, run the active adapter's successful-integration cleanup. Harness-managed worktrees may clean themselves; manually created worktrees and merged branches must be removed explicitly.
+Commit all wave closes durably after the passed gate, then run the active adapter's successful-integration cleanup. Harness-managed worktrees may clean themselves; manually created worktrees and merged branches must be removed explicitly. A failed gate leaves the ticks open and all branches/worktrees intact.
 
 Always pass `--reason` with a concrete summary — never a bare `tk close <id>`. The reason appears in the activity feed and in the retro harvest; vague or absent reasons make the retro harder.
 
@@ -453,15 +459,15 @@ Run this **before the first wave on every (re)entry**, even on a fresh start (gu
 2. For each `in_progress` tick with no live agent: check its `started_at` age.
    - A tick whose `started_at` is older than your staleness threshold (e.g. 30 minutes) **and** has no live agent is stale. Reset it: `tk update <id> --status open`.
    - `last_activity` provides a secondary cross-check: because claiming a tick emits a `start` activity entry, `last_activity` is also fresh at claim time. A genuinely stale tick will show both an old `started_at` **and** an old `last_activity`.
-   - **What stays closed:** any tick already closed before the session died. Completed work is never re-opened.
-   - **What re-opens:** only ticks that were still in_progress when the session died — incomplete work must be re-run from the reopened tick.
+   - **What stays closed:** any tick whose wave gate had durably passed before closure. A merge alone is not completion.
+   - **What re-opens:** ticks still in_progress when the session died, plus any legacy false-close tied to failed post-wave evidence. A durable integrated-wave journal resumes the gate without redispatch; failed-gate ticks resume repair in their retained worktrees.
 3. **Childless-epic edge case:** an `in_progress` epic with no child ticks maps to `action: implement` in `tk next`, which is unroutable — `EpicsNeedingPlanning` only considers epics with status `open`. Reset it to `open` so it correctly surfaces as `action: plan`.
 
 ### Worktree branch reconciliation
 
 Read `runner-state:` notes on in-progress ticks, then inspect `git worktree list` and `git branch --list 'tick/*'`. Include adapter-managed branches whose actual names were recorded in notes, and sweep the adapter's documented branch pattern for branches that died before a note was written (each adapter names its pattern). For each leftover branch:
 
-- **If its tick is already closed, or if the agent reported `DONE` before the session died:** merge the branch now (`git merge <branch>`) then delete it.
+- **If its tick is closed after durable post-wave success:** cleanup is safe after ancestry checks. If the agent only reported `DONE`, merge provisionally and retain the branch/worktree until the integrated wave gate passes.
 - **If it contains incomplete but useful work:** preserve the worktree and branch. Continue or redispatch the tick there after updating it from the integration branch.
 - **If it contains no useful changes or is irrecoverably inconsistent:** remove the worktree and branch, record why in a tick note, and redispatch from the current integration commit.
 
