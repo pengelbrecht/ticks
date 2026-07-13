@@ -145,7 +145,7 @@ Planning is the highest-leverage step in an epic run. A flawed implementation ti
 **Always synthesize plans at frontier tier** regardless of the orchestrating session's tier. If the harness supports nested or parallel read-only agents, use cheap exploration agents to map subsystems and let the frontier planner synthesize their findings. Otherwise the frontier planner performs exploration directly.
 
 1. The frontier planner spawns N sub-agents at the cheapest capability tier in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
-2. The frontier planner synthesizes the summaries into the tick structure: partitioning, wave grouping, dependency graph, contracts-first ordering.
+2. The frontier planner synthesizes the summaries into the tick structure: partitioning by constraint surface (seam files, shared un-isolable resources — see `tick-patterns.md`), wave grouping, dependency graph, contracts-first ordering.
 3. The planning agent returns the full tick list for the orchestrator to create with `tk`.
 
 This keeps planning quality independent of the session model whenever the harness can dispatch a separate planner.
