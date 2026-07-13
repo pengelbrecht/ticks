@@ -209,7 +209,7 @@ export function readRunManifest(manifestPath: string): RunManifest {
 	return value;
 }
 
-function isRunManifest(value: unknown): value is RunManifest {
+export function isRunManifest(value: unknown): value is RunManifest {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<RunManifest>;
 	return candidate.version === RUN_MANIFEST_VERSION

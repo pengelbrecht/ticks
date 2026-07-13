@@ -15,19 +15,14 @@ import {
 	type DashboardModel,
 } from "./dashboard.ts";
 import { buildRunPlan, formatDryPlan, parseGraph, type RunDryPlan } from "./graph.ts";
+import {
+	formatRecoveryStatus,
+	scanRecovery,
+	type RecoverySnapshot,
+} from "./recovery.ts";
 import { formatRunResult, runEpic } from "./runner.ts";
-import { discoverRuns } from "./state.ts";
 
 type Json = Record<string, unknown>;
-
-type StatusModel = {
-	repoRoot: string;
-	worktreeRoot: string;
-	managedWorktrees: string[];
-	tickBranches: string[];
-	runnerNotes: Array<{ tick: string; note: string }>;
-	artifacts: string[];
-};
 
 const COMMANDS = ["ticks-plan", "ticks-run", "ticks-status", "ticks-dashboard"];
 function shlex(input: string): string[] {
@@ -134,58 +129,14 @@ async function buildDryPlan(cwd: string, epicId: string, worktrees: boolean): Pr
 	});
 }
 
-async function collectStatus(cwd: string): Promise<StatusModel> {
+export async function collectStatus(cwd: string, epicId?: string): Promise<RecoverySnapshot> {
 	const root = await repoRoot(cwd);
-	const worktreeRoot = path.resolve(path.dirname(root), ".ticks-worktrees");
-	const gitWorktrees = await run("git", ["worktree", "list", "--porcelain"], root);
-	const managedWorktrees = gitWorktrees.stdout
-		.split(/\r?\n/)
-		.filter((line) => line.startsWith("worktree "))
-		.map((line) => line.slice("worktree ".length))
-		.filter((item) => item.includes(".ticks-worktrees"));
-	const branches = await run("git", ["branch", "--list", "tick/*", "--format=%(refname:short)"], root);
-	const tickBranches = branches.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-	const artifacts = fs.existsSync(worktreeRoot)
-		? fs.readdirSync(worktreeRoot).filter((name) => /\.(jsonl|report\.md|prompt\.md)$/.test(name))
-		: [];
-	const issuesDir = path.join(root, ".tick", "issues");
-	const runnerNotes: Array<{ tick: string; note: string }> = [];
-	if (fs.existsSync(issuesDir)) {
-		for (const file of fs.readdirSync(issuesDir)) {
-			if (!file.endsWith(".json")) continue;
-			try {
-				const tick = JSON.parse(fs.readFileSync(path.join(issuesDir, file), "utf8")) as { id?: string; notes?: string };
-				const notes = tick.notes ?? "";
-				for (const note of notes.split(/\n/).filter((line) => line.includes("runner-state:"))) {
-					runnerNotes.push({ tick: tick.id ?? file.replace(/\.json$/, ""), note });
-				}
-			} catch {
-				// Ignore malformed issue files; tk will report them separately.
-			}
-		}
-	}
-	return { repoRoot: root, worktreeRoot, managedWorktrees, tickBranches, runnerNotes, artifacts };
-}
-
-function formatStatus(status: StatusModel): string {
-	const lines: string[] = [];
-	lines.push("# Ticks Pi orchestrator status");
-	lines.push(`Repo: ${status.repoRoot}`);
-	lines.push(`Worktree root: ${status.worktreeRoot}`);
-	lines.push("");
-	lines.push(`- Managed worktrees: ${status.managedWorktrees.length}`);
-	for (const item of status.managedWorktrees.slice(0, 10)) lines.push(`  - ${item}`);
-	lines.push(`- Tick branches: ${status.tickBranches.length}`);
-	for (const item of status.tickBranches.slice(0, 10)) lines.push(`  - ${item}`);
-	lines.push(`- Runner-state notes: ${status.runnerNotes.length}`);
-	for (const item of status.runnerNotes.slice(0, 10)) lines.push(`  - ${item.tick}: ${item.note}`);
-	lines.push(`- Artifacts: ${status.artifacts.length}`);
-	for (const item of status.artifacts.slice(0, 10)) lines.push(`  - ${item}`);
-	if (status.managedWorktrees.length + status.tickBranches.length + status.runnerNotes.length + status.artifacts.length === 0) {
-		lines.push("");
-		lines.push("No active Pi/Ticks orchestration state found for this repository.");
-	}
-	return lines.join("\n");
+	return scanRecovery({
+		repoRoot: root,
+		repoIdentity: await repoIdentity(root),
+		stateRoot: await durableStateRoot(root),
+		epicId,
+	});
 }
 
 function emit(pi: ExtensionAPI, ctx: ExtensionCommandContext, title: string, markdown: string, details?: Json): void {
@@ -218,32 +169,54 @@ function demoDashboardModel(): DashboardModel {
 	return buildDashboardModel(input);
 }
 
-function statusDashboardModel(status: StatusModel): DashboardModel {
+function statusDashboardModel(snapshot: RecoverySnapshot): DashboardModel {
+	const active = snapshot.items.some((item) => item.kind === "active-run" || item.kind === "in-progress");
 	return buildDashboardModel({
-		runId: "repository-status",
-		epicId: "repository",
-		epicTitle: path.basename(status.repoRoot),
-		status: status.runnerNotes.length || status.managedWorktrees.length ? "recoverable" : "idle",
-		recovery: [
-			...status.managedWorktrees.map((item) => ({ kind: "orphaned-worktree", label: item, action: "inspect before cleanup" })),
-			...status.runnerNotes.map((item) => ({ kind: "partial-report", label: `${item.tick} runner state`, detail: item.note })),
-		],
+		runId: snapshot.manifests[0]?.manifest?.runId ?? "repository-status",
+		epicId: snapshot.epicId ?? snapshot.manifests[0]?.manifest?.epicId ?? "repository",
+		epicTitle: snapshot.epicId ?? path.basename(snapshot.repoRoot),
+		status: active ? "running" : snapshot.items.length ? "recoverable" : "idle",
+		agents: snapshot.ticks.filter((tick) => tick.tracker?.status === "in_progress" || tick.branches.length || tick.worktrees.length).map((tick) => ({
+			tickId: tick.tickId,
+			title: tick.tracker?.title,
+			branch: tick.branches[0],
+			worktree: tick.worktrees[0]?.path,
+			status: tick.tracker?.awaiting ? "awaiting" : tick.tracker?.status ?? "recoverable",
+		})),
+		recovery: snapshot.items.map((item) => ({
+			kind: item.kind,
+			label: item.label,
+			detail: item.detail,
+			action: item.action,
+			artifacts: item.artifactPaths,
+			lastDecision: item.lastDecision,
+		})),
+		humanGates: snapshot.ticks.filter((tick) => tick.tracker?.awaiting).map((tick) => ({
+			tickId: tick.tickId,
+			title: tick.tracker?.title ?? "(untitled)",
+			type: tick.tracker!.awaiting!,
+			status: "awaiting" as const,
+			detail: tick.lastDecision,
+		})),
 	});
 }
 
 async function dashboardModelForTarget(cwd: string, target: string): Promise<DashboardModel> {
-	const root = await repoRoot(cwd);
-	const discovered = discoverRuns(await durableStateRoot(root));
-	const run = discovered.find((item) => item.manifest?.runId === target);
-	if (!run?.manifest) return dashboardModelFromPlan(await buildDryPlan(cwd, target, true));
-	return buildDashboardModel({
-		runId: run.manifest.runId,
-		epicId: run.manifest.epicId,
-		epicTitle: run.manifest.epicId,
-		status: run.stale ? "recoverable" : run.manifest.status,
-		agents: run.manifest.ticks.map((tick) => ({ tickId: tick.tickId, branch: tick.branch, worktree: tick.worktree, status: run.manifest!.status })),
-		recovery: run.stale ? [{ kind: run.reason ?? "failed-run", label: `Run ${target} is stale`, detail: run.manifest.updatedAt, action: "inspect artifacts then resume" }] : [],
-	});
+	const all = await collectStatus(cwd);
+	const run = all.manifests.find((item) => item.manifest?.runId === target);
+	if (run?.manifest) return statusDashboardModel(await collectStatus(cwd, run.manifest.epicId));
+	const snapshot = await collectStatus(cwd, target);
+	try {
+		const planned = dashboardModelFromPlan(await buildDryPlan(cwd, target, true));
+		const recovered = statusDashboardModel(snapshot);
+		return buildDashboardModel({
+			...planned,
+			recovery: recovered.recovery,
+			humanGates: [...planned.humanGates, ...recovered.humanGates],
+		});
+	} catch {
+		return statusDashboardModel(snapshot);
+	}
 }
 
 export default function ticksRunnerExtension(pi: ExtensionAPI): void {
@@ -287,6 +260,7 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 		description: "Dry-run (default) or explicitly execute a Ticks epic",
 		getArgumentCompletions: (prefix) => [
 			{ value: "--execute", label: "--execute", description: "Opt in to child execution and tracker mutations" },
+			{ value: "--resume", label: "--resume", description: "Explicitly request the same automatic safe recovery used by --execute" },
 			{ value: "--worktrees", label: "--worktrees", description: "Use isolated per-tick worktrees (implicit for execution)" },
 			{ value: "--max-parallel", label: "--max-parallel", description: "Override the clean-run concurrency cap" },
 			{ value: "--autonomous", label: "--autonomous", description: "Allow checkpoint continuation where supported" },
@@ -296,7 +270,7 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 			const optionArguments = new Set(["--max-parallel"]);
 			const epicId = tokens.find((token, index) => !token.startsWith("-") && !optionArguments.has(tokens[index - 1] ?? ""));
 			if (!epicId) {
-				emit(pi, ctx, "/ticks-run", "Usage: `/ticks-run <epic-id> [--execute] [--worktrees] [--max-parallel N] [--autonomous]`\n\nDry-run is the default; execution requires `--execute`.", {});
+				emit(pi, ctx, "/ticks-run", "Usage: `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous]`\n\nDry-run is the default; execution requires `--execute`. Safe recovery is automatic; `--resume` is optional.", {});
 				return;
 			}
 			const execute = hasFlag(tokens, "--execute");
@@ -312,6 +286,7 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 					worktrees: execute || hasFlag(tokens, "--worktrees"),
 					maxParallel,
 					autonomous: hasFlag(tokens, "--autonomous"),
+					resume: hasFlag(tokens, "--resume"),
 					signal: controller.signal,
 					onDashboard: (model) => updateCompactStatus(ctx, model),
 				});
@@ -328,11 +303,14 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("ticks-status", {
-		description: "Show active/recoverable Pi Ticks orchestration state",
-		handler: async (_args, ctx) => {
+		description: "Show active/recoverable Pi Ticks orchestration state, optionally scoped to an epic",
+		handler: async (args, ctx) => {
 			try {
-				const status = await collectStatus(ctx.cwd);
-				emit(pi, ctx, "/ticks-status", formatStatus(status), status as unknown as Json);
+				const epicId = shlex(args).find((token) => !token.startsWith("-"));
+				const status = await collectStatus(ctx.cwd, epicId);
+				const model = statusDashboardModel(status);
+				updateCompactStatus(ctx, model);
+				emit(pi, ctx, "/ticks-status", formatRecoveryStatus(status), status as unknown as Json);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-status failed", `# /ticks-status failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
 			}

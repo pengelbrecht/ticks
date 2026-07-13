@@ -39,6 +39,8 @@ export type RecoveryItem = {
 	label: string;
 	detail?: string;
 	action?: string;
+	artifacts?: string[];
+	lastDecision?: string;
 };
 
 export type HumanGate = {
@@ -265,7 +267,12 @@ function agentRows(model: DashboardModel, selected: number, expanded: boolean): 
 function rightRows(model: DashboardModel): string[] {
 	const verification = model.verification.map((item) => ` ${icon(item.status)} ${item.tickId ? `${item.tickId} ` : ""}${item.label} · ${item.status}${item.detail ? ` — ${item.detail}` : ""}`);
 	const merges = model.merges.map((item) => ` ${icon(item.status)} ${item.tickId} ${item.branch} · merge ${item.status} · boundary ${item.boundary ?? "pending"} · cleanup ${item.cleanup ?? "pending"}${item.detail ? ` — ${item.detail}` : ""}`);
-	const recovery = model.recovery.map((item) => ` ! ${item.label} [${item.kind}]${item.detail ? ` — ${item.detail}` : ""}${item.action ? ` · action: ${item.action}` : ""}`);
+	const recovery = model.recovery.flatMap((item) => {
+		const rows = [` ! ${item.label} [${item.kind}]${item.detail ? ` — ${item.detail}` : ""}${item.action ? ` · action: ${item.action}` : ""}`];
+		if (item.lastDecision) rows.push(`   decision: ${item.lastDecision}`);
+		for (const artifact of (item.artifacts ?? []).slice(0, 3)) rows.push(`   artifact: ${artifact}`);
+		return rows;
+	});
 	const gates = model.humanGates.map((gate) => ` ◆ ${gate.tickId} ${gate.title} · ${gate.type}/${gate.status ?? "awaiting"}${gate.detail ? ` — ${gate.detail}` : ""}`);
 	return [
 		...section("Verification lane", verification),
@@ -343,7 +350,9 @@ export function renderDashboardText(model: DashboardModel, width = 120): string 
 export function compactDashboardSummary(model: DashboardModel): { status: string; widget: string[] } {
 	const completed = model.agents.filter((agent) => agent.status === "completed" || agent.status === "success").length;
 	const running = model.agents.filter((agent) => agent.status === "running").length;
-	const attention = model.verification.filter((item) => item.status === "failed").length + model.recovery.length + model.humanGates.filter((gate) => (gate.status ?? "awaiting") === "awaiting").length;
+	const attention = model.verification.filter((item) => item.status === "failed").length
+		+ model.recovery.filter((item) => item.kind !== "active-run" && item.kind !== "in-progress").length
+		+ model.humanGates.filter((gate) => (gate.status ?? "awaiting") === "awaiting").length;
 	return {
 		status: `${icon(model.status)} ${model.epicId} W${model.currentWave ?? "—"} ${completed}/${model.agents.length}${attention ? ` · ${attention} attention` : ""}`,
 		widget: [`${running} running · verify ${model.verification.filter((item) => item.status === "passed").length}/${model.verification.length} · merge ${model.merges.filter((item) => item.status === "passed").length}/${model.merges.length} · $${model.usage.cost.toFixed(4)} · ctx ${shortNumber(model.usage.contextTokens)}`],
