@@ -1,6 +1,6 @@
 # Running Epics with AI Agents
 
-Run a Ticks epic by orchestrating implementer agents from the current harness. Read the dependency graph, launch one implementer per ready tick in an isolated git worktree, and integrate their work wave by wave.
+Run a Ticks epic by orchestrating implementer agents from the current harness. Read the dependency graph, launch one implementer per dispatch unit (a ready tick, or a warm-chain of small related ticks) in an isolated git worktree, and integrate their work wave by wave.
 
 This is the runner-neutral execution contract. **Before reading further, identify your harness and load its adapter — do not skip this step or default to Claude Code:**
 
@@ -17,8 +17,8 @@ The harness plays the orchestrator; git and `.tick/` are the durable coordinatio
 ## Mental model
 
 - **You are the orchestrator.** You own all tick state: you spawn implementers, wait for them, integrate their branches, and update ticks. You don't write feature code yourself during a run — you coordinate.
-- **One tick = one implementer = one worktree = one mergeable branch.** This maps directly onto the "atomic, committable piece of work" principle behind a well-formed tick.
-- **Waves are your unit of parallelism.** `tk graph` groups ticks into waves; everything in a wave can run at once because nothing in it depends on anything else in it.
+- **One dispatch unit = one implementer = one worktree = one mergeable branch.** A dispatch unit is a single tick, or an ordered chain of small related ticks run warm by one implementer (see "Dispatch modes and the economic gate"). A chain commits per tick, so the "atomic, committable piece of work" principle behind a well-formed tick survives inside it.
+- **Waves are feasibility, not a dispatch order.** `tk graph` groups ticks into waves: everything in a wave *may* run at once because nothing in it depends on anything else in it. How much of that width to spend — and whether on parallel implementers or warm-chains — is a dispatch decision you make per wave.
 
 ## Orchestration-evolution principle
 
@@ -50,26 +50,30 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    (Older tk without missing_process_ticks: fall back to checking tk list --parent <epic>
    for the two process ticks by hand.)
 4. For each wave:
-   a. Mark the wave's ticks in_progress
+   a. Pick the dispatch mode with the economic gate — solo-tick, parallel-wave, or
+      warm-chain(s) — and note the choice (see "Dispatch modes and the economic gate").
+      A dispatch unit is one tick or one ordered chain of ticks.
+   b. Mark the dispatched ticks in_progress
       `tk update <id> --status in_progress` emits a 'start' activity entry and sets started_at
       on the tick — claiming is immediately visible on the board and in the activity feed.
-   b. Launch one implementer per tick using the active harness adapter, recording each
-      tick's branch/worktree in a durable note as soon as the name is known (before launch
+   c. Launch one implementer per dispatch unit using the active harness adapter, recording
+      each unit's branch/worktree in a durable note as soon as the name is known (before launch
       when the adapter controls naming; at first report when the harness assigns it).
       Every worktree must be provisioned runnable before implementation starts — by you
       before dispatch, or by the implementer as its first step when the harness creates the
       worktree at launch (see "Provisioning: runnable worktrees")
-   c. Wait using the harness's native completion primitive. Avoid busy polling.
-   d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
+   d. Wait using the harness's native completion primitive. Avoid busy polling.
+   e. Integrate each finished unit: merge its branch, then close its tick(s) — for a chain,
+      close each tick its report marks DONE (or route it to a human)
       Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
       Never use a bare `tk close`.
       If any test tier is declared post-merge, integrate serially on a merge candidate
       instead: git merge --no-commit → run that tier → green: commit + close;
       red: abort + continue/redispatch (see "Post-merge verification (serial venue)")
-   e. When the whole wave is merged, run the project's test suite on the integrated tree
+   f. When the whole wave is merged, run the project's test suite on the integrated tree
       (tiers already verified per merge candidate need not be re-run here)
-   f. Re-read .tick/config.md and run any steps in `At wave end` (no-op if absent)
-   g. When the wave is integrated and green, go to the next wave
+   g. Re-read .tick/config.md and run any steps in `At wave end` (no-op if absent)
+   h. When the wave is integrated and green, go to the next wave
 5. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
@@ -113,7 +117,7 @@ Before calling `tk graph`, read `.tick/config.md` (if present). Its sections are
 
 Consumed later in the loop, by the orchestrator only — never inlined into implementer prompts:
 
-- **`At wave end`** — extra steps after each wave's merges land and the test suite has run (loop step 4f).
+- **`At wave end`** — extra steps after each wave's merges land and the test suite has run (loop step 4g).
 - **`At epic close-out`** — extra retro steps and/or a durable destination for the retro report (see "Epic-close retro", steps 6–7).
 - **`At project checkpoint`** — steps and/or a durable destination for the completion report written at a project boundary stop (see "Discipline rules").
 
@@ -164,13 +168,13 @@ Read the adapter for the active harness before dispatch. Every adapter must prov
 
 | Capability | Required behavior |
 |---|---|
-| Isolation | One worktree and branch per tick |
+| Isolation | One worktree and branch per dispatch unit (tick or warm-chain) |
 | Parallel dispatch | Start all independent ticks without sharing a working tree |
 | Completion | Return a structured final status and preserve logs long enough to diagnose failure |
 | Continuation | Continue the same implementer when practical, otherwise redispatch from durable state |
 | Review | Run a read-only review at least as capable as the implementer |
 
-Use deterministic names that survive harness changes:
+Use deterministic names that survive harness changes (a warm-chain is one dispatch unit — name it by its first tick's ID):
 
 ```text
 branch:   tick/<epic-id>/<tick-id>
@@ -187,7 +191,7 @@ Planning is the highest-leverage step in an epic run. A flawed implementation ti
 **Always synthesize plans at frontier tier** regardless of the orchestrating session's tier. If the harness supports nested or parallel read-only agents, use cheap exploration agents to map subsystems and let the frontier planner synthesize their findings. Otherwise the frontier planner performs exploration directly.
 
 1. The frontier planner spawns N sub-agents at the cheapest capability tier in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
-2. The frontier planner synthesizes the summaries into the tick structure: partitioning by constraint surface (seam files, shared un-isolable resources — see `tick-patterns.md`), wave grouping, dependency graph, contracts-first ordering.
+2. The frontier planner synthesizes the summaries into the tick structure: partitioning by constraint surface (seam files, shared un-isolable resources — see `tick-patterns.md`), wave grouping, dependency graph, contracts-first ordering — **co-designed with dispatch modes and verify venues** (the gate is a planning input, not a post-hoc pricing step).
 3. The planning agent returns the full tick list for the orchestrator to create with `tk`.
 
 This keeps planning quality independent of the session model whenever the harness can dispatch a separate planner.
@@ -250,6 +254,27 @@ The venue map lives in `.tick/profile.md`, inferred at run start; a project can 
 
 **Isolable is a cost decision, not a free tier.** Provisioning a private resource per worktree (a test database each) buys parallel verify at a real cost in memory, ports, and startup time. Record the cost in the profile and choose isolate-vs-post-merge per run; sometimes serial verify is simply cheaper.
 
+### Dispatch modes and the economic gate
+
+The graph's waves are **feasibility, not a dispatch order**: they say what *may* run concurrently, never what must. Planning makes waves as wide as safety allows; this gate decides, dispatch by dispatch, how much of that width actually pays. Running narrower than the graph permits is often right — doing it silently is not (see "Never silently degrade").
+
+Three ways to execute ready work; pick deliberately, and note the choice:
+
+1. **Solo-tick** — a single ready tick; one worktree, or the shared tree when nothing else runs concurrently (see "Why worktree isolation").
+2. **Parallel-wave** — one fresh implementer per tick in provisioned worktrees (the default for wide waves of substantial ticks).
+3. **Warm-chain** — one implementer executes an **ordered chain of related ticks** in one worktree, one branch, one warm context: committing per tick (`tick <id>: …` — the audit trail survives), reporting a status line per tick, still never touching `tk`. The chain integrates as one unit (one candidate merge, one post-merge gate); the orchestrator closes each chain tick at integration from the per-tick report lines. Chains compose with parallelism: **K disjoint chains run in K parallel worktrees.** A dead chain resumes from its last committed tick.
+
+**The gate prices BOTH provisioning and cold starts.** A fresh implementer pays a cold-start tax — reading learnings/config/instructions/code before productive work — that a warm worker pays once per chain, not once per tick. Empirically the warm/cold per-task ratio can reach ⅓–½ on small ticks. Compare per wave:
+
+- *parallel-wave wall* ≈ max(cold tick times) + width × serial-gate time + provisioning
+- *warm-chain(s) wall* ≈ per chain: first task cold + remaining tasks warm; disjoint chains in parallel
+
+Heuristics over false precision: **chain** small (≲20-min), same-subsystem ticks; **go wide with fresh implementers** when ticks are hour-scale (the cold start amortizes inside the tick) or genuinely unrelated; **parallel warm-chains** when the wave partitions into 2–3 cohesive, file-disjoint groups. When any gate fails, sequential is the correct, *noted* choice — "never silently degrade" forbids drift, not judgment. Record the observed warm/cold ratio in the profile after the first epic and use measured numbers thereafter.
+
+**Chain protocol details:** a chain must be **dependency-closed** — every blocker of a chain tick is either an earlier tick in the same chain or already-integrated work — which is also what lets a chain legitimately collapse several graph waves into one dispatch; no two concurrent dispatch units share files (same rule as wave safety); mark the whole chain's ticks `in_progress` at dispatch; the chain prompt lists the ticks in order with each description + acceptance inline (same self-contained rule as single-tick prompts); the implementer runs the in-worktree test tiers after each tick and commits before starting the next; `DONE` per tick in the final report, one line each. The venue map still shrinks the bill: worktrees need only the in-worktree tiers; post-merge tiers run per *chain*, not per tick.
+
+**Amortize: pool worktrees.** Instead of create → provision → destroy per tick, keep provisioned worktrees and reuse them for successive ticks or chains: reset to the current integration commit between assignments (`git checkout <integration-commit>` + `git clean -fd`), start each on a fresh branch. One provisioning then pays for many ticks. Cleanup moves from per-tick to pool retirement (epic end).
+
 ### Post-merge verification (serial venue)
 
 When a tier is routed post-merge, verification for it moves from the implementers to you:
@@ -281,7 +306,7 @@ Never force the same agent to retry on the same model with no change. If it's st
 
 ## Integrating finished work
 
-Each implementer commits its code in its own worktree and reports its branch name. For each `DONE` tick:
+Each implementer commits its code in its own worktree and reports its branch name. A warm-chain integrates as one unit: one merge, then close each tick its report marks `DONE`. For each `DONE` tick:
 
 ```bash
 # 1. Verify the agent stayed inside its boundary (should print nothing)
@@ -487,6 +512,8 @@ Write a short summary. If `.tick/config.md` → `At epic close-out` names a repo
 - Learnings promoted, by destination (a few bullet points per tier that received anything).
 - Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
 - Drift found and cleanup ticks created (or "none").
+- **Dispatch-mode ledger:** per wave — mode chosen (solo / parallel-wave / warm-chain(s)), the gate arithmetic, and observed warm vs cold task times (update the profile's warm/cold ratio).
+- **Review-depth ledger:** what the epic-final review ran (single-pass full diff / axis fan-out), time spent, and findings by severity. Observability only — the always-review default is unchanged; this line exists so review cost/yield accumulates as data.
 - Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
 
 #### 7. Configured close-out steps
@@ -628,6 +655,10 @@ Epic: <epic-title> (<epic-id>)
   STATUS: NEEDS_CONTEXT — <what you need>
   STATUS: BLOCKED — <why>
 ```
+
+### Warm-chain prompt variant
+
+For a chain assignment, adapt the template: under `## Task`, list the chain's ticks **in order**, each with its full description and acceptance inline (a chain implementer sees only its prompt — same self-contained rule). Replace the implement/verify/commit instructions (6–8) with: *implement the ticks strictly in order; after each, run the in-worktree test tiers and commit `tick <tick-id>: <summary>` before starting the next; if a tick blocks, report and stop the chain there (completed ticks stay committed).* The report ends with **one status line per tick** (`<tick-id>: DONE | BLOCKED — reason`), so the orchestrator can close exactly the completed prefix at integration.
 
 ## Current limitations
 

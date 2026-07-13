@@ -336,7 +336,9 @@ tk create "Dashboard chart off-by-one" --parent <triage>
 
 #### Designing for parallel execution
 
-Ticks in the same wave (no blocking relationship between them) run concurrently, each in its own git worktree. A wave is safe to run wide only when three things hold:
+Ticks in the same wave (no blocking relationship between them) may run at the same time, each in its own git worktree. Treat the waves as a **feasibility map, not a dispatch order**: planning's job is to make each wave as wide as it can safely be; at run time the orchestrator decides how much of that width to actually use — one fresh implementer per tick, or several small related ticks handed as an ordered chain to a single warm implementer (see `references/agent-runner.md` → "Dispatch modes and the economic gate").
+
+A wave is safe to run wide only when three things hold:
 
 1. **Disjoint files.** Worktrees stop agents from clobbering each other mid-run, but two ticks that edit the same file still collide when their branches merge.
 2. **No shared un-isolable test resource** — or that test tier is declared post-merge and verified serially after each merge.
@@ -383,8 +385,8 @@ Execute the epic from the current harness. Read **`references/agent-runner.md`**
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
 2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
-3. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
-4. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
+3. For each wave, pick the dispatch mode — fresh implementer per tick, or warm-chains for runs of small related ticks (the economic gate in `references/agent-runner.md`) — then launch one implementer per tick or chain, each in its own provisioned git worktree, using the adapter's parallel dispatch primitive.
+4. Wait with the adapter's completion primitive, merge each finished branch, and update tick state.
 5. Run the test suite on the merged tree, then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
@@ -451,9 +453,10 @@ tk graph <epic-id> --json
 ```
 
 ```
-# 2. Select the role tier, then launch one isolated implementer per ready tick.
-#    Planning and final review use frontier settings. Implementation uses the
-#    adapter's economy/balanced/strong mapping.
+# 2. Pick the wave's dispatch mode (per-tick implementers or warm-chains — the
+#    economic gate in agent-runner.md), select each unit's capability tier, then launch one
+#    isolated implementer per tick or chain. Planning and final review use frontier
+#    settings. Implementation uses the adapter's economy/balanced/strong mapping.
 #
 # 3. Wait using the adapter's native primitive, then integrate each tick:
 git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
@@ -475,12 +478,12 @@ tk graph <epic-id> --json # Machine-readable for orchestration
 ```
 
 The graph shows:
-- **Waves**: groups of ticks that can run in parallel
+- **Waves**: groups of ticks that may run in parallel (feasibility, not a dispatch order)
 - **Max parallel**: how many subagents you can launch at once in the widest wave
 - **Critical path**: minimum number of sequential waves to finish the epic
 - **Dependencies**: what each tick is blocked by
 
-Launch up to `max_parallel` subagents per wave (cap it if you want to limit cost or noise), and merge each wave before starting the next so dependent ticks build on completed work.
+The waves are feasibility, not a mandate: launch up to `max_parallel` implementers per wave, cap it to limit cost or noise, or let the economic gate (`references/agent-runner.md`) chain small related ticks through one warm implementer instead. Merge each wave before starting the next so dependent ticks build on completed work.
 
 See `references/tk-commands.md` for full reference.
 

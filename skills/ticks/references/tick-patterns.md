@@ -50,13 +50,15 @@ Use this ordered procedure every time you plan an epic. It replaces ad-hoc "defi
 
 **Pick the right edge type.** Same-file overlap between ticks or epics is a real feasibility constraint — sequence it with `--blocked-by` (hard), never `--after`. A merge conflict you can predict is a dependency, not a preference. Reserve `--after` (soft) for pure ordering preference where nothing actually conflicts: it biases `tk next` ordering but never gates readiness, so a soft-deferred tick can still be picked up when its preferred predecessor is infeasible.
 
-**Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
+**Step 4 — Group for warm-chains (cold-start cohesion).** Small (≲20-min), same-subsystem ticks that would otherwise dispatch as separate fresh implementers group into an ordered **warm-chain** (see `agent-runner.md` → "Dispatch modes and the economic gate"). Partitioning and dispatch-mode selection are one joint decision — cut the work knowing how each group will run, don't partition first and price later.
 
-**Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so the graph permits everything to run in parallel that safely can. Verify with `tk graph <epic>` that no two ticks in the same wave share a file or an un-isolable resource; if they do, add `--blocked-by`, re-merge, or concentrate the resource work (Step 3) until the graph is clean. The waves are a **feasibility map, not a dispatch order** — they say what *may* run at once; the orchestrator still decides at run time how much of that width to spend.
+**Step 5 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
+
+**Step 6 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so the graph permits everything to run in parallel that safely can. Verify with `tk graph <epic>` that no two ticks in the same wave share a file or an un-isolable resource; if they do, add `--blocked-by`, re-merge, or concentrate the resource work (Step 3) until the graph is clean. The waves are a **feasibility map, not a dispatch order** — they say what *may* run at once; the orchestrator still decides at run time how much of that width to spend.
 
 ### Vertical slicing (the default shape — constraint surfaces override it)
 
-The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to shape each tick — within the bounds the constraint surfaces set. Vertical slicing is the default; where it conflicts with a constraint surface, the surface wins. It is correct — not a violation — to group one wave's DB work across features (the shared-singleton rule), or to give one tick a seam file that several features touch.
+The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to shape each tick — within the bounds the constraint surfaces set. Vertical slicing is the default; where it conflicts with a constraint surface, the surface wins. It is correct — not a violation — to group one wave's DB work across features (the shared-singleton rule), or to give one tick a seam file that several features touch, or to chain small same-subsystem ticks across a feature boundary.
 
 **Slice vertically, not horizontally.** Don't make a "schema" tick, an "API" tick, and a "UI" tick — each is useless until the others land, and nothing is demoable until the very end. Instead slice by user-visible capability, so each tick takes one feature front-to-back and leaves the system working:
 
@@ -288,6 +290,7 @@ tk create "Close out Search Feature: retro + plan next epic" --parent <epic> --r
 **Guidelines:**
 - Foundation first, vertical slices behind it on disjoint files — that is what lets a wave run wide.
 - Keep dependent chains in the same epic; genuinely independent work can be its own epic.
+- A run of small sequential ticks is fine too — it dispatches as a warm-chain (`agent-runner.md` → "Dispatch modes and the economic gate").
 
 ## Anti-Patterns
 

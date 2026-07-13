@@ -53,6 +53,10 @@ The harness creates the worktree **at agent launch**, so the orchestrator cannot
 
 Watch the concurrency cost: N simultaneous full dependency installs can thrash disk and network — prefer setup recipes that share immutable state safely from the main checkout, and remember the shared-deps **no-install** boundary. Do NOT let a provisioning failure silently degrade the run to shared-tree sequential execution — that forfeits the wave's parallelism, which is the point of isolation. Fix the recipe, or fall back deliberately and note it.
 
+If worktrees are **pooled** across ticks (shared protocol → "Dispatch modes and the economic gate"), the manual-worktree dispatch path above is the natural fit (harness-created `isolation: "worktree"` trees are single-shot); run the successful-integration cleanup below at pool retirement (epic end), not per tick.
+
+**Warm-chain mapping.** A chain is **one `Agent` call** with the chain prompt variant (shared protocol → "Warm-chain prompt variant") — the warm context lives inside that single agent, so never split a chain across Agent calls. Mid-chain course corrections use `SendMessage` to the live agent; after a crash, redispatch a fresh Agent into the same worktree/branch pointed at the first un-committed tick (the completed prefix stays mergeable). Tier note: a chain aggregates several ticks' worth of judgment — resolve the chain's capability tier from its *hardest* link, not its average.
+
 ## Successful-integration cleanup
 
 This is the adapter's resolution of the shared protocol's "run the active adapter's successful-integration cleanup" step (`agent-runner.md`). **Claude isolation worktrees are not self-cleaning once they hold commits.** The harness auto-removes an `isolation: "worktree"` directory only while it is *unchanged*; every tick implementer commits code, so its worktree and `worktree-agent-*` branch persist after the run and accumulate under `.claude/worktrees/` (multi-GB leaks across a few epics). The orchestrator must remove them explicitly — do not assume the harness will.

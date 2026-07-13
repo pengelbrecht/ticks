@@ -7,7 +7,7 @@ Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability c
 | Shared capability | Codex primitive |
 |---|---|
 | Isolation | `git worktree add -b tick/<epic>/<tick> <path> <integration-commit>` |
-| Parallel dispatch | One background `codex exec -C <worktree>` process per ready tick |
+| Parallel dispatch | One background `codex exec -C <worktree>` process per dispatch unit (tick or warm-chain) |
 | Completion | Shell `wait` plus `--output-last-message <report>` |
 | Continuation | `codex exec resume` when a session is available; otherwise redispatch in the same worktree |
 | Review | `codex exec review` or a read-only `codex exec` against the diff |
@@ -40,7 +40,9 @@ codex exec \
 pid=$!
 ```
 
-Prepare `prompt_file` from the shared implementer template. Launch every ready tick before waiting. Keep an in-memory `tick -> pid` map, then use shell `wait <pid>` for completion. This is blocking process supervision, not polling. Read the small report first; inspect the log only for failures or missing status.
+Prepare `prompt_file` from the shared implementer template. Launch every dispatch unit in the wave before waiting. Keep an in-memory `tick -> pid` map, then use shell `wait <pid>` for completion. This is blocking process supervision, not polling. Read the small report first; inspect the log only for failures or missing status.
+
+**Warm-chain mapping.** A chain is one `codex exec` run in one worktree using the chain prompt variant (shared protocol → "Warm-chain prompt variant"); after a crash, redispatch a fresh `codex exec` in the same worktree pointed at the first un-committed tick — the completed prefix stays committed and mergeable.
 
 After a successful merge and tick close, remove the manually created worktree before deleting its merged branch:
 
