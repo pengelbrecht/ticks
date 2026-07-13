@@ -73,7 +73,7 @@ Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to
 
 **6. Pi executable extension (when running an epic in Pi):**
 
-Check whether Pi registered `/ticks-run`, `/ticks-status`, and `/ticks-dashboard` (RPC clients can inspect `get_commands`). If they are absent, explain that the skill supplies instructions but cannot activate extension code, and recommend the package:
+Check whether Pi registered `/ticks-plan`, `/ticks-run`, `/ticks-status`, and `/ticks-dashboard` (RPC clients can inspect `get_commands`). If they are absent, explain that the skill supplies instructions but cannot activate extension code, and recommend the package:
 
 ```bash
 pi install git:github.com/pengelbrecht/ticks
@@ -145,6 +145,16 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 ### Step 3: Create Ticks from Requirements
 
 **Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
+
+In Pi with the package extension installed, prefer safe automated planning:
+
+```text
+/ticks-plan <existing-childless-epic-id>                  # model-running dry-run
+/ticks-plan --requirements "new epic requirements"        # model-running dry-run
+/ticks-plan <target> --apply                              # explicit tracker apply
+```
+
+Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
 
 Transform the gathered requirements into ticks organized by epic.
 

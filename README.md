@@ -111,7 +111,7 @@ pi install /absolute/path/to/ticks                # local development
 pi -e /absolute/path/to/ticks                     # try without installing
 ```
 
-Then use `/ticks-run <epic-id>` for a non-mutating plan, `/ticks-run <epic-id> --execute` to opt in to child execution, `/ticks-status [epic-id]` for recovery, and `/ticks-dashboard --demo` or `--dump` for the control tower. Execution requires a clean non-default branch and isolated worktrees. See [`extensions/ticks-runner/README.md`](extensions/ticks-runner/README.md) for configuration, safety boundaries, and recovery.
+Use `/ticks-plan <childless-epic-id>` or `/ticks-plan --requirements "..."` for automated **model-running** planning with zero tracker writes; add `--apply` only after reviewing the validated waves. Use `/ticks-run <epic-id>` for a no-model execution preview, `/ticks-run <epic-id> --execute` to opt in to child execution, `/ticks-status [epic-id]` for recovery, and `/ticks-dashboard --demo` or `--dump` for the control tower. Both apply and execution require a clean non-default branch. See [`extensions/ticks-runner/README.md`](extensions/ticks-runner/README.md) for strict schemas, confirmation behavior, configuration, safety boundaries, artifacts, and recovery.
 
 A generic skill install does not activate Pi extension code; use `pi install` (or `pi -e`) when the slash commands are needed.
 

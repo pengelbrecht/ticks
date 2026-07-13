@@ -149,7 +149,9 @@ Planning is the highest-leverage step in an epic run. A flawed implementation ti
 
 1. The frontier planner spawns N cheapest-tier sub-agents in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
 2. The frontier planner synthesizes the summaries into the tick structure: partitioning, wave grouping, dependency graph, contracts-first ordering.
-3. The planning agent returns the full tick list for the orchestrator to create with `tk`.
+3. The planning agent returns a bounded, versioned plan for the orchestrator to validate and create with `tk`.
+
+An automated planning entrypoint must fail closed: model-running dry-run is the default and must be labelled as model-running (models/cost/artifacts, but zero tracker mutation), while tracker apply needs an explicit flag/confirmation. Scouts are parallel and strictly read-only. The frontier output is data, never shell or tracker argv; validate bounds, unique safe client IDs, existing acyclic hard dependencies, vertical acceptance, and same-wave file disjointness before controller mutation. Review/closeout are implied controller-owned structure, not model output. Apply only within the requested childless epic (or one new requirements epic), uses argv-safe controller calls and actor provenance, commits tracker state, and persists an idempotency mapping so partial retries cannot blindly duplicate work. Harness adapters may tighten these requirements but not weaken them.
 
 This keeps planning quality independent of the session model whenever the harness can dispatch a separate planner.
 

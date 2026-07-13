@@ -28,6 +28,11 @@ import { formatRunResult, ORCHESTRATOR_ACTOR, runEpic } from "./runner.ts";
 import { statusDashboardModel } from "./historical.ts";
 import { emitCommandOutput } from "./output.ts";
 import { createDashboardController, type LiveControlState } from "./control.ts";
+import {
+	formatPlanningResult,
+	parsePlanningCommand,
+	runAutomatedPlanning,
+} from "./planning.ts";
 
 type Json = Record<string, unknown>;
 
@@ -296,22 +301,81 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 	};
 
 	pi.registerCommand("ticks-plan", {
-		description: "Show the Pi/Ticks planning workflow (automated planning is not yet implemented)",
+		description: "Run safe automated planning (model-running dry-run by default; tracker apply is explicit)",
+		getArgumentCompletions: (prefix) => [
+			{ value: "--requirements", label: "--requirements", description: "Plan a new epic from quoted requirements" },
+			{ value: "--new", label: "--new", description: "Alias for --requirements" },
+			{ value: "--apply", label: "--apply", description: "Explicitly create/commit validated tracker state" },
+			{ value: "--scouts", label: "--scouts", description: "Scout count, bounded to 3-6" },
+			{ value: "--scout-cap", label: "--scout-cap", description: "Parallel scout cap, bounded to 2-4" },
+			{ value: "--compact", label: "--compact", description: "Keep compact status instead of opening the dashboard" },
+		].filter((item) => item.value.startsWith(prefix)),
 		handler: async (args, ctx) => {
-			const target = args.trim();
-			const markdown = [
-				"# /ticks-plan planning guide",
-				"",
-				"The Pi orchestrator package is installed. This command is currently informational: it does not launch models or mutate the tracker. Use the ticks skill to perform planning.",
-				"",
-				"Planning flow:",
-				"1. Launch read-only Pi scout subprocesses per subsystem.",
-				"2. Feed scout summaries to a frontier planner model.",
-				"3. Create Ticks with contracts-first ordering, wave safety, tests, and EPIC-SKELETON process ticks.",
-				"",
-				`Target: ${target || "(none supplied)"}`,
-			].join("\n");
-			emit(pi, ctx, "/ticks-plan", markdown, { target });
+			let parsed;
+			try {
+				parsed = parsePlanningCommand(shlex(args));
+			} catch (error) {
+				emit(pi, ctx, "/ticks-plan usage", [
+					"# /ticks-plan usage",
+					"",
+					"`/ticks-plan <childless-epic-id> [--scouts 3..6] [--scout-cap 2..4] [--apply] [--compact]`",
+					"",
+					"`/ticks-plan --requirements \"new epic requirements\" [--apply] [--scouts N] [--scout-cap N] [--compact]`",
+					"",
+					`Error: ${error instanceof Error ? error.message : String(error)}`,
+				].join("\n"), {});
+				return;
+			}
+			if (activeRuns.size > 0) {
+				emit(pi, ctx, "/ticks-plan blocked", "# /ticks-plan blocked\n\nAnother supervised Ticks command is active in this Pi session. Use the dashboard or cancel it before starting planning.", {});
+				return;
+			}
+			if (parsed.apply && ctx.mode === "tui") {
+				const target = parsed.target.kind === "existing" ? `existing epic ${parsed.target.epicId}` : "a new epic from the supplied requirements";
+				const confirmed = await ctx.ui.confirm(
+					"Apply automated Ticks plan?",
+					`This will run ${parsed.scoutCount} read-only scouts and one frontier planner, then create and commit tracker state under ${target}. The validated plan cannot change roadmap ordering. Continue?`,
+				);
+				if (!confirmed) {
+					emit(pi, ctx, "/ticks-plan cancelled", "# /ticks-plan cancelled\n\nNo models ran and the tracker was not mutated.", {});
+					return;
+				}
+			}
+			const controller = new AbortController();
+			const targetLabel = parsed.target.kind === "existing" ? parsed.target.epicId : "new-epic";
+			liveControl = { epicId: targetLabel, runId: `plan-${targetLabel}`, abort: controller };
+			const starting = buildDashboardModel({ runId: `plan-${targetLabel}`, epicId: targetLabel, epicTitle: parsed.target.kind === "existing" ? targetLabel : "New epic from requirements", status: "running" });
+			store.replace(starting);
+			updateCompactStatus(ctx, starting);
+			const automaticOverlay = ctx.mode === "tui" && !parsed.compact ? openDashboard(ctx) : undefined;
+			try {
+				const operation = runAutomatedPlanning({
+					cwd: ctx.cwd,
+					target: parsed.target,
+					apply: parsed.apply,
+					scoutCount: parsed.scoutCount,
+					scoutCap: parsed.scoutCap,
+					signal: controller.signal,
+					onDashboard: (model) => {
+						if (liveControl) {
+							liveControl.epicId = model.epicId;
+							liveControl.runId = model.runId;
+						}
+						store.replace(model);
+						updateCompactStatus(ctx, model);
+					},
+				});
+				const result = await activeRuns.track(controller, operation);
+				if (liveControl) liveControl.abort = undefined;
+				if (result.dashboard) store.replace(result.dashboard);
+				pi.appendEntry("ticks-runner-dashboard-state", { model: boundedDashboardModel(store.getSnapshot().model) });
+				emit(pi, ctx, `/ticks-plan ${result.status}`, formatPlanningResult(result), result as unknown as Json);
+			} catch (error) {
+				if (liveControl) liveControl.abort = undefined;
+				emit(pi, ctx, "/ticks-plan failed", `# /ticks-plan failed\n\n${error instanceof Error ? error.message : String(error)}\n\nThe tracker was not intentionally mutated. Inspect planning artifacts if model execution had started.`, {});
+			} finally {
+				automaticOverlay?.close();
+			}
 		},
 	});
 

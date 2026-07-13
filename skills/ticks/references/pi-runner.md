@@ -28,6 +28,7 @@ A generic skill installer may install `skills/ticks/` without the extension. Do 
 | Verification | Configured Testing commands run in each accepted child and again on the merged controller after each wave. |
 | Integration | Boundary check and provisional merge; persist/run the full-wave gate; only then close durably and clean worktrees/branches. |
 | UX | Compact footer/widget, RPC text, `/ticks-status`, and a shared-model dashboard overlay/dump. |
+| Planning | Bounded parallel read-only scouts plus strict frontier synthesis; model-running dry-run by default, with an explicit idempotent controller apply. |
 | Review/closeout | Dedicated frontier models run read-only in the controller checkout; strict findings/acceptance schemas, persisted evidence, controller-owned repair routing, retro, and close semantics fail closed. |
 
 Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this automatically.
@@ -39,13 +40,18 @@ Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this autom
 /ticks-run <epic> --execute [--resume] [--max-parallel N] [--autonomous]
 /ticks-status [epic]
 /ticks-dashboard [epic-or-run-id] [--epic ID] [--demo] [--dump] [--width N]
-/ticks-plan [epic-or-requirements]
+/ticks-plan <childless-epic-id> [--apply] [--scouts 3..6] [--scout-cap 2..4] [--compact]
+/ticks-plan --requirements "new epic requirements" [--apply] [--scouts N] [--scout-cap N] [--compact]
 /ticks
 ```
 
 `/ticks-run` never executes by default. Only `--execute` permits Environment checks, tracker writes, worktree creation, child launch, merges, and cleanup. Execution requires a clean non-default controller branch. Worktrees are implicit during execution. `--resume` is an explicit hint; safe reconciliation happens on every execute.
 
-`/ticks-plan` currently explains the planning flow but does not launch scouts/planner or create ticks. Use this skill's planning workflow. Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
+`/ticks-plan` **does run models by default**: its dry-run launches 3–6 configured scout-model processes (subsystems, tests, contracts, then optional integration/risk/docs) with only `read,grep,find,ls`, followed by the configured planner model with forced `xhigh` reasoning. It persists all prompts/events/reports and prints strict validated waves, models, usage, and cost, but never mutates the tracker. Do not describe this as a no-op: `/ticks-run` dry-run is the no-model preview.
+
+Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, or arbitrary fields. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Partial failures are committed when possible and recovered from a deterministic key, epic note, validated-plan artifact, and client-ID map without blind recreation.
+
+Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
 See [`../../../extensions/ticks-runner/README.md`](../../../extensions/ticks-runner/README.md) for exact defaults, dashboard keys, artifacts, recovery, and current limitations.
 
@@ -124,6 +130,8 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 <run>/artifacts/<closeout>/{acceptance-evidence.md,closeout-report.json,retro.md}
 <run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md}
 <state>/<repo-slug>--<hash>/worktrees/<epic>/<tick>/
+<state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/apply-state.json
+<state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/attempts/<run>/{validated-plan.json,planning-report.md,dashboard-history.json,artifacts/}
 ```
 
 On every execute, the extension performs read-only reconciliation before mutation. A fresh active claim blocks duplicate launch. A stale lease can be reopened only after controller and Environment preflight. A unique useful branch/worktree is reused or attached. Multiple claims, malformed expected manifests, mismatched bases, or occupied paths block instead of guessing. Incomplete state is never automatically deleted.
@@ -176,6 +184,6 @@ Launch every ready tick before waiting, block on process completion rather than 
 
 ## Current limitations
 
-- Automated `/ticks-plan` scout/frontier execution is not implemented.
+- Interrupted model-only planning dry-runs start a new attempt; partial tracker applies resume from durable mapping state, but do not reattach to an old live model process.
 - Runs resume from durable state after controller loss; live child processes do not attach to a new controller.
-- Cost is reported, not capped.
+- Scout fan-out is bounded, but cost is reported rather than dollar-capped.
