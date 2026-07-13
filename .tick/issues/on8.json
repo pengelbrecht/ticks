@@ -2,7 +2,8 @@
   "id": "on8",
   "title": "Make verification and closeout evidence fail closed",
   "description": "Fix final-review blockers: empty Testing must not count as a passed integrated gate; closeout evidence must map each acceptance item only to its own controller-issued commands; process prompts/controller enforcement must honor project Rules including required PR/CI evidence or a human gate. Add outside-in tests.",
-  "status": "open",
+  "notes": "2026-07-13 14:31 - Dispatched by Pi orchestrator on branch tick/qfs/on8 using openai-codex/gpt-5.6-sol:high; implementer prohibited from .tick mutations.",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "No implementation tick closes without configured integrated evidence; cross-item evidence cannot certify acceptance; configured Rules are enforced before epic closure, with unmet external evidence surfaced as an actionable gate; tests pass.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-13T12:31:02.389484Z",
-  "updated_at": "2026-07-13T12:31:02.389484Z"
+  "updated_at": "2026-07-13T12:31:21.224696Z",
+  "started_at": "2026-07-13T12:31:21.197732Z"
 }

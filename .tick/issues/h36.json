@@ -2,7 +2,8 @@
   "id": "h36",
   "title": "Harden automated planning trust and recovery boundaries",
   "description": "Fix final-review blockers in planning.ts: record/propagate safe base_branch; never turn model-authored acceptance text into executable closeout shell; bind apply recovery IDs to the requested target, parent epic, expected titles/roles and marker; make creates recoverably idempotent across crash windows; reject symlinked planning ancestors. Add adversarial tests.",
-  "status": "open",
+  "notes": "2026-07-13 14:31 - Dispatched by Pi orchestrator on branch tick/qfs/h36 using openai-codex/gpt-5.6-sol:high; implementer prohibited from .tick mutations.",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "New planned epics can reach review with safe base_branch; model output cannot inject closeout commands; corrupted/cross-epic apply state fails closed; simulated create/write crash retries without duplicates; symlink ancestors are rejected; tests pass.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-13T12:31:02.364978Z",
-  "updated_at": "2026-07-13T12:31:02.364978Z"
+  "updated_at": "2026-07-13T12:31:21.170278Z",
+  "started_at": "2026-07-13T12:31:21.146537Z"
 }
