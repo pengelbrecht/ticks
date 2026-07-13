@@ -3,9 +3,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Key, Markdown, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Markdown } from "@earendil-works/pi-tui";
 import { loadRunnerConfig } from "./config.ts";
+import {
+	buildDashboardModel,
+	compactDashboardSummary,
+	DashboardComponent,
+	dashboardModelFromPlan,
+	renderDashboardText,
+	type DashboardInput,
+	type DashboardModel,
+} from "./dashboard.ts";
 import { buildRunPlan, formatDryPlan, parseGraph, type RunDryPlan } from "./graph.ts";
+import { discoverRuns } from "./state.ts";
 
 type Json = Record<string, unknown>;
 
@@ -185,25 +195,54 @@ function emit(pi: ExtensionAPI, ctx: ExtensionCommandContext, title: string, mar
 	pi.sendMessage({ customType: "ticks-runner", content: markdown, display: true, details }, { deliverAs: "nextTurn" });
 }
 
-async function showDashboard(ctx: ExtensionCommandContext, markdown: string): Promise<void> {
+function updateCompactStatus(ctx: ExtensionCommandContext, model: DashboardModel): void {
+	const summary = compactDashboardSummary(model);
+	ctx.ui.setStatus("ticks-runner", ctx.ui.theme.fg(model.status === "failed" || model.status === "blocked" ? "warning" : "accent", summary.status));
+	ctx.ui.setWidget("ticks-runner", summary.widget.map((line) => ctx.ui.theme.fg("dim", line)));
+}
+
+async function showDashboard(ctx: ExtensionCommandContext, model: DashboardModel): Promise<void> {
 	if (ctx.mode !== "tui") return;
-	await ctx.ui.custom((_tui, theme, _kb, done) => {
-		const container = new Container();
-		container.addChild(new Text(theme.fg("accent", theme.bold("Ticks Control Tower")), 1, 0));
-		container.addChild(new Text(theme.fg("dim", "Esc/Enter closes • /ticks-dashboard --dump for text output"), 1, 0));
-		container.addChild(new Markdown(markdown, 1, 1, getMarkdownTheme()));
-		return {
-			render(width: number) {
-				return container.render(width).map((line) => truncateToWidth(line, width));
-			},
-			invalidate() {
-				container.invalidate();
-			},
-			handleInput(data: string) {
-				if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, Key.ctrl("c"))) done(undefined);
-			},
-		};
-	}, { overlay: true, overlayOptions: { width: "85%", maxHeight: "85%", anchor: "center", margin: 1 } });
+	await ctx.ui.custom((tui, theme, _kb, done) => new DashboardComponent({
+		model,
+		theme,
+		requestRender: () => tui.requestRender(),
+		close: () => done(undefined),
+	}), { overlay: true, overlayOptions: { width: "92%", minWidth: 30, maxHeight: "90%", anchor: "center", margin: 1 } });
+}
+
+function demoDashboardModel(): DashboardModel {
+	const fixture = new URL("./fixtures/dashboard-demo.json", import.meta.url);
+	const input = JSON.parse(fs.readFileSync(fixture, "utf8")) as DashboardInput;
+	return buildDashboardModel(input);
+}
+
+function statusDashboardModel(status: StatusModel): DashboardModel {
+	return buildDashboardModel({
+		runId: "repository-status",
+		epicId: "repository",
+		epicTitle: path.basename(status.repoRoot),
+		status: status.runnerNotes.length || status.managedWorktrees.length ? "recoverable" : "idle",
+		recovery: [
+			...status.managedWorktrees.map((item) => ({ kind: "orphaned-worktree", label: item, action: "inspect before cleanup" })),
+			...status.runnerNotes.map((item) => ({ kind: "partial-report", label: `${item.tick} runner state`, detail: item.note })),
+		],
+	});
+}
+
+async function dashboardModelForTarget(cwd: string, target: string): Promise<DashboardModel> {
+	const root = await repoRoot(cwd);
+	const discovered = discoverRuns(await durableStateRoot(root));
+	const run = discovered.find((item) => item.manifest?.runId === target);
+	if (!run?.manifest) return dashboardModelFromPlan(await buildDryPlan(cwd, target, true));
+	return buildDashboardModel({
+		runId: run.manifest.runId,
+		epicId: run.manifest.epicId,
+		epicTitle: run.manifest.epicId,
+		status: run.stale ? "recoverable" : run.manifest.status,
+		agents: run.manifest.ticks.map((tick) => ({ tickId: tick.tickId, branch: tick.branch, worktree: tick.worktree, status: run.manifest!.status })),
+		recovery: run.stale ? [{ kind: run.reason ?? "failed-run", label: `Run ${target} is stale`, detail: run.manifest.updatedAt, action: "inspect artifacts then resume" }] : [],
+	});
 }
 
 export default function ticksRunnerExtension(pi: ExtensionAPI): void {
@@ -261,7 +300,7 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 				if (!dryRun) {
 					markdown += "\n\n⚠️ Execution is not implemented in this scaffold yet. Re-run with `--dry-run` for the supported path.";
 				}
-				ctx.ui.setWidget("ticks-runner", [`${plan.epicId}: wave ${plan.readyWave ?? "-"} • ready ${plan.readyTasks.length} • cap ${plan.maxParallel}`]);
+				updateCompactStatus(ctx, dashboardModelFromPlan(plan));
 				emit(pi, ctx, "/ticks-run dry-run", markdown, plan as unknown as Json);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-run failed", `# /ticks-run failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
@@ -283,19 +322,23 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand("ticks-dashboard", {
 		description: "Open or dump the Pi Ticks control-tower dashboard",
-		getArgumentCompletions: (prefix) => ["--dump"].filter((item) => item.startsWith(prefix)).map((value) => ({ value, label: value })),
+		getArgumentCompletions: (prefix) => ["--dump", "--demo", "--epic", "--width"].filter((item) => item.startsWith(prefix)).map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
-			const dump = hasFlag(shlex(args), "--dump");
-			const epic = optionValue(shlex(args), "--epic");
+			const tokens = shlex(args);
+			const dump = hasFlag(tokens, "--dump");
+			const demo = hasFlag(tokens, "--demo");
+			const widthRaw = optionValue(tokens, "--width");
+			const width = widthRaw && /^\d+$/.test(widthRaw) ? Math.max(24, Number(widthRaw)) : 120;
+			const positional = tokens.find((token, index) => !token.startsWith("-") && tokens[index - 1] !== "--width" && tokens[index - 1] !== "--epic");
+			const epic = optionValue(tokens, "--epic") ?? positional;
 			try {
-				const status = await collectStatus(ctx.cwd);
-				let markdown = formatStatus(status);
-				if (epic) {
-					const plan = await buildDryPlan(ctx.cwd, epic, true);
-					markdown += `\n\n---\n\n${formatDryPlan(plan)}`;
-				}
-				if (dump || ctx.mode !== "tui") emit(pi, ctx, "/ticks-dashboard", markdown, status as unknown as Json);
-				else await showDashboard(ctx, markdown);
+				let model: DashboardModel;
+				if (demo) model = demoDashboardModel();
+				else if (epic) model = await dashboardModelForTarget(ctx.cwd, epic);
+				else model = statusDashboardModel(await collectStatus(ctx.cwd));
+				updateCompactStatus(ctx, model);
+				if (dump || ctx.mode !== "tui") emit(pi, ctx, "/ticks-dashboard", renderDashboardText(model, width), model as unknown as Json);
+				else await showDashboard(ctx, model);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-dashboard failed", `# /ticks-dashboard failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
 			}

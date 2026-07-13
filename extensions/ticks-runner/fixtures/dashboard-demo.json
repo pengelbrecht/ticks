@@ -1,0 +1,83 @@
+{
+  "runId": "qfs-demo-20260713",
+  "epicId": "qfs",
+  "epicTitle": "Pi orchestrator control tower",
+  "status": "running",
+  "demo": true,
+  "currentWave": 2,
+  "criticalPath": 4,
+  "waves": [
+    { "wave": 1, "status": "completed", "taskIds": ["cfg", "sup"] },
+    { "wave": 2, "status": "running", "taskIds": ["uxz", "mrg"] },
+    { "wave": 3, "status": "blocked", "taskIds": ["rev"] },
+    { "wave": 4, "status": "blocked", "taskIds": ["close"] }
+  ],
+  "agents": [
+    {
+      "tickId": "uxz",
+      "title": "Build control-tower TUI status widget and dashboard",
+      "tier": "strong",
+      "model": "gpt-5.6-sol",
+      "provider": "openai-codex",
+      "worktree": "/repo/.ticks-worktrees/qfs/uxz",
+      "branch": "tick/qfs/uxz",
+      "wave": 2,
+      "state": {
+        "lifecycle": "running",
+        "startedAt": "2026-07-13T10:00:00.000Z",
+        "updatedAt": "2026-07-13T10:12:34.000Z",
+        "elapsedMs": 754000,
+        "currentTool": { "name": "edit", "action": "edit: dashboard.ts" },
+        "currentAction": "edit: dashboard.ts",
+        "recentEvents": [],
+        "recentOutput": ["Rendering narrow layout", "Added ANSI-safe agent cards"],
+        "model": "gpt-5.6-sol",
+        "provider": "openai-codex",
+        "turns": 7,
+        "usage": { "inputTokens": 18420, "outputTokens": 6230, "cacheReadTokens": 9400, "cacheWriteTokens": 1100, "reasoningTokens": 3800, "contextTokens": 28600, "cost": 0.1842 }
+      }
+    },
+    {
+      "tickId": "mrg",
+      "title": "Wire verification and merge pipeline",
+      "tier": "balanced",
+      "model": "gpt-5.6-sol",
+      "provider": "openai-codex",
+      "worktree": "/repo/.ticks-worktrees/qfs/mrg",
+      "branch": "tick/qfs/mrg",
+      "wave": 2,
+      "state": {
+        "lifecycle": "failed",
+        "startedAt": "2026-07-13T10:01:00.000Z",
+        "updatedAt": "2026-07-13T10:09:20.000Z",
+        "endedAt": "2026-07-13T10:09:20.000Z",
+        "elapsedMs": 500000,
+        "currentAction": "waiting for recovery",
+        "recentEvents": [],
+        "recentOutput": ["Boundary check found .tick/activity/activity.jsonl"],
+        "model": "gpt-5.6-sol",
+        "provider": "openai-codex",
+        "turns": 5,
+        "usage": { "inputTokens": 12100, "outputTokens": 3700, "cacheReadTokens": 6200, "cacheWriteTokens": 0, "reasoningTokens": 2200, "contextTokens": 19800, "cost": 0.1095 },
+        "stopReason": "error",
+        "errorMessage": ".tick boundary violation"
+      }
+    }
+  ],
+  "verification": [
+    { "tickId": "uxz", "label": "runner unit tests", "status": "running", "detail": "42/47" },
+    { "tickId": "mrg", "label": "boundary check", "status": "failed", "detail": ".tick diff detected", "artifact": "/artifacts/mrg/boundary.log" },
+    { "label": "post-wave test gate", "status": "pending", "detail": "waits for both agents" }
+  ],
+  "merges": [
+    { "tickId": "uxz", "branch": "tick/qfs/uxz", "status": "pending", "boundary": "running", "cleanup": "pending" },
+    { "tickId": "mrg", "branch": "tick/qfs/mrg", "status": "blocked", "boundary": "failed", "cleanup": "pending", "detail": "repair required" }
+  ],
+  "recovery": [
+    { "kind": "partial-report", "label": "mrg child report incomplete", "detail": "events log is intact", "action": "continue or repair" },
+    { "kind": "orphaned-worktree", "label": "old tick tmp at /worktrees/qfs/tmp", "action": "inspect then prune" }
+  ],
+  "humanGates": [
+    { "tickId": "approve", "title": "Review model escalation", "type": "approval", "status": "awaiting", "detail": "inspect failed boundary evidence before approving" }
+  ]
+}
