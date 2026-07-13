@@ -11,6 +11,8 @@ const markdown = `
 ## Pi Orchestrator
 - implement_balanced_model: openai-codex/gpt-5.6-sol:medium
 - review_model: openai-codex/gpt-5.6-sol:xhigh
+- closeout_model: openai-codex/gpt-5.6-sol:xhigh
+- review_should_fix: record
 - max_parallel: 4
 
 ## Environment
@@ -29,6 +31,8 @@ test("config resolution applies environment overrides and parses operational sec
 	assert.equal(config.maxParallel, 2);
 	assert.equal(modelForTier(config, "balanced"), "openai-codex/gpt-5.6-sol:high");
 	assert.equal(modelForTier(config, "review"), "openai-codex/gpt-5.6-sol:xhigh");
+	assert.equal(modelForTier(config, "closeout"), "openai-codex/gpt-5.6-sol:xhigh");
+	assert.equal(config.reviewShouldFix, "record");
 	assert.deepEqual(config.environmentChecks, ["`which git` — git is installed"]);
 	assert.deepEqual(config.testingLines, ["`node --test`"]);
 	assert.deepEqual(config.environmentCommands.map((item) => item.command), ["which git"]);

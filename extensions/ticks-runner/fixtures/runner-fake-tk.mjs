@@ -6,86 +6,173 @@ const root = process.cwd();
 const statePath = path.join(root, ".tick", "fake-runner-state.json");
 const logPath = path.join(root, ".tick", "fake-runner-log.jsonl");
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-const [command, id, ...rest] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const command = argv.shift();
 const save = () => fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
-const log = (data) => fs.appendFileSync(logPath, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, id, args: rest, ...data })}\n`);
+const log = (data = {}) => fs.appendFileSync(logPath, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, args: argv, ...data })}\n`);
+const readLog = (data = {}) => {
+	if (process.env.FAKE_TK_READ_LOG) fs.appendFileSync(process.env.FAKE_TK_READ_LOG, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, args: argv, ...data })}\n`);
+};
 const task = (tickId) => state.tasks.find((item) => item.id === tickId);
+const entity = (tickId) => tickId === state.epic.id ? state.epic : task(tickId);
+const option = (args, name) => {
+	const index = args.indexOf(name);
+	return index >= 0 ? args[index + 1] : undefined;
+};
+const has = (args, name) => args.includes(name);
+const isClosed = (item) => item?.status === "closed";
+const gateAllows = (item, autonomous) => !item.awaiting || (autonomous && item.awaiting === "checkpoint");
+const blockersClosed = (item) => (item.blocked_by ?? []).every((id) => isClosed(entity(id)) || !entity(id));
 
-if (command === "list") {
-	console.log(JSON.stringify(state.tasks));
-} else if (command === "graph") {
-	const closed = new Set(state.tasks.filter((item) => item.status === "closed").map((item) => item.id));
-	const waveNumbers = [...new Set(state.tasks.map((item) => item.wave))].sort((a, b) => a - b);
+function computedWave(item, visiting = new Set()) {
+	if (Number.isSafeInteger(item.wave) && item.wave > 0 && !(item.blocked_by ?? []).length) return item.wave;
+	if (visiting.has(item.id)) return 999;
+	visiting.add(item.id);
+	const blockers = (item.blocked_by ?? []).map((id) => task(id)).filter(Boolean);
+	const wave = blockers.length ? 1 + Math.max(...blockers.map((blocker) => computedWave(blocker, new Set(visiting)))) : (item.wave ?? 1);
+	return wave;
+}
+
+function graphOutput() {
+	const waveNumbers = [...new Set(state.tasks.map((item) => computedWave(item)))].sort((a, b) => a - b);
 	let readyWave;
 	for (const wave of waveNumbers) {
-		if (state.tasks.some((item) => item.wave === wave && item.status === "open" && (item.blocked_by ?? []).every((blocker) => closed.has(blocker)))) {
+		if (state.tasks.some((item) => computedWave(item) === wave && item.status === "open" && !item.awaiting && blockersClosed(item))) {
 			readyWave = wave;
 			break;
 		}
 	}
 	const waves = waveNumbers.map((wave) => {
-		const tasks = state.tasks.filter((item) => item.wave === wave).map((item) => ({
+		const tasks = state.tasks.filter((item) => computedWave(item) === wave).map((item) => ({
 			...item,
-			agent_ready: wave === readyWave && item.status === "open" && (item.blocked_by ?? []).every((blocker) => closed.has(blocker)),
+			wave,
+			agent_ready: wave === readyWave && item.status === "open" && !item.awaiting && blockersClosed(item),
 		}));
 		return { wave, parallel: tasks.length, ready: wave === readyWave, tasks };
 	});
-	console.log(JSON.stringify({
-		epic: state.epic,
+	const derivedMissing = ["review", "closeout"].filter((role) => !state.tasks.some((item) => item.role === role));
+	const missing = Array.isArray(state.missing_process_ticks) ? state.missing_process_ticks : derivedMissing;
+	return {
+		epic: { id: state.epic.id, title: state.epic.title },
 		needs_planning: false,
-		missing_process_ticks: state.missing_process_ticks ?? [],
+		missing_process_ticks: missing,
 		stats: { total_tasks: state.tasks.length, wave_count: waves.length, max_parallel: Math.max(0, ...waves.map((wave) => wave.parallel)), ready_for_agent: waves.flatMap((wave) => wave.tasks).filter((item) => item.agent_ready).length },
 		waves,
 		critical_path: waves.length,
-	}));
+	};
+}
+
+if (command === "list") {
+	const parent = option(argv, "--parent");
+	console.log(JSON.stringify(parent ? state.tasks.filter((item) => item.parent === parent || parent === state.epic.id) : state.tasks));
+} else if (command === "graph") {
+	console.log(JSON.stringify(graphOutput()));
+} else if (command === "next") {
+	const epicId = argv.find((arg) => !arg.startsWith("-"));
+	const autonomous = has(argv, "--autonomous");
+	let found = null;
+	if (has(argv, "--epic")) {
+		found = (state.next_epics ?? []).find((item) => item.status !== "closed" && gateAllows(item, autonomous) && blockersClosed(item)) ?? null;
+	} else if (epicId === state.epic.id) {
+		found = state.tasks.find((item) => item.status === "open" && gateAllows(item, autonomous) && blockersClosed(item)) ?? null;
+	}
+	readLog({ epicId: epicId ?? null, autonomous, selected: found?.id ?? null });
+	console.log(JSON.stringify(found ? { ...found, action: found.type === "epic" && found.childless ? "plan" : "implement" } : null));
 } else if (command === "show") {
-	const found = id === state.epic.id ? state.epic : task(id);
+	const id = argv[0];
+	const found = entity(id);
 	if (!found) process.exitCode = 2;
 	else console.log(JSON.stringify(found));
+} else if (command === "create") {
+	const title = argv[0];
+	if (!title || title.startsWith("-")) process.exitCode = 2;
+	else {
+		state.sequence = (state.sequence ?? 0) + 1;
+		const id = `new${state.sequence}`;
+		const blockedBy = [];
+		for (let index = 0; index < argv.length; index++) if (argv[index] === "--blocked-by" && argv[index + 1]) blockedBy.push(...argv[index + 1].split(",").filter(Boolean));
+		const created = {
+			id,
+			title,
+			description: option(argv, "--description") ?? "",
+			acceptance_criteria: option(argv, "--acceptance") ?? "",
+			status: "open",
+			priority: 2,
+			type: option(argv, "--type") ?? "task",
+			parent: option(argv, "--parent") ?? state.epic.id,
+			role: option(argv, "--role"),
+			discovered_from: option(argv, "--discovered-from"),
+			blocked_by: [...new Set(blockedBy)],
+		};
+		for (const key of ["role", "discovered_from"]) if (!created[key]) delete created[key];
+		state.tasks.push(created);
+		if (Array.isArray(state.missing_process_ticks) && created.role) state.missing_process_ticks = state.missing_process_ticks.filter((role) => role !== created.role);
+		log({ id, title, role: created.role, blocked_by: created.blocked_by, discovered_from: created.discovered_from });
+		save();
+		console.log(JSON.stringify(created));
+	}
 } else if (command === "update") {
+	const id = argv[0];
 	const found = task(id);
 	if (!found) process.exitCode = 2;
 	else {
-		const statusIndex = rest.indexOf("--status");
-		if (statusIndex >= 0) found.status = rest[statusIndex + 1];
-		log({ status: found.status });
+		const status = option(argv, "--status");
+		const role = option(argv, "--role");
+		if (status) found.status = status;
+		if (role) {
+			found.role = role;
+			if (Array.isArray(state.missing_process_ticks)) state.missing_process_ticks = state.missing_process_ticks.filter((missing) => missing !== role);
+		}
+		log({ id, status: found.status, role: found.role });
+		save();
+	}
+} else if (command === "block") {
+	const [id, ...blockers] = argv;
+	const found = task(id);
+	if (!found || !blockers.length) process.exitCode = 2;
+	else {
+		found.blocked_by = [...new Set([...(found.blocked_by ?? []), ...blockers])];
+		log({ id, blockers, blocked_by: found.blocked_by });
 		save();
 	}
 } else if (command === "note") {
-	const found = id === state.epic.id ? state.epic : task(id);
+	const [id, note = ""] = argv;
+	const found = entity(id);
 	if (!found) process.exitCode = 2;
 	else {
-		(found.notes ??= []).push(rest[0] ?? "");
-		log({ note: rest[0] ?? "" });
+		(found.notes ??= []).push(note);
+		log({ id, note });
 		save();
 	}
 } else if (command === "approve") {
+	const id = argv[0];
 	const found = task(id);
 	if (!found || !found.awaiting) process.exitCode = 2;
 	else {
 		const awaiting = found.awaiting;
 		delete found.awaiting;
-		log({ action: "approved", awaiting });
+		log({ id, action: "approved", awaiting });
 		save();
 	}
 } else if (command === "reject") {
+	const [id, feedback = ""] = argv;
 	const found = task(id);
-	if (!found || !found.awaiting || !(rest[0] ?? "").trim()) process.exitCode = 2;
+	if (!found || !found.awaiting || !feedback.trim()) process.exitCode = 2;
 	else {
 		const awaiting = found.awaiting;
 		delete found.awaiting;
 		found.status = "open";
-		log({ action: "rejected", awaiting, feedback: rest[0] });
+		log({ id, action: "rejected", awaiting, feedback });
 		save();
 	}
 } else if (command === "close") {
-	const found = task(id);
+	const id = argv[0];
+	const found = entity(id);
 	if (!found) process.exitCode = 2;
 	else {
 		found.status = "closed";
-		const reasonIndex = rest.indexOf("--reason");
-		found.close_reason = reasonIndex >= 0 ? rest[reasonIndex + 1] : undefined;
-		log({ reason: found.close_reason, status: found.status });
+		found.close_reason = option(argv, "--reason");
+		log({ id, reason: found.close_reason, status: found.status });
 		save();
 	}
 } else {

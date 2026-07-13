@@ -49,7 +49,7 @@ Shows the intended Ticks planning flow and echoes the target. It does not curren
 /ticks-run qfs --max-parallel 2
 ```
 
-`--worktrees` makes dry-run display isolated worktree paths instead of the repository root. `--max-parallel N` must be a positive integer. The effective cap is the minimum of ready work, `tk graph`'s maximum, and the command/config cap.
+`--worktrees` makes dry-run display isolated worktree paths for implementation ticks. Review and closeout always display the controller checkout because they use dedicated read-only process execution, never an ordinary source worktree. `--max-parallel N` must be a positive integer. The effective cap is the minimum of ready work, `tk graph`'s maximum, and the command/config cap.
 
 Execution requires the explicit safety switch:
 
@@ -60,16 +60,22 @@ Execution requires the explicit safety switch:
 /ticks-run qfs --execute --autonomous
 ```
 
-Execution always uses isolated worktrees, so `--worktrees` is implicit. `--resume` is an operator-visible hint; the same safe reconciliation runs on every execution. `--autonomous` records the requested checkpoint policy, but non-checkpoint human gates still block (see limitations). In TUI mode, execution opens a live control-tower overlay by default without delaying runner startup; `--compact` (or `--no-dashboard`) keeps only the compact status/widget.
+Execution uses isolated worktrees for implementation ticks, so `--worktrees` is implicit. Review and closeout run read-only in the clean controller checkout. `--resume` is an operator-visible hint; the same safe reconciliation runs on every execution. `--autonomous` passes through `tk next <epic> --autonomous --json`; it bypasses checkpoint awaits only, while approval, input, review, content, escalation, and work remain blocking. In TUI mode, execution opens a live control-tower overlay by default without delaying runner startup; `--compact` (or `--no-dashboard`) keeps only the compact status/widget.
 
 Before any mutation, execution requires:
 
 - a clean controller checkout on a non-default branch;
 - every `## Environment` bullet to be executable and passing;
-- an epic that is planned and has a complete EPIC-SKELETON;
+- an epic that is planned; a missing EPIC-SKELETON is self-repaired and committed before the first child launch;
 - no fresh active lease or ambiguous duplicate branch/worktree/manifest claim.
 
+Before wave 1, `missing_process_ticks` triggers idempotent repair. Exact canonical legacy roleless ticks are tagged only when matching is unique; otherwise new role ticks are created. Review is blocked by every terminal implementation node derived from dependency edges, closeout is blocked by review, and all repair mutations are committed before launch.
+
 For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, and runs configured tests in each child. On POSIX, child Pi and configured shell commands run as detached process-group leaders so TERM/KILL cancellation reaches grandchildren; Windows uses a direct-child fallback. Session shutdown aborts every active epic command and awaits its settlement before the extension runtime is torn down. Accepted branches merge provisionally with merge commits while tracker closure and cleanup remain deferred. The runner persists an integrated-wave transaction, runs and persists the post-wave gate, and only then closes the whole wave durably and cleans worktrees/branches. A failed gate keeps every affected tick open, retains repair state, and blocks dependents.
+
+A ready `role: review` tick launches the configured frontier reviewer in the controller checkout with only `read,grep,find,ls`; extensions, bash, edit, write, tracker authority, and source worktrees are absent. The reviewer reads a persisted full source diff from the epic's validated `base_branch` plus description/acceptance/specs and must emit strict JSON findings. Malformed output fails closed. Blockers—and should-fix findings under the default `repair` policy—become controller-created repair ticks discovered from the review and block it. A clean/routable review closes only after persisted configured-test evidence.
+
+A ready `role: closeout` tick executes strictly parsed acceptance commands and final configured tests, then asks the dedicated read-only closeout model to verify every acceptance item using only controller-issued passing evidence IDs. Missing, malformed, or unverified evidence leaves closeout and epic open. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
 
 ### `/ticks-status [<epic-id>]`
 
@@ -112,6 +118,8 @@ The extension reads `.tick/config.md` fresh. Commands are only executable when a
 - implement_balanced_model: openai-codex/gpt-5.6-sol:medium
 - implement_strong_model: openai-codex/gpt-5.6-sol:high
 - review_model: openai-codex/gpt-5.6-sol:xhigh
+- closeout_model: openai-codex/gpt-5.6-sol:xhigh
+- review_should_fix: repair
 - max_parallel: 4
 ```
 
@@ -127,9 +135,11 @@ Environment overrides take precedence:
 | `implement_balanced_model` | `TICKS_PI_IMPLEMENT_BALANCED_MODEL` |
 | `implement_strong_model` | `TICKS_PI_IMPLEMENT_STRONG_MODEL` |
 | `review_model` | `TICKS_PI_REVIEW_MODEL` |
+| `closeout_model` | `TICKS_PI_CLOSEOUT_MODEL` |
+| `review_should_fix` | `TICKS_PI_REVIEW_SHOULD_FIX` (`repair` default, or `record`) |
 | `max_parallel` | `TICKS_PI_MAX_PARALLEL` |
 
-Model syntax is `[provider/]model[:thinking]`. With Codex OAuth use `openai-codex/...`, not the separately billed `openai/...`. Ordinary implementation ticks route deterministically among the configured Sol capability tiers: explicit tracker tier/labels first; security, integration, subtle/large metadata and P0/P1 work conservatively use strong; complete mechanical work scoped to one or two named files may use economy; everything else uses balanced. Shape routing never invents a Luna/Terra or other model family—the configured model string is authoritative. `tk graph --json` exposes description, acceptance criteria, priority, type, labels, and role for this decision. Dry plans, dashboards, and child reports include the reason. Planner/scout/review keys remain configuration for future role execution; `review` and `closeout` tasks are reserved and are not dispatched.
+Model syntax is `[provider/]model[:thinking]`. With Codex OAuth use `openai-codex/...`, not the separately billed `openai/...`. Ordinary implementation ticks route deterministically among the configured capability tiers: explicit tracker tier/labels first; security, integration, subtle/large metadata and P0/P1 work conservatively use strong; complete mechanical work scoped to one or two named files may use economy; everything else uses balanced. Shape routing never invents a model family—the configured model string is authoritative. Review and closeout have dedicated frontier process tiers/models and read-only controller execution. If `closeout_model` is absent, it falls back to `planner_model`; execution blocks rather than using Pi's ambient default when the applicable process model is unconfigured. `review_should_fix: repair` creates blocking repair ticks; `record` permits a validated should-fix to be recorded as accepted debt, but blockers always route to repair. Dry plans, dashboards, child reports, and verification lanes include role and routing evidence.
 
 ## Artifacts and durable identity
 
@@ -146,6 +156,10 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
     │   ├── events.jsonl
     │   ├── report.md
     │   ├── verifier.md
+    │   ├── epic.diff / findings.json / review-tests.md      # review role
+    │   ├── acceptance-evidence.md / closeout-report.json    # closeout role
+    │   ├── retro.md                                          # closeout role
+    │   ├── attempts/attempt-N/                               # archived process retries
     │   └── tk-denials.jsonl
     └── waves/
         ├── wave-<n>-transaction.json
@@ -202,8 +216,6 @@ Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/
 ## Known limitations
 
 - `/ticks-plan` is an informational planning entrypoint; it does not run scouts/planner or create ticks.
-- Ready `role: review` and `role: closeout` ticks stop with `awaiting`. They are intentionally not sent to ordinary implementers. Final review, epic retro/close, and next-epic planning remain operator/skill work.
-- `--autonomous` currently records policy intent but the runner does not pass an autonomous flag through tracker graph selection; human gates remain blocking.
 - Recovery is resumable, not process-continuous: graceful session shutdown cancels and awaits child settlement; abrupt controller loss is recovered from durable tracker/git/artifact state rather than a private session handle.
 - No built-in spend cap is enforced. The dashboard reports usage/cost emitted by providers.
 - Rich interaction requires Pi TUI. RPC receives status/widget requests and text dumps; the overlay itself is TUI-only.

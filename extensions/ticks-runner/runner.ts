@@ -24,6 +24,23 @@ import { buildRunPlan, parseGraph, type GraphResult, type GraphTask, type RunDry
 import { cleanupIntegratedWorktree, ensureGitWorktree, integrateWorktreeResult } from "./merge.ts";
 import { spawnProcessTree, terminateProcessTree } from "./process.ts";
 import {
+	acceptanceItems,
+	applyAutonomousSelection,
+	buildCloseoutPrompt,
+	buildReviewPrompt,
+	canonicalProcessTitle,
+	graphTasks,
+	parseCloseoutReport,
+	parseNextSelection,
+	parseReviewReport,
+	PROCESS_READ_ONLY_TOOLS,
+	terminalImplementationTickIds,
+	unambiguousLegacyProcessTick,
+	type AcceptanceItem,
+	type EpicProcessDetail,
+	type ReviewFinding,
+} from "./process-ticks.ts";
+import {
 	reconcileRun,
 	recoveryDisposition,
 	scanRecovery,
@@ -75,6 +92,9 @@ export function parseModelInvocation(spec?: string): ModelInvocation {
 export type AgentProtocolStatus = "DONE" | "DONE_WITH_CONCERNS" | "NEEDS_CONTEXT" | "BLOCKED";
 export type AgentOutcomeKind =
 	| "accepted"
+	| "review-findings"
+	| "process-failure"
+	| "closeout-failure"
 	| "accepted-observation"
 	| "repair"
 	| "needs-context"
@@ -347,13 +367,29 @@ function parseTickDetail(input: string, expectedId: string): TickDetail {
 	if (Array.isArray(value)) value = value[0];
 	if (!value || typeof value !== "object") throw new Error(`tk show ${expectedId} must return an object`);
 	const item = value as Record<string, unknown>;
-	if (item.id !== expectedId || typeof item.title !== "string" || !item.title.trim()) throw new Error(`tk show ${expectedId} returned incomplete identity fields`);
+	if (item.id !== expectedId || typeof item.title !== "string" || !item.title.trim() || item.title.length > 1_024) throw new Error(`tk show ${expectedId} returned incomplete or oversized identity fields`);
+	const bounded = (field: unknown, label: string, maximum: number): string => {
+		if (field === undefined) return "";
+		if (typeof field !== "string" || field.length > maximum || field.includes("\0")) throw new Error(`tk show ${expectedId} returned invalid ${label}`);
+		return field;
+	};
 	return {
 		id: expectedId,
 		title: item.title,
-		description: typeof item.description === "string" ? item.description : "",
-		acceptance: typeof item.acceptance_criteria === "string" ? item.acceptance_criteria : typeof item.acceptance === "string" ? item.acceptance : "",
+		description: bounded(item.description, "description", 64 * 1_024),
+		acceptance: bounded(typeof item.acceptance_criteria === "string" ? item.acceptance_criteria : item.acceptance, "acceptance", 64 * 1_024),
 	};
+}
+
+function parseEpicProcessDetail(input: string, expectedId: string): EpicProcessDetail {
+	const detail = parseTickDetail(input, expectedId);
+	const value = JSON.parse(input) as Record<string, unknown> | Array<Record<string, unknown>>;
+	const item = Array.isArray(value) ? value[0] : value;
+	const baseBranch = typeof item?.base_branch === "string" ? item.base_branch.trim() : "";
+	if (!baseBranch || baseBranch.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseBranch) || baseBranch.includes("..") || baseBranch.includes("@{")) {
+		throw new Error(`Epic ${expectedId} needs a safe recorded base_branch before review/closeout`);
+	}
+	return { ...detail, baseBranch };
 }
 
 export function buildImplementerPrompt(input: {
@@ -459,6 +495,142 @@ function gitIsAncestor(root: string, ancestor: string, descendant: string): bool
 function gitWorktreeClean(worktree: string): boolean {
 	const result = runSubprocess("git", ["status", "--porcelain=v1", "--untracked-files=all"], worktree);
 	return result.status === 0 && !result.stdout.trim();
+}
+
+function parseCreatedTickId(input: string, role: string): string {
+	let value: unknown;
+	try { value = JSON.parse(input); } catch (error) { throw new Error(`tk create ${role} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
+	if (!value || typeof value !== "object" || Array.isArray(value) || typeof (value as Record<string, unknown>).id !== "string") throw new Error(`tk create ${role} returned no tick id`);
+	const id = ((value as Record<string, unknown>).id as string).trim();
+	if (!id || id.length > 128 || !/^[A-Za-z0-9._-]+$/.test(id)) throw new Error(`tk create ${role} returned an unsafe tick id`);
+	return id;
+}
+
+export type SkeletonRepairResult = { changed: boolean; reviewId?: string; closeoutId?: string; terminalImplementationIds: string[] };
+
+/** Repair only roles explicitly reported missing by tk graph; every mutation is argv-safe and committed before return. */
+export function repairEpicSkeleton(input: {
+	graph: GraphResult;
+	epicId: string;
+	epicTitle: string;
+	root: string;
+	tk: string;
+	env: NodeJS.ProcessEnv;
+}): SkeletonRepairResult {
+	const missing = new Set(input.graph.missing_process_ticks ?? []);
+	for (const role of missing) if (role !== "review" && role !== "closeout") throw new Error(`tk graph reported unsupported process role ${JSON.stringify(role)}`);
+	const tasks = graphTasks(input.graph);
+	for (const role of ["review", "closeout"] as const) {
+		const count = tasks.filter((task) => task.role === role).length;
+		if (count > 1) throw new Error(`Epic ${input.epicId} has ambiguous duplicate role=${role} ticks`);
+		if (missing.has(role) && count !== 0) throw new Error(`tk graph missing_process_ticks contradicts its role=${role} task`);
+	}
+	const terminalIds = terminalImplementationTickIds(input.graph, input.epicTitle);
+	let reviewId = tasks.find((task) => task.role === "review")?.id;
+	let closeoutId = tasks.find((task) => task.role === "closeout")?.id;
+	let changed = false;
+	let mutationError: unknown;
+	try {
+		if (missing.has("review")) {
+			const legacy = unambiguousLegacyProcessTick(input.graph, "review", input.epicTitle);
+			if (legacy) {
+				tracker(input.tk, ["update", legacy.id, "--role", "review"], input.root, input.env);
+				reviewId = legacy.id;
+				changed = true;
+			} else {
+				const args = ["create", canonicalProcessTitle("review", input.epicTitle), "--parent", input.epicId, "--role", "review", "--json"];
+				for (const terminalId of terminalIds) args.push("--blocked-by", terminalId);
+				reviewId = parseCreatedTickId(tracker(input.tk, args, input.root, input.env), "review");
+				changed = true;
+			}
+		}
+		if (!reviewId) throw new Error(`Cannot identify the review process tick for ${input.epicId}`);
+		const reviewTask = tasks.find((task) => task.id === reviewId);
+		const reviewBlockers = new Set(reviewTask?.blocked_by ?? []);
+		for (const terminalId of terminalIds) {
+			if (reviewBlockers.has(terminalId)) continue;
+			tracker(input.tk, ["block", reviewId, terminalId], input.root, input.env);
+			changed = true;
+		}
+
+		if (missing.has("closeout")) {
+			const legacy = unambiguousLegacyProcessTick(input.graph, "closeout", input.epicTitle);
+			if (legacy) {
+				tracker(input.tk, ["update", legacy.id, "--role", "closeout"], input.root, input.env);
+				closeoutId = legacy.id;
+				changed = true;
+			} else {
+				closeoutId = parseCreatedTickId(tracker(input.tk, ["create", canonicalProcessTitle("closeout", input.epicTitle), "--parent", input.epicId, "--role", "closeout", "--blocked-by", reviewId, "--json"], input.root, input.env), "closeout");
+				changed = true;
+			}
+		}
+		if (!closeoutId) throw new Error(`Cannot identify the closeout process tick for ${input.epicId}`);
+		const closeoutTask = tasks.find((task) => task.id === closeoutId);
+		if (!(closeoutTask?.blocked_by ?? []).includes(reviewId) && !(missing.has("closeout") && !unambiguousLegacyProcessTick(input.graph, "closeout", input.epicTitle))) {
+			tracker(input.tk, ["block", closeoutId, reviewId], input.root, input.env);
+			changed = true;
+		}
+	} catch (error) {
+		mutationError = error;
+	} finally {
+		if (changed) trackerCommit(input.root, `Repair ${input.epicId} EPIC-SKELETON`);
+	}
+	if (mutationError) throw mutationError;
+	return { changed, reviewId, closeoutId, terminalImplementationIds: terminalIds };
+}
+
+export function createReadOnlyProcessInvocation(input: {
+	promptPath: string;
+	model: ModelInvocation;
+	executable?: string;
+	scriptPath?: string;
+}): ChildInvocation {
+	return createPiInvocation({
+		executable: input.executable,
+		scriptPath: input.scriptPath,
+		prompt: `@${input.promptPath}`,
+		provider: input.model.provider,
+		model: input.model.model,
+		thinking: input.model.thinking,
+		tools: PROCESS_READ_ONLY_TOOLS,
+		extraArgs: ["--no-extensions"],
+	});
+}
+
+function writeJsonArtifact(file: string, value: unknown): void {
+	atomicText(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** Preserve every completed process attempt before fixed latest-artifact paths are reused. */
+function archiveProcessArtifacts(artifactDir: string, names: readonly string[]): void {
+	const existing = names.map((name) => path.join(artifactDir, name)).filter((file) => fs.existsSync(file));
+	if (!existing.length) return;
+	const attemptsRoot = path.join(artifactDir, "attempts");
+	fs.mkdirSync(attemptsRoot, { recursive: true, mode: 0o700 });
+	let attempt = 1;
+	while (attempt <= 1_000 && fs.existsSync(path.join(attemptsRoot, `attempt-${attempt}`))) attempt++;
+	if (attempt > 1_000) throw new Error(`Too many archived process attempts in ${artifactDir}`);
+	const destination = path.join(attemptsRoot, `attempt-${attempt}`);
+	fs.mkdirSync(destination, { mode: 0o700 });
+	for (const file of existing) fs.renameSync(file, path.join(destination, path.basename(file)));
+}
+
+function epicSourceDiff(root: string, baseBranch: string): string {
+	requireSuccessful(runSubprocess("git", ["rev-parse", "--verify", "--end-of-options", `${baseBranch}^{commit}`], root), `Recorded base branch ${baseBranch} is not a commit`);
+	return requireSuccessful(runSubprocess("git", ["diff", "--no-ext-diff", "--unified=80", `${baseBranch}...HEAD`, "--", ".", ":(exclude).tick", ":(exclude).tick/**"], root), `Cannot read epic diff from ${baseBranch}`).stdout;
+}
+
+function findingLocation(finding: ReviewFinding): string {
+	return `${finding.file}:${finding.line}`;
+}
+
+function processEvidenceMarkdown(title: string, evidence: ReadonlyArray<{ id: string; item?: string; command: CommandEvidence }>): string {
+	const lines = [`# ${title}`, ""];
+	for (const entry of evidence) {
+		lines.push(`## ${entry.id}${entry.item ? ` — ${entry.item}` : ""}`, "", `- Command: \`${entry.command.command.replaceAll("`", "\\`")}\``, `- Status: **${entry.command.status}**`, `- Exit: ${entry.command.exitCode ?? "none"}`, `- Elapsed: ${entry.command.elapsedMs} ms`, "", "### stdout", "```text", entry.command.stdout.slice(-16_384), "```", "", "### stderr", "```text", entry.command.stderr.slice(-16_384), "```", "");
+	}
+	if (!evidence.length) lines.push("No runnable controller-issued evidence was available.");
+	return `${lines.join("\n")}\n`;
 }
 
 function formatOutcome(outcome: AgentOutcome): string {
@@ -626,6 +798,272 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		return { failed, artifact, gate };
 	};
 
+	const ensureProcessManifest = (plan: RunDryPlan): void => {
+		if (!manifest) {
+			manifest = createRunManifest(plan.durablePaths, "planned");
+			manifestPath = plan.durablePaths.manifest;
+		}
+		mergeTickPaths(manifest, plan.durablePaths.ticks);
+		updateManifest(manifestPath!, manifest, "running");
+	};
+
+	const markProcessStarted = (task: GraphTask, work: WorkPlan, role: "review" | "closeout"): void => {
+		agentInputs.set(task.id, {
+			tickId: task.id,
+			title: task.title,
+			tier: work.tier,
+			tierReason: work.tierReason,
+			model: work.model,
+			worktree: root,
+			branch: integration!.branch,
+			wave: currentWave,
+			status: "running",
+			currentAction: `${role} in controller checkout (read-only)`,
+		});
+		tracker(tk, ["update", task.id, "--status", "in_progress"], root, env);
+		tracker(tk, ["note", task.id, `runner-state: runner=pi role=${role} checkout=controller controller-branch=${integration!.branch} model=${work.model ?? "Pi-default"} tools=${PROCESS_READ_ONLY_TOOLS.join(",")}`], root, env);
+		trackerCommit(root, `Start ${options.epicId} ${role} process tick ${task.id}`);
+		integration!.commit = git(root, ["rev-parse", "HEAD"]);
+		dashboard("running");
+	};
+
+	const superviseProcess = async (task: GraphTask, work: WorkPlan, prompt: string): Promise<ChildReport> => {
+		atomicText(work.prompt, prompt);
+		const model = parseModelInvocation(work.model);
+		const invocation = options.invocationForTask?.({ task, work, prompt, model }) ?? createReadOnlyProcessInvocation({
+			promptPath: work.prompt,
+			model,
+			executable: options.piExecutable,
+			scriptPath: options.piScriptPath,
+		});
+		return superviseChild({
+			tickId: task.id,
+			invocation,
+			cwd: root,
+			artifacts: work,
+			env,
+			signal: options.signal,
+			selectedTier: work.tier,
+			tierReason: work.tierReason,
+			onSnapshot: (state) => {
+				agentInputs.set(task.id, { ...agentInputs.get(task.id)!, state });
+				dashboard("running");
+			},
+		});
+	};
+
+	const failProcessOpen = (task: GraphTask, role: "review" | "closeout", detail: string, artifacts: readonly string[], outcomeKind: AgentOutcomeKind = "process-failure", report?: ChildReport): void => {
+		const boundedDetail = detail.slice(0, 4_000);
+		tracker(tk, ["note", task.id, `runner ${role}-failed: ${boundedDetail}; artifacts=${artifacts.join(",")}`], root, env);
+		tracker(tk, ["update", task.id, "--status", "open"], root, env);
+		trackerCommit(root, `Record ${options.epicId} ${role} failure`);
+		integration!.commit = git(root, ["rev-parse", "HEAD"]);
+		const existing = agentInputs.get(task.id);
+		if (existing) agentInputs.set(task.id, { ...existing, status: "failed", error: boundedDetail, currentAction: `${role} failed closed` });
+		outcomes.push({ tickId: task.id, kind: outcomeKind, detail: boundedDetail, closeAllowed: false, report, artifacts: [...artifacts] });
+	};
+
+	const runReviewProcess = async (task: GraphTask, work: WorkPlan, plan: RunDryPlan): Promise<EpicRunResult | undefined> => {
+		ensureProcessManifest(plan);
+		const findingsArtifact = path.join(work.artifactDir, "findings.json");
+		const diffArtifact = path.join(work.artifactDir, "epic.diff");
+		const schemaLane: VerificationItem = { tickId: task.id, label: "review findings schema", status: "running", artifact: findingsArtifact };
+		verification.push(schemaLane);
+		let epic: EpicProcessDetail;
+		try {
+			archiveProcessArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "findings.json", "epic.diff", "review-tests.md"]);
+			epic = parseEpicProcessDetail(tracker(tk, ["show", options.epicId, "--json"], root, env), options.epicId);
+			atomicText(diffArtifact, epicSourceDiff(root, epic.baseBranch));
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			schemaLane.status = "failed";
+			schemaLane.detail = detail;
+			failProcessOpen(task, "review", detail, [findingsArtifact, diffArtifact]);
+			return finish("failed", `Final review failed closed before launch: ${detail}`, plan);
+		}
+		markProcessStarted(task, work, "review");
+		let child: ChildReport;
+		try {
+			child = await superviseProcess(task, work, buildReviewPrompt({ epic, reviewTick: task, diffArtifact, findingsArtifact }));
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			schemaLane.status = "failed";
+			schemaLane.detail = detail;
+			failProcessOpen(task, "review", detail, [work.log, work.report, diffArtifact]);
+			return finish("failed", `Final reviewer supervision failed closed: ${detail}`, plan);
+		}
+		agentInputs.set(task.id, { ...agentInputs.get(task.id)!, report: child, status: child.outcome });
+		if (child.outcome !== "success" || !child.finalOutput) {
+			const detail = child.errorMessage ?? child.reason;
+			schemaLane.status = "failed";
+			schemaLane.detail = detail;
+			writeJsonArtifact(findingsArtifact, { valid: false, error: detail });
+			failProcessOpen(task, "review", detail, [work.log, work.report, findingsArtifact, diffArtifact], "process-failure", child);
+			return finish(child.outcome === "cancelled" ? "cancelled" : "failed", `Final reviewer failed closed: ${detail}`, plan);
+		}
+		let review;
+		try {
+			review = parseReviewReport(child.finalOutput);
+			writeJsonArtifact(findingsArtifact, review);
+			schemaLane.status = "passed";
+			schemaLane.detail = `${review.findings.length} schema-validated finding(s)`;
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			writeJsonArtifact(findingsArtifact, { valid: false, error: detail });
+			schemaLane.status = "failed";
+			schemaLane.detail = detail;
+			failProcessOpen(task, "review", detail, [work.log, work.report, findingsArtifact, diffArtifact], "process-failure", child);
+			return finish("failed", `Malformed final review failed closed: ${detail}`, plan);
+		}
+		dashboard("running");
+
+		const blocking = review.findings.filter((finding) => finding.severity === "blocker" || (finding.severity === "should-fix" && config.reviewShouldFix === "repair"));
+		if (blocking.length) {
+			const repairIds: string[] = [];
+			let mutationError: unknown;
+			try {
+				for (const finding of blocking) {
+					const location = findingLocation(finding);
+					const title = `Repair ${finding.severity} review finding at ${location}`.slice(0, 240);
+					const description = [`Final-review finding (${finding.severity}, confidence ${finding.confidence.toFixed(2)}) at ${location}.`, "", finding.message, "", `Validated report: ${findingsArtifact}`].join("\n");
+					const created = tracker(tk, ["create", title, "--description", description, "--acceptance", "The validated finding is resolved and configured tests pass.", "--parent", options.epicId, "--discovered-from", task.id, "--json"], root, env);
+					const repairId = parseCreatedTickId(created, "review repair");
+					repairIds.push(repairId);
+					tracker(tk, ["block", task.id, repairId], root, env);
+				}
+				tracker(tk, ["note", task.id, `Validated review routed ${repairIds.length} repair tick(s): ${repairIds.join(", ")}; report=${findingsArtifact}`], root, env);
+				tracker(tk, ["update", task.id, "--status", "open"], root, env);
+			} catch (error) { mutationError = error; }
+			finally { trackerCommit(root, `Route ${options.epicId} final review findings`); }
+			if (mutationError) return finish("failed", `Review findings were valid but repair routing failed closed: ${mutationError instanceof Error ? mutationError.message : String(mutationError)}`, plan);
+			integration!.commit = git(root, ["rev-parse", "HEAD"]);
+			outcomes.push({ tickId: task.id, kind: "review-findings", detail: `Created repair ticks ${repairIds.join(", ")}; review remains open`, closeAllowed: false, report: child, artifacts: [work.log, work.report, findingsArtifact, diffArtifact] });
+			return finish("blocked", `Final review found ${blocking.length} finding(s) routed to controller-owned repair ticks (${repairIds.join(", ")}). Review and closeout remain open.`, plan);
+		}
+
+		const recordedShouldFix = review.findings.filter((finding) => finding.severity === "should-fix");
+		if (recordedShouldFix.length) tracker(tk, ["note", options.epicId, `Accepted review should-fix debt per policy=record: ${recordedShouldFix.map(findingLocation).join(", ")}; report=${findingsArtifact}`], root, env);
+		const testArtifact = path.join(work.artifactDir, "review-tests.md");
+		const testLane: VerificationItem = { tickId: task.id, label: "final review tests", status: "running", artifact: testArtifact };
+		verification.push(testLane);
+		const testEvidence = await runConfiguredCommands(config.testCommands, root, env, options.signal);
+		atomicText(testArtifact, evidenceMarkdown("Final review test evidence", testEvidence));
+		const failed = testEvidence.find((item) => item.status !== "passed");
+		if (!config.testCommands.length || failed) {
+			const detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || failed.status}` : "No executable final tests are configured";
+			testLane.status = "failed";
+			testLane.detail = detail;
+			failProcessOpen(task, "review", detail, [work.log, work.report, findingsArtifact, diffArtifact, testArtifact], "process-failure", child);
+			return finish(failed?.status === "cancelled" ? "cancelled" : "failed", `Final review tests failed closed: ${detail}`, plan);
+		}
+		testLane.status = "passed";
+		testLane.detail = `${testEvidence.length} configured command(s) passed`;
+		tracker(tk, ["note", task.id, `Final review passed: findings=${findingsArtifact}; diff=${diffArtifact}; tests=${testArtifact}`], root, env);
+		tracker(tk, ["close", task.id, "--reason", `Completed: full epic diff reviewed with ${review.findings.length} validated finding(s) and final tests passed`], root, env);
+		trackerCommit(root, `Close ${options.epicId} final review after evidence`);
+		integration!.commit = git(root, ["rev-parse", "HEAD"]);
+		outcomes.push({ tickId: task.id, kind: "accepted", detail: "Final review schema and configured test evidence passed", closeAllowed: true, report: child, artifacts: [work.log, work.report, findingsArtifact, diffArtifact, testArtifact] });
+		event("review-closed", `Final review closed only after schema validation and test evidence`, task.id);
+		return undefined;
+	};
+
+	const runCloseoutProcess = async (task: GraphTask, work: WorkPlan, plan: RunDryPlan): Promise<EpicRunResult> => {
+		ensureProcessManifest(plan);
+		let epic: EpicProcessDetail;
+		let items: AcceptanceItem[];
+		try {
+			archiveProcessArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "acceptance-evidence.md", "closeout-report.json", "retro.md"]);
+			epic = parseEpicProcessDetail(tracker(tk, ["show", options.epicId, "--json"], root, env), options.epicId);
+			items = acceptanceItems(epic);
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			failProcessOpen(task, "closeout", detail, []);
+			return finish("failed", `Closeout failed closed before verification: ${detail}`, plan);
+		}
+		markProcessStarted(task, work, "closeout");
+		const evidenceArtifact = path.join(work.artifactDir, "acceptance-evidence.md");
+		const evidence: Array<{ id: string; item?: string; command: CommandEvidence }> = [];
+		for (const item of items) {
+			for (const configured of item.commands) {
+				const [result] = await runConfiguredCommands([configured], root, env, options.signal);
+				if (result) evidence.push({ id: configured.evidenceId, item: `${item.id}: ${item.text}`, command: result });
+			}
+		}
+		for (let index = 0; index < config.testCommands.length; index++) {
+			const [result] = await runConfiguredCommands([config.testCommands[index]], root, env, options.signal);
+			if (result) evidence.push({ id: `T${index + 1}`, command: result });
+		}
+		atomicText(evidenceArtifact, processEvidenceMarkdown("Epic closeout acceptance evidence", evidence));
+		const evidenceLane: VerificationItem = { tickId: task.id, label: "outside-in acceptance evidence", status: "running", artifact: evidenceArtifact };
+		verification.push(evidenceLane);
+		const failedEvidence = evidence.find((entry) => entry.command.status !== "passed");
+		if (!config.testCommands.length || !evidence.length || failedEvidence) {
+			const detail = failedEvidence ? `${failedEvidence.id} failed: ${failedEvidence.command.stderr || failedEvidence.command.stdout || failedEvidence.command.status}` : !config.testCommands.length ? "No executable final configured tests are available" : "No runnable acceptance evidence is available";
+			evidenceLane.status = "failed";
+			evidenceLane.detail = detail;
+			failProcessOpen(task, "closeout", detail, [evidenceArtifact], "closeout-failure");
+			return finish(failedEvidence?.command.status === "cancelled" ? "cancelled" : "failed", `Closeout evidence failed closed: ${detail}`, plan);
+		}
+		const passingIds = evidence.filter((entry) => entry.command.status === "passed").map((entry) => entry.id);
+		evidenceLane.status = "passed";
+		evidenceLane.detail = `${passingIds.length} runnable evidence item(s) passed`;
+		let child: ChildReport;
+		try {
+			child = await superviseProcess(task, work, buildCloseoutPrompt({ epic, closeoutTick: task, items, evidenceArtifact, passingEvidenceIds: passingIds }));
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			failProcessOpen(task, "closeout", detail, [evidenceArtifact, work.log, work.report], "closeout-failure");
+			return finish("failed", `Closeout verifier supervision failed closed: ${detail}`, plan);
+		}
+		agentInputs.set(task.id, { ...agentInputs.get(task.id)!, report: child, status: child.outcome });
+		const reportArtifact = path.join(work.artifactDir, "closeout-report.json");
+		const reportLane: VerificationItem = { tickId: task.id, label: "closeout acceptance schema", status: "running", artifact: reportArtifact };
+		verification.push(reportLane);
+		if (child.outcome !== "success" || !child.finalOutput) {
+			const detail = child.errorMessage ?? child.reason;
+			writeJsonArtifact(reportArtifact, { valid: false, error: detail });
+			reportLane.status = "failed";
+			reportLane.detail = detail;
+			failProcessOpen(task, "closeout", detail, [evidenceArtifact, work.log, work.report, reportArtifact], "closeout-failure", child);
+			return finish(child.outcome === "cancelled" ? "cancelled" : "failed", `Closeout verifier failed closed: ${detail}`, plan);
+		}
+		let closeout;
+		try {
+			closeout = parseCloseoutReport(child.finalOutput, items, new Set(passingIds));
+			writeJsonArtifact(reportArtifact, closeout);
+			reportLane.status = "passed";
+			reportLane.detail = `${closeout.items.length} acceptance item(s) verified`;
+		} catch (error) {
+			const detail = error instanceof Error ? error.message : String(error);
+			writeJsonArtifact(reportArtifact, { valid: false, error: detail });
+			reportLane.status = "failed";
+			reportLane.detail = detail;
+			failProcessOpen(task, "closeout", detail, [evidenceArtifact, work.log, work.report, reportArtifact], "closeout-failure", child);
+			return finish("failed", `Malformed or unverified closeout failed closed: ${detail}`, plan);
+		}
+		const retroArtifact = path.join(work.artifactDir, "retro.md");
+		atomicText(retroArtifact, [`# Epic retro: ${epic.title}`, "", closeout.retro.summary, "", "## Learned notes", ...(closeout.retro.learned_notes.length ? closeout.retro.learned_notes.map((note) => `- ${note}`) : ["- None recorded."]), "", "## Verification", ...closeout.items.map((item) => `- ${item.id}: verified via ${item.evidence.join(", ")} — ${item.message}`), ""].join("\n"));
+		tracker(tk, ["note", task.id, `Closeout passed item-by-item: evidence=${evidenceArtifact}; report=${reportArtifact}; retro=${retroArtifact}`], root, env);
+		tracker(tk, ["note", options.epicId, `Epic retro: ${closeout.retro.summary}${closeout.retro.learned_notes.length ? `\nLearned:\n${closeout.retro.learned_notes.map((note) => `- ${note}`).join("\n")}` : ""}\nArtifacts: ${retroArtifact}`], root, env);
+		tracker(tk, ["close", task.id, "--reason", `Completed: ${closeout.items.length} epic acceptance item(s) verified with runnable evidence and final tests`], root, env);
+		tracker(tk, ["close", options.epicId, "--reason", `Completed: outside-in acceptance passed item-by-item; retro=${retroArtifact}`], root, env);
+		trackerCommit(root, `Close ${options.epicId} after outside-in acceptance`);
+		integration!.commit = git(root, ["rev-parse", "HEAD"]);
+		outcomes.push({ tickId: task.id, kind: "accepted", detail: `${closeout.items.length} acceptance item(s) verified; closeout and epic closed`, closeAllowed: true, report: child, artifacts: [evidenceArtifact, work.log, work.report, reportArtifact, retroArtifact] });
+		let nextSummary = "No next feasible epic action was returned by the tracker.";
+		try {
+			const args = ["next", "--epic"];
+			if (options.autonomous) args.push("--autonomous");
+			args.push("--json", "--all");
+			const next = parseNextSelection(tracker(tk, args, root, env));
+			if (next) nextSummary = `Next feasible tracker action: ${next.action} ${next.id} — ${next.title}.`;
+		} catch (error) {
+			nextSummary = `Next-action lookup failed without changing the roadmap: ${error instanceof Error ? error.message : String(error)}`;
+		}
+		event("closeout-completed", `${closeout.items.length} acceptance item(s) passed; ${nextSummary}`, task.id);
+		return finish("completed", `Closeout passed and closed both ${task.id} and epic ${options.epicId}. ${nextSummary}`, plan);
+	};
+
 	const closeAndCleanupWave = (transaction: WaveTransaction, transactionFile: string, observations = new Map<string, string>()): void => {
 		for (const tick of transaction.ticks) {
 			const observation = observations.get(tick.tickId);
@@ -655,13 +1093,48 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		let graph: GraphResult;
 		try { graph = parseGraph(tracker(tk, ["graph", options.epicId, "--json"], root, env)); } catch (error) { return finish("failed", error instanceof Error ? error.message : String(error)); }
 		activeGraph = graph;
+		if (options.execute) {
+			if (graph.needs_planning) return finish("blocked", "Epic needs planning. Repair it before execution; no child was launched.");
+			if ((graph.missing_process_ticks ?? []).length) {
+				try {
+					const epicTitle = graph.epic?.title?.trim();
+					if (!epicTitle || epicTitle.length > 1_024 || /[\0\r\n]/.test(epicTitle)) throw new Error("tk graph must provide a bounded single-line epic title for EPIC-SKELETON repair");
+					const repaired = repairEpicSkeleton({ graph, epicId: options.epicId, epicTitle, root, tk, env });
+					integration!.commit = git(root, ["rev-parse", "HEAD"]);
+					event("skeleton-repaired", `Committed EPIC-SKELETON repair; review=${repaired.reviewId}, closeout=${repaired.closeoutId}, terminal=${repaired.terminalImplementationIds.join(",") || "none"}`);
+					recovery = scan(ownership.handle?.lease.controllerToken);
+					continue;
+				} catch (error) {
+					return finish("failed", `EPIC-SKELETON self-repair failed closed: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			}
+			try {
+				const nextArgs = ["next", options.epicId];
+				if (options.autonomous) nextArgs.push("--autonomous");
+				nextArgs.push("--json", "--all");
+				const selection = parseNextSelection(tracker(tk, nextArgs, root, env));
+				if (selection?.action === "await") return finish("awaiting", `Tracker selection is awaiting ${selection.awaiting ?? "human"}: ${selection.id} — ${selection.title}`);
+				if (selection?.action === "plan") return finish("blocked", `Tracker selected planning action for ${selection.id}; implementation was not dispatched.`);
+				graph = applyAutonomousSelection(graph, selection, Boolean(options.autonomous));
+				const selectedTask = selection ? graphTasks(graph).find((task) => task.id === selection.id) : undefined;
+				if (selection && (!selectedTask || (selection.role ?? "") !== (selectedTask.role ?? ""))) throw new Error(`tk next selection ${selection.id} disagrees with tk graph role`);
+			} catch (error) {
+				return finish("failed", `Tracker selection failed closed: ${error instanceof Error ? error.message : String(error)}`);
+			}
+			activeGraph = graph;
+		}
 		const plan = buildRunPlan({ graph, config, repoRoot: root, repoIdentity: identity, epicId: options.epicId, stateRoot, worktrees: true });
 		dashboardRunDir = plan.durablePaths.runDir;
 		const reconciled = reconcileRun(recovery, plan.durablePaths);
 		if (reconciled.status === "conflict") return finish("blocked", `Recovery conflict; refusing to guess or create duplicate state:\n${reconciled.conflicts.join("\n")}`, plan);
 		if (reconciled.status !== "active") {
 			plan.durablePaths.ticks = reconciled.tickPaths;
-			plan.workPlans = plan.workPlans.map((work) => ({ ...work, ...(reconciled.tickPaths.find((tick) => tick.tickId === work.tickId) ?? {}) }));
+			plan.workPlans = plan.workPlans.map((work) => {
+				const recovered = reconciled.tickPaths.find((tick) => tick.tickId === work.tickId);
+				if (!recovered) return work;
+				if (work.executionMode === "process-controller-readonly") return { ...work, artifactDir: recovered.artifactDir, prompt: recovered.prompt, report: recovered.report, log: recovered.log };
+				return { ...work, ...recovered };
+			});
 		}
 		if (reconciled.resumedTickIds.length) event("recovery", `Reusing existing branch/worktree/artifacts for ${reconciled.resumedTickIds.join(", ")}`);
 		currentWave = plan.readyWave;
@@ -687,8 +1160,6 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			dashboard(plan.preflight.canLaunch ? "planned" : "blocked");
 			return finish("dry-run", "Dry-run only; no environment command, tracker mutation, worktree, or child process was executed.", plan);
 		}
-		if (graph.needs_planning) return finish("blocked", "Epic needs planning. Repair it before execution; no child was launched.", plan);
-		if ((graph.missing_process_ticks ?? []).length) return finish("blocked", `EPIC-SKELETON repair required (${graph.missing_process_ticks!.join(", ")}). Create/tag the missing process ticks before execution; no child was launched.`, plan);
 		if (!plan.preflight.canLaunch) return finish("blocked", plan.preflight.issues.map((issue) => issue.message).join("\n"), plan);
 
 		const pendingTransactionFile = plan.readyWave === undefined ? undefined : waveTransactionPath(plan.durablePaths.runDir, plan.readyWave);
@@ -723,8 +1194,18 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 
 		if (plan.readyTasks.some((task) => task.role === "review" || task.role === "closeout")) {
-			const processTasks = plan.readyTasks.filter((task) => task.role).map((task) => `${task.id} (${task.role})`).join(", ");
-			return finish("awaiting", `Orchestrator-owned process tick is ready: ${processTasks}. Dedicated review/closeout behavior is not implemented, so ordinary implementers were not launched.`, plan);
+			if (plan.readyTasks.length !== 1) return finish("failed", "A process tick shared a ready frontier with ordinary work; refusing ambiguous mixed dispatch.", plan);
+			const processTask = plan.readyTasks[0];
+			const work = plan.workPlans.find((item) => item.tickId === processTask.id);
+			if (!work || work.executionMode !== "process-controller-readonly") return finish("failed", `Process tick ${processTask.id} has no dedicated controller execution plan.`, plan);
+			if (!work.model || !parseModelInvocation(work.model).model) return finish("blocked", `Process tick ${processTask.id} requires a valid configured ${processTask.role === "review" ? "review_model" : "closeout_model or planner_model"}; no default model is accepted for final process gates.`, plan);
+			if (processTask.role === "review") {
+				const stopped = await runReviewProcess(processTask, work, plan);
+				if (stopped) return stopped;
+				recovery = scan(ownership.handle?.lease.controllerToken);
+				continue;
+			}
+			return runCloseoutProcess(processTask, work, plan);
 		}
 		if (!plan.readyTasks.length) {
 			const open = graph.waves.flatMap((wave) => wave.tasks ?? []).filter((task) => task.status !== "closed");

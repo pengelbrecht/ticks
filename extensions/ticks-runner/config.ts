@@ -10,6 +10,7 @@ export type ConfiguredCommand = {
 export type RunnerConfig = {
 	models: Record<string, string>;
 	maxParallel?: number;
+	reviewShouldFix: "repair" | "record";
 	environmentChecks: string[];
 	testingLines: string[];
 	environmentCommands: ConfiguredCommand[];
@@ -27,11 +28,12 @@ const MODEL_KEYS = [
 	"implement_balanced_model",
 	"implement_strong_model",
 	"review_model",
+	"closeout_model",
 ] as const;
 
 const ROLE_MODEL_KEYS: Record<string, string> = {
 	review: "review_model",
-	closeout: "planner_model",
+	closeout: "closeout_model",
 	foundation: "review_model",
 	strong: "implement_strong_model",
 	balanced: "implement_balanced_model",
@@ -94,6 +96,8 @@ export function parseExecutableCommands(lines: readonly string[]): { commands: C
 export function resolveRunnerConfig(markdown: string, env: Environment = process.env): RunnerConfig {
 	const piSection = parseKeyValueBullets(extractSection(markdown, "Pi Orchestrator"));
 	const maxParallelRaw = env.TICKS_PI_MAX_PARALLEL ?? piSection.max_parallel;
+	const reviewShouldFixRaw = (env.TICKS_PI_REVIEW_SHOULD_FIX ?? piSection.review_should_fix ?? "repair").trim().toLowerCase();
+	const reviewShouldFix = reviewShouldFixRaw === "record" ? "record" as const : "repair" as const;
 	const parsedMaxParallel = maxParallelRaw && /^\d+$/.test(maxParallelRaw) ? Number(maxParallelRaw) : undefined;
 	const maxParallel = parsedMaxParallel !== undefined && Number.isSafeInteger(parsedMaxParallel) && parsedMaxParallel > 0
 		? parsedMaxParallel
@@ -110,6 +114,9 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 	if (maxParallelRaw && maxParallel === undefined) {
 		warnings.push(`max_parallel must be a positive integer; ignoring ${JSON.stringify(maxParallelRaw)}`);
 	}
+	if (reviewShouldFixRaw !== "repair" && reviewShouldFixRaw !== "record") {
+		warnings.push(`review_should_fix must be repair or record; using repair instead of ${JSON.stringify(reviewShouldFixRaw)}`);
+	}
 	const environmentChecks = parseCommandLines(extractSection(markdown, "Environment"));
 	const testingLines = parseCommandLines(extractSection(markdown, "Testing"));
 	const environment = parseExecutableCommands(environmentChecks);
@@ -119,6 +126,7 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 	return {
 		models,
 		maxParallel,
+		reviewShouldFix,
 		environmentChecks,
 		testingLines,
 		environmentCommands: environment.commands,
@@ -134,7 +142,7 @@ export function loadRunnerConfig(root: string, env: Environment = process.env): 
 	return resolveRunnerConfig(markdown, env);
 }
 
-export type CapabilityTier = "economy" | "balanced" | "strong" | "reserved";
+export type CapabilityTier = "economy" | "balanced" | "strong" | "review" | "closeout";
 export type TaskRoutingInput = {
 	title?: string;
 	description?: string;
@@ -150,9 +158,9 @@ export type TaskRoutingInput = {
 };
 export type TaskRouting = { tier: CapabilityTier; reason: string };
 
-const tierRank: Record<Exclude<CapabilityTier, "reserved">, number> = { economy: 0, balanced: 1, strong: 2 };
+const tierRank: Record<"economy" | "balanced" | "strong", number> = { economy: 0, balanced: 1, strong: 2 };
 
-function explicitTier(value: string | undefined): Exclude<CapabilityTier, "reserved"> | undefined {
+function explicitTier(value: string | undefined): "economy" | "balanced" | "strong" | undefined {
 	const normalized = value?.trim().toLowerCase().replace(/^.*[:/]\s*/, "");
 	return normalized === "economy" || normalized === "balanced" || normalized === "strong" ? normalized : undefined;
 }
@@ -169,14 +177,17 @@ function referencedFileCount(task: TaskRoutingInput): number | undefined {
 /** Metadata wins; shape rules are deliberately conservative and never select a model family. */
 export function routeTask(task: TaskRoutingInput): TaskRouting {
 	const role = task.role?.trim().toLowerCase();
-	if (role === "review" || role === "closeout") {
-		return { tier: "reserved", reason: `role=${role} is orchestrator-owned; planner/review execution is not implemented` };
+	if (role === "review") {
+		return { tier: "review", reason: "role=review uses the dedicated frontier read-only controller process" };
+	}
+	if (role === "closeout") {
+		return { tier: "closeout", reason: "role=closeout uses the dedicated frontier read-only controller process" };
 	}
 
 	const direct = explicitTier(task.tier);
 	if (direct) return { tier: direct, reason: `tracker tier=${task.tier}` };
 	const labels = (task.labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean).sort();
-	const labelledTiers = labels.map(explicitTier).filter((tier): tier is Exclude<CapabilityTier, "reserved"> => Boolean(tier));
+	const labelledTiers = labels.map(explicitTier).filter((tier): tier is "economy" | "balanced" | "strong" => Boolean(tier));
 	if (labelledTiers.length) {
 		const selected = labelledTiers.sort((left, right) => tierRank[right] - tierRank[left])[0];
 		return { tier: selected, reason: `tracker label selects ${selected} (${labels.join(", ")})` };
@@ -208,6 +219,6 @@ export function taskTier(task: TaskRoutingInput): string {
 }
 
 export function modelForTier(config: RunnerConfig, tier: string): string | undefined {
-	if (tier === "reserved") return undefined;
+	if (tier === "closeout") return config.models.closeout_model ?? config.models.planner_model;
 	return config.models[ROLE_MODEL_KEYS[tier] ?? "implement_balanced_model"];
 }
