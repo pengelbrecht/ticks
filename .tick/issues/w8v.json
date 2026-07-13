@@ -3,7 +3,7 @@
   "title": "Execute EPIC-SKELETON review and closeout in Pi runner",
   "description": "Final review blocker: a compliant epic always stops at review/closeout and missing skeletons are only reported. Add safe skeleton repair before implementation, dedicated read-only frontier final review, finding repair routing, epic outside-in verification, retro/closeout behavior, and autonomous checkpoint propagation while keeping tracker writes controller-owned.",
   "notes": "2026-07-13 13:11 - runner-state: runner=pi branch=tick/qfs/w8v worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/w8v base=1959f8299314cde1f96b201a7430f9d615219c07 model=openai-codex/gpt-5.6-sol:xhigh",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -15,6 +15,7 @@
   "acceptance_criteria": "Fixture and disposable-real tracker tests show missing skeleton roles repaired, review tick executed without ordinary write tools, blocker findings route repair, closeout verifies epic acceptance and closes only on success, and autonomous mode affects checkpoint selection but never bypasses other gates.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-13T09:56:45.749385Z",
-  "updated_at": "2026-07-13T11:11:16.811975Z",
-  "started_at": "2026-07-13T11:11:16.786832Z"
+  "updated_at": "2026-07-13T11:40:52.563034Z",
+  "closed_at": "2026-07-13T11:40:52.563034Z",
+  "closed_reason": "Completed: runner now repairs missing EPIC-SKELETON roles, executes dedicated read-only frontier review with validated finding repair routing, performs evidence-backed closeout/retro and epic closure, and honors autonomous checkpoint selection without bypassing other gates."
 }
