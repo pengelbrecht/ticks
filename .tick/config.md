@@ -2,9 +2,11 @@
 
 ## Testing
 
-- Go: `go test -short -count=1 ./...` (known baseline failure: `internal/worktree` — environmental git-identity issue in test temp repos; passes in CI. Do not chase locally.)
-- UI: `cd internal/tickboard/ui && pnpm install --frozen-lockfile && pnpm exec tsc --noEmit && pnpm test` (full suite has pre-existing baseline failures — implementers run targeted `pnpm exec vitest run <files>` and must not add new failures; tsc must stay clean.)
-- Worker: `cd cloud/worker && pnpm install --frozen-lockfile && pnpm exec tsc --noEmit` (full `pnpm test` has a known workerd boot crash — verify worker changes with targeted `npx vitest run test/<file>.test.ts`.)
+- Pi runner: `node --test --no-warnings extensions/ticks-runner/*.test.ts`
+- Go: `go test -short -count=1 ./...`
+- Go note: internal/worktree can fail locally when temporary repositories lack git identity; it passes in CI. Do not chase that environmental baseline.
+- UI hint: when UI source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; the full suite has pre-existing failures.
+- Worker hint: when worker source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; full pnpm test has a known workerd boot crash.
 
 ## Pi Orchestrator
 

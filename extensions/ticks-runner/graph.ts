@@ -202,7 +202,7 @@ export function formatDryPlan(plan: RunDryPlan): string {
 	lines.push(`Stats: ${plan.stats?.total_tasks ?? 0} tasks, ${plan.stats?.wave_count ?? 0} waves, graph max ${plan.stats?.max_parallel ?? 0}, cap ${plan.maxParallel}`);
 	if (plan.needsPlanning) lines.push("⚠️ Epic needs planning before it can run.");
 	if (plan.missingProcessTicks.length > 0) lines.push(`⚠️ Missing process ticks: ${plan.missingProcessTicks.join(", ")}`);
-	for (const warning of plan.config.warnings) lines.push(`⚠️ Model configuration: ${warning}`);
+	for (const warning of plan.config.warnings) lines.push(`⚠️ Configuration: ${warning}`);
 	if (plan.config.environmentChecks.length > 0) lines.push(`Environment checks: ${plan.config.environmentChecks.join("; ")}`);
 	if (plan.config.testingLines.length > 0) lines.push(`Testing hints: ${plan.config.testingLines.join("; ")}`);
 	lines.push(`Preflight: ${plan.preflight.canLaunch ? "ready" : "blocked"}; ${plan.preflight.environmentChecks.length} environment check(s) not run during dry-run.`);

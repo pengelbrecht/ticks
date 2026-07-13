@@ -114,8 +114,8 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 	const testingLines = parseCommandLines(extractSection(markdown, "Testing"));
 	const environment = parseExecutableCommands(environmentChecks);
 	const testing = parseExecutableCommands(testingLines);
-	for (const line of environment.ignored) warnings.push(`Environment line is not executable inline-code and will not run: ${JSON.stringify(line)}`);
-	for (const line of testing.ignored) warnings.push(`Testing line is not executable inline-code and will not run: ${JSON.stringify(line)}`);
+	for (const line of environment.ignored.filter((item) => item.includes("`"))) warnings.push(`Environment line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
+	for (const line of testing.ignored.filter((item) => item.includes("`"))) warnings.push(`Testing line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
 	return {
 		models,
 		maxParallel,
