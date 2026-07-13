@@ -30,7 +30,12 @@ if (failMatch && (failMatch === command || failMatch === operationKey)) {
 }
 
 if (command === "list") {
-	console.log(JSON.stringify({ ticks: state.epic ? [state.epic] : [] }));
+	let found = [...(state.epic ? [state.epic] : []), ...state.tasks];
+	const type = option("--type");
+	const parent = option("--parent");
+	if (type) found = found.filter((item) => item.type === type);
+	if (parent) found = found.filter((item) => item.parent === parent);
+	console.log(JSON.stringify({ ticks: found }));
 } else if (command === "show") {
 	const found = entity(argv[0]);
 	if (!found) process.exitCode = 2;
@@ -59,6 +64,7 @@ if (command === "list") {
 		status: "open",
 		blocked_by: values("--blocked-by"),
 		after: [],
+		labels: (option("--labels") ?? "").split(",").filter(Boolean),
 		notes: [],
 	};
 	if (type === "epic") state.epic = item;
@@ -69,8 +75,17 @@ if (command === "list") {
 		if (!item.role) delete item.role;
 		state.tasks.push(item);
 	}
-	log({ id, title, type, role: item.role, blocked_by: item.blocked_by });
+	log({ id, title, type, role: item.role, blocked_by: item.blocked_by, labels: item.labels });
 	save();
+	const crashEntity = item.labels.find((label) => label.startsWith("ticks-plan-entity-"))?.slice("ticks-plan-entity-".length);
+	if (process.env.FAKE_TK_CRASH_AFTER_CREATE === crashEntity) {
+		const onceFile = process.env.FAKE_TK_CRASH_AFTER_CREATE_ONCE_FILE;
+		if (!onceFile || !fs.existsSync(onceFile)) {
+			if (onceFile) fs.writeFileSync(onceFile, `${id}\n`);
+			console.error(`simulated controller-loss window after durable create: ${crashEntity}`);
+			process.exit(86);
+		}
+	}
 	console.log(JSON.stringify(item));
 } else if (command === "note") {
 	const found = entity(argv[0]);
@@ -93,7 +108,9 @@ if (command === "list") {
 	if (!found) process.exitCode = 2;
 	else {
 		if (option("--after") !== undefined) found.after = option("--after").split(",").filter(Boolean);
-		log({ id: found.id, after: found.after });
+		if (option("--base-branch") !== undefined) found.base_branch = option("--base-branch");
+		if (option("--role") !== undefined) found.role = option("--role");
+		log({ id: found.id, after: found.after, base_branch: found.base_branch, role: found.role });
 		save();
 	}
 } else {

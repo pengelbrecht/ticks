@@ -369,7 +369,8 @@ function exactAbsolute(value: unknown): value is string {
 	return typeof value === "string" && path.isAbsolute(value) && path.resolve(value) === value;
 }
 
-function hasSymlinkBelow(root: string, target: string): boolean {
+/** Return true when target escapes root or any existing root/descendant component is a symlink. */
+export function hasSymlinkBelow(root: string, target: string): boolean {
 	const base = path.resolve(root);
 	const resolved = path.resolve(target);
 	const relative = path.relative(base, resolved);
