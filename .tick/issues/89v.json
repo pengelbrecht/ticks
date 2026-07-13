@@ -2,7 +2,8 @@
   "id": "89v",
   "title": "Implement /ticks-status recovery and resume flows",
   "description": "Implement recovery UX and mechanics for interrupted Pi orchestrator runs. /ticks-status should reconstruct active/recoverable state from tk, branches, worktrees, runner-state notes, and artifacts. /ticks-run should resume existing recoverable work rather than creating duplicate branches. Surface stale leases, orphaned worktrees, partial reports, failed verifications, and awaiting gates.",
-  "status": "open",
+  "notes": "2026-07-13 11:12 - runner-state: runner=pi branch=tick/qfs/89v worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/89v base=a9e9de8e16b2f2457d8df825e622b6cb6cc7aad6 model=openai-codex/gpt-5.6-sol:high",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -15,5 +16,6 @@
   "acceptance_criteria": "/ticks-status lists active runs, stale/orphaned worktrees, in-progress ticks, awaiting gates, and last decisions. Resume continues an existing tick branch/worktree when useful work exists and never creates a second branch for the same recoverable tick. Tests cover reconstruction from artifacts + git state.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-09T11:15:55.561763Z",
-  "updated_at": "2026-07-09T11:15:55.561763Z"
+  "updated_at": "2026-07-13T09:12:18.716845Z",
+  "started_at": "2026-07-13T09:12:18.68918Z"
 }
