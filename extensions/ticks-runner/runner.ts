@@ -28,7 +28,17 @@ import {
 	scanRecovery,
 	type RecoverySnapshot,
 } from "./recovery.ts";
-import { createRunManifest, writeRunManifest, type RunManifest, type TickRunPaths } from "./state.ts";
+import {
+	acquireControllerLease,
+	createRunManifest,
+	planRunPaths,
+	releaseControllerLease,
+	startControllerHeartbeat,
+	writeRunManifest,
+	type ControllerLeaseHandle,
+	type RunManifest,
+	type TickRunPaths,
+} from "./state.ts";
 import {
 	createPiInvocation,
 	superviseChild,
@@ -245,6 +255,10 @@ export type RunEpicOptions = {
 	onDashboard?: (model: DashboardModel) => void;
 	onEvent?: (event: RunnerEvent) => void;
 	invocationForTask?: (input: { task: GraphTask; work: WorkPlan; prompt: string; model: ModelInvocation }) => ChildInvocation;
+	/** Primarily useful to make ownership timing deterministic in tests. */
+	leaseDurationMs?: number;
+	leaseHeartbeatMs?: number;
+	recoveryStaleAfterMs?: number;
 };
 
 type TickDetail = { id: string; title: string; description: string; acceptance: string };
@@ -389,7 +403,18 @@ export function formatRunResult(result: EpicRunResult): string {
 	return lines.join("\n");
 }
 
+type RunOwnership = { handle?: ControllerLeaseHandle };
+
 export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
+	const ownership: RunOwnership = {};
+	try {
+		return await runEpicImplementation(options, ownership);
+	} finally {
+		if (ownership.handle) releaseControllerLease(ownership.handle);
+	}
+}
+
+async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwnership): Promise<EpicRunResult> {
 	const root = repositoryRoot(options.cwd);
 	const env = { ...process.env, ...options.env, TK_ACTOR: ORCHESTRATOR_ACTOR };
 	const events: RunnerEvent[] = [];
@@ -405,6 +430,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 	let currentWave: number | undefined;
 	let recovery: RecoverySnapshot | undefined;
 	let lastManifestTouch = 0;
+	const ownershipFailure = () => ownership.handle?.lost?.message;
 	const event = (type: string, detail: string, tickId?: string) => {
 		const item = { at: new Date().toISOString(), type, detail, tickId };
 		events.push(item);
@@ -441,7 +467,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 		options.onDashboard?.(latestDashboard);
 	};
 	const finish = (status: EpicRunStatus, summary: string, plan?: RunDryPlan): EpicRunResult => {
-		if (options.execute && manifest && manifestPath) updateManifest(manifestPath, manifest, status === "completed" ? "completed" : status === "awaiting" || status === "blocked" ? "awaiting" : status === "cancelled" || status === "failed" ? "failed" : "planned");
+		if (options.execute && manifest && manifestPath && !ownershipFailure()) updateManifest(manifestPath, manifest, status === "completed" ? "completed" : status === "awaiting" || status === "blocked" ? "awaiting" : status === "cancelled" || status === "failed" ? "failed" : "planned");
 		dashboard(status);
 		return { status, epicId: options.epicId, summary, wavesCompleted, outcomes, events, plan, dashboard: latestDashboard, manifest: manifestPath };
 	};
@@ -473,10 +499,24 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 
 	// Recovery is a read-only reconciliation pass. Tracker changes happen only below,
 	// during explicit execution, after controller and Environment preflight succeed.
-	recovery = scanRecovery({ repoRoot: root, repoIdentity: identity, stateRoot, epicId: options.epicId, tkExecutable: tk, env });
-	const initialRecovery = recoveryDisposition(recovery, options.epicId);
+	const scan = (controllerToken?: string) => scanRecovery({ repoRoot: root, repoIdentity: identity, stateRoot, epicId: options.epicId, tkExecutable: tk, env, staleAfterMs: options.recoveryStaleAfterMs, controllerToken });
+	recovery = scan();
+	let initialRecovery = recoveryDisposition(recovery, options.epicId);
 	if (options.execute && initialRecovery.status === "conflict") return finish("blocked", `Recovery conflict; refusing to guess or create duplicate state:\n${initialRecovery.conflicts.join("\n")}`);
 	if (options.execute && initialRecovery.status === "active") return finish("blocked", `A fresh active run or in-progress lease already claims ${identity}/${options.epicId}. Use /ticks-status ${options.epicId}; no second child was launched.`);
+	if (options.execute) {
+		try {
+			const leasePlan = planRunPaths({ repoRoot: root, repoIdentity: identity, epicId: options.epicId, tickIds: [], stateRoot });
+			ownership.handle = acquireControllerLease(leasePlan, { durationMs: options.leaseDurationMs });
+			startControllerHeartbeat(ownership.handle, { durationMs: options.leaseDurationMs, intervalMs: options.leaseHeartbeatMs });
+			event("ownership", `Acquired durable controller lease until ${ownership.handle.lease.expiresAt}`);
+		} catch (error) {
+			return finish("blocked", `Cannot acquire durable controller ownership: ${error instanceof Error ? error.message : String(error)}. No tracker state or child was changed.`);
+		}
+		recovery = scan(ownership.handle.lease.controllerToken);
+		initialRecovery = recoveryDisposition(recovery, options.epicId);
+		if (initialRecovery.status === "conflict") return finish("blocked", `Recovery conflict after ownership acquisition; refusing to guess:\n${initialRecovery.conflicts.join("\n")}`);
+	}
 	if (initialRecovery.manifest) {
 		manifest = initialRecovery.manifest;
 		manifestPath = initialRecovery.manifestPath;
@@ -486,11 +526,12 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 		trackerCommit(root, `Recover ${options.epicId}: reopen stale in-progress ticks`);
 		integration!.commit = git(root, ["rev-parse", "HEAD"]);
 		event("recovery", `Reopened stale tracker leases for in-place resume: ${initialRecovery.staleInProgressTickIds.join(", ")}`);
-		recovery = scanRecovery({ repoRoot: root, repoIdentity: identity, stateRoot, epicId: options.epicId, tkExecutable: tk, env });
+		recovery = scan(ownership.handle?.lease.controllerToken);
 	}
 
 	for (;;) {
 		if (options.signal?.aborted) return finish("cancelled", "Run cancelled; cancellation was propagated to running children.");
+		if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost: ${ownershipFailure()}. No further tracker or git mutation was attempted.`);
 		let graph: GraphResult;
 		try { graph = parseGraph(tracker(tk, ["graph", options.epicId, "--json"], root, env)); } catch (error) { return finish("failed", error instanceof Error ? error.message : String(error)); }
 		activeGraph = graph;
@@ -602,6 +643,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 			}
 		});
 
+		if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost while children ran: ${ownershipFailure()}. Child worktrees were preserved and no integration was attempted.`);
 		const waveOutcomes: AgentOutcome[] = [];
 		for (const execution of executions) {
 			let outcome: AgentOutcome;
@@ -616,6 +658,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 				const evidence = await runConfiguredCommands(config.testCommands, execution.work.worktree, env, options.signal);
 				atomicText(item.artifact!, evidenceMarkdown(`Verifier: ${execution.task.id}`, evidence));
 				const failed = evidence.find((check) => check.status !== "passed");
+				if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost during verification: ${ownershipFailure()}. No integration was attempted.`);
 				item.status = failed ? "failed" : "passed";
 				item.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : config.testCommands.length ? `${evidence.length} command(s) passed` : "No executable test commands configured";
 				if (failed) outcome = { tickId: execution.task.id, kind: failed.status === "cancelled" ? "cancelled" : "verifier-failure", detail: item.detail, closeAllowed: false, report: execution.report, artifacts: [item.artifact!] };
@@ -625,6 +668,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 		}
 
 		for (let index = 0; index < executions.length; index++) {
+			if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost before integration: ${ownershipFailure()}. Remaining worktrees were preserved.`);
 			const execution = executions[index];
 			let outcome = waveOutcomes[index];
 			if (!outcome.closeAllowed) {
@@ -681,6 +725,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 			const evidence = await runConfiguredCommands(config.testCommands, root, env, options.signal);
 			atomicText(artifact, evidenceMarkdown(`Post-wave ${waveNumber} test gate`, evidence));
 			const failed = evidence.find((check) => check.status !== "passed");
+			if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost during post-wave verification: ${ownershipFailure()}. Dependents were not launched.`);
 			gate.status = failed ? "failed" : "passed";
 			gate.detail = failed ? `${failed.command}: ${failed.stderr || failed.stdout || `exit ${failed.exitCode}`}` : config.testCommands.length ? `${evidence.length} command(s) passed after merges` : "No executable test commands configured";
 			if (failed) {

@@ -4,13 +4,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import {
+	acquireControllerLease,
 	createRunId,
 	createRunManifest,
 	discoverRuns,
 	discoverStaleArtifacts,
 	durableSegment,
+	heartbeatControllerLease,
+	isRunManifest,
 	normalizeRepoIdentity,
 	planRunPaths,
+	readControllerLease,
+	releaseControllerLease,
 	repoSlug,
 	writeRunManifest,
 } from "./state.ts";
@@ -65,6 +70,22 @@ test("run IDs and worktree, branch, and artifact paths are deterministic", () =>
 	assert.notEqual(first.ticks[0].worktree, otherRepo.ticks[0].worktree);
 });
 
+test("manifest validation checks every deterministic tick path, not only shallow fields", () => {
+	const stateRoot = temporaryDirectory();
+	const plan = planRunPaths({ repoRoot: "/checkout/widgets", repoIdentity: remote, epicId: "qfs", tickIds: ["t1"], stateRoot });
+	const valid = createRunManifest(plan);
+	assert.equal(isRunManifest(valid, { manifestPath: plan.manifest, stateRoot, repoRoot: plan.repoRoot, repoIdentity: remote, epicId: "qfs" }), true);
+	for (const mutate of [
+		(manifest: typeof valid) => { manifest.ticks[0].prompt = "/tmp/prompt.md"; },
+		(manifest: typeof valid) => { manifest.ticks[0].report = path.join(manifest.ticks[0].artifactDir, "..", "report.md"); },
+		(manifest: typeof valid) => { manifest.ticks[0].branch = "tick/qfs/other"; },
+	]) {
+		const malicious = structuredClone(valid);
+		mutate(malicious);
+		assert.equal(isRunManifest(malicious, { manifestPath: plan.manifest, stateRoot, repoRoot: plan.repoRoot, repoIdentity: remote, epicId: "qfs" }), false);
+	}
+});
+
 test("duplicate tick IDs cannot alias the same durable paths", () => {
 	assert.throws(() => planRunPaths({
 		repoRoot: "/checkout/widgets",
@@ -110,6 +131,38 @@ test("malformed manifests are surfaced as stale recovery artifacts", () => {
 	const [run] = discoverStaleArtifacts(stateRoot);
 	assert.equal(run.reason, "invalid-manifest");
 	assert.equal(run.manifest, undefined);
+});
+
+test("controller leases block fresh owners, heartbeat independently, expire, and release compare-and-delete safely", () => {
+	const stateRoot = temporaryDirectory();
+	const plan = planRunPaths({ repoRoot: "/checkout/widgets", repoIdentity: remote, epicId: "lease", tickIds: [], stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "running", new Date(0)));
+	const first = acquireControllerLease(plan, { now: 1_000, durationMs: 500, controllerToken: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" });
+	assert.equal(discoverRuns(stateRoot, { now: 1_200, staleAfterMs: 50 })[0].stale, false, "fresh ownership overrides an old manifest timestamp");
+	assert.throws(() => acquireControllerLease(plan, { now: 1_200, durationMs: 500 }), /Fresh controller lease/);
+	heartbeatControllerLease(first, 500, 1_300);
+	assert.equal(readControllerLease(first.path, plan)?.expiresAt, new Date(1_800).toISOString());
+	assert.throws(() => acquireControllerLease(plan, { now: 1_700, durationMs: 500 }), /Fresh controller lease/);
+
+	const successor = acquireControllerLease(plan, { now: 1_900, durationMs: 500, controllerToken: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb" });
+	releaseControllerLease(first);
+	assert.equal(readControllerLease(successor.path, plan)?.controllerToken, successor.lease.controllerToken, "stale owner cannot unlink its successor");
+	releaseControllerLease(successor);
+	assert.equal(fs.existsSync(successor.path), false);
+});
+
+test("discovery is bounded and malformed entries do not abort the scan", () => {
+	const stateRoot = temporaryDirectory();
+	for (let index = 0; index < 6; index++) {
+		const runDir = path.join(stateRoot, `repo-${index}`, "runs", `run-${index}`);
+		fs.mkdirSync(path.join(runDir, "artifacts"), { recursive: true });
+		fs.writeFileSync(path.join(runDir, "run.json"), index % 2 ? "{" : "null");
+		for (let artifact = 0; artifact < 5; artifact++) fs.writeFileSync(path.join(runDir, "artifacts", `${artifact}.txt`), "x");
+	}
+	const runs = discoverRuns(stateRoot, { manifestLimit: 3, artifactFileLimit: 4, entryLimit: 100 });
+	assert.equal(runs.length, 3);
+	assert.ok(runs.every((run) => run.reason === "invalid-manifest"));
+	assert.ok(runs.flatMap((run) => run.artifacts).length <= 4);
 });
 
 test("durable manifests contain no Pi process or session authority", () => {
