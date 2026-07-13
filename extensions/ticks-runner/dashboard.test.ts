@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import test from "node:test";
 import {
 	buildDashboardModel,
 	dashboardVisibleWidth,
 	compactDashboardSummary,
 	DashboardComponent,
+	DashboardStore,
+	readDashboardHistory,
 	renderDashboard,
 	renderDashboardText,
 	type DashboardInput,
+	writeDashboardHistory,
 } from "./dashboard.ts";
 
 const fixturePath = new URL("./fixtures/dashboard-demo.json", import.meta.url);
@@ -87,17 +92,71 @@ test("recovery panel renders durable decisions and bounded artifact paths", () =
 	assert.match(text, /artifact: \/runs\/epic\/artifacts\/t1\/verifier\.md/);
 });
 
-test("interactive component navigates, expands, and closes with all supported keys", () => {
+test("mutable store replacement notifies an open overlay and render reads the latest model", () => {
+	const store = new DashboardStore(model);
+	let renders = 0;
+	const unsubscribe = store.subscribe(() => renders++);
+	store.replace(buildDashboardModel({ epicId: "live", status: "running", agents: [{ tickId: "new", currentAction: "fresh snapshot" }] }));
+	const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as any;
+	const component = new DashboardComponent({ store, theme, requestRender: () => renders++, close: () => {} });
+	assert.match(component.render(80).join("\n"), /fresh snapshot/);
+	assert.equal(renders, 1);
+	unsubscribe();
+	store.replace(model);
+	assert.equal(renders, 1);
+});
+
+test("interactive component navigates, expands, cancels, and requires gate detail before action", async () => {
 	let renders = 0;
 	let closes = 0;
+	let cancels = 0;
+	const gateActions: string[] = [];
+	const store = new DashboardStore(model);
 	const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as any;
-	const component = new DashboardComponent({ model, theme, requestRender: () => renders++, close: () => closes++ });
+	const component = new DashboardComponent({
+		store,
+		theme,
+		requestRender: () => renders++,
+		close: () => closes++,
+		controller: {
+			cancel: async () => { cancels++; return { ok: true, message: "cancelled" }; },
+			gate: async (action, gate) => { gateActions.push(`${action}:${gate.tickId}`); return { ok: true, message: "acted" }; },
+		},
+	});
 	component.handleInput("\x1b[B");
 	component.handleInput("\r");
 	assert.match(component.render(70).join("\n"), /error: \.tick boundary violation/);
-	assert.equal(renders, 2);
+	component.handleInput("\x1b[B");
+	component.handleInput("a");
+	assert.deepEqual(gateActions, [], "first action only opens gate detail");
+	assert.match(component.render(90).join("\n"), /Press a again to approve/);
+	component.handleInput("a");
+	await new Promise((resolve) => setImmediate(resolve));
+	component.handleInput("c");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(gateActions, ["approve:approve"]);
+	assert.equal(cancels, 1);
+	assert.ok(renders >= 7);
 	component.handleInput("q");
 	component.handleInput("\x1b");
 	component.handleInput("\x03");
 	assert.equal(closes, 3);
+});
+
+test("dashboard history is bounded and restores terminal lanes and usage", () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ticks-dashboard-history-"));
+	let file = "";
+	for (let index = 0; index < 40; index++) file = writeDashboardHistory(root, buildDashboardModel({
+		epicId: "historic",
+		status: index === 39 ? "failed" : "running",
+		agents: [{ tickId: "agent", status: index === 39 ? "failed" : "running", recentOutput: ["x".repeat(4_000)], usage: { inputTokens: index, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, reasoningTokens: 5, contextTokens: 6, cost: 0.25 } }],
+		verification: [{ label: "verifier", status: "failed" }],
+		merges: [{ tickId: "agent", branch: "tick/historic/agent", status: "failed" }],
+	}));
+	const restored = readDashboardHistory(file);
+	assert.equal(restored?.history.length, 16);
+	assert.equal(restored?.latest.agents[0].recentOutput[0].length, 512);
+	assert.equal(restored?.latest.verification[0].status, "failed");
+	assert.equal(restored?.latest.merges[0].status, "failed");
+	assert.equal(restored?.latest.usage.cost, 0.25);
 });

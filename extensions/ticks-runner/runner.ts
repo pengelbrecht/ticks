@@ -14,6 +14,7 @@ import {
 import { loadRunnerConfig, type ConfiguredCommand, type RunnerConfig } from "./config.ts";
 import {
 	buildDashboardModel,
+	writeDashboardHistory,
 	type DashboardAgentInput,
 	type DashboardModel,
 	type MergeItem,
@@ -499,6 +500,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	let currentWave: number | undefined;
 	let recovery: RecoverySnapshot | undefined;
 	let lastManifestTouch = 0;
+	let dashboardRunDir: string | undefined;
+	let lastDashboardPersist = 0;
 	const ownershipFailure = () => ownership.handle?.lost?.message;
 	const event = (type: string, detail: string, tickId?: string) => {
 		const item = { at: new Date().toISOString(), type, detail, tickId };
@@ -533,6 +536,17 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				.filter((task) => task.awaiting)
 				.map((task) => ({ tickId: task.id, title: task.title ?? "(untitled)", type: task.awaiting!, status: "awaiting" as const }))),
 		});
+		const shouldPersistDashboard = status !== "running" || Date.now() - lastDashboardPersist >= 250;
+		if (options.execute && dashboardRunDir && shouldPersistDashboard) {
+			try {
+				writeDashboardHistory(dashboardRunDir, latestDashboard);
+				lastDashboardPersist = Date.now();
+			} catch (error) {
+				// Dashboard persistence is observability, never authority for tracker/git transitions.
+				const detail = error instanceof Error ? error.message : String(error);
+				if (!events.some((item) => item.type === "dashboard-history-error" && item.detail === detail)) events.push({ at: new Date().toISOString(), type: "dashboard-history-error", detail });
+			}
+		}
 		options.onDashboard?.(latestDashboard);
 	};
 	const finish = (status: EpicRunStatus, summary: string, plan?: RunDryPlan): EpicRunResult => {
@@ -642,6 +656,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		try { graph = parseGraph(tracker(tk, ["graph", options.epicId, "--json"], root, env)); } catch (error) { return finish("failed", error instanceof Error ? error.message : String(error)); }
 		activeGraph = graph;
 		const plan = buildRunPlan({ graph, config, repoRoot: root, repoIdentity: identity, epicId: options.epicId, stateRoot, worktrees: true });
+		dashboardRunDir = plan.durablePaths.runDir;
 		const reconciled = reconcileRun(recovery, plan.durablePaths);
 		if (reconciled.status === "conflict") return finish("blocked", `Recovery conflict; refusing to guess or create duplicate state:\n${reconciled.conflicts.join("\n")}`, plan);
 		if (reconciled.status !== "active") {

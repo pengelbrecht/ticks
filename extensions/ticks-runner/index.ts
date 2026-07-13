@@ -2,14 +2,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Markdown } from "@earendil-works/pi-tui";
+import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { loadRunnerConfig } from "./config.ts";
 import {
 	buildDashboardModel,
+	boundedDashboardModel,
 	compactDashboardSummary,
 	DashboardComponent,
+	DashboardStore,
 	dashboardModelFromPlan,
+	isDashboardModel,
 	renderDashboardText,
+	type DashboardController,
 	type DashboardInput,
 	type DashboardModel,
 } from "./dashboard.ts";
@@ -20,8 +24,10 @@ import {
 	scanRecovery,
 	type RecoverySnapshot,
 } from "./recovery.ts";
-import { formatRunResult, runEpic } from "./runner.ts";
-import { dashboardStatus, isActiveStatus, normalizeStatus } from "./status.ts";
+import { formatRunResult, ORCHESTRATOR_ACTOR, runEpic } from "./runner.ts";
+import { statusDashboardModel } from "./historical.ts";
+import { emitCommandOutput } from "./output.ts";
+import { createDashboardController, type LiveControlState } from "./control.ts";
 
 type Json = Record<string, unknown>;
 
@@ -69,9 +75,9 @@ function optionValue(tokens: string[], flag: string): string | undefined {
 	return index >= 0 ? tokens[index + 1] : undefined;
 }
 
-async function run(command: string, args: string[], cwd: string, timeoutMs = 15_000): Promise<{ code: number; stdout: string; stderr: string }> {
+async function run(command: string, args: string[], cwd: string, timeoutMs = 15_000, env: NodeJS.ProcessEnv = process.env): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve) => {
-		const proc = spawnProcessTree(command, args, { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+		const proc = spawnProcessTree(command, args, { cwd, env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
@@ -144,11 +150,7 @@ export async function collectStatus(cwd: string, epicId?: string): Promise<Recov
 }
 
 function emit(pi: ExtensionAPI, ctx: ExtensionCommandContext, title: string, markdown: string, details?: Json): void {
-	if (ctx.hasUI) ctx.ui.notify(title, "info");
-	if (ctx.mode === "rpc") {
-		ctx.ui.setWidget("ticks-runner-output", markdown.split("\n").slice(0, 80));
-	}
-	pi.sendMessage({ customType: "ticks-runner", content: markdown, display: true, details }, { deliverAs: "nextTurn" });
+	emitCommandOutput(pi, ctx, { title, markdown, details });
 }
 
 function updateCompactStatus(ctx: ExtensionCommandContext, model: DashboardModel): void {
@@ -157,62 +159,45 @@ function updateCompactStatus(ctx: ExtensionCommandContext, model: DashboardModel
 	ctx.ui.setWidget("ticks-runner", summary.widget.map((line) => ctx.ui.theme.fg("dim", line)));
 }
 
-async function showDashboard(ctx: ExtensionCommandContext, model: DashboardModel): Promise<void> {
-	if (ctx.mode !== "tui") return;
-	await ctx.ui.custom((tui, theme, _kb, done) => new DashboardComponent({
-		model,
-		theme,
-		requestRender: () => tui.requestRender(),
-		close: () => done(undefined),
-	}), { overlay: true, overlayOptions: { width: "92%", minWidth: 30, maxHeight: "90%", anchor: "center", margin: 1 } });
+type OpenDashboard = { close: () => void; settled: Promise<void>; focus: () => void };
+
+function showDashboard(ctx: ExtensionCommandContext, store: DashboardStore, controller?: DashboardController): OpenDashboard | undefined {
+	if (ctx.mode !== "tui") return undefined;
+	let finish: (() => void) | undefined;
+	let unsubscribe: (() => void) | undefined;
+	let handle: { focus(): void } | undefined;
+	let closed = false;
+	const settled = ctx.ui.custom((tui, theme, _kb, done) => {
+		finish = () => {
+			if (closed) return;
+			closed = true;
+			done(undefined);
+		};
+		const component = new DashboardComponent({ store, controller, theme, requestRender: () => tui.requestRender(), close: finish });
+		unsubscribe = store.subscribe(() => {
+			component.invalidate();
+			tui.requestRender();
+		});
+		return component;
+	}, {
+		overlay: true,
+		overlayOptions: { width: "92%", minWidth: 30, maxHeight: "90%", anchor: "center", margin: 1 },
+		onHandle: (overlayHandle) => { handle = overlayHandle; },
+	}).then(() => undefined).finally(() => {
+		closed = true;
+		unsubscribe?.();
+	});
+	return {
+		close: () => finish?.(),
+		settled,
+		focus: () => handle?.focus(),
+	};
 }
 
 function demoDashboardModel(): DashboardModel {
 	const fixture = new URL("./fixtures/dashboard-demo.json", import.meta.url);
 	const input = JSON.parse(fs.readFileSync(fixture, "utf8")) as DashboardInput;
 	return buildDashboardModel(input);
-}
-
-function statusDashboardModel(snapshot: RecoverySnapshot): DashboardModel {
-	const manifestStatuses = snapshot.manifests.map((item) => normalizeStatus(item.manifest?.status));
-	const active = snapshot.items.some((item) => item.kind === "active-run" || item.kind === "in-progress")
-		|| snapshot.ticks.some((tick) => isActiveStatus(tick.tracker?.status));
-	const status = active ? "running"
-		: snapshot.items.some((item) => item.kind === "awaiting-gate") || manifestStatuses.includes("awaiting") ? "awaiting"
-		: snapshot.items.some((item) => item.kind === "failed-run" || item.kind === "failed-verification") || manifestStatuses.includes("failed") ? "failed"
-		: manifestStatuses.includes("completed") ? "completed"
-		: snapshot.items.length ? "recoverable" : "idle";
-	return buildDashboardModel({
-		runId: snapshot.manifests[0]?.manifest?.runId ?? "repository-status",
-		epicId: snapshot.epicId ?? snapshot.manifests[0]?.manifest?.epicId ?? "repository",
-		epicTitle: snapshot.epicId ?? path.basename(snapshot.repoRoot),
-		status,
-		agents: snapshot.ticks.filter((tick) => {
-			const normalized = normalizeStatus(tick.tracker?.status);
-			return normalized === "active" || normalized === "awaiting" || normalized === "failed" || normalized === "completed" || Boolean(tick.tracker?.awaiting) || tick.branches.length > 0 || tick.worktrees.length > 0;
-		}).map((tick) => ({
-			tickId: tick.tickId,
-			title: tick.tracker?.title,
-			branch: tick.branches[0],
-			worktree: tick.worktrees[0]?.path,
-			status: tick.tracker?.awaiting ? "awaiting" : dashboardStatus(tick.tracker?.status ?? "recoverable"),
-		})),
-		recovery: snapshot.items.map((item) => ({
-			kind: item.kind,
-			label: item.label,
-			detail: item.detail,
-			action: item.action,
-			artifacts: item.artifactPaths,
-			lastDecision: item.lastDecision,
-		})),
-		humanGates: snapshot.ticks.filter((tick) => tick.tracker?.awaiting).map((tick) => ({
-			tickId: tick.tickId,
-			title: tick.tracker?.title ?? "(untitled)",
-			type: tick.tracker!.awaiting!,
-			status: "awaiting" as const,
-			detail: tick.lastDecision,
-		})),
-	});
 }
 
 async function dashboardModelForTarget(cwd: string, target: string): Promise<DashboardModel> {
@@ -249,22 +234,66 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 	}
 }
 
+function controllerFor(ctx: ExtensionCommandContext, store: DashboardStore, control: LiveControlState): DashboardController {
+	return createDashboardController(ctx.ui, store, control, {
+		actor: ORCHESTRATOR_ACTOR,
+		execute: async (args) => run("tk", args, await repoRoot(ctx.cwd), 15_000, { ...process.env, TK_ACTOR: ORCHESTRATOR_ACTOR }),
+		refresh: async () => {
+			const refreshed = await dashboardModelForTarget(ctx.cwd, control.epicId);
+			store.replace(refreshed);
+			updateCompactStatus(ctx, refreshed);
+		},
+	});
+}
+
 export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 	const activeRuns = new RunSettlementTracker();
-	pi.registerMessageRenderer("ticks-runner", (message, _options, _theme) => {
-		return new Markdown(String(message.content ?? ""), 0, 0, getMarkdownTheme());
+	const store = new DashboardStore(buildDashboardModel({ epicId: "repository", epicTitle: "Ticks", status: "idle" }));
+	let overlay: OpenDashboard | undefined;
+	let liveControl: LiveControlState | undefined;
+	pi.registerMessageRenderer("ticks-runner", (message, _options, _theme) => new Markdown(String(message.content ?? ""), 0, 0, getMarkdownTheme()));
+	pi.registerEntryRenderer("ticks-runner-output", (entry, _options, theme) => {
+		const output = entry.data as { title?: string; markdown?: string };
+		const container = new Container();
+		container.addChild(new Text(theme.fg("customMessageLabel", theme.bold(output.title ?? "Ticks")), 0, 0));
+		container.addChild(new Markdown(String(output.markdown ?? ""), 0, 0, getMarkdownTheme()));
+		return container;
 	});
 
 	pi.on("session_start", (_event, ctx) => {
 		activeRuns.open();
+		liveControl = undefined;
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type !== "custom" || entry.customType !== "ticks-runner-dashboard-state") continue;
+			const candidate = (entry.data as { model?: unknown } | undefined)?.model;
+			try { if (isDashboardModel(candidate)) store.replace(boundedDashboardModel(candidate)); } catch { /* Ignore malformed extension state. */ }
+		}
 		ctx.ui.setStatus("ticks-runner", ctx.ui.theme.fg("accent", "ticks ready"));
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		overlay?.close();
+		overlay = undefined;
+		liveControl = undefined;
 		await activeRuns.abortAndWait();
 		ctx.ui.setStatus("ticks-runner", undefined);
 		ctx.ui.setWidget("ticks-runner", undefined);
+		ctx.ui.setWidget("ticks-runner-output", undefined);
 	});
+
+	const openDashboard = (ctx: ExtensionCommandContext): OpenDashboard | undefined => {
+		if (overlay) {
+			overlay.focus();
+			return overlay;
+		}
+		const model = store.getSnapshot().model;
+		const control = liveControl ?? { epicId: model.epicId, runId: model.runId };
+		const opened = showDashboard(ctx, store, controllerFor(ctx, store, control));
+		if (!opened) return undefined;
+		overlay = opened;
+		void opened.settled.catch((error) => ctx.ui.notify(`Ticks dashboard closed with an error: ${error instanceof Error ? error.message : String(error)}`, "error")).finally(() => { if (overlay === opened) overlay = undefined; });
+		return opened;
+	};
 
 	pi.registerCommand("ticks-plan", {
 		description: "Show the Pi/Ticks planning workflow (automated planning is not yet implemented)",
@@ -294,19 +323,30 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 			{ value: "--worktrees", label: "--worktrees", description: "Use isolated per-tick worktrees (implicit for execution)" },
 			{ value: "--max-parallel", label: "--max-parallel", description: "Override the clean-run concurrency cap" },
 			{ value: "--autonomous", label: "--autonomous", description: "Allow checkpoint continuation where supported" },
+			{ value: "--compact", label: "--compact", description: "Do not auto-open the live TUI dashboard" },
+			{ value: "--no-dashboard", label: "--no-dashboard", description: "Alias for --compact" },
 		].filter((item) => item.value.startsWith(prefix)),
 		handler: async (args, ctx) => {
 			const tokens = shlex(args);
 			const optionArguments = new Set(["--max-parallel"]);
 			const epicId = tokens.find((token, index) => !token.startsWith("-") && !optionArguments.has(tokens[index - 1] ?? ""));
 			if (!epicId) {
-				emit(pi, ctx, "/ticks-run", "Usage: `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous]`\n\nDry-run is the default; execution requires `--execute`. Safe recovery is automatic; `--resume` is optional.", {});
+				emit(pi, ctx, "/ticks-run", "Usage: `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous] [--compact]`\n\nDry-run is the default; execution requires `--execute`. Safe recovery is automatic; `--resume` is optional.", {});
 				return;
 			}
 			const execute = hasFlag(tokens, "--execute");
+			if (execute && activeRuns.size > 0) {
+				emit(pi, ctx, "/ticks-run blocked", "# /ticks-run blocked\n\nAnother Ticks run is active in this Pi session. Use the live dashboard or cancel it before starting a second run.", {});
+				return;
+			}
 			const maxRaw = optionValue(tokens, "--max-parallel");
 			const maxParallel = hasFlag(tokens, "--max-parallel") ? maxRaw && /^\d+$/.test(maxRaw) ? Number(maxRaw) : 0 : undefined;
 			const controller = new AbortController();
+			liveControl = execute ? { epicId, runId: epicId, abort: controller } : undefined;
+			const starting = buildDashboardModel({ runId: epicId, epicId, epicTitle: epicId, status: execute ? "running" : "planned" });
+			store.replace(starting);
+			updateCompactStatus(ctx, starting);
+			const automaticOverlay = execute && ctx.mode === "tui" && !hasFlag(tokens, "--compact") && !hasFlag(tokens, "--no-dashboard") ? openDashboard(ctx) : undefined;
 			try {
 				const running = runEpic({
 					cwd: ctx.cwd,
@@ -317,15 +357,25 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 					autonomous: hasFlag(tokens, "--autonomous"),
 					resume: hasFlag(tokens, "--resume"),
 					signal: controller.signal,
-					onDashboard: (model) => updateCompactStatus(ctx, model),
+					onDashboard: (model) => {
+						if (liveControl) liveControl.runId = model.runId;
+						store.replace(model);
+						updateCompactStatus(ctx, model);
+					},
 				});
 				const result = await activeRuns.track(controller, running);
+				if (liveControl) liveControl.abort = undefined;
+				if (result.dashboard) store.replace(result.dashboard);
+				pi.appendEntry("ticks-runner-dashboard-state", { model: boundedDashboardModel(store.getSnapshot().model) });
 				const markdown = result.status === "dry-run" && result.plan
 					? `${formatDryPlan(result.plan)}\n\n${result.summary}`
 					: formatRunResult(result);
 				emit(pi, ctx, `/ticks-run ${result.status}`, markdown, result as unknown as Json);
 			} catch (error) {
+				if (liveControl) liveControl.abort = undefined;
 				emit(pi, ctx, "/ticks-run failed", `# /ticks-run failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
+			} finally {
+				automaticOverlay?.close();
 			}
 		},
 	});
@@ -337,6 +387,7 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 				const epicId = shlex(args).find((token) => !token.startsWith("-"));
 				const status = await collectStatus(ctx.cwd, epicId);
 				const model = statusDashboardModel(status);
+				store.replace(model);
 				updateCompactStatus(ctx, model);
 				emit(pi, ctx, "/ticks-status", formatRecoveryStatus(status), status as unknown as Json);
 			} catch (error) {
@@ -358,12 +409,16 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 			const epic = optionValue(tokens, "--epic") ?? positional;
 			try {
 				let model: DashboardModel;
+				const current = store.getSnapshot().model;
 				if (demo) model = demoDashboardModel();
+				else if (epic && (current.epicId === epic || current.runId === epic)) model = current;
 				else if (epic) model = await dashboardModelForTarget(ctx.cwd, epic);
+				else if (current.status !== "idle") model = current;
 				else model = statusDashboardModel(await collectStatus(ctx.cwd));
+				if (model !== current) store.replace(model);
 				updateCompactStatus(ctx, model);
 				if (dump || ctx.mode !== "tui") emit(pi, ctx, "/ticks-dashboard", renderDashboardText(model, width), model as unknown as Json);
-				else await showDashboard(ctx, model);
+				else openDashboard(ctx);
 			} catch (error) {
 				emit(pi, ctx, "/ticks-dashboard failed", `# /ticks-dashboard failed\n\n${error instanceof Error ? error.message : String(error)}`, {});
 			}

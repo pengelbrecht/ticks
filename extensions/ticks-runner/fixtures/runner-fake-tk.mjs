@@ -11,7 +11,9 @@ const save = () => fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)
 const log = (data) => fs.appendFileSync(logPath, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, id, args: rest, ...data })}\n`);
 const task = (tickId) => state.tasks.find((item) => item.id === tickId);
 
-if (command === "graph") {
+if (command === "list") {
+	console.log(JSON.stringify(state.tasks));
+} else if (command === "graph") {
 	const closed = new Set(state.tasks.filter((item) => item.status === "closed").map((item) => item.id));
 	const waveNumbers = [...new Set(state.tasks.map((item) => item.wave))].sort((a, b) => a - b);
 	let readyWave;
@@ -55,6 +57,25 @@ if (command === "graph") {
 	else {
 		(found.notes ??= []).push(rest[0] ?? "");
 		log({ note: rest[0] ?? "" });
+		save();
+	}
+} else if (command === "approve") {
+	const found = task(id);
+	if (!found || !found.awaiting) process.exitCode = 2;
+	else {
+		const awaiting = found.awaiting;
+		delete found.awaiting;
+		log({ action: "approved", awaiting });
+		save();
+	}
+} else if (command === "reject") {
+	const found = task(id);
+	if (!found || !found.awaiting || !(rest[0] ?? "").trim()) process.exitCode = 2;
+	else {
+		const awaiting = found.awaiting;
+		delete found.awaiting;
+		found.status = "open";
+		log({ action: "rejected", awaiting, feedback: rest[0] });
 		save();
 	}
 } else if (command === "close") {

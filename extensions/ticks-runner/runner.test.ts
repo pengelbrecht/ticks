@@ -255,6 +255,36 @@ test("fixture epic launches a wave in parallel, verifies after merges, closes du
 	assert.equal(command(fixture.repo, "git", "worktree", "list", "--porcelain").includes(fixture.stateRoot), false, "managed worktrees are removed after durable closes");
 	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/*"), "", "merged child branches are deleted after worktrees");
 	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "");
+	const dashboardHistory = path.join(path.dirname(result.manifest!), "dashboard-history.json");
+	assert.equal(fs.existsSync(dashboardHistory), true);
+	const persisted = JSON.parse(fs.readFileSync(dashboardHistory, "utf8"));
+	assert.equal(persisted.latest.usage.inputTokens, 2);
+	assert.ok(persisted.latest.verification.some((item: { label: string }) => item.label === "post-wave 1 tests"));
+	assert.equal(persisted.latest.merges.length, 2);
+});
+
+test("run cancellation propagates to a live child and publishes a cancelled dashboard", async () => {
+	const fixture = createFixture("cancel-live", [{ id: "slow" }]);
+	const controller = new AbortController();
+	const dashboards: string[] = [];
+	const running = runEpic({
+		cwd: fixture.repo,
+		epicId: "epic",
+		execute: true,
+		worktrees: true,
+		stateRoot: fixture.stateRoot,
+		tkExecutable: fakeTk,
+		env: fixture.env,
+		signal: controller.signal,
+		onDashboard: (model) => dashboards.push(model.status),
+		invocationForTask: ({ task }) => ({ command: process.execPath, args: [fakePi, task.id, "DONE", "5_000", "", fixture.marker] }),
+	});
+	for (let attempt = 0; attempt < 100 && (!fs.existsSync(fixture.marker) || !fs.readFileSync(fixture.marker, "utf8").includes("slow:start")); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+	controller.abort();
+	const result = await running;
+	assert.equal(result.status, "cancelled");
+	assert.equal(dashboards.at(-1), "cancelled");
+	assert.equal(readState(fixture.repo).tasks[0].status, "open");
 });
 
 test("a heartbeat keeps a silent child owned beyond the old stale threshold and blocks duplicate launch", async () => {

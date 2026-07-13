@@ -39,7 +39,7 @@ Lists the four primary commands.
 
 Shows the intended Ticks planning flow and echoes the target. It does not currently launch scouts, call a planner model, or mutate the tracker. Plan with the loaded ticks skill, then use `/ticks-run` after the epic has child ticks and its `review`/`closeout` process ticks.
 
-### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous]`
+### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous] [--compact]`
 
 **Dry-run is the default.** Without `--execute`, the command reads `.tick/config.md` and `tk graph <epic-id> --json`, reconstructs recovery state, and prints waves, the resolved concurrency cap, model selection, deterministic branch/worktree/artifact paths, and blocking preflight findings. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
 
@@ -60,7 +60,7 @@ Execution requires the explicit safety switch:
 /ticks-run qfs --execute --autonomous
 ```
 
-Execution always uses isolated worktrees, so `--worktrees` is implicit. `--resume` is an operator-visible hint; the same safe reconciliation runs on every execution. `--autonomous` records the requested checkpoint policy, but non-checkpoint human gates still block (see limitations).
+Execution always uses isolated worktrees, so `--worktrees` is implicit. `--resume` is an operator-visible hint; the same safe reconciliation runs on every execution. `--autonomous` records the requested checkpoint policy, but non-checkpoint human gates still block (see limitations). In TUI mode, execution opens a live control-tower overlay by default without delaying runner startup; `--compact` (or `--no-dashboard`) keeps only the compact status/widget.
 
 Before any mutation, execution requires:
 
@@ -84,7 +84,9 @@ In TUI mode, opens the control-tower overlay. In RPC/non-TUI mode it automatical
 - `--dump`: print the same transport-neutral model and renderer used by the overlay.
 - `--width N`: text width, default `120`, clamped to at least `24`.
 
-Dashboard sections include the wave timeline, child cards with the selected capability tier and routing reason plus model/usage/cost, verification lane, merge queue, recovery actions/artifacts, and human gates. Controls: `Up`/`Down` selects a child, `Enter` or `Space` toggles details, and `q`, `Esc`, or `Ctrl-C` closes the overlay. The runner also maintains a compact footer/widget while active.
+Dashboard sections include the wave timeline, child cards with the selected capability tier and routing reason plus model/usage/cost, verification lane, merge queue, recovery actions/artifacts, and human gates. The overlay reads a mutable session model, so child/tool/verifier/merge/cost updates render while it is open. Closing it does not cancel the run; `/ticks-dashboard` reopens the current model.
+
+Controls: `Up`/`Down` navigates agents and gates, `Enter` or `Space` toggles details, `c` confirms cancellation of an active run, and `q`, `Esc`, or `Ctrl-C` closes the overlay. Gate actions are deliberately detail-first: the first `a` or `x` on a selected gate opens its detail; only a second matching action prompts and runs `tk approve` or `tk reject`. Input gates require recorded non-empty human input, work gates cannot be approved from the dashboard, stale snapshots are rejected, and controller mutations carry `pi:orchestrator` provenance.
 
 ## Configuration
 
@@ -138,6 +140,7 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
 ├── worktrees/<epic>/<tick>/
 └── runs/<epic>--<hash>/
     ├── run.json
+    ├── dashboard-history.json
     ├── artifacts/<tick>/
     │   ├── prompt.md
     │   ├── events.jsonl
@@ -149,7 +152,7 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
         └── wave-<n>-tests.md
 ```
 
-Branches are `tick/<epic>/<tick>`. Manifests are atomically written and carry no PID or Pi session ID. Event logs may be large: status lists them but never loads them. Recovery reads reports with byte/file/count limits.
+Branches are `tick/<epic>/<tick>`. Manifests are atomically written and carry no PID or Pi session ID. Event logs may be large: status lists them but never loads them. Recovery reads reports with byte/file/count limits. Each run also writes a bounded `dashboard-history.json` containing the latest normalized model plus a short status history; later status/dashboard reconstruction restores agent, verification, merge, and usage lanes from this file without reading event logs.
 
 ## Boundary model
 
@@ -194,7 +197,7 @@ printf '%s\n' '{"type":"get_commands"}' | pi --mode rpc --no-session \
   -e ./extensions/ticks-runner/index.ts
 ```
 
-Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/ticks-dashboard --demo --dump --width 80` for read-only smoke tests.
+Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/ticks-dashboard --demo --dump --width 80` for read-only smoke tests. Command output is immediate and never invokes a model: TUI uses a rendered session entry, RPC uses bounded extension UI with a full-result artifact when needed, print writes text, and JSON writes an `extension_output` JSONL event.
 
 ## Known limitations
 
