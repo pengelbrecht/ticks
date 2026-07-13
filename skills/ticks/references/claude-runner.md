@@ -44,6 +44,15 @@ Agent(
 )
 ```
 
+## Worktree provisioning under `isolation: "worktree"`
+
+The harness creates the worktree **at agent launch**, so the orchestrator cannot provision it beforehand. Two resolutions of the shared protocol's provisioning step (`agent-runner.md` → "Provisioning: runnable worktrees"):
+
+- **Default: implementer self-provisions.** The shared prompt template's step 3 handles it — the agent applies `.tick/config.md` → `## Worktree setup` as its first action, before touching code.
+- **Alternative: orchestrator-created worktrees.** When provisioning must precede the agent (heavy setup, private resources, or you want to verify runnability before paying for a dispatch), create the worktree yourself with the shared deterministic naming (`../.ticks-worktrees/<tick-id>`), provision it, then dispatch a normal `Agent` **without** `isolation: "worktree"` and point its prompt at that directory and branch.
+
+Watch the concurrency cost: N simultaneous full dependency installs can thrash disk and network — prefer setup recipes that share immutable state safely from the main checkout, and remember the shared-deps **no-install** boundary. Do NOT let a provisioning failure silently degrade the run to shared-tree sequential execution — that forfeits the wave's parallelism, which is the point of isolation. Fix the recipe, or fall back deliberately and note it.
+
 ## Successful-integration cleanup
 
 This is the adapter's resolution of the shared protocol's "run the active adapter's successful-integration cleanup" step (`agent-runner.md`). **Claude isolation worktrees are not self-cleaning once they hold commits.** The harness auto-removes an `isolation: "worktree"` directory only while it is *unchanged*; every tick implementer commits code, so its worktree and `worktree-agent-*` branch persist after the run and accumulate under `.claude/worktrees/` (multi-GB leaks across a few epics). The orchestrator must remove them explicitly — do not assume the harness will.

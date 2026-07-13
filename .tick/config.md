@@ -1,6 +1,18 @@
 # Tick Run Configuration
 
+## Worktree setup
+
+A fresh worktree has the Go source but no `node_modules` — the UI and worker cannot build or test until installed. Run before implementing (skip the ones your tick doesn't touch):
+
+- Go: nothing to do. The module cache is shared and read-only.
+- UI: `cd internal/tickboard/ui && pnpm install --frozen-lockfile`
+- Worker: `cd cloud/worker && pnpm install --frozen-lockfile`
+
+These are **private** installs into the worktree, not a link to the main checkout's `node_modules`, so they are safe to run concurrently and the shared-deps no-install boundary does not apply here.
+
 ## Testing
+
+All tiers below run **in-worktree** — they use no shared database, port, or service, so a wave can verify in parallel.
 
 - Go: `go test -short -count=1 ./...` (known baseline failure: `internal/worktree` — environmental git-identity issue in test temp repos; passes in CI. Do not chase locally.)
 - UI: `cd internal/tickboard/ui && pnpm install --frozen-lockfile && pnpm exec tsc --noEmit && pnpm test` (full suite has pre-existing baseline failures — implementers run targeted `pnpm exec vitest run <files>` and must not add new failures; tsc must stay clean.)

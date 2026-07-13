@@ -50,12 +50,19 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       on the tick — claiming is immediately visible on the board and in the activity feed.
    b. Launch one implementer per tick using the active harness adapter, recording each
       tick's branch/worktree in a durable note as soon as the name is known (before launch
-      when the adapter controls naming; at first report when the harness assigns it)
+      when the adapter controls naming; at first report when the harness assigns it).
+      Every worktree must be provisioned runnable before implementation starts — by you
+      before dispatch, or by the implementer as its first step when the harness creates the
+      worktree at launch (see "Provisioning: runnable worktrees")
    c. Wait using the harness's native completion primitive. Avoid busy polling.
    d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
       Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
       Never use a bare `tk close`.
+      If any test tier is declared post-merge, integrate serially on a merge candidate
+      instead: git merge --no-commit → run that tier → green: commit + close;
+      red: abort + continue/redispatch (see "Post-merge verification (serial venue)")
    e. When the whole wave is merged, run the project's test suite on the integrated tree
+      (tiers already verified per merge candidate need not be re-run here)
    f. Re-read .tick/config.md and run any steps in `At wave end` (no-op if absent)
    g. When the wave is integrated and green, go to the next wave
 4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
@@ -119,6 +126,7 @@ These rules complement the "run continuously" guidance above. Name them internal
 
 - **Scope never shrinks.** You may split, merge, or reorder ticks, and scope may grow (bugs, discovered gaps) — but only the human removes scope. If the Epic-close retro's outside-in verification finds an undelivered scope item, fix it now; never relabel it "follow-up."
 - **No known-failure closes.** A tick cannot close with failing acceptance criteria. There is no "close with known issues" state — it passes, or it stays open/blocked/awaiting.
+- **Never silently degrade.** Running below the graph's feasible width — sequential instead of parallel, shared tree instead of worktrees, a skipped verification venue — is sometimes the right call (provisioning too costly for a narrow wave, a resource you can't isolate). But only as a stated decision with the reason noted. Degrading without a note is drift, and drift is a bug in the run: the first benchmark run of this protocol collapsed to shared-tree sequential execution because worktrees weren't runnable, and nobody noticed until someone read the git graph afterwards.
 - **Name the stall instinct.** Completing a large body of work triggers the instinct to summarize and hand control back. Epic boundaries with a close-out tick are waypoints, not stopping points. The "run continuously" rule above is the explicit counter to this instinct.
 - **Recursive continuation frontier.** The continuation engine ascends the project tree. Within a project, epic→epic boundaries auto-continue: when one epic closes, the next feasible epic in soft order begins immediately (skipping hard-blocked or gated epics). When every epic inside a project is done, the engine reaches the **project boundary**.
 - **Project checkpoint (default: stop).** A project boundary stops for a human checkpoint by default. The project's close-out tick carries `--awaiting checkpoint`, so `tk next` surfaces it as `action: await` and the run pauses for a human to look before the next project begins. Before yielding, re-read `.tick/config.md` → `At project checkpoint` and execute its steps; if it names a report destination, write the completion report there as a durable file (no-op if the section is absent). Epic→epic boundaries within a project are unaffected — they still auto-continue. The planning fallback also surfaces completed projects via `CompletedProjectsNeedingCloseout` when all leaf descendants are closed but the project tick is still open.
@@ -190,6 +198,41 @@ Each agent gets its own working directory on its own branch, so parallel agents 
 
 For a wave with a single tick — or when you deliberately want to run sequentially — you can skip worktree isolation and let the implementer work in the shared tree. Only do that when nothing else is running concurrently; concurrent agents sharing one tree is the exact problem worktrees solve.
 
+**Isolated is not the same as runnable.** A fresh worktree is an isolated *source* tree. Dependency directories (`node_modules`, a venv, `target/`) are gitignored, so they are not in it — the tree cannot build or test until it is provisioned. An unprovisioned worktree is the classic silent cause of a run degrading to shared-tree sequential execution: the implementer can't run tests where it is, so it works somewhere it can, and the wave's parallelism is gone without anyone being told. See "Provisioning: runnable worktrees".
+
+### Provisioning: runnable worktrees
+
+Before implementation starts in a worktree, it must be made runnable. The steps are project-specific and belong in `.tick/config.md` → `## Worktree setup` (see SKILL.md → *Per-project runner config*) — never hardcode an ecosystem's commands in skill text.
+
+Who applies the recipe depends on the adapter: when the orchestrator creates worktrees, it provisions before dispatch; when the harness creates the worktree at agent launch, the implementer self-provisions as its FIRST step (the prompt template instructs this).
+
+**No `Worktree setup` section yet? Discover it once, solo.** Make one worktree runnable by whatever means the project needs, confirm the tests actually run there, and write the steps into `.tick/config.md`. Do this before the first parallel wave — a single-tick foundation wave is the natural slot — so N agents don't race the same discovery.
+
+**Shared-state caution.** A recipe that shares mutable state with the main checkout (e.g. symlinking a dependency directory) is fast, but it adds a boundary rule: implementers must NOT run dependency installs in such a worktree, because an install mutates the shared directory under every sibling agent. If a tick adds a dependency, give it a privately provisioned worktree or run it solo. Note that this constrains the `Testing` commands too — a test command that begins with `pnpm install` is an install.
+
+**Never let provisioning fail silently.** If the recipe doesn't work, fix it or fall back deliberately and say so. Quietly collapsing to shared-tree sequential execution forfeits the parallelism that isolation exists to buy.
+
+### Test venues: in-worktree vs post-merge
+
+Provisioning makes a worktree runnable, but not every test tier can run there *concurrently*. A tier that touches a shared singleton — one test database, a fixed port, a global service — is corrupted by parallel runs even when the source trees are perfectly isolated. Each tier therefore has a **venue**:
+
+- **in-worktree** — the implementer runs it before reporting. Parallel-safe.
+- **post-merge** — the orchestrator runs it serially, after the branch merges. The tier's shared resource makes concurrency unsafe.
+
+Projects declare a tier as post-merge in `.tick/config.md` → `## Testing` (e.g. *"e2e: post-merge only — single Postgres on 5432"*). **Absence of a declaration means in-worktree**, so the rule for whoever writes the config is: mark a tier post-merge unless you have positive evidence it is isolated (per-test transactions, schema-per-worker, testcontainers, per-worker ports). Mis-parallelizing corrupts a wave silently; mis-serializing only costs time.
+
+**Runtime tripwire.** If a tier you believed isolated turns flaky or nondeterministic under parallel runs, move it to post-merge immediately and record why. Don't wait to be sure.
+
+### Post-merge verification (serial venue)
+
+When a tier is routed post-merge, verification for it moves from the implementers to you:
+
+- Implementers run only their in-worktree tiers before reporting. **`DONE` then means "implemented, committed, in-worktree tiers pass" — not "acceptance fully verified."**
+- Integrate serially on a merge candidate: `git merge --no-commit <branch>` → run the post-merge tier(s) on the candidate → **green: commit the merge, then `tk close` the tick** / red: abort the merge and continue or redispatch the implementer with the failure. Never leave the integration branch red, and never start the next candidate on a red tree.
+- **Close timing.** The "no known-failure closes" invariant is enforced by you at the candidate gate: in this venue a tick closes only after its post-merge tier passes.
+- **Attribution is a heuristic.** Green-before/red-after points at the tick being merged, but the root cause can be an earlier tick's latent bug that this one merely exposed. Start with the just-merged tick; be prepared to land the fix in either.
+- Implementation still parallelizes — only candidate-merge-plus-verify is serial, and that serialization is inherent to the shared resource, not to the model.
+
 ## Waiting for completion
 
 Use the adapter's native blocking wait or completion notifications. A blocking process wait is fine; a repeated `sleep`/status loop is not. Preserve each implementer's final report separately from verbose execution logs so integration does not require loading a full transcript.
@@ -204,6 +247,8 @@ Ask each implementer to end with one of four statuses. Structured statuses let y
 | `DONE_WITH_CONCERNS` | Done, but flagged doubts | Read the concerns. Correctness/scope doubts → resolve before integrating. Observations → note and proceed. |
 | `NEEDS_CONTEXT` | Missing info it couldn't get | Continue the same agent with the missing context, or record it and redispatch |
 | `BLOCKED` | Can't complete | See "When an agent is blocked" below |
+
+When a test tier is declared post-merge, `DONE` covers only the in-worktree tiers; you verify the post-merge tier at the candidate gate and close the tick only after it passes (see "Post-merge verification (serial venue)").
 
 Never force the same agent to retry on the same model with no change. If it's stuck, something has to change.
 
@@ -529,12 +574,13 @@ Epic: <epic-title> (<epic-id>)
 
 ## Instructions
 1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
-2. Read `.tick/config.md` (if present) — the `Testing` and `Rules` sections apply to you; the orchestrator-only `At …` sections do not.
-3. Read the repository instruction file used by your harness (`AGENTS.md`, `CLAUDE.md`, or equivalent) and any nested instruction files that apply.
-4. Read the relevant existing code before changing anything.
-5. Implement the task test-first: write the failing test, then make it pass.
-6. Run the tests named in the acceptance criteria and confirm they pass.
-7. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
+2. Read `.tick/config.md` (if present) — the `Testing`, `Worktree setup` and `Rules` sections apply to you; the orchestrator-only `At …` sections do not.
+3. Make this worktree runnable FIRST: apply `## Worktree setup` before changing anything. A fresh worktree has no dependency directories — it cannot build or test until you do. If the setup shares dependency directories with the main checkout, do NOT run dependency installs here.
+4. Read the repository instruction file used by your harness (`AGENTS.md`, `CLAUDE.md`, or equivalent) and any nested instruction files that apply.
+5. Read the relevant existing code before changing anything.
+6. Implement the task test-first: write the failing test, then make it pass.
+7. Run the acceptance tests, minus any tier `## Testing` declares post-merge — those are run by the orchestrator after your branch merges, so your STATUS: DONE covers the in-worktree tiers only.
+8. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
 
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.

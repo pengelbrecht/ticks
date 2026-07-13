@@ -63,7 +63,8 @@ Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to
 
 | Section | Consumer | When | Context cost |
 |---|---|---|---|
-| `## Testing` | implementers + orchestrator | per tick; wave-end verification | every implementer prompt — keep surgical |
+| `## Testing` | implementers + orchestrator | per tick; wave-end verification. Mark any tier that must run **post-merge** (it shares a singleton — one test DB, a fixed port) so it isn't run concurrently in worktrees | every implementer prompt — keep surgical |
+| `## Worktree setup` | implementers (or orchestrator) | before implementation starts in a fresh worktree — the commands that make it *runnable* (dependency dirs are gitignored, so a bare worktree cannot build or test) | once per worktree |
 | `## Environment` | orchestrator | once, before wave 1 — executable pre-flight checks (CLI tools present, services up). Write commands that *verify* the condition, never instructions to ask the human. *Test, don't ask.* | once per run |
 | `## Rules` | every implementer | inlined verbatim in each implementer prompt (naming conventions, forbidden patterns, required review steps) | **N× per run — keep lean** |
 | `## At wave end` | orchestrator | after each wave's merges land and the test suite runs | once per wave |
@@ -320,7 +321,11 @@ tk create "Dashboard chart off-by-one" --parent <triage>
 
 #### Designing for parallel execution
 
-Ticks in the same wave (no blocking relationship between them) run concurrently, each in its own git worktree. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file still collide when their branches merge — and two ticks whose tests hit the same un-isolable resource (one test DB, a fixed port) corrupt each other's runs.
+Ticks in the same wave (no blocking relationship between them) run concurrently, each in its own git worktree. A wave is safe to run wide only when three things hold:
+
+1. **Disjoint files.** Worktrees stop agents from clobbering each other mid-run, but two ticks that edit the same file still collide when their branches merge.
+2. **No shared un-isolable test resource** — or that test tier is declared post-merge and verified serially after each merge.
+3. **Provisioned worktrees.** A bare worktree is isolated but not runnable: dependency directories are gitignored, so it cannot build or test until it is set up (`## Worktree setup` in `.tick/config.md`).
 
 **Partition by constraint surface.** When two deliverables would share a file or a resource, that shared thing — the *constraint surface* — decides the tick boundaries, not the feature list. Resolve each shared surface in this order (worked procedure in `references/tick-patterns.md`):
 
@@ -438,6 +443,8 @@ tk graph <epic-id> --json
 # 3. Wait using the adapter's native primitive, then integrate each tick:
 git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
 git merge <agent-branch>   # if it conflicts: abort, have the agent rebase + resolve in its worktree
+                           # if a test tier is declared post-merge: verify on a candidate
+                           # merge first (agent-runner.md → "Post-merge verification (serial venue)")
 tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 
 # 4. After the wave's merges land, run the test suite before launching the next wave
