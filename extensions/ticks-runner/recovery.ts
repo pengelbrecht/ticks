@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { runSubprocess } from "./boundary.ts";
 import { DASHBOARD_HISTORY_FILE, readDashboardHistory, type DashboardModel } from "./dashboard.ts";
 import { listGitWorktrees, type WorktreeRecord } from "./merge.ts";
+import { parseProcessReportOutput } from "./process-ticks.ts";
 import { isActiveStatus, isCompletedStatus } from "./status.ts";
 import {
 	DEFAULT_STALE_AFTER_MS,
@@ -348,6 +349,16 @@ function relevantEpic(tick: TrackerTick | undefined, epicId: string | undefined,
 	return tick?.id === epicId || tick?.parent === epicId || inferred === epicId || inferred === durableSegment(epicId);
 }
 
+function childFinalOutput(report: string): string | undefined {
+	const marker = "\n## Final output\n\n";
+	const start = report.indexOf(marker);
+	if (start < 0) return undefined;
+	const body = report.slice(start + marker.length);
+	const end = body.search(/\n## (?:Error|Stderr(?: \(tail\))?)\n/);
+	const output = (end < 0 ? body : body.slice(0, end)).trim();
+	return output || undefined;
+}
+
 function artifactKind(file: string): "report" | "verification" | "other" {
 	const name = path.basename(file).toLowerCase();
 	if (name === "report.md" || name.endsWith(".report.md")) return "report";
@@ -628,7 +639,17 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 			try {
 				const read = cappedRead(report, limits.fileBytes);
 				if (/Outcome:\s*\*\*failed\*\*/i.test(read.text)) addItem(items, { ...common, kind: "failed-run", label: `${state.tickId} child run failed`, detail: report, action: "inspect report and redispatch in place" }, limits.items);
-				if (read.truncated || !/^# Child report:/m.test(read.text) || !/STATUS:\s*(?:DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED)\b/m.test(read.text)) addItem(items, { ...common, kind: "partial-report", label: `${state.tickId} child report is partial`, detail: report, action: "inspect artifacts and resume in place" }, limits.items);
+				let complete = !read.truncated && /^# Child report:/m.test(read.text);
+				if (complete && (tick?.role === "review" || tick?.role === "closeout")) {
+					try {
+						const output = childFinalOutput(read.text);
+						if (!output) throw new Error("missing final process output");
+						parseProcessReportOutput(tick.role, output);
+					} catch { complete = false; }
+				} else if (complete) {
+					complete = /STATUS:\s*(?:DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED)\b/m.test(read.text);
+				}
+				if (!complete) addItem(items, { ...common, kind: "partial-report", label: `${state.tickId} child report is partial`, detail: report, action: "inspect artifacts and resume in place" }, limits.items);
 			} catch { addItem(items, { ...common, kind: "partial-report", label: `${state.tickId} child report is unreadable`, detail: report, action: "inspect artifacts and resume in place" }, limits.items); }
 		}
 		for (const artifact of artifacts.filter((file) => artifactKind(file) === "verification")) {

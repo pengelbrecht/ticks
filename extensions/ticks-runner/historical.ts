@@ -17,19 +17,24 @@ export function statusDashboardModel(snapshot: RecoverySnapshot): DashboardModel
 	const recoveredAgents = snapshot.ticks.filter((tick) => {
 		const normalized = normalizeStatus(tick.tracker?.status);
 		return normalized === "active" || normalized === "awaiting" || normalized === "failed" || normalized === "completed" || Boolean(tick.tracker?.awaiting) || tick.branches.length > 0 || tick.worktrees.length > 0;
-	}).map((tick) => ({
-		tickId: tick.tickId,
-		title: tick.tracker?.title,
-		branch: tick.branches[0],
-		worktree: tick.worktrees[0]?.path,
-		status: tick.tracker?.awaiting ? "awaiting" : dashboardStatus(tick.tracker?.status ?? "recoverable"),
-	}));
+	}).map((tick) => {
+		const items = snapshot.items.filter((item) => item.tickId === tick.tickId);
+		const failed = items.some((item) => item.kind === "failed-run" || item.kind === "failed-verification" || item.kind === "partial-report" || item.kind === "missing-report");
+		return {
+			tickId: tick.tickId,
+			title: tick.tracker?.title,
+			branch: tick.branches[0],
+			worktree: tick.worktrees[0]?.path,
+			status: failed ? "failed" : tick.tracker?.awaiting ? "awaiting" : dashboardStatus(tick.tracker?.status ?? "recoverable"),
+		};
+	});
 	const byTick = new Map(recoveredAgents.map((agent) => [agent.tickId, agent]));
 	const historicalAgents = historical?.agents.map((agent) => {
 		const recovered = byTick.get(agent.tickId);
 		if (!recovered) return agent;
 		byTick.delete(agent.tickId);
-		return { ...agent, ...recovered, title: recovered.title ?? agent.title, branch: recovered.branch ?? agent.branch, worktree: recovered.worktree ?? agent.worktree };
+		const genericOpen = recovered.status === "open" || recovered.status === "recoverable";
+		return { ...agent, ...recovered, status: genericOpen && ["failed", "blocked", "cancelled"].includes(agent.status) ? agent.status : recovered.status, title: recovered.title ?? agent.title, branch: recovered.branch ?? agent.branch, worktree: recovered.worktree ?? agent.worktree };
 	}) ?? [];
 	return buildDashboardModel({
 		runId: historical?.runId ?? snapshot.manifests[0]?.manifest?.runId ?? "repository-status",

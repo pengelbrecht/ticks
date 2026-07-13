@@ -91,6 +91,28 @@ test("fresh running state is active and a malformed child report is partial", ()
 	assert.equal(recoveryDisposition(recovered, "epic").status, "active");
 });
 
+test("strict JSON review and closeout reports are complete while malformed process JSON stays partial", () => {
+	const f = fixture("process-reports");
+	issue(f.repo, { id: "review", parent: "epic", title: "Review", role: "review", status: "open", updated_at: "2026-07-13T11:00:00Z" });
+	issue(f.repo, { id: "closeout", parent: "epic", title: "Closeout", role: "closeout", status: "open", updated_at: "2026-07-13T11:00:00Z" });
+	issue(f.repo, { id: "bad-review", parent: "epic", title: "Bad review", role: "review", status: "open", updated_at: "2026-07-13T11:00:00Z" });
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["review", "closeout", "bad-review"], stateRoot: f.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-07-13T11:00:00Z")));
+	const outputs = [
+		JSON.stringify({ version: 1, summary: "Clean", findings: [] }),
+		JSON.stringify({ version: 1, summary: "Done", items: [{ id: "A1", verified: true, evidence: ["A1-T1"], message: "passed" }], rules: [], retro: { summary: "done", learned_notes: [] } }),
+		"review prose, not strict JSON",
+	];
+	for (let index = 0; index < plan.ticks.length; index++) {
+		fs.mkdirSync(plan.ticks[index].artifactDir, { recursive: true });
+		fs.writeFileSync(plan.ticks[index].report, `# Child report: ${plan.ticks[index].tickId}\n\n- Outcome: **success** (completed)\n\n## Final output\n\n${outputs[index]}\n`);
+	}
+	const recovered = scan(f);
+	assert.equal(recovered.items.some((item) => item.kind === "partial-report" && item.tickId === "review"), false);
+	assert.equal(recovered.items.some((item) => item.kind === "partial-report" && item.tickId === "closeout"), false);
+	assert.equal(recovered.items.some((item) => item.kind === "partial-report" && item.tickId === "bad-review"), true);
+});
+
 test("existing useful deterministic worktree and failed manifest are selected for in-place resume", () => {
 	const f = fixture("resume");
 	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });

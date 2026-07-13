@@ -320,7 +320,7 @@ export function heartbeatControllerLease(handle: ControllerLeaseHandle, duration
 	});
 }
 
-export function startControllerHeartbeat(handle: ControllerLeaseHandle, options: { durationMs?: number; intervalMs?: number } = {}): void {
+export function startControllerHeartbeat(handle: ControllerLeaseHandle, options: { durationMs?: number; intervalMs?: number; onLost?: (error: Error) => void } = {}): void {
 	const duration = options.durationMs ?? DEFAULT_CONTROLLER_LEASE_MS;
 	const interval = options.intervalMs ?? DEFAULT_CONTROLLER_HEARTBEAT_MS;
 	if (interval <= 0 || interval >= duration) throw new Error("Controller heartbeat interval must be positive and shorter than the lease duration");
@@ -330,6 +330,9 @@ export function startControllerHeartbeat(handle: ControllerLeaseHandle, options:
 			handle.lost = error instanceof Error ? error : new Error(String(error));
 			if (handle.timer) clearInterval(handle.timer);
 			handle.timer = undefined;
+			try { options.onLost?.(handle.lost); } catch {
+				// Ownership loss is already durable and must remain observable even if a caller hook fails.
+			}
 		}
 	}, interval);
 	handle.timer.unref();
