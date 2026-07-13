@@ -62,13 +62,15 @@ export function createDashboardController(
 			if (!sameSnapshot(store, expected, control) || (gate.status ?? "awaiting") !== "awaiting") return { ok: false, message: "Gate snapshot changed; no tracker action was taken." };
 			const first = await freshGate(gate);
 			if (!first) return { ok: false, message: "Gate is no longer awaiting with the displayed type; refresh before acting." };
+			if (first.awaiting === "work" || first.awaiting === "escalation") {
+				return { ok: false, message: `${first.awaiting === "work" ? "Work" : "Escalation"} gates require resolution outside the dashboard; no approve/reject action is available here.` };
+			}
 			let input: string | undefined;
 			if (action === "approve") {
-				if (first.awaiting === "work") return { ok: false, message: "Work gates must be completed outside the dashboard and cannot be approved here." };
 				if (first.awaiting === "input") {
 					input = (await ui.input(`Input for ${gate.tickId}`, "Required human input; it will be recorded with --from human"))?.trim();
 					if (!input) return { ok: false, message: "Input gate approval requires non-empty human input." };
-				} else if (first.awaiting !== "approval" && first.awaiting !== "checkpoint") {
+				} else if (!["approval", "review", "content", "checkpoint"].includes(first.awaiting)) {
 					return { ok: false, message: `Gate type ${first.awaiting} is not dashboard-approvable.` };
 				} else if (!await ui.confirm(`Approve ${gate.tickId}?`, `${first.title ?? gate.title}\nAwaiting: ${first.awaiting}`)) {
 					return { ok: false, message: "Approval dismissed." };

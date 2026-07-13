@@ -287,6 +287,7 @@ export type RunEpicOptions = {
 	/** Primarily useful to make ownership timing deterministic in tests. */
 	leaseDurationMs?: number;
 	leaseHeartbeatMs?: number;
+	childKillAfterMs?: number;
 	recoveryStaleAfterMs?: number;
 };
 
@@ -604,15 +605,17 @@ function writeJsonArtifact(file: string, value: unknown): void {
 	atomicText(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-/** Preserve every completed process attempt before fixed latest-artifact paths are reused. */
-function archiveProcessArtifacts(artifactDir: string, names: readonly string[]): void {
+const MAX_ARCHIVED_ATTEMPTS = 1_000;
+
+/** Preserve every completed attempt before fixed latest-artifact paths are reused. */
+function archiveAttemptArtifacts(artifactDir: string, names: readonly string[]): void {
 	const existing = names.map((name) => path.join(artifactDir, name)).filter((file) => fs.existsSync(file));
 	if (!existing.length) return;
 	const attemptsRoot = path.join(artifactDir, "attempts");
 	fs.mkdirSync(attemptsRoot, { recursive: true, mode: 0o700 });
 	let attempt = 1;
-	while (attempt <= 1_000 && fs.existsSync(path.join(attemptsRoot, `attempt-${attempt}`))) attempt++;
-	if (attempt > 1_000) throw new Error(`Too many archived process attempts in ${artifactDir}`);
+	while (attempt <= MAX_ARCHIVED_ATTEMPTS && fs.existsSync(path.join(attemptsRoot, `attempt-${attempt}`))) attempt++;
+	if (attempt > MAX_ARCHIVED_ATTEMPTS) throw new Error(`Archived attempt history reached its safe limit (${MAX_ARCHIVED_ATTEMPTS}) in ${artifactDir}; refusing to overwrite evidence`);
 	const destination = path.join(attemptsRoot, `attempt-${attempt}`);
 	fs.mkdirSync(destination, { mode: 0o700 });
 	for (const file of existing) fs.renameSync(file, path.join(destination, path.basename(file)));
@@ -678,6 +681,18 @@ function formatOutcome(outcome: AgentOutcome): string {
 	return `${outcome.tickId}: ${outcome.kind} — ${outcome.detail}`;
 }
 
+function dashboardOutcome(outcome: AgentOutcome): Pick<DashboardAgentInput, "status" | "currentAction" | "error"> {
+	if (outcome.kind === "accepted" || outcome.kind === "accepted-observation") {
+		return { status: "completed", currentAction: outcome.kind === "accepted" ? "protocol accepted; awaiting integration" : `accepted observation: ${outcome.detail}` };
+	}
+	if (outcome.kind === "needs-context") return { status: "awaiting", currentAction: `needs context: ${outcome.detail}` };
+	if (outcome.kind === "repair" || outcome.kind === "blocked" || outcome.kind === "review-findings") {
+		return { status: "blocked", currentAction: `${outcome.kind}: ${outcome.detail}`, error: outcome.detail };
+	}
+	if (outcome.kind === "cancelled") return { status: "cancelled", currentAction: `cancelled: ${outcome.detail}`, error: outcome.detail };
+	return { status: "failed", currentAction: `${outcome.kind}: ${outcome.detail}`, error: outcome.detail };
+}
+
 export function formatRunResult(result: EpicRunResult): string {
 	const lines = [`# /ticks-run ${result.status}: ${result.epicId}`, "", result.summary, "", `Waves completed: ${result.wavesCompleted}`];
 	if (result.manifest) lines.push(`Manifest: ${result.manifest}`);
@@ -686,14 +701,19 @@ export function formatRunResult(result: EpicRunResult): string {
 	return lines.join("\n");
 }
 
-type RunOwnership = { handle?: ControllerLeaseHandle };
+type RunOwnership = { handle?: ControllerLeaseHandle; cancellation: AbortController };
 
 export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
-	const ownership: RunOwnership = {};
+	const cancellation = new AbortController();
+	const forwardAbort = () => cancellation.abort(options.signal?.reason);
+	if (options.signal) options.signal.addEventListener("abort", forwardAbort, { once: true });
+	if (options.signal?.aborted) forwardAbort();
+	const ownership: RunOwnership = { cancellation };
 	try {
-		return await runEpicImplementation(options, ownership);
+		return await runEpicImplementation({ ...options, signal: cancellation.signal }, ownership);
 	} finally {
 		if (ownership.handle) releaseControllerLease(ownership.handle);
+		if (options.signal) options.signal.removeEventListener("abort", forwardAbort);
 	}
 }
 
@@ -721,6 +741,17 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		events.push(item);
 		options.onEvent?.(item);
 	};
+	const reflectOutcome = (outcome: AgentOutcome) => {
+		const existing = agentInputs.get(outcome.tickId);
+		if (existing) agentInputs.set(outcome.tickId, { ...existing, ...dashboardOutcome(outcome) });
+	};
+	const waveDashboardStatus = (wave: NonNullable<GraphResult["waves"]>[number], runStatus: string): string => {
+		if ((wave.tasks ?? []).every((task) => task.status === "closed")) return "completed";
+		if (wave.wave !== currentWave) return "blocked";
+		if (runStatus === "running") return "running";
+		if (runStatus === "failed" || runStatus === "cancelled" || runStatus === "blocked" || runStatus === "awaiting" || runStatus === "completed") return runStatus;
+		return "ready";
+	};
 	const dashboard = (status: string) => {
 		latestDashboard = buildDashboardModel({
 			runId: manifest?.runId ?? options.epicId,
@@ -731,7 +762,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			criticalPath: activeGraph?.critical_path,
 			waves: (activeGraph?.waves ?? []).map((wave) => ({
 				wave: wave.wave ?? 0,
-				status: wave.wave === currentWave ? (status === "running" ? "running" : "ready") : (wave.tasks ?? []).every((task) => task.status === "closed") ? "completed" : "blocked",
+				status: waveDashboardStatus(wave, status),
 				taskIds: (wave.tasks ?? []).map((task) => task.id),
 			})),
 			agents: [...agentInputs.values()],
@@ -804,7 +835,11 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		try {
 			const leasePlan = planRunPaths({ repoRoot: root, repoIdentity: identity, epicId: options.epicId, tickIds: [], stateRoot });
 			ownership.handle = acquireControllerLease(leasePlan, { durationMs: options.leaseDurationMs });
-			startControllerHeartbeat(ownership.handle, { durationMs: options.leaseDurationMs, intervalMs: options.leaseHeartbeatMs });
+			startControllerHeartbeat(ownership.handle, {
+				durationMs: options.leaseDurationMs,
+				intervalMs: options.leaseHeartbeatMs,
+				onLost: (error) => ownership.cancellation.abort(error),
+			});
 			event("ownership", `Acquired durable controller lease until ${ownership.handle.lease.expiresAt}`);
 		} catch (error) {
 			return finish("blocked", `Cannot acquire durable controller ownership: ${error instanceof Error ? error.message : String(error)}. No tracker state or child was changed.`);
@@ -894,6 +929,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			artifacts: work,
 			env,
 			signal: options.signal,
+			killAfterMs: options.childKillAfterMs,
 			selectedTier: work.tier,
 			tierReason: work.tierReason,
 			onSnapshot: (state) => {
@@ -922,7 +958,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		verification.push(schemaLane);
 		let epic: EpicProcessDetail;
 		try {
-			archiveProcessArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "findings.json", "epic.diff", "review-tests.md"]);
+			archiveAttemptArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "findings.json", "epic.diff", "review-tests.md"]);
 			epic = parseEpicProcessDetail(tracker(tk, ["show", options.epicId, "--json"], root, env), options.epicId);
 			atomicText(diffArtifact, epicSourceDiff(root, epic.baseBranch));
 		} catch (error) {
@@ -988,7 +1024,9 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			finally { trackerCommit(root, `Route ${options.epicId} final review findings`); }
 			if (mutationError) return finish("failed", `Review findings were valid but repair routing failed closed: ${mutationError instanceof Error ? mutationError.message : String(mutationError)}`, plan);
 			integration!.commit = git(root, ["rev-parse", "HEAD"]);
-			outcomes.push({ tickId: task.id, kind: "review-findings", detail: `Created repair ticks ${repairIds.join(", ")}; review remains open`, closeAllowed: false, report: child, artifacts: [work.log, work.report, findingsArtifact, diffArtifact] });
+			const findingOutcome: AgentOutcome = { tickId: task.id, kind: "review-findings", detail: `Created repair ticks ${repairIds.join(", ")}; review remains open`, closeAllowed: false, report: child, artifacts: [work.log, work.report, findingsArtifact, diffArtifact] };
+			outcomes.push(findingOutcome);
+			reflectOutcome(findingOutcome);
 			return finish("blocked", `Final review found ${blocking.length} finding(s) routed to controller-owned repair ticks (${repairIds.join(", ")}). Review and closeout remain open.`, plan);
 		}
 
@@ -1024,7 +1062,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		let items: AcceptanceItem[];
 		let rules: ProjectRule[];
 		try {
-			archiveProcessArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "acceptance-evidence.md", "closeout-report.json", "retro.md", "project-rules-gate.md"]);
+			archiveAttemptArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "acceptance-evidence.md", "closeout-report.json", "retro.md", "project-rules-gate.md"]);
 			epic = parseEpicProcessDetail(tracker(tk, ["show", options.epicId, "--json"], root, env), options.epicId);
 			items = acceptanceItems(epic);
 			rules = projectRules(config.rules);
@@ -1050,7 +1088,10 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			integration!.commit = git(root, ["rev-parse", "HEAD"]);
 			task.awaiting = "checkpoint";
 			const detail = `External Project Rules require operator evidence; follow ${gateArtifact}, approve checkpoint ${task.id}, commit tracker state, and rerun /ticks-run ${options.epicId}`;
-			outcomes.push({ tickId: task.id, kind: "blocked", detail, closeAllowed: false, artifacts: [gateArtifact] });
+			if (!agentInputs.has(task.id)) agentInputs.set(task.id, { tickId: task.id, title: task.title, tier: work.tier, tierReason: work.tierReason, model: work.model, worktree: root, branch: integration!.branch, wave: currentWave });
+			const gateOutcome: AgentOutcome = { tickId: task.id, kind: "blocked", detail, closeAllowed: false, artifacts: [gateArtifact] };
+			outcomes.push(gateOutcome);
+			reflectOutcome(gateOutcome);
 			event("project-rules-gate", detail, task.id);
 			return finish("awaiting", detail, plan);
 		}
@@ -1173,6 +1214,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			const cleaned = cleanupIntegratedWorktree({ repoRoot: root, integrationRef: integration!.branch, branch: tick.branch, worktree: tick.worktree, tickId: tick.tickId, trackerDurable: true });
 			mergeItem.cleanup = cleaned.status === "cleaned" ? "passed" : "failed";
 			if (cleaned.status !== "cleaned") mergeItem.detail = cleaned.reason;
+			const existing = agentInputs.get(tick.tickId);
+			if (existing) agentInputs.set(tick.tickId, { ...existing, status: "completed", currentAction: `merged, closed, cleanup ${cleaned.status}`, error: cleaned.status === "cleaned" ? undefined : cleaned.reason });
 			event("integrated", `tracker close committed after post-wave evidence; cleanup ${cleaned.status}`, tick.tickId);
 		}
 		transaction.status = "completed";
@@ -1291,6 +1334,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			const work = plan.workPlans.find((item) => item.tickId === processTask.id);
 			if (!work || work.executionMode !== "process-controller-readonly") return finish("failed", `Process tick ${processTask.id} has no dedicated controller execution plan.`, plan);
 			if (!work.model || !parseModelInvocation(work.model).model) return finish("blocked", `Process tick ${processTask.id} requires a valid configured ${processTask.role === "review" ? "review_model" : "closeout_model or planner_model"}; no default model is accepted for final process gates.`, plan);
+			agentInputs.set(processTask.id, { tickId: processTask.id, title: processTask.title, tier: work.tier, tierReason: work.tierReason, model: work.model, worktree: root, branch: integration!.branch, wave: currentWave, status: "ready", currentAction: `${processTask.role} process preflight` });
+			dashboard("running");
 			if (processTask.role === "review") {
 				const stopped = await runReviewProcess(processTask, work, plan);
 				if (stopped) return stopped;
@@ -1323,6 +1368,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const baseRef = recoveredBranch && !alreadyIntegrated ? work.branch : integration!.branch;
 				const provision = ensureGitWorktree({ repoRoot: root, worktree: work.worktree, branch: work.branch, baseRef, tickId: task.id, advanceIfIntegrated: alreadyIntegrated });
 				if (provision.status === "rejected") throw new Error(provision.reason);
+				archiveAttemptArtifacts(work.artifactDir, ["prompt.md", "events.jsonl", "report.md", "verifier.md", "tk-denials.jsonl"]);
 				const detail = parseTickDetail(tracker(tk, ["show", task.id, "--json"], root, env), task.id);
 				const prompt = buildImplementerPrompt({ detail, epicId: options.epicId, epicTitle: graph.epic?.title, integrationCommit: provision.baseCommit, integrationBranch: integration!.branch, config });
 				atomicText(work.prompt, prompt);
@@ -1368,6 +1414,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 					artifacts: child.work,
 					env: { ...child.wrapper.environment, TK_ACTOR: ORCHESTRATOR_ACTOR },
 					signal: options.signal,
+					killAfterMs: options.childKillAfterMs,
 					selectedTier: child.work.tier,
 					tierReason: child.work.tierReason,
 					onSnapshot: (state: ChildState) => {
@@ -1412,6 +1459,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				if (failed) outcome = { tickId: execution.task.id, kind: failed.status === "cancelled" ? "cancelled" : "verifier-failure", detail: item.detail, closeAllowed: false, report: execution.report, artifacts: [item.artifact!] };
 			}
 			waveOutcomes.push(outcome);
+			reflectOutcome(outcome);
 			dashboard("running");
 		}
 
@@ -1459,6 +1507,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				mergeItem.detail = integrated.reason;
 				outcome = { ...outcome, kind: "integration-failure", detail: integrated.reason ?? integrated.status, closeAllowed: false };
 				waveOutcomes[index] = outcome;
+				reflectOutcome(outcome);
 				transaction.ticks[index].integration = "failed";
 				writeWaveTransaction(transactionFile, transaction);
 				continue;
@@ -1503,6 +1552,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const execution = executions[index];
 				const detail = `Post-wave ${waveNumber} verification failed after integration; branch/worktree retained for follow-up repair. ${gated.gate.detail}`;
 				waveOutcomes[index] = { ...waveOutcomes[index], kind: "verifier-failure", detail, closeAllowed: false, artifacts: [gated.artifact] };
+				reflectOutcome(waveOutcomes[index]);
 				tracker(tk, ["note", execution.task.id, `runner post-wave-verifier-failure: ${detail}; artifact=${gated.artifact}; branch=${execution.work.branch}; worktree=${execution.work.worktree}`], root, env);
 				tracker(tk, ["update", execution.task.id, "--status", "open"], root, env);
 			}

@@ -34,12 +34,12 @@ function gateFixture(type = "approval") {
 	return { repo, bin };
 }
 
-test("fresh detail-approved gate executes fake tk with orchestrator provenance", async () => {
-	const fixture = gateFixture();
+test("fresh detail-reviewed review gate executes tk approve with orchestrator provenance", async () => {
+	const fixture = gateFixture("review");
 	const previousPath = process.env.PATH;
 	process.env.PATH = `${fixture.bin}${path.delimiter}${previousPath ?? ""}`;
 	try {
-		const model = buildDashboardModel({ epicId: "epic", status: "awaiting", humanGates: [{ tickId: "gate", title: "Human decision", type: "approval", status: "awaiting" }] });
+		const model = buildDashboardModel({ epicId: "epic", status: "awaiting", humanGates: [{ tickId: "gate", title: "Human decision", type: "review", status: "awaiting" }] });
 		const store = new DashboardStore(model);
 		const notices: string[] = [];
 		const ctx = {
@@ -72,6 +72,25 @@ test("fresh detail-approved gate executes fake tk with orchestrator provenance",
 	}
 });
 
+test("work and escalation gates reject both actions before tracker mutation", async () => {
+	for (const type of ["work", "escalation"]) {
+		const model = buildDashboardModel({ epicId: "epic", status: "awaiting", humanGates: [{ tickId: "gate", title: "Unsafe dashboard action", type, status: "awaiting" }] });
+		const store = new DashboardStore(model);
+		const mutations: string[][] = [];
+		const controller = createDashboardController({ confirm: async () => true, input: async () => "feedback", notify: () => {} }, store, { epicId: "epic", runId: "epic" }, {
+			actor: "pi:orchestrator",
+			execute: async (args) => {
+				if (args[0] === "show") return { code: 0, stdout: JSON.stringify({ id: "gate", title: "Unsafe dashboard action", status: "open", awaiting: type }), stderr: "" };
+				mutations.push(args);
+				return { code: 0, stdout: "", stderr: "" };
+			},
+			refresh: async () => {},
+		});
+		for (const action of ["approve", "reject"] as const) assert.match((await controller.gate!(action, model.humanGates[0], store.getSnapshot())).message, /outside the dashboard/);
+		assert.deepEqual(mutations, [], type);
+	}
+});
+
 test("stale snapshots and work gates never invoke tk approve", async () => {
 	const fixture = gateFixture("work");
 	const previousPath = process.env.PATH;
@@ -92,7 +111,7 @@ test("stale snapshots and work gates never invoke tk approve", async () => {
 		store.replace(model);
 		assert.equal((await controller.gate!("approve", model.humanGates[0], stale)).ok, false);
 		const current = store.getSnapshot();
-		assert.match((await controller.gate!("approve", model.humanGates[0], current)).message, /must be completed outside/);
+		assert.match((await controller.gate!("approve", model.humanGates[0], current)).message, /resolution outside the dashboard/);
 		assert.equal(fs.readFileSync(path.join(fixture.repo, ".tick", "fake-runner-log.jsonl"), "utf8"), "");
 	} finally {
 		process.env.PATH = previousPath;

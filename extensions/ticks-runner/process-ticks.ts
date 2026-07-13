@@ -68,6 +68,54 @@ export type CloseoutReport = {
 	retro: { summary: string; learned_notes: string[] };
 };
 
+/**
+ * Validate the strict process-report envelope without re-authorizing evidence.
+ * Recovery uses this for durable report classification; closeout execution still
+ * performs the stronger item/rule-specific evidence checks below.
+ */
+export function parseProcessReportOutput(role: "review" | "closeout", input: string): ReviewReport | CloseoutReport {
+	if (role === "review") return parseReviewReport(input);
+	const value = jsonObject(input, "closeout report");
+	exactKeys(value, ["version", "summary", "items", "rules", "retro"], "closeout report");
+	if (value.version !== CLOSEOUT_REPORT_VERSION) throw new Error(`closeout report version must be ${CLOSEOUT_REPORT_VERSION}`);
+	const summary = boundedString(value.summary, "closeout summary", 4_000);
+	if (!Array.isArray(value.items) || value.items.length > 64) throw new Error("closeout report items must be an array with at most 64 entries");
+	const itemIds = new Set<string>();
+	const items = value.items.map((raw, index): CloseoutItemResult => {
+		const item = record(raw, `closeout item ${index + 1}`);
+		exactKeys(item, ["id", "verified", "evidence", "message"], `closeout item ${index + 1}`);
+		const id = boundedString(item.id, `closeout item ${index + 1} id`, 16);
+		if (!/^A\d+$/.test(id) || itemIds.has(id)) throw new Error(`closeout item id ${id} is invalid or duplicated`);
+		itemIds.add(id);
+		if (typeof item.verified !== "boolean") throw new Error(`closeout item ${id} verified must be boolean`);
+		return { id, verified: item.verified, evidence: boundedEvidence(item.evidence, `closeout item ${id}`), message: boundedString(item.message, `closeout item ${id} message`, 2_000) };
+	});
+	if (!Array.isArray(value.rules) || value.rules.length > 64) throw new Error("closeout report rules must be an array with at most 64 entries");
+	const ruleIds = new Set<string>();
+	const rules = value.rules.map((raw, index): CloseoutRuleResult => {
+		const rule = record(raw, `closeout rule ${index + 1}`);
+		exactKeys(rule, ["id", "compliant", "evidence", "message"], `closeout rule ${index + 1}`);
+		const id = boundedString(rule.id, `closeout rule ${index + 1} id`, 16);
+		if (!/^R\d+$/.test(id) || ruleIds.has(id)) throw new Error(`closeout rule id ${id} is invalid or duplicated`);
+		ruleIds.add(id);
+		if (typeof rule.compliant !== "boolean") throw new Error(`closeout rule ${id} compliant must be boolean`);
+		return { id, compliant: rule.compliant, evidence: boundedEvidence(rule.evidence, `closeout rule ${id}`), message: boundedString(rule.message, `closeout rule ${id} message`, 2_000) };
+	});
+	const retro = record(value.retro, "closeout retro");
+	exactKeys(retro, ["summary", "learned_notes"], "closeout retro");
+	if (!Array.isArray(retro.learned_notes) || retro.learned_notes.length > 16) throw new Error("closeout retro learned_notes must contain at most 16 entries");
+	return {
+		version: CLOSEOUT_REPORT_VERSION,
+		summary,
+		items,
+		rules,
+		retro: {
+			summary: boundedString(retro.summary, "closeout retro summary", 4_000),
+			learned_notes: retro.learned_notes.map((entry, index) => boundedString(entry, `closeout learned note ${index + 1}`, 1_000)),
+		},
+	};
+}
+
 function record(value: unknown, label: string): Record<string, unknown> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object`);
 	return value as Record<string, unknown>;

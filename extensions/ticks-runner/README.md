@@ -83,7 +83,7 @@ Before any mutation, execution requires:
 
 Before wave 1, `missing_process_ticks` triggers idempotent repair. Exact canonical legacy roleless ticks are tagged only when matching is unique; otherwise new role ticks are created. Review is blocked by every terminal implementation node derived from dependency edges, closeout is blocked by review, and all repair mutations are committed before launch.
 
-For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, and runs configured tests in each child. On POSIX, child Pi and configured shell commands run as detached process-group leaders so TERM/KILL cancellation reaches grandchildren; Windows uses a direct-child fallback. Session shutdown aborts every active epic command and awaits its settlement before the extension runtime is torn down. Accepted branches merge provisionally with merge commits while tracker closure and cleanup remain deferred. The runner persists an integrated-wave transaction, runs and persists the post-wave gate, and only then closes the whole wave durably and cleans worktrees/branches. A failed gate keeps every affected tick open, retains repair state, and blocks dependents.
+For each ready implementation wave, the runner creates or reuses one deterministic branch/worktree per tick, writes the child prompt, installs tracker boundary guards, marks and notes ticks as `pi:orchestrator`, launches up to the cap concurrently, captures Pi JSON events, classifies the final status protocol, and runs configured tests in each child. On POSIX, child Pi and configured shell commands run as detached process-group leaders so TERM/KILL cancellation reaches grandchildren; Windows uses a direct-child fallback. Session shutdown or controller-lease loss aborts every active epic command and awaits its settlement before the extension runtime is torn down or stale recovery can proceed. Accepted branches merge provisionally with merge commits while tracker closure and cleanup remain deferred. The runner persists an integrated-wave transaction, runs and persists the post-wave gate, and only then closes the whole wave durably and cleans worktrees/branches. A failed gate keeps every affected tick open, retains repair state, and blocks dependents.
 
 A ready `role: review` tick launches the configured frontier reviewer in the controller checkout with only `read,grep,find,ls`; extensions, bash, edit, write, tracker authority, and source worktrees are absent. The reviewer reads a persisted full source diff from the epic's validated `base_branch` plus description/acceptance/specs and must emit strict JSON findings. Malformed output fails closed. Blockers—and should-fix findings under the default `repair` policy—become controller-created repair ticks discovered from the review and block it. A clean/routable review closes only after persisted configured-test evidence.
 
@@ -104,7 +104,7 @@ In TUI mode, opens the control-tower overlay. In RPC/non-TUI mode it automatical
 
 Dashboard sections include the wave timeline, child cards with the selected capability tier and routing reason plus model/usage/cost, verification lane, merge queue, recovery actions/artifacts, and human gates. The overlay reads a mutable session model, so child/tool/verifier/merge/cost updates render while it is open. Closing it does not cancel the run; `/ticks-dashboard` reopens the current model.
 
-Controls: `Up`/`Down` navigates agents and gates, `Enter` or `Space` toggles details, `c` confirms cancellation of an active run, and `q`, `Esc`, or `Ctrl-C` closes the overlay. Gate actions are deliberately detail-first: the first `a` or `x` on a selected gate opens its detail; only a second matching action prompts and runs `tk approve` or `tk reject`. Input gates require recorded non-empty human input, work gates cannot be approved from the dashboard, stale snapshots are rejected, and controller mutations carry `pi:orchestrator` provenance.
+Controls: `Up`/`Down` navigates agents and gates, `Enter` or `Space` toggles details, `c` confirms cancellation of an active run, and `q`, `Esc`, or `Ctrl-C` closes the overlay. Gate actions are deliberately detail-first: the first `a` or `x` on a selected gate opens its detail; only a second matching action prompts and runs `tk approve` or `tk reject`. Input gates require recorded non-empty human input. Approval, review, content, and checkpoint gates use guarded `tk approve`; work and escalation gates cannot be approved or rejected from the dashboard. Stale snapshots are rejected, and controller mutations carry `pi:orchestrator` provenance.
 
 ## Configuration
 
@@ -171,7 +171,7 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
     │   ├── epic.diff / findings.json / review-tests.md      # review role
     │   ├── acceptance-evidence.md / closeout-report.json    # closeout role
     │   ├── retro.md                                          # closeout role
-    │   ├── attempts/attempt-N/                               # archived process retries
+    │   ├── attempts/attempt-N/                               # archived implementation/verifier/process retries
     │   └── tk-denials.jsonl
     └── waves/
         ├── wave-<n>-transaction.json
@@ -214,7 +214,7 @@ For epic execution:
 2. If a run/lease is fresh, find the live controller; do not start a duplicate.
 3. For a stale lease, inspect the listed report/log/branch/worktree. A later `/ticks-run <epic> --execute` reopens it only after clean-controller and Environment preflight, then reuses the unique state.
 4. For an unattached branch, let execution attach it to the deterministic worktree. For useful existing work, resume in place; never create a second branch.
-5. Inspect `report.md`, `verifier.md`, `wave-*-transaction.json`, or `wave-*-tests.md` for failed child, protocol, interrupted integration, or post-wave gates. Failed-gate ticks stay open; repair on the retained branch/worktree, then rerun. A transaction interrupted after all merges resumes the gate without redispatch.
+5. Inspect `report.md`, `verifier.md`, `attempts/attempt-N/`, `wave-*-transaction.json`, or `wave-*-tests.md` for failed child, protocol, interrupted integration, or post-wave gates. Recovery recognizes role-tagged strict JSON review/closeout reports as complete; malformed process JSON remains partial. Failed-gate ticks stay open; repair on the retained branch/worktree, then rerun. A transaction interrupted after all merges resumes the gate without redispatch.
 6. Resolve duplicate claims or malformed manifests manually. The runner blocks rather than choosing.
 7. For `completed-but-not-cleaned`, confirm both merge ancestry and durable tracker closure before removing worktree then branch.
 8. Never delete incomplete artifacts merely to make status green. They are the cross-session/cross-runner handoff.

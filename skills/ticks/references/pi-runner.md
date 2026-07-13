@@ -23,7 +23,7 @@ A generic skill installer may install `skills/ticks/` without the extension. Do 
 |---|---|
 | Isolation | Deterministic `tick/<epic>/<tick>` branch and repo-namespaced worktree per tick. |
 | Parallel dispatch | The extension supervises multiple Pi JSON-mode subprocesses concurrently; `max_parallel`/`--max-parallel` caps fan-out. |
-| Completion | Incremental JSONL parser, live snapshots, TERM/KILL cancellation, full event log, and compact Markdown report. |
+| Completion | Incremental JSONL parser, live snapshots, TERM/KILL cancellation, lease-loss abort-and-settle, full event log, and compact Markdown report. |
 | Continuation | Recovery reattaches/reuses the unique existing branch/worktree/artifacts; Pi session IDs are never durable authority. |
 | Verification | Configured Testing commands run in each accepted child and again on the merged controller after each wave. |
 | Integration | Boundary check and provisional merge; persist/run the full-wave gate; only then close durably and clean worktrees/branches. |
@@ -125,7 +125,7 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 
 ```text
 <state>/<repo-slug>--<hash>/runs/<epic>--<hash>/run.json
-<run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl}
+<run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl,attempts/attempt-N/*}
 <run>/artifacts/<review>/{epic.diff,findings.json,review-tests.md}
 <run>/artifacts/<closeout>/{acceptance-evidence.md,closeout-report.json,retro.md}
 <run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md}
@@ -134,7 +134,7 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 <state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/attempts/<run>/{validated-plan.json,planning-report.md,dashboard-history.json,artifacts/}
 ```
 
-On every execute, the extension performs read-only reconciliation before mutation. A fresh active claim blocks duplicate launch. A stale lease can be reopened only after controller and Environment preflight. A unique useful branch/worktree is reused or attached. Multiple claims, malformed expected manifests, mismatched bases, or occupied paths block instead of guessing. Incomplete state is never automatically deleted.
+On every execute, the extension performs read-only reconciliation before mutation. A fresh active claim blocks duplicate launch. Heartbeat ownership loss is composed into run cancellation, so every supervised child/configured-command process group is terminated and settled before the old controller returns. A stale lease can be reopened only after controller and Environment preflight. A unique useful branch/worktree is reused or attached. Multiple claims, malformed expected manifests, mismatched bases, or occupied paths block instead of guessing. Incomplete state is never automatically deleted.
 
 Operator recovery:
 

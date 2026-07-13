@@ -14,11 +14,12 @@ import {
 	type EpicRunResult,
 } from "./runner.ts";
 import type { ChildReport } from "./supervisor.ts";
-import { acquireControllerLease, createRunManifest, planRunPaths, writeRunManifest } from "./state.ts";
+import { acquireControllerLease, controllerLeasePath, createRunManifest, planRunPaths, writeRunManifest } from "./state.ts";
 
 const fakeTk = path.join(import.meta.dirname, "fixtures", "runner-fake-tk.mjs");
 const fakePi = path.join(import.meta.dirname, "fixtures", "runner-child.mjs");
 const fakeProcessPi = path.join(import.meta.dirname, "fixtures", "runner-process-child.mjs");
+const supervisorFixture = path.join(import.meta.dirname, "fixtures", "supervisor-child.mjs");
 
 type FixtureTask = {
 	id: string;
@@ -214,6 +215,24 @@ test("outcome classification is conservative about concerns and supervisor/proto
 	assert.equal(classifyChildReport(report({ outcome: "failed", reason: "nonzero-exit:2" })).kind, "supervisor-failure");
 });
 
+test("outside-in cards and waves reflect protocol failure, repair concerns, and blocked outcomes", async () => {
+	const cases = [
+		{ name: "malformed-card", behavior: { status: "UNKNOWN" }, kind: "protocol-failure", card: "failed" },
+		{ name: "repair-card", behavior: { status: "DONE_WITH_CONCERNS", detail: "acceptance may be incomplete" }, kind: "repair", card: "blocked" },
+		{ name: "blocked-card", behavior: { status: "BLOCKED", detail: "dependency unavailable" }, kind: "blocked", card: "blocked" },
+	] as const;
+	for (const item of cases) {
+		const fixture = createFixture(item.name, [{ id: "truth" }]);
+		const result = await executeFixture(fixture, { truth: item.behavior });
+		assert.equal(result.status, "blocked", item.name);
+		assert.equal(result.outcomes[0].kind, item.kind, item.name);
+		const card = result.dashboard?.agents.find((agent) => agent.tickId === "truth");
+		assert.equal(card?.status, item.card, item.name);
+		assert.match(card?.currentAction ?? "", new RegExp(item.kind), item.name);
+		assert.equal(result.dashboard?.waves.find((wave) => wave.wave === 1)?.status, "blocked", item.name);
+	}
+});
+
 test("configured shell cancellation kills a TERM-resistant grandchild process", { skip: process.platform === "win32" }, async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ticks-configured-tree-"));
 	const pidFile = path.join(root, "grandchild.pid");
@@ -349,6 +368,51 @@ test("a heartbeat keeps a silent child owned beyond the old stale threshold and 
 	assert.equal(starts.length, 1, "the second controller never launches a duplicate child");
 });
 
+test("lease ownership loss aborts and settles a live process tree before stale takeover", { skip: process.platform === "win32" }, async () => {
+	const fixture = createFixture("lease-loss-tree", [{ id: "owned" }]);
+	const pidFile = path.join(fixture.root, "grandchild.pid");
+	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
+	const leasePlan = planRunPaths({ repoRoot: fixture.repo, repoIdentity: identity, epicId: "epic", tickIds: [], stateRoot: fixture.stateRoot });
+	let grandchildPid: number | undefined;
+	try {
+		const first = runEpic({
+			cwd: fixture.repo, epicId: "epic", execute: true, worktrees: true,
+			stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env,
+			leaseDurationMs: 500, leaseHeartbeatMs: 20, childKillAfterMs: 50,
+			invocationForTask: () => ({ command: process.execPath, args: [supervisorFixture, "process-tree", pidFile] }),
+		});
+		for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+		grandchildPid = Number(fs.readFileSync(pidFile, "utf8"));
+		assert.ok(Number.isSafeInteger(grandchildPid) && grandchildPid > 0);
+		fs.rmSync(controllerLeasePath(leasePlan));
+
+		const overlapping = await executeFixture(fixture);
+		assert.equal(overlapping.status, "blocked", "fresh tracker ownership blocks takeover during the heartbeat-loss window");
+		assert.equal(fs.existsSync(fixture.marker) && fs.readFileSync(fixture.marker, "utf8").includes("owned:start"), false, "no successor child starts before prior settlement");
+
+		const lost = await first;
+		assert.equal(lost.status, "failed");
+		assert.match(lost.summary, /ownership was lost/i);
+		assert.throws(() => process.kill(grandchildPid!, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH", "old process tree is gone when the old runner settles");
+
+		const state = JSON.parse(fs.readFileSync(path.join(fixture.repo, ".tick", "fake-runner-state.json"), "utf8"));
+		state.tasks[0].started_at = "2026-01-01T00:00:00Z";
+		state.tasks[0].updated_at = "2026-01-01T00:00:00Z";
+		fs.writeFileSync(path.join(fixture.repo, ".tick", "fake-runner-state.json"), `${JSON.stringify(state, null, 2)}\n`);
+		command(fixture.repo, "git", "add", ".tick/fake-runner-state.json");
+		command(fixture.repo, "git", "commit", "-m", "age interrupted ownership for takeover test");
+		const successor = await runEpic({
+			cwd: fixture.repo, epicId: "epic", execute: true, worktrees: true,
+			stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env, recoveryStaleAfterMs: 0,
+			invocationForTask: ({ task }) => ({ command: process.execPath, args: [fakePi, task.id, "DONE", "0", "", fixture.marker] }),
+		});
+		assert.equal(successor.status, "completed", successor.summary);
+		assert.equal(fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.startsWith("owned:start")).length, 1);
+	} finally {
+		if (grandchildPid) try { process.kill(grandchildPid, "SIGKILL"); } catch { /* already gone */ }
+	}
+});
+
 test("ordinary execute resumes an existing useful branch/worktree and creates no duplicate", async () => {
 	const fixture = createFixture("resume-useful", [{ id: "resume" }]);
 	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
@@ -392,7 +456,33 @@ test("failed per-tick verifier persists evidence, reopens for repair, and never 
 	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close" && entry.id === "bad"), false);
 	assert.equal(fs.existsSync(path.join(fixture.repo, "bad.txt")), false, "failed branch is not merged");
 	assert.ok(result.outcomes[0].artifacts?.every((artifact) => fs.existsSync(artifact)));
-	assert.equal(fs.existsSync(result.dashboard?.agents.find((agent) => agent.tickId === "bad")?.worktree ?? ""), true, "repair worktree is retained");
+	const failedCard = result.dashboard?.agents.find((agent) => agent.tickId === "bad");
+	assert.equal(fs.existsSync(failedCard?.worktree ?? ""), true, "repair worktree is retained");
+	assert.equal(failedCard?.status, "failed");
+	assert.match(failedCard?.currentAction ?? "", /verifier-failure/);
+	assert.equal(result.dashboard?.waves[0]?.status, "blocked");
+});
+
+test("implementation and verifier retries archive every fixed artifact without overwriting prior attempts", async () => {
+	const fixture = createFixture("attempt-history", [{ id: "retry" }], { failTick: "retry" });
+	const first = await executeFixture(fixture);
+	assert.equal(first.status, "blocked");
+	const artifactDir = path.dirname(first.outcomes[0].report!.artifacts.report);
+	fs.appendFileSync(path.join(artifactDir, "report.md"), "\nattempt-one-marker\n");
+
+	const second = await executeFixture(fixture);
+	assert.equal(second.status, "blocked");
+	fs.appendFileSync(path.join(artifactDir, "report.md"), "\nattempt-two-marker\n");
+	fixture.env.FAIL_TICK = undefined;
+	const third = await executeFixture(fixture);
+	assert.equal(third.status, "completed", third.summary);
+
+	for (const [attempt, marker] of [[1, "attempt-one-marker"], [2, "attempt-two-marker"]] as const) {
+		const archived = path.join(artifactDir, "attempts", `attempt-${attempt}`);
+		for (const name of ["prompt.md", "events.jsonl", "report.md", "verifier.md"]) assert.equal(fs.existsSync(path.join(archived, name)), true, `${name} preserved for attempt ${attempt}`);
+		assert.match(fs.readFileSync(path.join(archived, "report.md"), "utf8"), new RegExp(marker));
+	}
+	for (const name of ["prompt.md", "events.jsonl", "report.md", "verifier.md"]) assert.equal(fs.existsSync(path.join(artifactDir, name)), true, `latest ${name} remains available`);
 });
 
 test("empty Testing fails the integrated gate, preserves merged work, and gives an actionable durable repair state", async () => {
@@ -432,6 +522,8 @@ test("post-wave failure keeps affected ticks open with repair state and recovery
 	assert.equal(fs.existsSync(path.join(fixture.repo, "dependent.txt")), false);
 	assert.match(state.epic.notes?.join("\n") ?? "", /Post-wave 1 test gate failed/);
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "post-wave 1 tests" && item.status === "failed"));
+	assert.equal(result.dashboard?.agents.find((agent) => agent.tickId === "base")?.status, "failed");
+	assert.equal(result.dashboard?.waves.find((wave) => wave.wave === 1)?.status, "failed");
 	const repairWorktree = result.dashboard?.agents.find((agent) => agent.tickId === "base")?.worktree ?? "";
 	assert.equal(fs.existsSync(repairWorktree), true, "failed integrated worktree is retained");
 	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/base"), /tick\/epic\/base/, "failed integrated branch is retained");
@@ -567,6 +659,8 @@ test("blocker review creates controller-owned repair ticks and leaves review ope
 	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "close" && entry.id === "review"), false);
 	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/epic/review"), "", "review never gets a source branch");
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "review findings schema" && item.status === "passed"));
+	assert.equal(result.dashboard?.agents.find((agent) => agent.tickId === "review")?.status, "blocked");
+	assert.equal(result.dashboard?.waves[0]?.status, "blocked");
 });
 
 test("malformed review output fails closed with full artifacts and no tracker close", async () => {
@@ -582,6 +676,13 @@ test("malformed review output fails closed with full artifacts and no tracker cl
 	assert.ok(artifacts.some((item) => item.endsWith("events.jsonl") && fs.existsSync(item)));
 	assert.ok(artifacts.some((item) => item.endsWith("report.md") && fs.existsSync(item)));
 	assert.ok(artifacts.some((item) => item.endsWith("findings.json") && fs.existsSync(item)));
+	const artifactDir = path.dirname(artifacts.find((item) => item.endsWith("report.md"))!);
+	fs.appendFileSync(path.join(artifactDir, "report.md"), "\nmalformed-review-attempt-marker\n");
+	const retried = await executeFixture(fixture);
+	assert.equal(retried.status, "completed", retried.summary);
+	const archived = path.join(artifactDir, "attempts", "attempt-1");
+	for (const name of ["prompt.md", "events.jsonl", "report.md", "findings.json", "epic.diff"]) assert.equal(fs.existsSync(path.join(archived, name)), true, `${name} preserved from malformed process attempt`);
+	assert.match(fs.readFileSync(path.join(archived, "report.md"), "utf8"), /malformed-review-attempt-marker/);
 });
 
 test("should-fix review findings follow repair versus record policy", async () => {
@@ -646,6 +747,8 @@ test("failing closeout evidence keeps closeout and epic open without invoking th
 	assert.equal(readState(fixture.repo).epic.status, "open");
 	assert.equal(fs.existsSync(fixture.marker), false, "failed controller evidence prevents model launch");
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance and rules evidence" && item.status === "failed"));
+	assert.equal(result.dashboard?.agents.find((agent) => agent.tickId === "closeout")?.status, "failed");
+	assert.equal(result.dashboard?.waves[0]?.status, "failed");
 });
 
 test("external Project Rules create a durable human checkpoint and approved evidence can legitimately close the epic", async () => {
