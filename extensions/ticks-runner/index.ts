@@ -237,15 +237,15 @@ export default function ticksRunnerExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("ticks-plan", {
-		description: "Plan a Ticks epic with Pi scouts/frontier synthesis (scaffold)",
+		description: "Show the Pi/Ticks planning workflow (automated planning is not yet implemented)",
 		handler: async (args, ctx) => {
 			const target = args.trim();
 			const markdown = [
-				"# /ticks-plan scaffold",
+				"# /ticks-plan planning guide",
 				"",
-				"The Pi orchestrator extension is installed and ready to own planning, but automated scout/planner execution is not implemented in this scaffold tick yet.",
+				"The Pi orchestrator package is installed. This command is currently informational: it does not launch models or mutate the tracker. Use the ticks skill to perform planning.",
 				"",
-				"Planned flow:",
+				"Planning flow:",
 				"1. Launch read-only Pi scout subprocesses per subsystem.",
 				"2. Feed scout summaries to a frontier planner model.",
 				"3. Create Ticks with contracts-first ordering, wave safety, tests, and EPIC-SKELETON process ticks.",
