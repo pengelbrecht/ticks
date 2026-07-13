@@ -11,10 +11,11 @@ import {
 	type VerificationItem,
 } from "./dashboard.ts";
 import { ORCHESTRATOR_ACTOR, parseModelInvocation, type ModelInvocation } from "./runner.ts";
-import { durableSegment, normalizeRepoIdentity, repoSlug } from "./state.ts";
+import { durableSegment, hasSymlinkBelow, normalizeRepoIdentity, repoSlug } from "./state.ts";
 import { createPiInvocation, superviseChild, type ChildReport, type ChildState, type ChildUsage } from "./supervisor.ts";
 
 export const PLANNER_SCHEMA_VERSION = "ticks-plan/v1" as const;
+export const PLANNING_APPLY_STATE_VERSION = 2 as const;
 export const MIN_SCOUTS = 3;
 export const MAX_SCOUTS = 6;
 export const MIN_SCOUT_CAP = 2;
@@ -81,14 +82,18 @@ export type ExistingEpicDetail = {
 	title: string;
 	description: string;
 	acceptance: string;
+	baseBranch?: string;
 };
 
 export type PlanningApplyState = {
-	version: 1;
+	version: typeof PLANNING_APPLY_STATE_VERSION;
 	idempotencyKey: string;
+	targetBinding: string;
 	planDigest: string;
 	planArtifact: string;
 	targetKind: PlanningTarget["kind"];
+	baseBranch: string;
+	epicTitle: string;
 	status: "applying" | "partial" | "complete";
 	epicId?: string;
 	clientToTick: Record<string, string>;
@@ -155,6 +160,7 @@ export type AutomatedPlanningResult = {
 type PlanningPaths = PlanningArtifacts & {
 	repoRoot: string;
 	repoIdentity: string;
+	stateRoot: string;
 	runId: string;
 };
 
@@ -223,6 +229,14 @@ function validateText(value: unknown, label: string, minimum: number, maximum: n
 	return normalized;
 }
 
+function modelAcceptance(value: unknown, label: string, minimum: number, maximum: number): string {
+	const acceptance = validateText(value, label, minimum, maximum);
+	// Model output is untrusted data. Closeout evidence comes only from controller
+	// configuration, so no model-authored code span may later be reinterpreted as shell.
+	if (acceptance.includes("`")) throw new Error(`${label} must be prose only; model-authored command/code snippets are not trusted verification evidence`);
+	return acceptance;
+}
+
 function exactKeys(value: Record<string, unknown>, allowed: readonly string[], required: readonly string[], label: string): void {
 	const keys = Object.keys(value);
 	for (const key of keys) if (!allowed.includes(key)) throw new Error(`${label} contains unsupported field ${JSON.stringify(key)}; shell/tracker/process arguments are not accepted`);
@@ -265,7 +279,7 @@ function parsePlannerTask(value: unknown, index: number): PlannerTask {
 	if (PROCESS_TITLE.test(title) || /^(?:review|closeout)$/i.test(clientId)) throw new Error(`tasks[${index}] attempts to inject a review/closeout process tick`);
 	if (/\band\b/i.test(title)) throw new Error(`tasks[${index}].title names multiple deliverables with "and"; tasks must be vertical and atomic`);
 	const description = validateText(item.description, `tasks[${index}].description`, 24, 12 * 1_024);
-	const acceptance = validateText(item.acceptance, `tasks[${index}].acceptance`, 8, 8 * 1_024);
+	const acceptance = modelAcceptance(item.acceptance, `tasks[${index}].acceptance`, 8, 8 * 1_024);
 	const acceptanceBullets = acceptance.split("\n").filter((line) => /^\s*(?:[-*]|\d+[.)])\s+/.test(line)).length;
 	if (acceptanceBullets > 3) throw new Error(`tasks[${index}].acceptance exceeds the 3-bullet Definition of Ready bound`);
 	if (knownHorizontalOnly(title, description)) throw new Error(`tasks[${index}] is a horizontal layer task rather than a vertical capability or explicit shared contract`);
@@ -339,7 +353,7 @@ export function validatePlannerDocument(value: unknown, targetKind: PlanningTarg
 		epic = {
 			title: validateText(value.title, "epic.title", 4, 200),
 			description: validateText(value.description, "epic.description", 24, 16 * 1_024),
-			acceptance: validateText(value.acceptance, "epic.acceptance", 8, 8 * 1_024),
+			acceptance: modelAcceptance(value.acceptance, "epic.acceptance", 8, 8 * 1_024),
 		};
 	} else if (Object.hasOwn(root, "epic")) {
 		throw new Error("existing-epic planner output must not redefine epic metadata");
@@ -400,20 +414,27 @@ function defaultStateRoot(root: string): string {
 	return path.resolve(path.dirname(primary), ".ticks-worktrees");
 }
 
-function idempotencyKey(identity: string, target: PlanningTarget): string {
-	const material = target.kind === "existing" ? `existing\0${target.epicId}` : `requirements\0${target.requirements.replace(/\r\n/g, "\n").trim()}`;
-	return `tp1-${hash(`${normalizeRepoIdentity(identity)}\0${material}`)}`;
+function targetBinding(target: PlanningTarget): string {
+	return target.kind === "existing"
+		? `existing:${target.epicId}`
+		: `requirements:${createHash("sha256").update(target.requirements.replace(/\r\n/g, "\n").trim()).digest("hex")}`;
 }
 
-function planningPaths(root: string, identity: string, target: PlanningTarget, stateRoot?: string): PlanningPaths {
+function idempotencyKey(identity: string, target: PlanningTarget): string {
+	return `tp1-${hash(`${normalizeRepoIdentity(identity)}\0${targetBinding(target)}`)}`;
+}
+
+function planningPaths(root: string, identity: string, target: PlanningTarget, configuredStateRoot?: string): PlanningPaths {
 	const key = idempotencyKey(identity, target);
 	const label = target.kind === "existing" ? target.epicId : `new-${hash(target.requirements, 8)}`;
-	const planRoot = path.join(path.resolve(stateRoot ?? defaultStateRoot(root)), repoSlug(identity), "plans", `${durableSegment(label)}--${key}`);
+	const stateRoot = path.resolve(configuredStateRoot ?? defaultStateRoot(root));
+	const planRoot = path.join(stateRoot, repoSlug(identity), "plans", `${durableSegment(label)}--${key}`);
 	const runId = `plan-${Date.now()}-${randomUUID().slice(0, 8)}`;
 	const attemptDir = path.join(planRoot, "attempts", runId);
-	return {
+	const planned = {
 		repoRoot: root,
 		repoIdentity: normalizeRepoIdentity(identity),
+		stateRoot,
 		runId,
 		planRoot,
 		attemptDir,
@@ -422,13 +443,41 @@ function planningPaths(root: string, identity: string, target: PlanningTarget, s
 		plannerOutput: path.join(attemptDir, "planner-output.json"),
 		report: path.join(attemptDir, "planning-report.md"),
 	};
+	for (const targetPath of [planRoot, attemptDir, planned.applyState, planned.validatedPlan, planned.plannerOutput, planned.report]) {
+		if (hasSymlinkBelow(stateRoot, targetPath)) throw new Error(`Unsafe symlinked planning artifact path: ${targetPath}`);
+	}
+	return planned;
 }
 
-function atomicText(file: string, content: string): void {
-	fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+function ensureSafePlanningDirectory(stateRoot: string, directory: string): void {
+	const root = path.resolve(stateRoot);
+	const destination = path.resolve(directory);
+	const relative = path.relative(root, destination);
+	if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error(`Planning artifact path escapes state root: ${destination}`);
+	if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+	const rootStat = fs.lstatSync(root);
+	if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw new Error(`Unsafe planning state root: ${root}`);
+	let current = root;
+	for (const segment of relative.split(path.sep).filter(Boolean)) {
+		current = path.join(current, segment);
+		try {
+			const stat = fs.lstatSync(current);
+			if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Unsafe planning artifact ancestor: ${current}`);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			fs.mkdirSync(current, { mode: 0o700 });
+		}
+	}
+}
+
+function atomicText(file: string, content: string, stateRoot?: string): void {
+	if (stateRoot) {
+		if (hasSymlinkBelow(stateRoot, file)) throw new Error(`Unsafe symlinked planning artifact path: ${file}`);
+		ensureSafePlanningDirectory(stateRoot, path.dirname(file));
+	} else fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
 	const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	try {
-		fs.writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
+		fs.writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
 		fs.renameSync(temporary, file);
 	} finally { fs.rmSync(temporary, { force: true }); }
 }
@@ -439,12 +488,15 @@ function readJson(file: string, maximum = 256 * 1_024): unknown {
 	return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-function readApplyState(file: string, expectedKey: string): PlanningApplyState | undefined {
+function readApplyState(file: string, expectedKey: string, expectedTargetBinding: string, stateRoot: string): PlanningApplyState | undefined {
 	try {
+		if (hasSymlinkBelow(stateRoot, file)) throw new Error(`Unsafe symlinked planning apply state: ${file}`);
 		const value = readJson(file, 128 * 1_024) as Partial<PlanningApplyState>;
-		if (value.version !== 1 || value.idempotencyKey !== expectedKey || !["applying", "partial", "complete"].includes(value.status ?? "")
+		if (value.version !== PLANNING_APPLY_STATE_VERSION || value.idempotencyKey !== expectedKey || value.targetBinding !== expectedTargetBinding || !["applying", "partial", "complete"].includes(value.status ?? "")
 			|| !/^[0-9a-f]{32}$/.test(value.planDigest ?? "") || typeof value.planArtifact !== "string" || !path.isAbsolute(value.planArtifact)
-			|| (value.targetKind !== "existing" && value.targetKind !== "requirements") || !value.clientToTick || typeof value.clientToTick !== "object" || Array.isArray(value.clientToTick)
+			|| (value.targetKind !== "existing" && value.targetKind !== "requirements") || typeof value.baseBranch !== "string" || !value.baseBranch
+			|| typeof value.epicTitle !== "string" || !value.epicTitle || value.epicTitle.length > 1_024
+			|| !value.clientToTick || typeof value.clientToTick !== "object" || Array.isArray(value.clientToTick)
 			|| !Array.isArray(value.completedSteps) || value.completedSteps.length > 64 || value.completedSteps.some((step) => typeof step !== "string" || step.length > 160)
 			|| typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))) return undefined;
 		const mapping = Object.entries(value.clientToTick);
@@ -456,9 +508,9 @@ function readApplyState(file: string, expectedKey: string): PlanningApplyState |
 	} catch { return undefined; }
 }
 
-function writeApplyState(file: string, state: PlanningApplyState): void {
+function writeApplyState(file: string, state: PlanningApplyState, stateRoot: string): void {
 	state.updatedAt = new Date().toISOString();
-	atomicText(file, `${JSON.stringify(state, null, 2)}\n`);
+	atomicText(file, `${JSON.stringify(state, null, 2)}\n`, stateRoot);
 }
 
 function parseEpicDetail(output: string, expectedId: string): ExistingEpicDetail & { type: string; status: string } {
@@ -474,6 +526,7 @@ function parseEpicDetail(output: string, expectedId: string): ExistingEpicDetail
 		acceptance: typeof (item.acceptance_criteria ?? item.acceptance) === "string" && String(item.acceptance_criteria ?? item.acceptance).trim() ? validateText(item.acceptance_criteria ?? item.acceptance, "epic acceptance", 1, 64 * 1_024) : "(no acceptance supplied)",
 		type: item.type,
 		status: item.status,
+		...(typeof item.base_branch === "string" && item.base_branch.trim() ? { baseBranch: item.base_branch.trim() } : {}),
 	};
 }
 
@@ -488,14 +541,41 @@ function inspectExistingEpic(root: string, tk: string, epicId: string, env: Node
 	return detail;
 }
 
-function controllerPreflight(root: string): { branch: string; commit: string } {
-	const branch = git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+function validateBaseBranch(root: string, candidate: string): string {
+	const branch = candidate.trim();
+	if (!branch || branch !== candidate || branch.length > 128 || branch.startsWith("-") || branch.includes("..") || branch.includes("@{") || /[\0\r\n]/.test(branch)) {
+		throw new Error(`Unsafe planning base branch ${JSON.stringify(candidate)}`);
+	}
+	requireSuccessful(runSubprocess("git", ["check-ref-format", "--branch", branch], root), `Unsafe planning base branch ${JSON.stringify(branch)}`);
+	requireSuccessful(runSubprocess("git", ["rev-parse", "--verify", "--end-of-options", `${branch}^{commit}`], root), `Planning base branch ${branch} does not resolve to a commit`);
+	return branch;
+}
+
+function controllerPreflight(root: string, recordedBaseBranch?: string): { branch: string; baseBranch: string; commit: string } {
+	const branch = validateBaseBranch(root, git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]));
 	const remoteHead = runSubprocess("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], root);
-	const defaultBranch = remoteHead.status === 0 ? remoteHead.stdout.trim().replace(/^origin\//, "") : undefined;
-	if (branch === "main" || branch === "master" || (defaultBranch && branch === defaultBranch)) throw new Error(`Refusing /ticks-plan --apply on default branch ${branch}; switch to a feature branch first`);
+	let baseBranch = recordedBaseBranch ? validateBaseBranch(root, recordedBaseBranch) : undefined;
+	let defaultLocal: string | undefined;
+	if (remoteHead.status === 0 && /^origin\/.+/.test(remoteHead.stdout.trim())) {
+		const remoteDefault = remoteHead.stdout.trim();
+		defaultLocal = remoteDefault.slice("origin/".length);
+		if (!baseBranch) {
+			const local = runSubprocess("git", ["show-ref", "--verify", "--quiet", `refs/heads/${defaultLocal}`], root);
+			baseBranch = local.status === 0 ? defaultLocal : remoteDefault;
+		}
+	} else if (!baseBranch) {
+		const localDefaults = ["main", "master"].filter((name) => runSubprocess("git", ["show-ref", "--verify", "--quiet", `refs/heads/${name}`], root).status === 0);
+		if (localDefaults.length === 1) {
+			baseBranch = localDefaults[0];
+			defaultLocal = localDefaults[0];
+		}
+	}
+	if (!baseBranch) throw new Error("Cannot determine one default base branch from controller context; configure origin/HEAD, record a safe epic base_branch, or keep a single local main/master branch");
+	baseBranch = validateBaseBranch(root, baseBranch);
+	if (branch === "main" || branch === "master" || branch === defaultLocal || branch === baseBranch) throw new Error(`Refusing /ticks-plan --apply on default branch or recorded base ${branch}; switch to the epic's feature branch first`);
 	const dirty = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
 	if (dirty) throw new Error(`/ticks-plan --apply requires a completely clean controller checkout:\n${dirty}`);
-	return { branch, commit: git(root, ["rev-parse", "HEAD"]) };
+	return { branch, baseBranch, commit: git(root, ["rev-parse", "HEAD"]) };
 }
 
 function tracker(tk: string, args: readonly string[], root: string, env: NodeJS.ProcessEnv): string {
@@ -527,15 +607,65 @@ function marker(key: string, suffix?: string): string {
 	return `ticks-plan:${PLANNER_SCHEMA_VERSION} key=${key}${suffix ? ` ${suffix}` : ""}`;
 }
 
-function verifyMappedTick(tk: string, root: string, env: NodeJS.ProcessEnv, tickId: string): void {
+function markerLabels(key: string, entity: string): string[] {
+	return [`ticks-plan-key-${key}`, `ticks-plan-entity-${entity}`];
+}
+
+function trackerRecords(output: string, label: string): Record<string, unknown>[] {
+	if (Buffer.byteLength(output, "utf8") > 4 * 1_024 * 1_024) throw new Error(`${label} exceeded its bounded response size`);
+	let value: unknown;
+	try { value = JSON.parse(output); } catch { throw new Error(`${label} returned invalid JSON`); }
+	const candidates = Array.isArray(value) ? value : value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).ticks) ? (value as Record<string, unknown>).ticks as unknown[] : undefined;
+	if (!candidates || candidates.length > 2_000) throw new Error(`${label} returned an invalid or oversized list`);
+	return candidates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+}
+
+function trackerEntity(tk: string, root: string, env: NodeJS.ProcessEnv, tickId: string): Record<string, unknown> {
 	const result = requireSuccessful(runSubprocess(tk, ["show", tickId, "--json"], root, env), `Cannot recover mapped tick ${tickId}`);
 	let value: unknown;
 	try { value = JSON.parse(result.stdout); } catch { throw new Error(`Mapped tick ${tickId} returned invalid JSON during recovery`); }
 	if (Array.isArray(value)) value = value[0];
-	if (objectValue(value, `mapped tick ${tickId}`).id !== tickId) throw new Error(`Mapped tick ${tickId} no longer matches tracker state`);
+	return objectValue(value, `mapped tick ${tickId}`);
 }
 
-/** Find durable tracker notes before creating anything when local recovery artifacts are missing. */
+type ExpectedMappedEntity = {
+	id: string;
+	title: string;
+	type: string;
+	parent?: string;
+	role?: "review" | "closeout";
+	labels?: string[];
+	baseBranch?: string;
+	noteMarker?: string;
+};
+
+function verifyMappedEntity(tk: string, root: string, env: NodeJS.ProcessEnv, expected: ExpectedMappedEntity): void {
+	const item = trackerEntity(tk, root, env, expected.id);
+	const labels = Array.isArray(item.labels) && item.labels.every((label) => typeof label === "string") ? item.labels as string[] : [];
+	if (item.id !== expected.id || item.title !== expected.title || item.type !== expected.type) throw new Error(`Mapped tick ${expected.id} no longer matches its expected identity/title/type`);
+	if (expected.parent !== undefined && item.parent !== expected.parent) throw new Error(`Mapped tick ${expected.id} is not a child of requested epic ${expected.parent}`);
+	if ((typeof item.role === "string" ? item.role : undefined) !== expected.role) throw new Error(`Mapped tick ${expected.id} does not have expected role ${expected.role ?? "implementation"}`);
+	if (expected.labels?.some((label) => !labels.includes(label))) throw new Error(`Mapped tick ${expected.id} is missing its stable planning idempotency marker`);
+	if (expected.baseBranch !== undefined && item.base_branch !== expected.baseBranch) throw new Error(`Mapped epic ${expected.id} does not have expected base_branch ${expected.baseBranch}`);
+	if (expected.noteMarker) {
+		const notes = requireSuccessful(runSubprocess(tk, ["notes", expected.id], root, env), `Cannot verify planning marker on ${expected.id}`).stdout;
+		if (!notes.includes(expected.noteMarker)) throw new Error(`Mapped epic ${expected.id} is missing its target-bound planning marker`);
+	}
+}
+
+function recoverCreatedByMarker(tk: string, root: string, env: NodeJS.ProcessEnv, labels: readonly string[], label: string): string | undefined {
+	const listed = requireSuccessful(runSubprocess(tk, ["list", "--all", "--json"], root, env), `Cannot search tracker for ${label} idempotency marker`);
+	const matches = trackerRecords(listed.stdout, `Tracker ${label} idempotency lookup`).filter((candidate) => {
+		const found = Array.isArray(candidate.labels) ? candidate.labels : [];
+		return labels.every((expected) => found.includes(expected));
+	});
+	if (matches.length > 1) throw new Error(`Multiple tracker entities carry ${label} idempotency marker; refusing ambiguous recovery`);
+	const id = matches[0]?.id;
+	if (id !== undefined && (typeof id !== "string" || !SAFE_TICK_ID.test(id))) throw new Error(`Tracker ${label} idempotency marker resolved to an unsafe ID`);
+	return id as string | undefined;
+}
+
+/** Find durable tracker markers before creating anything when local recovery artifacts are missing. */
 function priorApplyMarker(tk: string, root: string, env: NodeJS.ProcessEnv, target: PlanningTarget, key: string): { epicId: string; note: string } | undefined {
 	const noteFor = (epicId: string): string | undefined => {
 		const result = runSubprocess(tk, ["notes", epicId], root, env);
@@ -546,26 +676,22 @@ function priorApplyMarker(tk: string, root: string, env: NodeJS.ProcessEnv, targ
 		const note = noteFor(target.epicId);
 		return note ? { epicId: target.epicId, note } : undefined;
 	}
-	const listed = runSubprocess(tk, ["list", "--type", "epic", "--all", "--json"], root, env);
-	if (listed.status !== 0) throw new Error("Cannot perform tracker-wide idempotency lookup before creating a requirements epic");
-	if (Buffer.byteLength(listed.stdout, "utf8") > 4 * 1_024 * 1_024) throw new Error("Tracker-wide idempotency lookup exceeded its bounded response size");
-	let value: unknown;
-	try { value = JSON.parse(listed.stdout); } catch { throw new Error("Tracker-wide idempotency lookup returned invalid JSON"); }
-	const candidates = Array.isArray(value) ? value : value && typeof value === "object" && Array.isArray((value as Record<string, unknown>).ticks) ? (value as Record<string, unknown>).ticks as unknown[] : undefined;
-	if (!candidates || candidates.length > 2_000) throw new Error("Tracker-wide idempotency lookup returned an invalid or oversized epic list");
-	for (const candidate of candidates) {
-		if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-		const id = (candidate as Record<string, unknown>).id;
+	const labels = markerLabels(key, "epic");
+	const byLabel = recoverCreatedByMarker(tk, root, env, labels, "requirements epic");
+	if (byLabel) return { epicId: byLabel, note: labels.join(",") };
+	const listed = requireSuccessful(runSubprocess(tk, ["list", "--type", "epic", "--all", "--json"], root, env), "Cannot perform tracker-wide idempotency lookup before creating a requirements epic");
+	for (const candidate of trackerRecords(listed.stdout, "Tracker-wide requirements epic idempotency lookup")) {
+		const id = candidate.id;
 		if (typeof id !== "string" || !SAFE_TICK_ID.test(id)) continue;
-		const embedded = (candidate as Record<string, unknown>).notes;
+		const embedded = candidate.notes;
 		const note = typeof embedded === "string" ? embedded.split(/\r?\n/).find((line) => line.includes("ticks-plan:") && line.includes(`key=${key}`)) : noteFor(id);
 		if (note) return { epicId: id, note };
 	}
 	return undefined;
 }
 
-function freshState(key: string, digest: string, planArtifact: string, targetKind: PlanningTarget["kind"]): PlanningApplyState {
-	return { version: 1, idempotencyKey: key, planDigest: digest, planArtifact, targetKind, status: "applying", clientToTick: {}, completedSteps: [], updatedAt: new Date().toISOString() };
+function freshState(key: string, target: PlanningTarget, digest: string, planArtifact: string, baseBranch: string, epicTitle: string): PlanningApplyState {
+	return { version: PLANNING_APPLY_STATE_VERSION, idempotencyKey: key, targetBinding: targetBinding(target), planDigest: digest, planArtifact, targetKind: target.kind, baseBranch, epicTitle, status: "applying", clientToTick: {}, completedSteps: [], updatedAt: new Date().toISOString() };
 }
 
 export type ApplyValidatedPlanInput = {
@@ -578,11 +704,15 @@ export type ApplyValidatedPlanInput = {
 	planArtifact: string;
 	applyStatePath: string;
 	repoIdentity: string;
+	stateRoot: string;
+	/** Existing recorded/recovered base; otherwise controller context derives it. */
+	baseBranch?: string;
 };
 
-function acquireApplyGuard(applyStatePath: string): () => void {
+function acquireApplyGuard(applyStatePath: string, stateRoot: string): () => void {
 	const guard = `${applyStatePath}.controller.lock`;
-	fs.mkdirSync(path.dirname(guard), { recursive: true, mode: 0o700 });
+	if (hasSymlinkBelow(stateRoot, guard)) throw new Error(`Unsafe symlinked planning apply guard: ${guard}`);
+	ensureSafePlanningDirectory(stateRoot, path.dirname(guard));
 	try { fs.mkdirSync(guard, { mode: 0o700 }); }
 	catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -595,44 +725,84 @@ function acquireApplyGuard(applyStatePath: string): () => void {
 	return () => fs.rmSync(guard, { recursive: true, force: true });
 }
 
-function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput): ApplyResult {
+function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranch: string }): ApplyResult {
 	const key = idempotencyKey(input.repoIdentity, input.target);
 	const digest = planDigest(input.plan);
-	const recoveredState = readApplyState(input.applyStatePath, key);
+	const binding = targetBinding(input.target);
+	const recoveredState = readApplyState(input.applyStatePath, key, binding, input.stateRoot);
 	let existingEpic = input.existingEpic;
 	if (!recoveredState && input.target.kind === "existing") existingEpic = inspectExistingEpic(input.root, input.tk, input.target.epicId, input.env);
 	if (!recoveredState) {
 		const prior = priorApplyMarker(input.tk, input.root, input.env, input.target, key);
 		if (prior) throw new Error(`Tracker epic ${prior.epicId} already carries idempotency marker ${key}, but local recovery mapping is unavailable; refusing a blind duplicate apply. Recover or inspect that epic explicitly.`);
 	}
-	let state = recoveredState ?? freshState(key, digest, input.planArtifact, input.target.kind);
-	if (state.targetKind !== input.target.kind || state.planDigest !== digest) throw new Error(`Recovery state ${input.applyStatePath} belongs to a different target or validated plan; refusing duplicate apply`);
-	if (state.epicId) verifyMappedTick(input.tk, input.root, input.env, state.epicId);
-	for (const tickId of Object.values(state.clientToTick)) verifyMappedTick(input.tk, input.root, input.env, tickId);
-	if (state.reviewId) verifyMappedTick(input.tk, input.root, input.env, state.reviewId);
-	if (state.closeoutId) verifyMappedTick(input.tk, input.root, input.env, state.closeoutId);
+	const epicTitle = recoveredState?.epicTitle ?? (input.target.kind === "requirements" ? input.plan.epic?.title : existingEpic?.title);
+	if (!epicTitle) throw new Error("Cannot bind planning apply state without the requested epic title");
+	let state = recoveredState ?? freshState(key, input.target, digest, input.planArtifact, input.baseBranch, epicTitle);
+	if (state.targetKind !== input.target.kind || state.targetBinding !== binding || state.planDigest !== digest || state.baseBranch !== input.baseBranch || state.epicTitle !== epicTitle) {
+		throw new Error(`Recovery state ${input.applyStatePath} belongs to a different target, epic title, base branch, or validated plan; refusing duplicate apply`);
+	}
+	const plannedClientIds = new Set(input.plan.tasks.map((task) => task.client_id));
+	const mappedEntries = Object.entries(state.clientToTick);
+	if (mappedEntries.some(([clientId]) => !plannedClientIds.has(clientId)) || new Set(mappedEntries.map(([, tickId]) => tickId)).size !== mappedEntries.length) {
+		throw new Error(`Recovery state ${input.applyStatePath} contains unknown or duplicate task mappings`);
+	}
+	const dependentState = mappedEntries.length || state.reviewId || state.closeoutId || state.completedSteps.length;
+	if (!state.epicId && dependentState) throw new Error(`Recovery state ${input.applyStatePath} contains task/process progress without its bound epic ID`);
+	if (state.status === "complete" && (!state.epicId || !state.reviewId || !state.closeoutId || input.plan.tasks.some((task) => !state.clientToTick[task.client_id])
+		|| !state.completedSteps.includes("record-base-branch") || !state.completedSteps.includes("record-idempotency")
+		|| input.plan.tasks.some((task) => !state.completedSteps.includes(`dependencies:${task.client_id}`)))) {
+		throw new Error(`Recovery state ${input.applyStatePath} claims completion without a complete bound epic/task/process mapping`);
+	}
+	const epicLabels = input.target.kind === "requirements" ? markerLabels(key, "epic") : undefined;
+	if (input.target.kind === "existing" && state.epicId && state.epicId !== input.target.epicId) throw new Error(`Recovery state epic ${state.epicId} does not match requested target ${input.target.epicId}`);
+	if (state.epicId) verifyMappedEntity(input.tk, input.root, input.env, {
+		id: state.epicId, title: state.epicTitle, type: "epic", labels: epicLabels, baseBranch: state.completedSteps.includes("record-base-branch") ? state.baseBranch : undefined,
+		noteMarker: state.completedSteps.includes("record-idempotency") ? `key=${key}` : undefined,
+	});
+	for (const task of input.plan.tasks) {
+		const tickId = state.clientToTick[task.client_id];
+		if (tickId) verifyMappedEntity(input.tk, input.root, input.env, { id: tickId, title: task.title, type: task.type, parent: state.epicId, labels: markerLabels(key, `client-${task.client_id}`) });
+	}
+	const reviewTitle = `Final review of ${state.epicTitle} diff`;
+	const closeoutTitle = `Close out ${state.epicTitle}: run epic retro, then plan the next feasible epic`;
+	if (state.reviewId) verifyMappedEntity(input.tk, input.root, input.env, { id: state.reviewId, title: reviewTitle, type: "task", parent: state.epicId, role: "review", labels: markerLabels(key, "review") });
+	if (state.closeoutId) verifyMappedEntity(input.tk, input.root, input.env, { id: state.closeoutId, title: closeoutTitle, type: "task", parent: state.epicId, role: "closeout", labels: markerLabels(key, "closeout") });
 	if (state.status === "complete") {
 		return { status: "applied", epicId: state.epicId, idempotencyKey: key, clientToTick: { ...state.clientToTick }, reviewId: state.reviewId, closeoutId: state.closeoutId, summary: `Plan ${key} is already complete and applied; no tracker mutation was repeated.` };
 	}
 	state.status = "applying";
 	state.error = undefined;
 	state.failedStep = undefined;
-	writeApplyState(input.applyStatePath, state);
+	writeApplyState(input.applyStatePath, state, input.stateRoot);
 	let commit: string | undefined;
 	let currentStep = "initialize";
 	let mutationAttempted = false;
 	try {
 		if (!state.epicId) {
 			if (input.target.kind === "existing") {
-				if (!existingEpic || existingEpic.id !== input.target.epicId) throw new Error(`Existing epic ${input.target.epicId} was not freshly verified as childless/plannable`);
+				if (!existingEpic || existingEpic.id !== input.target.epicId || existingEpic.title !== state.epicTitle) throw new Error(`Existing epic ${input.target.epicId} was not freshly verified as the requested childless/plannable epic`);
 				state.epicId = input.target.epicId;
 			} else {
 				if (!input.plan.epic) throw new Error("Validated new-epic plan has no epic metadata");
 				currentStep = "create-epic";
-				mutationAttempted = true;
-				state.epicId = parseCreatedId(tracker(input.tk, ["create", "--type=epic", `--description=${input.plan.epic.description}`, `--acceptance=${input.plan.epic.acceptance}`, "--json", "--", input.plan.epic.title], input.root, input.env), "tk create epic");
+				const labels = markerLabels(key, "epic");
+				state.epicId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "requirements epic");
+				if (!state.epicId) {
+					mutationAttempted = true;
+					state.epicId = parseCreatedId(tracker(input.tk, ["create", "--type=epic", `--description=${input.plan.epic.description}`, `--acceptance=${input.plan.epic.acceptance}`, `--labels=${labels.join(",")}`, "--json", "--", input.plan.epic.title], input.root, input.env), "tk create epic");
+				}
+				verifyMappedEntity(input.tk, input.root, input.env, { id: state.epicId, title: state.epicTitle, type: "epic", labels });
 			}
-			writeApplyState(input.applyStatePath, state);
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
+		}
+		currentStep = "record-base-branch";
+		if (!state.completedSteps.includes(currentStep)) {
+			mutationAttempted = true;
+			tracker(input.tk, ["update", state.epicId, "--base-branch", state.baseBranch], input.root, input.env);
+			verifyMappedEntity(input.tk, input.root, input.env, { id: state.epicId, title: state.epicTitle, type: "epic", labels: input.target.kind === "requirements" ? markerLabels(key, "epic") : undefined, baseBranch: state.baseBranch });
+			state.completedSteps.push(currentStep);
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		currentStep = "record-idempotency";
 		if (!state.completedSteps.includes(currentStep)) {
@@ -641,17 +811,21 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput): ApplyResult
 			if (notes.status === 0 && notes.stdout.includes("ticks-plan:") && !notes.stdout.includes(`key=${key}`)) throw new Error(`Epic ${state.epicId} already carries a different ticks-plan idempotency note; refusing to append tasks`);
 			if (notes.status !== 0 || !notes.stdout.includes(`key=${key}`)) tracker(input.tk, ["note", state.epicId, marker(key, `plan=${digest}`)], input.root, input.env);
 			state.completedSteps.push(currentStep);
-			writeApplyState(input.applyStatePath, state);
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		for (const task of input.plan.tasks) {
 			currentStep = `create:${task.client_id}`;
 			if (state.clientToTick[task.client_id]) continue;
-			mutationAttempted = true;
-			const args = ["create", `--description=${task.description}`, `--acceptance=${task.acceptance}`, `--priority=${task.priority}`, `--type=${task.type}`, `--parent=${state.epicId}`, `--labels=tier:${task.tier}`, "--json", "--", task.title];
-			const tickId = parseCreatedId(tracker(input.tk, args, input.root, input.env), `tk create ${task.client_id}`);
+			const labels = [...markerLabels(key, `client-${task.client_id}`), `tier:${task.tier}`];
+			let tickId = recoverCreatedByMarker(input.tk, input.root, input.env, labels.slice(0, 2), `task ${task.client_id}`);
+			if (!tickId) {
+				mutationAttempted = true;
+				const args = ["create", `--description=${task.description}`, `--acceptance=${task.acceptance}`, `--priority=${task.priority}`, `--type=${task.type}`, `--parent=${state.epicId}`, `--labels=${labels.join(",")}`, "--json", "--", task.title];
+				tickId = parseCreatedId(tracker(input.tk, args, input.root, input.env), `tk create ${task.client_id}`);
+			}
+			verifyMappedEntity(input.tk, input.root, input.env, { id: tickId, title: task.title, type: task.type, parent: state.epicId, labels: labels.slice(0, 2) });
 			state.clientToTick[task.client_id] = tickId;
-			writeApplyState(input.applyStatePath, state);
-			tracker(input.tk, ["note", tickId, marker(key, `client=${task.client_id}`)], input.root, input.env);
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		for (const task of input.plan.tasks) {
 			const tickId = state.clientToTick[task.client_id];
@@ -668,35 +842,43 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput): ApplyResult
 				tracker(input.tk, ["update", tickId, "--after", after.join(",")], input.root, input.env);
 			}
 			state.completedSteps.push(currentStep);
-			writeApplyState(input.applyStatePath, state);
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		if (!state.reviewId) {
 			currentStep = "create:review";
-			mutationAttempted = true;
-			const terminalIds = input.plan.terminalClientIds.map((clientId) => state.clientToTick[clientId]);
-			const title = `Final review of ${input.plan.epic?.title ?? existingEpic?.title ?? state.epicId} diff`;
-			const args = ["create", `--parent=${state.epicId}`, "--role=review", "--json"];
-			for (const tickId of terminalIds) args.push(`--blocked-by=${tickId}`);
-			args.push("--", title);
-			state.reviewId = parseCreatedId(tracker(input.tk, args, input.root, input.env), "tk create review");
-			writeApplyState(input.applyStatePath, state);
+			const labels = markerLabels(key, "review");
+			state.reviewId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "review process tick");
+			if (!state.reviewId) {
+				mutationAttempted = true;
+				const terminalIds = input.plan.terminalClientIds.map((clientId) => state.clientToTick[clientId]);
+				const args = ["create", `--parent=${state.epicId}`, "--role=review", `--labels=${labels.join(",")}`, "--json"];
+				for (const tickId of terminalIds) args.push(`--blocked-by=${tickId}`);
+				args.push("--", reviewTitle);
+				state.reviewId = parseCreatedId(tracker(input.tk, args, input.root, input.env), "tk create review");
+			}
+			verifyMappedEntity(input.tk, input.root, input.env, { id: state.reviewId, title: reviewTitle, type: "task", parent: state.epicId, role: "review", labels });
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		if (!state.closeoutId) {
 			currentStep = "create:closeout";
-			mutationAttempted = true;
-			const title = `Close out ${input.plan.epic?.title ?? existingEpic?.title ?? state.epicId}: run epic retro, then plan the next feasible epic`;
-			state.closeoutId = parseCreatedId(tracker(input.tk, ["create", `--parent=${state.epicId}`, "--role=closeout", `--blocked-by=${state.reviewId}`, "--json", "--", title], input.root, input.env), "tk create closeout");
-			writeApplyState(input.applyStatePath, state);
+			const labels = markerLabels(key, "closeout");
+			state.closeoutId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "closeout process tick");
+			if (!state.closeoutId) {
+				mutationAttempted = true;
+				state.closeoutId = parseCreatedId(tracker(input.tk, ["create", `--parent=${state.epicId}`, "--role=closeout", `--labels=${labels.join(",")}`, `--blocked-by=${state.reviewId}`, "--json", "--", closeoutTitle], input.root, input.env), "tk create closeout");
+			}
+			verifyMappedEntity(input.tk, input.root, input.env, { id: state.closeoutId, title: closeoutTitle, type: "task", parent: state.epicId, role: "closeout", labels });
+			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		state.status = "complete";
 		state.failedStep = undefined;
 		state.error = undefined;
-		writeApplyState(input.applyStatePath, state);
+		writeApplyState(input.applyStatePath, state, input.stateRoot);
 	} catch (error) {
 		state.status = "partial";
 		state.failedStep = currentStep;
 		state.error = error instanceof Error ? error.message : String(error);
-		writeApplyState(input.applyStatePath, state);
+		writeApplyState(input.applyStatePath, state, input.stateRoot);
 	} finally {
 		if (mutationAttempted) {
 			try { commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}`); }
@@ -704,7 +886,7 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput): ApplyResult
 				state.status = "partial";
 				state.failedStep = "commit-tracker-state";
 				state.error = error instanceof Error ? error.message : String(error);
-				writeApplyState(input.applyStatePath, state);
+				writeApplyState(input.applyStatePath, state, input.stateRoot);
 			}
 		}
 	}
@@ -730,9 +912,9 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput): ApplyResult
  * closed rather than racing or blindly recreating work.
  */
 export function applyValidatedPlan(input: ApplyValidatedPlanInput): ApplyResult {
-	controllerPreflight(input.root);
-	const release = acquireApplyGuard(input.applyStatePath);
-	try { return applyValidatedPlanUnlocked(input); }
+	const controller = controllerPreflight(input.root, input.baseBranch ?? input.existingEpic?.baseBranch);
+	const release = acquireApplyGuard(input.applyStatePath, input.stateRoot);
+	try { return applyValidatedPlanUnlocked({ ...input, baseBranch: controller.baseBranch }); }
 	finally { release(); }
 }
 
@@ -781,7 +963,7 @@ function plannerPrompt(target: PlanningTarget, existing: ExistingEpicDetail | un
   }]
 }`;
 	const scoutText = summaries.map((item) => `## Scout: ${item.id}\n${item.summary}`).join("\n\n").slice(0, MAX_SCOUT_SUMMARIES);
-	return `You are the frontier Ticks planner. Synthesize an implementation plan; do not explore or implement.\n\n${targetContext(target, existing)}\n\n## Project Testing\n${config.testingLines.join("\n") || "(none)"}\n\n## Project Rules\n${config.rules.join("\n") || "(none)"}\n\n## Tick authoring patterns\n${patterns}\n\n## Bounded scout summaries\n${scoutText}\n\nReturn ONLY one strict JSON object matching this schema exactly:\n${schema}\n\nRules:\n- 1-${MAX_PLAN_TASKS} implementation tasks, vertically sliced and independently useful; explicit shared-contract foundation tasks are allowed where necessary.\n- Every task is standalone, has concrete acceptance, at most 3 acceptance bullets, and lists likely files including lock/generated files.\n- client_id is unique and matches ${SAFE_ID}. Hard blocked_by and optional soft after refer only to client IDs. No cycles.\n- Same-wave tasks must have disjoint files; use hard dependencies for same-file conflicts. Soft order never resolves a conflict.\n- Do not output role, review, closeout, retro, shell, command, tracker, argv, roadmap, parent, or epic-order fields. The controller validates and adds the canonical process skeleton.\n- Do not add/remove/reorder roadmap epics.\n- Existing epic mode must omit epic. New requirements mode must include epic.\n- No Markdown fences or prose outside JSON.`;
+	return `You are the frontier Ticks planner. Synthesize an implementation plan; do not explore or implement.\n\n${targetContext(target, existing)}\n\n## Project Testing\n${config.testingLines.join("\n") || "(none)"}\n\n## Project Rules\n${config.rules.join("\n") || "(none)"}\n\n## Tick authoring patterns\n${patterns}\n\n## Bounded scout summaries\n${scoutText}\n\nReturn ONLY one strict JSON object matching this schema exactly:\n${schema}\n\nRules:\n- 1-${MAX_PLAN_TASKS} implementation tasks, vertically sliced and independently useful; explicit shared-contract foundation tasks are allowed where necessary.\n- Every task is standalone, has concrete prose-only acceptance, at most 3 acceptance bullets, and lists likely files including lock/generated files.\n- Acceptance must not contain backticks, code spans, or command snippets. Only controller-configured Testing commands may become executable verification evidence.\n- client_id is unique and matches ${SAFE_ID}. Hard blocked_by and optional soft after refer only to client IDs. No cycles.\n- Same-wave tasks must have disjoint files; use hard dependencies for same-file conflicts. Soft order never resolves a conflict.\n- Do not output role, review, closeout, retro, shell, command, tracker, argv, roadmap, parent, or epic-order fields. The controller validates and adds the canonical process skeleton.\n- Do not add/remove/reorder roadmap epics.\n- Existing epic mode must omit epic. New requirements mode must include epic.\n- No Markdown fences or prose outside JSON.`;
 }
 
 function artifactPaths(attemptDir: string, id: string): { dir: string; prompt: string; log: string; report: string } {
@@ -898,29 +1080,29 @@ export async function runAutomatedPlanning(options: AutomatedPlanningOptions): P
 		const usage = aggregateReports(reports);
 		emitDashboard(status === "cancelled" ? "cancelled" : "failed", stateById.has(plannerAgentId) ? 2 : 1, message);
 		const result: AutomatedPlanningResult = { status, mode, target: options.target, models, cost: usage.cost, usage, artifacts: paths, dashboard, summary: message, error: message };
-		try { atomicText(paths.report, planningReport(result)); } catch { /* Preserve original failure. */ }
+		try { atomicText(paths.report, planningReport(result), paths.stateRoot); } catch { /* Preserve original failure. */ }
 		return result;
 	};
 	try {
 		if (!scoutModel.model) return failed("scout_model is required in .tick/config.md or TICKS_PI_SCOUT_MODEL");
 		if (!plannerModel.model) return failed("planner_model is required in .tick/config.md or TICKS_PI_PLANNER_MODEL");
-		if (apply) controllerPreflight(root);
 		const key = idempotencyKey(identity, options.target);
-		const recovery = apply ? readApplyState(paths.applyState, key) : undefined;
+		const recovery = apply ? readApplyState(paths.applyState, key, targetBinding(options.target), paths.stateRoot) : undefined;
 		if (recovery) {
-			if (!path.resolve(recovery.planArtifact).startsWith(`${path.resolve(paths.planRoot)}${path.sep}`)) return failed("Apply recovery state references a plan outside its planning artifact root");
+			controllerPreflight(root, recovery.baseBranch);
+			if (!path.resolve(recovery.planArtifact).startsWith(`${path.resolve(paths.planRoot)}${path.sep}`) || hasSymlinkBelow(paths.stateRoot, recovery.planArtifact)) return failed("Apply recovery state references an unsafe plan outside its planning artifact root");
 			const plan = validatePlannerDocument(readJson(recovery.planArtifact), options.target.kind);
 			if (planDigest(plan) !== recovery.planDigest) return failed("Apply recovery plan artifact digest no longer matches recovery state");
-			if (options.target.kind === "existing") existing = { id: options.target.epicId, title: options.target.epicId, description: "recovered apply", acceptance: "recovered apply" };
-			const applied = applyValidatedPlan({ root, tk, env, target: options.target, existingEpic: existing, plan, planArtifact: recovery.planArtifact, applyStatePath: paths.applyState, repoIdentity: identity });
+			const applied = applyValidatedPlan({ root, tk, env, target: options.target, existingEpic: existing, plan, planArtifact: recovery.planArtifact, applyStatePath: paths.applyState, repoIdentity: identity, stateRoot: paths.stateRoot, baseBranch: recovery.baseBranch });
 			const usage = emptyUsage();
 			emitRecoveryDashboard(applied.status === "applied" ? "completed" : "failed", applied.summary);
 			const result: AutomatedPlanningResult = { status: applied.status, mode, target: options.target, plan, epicId: applied.epicId, models, cost: 0, usage, artifacts: { ...paths, validatedPlan: recovery.planArtifact }, apply: applied, dashboard, summary: applied.summary };
-			atomicText(paths.report, planningReport(result));
+			atomicText(paths.report, planningReport(result), paths.stateRoot);
 			return result;
 		}
 		if (options.target.kind === "existing") existing = inspectExistingEpic(root, tk, options.target.epicId, env);
-		fs.mkdirSync(paths.attemptDir, { recursive: true, mode: 0o700 });
+		if (apply) controllerPreflight(root, existing?.baseBranch);
+		ensureSafePlanningDirectory(paths.stateRoot, paths.attemptDir);
 		emitDashboard("running", 1);
 		let next = 0;
 		const summaries: Array<{ id: string; summary: string }> = new Array(definitions.length);
@@ -931,7 +1113,7 @@ export async function runAutomatedPlanning(options: AutomatedPlanningOptions): P
 				const definition = definitions[index];
 				const id = `scout-${definition.id}`;
 				const artifacts = artifactPaths(paths.attemptDir, id);
-				atomicText(artifacts.prompt, scoutPrompt(definition, options.target, existing, config));
+				atomicText(artifacts.prompt, scoutPrompt(definition, options.target, existing, config), paths.stateRoot);
 				const invocation = createPiInvocation({ executable: options.piExecutable, scriptPath: options.piScriptPath, prompt: `@${artifacts.prompt}`, provider: scoutModel.provider, model: scoutModel.model, thinking: scoutModel.thinking, tools: SCOUT_TOOLS, extraArgs: ["--no-extensions"] });
 				const report = await superviseChild({ tickId: id, invocation, cwd: root, artifacts: { log: artifacts.log, report: artifacts.report }, env, signal: options.signal, selectedTier: "scout", tierReason: "read-only bounded automated-planning scout", onSnapshot: (state) => { stateById.set(id, state); emitDashboard(options.signal?.aborted ? "cancelled" : "running", 1); } });
 				reports.push(report);
@@ -947,14 +1129,14 @@ export async function runAutomatedPlanning(options: AutomatedPlanningOptions): P
 		if (summaries.some((summary) => !summary?.summary)) return failed("One or more scouts returned no bounded summary; planner was not launched and tracker was not mutated.");
 		emitDashboard("running", 2);
 		const plannerArtifacts = artifactPaths(paths.attemptDir, plannerAgentId);
-		atomicText(plannerArtifacts.prompt, plannerPrompt(options.target, existing, config, readBundledPatterns(root), summaries));
+		atomicText(plannerArtifacts.prompt, plannerPrompt(options.target, existing, config, readBundledPatterns(root), summaries), paths.stateRoot);
 		const invocation = createPiInvocation({ executable: options.piExecutable, scriptPath: options.piScriptPath, prompt: `@${plannerArtifacts.prompt}`, provider: plannerModel.provider, model: plannerModel.model, thinking: "xhigh", tools: PLANNER_TOOLS, extraArgs: ["--no-extensions"] });
 		const plannerReport = await superviseChild({ tickId: plannerAgentId, invocation, cwd: root, artifacts: { log: plannerArtifacts.log, report: plannerArtifacts.report }, env, signal: options.signal, selectedTier: "planner", tierReason: "frontier planner_model with xhigh reasoning", onSnapshot: (state) => { stateById.set(plannerAgentId, state); emitDashboard(options.signal?.aborted ? "cancelled" : "running", 2); } });
 		reports.push(plannerReport);
 		reportById.set(plannerAgentId, plannerReport);
 		if (options.signal?.aborted || plannerReport.outcome === "cancelled") return failed("Automated planning cancelled during synthesis; tracker was not mutated.", "cancelled");
 		if (plannerReport.outcome !== "success") return failed(`Frontier planner failed (${plannerReport.reason}); tracker was not mutated.`);
-		atomicText(paths.plannerOutput, plannerReport.finalOutput ?? "");
+		atomicText(paths.plannerOutput, plannerReport.finalOutput ?? "", paths.stateRoot);
 		let plan: ValidatedPlanningPlan;
 		try {
 			plan = parsePlannerOutput(plannerReport.finalOutput ?? "", options.target.kind);
@@ -963,19 +1145,19 @@ export async function runAutomatedPlanning(options: AutomatedPlanningOptions): P
 			verification.push({ label: "strict planner schema, dependencies, vertical acceptance, and wave file safety", status: "failed", detail: error instanceof Error ? error.message : String(error), artifact: paths.plannerOutput });
 			return failed(`Planner output rejected before tracker mutation: ${error instanceof Error ? error.message : String(error)}`);
 		}
-		atomicText(paths.validatedPlan, `${JSON.stringify(plannerDocument(plan), null, 2)}\n`);
+		atomicText(paths.validatedPlan, `${JSON.stringify(plannerDocument(plan), null, 2)}\n`, paths.stateRoot);
 		const usage = aggregateReports(reports);
 		let applyResult: ApplyResult | undefined;
 		let status: AutomatedPlanningResult["status"] = "dry-run";
 		let summary = `MODEL-RUNNING DRY-RUN: ${reports.length} model processes completed and cost $${usage.cost.toFixed(4)}; validated ${plan.tasks.length} tasks. Tracker mutation count: zero. Use --apply for controller-owned creation.`;
 		if (apply) {
-			applyResult = applyValidatedPlan({ root, tk, env, target: options.target, existingEpic: existing, plan, planArtifact: paths.validatedPlan, applyStatePath: paths.applyState, repoIdentity: identity });
+			applyResult = applyValidatedPlan({ root, tk, env, target: options.target, existingEpic: existing, plan, planArtifact: paths.validatedPlan, applyStatePath: paths.applyState, repoIdentity: identity, stateRoot: paths.stateRoot });
 			status = applyResult.status;
 			summary = applyResult.summary;
 		}
 		emitDashboard(status === "dry-run" || status === "applied" ? "completed" : "failed", 2);
 		const result: AutomatedPlanningResult = { status, mode, target: options.target, plan, epicId: applyResult?.epicId ?? existing?.id, models, cost: usage.cost, usage, artifacts: paths, apply: applyResult, dashboard, summary };
-		atomicText(paths.report, planningReport(result));
+		atomicText(paths.report, planningReport(result), paths.stateRoot);
 		return result;
 	} catch (error) {
 		return failed(error instanceof Error ? error.message : String(error), options.signal?.aborted ? "cancelled" : "failed");
