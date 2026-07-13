@@ -1,0 +1,18 @@
+{
+  "id": "w8v",
+  "title": "Execute EPIC-SKELETON review and closeout in Pi runner",
+  "description": "Final review blocker: a compliant epic always stops at review/closeout and missing skeletons are only reported. Add safe skeleton repair before implementation, dedicated read-only frontier final review, finding repair routing, epic outside-in verification, retro/closeout behavior, and autonomous checkpoint propagation while keeping tracker writes controller-owned.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "7m3"
+  ],
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Fixture and disposable-real tracker tests show missing skeleton roles repaired, review tick executed without ordinary write tools, blocker findings route repair, closeout verifies epic acceptance and closes only on success, and autonomous mode affects checkpoint selection but never bypasses other gates.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.749385Z",
+  "updated_at": "2026-07-13T09:56:45.749385Z"
+}

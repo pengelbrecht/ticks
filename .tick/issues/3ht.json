@@ -1,0 +1,18 @@
+{
+  "id": "3ht",
+  "title": "Harden cancellation, status semantics, and capability routing",
+  "description": "Address final-review should-fix findings: terminate child process trees, await shutdown settlement where possible, classify awaiting/failed/completed manifests and in_progress as active status correctly, and implement deterministic economy/balanced/strong routing from explicit tick metadata/shape without pretending unavailable roles work.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "f2m"
+  ],
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Cancellation kills fixture descendants; status distinguishes active/awaiting/failed/completed cleanup debt; in_progress counts as running; ordinary tick routing can select economy/balanced/strong deterministically with tests and documented policy.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.698504Z",
+  "updated_at": "2026-07-13T09:56:45.698504Z"
+}
