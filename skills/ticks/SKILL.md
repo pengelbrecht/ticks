@@ -59,13 +59,22 @@ git check-ignore .tick/
 
 **5. Per-project runner config (`.tick/config.md`):**
 
-Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Three recognized sections:
+Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give the runner reliable, project-specific guidance. Sections are **delivery addresses, not topics**: each recognized name is wired to exactly one consumption point — who reads it, when, and into whose context it goes. Content within a section is free-form.
 
-- **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
-- **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
-- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
+| Section | Consumer | When | Context cost |
+|---|---|---|---|
+| `## Testing` | implementers + orchestrator | per tick; wave-end verification | every implementer prompt — keep surgical |
+| `## Environment` | orchestrator | once, before wave 1 — executable pre-flight checks (CLI tools present, services up). Write commands that *verify* the condition, never instructions to ask the human. *Test, don't ask.* | once per run |
+| `## Rules` | every implementer | inlined verbatim in each implementer prompt (naming conventions, forbidden patterns, required review steps) | **N× per run — keep lean** |
+| `## At wave end` | orchestrator | after each wave's merges land and the test suite runs | once per wave |
+| `## At epic close-out` | orchestrator | during the epic-close retro — extra steps and/or a durable report destination | once per epic |
+| `## At project checkpoint` | orchestrator | when a project boundary stops — completion-report steps/destination | once per project |
 
-**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads it at run start; implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
+The three `At …` sections are **orchestrator-only** — never inlined into implementer prompts, so they carry zero per-agent context tax. They exist so a project can hook its own steps (a release tag, a history file, a report) onto boundaries the runner already reaches, instead of forking the skill. `references/agent-runner.md` wires each section into the loop.
+
+**Absent or empty sections are no-ops.** An unrecognized `##` heading is also a no-op — so a typo is silent. The orchestrator lists any unrecognized headings it finds at run start rather than ignoring them quietly.
+
+**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator re-reads the file at each consumption point (run start, wave end, close-out, checkpoint); implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
 
 **Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
 

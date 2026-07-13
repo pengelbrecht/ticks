@@ -56,7 +56,8 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
       Never use a bare `tk close`.
    e. When the whole wave is merged, run the project's test suite on the integrated tree
-   f. When the wave is integrated and green, go to the next wave
+   f. Re-read .tick/config.md and run any steps in `At wave end` (no-op if absent)
+   g. When the wave is integrated and green, go to the next wave
 4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
@@ -92,13 +93,21 @@ Both meta-ticks are owned by the orchestrator, not by implementer subagents. The
 
 ### Run-start: reading `.tick/config.md`
 
-Before calling `tk graph`, read `.tick/config.md` (if present). It contains up to three sections:
+Before calling `tk graph`, read `.tick/config.md` (if present). Its sections are lifecycle-addressed — each recognized name is wired to exactly one consumption point (full table in SKILL.md → *Per-project runner config*). Consumed now, at run start:
 
-- **Testing** — the exact test commands to pass on to implementers.
+- **Testing** — the exact test commands to pass on to implementers and to run at wave-end verification.
 - **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop; don't start a wave on a broken environment.
 - **Rules** — project-specific constraints to include verbatim in every implementer prompt.
 
-**Read it fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the file from the worktree each time you start or resume a run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
+Consumed later in the loop, by the orchestrator only — never inlined into implementer prompts:
+
+- **`At wave end`** — extra steps after each wave's merges land and the test suite has run (loop step 3f).
+- **`At epic close-out`** — extra retro steps and/or a durable destination for the retro report (see "Epic-close retro", steps 6–7).
+- **`At project checkpoint`** — steps and/or a durable destination for the completion report written at a project boundary stop (see "Discipline rules").
+
+Absent or empty sections are no-ops; so is an unrecognized `##` heading, which makes a mistyped section name silent. List any unrecognized headings you find at run start instead of ignoring them.
+
+**Re-read the file at each consumption point** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session or an earlier boundary; the orchestrator session spans epics, and config may change mid-run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
 
 **Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, or `pi:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
@@ -112,7 +121,7 @@ These rules complement the "run continuously" guidance above. Name them internal
 - **No known-failure closes.** A tick cannot close with failing acceptance criteria. There is no "close with known issues" state — it passes, or it stays open/blocked/awaiting.
 - **Name the stall instinct.** Completing a large body of work triggers the instinct to summarize and hand control back. Epic boundaries with a close-out tick are waypoints, not stopping points. The "run continuously" rule above is the explicit counter to this instinct.
 - **Recursive continuation frontier.** The continuation engine ascends the project tree. Within a project, epic→epic boundaries auto-continue: when one epic closes, the next feasible epic in soft order begins immediately (skipping hard-blocked or gated epics). When every epic inside a project is done, the engine reaches the **project boundary**.
-- **Project checkpoint (default: stop).** A project boundary stops for a human checkpoint by default. The project's close-out tick carries `--awaiting checkpoint`, so `tk next` surfaces it as `action: await` and the run pauses for a human to look before the next project begins. Epic→epic boundaries within a project are unaffected — they still auto-continue. The planning fallback also surfaces completed projects via `CompletedProjectsNeedingCloseout` when all leaf descendants are closed but the project tick is still open.
+- **Project checkpoint (default: stop).** A project boundary stops for a human checkpoint by default. The project's close-out tick carries `--awaiting checkpoint`, so `tk next` surfaces it as `action: await` and the run pauses for a human to look before the next project begins. Before yielding, re-read `.tick/config.md` → `At project checkpoint` and execute its steps; if it names a report destination, write the completion report there as a durable file (no-op if the section is absent). Epic→epic boundaries within a project are unaffected — they still auto-continue. The planning fallback also surfaces completed projects via `CompletedProjectsNeedingCloseout` when all leaf descendants are closed but the project tick is still open.
 - **Autonomous mode (global override).** Pass `--autonomous` to `tk next`, or set `policy.autonomous_mode: true` in `.tick/config.json`, to flow through ALL project checkpoints hands-off. Autonomous mode bypasses **only** `awaiting: checkpoint` boundaries; approval, input, review, content, escalation, and work gates are never bypassed.
 - **Per-project auto-continue (convention).** To let one project boundary flow through without enabling global autonomous mode, omit the `--awaiting checkpoint` on that project's close-out tick. The engine then auto-continues across that boundary the same way it does for epic→epic transitions.
 
@@ -314,7 +323,7 @@ Before closing the epic, run the **Epic-close retro** (see below). Write the ret
 
 ## Epic-close retro
 
-The retro runs inside every epic close-out task, **before** the `tk close` call. It takes 6 steps.
+The retro runs inside every epic close-out task, **before** the `tk close` call. It takes 7 steps.
 
 ### `.tick/learnings.md` — format and conventions
 
@@ -398,12 +407,16 @@ For very large epics, this step can be fanned out with the harness's parallel re
 
 #### 6. Retro report
 
-Write a short summary as the epic's close reason or as a note on the epic tick. Include:
+Write a short summary. If `.tick/config.md` → `At epic close-out` names a report destination, write the full report there as a durable file and keep a one-line summary as the close reason; otherwise write it as the epic's close reason or as a note on the epic tick. Include:
 
 - Learnings promoted, by destination (a few bullet points per tier that received anything).
 - Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
 - Drift found and cleanup ticks created (or "none").
 - Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
+
+#### 7. Configured close-out steps
+
+Re-read `.tick/config.md` → `At epic close-out` and execute any remaining steps it lists — e.g. update a project-history file, audit project docs, tag the release. No-op if the section is absent or empty. These steps are part of the retro: run them before the `tk close` on the epic. They are orchestrator work; never delegate them to an implementer prompt.
 
 ---
 
@@ -417,7 +430,7 @@ Re-entry is just re-invoking the skill. Before starting the first wave, run the 
 | `action: plan` | Flesh the epic out into ticks (SKILL.md Big picture guidance + foundation-first procedure) |
 | `action: await` (non-checkpoint) | Route to the human — something is waiting on a decision or approval |
 | `action: await` (checkpoint, autonomous mode on) | Project boundary: auto-continue without stopping — `tk next --autonomous` flows through it |
-| `action: await` (checkpoint, autonomous mode off) | Project boundary: write a progress report and stop for human sign-off before the next project begins |
+| `action: await` (checkpoint, autonomous mode off) | Project boundary: run `At project checkpoint` config steps (report destination, if named), write the progress report, and stop for human sign-off before the next project begins |
 | Final-review tick unblocked (`role: review` in the JSON) | Review the epic's full diff (reviewer subagent for substantial epics) |
 | Close-out tick unblocked (`role: closeout` in the JSON) | Run the epic-close retro, then continue into the next feasible epic in soft order (skip hard-blocked or gated epics); if the frontier reaches a project boundary, apply the checkpoint rule above |
 | `tk next` returns nothing and all roadmap epics are closed | Roadmap end: write a completion report and stop |
@@ -516,7 +529,7 @@ Epic: <epic-title> (<epic-id>)
 
 ## Instructions
 1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
-2. Read `.tick/config.md` (if present) — test commands and project-specific rules for implementers.
+2. Read `.tick/config.md` (if present) — the `Testing` and `Rules` sections apply to you; the orchestrator-only `At …` sections do not.
 3. Read the repository instruction file used by your harness (`AGENTS.md`, `CLAUDE.md`, or equivalent) and any nested instruction files that apply.
 4. Read the relevant existing code before changing anything.
 5. Implement the task test-first: write the failing test, then make it pass.
