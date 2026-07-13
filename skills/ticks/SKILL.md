@@ -57,14 +57,29 @@ git check-ignore .tick/
 # If it returns ".tick/", remove the entry from .gitignore
 ```
 
-**5. Per-project runner config (`.tick/config.md`):**
+### Project files the runner uses
+
+Everything a run knows lives in exactly one of four homes — three files in the tracked `.tick/` directory, plus the tracker itself:
+
+| Home | Nature | Written by |
+|---|---|---|
+| `.tick/config.md` | **Declared** — the project's method, and facts the repo cannot reveal | humans |
+| `.tick/profile.md` | **Inferred** — how this repo builds, runs, and tests | the orchestrator |
+| `.tick/learnings.md` | **Learned** — operational gotchas for future implementers | the epic-close retro |
+| tick data (via `tk`) | **Live** — scope, status, dependencies, notes | the orchestrator only |
+
+**`.tick/profile.md` (inferred — never hand-authored).** At run start the orchestrator characterizes how the project builds, runs, and tests, and maintains the result across runs: the worktree **setup recipe** and the **test-tier→venue map** (which tiers verify in-worktree in parallel vs post-merge serially). These are the same two facts `config.md` lets a human declare — the profile just derives them so nobody has to. Safety-biased: a tier is routed in-worktree only on positive evidence of isolation. Re-derived only when its inputs change (lockfile hash, test-harness config); near-free otherwise. `.tick/config.md` **overrides** it — for facts the repo cannot reveal (an out-of-repo staging DB, a rate-limited API), or to correct a confirmed mis-inference. See `references/agent-runner.md` → "Project execution profile (`.tick/profile.md`)".
+
+**`.tick/learnings.md` (learned).** Short Problem → Cause → Rule entries for future implementers — test quirks, environment traps, recurring build issues. Every implementer reads it in full, so it carries a **hard 150-line cap**; the epic-close retro adds, merges, and prunes entries (`references/agent-runner.md` → "Epic-close retro").
+
+**`.tick/config.md` (declared).**
 
 Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give the runner reliable, project-specific guidance. Sections are **delivery addresses, not topics**: each recognized name is wired to exactly one consumption point — who reads it, when, and into whose context it goes. Content within a section is free-form.
 
 | Section | Consumer | When | Context cost |
 |---|---|---|---|
 | `## Testing` | implementers + orchestrator | per tick; wave-end verification. Mark any tier that must run **post-merge** (it shares a singleton — one test DB, a fixed port) so it isn't run concurrently in worktrees | every implementer prompt — keep surgical |
-| `## Worktree setup` | implementers (or orchestrator) | before implementation starts in a fresh worktree — the commands that make it *runnable* (dependency dirs are gitignored, so a bare worktree cannot build or test) | once per worktree |
+| `## Worktree setup` | implementers (or orchestrator) | before implementation starts in a fresh worktree — the commands that make it *runnable*. Optional: the profile infers this. Declare it here to override a wrong inference | once per worktree |
 | `## Environment` | orchestrator | once, before wave 1 — executable pre-flight checks (CLI tools present, services up). Write commands that *verify* the condition, never instructions to ask the human. *Test, don't ask.* | once per run |
 | `## Rules` | every implementer | inlined verbatim in each implementer prompt (naming conventions, forbidden patterns, required review steps) | **N× per run — keep lean** |
 | `## At wave end` | orchestrator | after each wave's merges land and the test suite runs | once per wave |

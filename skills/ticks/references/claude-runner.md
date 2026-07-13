@@ -48,7 +48,7 @@ Agent(
 
 The harness creates the worktree **at agent launch**, so the orchestrator cannot provision it beforehand. Two resolutions of the shared protocol's provisioning step (`agent-runner.md` → "Provisioning: runnable worktrees"):
 
-- **Default: implementer self-provisions.** The shared prompt template's step 3 handles it — the agent applies `.tick/config.md` → `## Worktree setup` as its first action, before touching code.
+- **Default: implementer self-provisions.** The shared prompt template's step 3 handles it — the agent applies the profile's recipe as its first action, before touching code. This requires the recipe to already exist in a **committed** `.tick/profile.md` (discovered solo at run start, loop step 1), or the wave's agents will each rediscover it.
 - **Alternative: orchestrator-created worktrees.** When provisioning must precede the agent (heavy setup, private resources, or you want to verify runnability before paying for a dispatch), create the worktree yourself with the shared deterministic naming (`../.ticks-worktrees/<tick-id>`), provision it, then dispatch a normal `Agent` **without** `isolation: "worktree"` and point its prompt at that directory and branch.
 
 Watch the concurrency cost: N simultaneous full dependency installs can thrash disk and network — prefer setup recipes that share immutable state safely from the main checkout, and remember the shared-deps **no-install** boundary. Do NOT let a provisioning failure silently degrade the run to shared-tree sequential execution — that forfeits the wave's parallelism, which is the point of isolation. Fix the recipe, or fall back deliberately and note it.
