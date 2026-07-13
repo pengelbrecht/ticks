@@ -1,6 +1,6 @@
 ---
 name: ticks
-description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticker, epic, close the task, plan this, break this down.
+description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticks, epic, close the task, plan this, break this down.
 ---
 
 # Ticks Workflow
@@ -97,17 +97,23 @@ If there are gaps, close them through conversation: let the user describe the fu
 
 Once you can answer the questions above, proceed to creating ticks.
 
-## Creating Good Tasks
+### Step 3: Create Ticks from Requirements
 
-**Every task should be an atomic, committable piece of work with tests.**
+**Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
 
-The ideal task:
+Transform the gathered requirements into ticks organized by epic. (In `tk`, `task` is simply the default tick *type*; this skill says "tick" for any tracker item.)
+
+#### What a good tick looks like
+
+**Every tick is an atomic, committable piece of work with tests.**
+
+The ideal tick:
 - Has a clear, single deliverable
 - Can be verified by running tests
 - Results in demoable software that builds on previous work
 - Is completable in 1-3 agent iterations
 
-**Good task:**
+A good tick:
 ```bash
 tk create "Add email validation to registration" \
   -d "Validate email format on blur, show error below input.
@@ -122,19 +128,13 @@ Run: go test ./internal/validation/..." \
   --parent <epic-id>
 ```
 
-**Bad task:**
+A bad tick:
 ```bash
 tk create "Add email validation" -d "Make sure emails are valid"
 # No test cases, no verification criteria - agent will guess
 ```
 
 Run the **Definition of Ready** checklist in `references/tick-patterns.md` against each tick before creating it; see that file for the full patterns.
-
-### Step 3: Create Ticks from Requirements
-
-**Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
-
-Transform the gathered requirements into ticks organized by epic.
 
 ### Big picture — roadmaps, projects, and dates
 
@@ -343,7 +343,7 @@ tk blocked  # See what's waiting
 
 Walk the user through each blocking task, then close it:
 ```bash
-tk close <id> --reason "Completed - connection string in .env"
+tk close <id> --reason "Completed: connection string in .env"
 ```
 
 ### Step 5: Run the Epic
@@ -357,8 +357,6 @@ Execute the epic from the current harness. Read **`references/agent-runner.md`**
 5. Run the test suite on the merged tree, then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
-
-> Ticks previously shipped a standalone runner (`tk run`). It has been removed; execution now goes through a supported harness adapter.
 
 ## Quick Reference
 

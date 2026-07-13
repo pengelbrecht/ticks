@@ -10,9 +10,9 @@ This is the runner-neutral execution contract. **Before reading further, identif
 | Claude Code | [`claude-runner.md`](claude-runner.md) |
 | Pi | [`pi-runner.md`](pi-runner.md) |
 
-Read this file first, then the matching adapter. The adapter maps every capability in this doc to the primitives your harness actually provides.
+Read this file first, then the matching adapter. The adapter maps every capability in this doc to the primitives your harness actually provides. Vocabulary: the **harness** is the coding-agent product you run in (Claude Code, Codex, Pi); the **runner** is the orchestration role this protocol defines — runner-neutral means any harness can play it through its adapter.
 
-Ticks previously shipped a standalone `tk run`; it has been removed. The harness is now the orchestrator, while git and `.tick/` are the durable coordination layer.
+The harness plays the orchestrator; git and `.tick/` are the durable coordination layer.
 
 ## Mental model
 
@@ -86,7 +86,7 @@ The `--role` flag is what makes the skeleton machine-detectable: `tk graph <epic
 
 **Final-review tick** — its work is to review the epic's full diff (run a reviewer subagent for substantial epics, per the "Reviewing the work" section above) and resolve or route any findings before the close-out tick unblocks.
 
-**Close-out tick** — this is the existing close-out convention (retro + plan the next *feasible* epic in soft order; hard-blocked or gated epics are skipped). It is defined in SKILL.md's Big picture section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
+**Close-out tick** — runs the epic retro, then plans the next *feasible* epic in soft order (hard-blocked or gated epics are skipped). Its full semantics live in SKILL.md's Big picture section; do not redefine them here. Structurally, it always has the final-review tick as its formal predecessor, and both are created at planning time.
 
 Both meta-ticks are owned by the orchestrator, not by implementer subagents. They follow the same integrator–tick-state invariant: only the orchestrator runs `tk`; implementers never touch `.tick/`.
 
@@ -144,13 +144,13 @@ Planning is the highest-leverage step in an epic run. A flawed implementation ti
 
 **Always synthesize plans at frontier tier** regardless of the orchestrating session's tier. If the harness supports nested or parallel read-only agents, use cheap exploration agents to map subsystems and let the frontier planner synthesize their findings. Otherwise the frontier planner performs exploration directly.
 
-1. The frontier planner spawns N cheapest-tier sub-agents in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
+1. The frontier planner spawns N sub-agents at the cheapest capability tier in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
 2. The frontier planner synthesizes the summaries into the tick structure: partitioning, wave grouping, dependency graph, contracts-first ordering.
 3. The planning agent returns the full tick list for the orchestrator to create with `tk`.
 
 This keeps planning quality independent of the session model whenever the harness can dispatch a separate planner.
 
-**Exploration sub-agents:** fastest/cheapest tier. Read-only, stateless, essentially enhanced grep. A more capable model adds no value here.
+**Exploration sub-agents:** fastest/cheapest capability tier. Read-only, stateless, essentially enhanced grep. A more capable model adds no value here.
 
 **Synthesis:** frontier tier. Architectural judgment is concentrated here — what contracts need defining first, what can run in parallel, where the risky bets are, what the critical path is.
 
