@@ -90,6 +90,20 @@ async function repoRoot(cwd: string): Promise<string> {
 	return result.stdout.trim() || cwd;
 }
 
+async function repoIdentity(root: string): Promise<string> {
+	const remote = await run("git", ["config", "--get", "remote.origin.url"], root);
+	if (remote.code === 0 && remote.stdout.trim()) return remote.stdout.trim();
+	const commonDir = await run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], root);
+	return commonDir.code === 0 && commonDir.stdout.trim() ? commonDir.stdout.trim() : root;
+}
+
+async function durableStateRoot(root: string): Promise<string> {
+	const commonDir = await run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], root);
+	const gitDir = commonDir.code === 0 ? commonDir.stdout.trim() : "";
+	const primaryRoot = path.basename(gitDir) === ".git" ? path.dirname(gitDir) : root;
+	return path.resolve(path.dirname(primaryRoot), ".ticks-worktrees");
+}
+
 async function buildDryPlan(cwd: string, epicId: string, worktrees: boolean): Promise<RunDryPlan> {
 	const root = await repoRoot(cwd);
 	const result = await run("tk", ["graph", epicId, "--json"], root);
@@ -102,8 +116,9 @@ async function buildDryPlan(cwd: string, epicId: string, worktrees: boolean): Pr
 		graph,
 		config,
 		repoRoot: root,
+		repoIdentity: await repoIdentity(root),
 		epicId,
-		stateDir: path.resolve(path.dirname(root), ".ticks-worktrees"),
+		stateRoot: await durableStateRoot(root),
 		worktrees,
 	});
 }

@@ -15,6 +15,6 @@ Current scaffold status:
 
 - Registers all slash commands.
 - Loads `tk graph <epic> --json` for dry-run planning.
-- Computes branch/worktree/prompt/report/log names for ready ticks.
+- Derives a durable repository identity and computes repo-namespaced run manifests plus collision-resistant branch/worktree/prompt/report/log paths for ready ticks.
 - Renders a textual status/dashboard model and a simple TUI overlay.
 - Does not yet launch child implementer agents or merge worktrees.

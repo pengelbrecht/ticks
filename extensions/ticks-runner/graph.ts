@@ -1,6 +1,6 @@
-import * as path from "node:path";
 import type { RunnerConfig } from "./config.ts";
 import { modelForTier, taskTier } from "./config.ts";
+import { planRunPaths, type RunPaths } from "./state.ts";
 
 export type GraphTask = {
 	id: string;
@@ -54,6 +54,7 @@ export type WorkPlan = {
 	tickId: string;
 	branch: string;
 	worktree: string;
+	artifactDir: string;
 	prompt: string;
 	report: string;
 	log: string;
@@ -63,7 +64,9 @@ export type WorkPlan = {
 
 export type RunDryPlan = {
 	repoRoot: string;
+	repoIdentity: string;
 	epicId: string;
+	durablePaths: RunPaths;
 	epicTitle?: string;
 	readyWave?: number;
 	stats: GraphStats | undefined;
@@ -137,43 +140,44 @@ export function buildPreflight(graph: GraphResult, config: RunnerConfig): Prefli
 	};
 }
 
-function sanitizeSegment(value: string): string {
-	return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
-}
-
 export function buildRunPlan(options: {
 	graph: GraphResult;
 	config: RunnerConfig;
 	repoRoot: string;
+	repoIdentity: string;
 	epicId: string;
-	stateDir: string;
+	stateRoot?: string;
 	worktrees: boolean;
 }): RunDryPlan {
-	const { graph, config, repoRoot, epicId, stateDir, worktrees } = options;
+	const { graph, config, repoRoot, repoIdentity, epicId, stateRoot, worktrees } = options;
 	const wave = firstReadyWave(graph);
 	const readyTasks = (wave?.tasks ?? []).filter((task) => task.agent_ready !== false && task.status !== "closed");
 	const caps = [readyTasks.length];
 	if (config.maxParallel !== undefined) caps.push(config.maxParallel);
 	if (graph.stats?.max_parallel !== undefined && graph.stats.max_parallel > 0) caps.push(graph.stats.max_parallel);
 	const maxParallel = readyTasks.length === 0 ? 0 : Math.min(...caps);
-	const safeEpic = sanitizeSegment(epicId);
-	const workPlans = readyTasks.map((task) => {
+	const durablePaths = planRunPaths({
+		repoRoot,
+		repoIdentity,
+		epicId,
+		tickIds: readyTasks.map((task) => task.id),
+		stateRoot,
+	});
+	const workPlans = readyTasks.map((task, index) => {
 		const tier = taskTier(task);
-		const safeTick = sanitizeSegment(task.id);
+		const durable = durablePaths.ticks[index];
 		return {
-			tickId: task.id,
-			branch: `tick/${safeEpic}/${safeTick}`,
-			worktree: worktrees ? path.join(stateDir, safeTick) : repoRoot,
-			prompt: path.join(stateDir, `${safeTick}.prompt.md`),
-			report: path.join(stateDir, `${safeTick}.report.md`),
-			log: path.join(stateDir, `${safeTick}.jsonl`),
+			...durable,
+			worktree: worktrees ? durable.worktree : durablePaths.repoRoot,
 			model: modelForTier(config, tier),
 			tier,
 		};
 	});
 	return {
-		repoRoot,
+		repoRoot: durablePaths.repoRoot,
+		repoIdentity: durablePaths.repoIdentity,
 		epicId,
+		durablePaths,
 		epicTitle: graph.epic?.title,
 		readyWave: wave?.wave,
 		stats: graph.stats,
@@ -193,6 +197,8 @@ export function formatDryPlan(plan: RunDryPlan): string {
 	lines.push(`# /ticks-run dry run: ${plan.epicId}`);
 	if (plan.epicTitle) lines.push(`Epic: ${plan.epicTitle}`);
 	lines.push(`Repo: ${plan.repoRoot}`);
+	lines.push(`Repo identity: ${plan.repoIdentity}`);
+	lines.push(`Run manifest: ${plan.durablePaths.manifest}`);
 	lines.push(`Stats: ${plan.stats?.total_tasks ?? 0} tasks, ${plan.stats?.wave_count ?? 0} waves, graph max ${plan.stats?.max_parallel ?? 0}, cap ${plan.maxParallel}`);
 	if (plan.needsPlanning) lines.push("⚠️ Epic needs planning before it can run.");
 	if (plan.missingProcessTicks.length > 0) lines.push(`⚠️ Missing process ticks: ${plan.missingProcessTicks.join(", ")}`);
@@ -218,6 +224,8 @@ export function formatDryPlan(plan: RunDryPlan): string {
 			lines.push(`  - tier/model: ${work?.tier ?? "balanced"}${work?.model ? ` / ${work.model}` : " / Pi default"}`);
 			lines.push(`  - branch: ${work?.branch}`);
 			lines.push(`  - worktree: ${work?.worktree}`);
+			lines.push(`  - prompt: ${work?.prompt}`);
+			lines.push(`  - report: ${work?.report}`);
 			lines.push(`  - log: ${work?.log}`);
 		}
 	}

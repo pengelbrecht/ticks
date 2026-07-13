@@ -37,7 +37,15 @@ test("run planning caps ready work and routes role models", () => {
 - implement_balanced_model: openai-codex/gpt-5.6-sol:medium
 - review_model: openai-codex/gpt-5.6-sol:xhigh
 - max_parallel: 1`, {});
-	const plan = buildRunPlan({ graph, config, repoRoot: "/repo", epicId: "qfs", stateDir: "/state", worktrees: true });
+	const plan = buildRunPlan({
+		graph,
+		config,
+		repoRoot: "/repo",
+		repoIdentity: "git@github.com:acme/widgets.git",
+		epicId: "qfs",
+		stateRoot: "/state",
+		worktrees: true,
+	});
 
 	assert.equal(plan.maxParallel, 1);
 	assert.deepEqual(plan.readyTasks.map((task) => task.id), ["a", "b"]);
@@ -46,22 +54,47 @@ test("run planning caps ready work and routes role models", () => {
 		["a", "balanced", "openai-codex/gpt-5.6-sol:medium"],
 		["b", "review", "openai-codex/gpt-5.6-sol:xhigh"],
 	]);
+	assert.equal(plan.workPlans[0].branch, plan.durablePaths.ticks[0].branch);
+	assert.equal(plan.workPlans[0].worktree, `/state/${plan.durablePaths.repoSlug}/worktrees/qfs/a`);
+	assert.equal(plan.workPlans[0].prompt, `${plan.durablePaths.runDir}/artifacts/a/prompt.md`);
+	assert.equal(plan.workPlans[0].report, `${plan.durablePaths.runDir}/artifacts/a/report.md`);
+	assert.equal(plan.workPlans[0].log, `${plan.durablePaths.runDir}/artifacts/a/events.jsonl`);
+
+	const otherRepo = buildRunPlan({
+		graph,
+		config,
+		repoRoot: "/repo",
+		repoIdentity: "git@github.com:other/widgets.git",
+		epicId: "qfs",
+		stateRoot: "/state",
+		worktrees: true,
+	});
+	assert.notEqual(plan.workPlans[0].worktree, otherRepo.workPlans[0].worktree);
+	assert.notEqual(plan.durablePaths.manifest, otherRepo.durablePaths.manifest);
 
 	graph.stats!.max_parallel = 1;
 	const graphCapped = buildRunPlan({
 		graph,
 		config: resolveRunnerConfig("## Pi Orchestrator\n- max_parallel: 4", {}),
 		repoRoot: "/repo",
+		repoIdentity: "git@github.com:acme/widgets.git",
 		epicId: "qfs",
-		stateDir: "/state",
+		stateRoot: "/state",
 		worktrees: false,
 	});
 	assert.equal(graphCapped.maxParallel, 1, "repo cap must not exceed tk graph max_parallel");
+	assert.equal(graphCapped.workPlans[0].worktree, "/repo", "non-worktree planning keeps the current checkout");
+	assert.match(graphCapped.workPlans[0].log, /^\/state\/acme-widgets--[0-9a-f]+\/runs\//);
 
 	const output = formatDryPlan(plan);
 	assert.match(output, /## Waves/);
 	assert.match(output, /ready ticks: a, b/);
 	assert.match(output, /cap 1/);
+	assert.match(output, /Run manifest: \/state\/acme-widgets--[0-9a-f]+\/runs\/qfs--[0-9a-f]+\/run\.json/);
+	assert.match(output, /worktree: \/state\/acme-widgets--[0-9a-f]+\/worktrees\/qfs\/a/);
+	assert.match(output, /prompt: .*\/artifacts\/a\/prompt\.md/);
+	assert.match(output, /report: .*\/artifacts\/a\/report\.md/);
+	assert.match(output, /log: .*\/artifacts\/a\/events\.jsonl/);
 	assert.match(output, /review \/ openai-codex\/gpt-5\.6-sol:xhigh/);
 });
 
