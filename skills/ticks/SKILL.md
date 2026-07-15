@@ -59,9 +59,11 @@ git check-ignore .tick/
 
 **5. Per-project runner config (`.tick/config.md`):**
 
-Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Three recognized sections:
+Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Recognized operational sections include:
 
 - **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
+- **Closeout Evidence Commands** — strict controller-owned commands that may execute only during closeout, never in implementation children, per-tick verification, post-wave gates, or final-review tests.
+- **Acceptance Evidence** — optional controller-owned closeout authorization. Map each stable acceptance item exactly once with `- A<n>: \`exact command\``. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands; tracker/model prose never authorizes shell and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed.
 - **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
 - **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
 
@@ -70,6 +72,18 @@ Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to
 **Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
 
 **Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. `.tick/config.md` is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
+
+**6. Pi executable extension (when running an epic in Pi):**
+
+Check whether Pi registered `/ticks-plan`, `/ticks-run`, `/ticks-status`, and `/ticks-dashboard` (RPC clients can inspect `get_commands`). If they are absent, explain that the skill supplies instructions but cannot activate extension code, and recommend the package:
+
+```bash
+pi install git:github.com/pengelbrecht/ticks
+# Local checkout:
+pi install /absolute/path/to/ticks
+```
+
+Do not claim that loading or invoking this skill enables those commands. A generic skill installer may have installed only `skills/ticks/`. The user may install the package or choose the manual Pi adapter flow in `references/pi-runner.md`.
 
 ### Step 1: Gather What's Already Known
 
@@ -133,6 +147,16 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 ### Step 3: Create Ticks from Requirements
 
 **Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
+
+In Pi with the package extension installed, prefer safe automated planning:
+
+```text
+/ticks-plan <existing-childless-epic-id>                  # model-running dry-run
+/ticks-plan --requirements "new epic requirements"        # model-running dry-run
+/ticks-plan <target> --apply                              # explicit tracker apply
+```
+
+Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. Planning prompts include relevant Testing, Closeout Evidence Commands, Acceptance Evidence, and Rules sections as context, but models cannot add or authorize executable commands. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
 
 Transform the gathered requirements into ticks organized by epic.
 
@@ -353,8 +377,8 @@ Execute the epic from the current harness. Read **`references/agent-runner.md`**
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
 2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
 3. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
-4. Wait with the adapter's completion primitive, merge each finished tick's branch, and update tick state.
-5. Run the test suite on the merged tree, then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
+4. Wait with the adapter's completion primitive and merge each verified branch provisionally; retain branches/worktrees and defer successful tracker transitions.
+5. Persist and run the post-wave test gate on the fully merged tree. Only on success, close the wave durably and clean up; on failure, keep all affected ticks open with repair state retained and block dependents. Then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
 

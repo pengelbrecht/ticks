@@ -1,200 +1,216 @@
 # Pi Runner Adapter
 
-Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability contract onto Pi. It is a fresh adapter, not a continuation of any earlier experimental `pi-runner` implementation.
+Read [`agent-runner.md`](agent-runner.md) first. This adapter maps that runner-neutral contract to the package implemented in `extensions/ticks-runner/`.
 
-Pi's base harness is intentionally minimal: it does not ship built-in subagents, plan mode, or background task supervision. Treat that as a strength, but do **not** treat it as a reason to run ticks sequentially. Parallel execution is mandatory for the Pi adapter: spawn multiple Pi instances under our own supervisor, one per ready tick, each in its own git worktree. Do not add a tmux dependency; the first-class Pi path is a Pi extension or SDK supervisor.
+Pi deliberately has no built-in subagents. Ticks supplies its own supervisor: one `pi --mode json -p --no-session` process per ready implementation tick, one isolated worktree and branch per implementation process, launched concurrently up to the resolved cap. Review and closeout use separate read-only controller-checkout processes with no implementation worktree. No tmux dependency is required.
 
-Set `TK_ACTOR=pi:orchestrator` before tracker writes.
+## Install and detect the executable layer
 
-## Capability mapping
+The skill is instructions; the extension is executable code. A skill cannot activate an extension. In Pi, check that `/ticks-run`, `/ticks-status`, and `/ticks-dashboard` are registered (RPC clients can use `get_commands`). If they are absent, recommend installing the Pi package:
 
-| Shared capability | Pi primitive |
+```bash
+pi install git:github.com/pengelbrecht/ticks
+pi install -l git:github.com/pengelbrecht/ticks       # project-local
+pi install /absolute/path/to/ticks                    # local checkout
+pi -e /absolute/path/to/ticks                         # one-run trial
+```
+
+A generic skill installer may install `skills/ticks/` without the extension. Do not claim that invoking this skill enables commands. If package installation is not desired, use the portable manual process in the shared protocol.
+
+## Implemented capability mapping
+
+| Shared capability | Pi package behavior |
 |---|---|
-| Isolation | `git worktree add -b tick/<epic>/<tick> <path> <integration-commit>` |
-| Parallel dispatch | One background `pi --mode json -p --no-session` process per ready tick, launched by the shell/SDK supervisor with `cwd` set to that tick's worktree. Pi does not currently have a `-C` flag. |
-| Completion | Shell `wait` for the portable adapter; Pi JSON events or SDK events captured into per-tick logs and a small final report. |
-| Continuation | Redispatch a fresh Pi process in the existing worktree/branch with prior report, review feedback, and current branch state. A Pi session id may be a convenience while live, never durable runner state. |
-| Review | A read-only Pi subprocess/session using read-only tools (`read,grep,find,ls`, plus `bash` only for safe test commands) at least as capable as the implementer. |
-| UX upgrade | A Pi extension can render wave status with `ctx.ui.setWidget`, custom tool rows, overlays, and command-driven dashboards while still using git + `.tick/` as durable state. |
+| Isolation | Deterministic `tick/<epic>/<tick>` branch and repo-namespaced worktree per tick. |
+| Parallel dispatch | The extension supervises multiple Pi JSON-mode subprocesses concurrently; `max_parallel`/`--max-parallel` caps fan-out. |
+| Completion | Incremental JSONL parser, live snapshots, TERM/KILL cancellation, lease-loss abort-and-settle, full event log, and compact Markdown report. |
+| Continuation | Recovery reattaches/reuses the unique existing branch/worktree/artifacts; Pi session IDs are never durable authority. |
+| Verification | Configured Testing commands run in each accepted child and again on the merged controller after each wave. |
+| Integration | Boundary check and provisional merge; persist/run the full-wave gate; only then close durably and clean worktrees/branches. |
+| UX | Compact footer/widget, RPC text, `/ticks-status`, and a shared-model dashboard overlay/dump. |
+| Planning | Bounded parallel read-only scouts plus strict frontier synthesis; model-running dry-run by default, with an explicit idempotent controller apply. |
+| Review/closeout | Dedicated frontier models run read-only in the controller checkout; strict findings/acceptance schemas, persisted evidence, controller-owned repair routing, retro, and close semantics fail closed. |
 
-## Parallel execution without built-in subagents
+Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this automatically.
 
-Pi's website says: "No sub-agents — spawn Pi instances via tmux, or build your own with extensions, or install a package that does it your way." For ticks orchestration, choose the "build your own with extensions" path. The Pi adapter must not require tmux.
+## Commands and safety
 
-- **One ready tick = one supervised Pi process = one worktree.** A Pi process is the implementer agent; it does not need to be an in-process tool call.
-- **A wave launches concurrently.** Start every ready tick in the wave before waiting for any of them. Never serialize a wave just because Pi lacks built-in subagents.
-- **The extension is the coordination layer.** It starts child Pi processes or SDK sessions, captures their JSON events, renders live status, and writes small per-tick reports.
-- **Git and `.tick/` are the durable state.** Extension memory, subprocess pids, and Pi session ids are conveniences only. Durable recovery uses tick files, branches, worktrees, reports, and logs.
-- **The SDK is the deeper integration path.** For a polished orchestrator, use Pi's SDK or extension APIs to launch and monitor multiple child sessions/processes and stream their JSON events into a dashboard.
-
-## Baseline dispatch
-
-The baseline adapter deliberately mirrors Codex's worktree/process shape because it is durable, parallel, and runner-neutral.
-
-```bash
-repo=$(git rev-parse --show-toplevel)
-integration_commit=$(git rev-parse HEAD)
-branch="tick/<epic-id>/<tick-id>"
-worktree="$(dirname "$repo")/.ticks-worktrees/<tick-id>"
-state_dir="$(dirname "$repo")/.ticks-worktrees"
-prompt="$state_dir/<tick-id>.prompt.md"
-report="$state_dir/<tick-id>.report.md"
-log="$state_dir/<tick-id>.jsonl"
-
-mkdir -p "$state_dir"
-git worktree add -b "$branch" "$worktree" "$integration_commit"
-tk note <tick-id> "runner-state: runner=pi branch=$branch worktree=$worktree base=$integration_commit model=$PI_MODEL"
-
-# Write the shared implementer prompt to $prompt first.
-(
-  cd "$worktree"
-  pi --mode json --no-session --model "$PI_MODEL" --thinking "$PI_THINKING" -p "@$prompt" \
-    > "$log" 2>&1
-  node "$repo/scripts/pi-extract-final-report.mjs" "$log" > "$report"
-) &
-pid=$!
+```text
+/ticks-run <epic> [--worktrees] [--max-parallel N]       # read-only dry-run
+/ticks-run <epic> --execute [--resume] [--max-parallel N] [--autonomous]
+/ticks-status [epic]
+/ticks-dashboard [epic-or-run-id] [--epic ID] [--demo] [--dump] [--width N]
+/ticks-plan <childless-epic-id> [--apply] [--scouts 3..6] [--scout-cap 2..4] [--compact]
+/ticks-plan --requirements "new epic requirements" [--apply] [--scouts N] [--scout-cap N] [--compact]
+/ticks
 ```
 
-If the repository does not provide a `scripts/pi-extract-final-report.mjs` helper, the orchestrator must still preserve the full JSONL log and produce a small report by reading the last assistant `message_end` event. Do not make integration depend on loading a full transcript into context.
+`/ticks-run` never executes by default. Only `--execute` permits Environment checks, tracker writes, worktree creation, child launch, merges, and cleanup. Execution safely parses the target epic first and requires a clean controller branch that is neither the repository default nor the epic's recorded base (including a nested feature base). Worktrees are implicit during execution. `--resume` is an explicit hint; safe reconciliation happens on every execute.
 
-Launch every tick in the wave before waiting. Keep an in-memory `tick -> pid` map, then use shell `wait <pid>` for completion. This is blocking process supervision, not polling, and it is the portable substitute for built-in subagents.
+`/ticks-plan` **does run models by default**: its dry-run launches 3–6 configured scout-model processes (subsystems, tests, contracts, then optional integration/risk/docs) with only `read,grep,find,ls`, followed by the configured planner model with forced `xhigh` reasoning. It persists all prompts/events/reports and prints strict validated waves, models, usage, and cost, but never mutates the tracker. Do not describe this as a no-op: `/ticks-run` dry-run is the no-model preview.
 
-After a successful merge and tick close, remove the manually created worktree before deleting its merged branch:
+Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. It validates an existing recorded base or derives one from `origin/HEAD` (single local `main`/`master` fallback), fails on ambiguity, and records `base_branch` on the target epic. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, arbitrary fields, or executable acceptance snippets; model acceptance containing backticks/code spans is rejected because only controller configuration may issue verification commands. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Every create carries target/entity labels atomically. Partial failures are committed when possible and recovered from a target-bound state file, pending-create journal, create-time labels, epic note, validated-plan artifact, and client-ID map; mapped parent/title/role/marker/base identity is verified before reuse, and symlinked artifact ancestors fail closed. After a true controller SIGKILL, a dead apply lock may be taken over only to commit the exact journaled marked issue plus its single append-only controller create activity; unrelated dirt is refused.
 
-```bash
-git worktree remove "$worktree"
-git branch -d "$branch"
-rm -f "$report" "$log" "$prompt"
-```
+Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Closeout can execute only controller-owned item mappings from `.tick/config.md` `Acceptance Evidence`; every item has exactly one mapping to a command that exists verbatim and uniquely in Testing or Closeout Evidence Commands. Closeout-only commands never run in child/per-tick/post-wave/final-review gates. Generic commands are never distributed across items, and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
-Do not clean up a blocked or incomplete worktree; it is durable handoff state.
+See [`../../../extensions/ticks-runner/README.md`](../../../extensions/ticks-runner/README.md) for exact defaults, dashboard keys, artifacts, recovery, and current limitations.
 
-## Model and vendor routing
+## Relationship to Pi's generic subagent example
 
-Pi can talk to many providers in one installation. Use that to route by role and tick shape without changing the shared runner contract.
+The implementation deliberately reuses the proven **process/event patterns** from Pi's `examples/extensions/subagent/`:
 
-Prefer repo-tracked configuration in `.tick/config.md` so routing is reviewable and travels with the project. The Pi extension should read an optional `## Pi Orchestrator` section before launching agents. Environment variables remain useful for local overrides or secrets, but they should not be the only configuration surface.
+- spawn a separate Pi process with `--mode json -p --no-session`;
+- set the child's `cwd` in the process API (Pi has no `-C` flag);
+- decode JSONL incrementally and derive current tool/action, final assistant output, model, turns, tokens, context, and cost;
+- limit concurrency without serializing independent work;
+- propagate abort with TERM followed by KILL;
+- render compact live progress and richer details.
 
-Example `.tick/config.md` section:
+It is not a wrapper around or copy of the generic `subagent` tool. The generic example delegates arbitrary single/parallel/chained prompts and keeps results primarily in tool details. The Ticks extension adds domain authority that generic delegation intentionally lacks:
+
+- `tk graph` waves and Ticks role/status protocol;
+- deterministic per-tick git branches and worktrees;
+- tracker claims, notes, closes, and actor provenance owned by one controller;
+- `.tick/**` boundary guards and pre-merge verification;
+- per-child and post-wave test gates;
+- merge/conflict/cleanup sequencing;
+- repo+epic manifests, reports, logs, and cross-runner recovery;
+- stale/duplicate/orphan diagnosis and an operator dashboard.
+
+Reuse the generic example when an interactive agent needs ad-hoc delegation. Use this package when a Ticks epic needs durable, auditable wave orchestration.
+
+## Configuration and model routing
+
+Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment, Testing, and Closeout Evidence Commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints; malformed Closeout entries do not run. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout issues evidence only from explicit controller-owned `Acceptance Evidence` lines shaped as `- A<n>: \`exact command\``. Every item maps exactly once to a command unique across Testing and Closeout Evidence Commands. Stable `[A<n>]` acceptance IDs are preferred; legacy lines receive deterministic A1/A2 IDs. Unknown, duplicate, ambiguous, stale, injected, missing, or cross-item mappings fail closed. Planning models see relevant sections as context but cannot authorize commands.
 
 ```markdown
-## Pi Orchestrator
+## Environment
+- Git: `git --version`
 
+## Testing
+- Runner: `node --test extensions/ticks-runner/*.test.ts`
+- Go: `go test ./...`
+
+## Closeout Evidence Commands
+- Release scenario: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+
+## Acceptance Evidence
+- A1: `node --test extensions/ticks-runner/*.test.ts`
+- A2: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+
+## Rules
+- Do not add npm lockfiles.
+
+## Pi Orchestrator
 - planner_model: openai-codex/gpt-5.6-sol:xhigh
 - scout_model: openai-codex/gpt-5.6-sol:low
 - implement_economy_model: openai-codex/gpt-5.6-sol:low
 - implement_balanced_model: openai-codex/gpt-5.6-sol:medium
 - implement_strong_model: openai-codex/gpt-5.6-sol:high
 - review_model: openai-codex/gpt-5.6-sol:xhigh
+- closeout_model: openai-codex/gpt-5.6-sol:xhigh
+- review_should_fix: repair
 - max_parallel: 4
 ```
 
-Recommended local override names for the adapter:
+Environment override names are `TICKS_PI_PLANNER_MODEL`, `TICKS_PI_SCOUT_MODEL`, `TICKS_PI_IMPLEMENT_ECONOMY_MODEL`, `TICKS_PI_IMPLEMENT_BALANCED_MODEL`, `TICKS_PI_IMPLEMENT_STRONG_MODEL`, `TICKS_PI_REVIEW_MODEL`, `TICKS_PI_CLOSEOUT_MODEL`, `TICKS_PI_REVIEW_SHOULD_FIX`, and `TICKS_PI_MAX_PARALLEL`. Resolution is environment > markdown > Pi default.
 
-| Role | `.tick/config.md` key | Environment override | Default policy |
-|---|---|---|---|
-| Planning synthesis | `planner_model` | `TICKS_PI_PLANNER_MODEL` | frontier-tier model, high/xhigh thinking |
-| Exploration scouts | `scout_model` | `TICKS_PI_SCOUT_MODEL` | cheap/fast model, read-only tools |
-| Mechanical implementation | `implement_economy_model` | `TICKS_PI_IMPLEMENT_ECONOMY_MODEL` | lowest model that can reliably complete the tick |
-| Normal implementation | `implement_balanced_model` | `TICKS_PI_IMPLEMENT_BALANCED_MODEL` | balanced coding model |
-| Subtle implementation | `implement_strong_model` | `TICKS_PI_IMPLEMENT_STRONG_MODEL` | strong coding model, higher thinking |
-| Final/foundation review | `review_model` | `TICKS_PI_REVIEW_MODEL` | at least as capable as the implementer; default frontier for epic final review |
-| Wave cap | `max_parallel` | `TICKS_PI_MAX_PARALLEL` | cap process fan-out below `tk graph` max when desired |
+Model specs use `[provider/]model[:thinking]`. For Codex subscription/OAuth credentials use `openai-codex/<model>`, not the API-key `openai/<model>`. Ordinary implementation routes among economy/balanced/strong from explicit metadata and conservative task shape. Review and closeout have dedicated frontier process tiers; closeout falls back to the planner model only when `closeout_model` is absent. `review_should_fix` is `repair` by default or `record`; blocker findings always create blocking repair work.
 
-Resolution order: environment override > `.tick/config.md` `Pi Orchestrator` key > Pi user's current model/defaults. When routing through OpenAI's Codex subscription/OAuth credentials, use Pi's `openai-codex/<model>` provider IDs, not `openai/<model>` (the latter is the separately billed API-key provider and may have no quota). Prefer the current GPT-5.6 family. Until the Luna/Sol/Terra variants have documented role tradeoffs, use `gpt-5.6-sol` across tiers and vary thinking level rather than guessing that a variant name implies capability or cost. The orchestrator records the resolved model/provider in the `runner-state:` note for provenance, but git branch/worktree and tick status remain authoritative. Vendor choice is a scheduling detail, not durable identity; Claude may plan ticks that Pi executes with OpenAI/Codex models, and another runner may resume them later.
+## Durable state and recovery
 
-## Pi extension UX target
+The authority order is:
 
-The long-term Pi-native orchestrator should be a project/user Pi extension, not a standalone `tk run` replacement and not a tmux workflow. Its core job is to make parallel Pi subprocess execution visible and controllable. It should expose:
+1. tracker scope/status/dependencies and decisions;
+2. integration branch history;
+3. deterministic child branches and registered worktrees;
+4. repository-namespaced manifest and per-tick reports;
+5. `runner-state:` notes as compatibility hints;
+6. live PID/session/UI state only as an optimization.
 
-- `/ticks-run <epic>` — start/resume an epic from durable `tk graph` state, launching all ready ticks in each wave concurrently.
-- `/ticks-plan <epic-or-requirements>` — run frontier planning with parallel read-only scouts and create ready ticks.
-- `/ticks-status` — show in-progress branches, worktrees, reports, stale ticks, and awaiting gates.
-- A persistent wave widget via `ctx.ui.setWidget` with: current wave, ready/running/done/blocked counts, tick ids, providers/models, elapsed time, cost, and branch names.
-- Custom rendered tool/result rows for per-agent JSON streams, modeled on Pi's subagent extension: collapsed status by default, expanded transcript/tool calls on demand.
-- Optional overlay dashboard for merge/review decisions, using `ctx.ui.custom(..., { overlay: true })`.
-- Boundary hardening through `tool_call` handlers that block `tk` and `.tick/**` mutations in implementer subprocesses when the implementer is launched inside the same Pi runtime; subprocess launches must still be verified with the pre-merge `.tick/` diff check.
-
-Important UX rule: the extension is an operator console. It may display and supervise rich state, but durable orchestration state is still only git, `.tick/`, deterministic branch/worktree names, and per-tick reports.
-
-## Skill vs extension packaging
-
-A Pi **skill** is the right place for orchestration instructions, prompt templates, runner-neutral rules, and adapter documentation. A Pi **extension** is the right place for executable orchestration UX: commands, subprocess supervision, widgets, overlays, event streaming, and boundary guards.
-
-Current Pi model: a skill cannot itself contain and activate an extension. Pi packages can bundle both skills and extensions through their `package.json` `pi` manifest; generic Agent Skills installers may install only the skill files unless they explicitly understand Pi package resources. So the first-class distribution should be a Pi package, while the skill includes a bootstrap note that detects a missing extension and points the user at the package install.
-
-Recommended package layout:
+Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 
 ```text
-ticks pi package / repo
-├── package.json                  # pi.extensions + pi.skills manifest
-├── skills/ticks/                 # SKILL.md + references/*.md
-└── extensions/ticks-runner/      # package-distributed Pi extension
+<state>/<repo-slug>--<hash>/runs/<epic>--<hash>/run.json
+<run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl,attempts/attempt-N/*}
+<run>/artifacts/<review>/{epic.diff,findings.json,review-tests.md}
+<run>/artifacts/<closeout>/{acceptance-evidence.md,closeout-report.json,retro.md}
+<run>/dashboard-history.json  # cumulative stable stages plus retained agent/lane state
+<run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md,attempts/wave-<n>-attempt-<k>/*}
+<state>/<repo-slug>--<hash>/worktrees/<epic>/<tick>/
+<state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/apply-state.json
+<state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/attempts/<run>/{validated-plan.json,planning-report.md,dashboard-history.json,artifacts/}
 ```
 
-Example manifest shape:
+On every execute, the extension performs read-only reconciliation before mutation. A fresh active claim blocks duplicate launch. Heartbeat ownership loss is composed into run cancellation, so every supervised child/configured-command process group is terminated and settled before the old controller returns. A stale lease can be reopened only after controller and Environment preflight. A unique useful branch/worktree is reused or attached. Multiple claims, malformed expected manifests, mismatched bases, or occupied paths block instead of guessing. Incomplete state is never automatically deleted.
 
-```json
-{
-  "name": "@pengelbrecht/pi-ticks",
-  "keywords": ["pi-package"],
-  "pi": {
-    "skills": ["./skills"],
-    "extensions": ["./extensions"]
-  }
-}
-```
+Operator recovery:
 
-Ideal user flow:
+1. `/ticks-status <epic>`.
+2. Inspect the latest decision and bounded report/verifier/wave-test paths, including archived `waves/attempts/wave-N-attempt-K/` transaction/test pairs; event logs are listed but not loaded.
+3. Repair or resume in the existing worktree/branch.
+4. Resolve duplicate claims manually; never create another branch for the same tick.
+5. Re-run `/ticks-run <epic> --execute`; ordinary execution is recovery-aware.
+6. Clean completed leftovers only after merge ancestry and tracker durability are both confirmed.
+
+The dashboard history also persists the cumulative task/dependency stage projection. If `tk graph` omits closed tasks and renumbers the remaining waves, implementation, review, and closeout keep their original stage identity and retained agent/verifier/merge history in live, resumed, and final dashboards.
+
+This is cross-runner recovery: another harness can consume the same tracker/git/report state without a Pi session ID.
+
+## Boundary model
+
+Use every layer; none replaces the pre-merge check:
+
+1. Child prompt forbids `tk` and `.tick/**` mutation.
+2. Child starts in its isolated worktree.
+3. A PATH-first `tk` wrapper permits only explicit reads and logs denied writes.
+4. `.tick/` is chmod'd read-only as best-effort friction, then restored.
+5. Source staging excludes `.tick/**`.
+6. Committed branch diff is checked before merge.
+7. Controller alone mutates and commits tracker state.
+8. Merge is provisional. Persisted post-wave success authorizes durable wave closes; cleanup follows those closes. Failed gates retain open ticks, branches, and worktrees.
+
+This is not an OS sandbox. Use a container or host sandbox for untrusted execution.
+
+## Baseline manual dispatch
+
+When the extension is unavailable and the user chooses manual orchestration, preserve the same shape:
 
 ```bash
-pi install git:github.com/pengelbrecht/ticks
+repo=$(git rev-parse --show-toplevel)
+base=$(git rev-parse HEAD)
+branch="tick/<epic>/<tick>"
+worktree="$(dirname "$repo")/.ticks-worktrees/<tick>"
+git worktree add -b "$branch" "$worktree" "$base"
+(
+  cd "$worktree"
+  pi --mode json --no-session --model "$PI_MODEL" --thinking "$PI_THINKING" -p "@/absolute/prompt.md" \
+    > /absolute/events.jsonl 2>&1
+) &
+pid=$!
 ```
 
-If a future `npx skills add pengelbrecht/ticks` flow can install Pi package resources, great — use it as a friendlier wrapper. Until Pi or the skills installer supports that handshake, don't rely on the harness inferring extension activation from skill prose. The skill can recommend activation; the Pi package/extension mechanism performs activation.
+Launch every ready tick before waiting, block on process completion rather than polling, preserve a compact final report, enforce the boundary, verify after merges, and never use the Pi session ID as handoff state.
 
-The skill should tell the model how orchestration works and when to use it; the extension should provide `/ticks-run`, `/ticks-plan`, `/ticks-status`, and the live TUI. Keeping both in one package is fine, but don't try to make the skill itself supervise processes — skills are instructions, extensions are executable code.
+## Disposable real-run proof
 
-## Planning with Pi
-
-For planning, prefer Pi's subagent/process capabilities when available:
-
-1. Run several read-only scout Pi subprocesses in parallel (tools: `read,grep,find,ls`, optionally safe `bash` for code search/test discovery). Each scout maps one subsystem and returns a compact summary.
-2. Feed those summaries to a frontier planner Pi session using the configured `planner_model` (or `TICKS_PI_PLANNER_MODEL` override).
-3. The planner returns a tick list with contracts-first ordering, wave safety, tests, and meta-ticks.
-4. The orchestrator creates the ticks with `tk`; planner/scouts never mutate `.tick/`.
-
-If no subagent extension/SDK helper is installed, the orchestrator can run the same shape with shell-spawned `pi --mode json` subprocesses.
-
-## Boundary hardening
-
-Baseline prompt enforcement is not enough. Use all available layers:
-
-1. Implementer prompt includes the shared boundary: do not run `tk`; do not touch `.tick/`.
-2. Launch implementers from their worktree, not from the integration checkout.
-3. Use read/write tool allowlists per role (`read,grep,find,ls` for scouts/reviewers; normal coding tools for implementers).
-4. If using a Pi extension in-process, add `tool_call` guards for `bash` commands containing `tk` and for `write`/`edit` targets under `.tick/`.
-5. Always verify before merge:
+Ordinary suites use the no-model validator:
 
 ```bash
-git diff --name-only HEAD...<agent-branch> -- .tick/
+node --no-warnings scripts/pi-ticks-live-scenario.ts --validate
 ```
 
-If an implementer modified `.tick/`, strip those changes during merge and note the violation on the tick, as described in the shared runner.
+An operator can explicitly run the isolated, billable real `tk` + real Pi lifecycle and retain evidence outside the source repository:
 
-## Continuation and handoff
+```bash
+node --no-warnings scripts/pi-ticks-live-scenario.ts --execute \
+  --model openai-codex/gpt-5.6-sol:medium
+```
 
-Pi subprocess sessions, JSON logs, and extension UI state are helpful but not durable. On resume or cross-runner handoff:
-
-1. Read `tk graph`, in-progress ticks, `runner-state:` notes, branches, worktrees, reports, and logs.
-2. For each incomplete tick, inspect the existing worktree/branch.
-3. If useful work exists, redispatch Pi (or another runner) in that same worktree/branch with the prior report and remaining work.
-4. Never create a second branch for the same tick while recoverable work exists.
-5. Set `TK_ACTOR=pi:orchestrator` for new tracker writes; never rewrite previous runner provenance.
+The harness creates and later removes a temporary git/tick repository, executes implementation/review/closeout through actual Pi subprocesses, checks merge/close/cleanup, and copies the run artifacts to `~/.local/state/ticks/live-scenarios/` by default. See the extension README for overrides and safety details.
 
 ## Current limitations
 
-- The portable adapter requires a small supervisor script or manual shell process management to extract final reports from Pi JSON mode.
-- Pi currently has no built-in `-C` flag; process supervisors must set `cwd` directly.
-- Rich wave UI requires a Pi extension. The baseline process adapter intentionally stays usable without it.
-- Cost accounting is available in Pi message usage events, but the adapter must aggregate it into reports/widgets; `tk` remains the source of task state, not spend state.
+- Interrupted model-only planning dry-runs start a new attempt; partial tracker applies resume from durable mapping state, but do not reattach to an old live model process.
+- Runs resume from durable state after controller loss; live child processes do not attach to a new controller.
+- Scout fan-out is bounded, but cost is reported rather than dollar-capped.

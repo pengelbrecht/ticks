@@ -2,13 +2,16 @@
   "id": "qfs",
   "title": "Build first-class Pi ticks orchestrator extension",
   "description": "Implement the Pi runner as a Pi extension/package rather than relying on tmux. The extension should supervise parallel Pi subprocesses/SDK sessions for each ready tick, render wave status in Pi's TUI, expose /ticks-run /ticks-plan /ticks-status, and preserve runner-neutral durable state via git worktrees, branches, reports, and .tick files. The distributable skill can include the adapter docs and prompts, but executable UX should live as an extension bundled in a Pi package or project .pi/extensions path.",
-  "notes": "2026-06-16 09:00 - Plannotator feedback incorporated into pi-runner.md: prefer repo-tracked .tick/config.md Pi Orchestrator section for model/vendor routing, and clarify that skills cannot directly activate extensions under current Pi model; distribute as a Pi package bundling skills + extensions.\n2026-07-09 13:15 - Planned from docs/projects/2026-07-09-pi-orchestrator-extension/SPEC.md. Scope emphasizes a purpose-built Pi control-tower extension: /ticks-plan, /ticks-run, /ticks-status, /ticks-dashboard; worktree/process supervision; rich status; verification/merge/recovery; package distribution with the ticks skill.",
-  "status": "open",
+  "notes": "2026-06-16 09:00 - Plannotator feedback incorporated into pi-runner.md: prefer repo-tracked .tick/config.md Pi Orchestrator section for model/vendor routing, and clarify that skills cannot directly activate extensions under current Pi model; distribute as a Pi package bundling skills + extensions.\n2026-07-09 13:15 - Planned from docs/projects/2026-07-09-pi-orchestrator-extension/SPEC.md. Scope emphasizes a purpose-built Pi control-tower extension: /ticks-plan, /ticks-run, /ticks-status, /ticks-dashboard; worktree/process supervision; rich status; verification/merge/recovery; package distribution with the ticks skill.\n2026-07-15 15:26 - Epic retro: The epic replaced tmux-dependent Pi orchestration with an installable Pi package combining the ticks skill, supervised execution extension, transport-neutral dashboard, durable recovery, and fail-closed verification.\nLearned:\n- Keep acceptance evidence explicitly mapped one-to-one and reserve expensive live lifecycle checks for closeout-only commands.\n- Key recovery by repository and tick identity with durable tracker, git, and artifact state rather than harness-private session IDs.\n- Use one transport-neutral dashboard model for live TUI, RPC, status, dumps, and historical recovery views.\nArtifacts: /Users/peterengelbrecht/Development/.ticks-worktrees/pengelbrecht-ticks--303b0b3fd1/runs/qfs--2aae8fecb25d/artifacts/xrq/retro.md",
+  "status": "closed",
   "priority": 1,
   "type": "epic",
   "owner": "noreply@anthropic.com",
-  "acceptance_criteria": "A Pi extension exists or a detailed implementation spec is added; no tmux dependency; wave dispatch runs multiple Pi implementers concurrently; docs explain how the skill and extension are packaged together",
+  "acceptance_criteria": "- A Pi package manifest loads both the ticks skill and orchestrator extension.\n- /ticks-run, /ticks-plan, /ticks-status, and /ticks-dashboard provide useful dry-run/status behavior.\n- /ticks-run \u003cepic\u003e --dry-run shows wave, tick, worktree, and model plans without agents.\n- Worktree execution runs a disposable tick through child Pi supervision, artifacts, boundary check, merge, close, and cleanup.\n- Dashboard shows wave progress, agent cards, verifier/merge lanes, cost/context telemetry, and recovery state.\n- Documentation covers installation, commands, configuration, durable state, recovery, and limitations.",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-06-16T06:48:44.244029Z",
-  "updated_at": "2026-07-09T11:15:59.461197Z"
+  "updated_at": "2026-07-15T13:26:12.34737Z",
+  "closed_at": "2026-07-15T13:26:12.34737Z",
+  "closed_reason": "Completed: outside-in acceptance and Project Rules passed item-by-item; retro=/Users/peterengelbrecht/Development/.ticks-worktrees/pengelbrecht-ticks--303b0b3fd1/runs/qfs--2aae8fecb25d/artifacts/xrq/retro.md"
 }

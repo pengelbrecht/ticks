@@ -2,7 +2,8 @@
   "id": "uxz",
   "title": "Build control-tower TUI status widget and dashboard",
   "description": "Create the Pi-native UX that makes this cooler than generic subagents. Use ctx.ui.setStatus/setWidget for always-on wave progress and ctx.ui.custom overlay for /ticks-dashboard. Show wave timeline, agent cards, current tool/action, worktree/branch, verification lane, merge queue, cost/context telemetry, and human gates. Keep non-TUI mode useful with textual summaries.",
-  "status": "open",
+  "notes": "2026-07-13 10:42 - runner-state: runner=pi branch=tick/qfs/uxz worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/uxz base=cc3d3dcbfe0eb3c80c7bfcc89b093734fb8e57e9 model=openai-codex/gpt-5.6-sol:medium",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,7 @@
   "acceptance_criteria": "/ticks-dashboard opens an interactive overlay in TUI mode and /ticks-dashboard --dump prints the same run model in text. Live/fixture data shows wave progress, agent cards, verifier/merge lanes, cost/context numbers, and recovery/human-gate sections. Component render tests or snapshot-style tests cover narrow/wide terminal widths.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-09T11:15:55.521179Z",
-  "updated_at": "2026-07-09T11:15:55.521179Z"
+  "updated_at": "2026-07-13T08:53:06.98661Z",
+  "closed_at": "2026-07-13T08:53:06.98661Z",
+  "closed_reason": "Completed: added shared dashboard model, responsive control-tower overlay, compact live widget/status, dump rendering, wave/agent/verification/merge/recovery/gate lanes, telemetry, demo fixtures, and narrow/wide render tests."
 }

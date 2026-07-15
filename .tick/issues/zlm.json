@@ -1,0 +1,18 @@
+{
+  "id": "zlm",
+  "title": "Fix real tracker gate lifecycle and durable dashboard actions",
+  "description": "Correct real tk checkpoint semantics and fake fixture; bind human evidence provenance without relying on transient verdict. Make dashboard note/approve/reject tracker mutations commit durably. Handle --requires close transitions without throwing into dirty partial state: persist awaiting transaction, stop dependents, and resume after approval. Add real-shape/outside-in tests.",
+  "notes": "2026-07-15 13:10 - Dispatched by Pi orchestrator on tick/qfs/zlm with openai-codex/gpt-5.6-sol:high; child must not modify .tick/**.",
+  "status": "closed",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "A real checkpoint approval with human-bound evidence resumes exactly once; dashboard actions leave clean committed tracker state; --requires gates pause durably and resume without closing early or dirtying the checkout; tests pass.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-15T11:10:18.662102Z",
+  "updated_at": "2026-07-15T11:35:45.69329Z",
+  "closed_at": "2026-07-15T11:35:45.69329Z",
+  "closed_reason": "Fixed real checkpoint provenance/approval semantics, durable dashboard tracker commits, and requires-gate pause/resume lifecycle."
+}

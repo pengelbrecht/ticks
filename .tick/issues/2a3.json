@@ -2,7 +2,8 @@
   "id": "2a3",
   "title": "Wire /ticks-run epic loop with verification and continuation",
   "description": "Wire the full epic runner loop: mark ready ticks in_progress with TK_ACTOR=pi:orchestrator, launch all ready ticks in a wave up to max_parallel, wait without polling, classify DONE/DONE_WITH_CONCERNS/NEEDS_CONTEXT/BLOCKED, integrate successes, run post-wave test gates from .tick/config.md, and redispatch/route failures without serializing the whole wave.",
-  "status": "open",
+  "notes": "2026-07-13 10:53 - runner-state: runner=pi branch=tick/qfs/2a3 worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/2a3 base=102a991057716c2fef93e6198788b893dc0bd6a4 model=openai-codex/gpt-5.6-sol:high\n2026-07-13 11:12 - Integration review clarified .tick/config.md Testing into explicit executable commands plus prose-only hints, and suppressed warnings for plain hint lines while retaining warnings for ambiguous inline code.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -15,5 +16,7 @@
   "acceptance_criteria": "/ticks-run \u003cepic\u003e can execute a small disposable epic through at least one wave in worktree mode. Post-wave tests run after merges. Failed verifier output results in repair/continuation/escalation instead of a false close. Tests cover wave scheduling and outcome classification.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-09T11:15:55.541625Z",
-  "updated_at": "2026-07-09T11:15:55.541625Z"
+  "updated_at": "2026-07-13T09:12:10.765537Z",
+  "closed_at": "2026-07-13T09:12:10.765537Z",
+  "closed_reason": "Completed: wired opt-in /ticks-run execution with clean-controller/environment preflight, isolated parallel child waves, live dashboard state, strict outcome/verifier routing, source integration, durable tracker-close ordering, cleanup, post-wave gates, cancellation, and graph continuation; 38 runner tests and fixture E2E pass."
 }

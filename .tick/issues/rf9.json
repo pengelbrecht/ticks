@@ -1,0 +1,18 @@
+{
+  "id": "rf9",
+  "title": "Add vertical viewport to Pi dashboard overlay",
+  "description": "Implement terminal-height-aware vertical scrolling or bounded viewport for dashboard overlay so recovery lanes, human gates and controls remain reachable in a 24-row terminal. Preserve selection/navigation and pure rendering across TUI/RPC/dump. Add clipping/scroll tests.",
+  "notes": "2026-07-15 13:59 - Dispatched by Pi orchestrator to tick/qfs/rf9 using openai-codex/gpt-5.6-sol:high; no .tick mutations.",
+  "status": "closed",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "All dashboard sections and controls are reachable at standard terminal height; navigation scrolls selected rows into view; non-TUI rendering stays deterministic; tests pass.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-15T11:59:29.719081Z",
+  "updated_at": "2026-07-15T12:20:20.275112Z",
+  "closed_at": "2026-07-15T12:20:20.275112Z",
+  "closed_reason": "Added height-aware dashboard viewport and full keyboard scrolling with 24-row tests."
+}

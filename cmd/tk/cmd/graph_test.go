@@ -98,6 +98,33 @@ func TestGraphOutputStructHasNeedsPlanning(t *testing.T) {
 	})
 }
 
+// TestGraphAwaitingStatsWithoutWaveTask locks the production contract consumed
+// by orchestrators: awaiting-human children are omitted by wave.Compute, while
+// stats.awaiting_human remains authoritative and total_tasks still counts them.
+func TestGraphAwaitingStatsWithoutWaveTask(t *testing.T) {
+	_, store := setupTestRepo(t)
+	epic := makeTestEpic("gatepic")
+	epic.Title = "Gated epic"
+	awaiting := tick.AwaitingApproval
+	child := makeTestTask("gate")
+	child.Title = "Human approval"
+	child.Parent = epic.ID
+	child.Awaiting = &awaiting
+	for _, item := range []tick.Tick{epic, child} {
+		if err := store.Write(item); err != nil {
+			t.Fatalf("write %s: %v", item.ID, err)
+		}
+	}
+
+	out := runGraphJSON(t, epic.ID)
+	if out.Stats.TotalTasks != 1 || out.Stats.AwaitingHuman != 1 || out.Stats.ReadyForAgent != 0 {
+		t.Fatalf("unexpected awaiting stats: %+v", out.Stats)
+	}
+	if len(out.Waves) != 0 {
+		t.Fatalf("awaiting child must be omitted from waves, got %+v", out.Waves)
+	}
+}
+
 // TestHandleChildlessEpicJSON verifies the JSON shape. needs_planning is true
 // only when the epic is plannable NOW (zero children AND unblocked) — the
 // orchestration loop consumes this field to decide "plan this epic", and it

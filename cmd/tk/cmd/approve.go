@@ -79,6 +79,10 @@ func runApprove(cmd *cobra.Command, args []string) error {
 		t.SetAwaiting(tick.AwaitingWork)
 	}
 
+	// Preserve the gate type for the durable activity entry. Non-terminal
+	// approvals intentionally clear both awaiting and verdict in the tick JSON.
+	awaitingType := t.GetAwaitingType()
+
 	// Set verdict and process
 	verdict := tick.VerdictApproved
 	t.Verdict = &verdict
@@ -89,8 +93,23 @@ func runApprove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to process verdict: %w", err)
 	}
 
-	if err := store.WriteAs(t, resolveActor("")); err != nil {
+	actor := resolveActor("")
+	if err := store.WriteAs(t, actor); err != nil {
 		return fmt.Errorf("failed to save tick: %w", err)
+	}
+	if !closed {
+		// detectChange cannot infer a non-terminal approval after ProcessVerdict
+		// clears both transient fields. Record the decision explicitly so audit
+		// consumers never have to mistake a note substring for an approval.
+		if actor == "" {
+			actor = t.Owner
+		}
+		if err := store.LogActivity(t.ID, tick.ActivityApprove, actor, t.Parent, map[string]interface{}{
+			"awaiting": awaitingType,
+			"title":    t.Title,
+		}); err != nil {
+			return fmt.Errorf("failed to record approval activity: %w", err)
+		}
 	}
 
 	if approveJSON {

@@ -1,0 +1,21 @@
+{
+  "id": "we7",
+  "title": "Implement real /ticks-plan scout and frontier synthesis flow",
+  "description": "Replace informational /ticks-plan with actual parallel read-only Pi scouts, frontier-tier synthesis, validated tick-plan output, controller-owned tk creation, dependency wiring, and review/closeout process ticks. Support planning an existing childless epic or requirements into a new epic, with dry-run/approval safety.",
+  "notes": "2026-07-13 13:41 - runner-state: runner=pi branch=tick/qfs/we7 worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/we7 base=0ef85e965958bbb8733a04d28cb99bf4262b569b model=openai-codex/gpt-5.6-sol:xhigh",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "w8v"
+  ],
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "/ticks-plan --dry-run performs parallel fixture scouts and returns a validated vertical plan; explicit apply creates implementation ticks/dependencies plus role-tagged review/closeout via controller tk; malformed planner output causes no mutation; tests require no live model.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.773906Z",
+  "updated_at": "2026-07-13T12:14:16.713645Z",
+  "closed_at": "2026-07-13T12:14:16.713645Z",
+  "closed_reason": "Completed: /ticks-plan now runs bounded parallel read-only scouts plus frontier synthesis, strictly validates vertical dependency-safe plans, supports model-running dry-run and explicit idempotent controller apply, creates canonical process skeleton, reports telemetry/artifacts, and recovers partial applies."
+}

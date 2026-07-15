@@ -1,0 +1,21 @@
+{
+  "id": "7m3",
+  "title": "Make command output and control-tower dashboard live and actionable",
+  "description": "Final review blockers: command results are queued next-turn rather than immediately visible in TUI/print, and the rich overlay is a static snapshot. Deliver command results on every Pi mode, update a live overlay from runner snapshots, preserve historical lanes/usage from artifacts, add cancellation and detail-first human gate approve/reject controls, and remove fixture whitespace failures.",
+  "notes": "2026-07-13 12:47 - runner-state: runner=pi branch=tick/qfs/7m3 worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/7m3 base=6e39517a2ed7db6fef4b06bd9b987567da52cb4e model=openai-codex/gpt-5.6-sol:high",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "3ht"
+  ],
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Dry-run/status/dashboard output is immediately visible in TUI, RPC, JSON/print-appropriate surfaces; an open overlay updates as child/tool/verification/merge state changes; gate actions require detail view; cancellation propagates; historical dashboard preserves lanes/usage; render/RPC/print tests pass and git diff --check is clean.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.72343Z",
+  "updated_at": "2026-07-13T11:11:09.825988Z",
+  "closed_at": "2026-07-13T11:11:09.825988Z",
+  "closed_reason": "Completed: command output is immediate and mode-correct in TUI/RPC/print/JSON, live dashboard store re-renders runner snapshots, historical summaries preserve lanes/usage, and dashboard adds cancellation plus detail-first guarded gate actions with tests."
+}

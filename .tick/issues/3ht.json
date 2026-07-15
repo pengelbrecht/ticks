@@ -1,0 +1,21 @@
+{
+  "id": "3ht",
+  "title": "Harden cancellation, status semantics, and capability routing",
+  "description": "Address final-review should-fix findings: terminate child process trees, await shutdown settlement where possible, classify awaiting/failed/completed manifests and in_progress as active status correctly, and implement deterministic economy/balanced/strong routing from explicit tick metadata/shape without pretending unavailable roles work.",
+  "notes": "2026-07-13 12:28 - runner-state: runner=pi branch=tick/qfs/3ht worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/3ht base=7576b7c42e6b045063b3be7a23f11aaa34ee6ffb model=openai-codex/gpt-5.6-sol:high",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "f2m"
+  ],
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Cancellation kills fixture descendants; status distinguishes active/awaiting/failed/completed cleanup debt; in_progress counts as running; ordinary tick routing can select economy/balanced/strong deterministically with tests and documented policy.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.698504Z",
+  "updated_at": "2026-07-13T10:47:52.150596Z",
+  "closed_at": "2026-07-13T10:47:52.150596Z",
+  "closed_reason": "Completed: added POSIX process-group cancellation and shutdown settlement tracking, normalized active/terminal recovery/dashboard status, exposed graph task metadata, and implemented deterministic explicit/shape-based economy-balanced-strong routing with reasons and tests."
+}

@@ -1,0 +1,18 @@
+{
+  "id": "fjg",
+  "title": "Serialize repository controllers and honor awaiting work",
+  "description": "Add repository/checkout-wide controller ownership or dedicated controller isolation so two epics cannot concurrently mutate one checkout/index. Keep epic-specific diagnostics while enforcing one Git authority. Make runner detect graph stats.awaiting_human when waves omit gated tasks and return actionable awaiting, never completed. Use real tk graph shape tests and exact tracker staging where needed.",
+  "notes": "2026-07-15 13:59 - Dispatched by Pi orchestrator to tick/qfs/fjg using openai-codex/gpt-5.6-sol:high; no .tick mutations.",
+  "status": "closed",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Concurrent executes for different epics in one checkout cannot overlap Git/tracker authority; awaiting-only epics report awaiting with gates and never completed; production-shape tests pass.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-15T11:59:29.668135Z",
+  "updated_at": "2026-07-15T12:20:20.226839Z",
+  "closed_at": "2026-07-15T12:20:20.226839Z",
+  "closed_reason": "Added checkout-wide controller authority, exact tracker staging, and awaiting-only graph handling."
+}

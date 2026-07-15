@@ -48,7 +48,7 @@ Agent(
 
 This is the adapter's resolution of the shared protocol's "run the active adapter's successful-integration cleanup" step (`agent-runner.md`). **Claude isolation worktrees are not self-cleaning once they hold commits.** The harness auto-removes an `isolation: "worktree"` directory only while it is *unchanged*; every tick implementer commits code, so its worktree and `worktree-agent-*` branch persist after the run and accumulate under `.claude/worktrees/` (multi-GB leaks across a few epics). The orchestrator must remove them explicitly — do not assume the harness will.
 
-After a tick's branch is merged and the tick is closed (and only then), remove its worktree and branch:
+After the whole wave's integrated gate has passed and the tick is durably closed (and only then), remove its worktree and branch:
 
 ```bash
 # branch comes from the agent's report, e.g. worktree-agent-a1bdb1ab…

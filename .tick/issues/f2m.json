@@ -1,0 +1,21 @@
+{
+  "id": "f2m",
+  "title": "Repair false-close semantics for failed post-wave gates",
+  "description": "Final review blocker: ticks are closed and branches cleaned before the post-wave integration gate. Rework sequencing so post-wave failure cannot leave known-bad work closed without repair state. Either delay closes/cleanup until the wave gate passes or reopen/retain repair branches atomically; recovery must block dependents on failed wave evidence.",
+  "notes": "2026-07-13 12:11 - runner-state: runner=pi branch=tick/qfs/f2m worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/f2m base=382a8ecb88d29b358ab3803d0693ca93aa8dc850 model=openai-codex/gpt-5.6-sol:high",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "mtl"
+  ],
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "A failed post-wave test leaves every affected tick open/repairable with useful branch/worktree state retained, no dependent launches, and recovery treats the failed wave as blocking. Tests no longer codify closed bad ticks.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.673417Z",
+  "updated_at": "2026-07-13T10:28:29.321427Z",
+  "closed_at": "2026-07-13T10:28:29.321427Z",
+  "closed_reason": "Completed: wave integrations are now provisional until post-wave tests pass; failed/incomplete gates retain open ticks, branches/worktrees, durable transaction journals and blocking recovery evidence; successful closes/cleanup occur only after gate evidence."
+}

@@ -52,18 +52,21 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       tick's branch/worktree in a durable note as soon as the name is known (before launch
       when the adapter controls naming; at first report when the harness assigns it)
    c. Wait using the harness's native completion primitive. Avoid busy polling.
-   d. Integrate each finished tick: merge its branch, then close it (or route it to a human)
-      Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`
-      Never use a bare `tk close`.
-   e. When the whole wave is merged, run the project's test suite on the integrated tree
-   f. When the wave is integrated and green, go to the next wave
+   d. Integrate each verified tick by merging its branch, but do not close tracker state or clean
+      branches/worktrees yet. If any sibling cannot integrate, keep every affected tick open and
+      retain all repair state, including siblings already merged.
+   e. When the whole wave is merged, persist the post-wave test evidence and run the project's
+      test suite on the integrated tree.
+   f. Only after that gate passes, close all wave ticks durably, then clean their worktrees/branches.
+      Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`.
+      Never use a bare `tk close`. Then go to the next wave.
 4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
 
 Order matters: integrate a wave's work *before* launching the next, so wave N+1 agents branch from a tree that already contains wave N's changes.
 
-**Verify the wave after merging, not just the ticks.** Each implementer ran its tests in its own worktree — against a tree that didn't contain its siblings' changes. Two branches can merge cleanly and still break each other. After a wave's merges land, run the project's test suite (or at minimum the build) before launching the next wave; if it fails, use the harness's continuation primitive or redispatch the responsible tick before anything else branches from the broken tree.
+**Verify the wave after merging, not just the ticks.** Each implementer ran its tests in its own worktree — against a tree that didn't contain its siblings' changes. Two branches can merge cleanly and still break each other. A merge is provisional until the integrated gate passes: defer every close and cleanup. If the gate fails, reopen/keep open every affected tick, note the failed evidence, retain every branch/worktree, and block dependents. For repair, advance each already-merged retained branch to the integrated failure commit before adding a follow-up commit; this avoids replaying the original change or creating a duplicate branch. Only a passed gate authorizes durable closes and cleanup.
 
 **Optional: dependency-driven launching.** Waves are a barrier: nothing in wave N+1 starts until all of wave N is integrated. But a tick is actually ready the moment *its specific blockers* are merged and verified. Since you're woken per-agent anyway, you can launch a tick as soon as its last blocker integrates instead of waiting for the whole wave — a throughput win on epics with uneven waves. Wave barriers remain the simpler default and easier to audit; if you go dependency-driven, the per-tick rules below (merge, verify, then launch dependents) still apply unchanged.
 
@@ -84,17 +87,19 @@ The `--role` flag is what makes the skeleton machine-detectable: `tk graph <epic
 
 **Why also a run-start pre-flight (step 1 of the loop):** planning time is the primary creation point, but epics reach run time through other doors — planned by an older skill version, planned by another tool, or promoted with `tk update -t epic` (which bypasses the planning flow entirely). The pre-flight check repairs all of these before wave 1.
 
-**Final-review tick** — its work is to review the epic's full diff (run a reviewer subagent for substantial epics, per the "Reviewing the work" section above) and resolve or route any findings before the close-out tick unblocks.
+**Final-review tick** — run the configured frontier reviewer read-only in the controller checkout, never in an implementation worktree and never with edit/write/tracker authority. Review the full source diff from the epic's recorded base branch against its description, acceptance, and applicable spec. Require schema-validated findings (`severity`, `confidence`, `file`, `line`, `message`) and persist the full log, report, and findings; malformed output fails closed. Blockers create controller-owned repair ticks discovered from the review (or reopen work only when routing is unambiguous), and those repairs block the still-open review. Route should-fix findings according to explicit policy. A clean/routable review closes only after final configured tests have persisted passing evidence.
 
-**Close-out tick** — this is the existing close-out convention (retro + plan the next *feasible* epic in soft order; hard-blocked or gated epics are skipped). It is defined in SKILL.md's Big picture section; do not redefine it here. What is new: the close-out tick now has a formal predecessor (the final-review tick) and both are created at planning time rather than ad-hoc at run end.
+**Close-out tick** — verify epic acceptance outside-in, item by item, with controller-run evidence explicitly authorized for that item in controller-owned configuration. Never form a Cartesian product between generic tests and acceptance prose. Malformed output, a missing/stale/cross-item authorization, a failing command, or any unverified item leaves closeout and epic open. On pass, persist the verification report and retro/learned notes, close closeout, then close the epic. Ask `tk next` for the next feasible action and surface it without creating, reordering, or otherwise changing roadmap scope. This is the existing close-out convention with a formal predecessor; both process ticks are created at planning time rather than ad-hoc at run end.
 
 Both meta-ticks are owned by the orchestrator, not by implementer subagents. They follow the same integrator–tick-state invariant: only the orchestrator runs `tk`; implementers never touch `.tick/`.
 
 ### Run-start: reading `.tick/config.md`
 
-Before calling `tk graph`, read `.tick/config.md` (if present). It contains up to three sections:
+Before calling `tk graph`, read `.tick/config.md` (if present). It contains these operational sections:
 
 - **Testing** — the exact test commands to pass on to implementers.
+- **Closeout Evidence Commands** — strict controller-owned commands executable only by closeout, never by implementers, per-tick verifiers, post-wave gates, or final-review tests.
+- **Acceptance Evidence** — optional controller-owned closeout authorization, exactly one bounded `- A<n>: \`exact command\`` mapping per acceptance item. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands. Tracker/model prose remains non-authoritative; duplicate, ambiguous, unknown/stale, injected, missing, generic-for-an-unmapped-item, or cross-item evidence fails closed.
 - **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop; don't start a wave on a broken environment.
 - **Rules** — project-specific constraints to include verbatim in every implementer prompt.
 
@@ -146,7 +151,9 @@ Planning is the highest-leverage step in an epic run. A flawed implementation ti
 
 1. The frontier planner spawns N cheapest-tier sub-agents in parallel — one per subsystem — to read files, grep patterns, and map relevant code. Each returns a structured summary.
 2. The frontier planner synthesizes the summaries into the tick structure: partitioning, wave grouping, dependency graph, contracts-first ordering.
-3. The planning agent returns the full tick list for the orchestrator to create with `tk`.
+3. The planning agent returns a bounded, versioned plan for the orchestrator to validate and create with `tk`.
+
+An automated planning entrypoint must fail closed: model-running dry-run is the default and must be labelled as model-running (models/cost/artifacts, but zero tracker mutation), while tracker apply needs an explicit flag/confirmation. Scouts are parallel and strictly read-only. The frontier output is data, never shell or tracker argv; validate bounds, unique safe client IDs, existing acyclic hard dependencies, vertical acceptance, and same-wave file disjointness before controller mutation. Review/closeout are implied controller-owned structure, not model output. Apply only within the requested childless epic (or one new requirements epic), uses argv-safe controller calls and actor provenance, commits tracker state, and persists an idempotency mapping so partial retries cannot blindly duplicate work. Harness adapters may tighten these requirements but not weaken them.
 
 This keeps planning quality independent of the session model whenever the harness can dispatch a separate planner.
 
@@ -206,12 +213,15 @@ Each implementer commits its code in its own worktree and reports its branch nam
 # 1. Verify the agent stayed inside its boundary (should print nothing)
 git diff --name-only HEAD...<agent-branch> -- .tick/
 
-# 2. Merge and close
+# 2. Merge provisionally; keep the branch/worktree
 git merge <agent-branch>     # branch name comes from the agent's report
+
+# 3. After every wave branch is merged, run and persist the integrated test gate.
+# 4. Only when that gate passes:
 tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 ```
 
-After the close is committed, run the active adapter's successful-integration cleanup. Harness-managed worktrees may clean themselves; manually created worktrees and merged branches must be removed explicitly.
+Commit all wave closes durably after the passed gate, then run the active adapter's successful-integration cleanup. Harness-managed worktrees may clean themselves; manually created worktrees and merged branches must be removed explicitly. A failed gate leaves the ticks open and all branches/worktrees intact.
 
 Always pass `--reason` with a concrete summary — never a bare `tk close <id>`. The reason appears in the activity feed and in the retro harvest; vague or absent reasons make the retro harder.
 
@@ -378,7 +388,7 @@ Verify against the *code*, not the tick status. If the epic carries a **definiti
 
 - The behavior exists in the code.
 - Tests cover it (and pass).
-- Acceptance commands from the tick actually run and succeed.
+- The exactly one command mapped to that stable item under controller-owned `.tick/config.md` `Acceptance Evidence` exists uniquely in Testing or Closeout Evidence Commands, runs during its authorized phase, and succeeds; tracker/model prose is never shell authority.
 
 Gaps get **fixed now** or explicitly surfaced to the human. Never silently defer an undelivered scope item into the next epic.
 
@@ -453,15 +463,15 @@ Run this **before the first wave on every (re)entry**, even on a fresh start (gu
 2. For each `in_progress` tick with no live agent: check its `started_at` age.
    - A tick whose `started_at` is older than your staleness threshold (e.g. 30 minutes) **and** has no live agent is stale. Reset it: `tk update <id> --status open`.
    - `last_activity` provides a secondary cross-check: because claiming a tick emits a `start` activity entry, `last_activity` is also fresh at claim time. A genuinely stale tick will show both an old `started_at` **and** an old `last_activity`.
-   - **What stays closed:** any tick already closed before the session died. Completed work is never re-opened.
-   - **What re-opens:** only ticks that were still in_progress when the session died — incomplete work must be re-run from the reopened tick.
+   - **What stays closed:** any tick whose wave gate had durably passed before closure. A merge alone is not completion.
+   - **What re-opens:** ticks still in_progress when the session died, plus any legacy false-close tied to failed post-wave evidence. A durable integrated-wave journal resumes the gate without redispatch; failed-gate ticks resume repair in their retained worktrees.
 3. **Childless-epic edge case:** an `in_progress` epic with no child ticks maps to `action: implement` in `tk next`, which is unroutable — `EpicsNeedingPlanning` only considers epics with status `open`. Reset it to `open` so it correctly surfaces as `action: plan`.
 
 ### Worktree branch reconciliation
 
 Read `runner-state:` notes on in-progress ticks, then inspect `git worktree list` and `git branch --list 'tick/*'`. Include adapter-managed branches whose actual names were recorded in notes, and sweep the adapter's documented branch pattern for branches that died before a note was written (each adapter names its pattern). For each leftover branch:
 
-- **If its tick is already closed, or if the agent reported `DONE` before the session died:** merge the branch now (`git merge <branch>`) then delete it.
+- **If its tick is closed after durable post-wave success:** cleanup is safe after ancestry checks. If the agent only reported `DONE`, merge provisionally and retain the branch/worktree until the integrated wave gate passes.
 - **If it contains incomplete but useful work:** preserve the worktree and branch. Continue or redispatch the tick there after updating it from the integration branch.
 - **If it contains no useful changes or is irrecoverably inconsistent:** remove the worktree and branch, record why in a tick note, and redispatch from the current integration commit.
 

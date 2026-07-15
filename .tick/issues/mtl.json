@@ -1,0 +1,18 @@
+{
+  "id": "mtl",
+  "title": "Reject unsafe recovery paths and duplicate live ownership",
+  "description": "Final review blocker: manifests are insufficiently validated and resume may trust path fields outside the repo-namespaced state root. Validate complete tick path shape/containment against deterministic plan; reject malicious/corrupt paths. Add live ownership/heartbeat semantics so a long silent child is not reopened solely by age. Preserve cross-runner recovery without session IDs.",
+  "notes": "2026-07-13 11:56 - runner-state: runner=pi branch=tick/qfs/mtl worktree=/Users/peterengelbrecht/Development/.ticks-worktrees/mtl base=6228bc7a26fc59cdf3d236a378dfeaf9b28b51b7 model=openai-codex/gpt-5.6-sol:high",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "A matching-repo manifest with prompt/report/log/worktree outside its deterministic state namespace is rejected; fresh/live ownership blocks duplicate launch; stale ownership can resume safely; tests cover path traversal/absolute redirects and silent live child.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-13T09:56:45.647206Z",
+  "updated_at": "2026-07-13T10:11:44.763396Z",
+  "closed_at": "2026-07-13T10:11:44.763396Z",
+  "closed_reason": "Completed: recovery now validates deterministic path containment/shape against repo namespace, rejects malicious manifests/symlink escapes, and uses atomic controller leases with silent-child heartbeats, safe takeover/release, and adversarial tests."
+}

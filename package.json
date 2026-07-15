@@ -1,12 +1,26 @@
 {
   "name": "@pengelbrecht/ticks-pi",
-  "private": true,
-  "version": "0.0.0",
-  "description": "Ticks issue tracker and Pi orchestrator package",
+  "version": "0.19.0",
+  "description": "Ticks issue tracker skill and Pi epic orchestrator extension",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pengelbrecht/ticks.git"
+  },
+  "homepage": "https://github.com/pengelbrecht/ticks#readme",
   "keywords": [
     "pi-package",
     "ticks",
     "agent-orchestration"
+  ],
+  "files": [
+    "extensions/ticks-runner",
+    "scripts/pi-ticks-live-scenario.ts",
+    "skills/ticks",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
   ],
   "pi": {
     "skills": [
@@ -18,7 +32,7 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
-  }
+    "@earendil-works/pi-tui": "*"
+  },
+  "packageManager": "pnpm@11.0.6"
 }
