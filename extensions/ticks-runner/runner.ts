@@ -726,7 +726,7 @@ function humanRuleGateApproved(root: string, input: string, expectedId: string, 
 	// Real tk intentionally clears both transient fields for a non-terminal
 	// checkpoint approval. Closed state is also wrong here: closeout still has
 	// controller verification to perform.
-	if (item.id !== expectedId || item.awaiting !== undefined || item.verdict !== undefined || /^(?:closed|completed|cancelled)$/i.test(String(item.status ?? ""))) return false;
+	if (item.id !== expectedId || item.awaiting != null || item.verdict != null || /^(?:closed|completed|cancelled)$/i.test(String(item.status ?? ""))) return false;
 
 	let lines: string[];
 	try {
