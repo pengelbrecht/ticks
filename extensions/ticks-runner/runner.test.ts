@@ -31,6 +31,7 @@ type FixtureTask = {
 	blocked_by?: string[];
 	role?: string;
 	awaiting?: string;
+	requires?: string;
 	parent?: string;
 	started_at?: string;
 	updated_at?: string;
@@ -146,7 +147,7 @@ async function executeFixture(
 }
 
 function readState(repo: string) {
-	return JSON.parse(fs.readFileSync(path.join(repo, ".tick", "fake-runner-state.json"), "utf8")) as { epic: { status: string; notes?: string[] }; tasks: Array<{ id: string; title: string; status: string; role?: string; awaiting?: string; verdict?: string; blocked_by?: string[]; discovered_from?: string; close_reason?: string }> };
+	return JSON.parse(fs.readFileSync(path.join(repo, ".tick", "fake-runner-state.json"), "utf8")) as { epic: { status: string; notes?: string[] }; tasks: Array<{ id: string; title: string; status: string; role?: string; awaiting?: string; requires?: string; verdict?: string; blocked_by?: string[]; discovered_from?: string; close_reason?: string }> };
 }
 
 function trackerLog(repo: string): Array<Record<string, unknown>> {
@@ -315,6 +316,40 @@ test("fixture epic launches a wave in parallel, verifies after merges, closes du
 	assert.equal(persisted.latest.usage.inputTokens, 2);
 	assert.ok(persisted.latest.verification.some((item: { label: string }) => item.label === "post-wave 1 tests"));
 	assert.equal(persisted.latest.merges.length, 2);
+});
+
+test("requires close durably pauses a verified wave and approval resumes without redispatch or early cleanup", async () => {
+	const fixture = createFixture("requires-gate", [
+		{ id: "gated", wave: 1, requires: "approval" },
+		{ id: "peer", wave: 1 },
+		{ id: "dependent", wave: 2, blocked_by: ["gated", "peer"] },
+	]);
+	const gated = await executeFixture(fixture);
+	assert.equal(gated.status, "awaiting", gated.summary);
+	const state = readState(fixture.repo);
+	assert.equal(state.tasks.find((item) => item.id === "gated")?.status, "in_progress");
+	assert.equal(state.tasks.find((item) => item.id === "gated")?.awaiting, "approval");
+	assert.equal(state.tasks.find((item) => item.id === "peer")?.status, "closed", "verified sibling closes durably, but cleanup remains paused with the gated wave");
+	assert.equal(state.tasks.find((item) => item.id === "dependent")?.status, "open");
+	assert.equal(fs.existsSync(path.join(fixture.repo, "dependent.txt")), false);
+	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/gated"), /tick\/epic\/gated/, "retained branch proves cleanup did not run");
+	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "", "expected nonzero close transition was committed cleanly");
+	const transactionFile = path.join(path.dirname(gated.manifest!), "waves", "wave-1-transaction.json");
+	assert.equal(JSON.parse(fs.readFileSync(transactionFile, "utf8")).status, "awaiting");
+	assert.equal(fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.startsWith("gated:start")).length, 1);
+
+	command(fixture.repo, fakeTk, "approve", "gated");
+	command(fixture.repo, "git", "add", ".tick");
+	command(fixture.repo, "git", "commit", "-m", "approve required gate");
+	const resumed = await executeFixture(fixture);
+	assert.equal(resumed.status, "completed", resumed.summary);
+	const starts = fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.includes(":start:"));
+	assert.equal(starts.filter((line) => line.startsWith("gated:")).length, 1, "approved integrated tick is never rerun");
+	assert.equal(starts.filter((line) => line.startsWith("peer:")).length, 1, "pending verified sibling is closed without redispatch");
+	assert.equal(starts.filter((line) => line.startsWith("dependent:")).length, 1, "dependent starts only after durable approval cleanup");
+	assert.ok(resumed.events.some((event) => event.type === "requires-approved"));
+	assert.equal(command(fixture.repo, "git", "branch", "--list", "tick/epic/gated"), "");
+	assert.equal(readState(fixture.repo).tasks.every((item) => item.status === "closed"), true);
 });
 
 test("run cancellation propagates to a live child and publishes a cancelled dashboard", async () => {
@@ -774,8 +809,13 @@ test("external Project Rules create a durable human checkpoint and approved evid
 	const fingerprint = gateInstructions.match(/Gate fingerprint: ([a-f0-9]+)/)?.[1];
 	assert.ok(fingerprint);
 
-	command(fixture.repo, fakeTk, "note", "closeout", `project-rule-evidence:${fingerprint} PR #42 CI run 123 green`);
+	// An orchestrator-authored substring is deliberately insufficient.
+	command(fixture.repo, fakeTk, "note", "closeout", `project-rule-evidence:${fingerprint} fabricated agent claim`);
+	command(fixture.repo, fakeTk, "note", "closeout", `project-rule-evidence:${fingerprint} PR #42 CI run 123 green`, "--from", "human");
 	command(fixture.repo, fakeTk, "approve", "closeout");
+	const approvedShape = readState(fixture.repo).tasks[0];
+	assert.equal(approvedShape.awaiting, undefined, "real checkpoint approval clears awaiting");
+	assert.equal(approvedShape.verdict, undefined, "real non-terminal approval clears verdict");
 	command(fixture.repo, "git", "add", ".tick");
 	command(fixture.repo, "git", "commit", "-m", "approve external Project Rules gate");
 	const approvedOutput = JSON.stringify({

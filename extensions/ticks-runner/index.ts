@@ -240,9 +240,24 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 }
 
 function controllerFor(ctx: ExtensionCommandContext, store: DashboardStore, control: LiveControlState): DashboardController {
+	const root = () => repoRoot(ctx.cwd);
 	return createDashboardController(ctx.ui, store, control, {
 		actor: ORCHESTRATOR_ACTOR,
-		execute: async (args) => run("tk", args, await repoRoot(ctx.cwd), 15_000, { ...process.env, TK_ACTOR: ORCHESTRATOR_ACTOR }),
+		execute: async (args) => run("tk", args, await root(), 15_000, { ...process.env, TK_ACTOR: ORCHESTRATOR_ACTOR }),
+		preflight: async () => {
+			const result = await run("git", ["status", "--porcelain=v1", "--untracked-files=all"], await root());
+			if (result.code !== 0 || !result.stdout.trim()) return result;
+			return { code: 1, stdout: result.stdout, stderr: "The controller checkout has uncommitted files." };
+		},
+		commitTracker: async (message) => {
+			const cwd = await root();
+			const staged = await run("git", ["add", "-A", "--", ".tick"], cwd);
+			if (staged.code !== 0) return staged;
+			const changed = await run("git", ["diff", "--cached", "--quiet", "--", ".tick"], cwd);
+			if (changed.code === 0) return { code: 1, stdout: "", stderr: "tk reported success but produced no committable .tick/ change" };
+			if (changed.code !== 1) return changed;
+			return run("git", ["commit", "-m", message, "--", ".tick"], cwd);
+		},
 		refresh: async () => {
 			const refreshed = await dashboardModelForTarget(ctx.cwd, control.epicId);
 			store.replace(refreshed);
