@@ -2,7 +2,8 @@
   "id": "gt9",
   "title": "Make acceptance evidence semantically scoped and add real execution proof",
   "description": "Replace Cartesian generic Testing evidence. Tracker acceptance is prose/untrusted; permit an item to reference only exact commands already authorized by controller-owned Testing config, or introduce a similarly explicit trusted per-item evidence mapping. Items without relevant configured evidence fail closed or require bounded human proof. Add a reproducible disposable scenario harness that exercises real tk plus real Pi subprocess supervision/worktree/artifacts/boundary/merge/close/cleanup without fake tracker/child scripts where feasible, and document live-model requirements.",
-  "status": "open",
+  "notes": "2026-07-15 13:59 - Dispatched by Pi orchestrator to tick/qfs/gt9 using openai-codex/gpt-5.6-sol:high; no .tick mutations.",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "Cross-item/generic true commands cannot certify unrelated acceptance; trusted command matching is item-scoped and injection-safe; qfs real disposable end-to-end execution is performed and evidence retained; tests pass.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-15T11:59:29.694984Z",
-  "updated_at": "2026-07-15T11:59:29.694984Z"
+  "updated_at": "2026-07-15T11:59:35.060707Z",
+  "started_at": "2026-07-15T11:59:35.03466Z"
 }
