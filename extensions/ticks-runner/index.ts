@@ -8,6 +8,8 @@ import {
 	buildDashboardModel,
 	boundedDashboardModel,
 	compactDashboardSummary,
+	DASHBOARD_OVERLAY_MARGIN,
+	DASHBOARD_OVERLAY_MAX_HEIGHT,
 	DashboardComponent,
 	DashboardStore,
 	dashboardModelFromPlan,
@@ -173,13 +175,21 @@ function showDashboard(ctx: ExtensionCommandContext, store: DashboardStore, cont
 	let unsubscribe: (() => void) | undefined;
 	let handle: { focus(): void } | undefined;
 	let closed = false;
-	const settled = ctx.ui.custom((tui, theme, _kb, done) => {
+	const settled = ctx.ui.custom((tui, theme, keybindings, done) => {
 		finish = () => {
 			if (closed) return;
 			closed = true;
 			done(undefined);
 		};
-		const component = new DashboardComponent({ store, controller, theme, requestRender: () => tui.requestRender(), close: finish });
+		const component = new DashboardComponent({
+			store,
+			controller,
+			theme,
+			keybindings,
+			terminalRows: () => tui.terminal.rows,
+			requestRender: () => tui.requestRender(),
+			close: finish,
+		});
 		unsubscribe = store.subscribe(() => {
 			component.invalidate();
 			tui.requestRender();
@@ -187,7 +197,7 @@ function showDashboard(ctx: ExtensionCommandContext, store: DashboardStore, cont
 		return component;
 	}, {
 		overlay: true,
-		overlayOptions: { width: "92%", minWidth: 30, maxHeight: "90%", anchor: "center", margin: 1 },
+		overlayOptions: { width: "92%", minWidth: 30, maxHeight: DASHBOARD_OVERLAY_MAX_HEIGHT, anchor: "center", margin: DASHBOARD_OVERLAY_MARGIN },
 		onHandle: (overlayHandle) => { handle = overlayHandle; },
 	}).then(() => undefined).finally(() => {
 		closed = true;

@@ -11,6 +11,7 @@ import {
 	DashboardComponent,
 	DashboardStore,
 	dashboardModelFromPlan,
+	dashboardViewportHeight,
 	readDashboardHistory,
 	renderDashboard,
 	renderDashboardText,
@@ -134,6 +135,69 @@ test("mutable store replacement notifies an open overlay and render reads the la
 	unsubscribe();
 	store.replace(model);
 	assert.equal(renders, 1);
+});
+
+test("24-row viewport keeps context and controls visible while every dashboard lane remains reachable", () => {
+	const tall = buildDashboardModel({
+		epicId: "small-terminal",
+		epicTitle: "Small terminal viewport",
+		status: "recoverable",
+		waves: [
+			{ wave: 1, status: "completed", taskIds: ["agent-1"] },
+			{ wave: 2, status: "running", taskIds: ["agent-2", "agent-3"] },
+		],
+		agents: Array.from({ length: 3 }, (_, index) => ({ tickId: `agent-${index + 1}`, title: `Agent ${index + 1}`, status: index === 1 ? "running" : "queued", branch: `tick/small-terminal/agent-${index + 1}`, worktree: `/tmp/agent-${index + 1}` })),
+		verification: [{ label: "extension suite", status: "passed" }],
+		merges: [{ tickId: "agent-1", branch: "tick/small-terminal/agent-1", status: "passed" }],
+		recovery: Array.from({ length: 7 }, (_, index) => ({ kind: "failed-run", label: `recovery-${index + 1}`, lastDecision: `decision-${index + 1}`, artifacts: [`/runs/recovery-${index + 1}.md`] })),
+		humanGates: [
+			{ tickId: "gate-1", title: "First human gate", type: "review", status: "awaiting" },
+			{ tickId: "gate-2", title: "Last human gate", type: "approval", status: "awaiting" },
+		],
+	});
+	const store = new DashboardStore(tall);
+	const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as any;
+	let terminalRows = 24;
+	const component = new DashboardComponent({ store, theme, terminalRows: () => terminalRows, requestRender: () => {}, close: () => {} });
+
+	assert.equal(dashboardViewportHeight(24), 21);
+	let lines = component.render(72);
+	assert.equal(lines.length, 21);
+	assert.match(lines[0], /TICKS CONTROL TOWER/);
+	assert.match(lines.join("\n"), /PgUp\/PgDn scroll/);
+	assert.match(lines.join("\n"), /q\/Esc\/Ctrl-C close/);
+	assert.ok(lines.every((line) => dashboardVisibleWidth(line) <= 72));
+
+	const reachable = new Set<string>();
+	for (let page = 0; page < 12; page++) {
+		for (const line of component.render(72)) reachable.add(line);
+		component.handleInput("\x1b[6~");
+	}
+	const allReachable = [...reachable].join("\n");
+	for (const sectionName of ["Wave timeline", "Agent cards", "Verification lane", "Merge queue", "Recovery", "Human gates"]) assert.match(allReachable, new RegExp(sectionName));
+	for (let index = 1; index <= 7; index++) assert.match(allReachable, new RegExp(`recovery-${index}`));
+	assert.match(allReachable, /gate-1/);
+	assert.match(allReachable, /gate-2/);
+
+	component.handleInput("\x1b[H");
+	assert.match(component.render(72).join("\n"), /Wave timeline/);
+	component.handleInput("\x1b[F");
+	assert.match(component.render(72).join("\n"), /gate-2/);
+
+	for (let index = 0; index < 4; index++) component.handleInput("\x1b[B");
+	lines = component.render(72);
+	assert.match(lines.join("\n"), /> ◆ gate-2/);
+	component.handleInput("\x1b[A");
+	assert.match(component.render(72).join("\n"), /> ◆ gate-1/);
+	component.handleInput("\x1b[A");
+	assert.match(component.render(72).join("\n"), /> ○ agent-3/);
+
+	terminalRows = 10;
+	lines = component.render(50);
+	assert.equal(lines.length, 8, "90% maxHeight is clamped by Pi's one-row overlay margin");
+	assert.match(lines[0], /TICKS CONTROL TOWER/);
+	assert.match(lines.join("\n"), /> ○ agent-3/);
+	assert.ok(lines.every((line) => dashboardVisibleWidth(line) <= 50));
 });
 
 test("interactive component navigates, expands, cancels, and requires gate detail before action", async () => {
