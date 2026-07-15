@@ -19,7 +19,8 @@ const readLog = (data = {}) => {
 	if (process.env.FAKE_TK_READ_LOG) fs.appendFileSync(process.env.FAKE_TK_READ_LOG, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, args: argv, ...data })}\n`);
 };
 const task = (tickId) => state.tasks.find((item) => item.id === tickId);
-const entity = (tickId) => tickId === state.epic.id ? state.epic : task(tickId);
+const epics = state.epics ?? [state.epic];
+const entity = (tickId) => epics.find((item) => item.id === tickId) ?? task(tickId);
 const option = (args, name) => {
 	const index = args.indexOf(name);
 	return index >= 0 ? args[index + 1] : undefined;
@@ -39,16 +40,19 @@ function computedWave(item, visiting = new Set()) {
 }
 
 function graphOutput() {
-	const waveNumbers = [...new Set(state.tasks.map((item) => computedWave(item)))].sort((a, b) => a - b);
+	// Production tk wave.Compute intentionally omits awaiting-human children while
+	// stats.awaiting_human still counts them. Fixtures opt into that exact shape.
+	const graphTasks = state.omit_awaiting_from_waves ? state.tasks.filter((item) => !item.awaiting) : state.tasks;
+	const waveNumbers = [...new Set(graphTasks.map((item) => computedWave(item)))].sort((a, b) => a - b);
 	let readyWave;
 	for (const wave of waveNumbers) {
-		if (state.tasks.some((item) => computedWave(item) === wave && item.status === "open" && !item.awaiting && blockersClosed(item))) {
+		if (graphTasks.some((item) => computedWave(item) === wave && item.status === "open" && !item.awaiting && blockersClosed(item))) {
 			readyWave = wave;
 			break;
 		}
 	}
 	const waves = waveNumbers.map((wave) => {
-		const tasks = state.tasks.filter((item) => computedWave(item) === wave).map((item) => ({
+		const tasks = graphTasks.filter((item) => computedWave(item) === wave).map((item) => ({
 			...item,
 			wave,
 			agent_ready: wave === readyWave && item.status === "open" && !item.awaiting && blockersClosed(item),
@@ -61,7 +65,7 @@ function graphOutput() {
 		epic: { id: state.epic.id, title: state.epic.title },
 		needs_planning: false,
 		missing_process_ticks: missing,
-		stats: { total_tasks: state.tasks.length, wave_count: waves.length, max_parallel: Math.max(0, ...waves.map((wave) => wave.parallel)), ready_for_agent: waves.flatMap((wave) => wave.tasks).filter((item) => item.agent_ready).length },
+		stats: { total_tasks: state.tasks.length, wave_count: waves.length, max_parallel: Math.max(0, ...waves.map((wave) => wave.parallel)), ready_for_agent: waves.flatMap((wave) => wave.tasks).filter((item) => item.agent_ready).length, awaiting_human: state.tasks.filter((item) => item.status === "open" && item.awaiting).length, deferred: 0 },
 		waves,
 		critical_path: waves.length,
 	};
@@ -75,14 +79,18 @@ if (command === "list") {
 } else if (command === "next") {
 	const epicId = argv.find((arg) => !arg.startsWith("-"));
 	const autonomous = has(argv, "--autonomous");
+	const awaitingArg = argv.find((arg) => arg === "--awaiting" || arg.startsWith("--awaiting="));
+	const awaitingTypes = awaitingArg?.includes("=") ? awaitingArg.slice(awaitingArg.indexOf("=") + 1).split(",").filter(Boolean) : [];
 	let found = null;
-	if (has(argv, "--epic")) {
+	if (awaitingArg !== undefined && epicId === state.epic.id) {
+		found = state.tasks.find((item) => item.status === "open" && item.awaiting && (!awaitingTypes.length || awaitingTypes.includes(item.awaiting))) ?? null;
+	} else if (has(argv, "--epic")) {
 		found = (state.next_epics ?? []).find((item) => item.status !== "closed" && gateAllows(item, autonomous) && blockersClosed(item)) ?? null;
 	} else if (epicId === state.epic.id) {
 		found = state.tasks.find((item) => item.status === "open" && gateAllows(item, autonomous) && blockersClosed(item)) ?? null;
 	}
-	readLog({ epicId: epicId ?? null, autonomous, selected: found?.id ?? null });
-	console.log(JSON.stringify(found ? { ...found, action: found.type === "epic" && found.childless ? "plan" : "implement" } : null));
+	readLog({ epicId: epicId ?? null, autonomous, awaiting: awaitingArg !== undefined, selected: found?.id ?? null });
+	console.log(JSON.stringify(found ? { ...found, action: awaitingArg !== undefined ? "await" : found.type === "epic" && found.childless ? "plan" : "implement" } : null));
 } else if (command === "show") {
 	const id = argv[0];
 	const found = entity(id);

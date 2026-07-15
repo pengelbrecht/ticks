@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveRunnerConfig } from "./config.ts";
-import { buildPreflight, buildRunPlan, formatDryPlan, parseGraph } from "./graph.ts";
+import { awaitingHumanCount, buildPreflight, buildRunPlan, formatDryPlan, parseGraph } from "./graph.ts";
 
 const graphJson = JSON.stringify({
 	epic: { id: "qfs", title: "Pi orchestration" },
@@ -20,6 +20,23 @@ const graphJson = JSON.stringify({
 		{ wave: 4, parallel: 1, ready: false, tasks: [{ id: "d", title: "Future closeout", status: "open", role: "closeout", agent_ready: false, blocked_by: ["b"] }] },
 	],
 	critical_path: 4,
+});
+
+test("parser preserves the production tk shape where awaiting children are counted but omitted from waves", () => {
+	const graph = parseGraph({
+		epic: { id: "gated", title: "Human-gated epic" },
+		needs_planning: false,
+		missing_process_ticks: [],
+		stats: { total_tasks: 1, wave_count: 0, max_parallel: 0, ready_for_agent: 0, awaiting_human: 1, deferred: 0 },
+		waves: [],
+		critical_path: 0,
+	});
+	assert.equal(awaitingHumanCount(graph), 1);
+	assert.deepEqual(graph.waves, []);
+	const plan = buildRunPlan({ graph, config: resolveRunnerConfig("", {}), repoRoot: "/repo", repoIdentity: "git@github.com:acme/widgets.git", epicId: "gated", stateRoot: "/state", worktrees: true });
+	assert.equal(plan.readyTasks.length, 0);
+	assert.equal(plan.workPlans.length, 0, "omitted human work cannot be mistaken for an implementation plan");
+	assert.throws(() => parseGraph({ stats: { awaiting_human: "1" }, waves: [] }), /awaiting_human must be a non-negative integer/);
 });
 
 test("graph parser preserves routing metadata and rejects malformed task records", () => {

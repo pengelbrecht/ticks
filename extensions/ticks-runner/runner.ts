@@ -21,7 +21,7 @@ import {
 	type MergeItem,
 	type VerificationItem,
 } from "./dashboard.ts";
-import { buildRunPlan, parseGraph, type GraphResult, type GraphTask, type RunDryPlan, type WorkPlan } from "./graph.ts";
+import { awaitingHumanCount, buildRunPlan, parseGraph, type GraphResult, type GraphTask, type RunDryPlan, type WorkPlan } from "./graph.ts";
 import { cleanupIntegratedWorktree, ensureGitWorktree, integrateWorktreeResult } from "./merge.ts";
 import { spawnProcessTree, terminateProcessTree } from "./process.ts";
 import {
@@ -68,6 +68,7 @@ import {
 	type ChildReport,
 	type ChildState,
 } from "./supervisor.ts";
+import { commitTrackerChanges } from "./tracker-git.ts";
 
 export const ORCHESTRATOR_ACTOR = "pi:orchestrator";
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -255,6 +256,13 @@ export async function mapConcurrent<T, U>(items: readonly T[], concurrency: numb
 
 export type RunnerEvent = { at: string; type: string; tickId?: string; detail: string };
 export type EpicRunStatus = "dry-run" | "completed" | "blocked" | "awaiting" | "failed" | "cancelled";
+export type AwaitingGate = {
+	tickId: string;
+	title: string;
+	type: string;
+	action: string;
+};
+
 export type EpicRunResult = {
 	status: EpicRunStatus;
 	epicId: string;
@@ -262,6 +270,7 @@ export type EpicRunResult = {
 	wavesCompleted: number;
 	outcomes: AgentOutcome[];
 	events: RunnerEvent[];
+	awaiting?: AwaitingGate;
 	plan?: RunDryPlan;
 	dashboard?: DashboardModel;
 	manifest?: string;
@@ -393,12 +402,7 @@ function closeTrackerTick(tk: string, tickId: string, reason: string, root: stri
 }
 
 function trackerCommit(root: string, message: string): string | undefined {
-	requireSuccessful(runSubprocess("git", ["add", "-A", "--", ".tick"], root), "Cannot stage tracker state");
-	const diff = runSubprocess("git", ["diff", "--cached", "--quiet", "--", ".tick"], root);
-	if (diff.status === 0) return undefined;
-	if (diff.status !== 1) requireSuccessful(diff, "Cannot inspect staged tracker state");
-	requireSuccessful(runSubprocess("git", ["commit", "-m", message, "--", ".tick"], root), "Cannot commit tracker state");
-	return git(root, ["rev-parse", "HEAD"]);
+	return commitTrackerChanges(root, message);
 }
 
 function parseTickDetail(input: string, expectedId: string): TickDetail {
@@ -783,6 +787,15 @@ function humanRuleGateMarkdown(epicId: string, closeoutId: string, fingerprint: 
 	].join("\n");
 }
 
+function awaitingGate(selection: { id: string; title: string; awaiting?: string }): AwaitingGate {
+	const type = selection.awaiting?.trim() || "human";
+	let action = `Inspect with tk show ${selection.id}, resolve the ${type} gate, commit .tick/, then rerun /ticks-run.`;
+	if (type === "input") action = `Record input with tk note ${selection.id} "<input>" --from human, then tk approve ${selection.id}, commit .tick/, and rerun /ticks-run.`;
+	else if (["approval", "review", "content", "checkpoint"].includes(type)) action = `Inspect tk show ${selection.id}, then tk approve ${selection.id} or tk reject ${selection.id} "<feedback>", commit .tick/, and rerun /ticks-run.`;
+	else if (type === "work") action = `Complete the human work described by tk show ${selection.id}, then tk approve ${selection.id}, commit .tick/, and rerun /ticks-run.`;
+	return { tickId: selection.id, title: selection.title, type, action };
+}
+
 function formatOutcome(outcome: AgentOutcome): string {
 	return `${outcome.tickId}: ${outcome.kind} — ${outcome.detail}`;
 }
@@ -801,6 +814,7 @@ function dashboardOutcome(outcome: AgentOutcome): Pick<DashboardAgentInput, "sta
 
 export function formatRunResult(result: EpicRunResult): string {
 	const lines = [`# /ticks-run ${result.status}: ${result.epicId}`, "", result.summary, "", `Waves completed: ${result.wavesCompleted}`];
+	if (result.awaiting) lines.push("", "## Human gate", `- Tick: ${result.awaiting.tickId} — ${result.awaiting.title}`, `- Awaiting: ${result.awaiting.type}`, `- Action: ${result.awaiting.action}`);
 	if (result.manifest) lines.push(`Manifest: ${result.manifest}`);
 	if (result.outcomes.length) lines.push("", "## Tick outcomes", ...result.outcomes.map((outcome) => `- ${formatOutcome(outcome)}`));
 	if (result.events.length) lines.push("", "## Recent events", ...result.events.slice(-20).map((event) => `- ${event.at} ${event.tickId ? `${event.tickId} ` : ""}${event.type}: ${event.detail}`));
@@ -841,6 +855,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	let lastManifestTouch = 0;
 	let dashboardRunDir: string | undefined;
 	let lastDashboardPersist = 0;
+	let activeGate: AwaitingGate | undefined;
 	const ownershipFailure = () => ownership.handle?.lost?.message;
 	const event = (type: string, detail: string, tickId?: string) => {
 		const item = { at: new Date().toISOString(), type, detail, tickId };
@@ -882,9 +897,14 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				artifacts: item.artifactPaths,
 				lastDecision: item.lastDecision,
 			})),
-			humanGates: (activeGraph?.waves ?? []).flatMap((wave) => (wave.tasks ?? [])
-				.filter((task) => task.awaiting)
-				.map((task) => ({ tickId: task.id, title: task.title ?? "(untitled)", type: task.awaiting!, status: "awaiting" as const }))),
+			humanGates: [
+				...(activeGraph?.waves ?? []).flatMap((wave) => (wave.tasks ?? [])
+					.filter((task) => task.awaiting)
+					.map((task) => ({ tickId: task.id, title: task.title ?? "(untitled)", type: task.awaiting!, status: "awaiting" as const }))),
+				...(activeGate && !(activeGraph?.waves ?? []).some((wave) => (wave.tasks ?? []).some((task) => task.id === activeGate!.tickId))
+					? [{ tickId: activeGate.tickId, title: activeGate.title, type: activeGate.type, status: "awaiting" as const, detail: activeGate.action }]
+					: []),
+			],
 		});
 		const shouldPersistDashboard = status !== "running" || Date.now() - lastDashboardPersist >= 250;
 		if (options.execute && dashboardRunDir && shouldPersistDashboard) {
@@ -902,7 +922,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	const finish = (status: EpicRunStatus, summary: string, plan?: RunDryPlan): EpicRunResult => {
 		if (options.execute && manifest && manifestPath && !ownershipFailure()) updateManifest(manifestPath, manifest, status === "completed" ? "completed" : status === "awaiting" || status === "blocked" ? "awaiting" : status === "cancelled" || status === "failed" ? "failed" : "planned");
 		dashboard(status);
-		return { status, epicId: options.epicId, summary, wavesCompleted, outcomes, events, plan, dashboard: latestDashboard, manifest: manifestPath };
+		return { status, epicId: options.epicId, summary, wavesCompleted, outcomes, events, awaiting: activeGate, plan, dashboard: latestDashboard, manifest: manifestPath };
 	};
 
 	const tk = executableOnPath(options.tkExecutable ?? "tk", env);
@@ -1367,11 +1387,26 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	};
 
 	for (;;) {
+		activeGate = undefined;
 		if (options.signal?.aborted) return finish("cancelled", "Run cancelled; cancellation was propagated to running children.");
 		if (ownershipFailure()) return finish("failed", `Durable controller ownership was lost: ${ownershipFailure()}. No further tracker or git mutation was attempted.`);
 		let graph: GraphResult;
 		try { graph = parseGraph(tracker(tk, ["graph", options.epicId, "--json"], root, env)); } catch (error) { return finish("failed", error instanceof Error ? error.message : String(error)); }
 		activeGraph = graph;
+		if (awaitingHumanCount(graph) > 0) {
+			try {
+				const awaitingTypes = options.autonomous ? "approval,review,content,input,escalation,work" : "";
+				const selection = parseNextSelection(tracker(tk, ["next", options.epicId, `--awaiting=${awaitingTypes}`, "--json", "--all"], root, env));
+				if (selection) {
+					if (selection.action !== "await") throw new Error(`tk next --awaiting returned action ${selection.action}`);
+					activeGate = awaitingGate(selection);
+					if (options.execute) return finish("awaiting", `Human gate ${activeGate.tickId} awaits ${activeGate.type}: ${activeGate.title}. ${activeGate.action}`);
+				}
+				if (!options.autonomous && !selection) throw new Error(`tk graph reports ${awaitingHumanCount(graph)} awaiting-human child(ren), but tk next --awaiting returned none`);
+			} catch (error) {
+				return finish("failed", `Awaiting-human reconciliation failed closed: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
 		if (options.execute) {
 			if (graph.needs_planning) return finish("blocked", "Epic needs planning. Repair it before execution; no child was launched.");
 			if ((graph.missing_process_ticks ?? []).length) {
@@ -1594,7 +1629,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 					tierReason: child.work.tierReason,
 					onSnapshot: (state: ChildState) => {
 						agentInputs.set(child.task.id, { ...agentInputs.get(child.task.id)!, state });
-						// updatedAt is a repo+epic lease, never process/session authority.
+						// Manifest freshness is epic telemetry; checkout-wide lease authority is separate.
 						if (manifest && manifestPath && Date.now() - lastManifestTouch >= 5_000) {
 							updateManifest(manifestPath, manifest, "running");
 							lastManifestTouch = Date.now();

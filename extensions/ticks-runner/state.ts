@@ -6,7 +6,7 @@ export const RUN_MANIFEST_VERSION = 1 as const;
 export const DEFAULT_STALE_AFTER_MS = 30 * 60 * 1_000;
 export const DEFAULT_CONTROLLER_LEASE_MS = 60_000;
 export const DEFAULT_CONTROLLER_HEARTBEAT_MS = 15_000;
-export const CONTROLLER_LEASE_VERSION = 1 as const;
+export const CONTROLLER_LEASE_VERSION = 2 as const;
 
 export type RunStatus = "planned" | "running" | "awaiting" | "failed" | "completed";
 
@@ -46,12 +46,17 @@ export type RunManifest = {
 	ticks: TickRunPaths[];
 };
 
-/** Durable controller ownership. The file freshness is authority; the token only makes updates/releases compare-and-delete safe. */
+/**
+ * Durable controller ownership for one canonical checkout. `repoIdentity` groups
+ * artifacts for clones of the same repository; `checkoutRoot` is the authority
+ * boundary for the checkout's Git index and tracker, across every epic.
+ */
 export type ControllerLease = {
 	version: typeof CONTROLLER_LEASE_VERSION;
 	controllerToken: string;
 	runId: string;
 	repoIdentity: string;
+	checkoutRoot: string;
 	epicId: string;
 	acquiredAt: string;
 	heartbeatAt: string;
@@ -93,6 +98,12 @@ export type DiscoveryOptions = {
 
 function hash(value: string, length = 10): string {
 	return createHash("sha256").update(value).digest("hex").slice(0, length);
+}
+
+/** Resolve aliases when the checkout exists; retain deterministic absolute paths for dry plans. */
+export function canonicalCheckoutRoot(value: string): string {
+	const resolved = path.resolve(value);
+	try { return fs.realpathSync.native(resolved); } catch { return resolved; }
 }
 
 function stripGitSuffix(value: string): string {
@@ -173,7 +184,7 @@ export type PlanRunInput = {
 
 /** Plan every durable path without touching disk. Suitable for /ticks-run --dry-run --worktrees. */
 export function planRunPaths(input: PlanRunInput): RunPaths {
-	const repoRoot = path.resolve(input.repoRoot);
+	const repoRoot = canonicalCheckoutRoot(input.repoRoot);
 	const identity = normalizeRepoIdentity(input.repoIdentity);
 	const slug = repoSlug(identity);
 	const epic = durableSegment(input.epicId);
@@ -225,24 +236,31 @@ export function createRunManifest(plan: RunPaths, status: RunStatus = "planned",
 	};
 }
 
-export function controllerLeasePath(plan: Pick<RunPaths, "runDir">): string {
-	return path.join(plan.runDir, "controller-lease.json");
+/** One lease path per canonical checkout, deliberately outside epic-specific run directories. */
+export function controllerLeasePath(plan: Pick<RunPaths, "stateRoot" | "repoRoot">): string {
+	const checkout = canonicalCheckoutRoot(plan.repoRoot);
+	return path.join(plan.stateRoot, "controllers", hash(checkout, 16), "controller-lease.json");
 }
 
-export function isControllerLease(value: unknown, plan?: Pick<RunPaths, "runId" | "repoIdentity" | "epicId">): value is ControllerLease {
+type ControllerLeaseContext = Pick<RunPaths, "repoIdentity" | "repoRoot">;
+
+export function isControllerLease(value: unknown, plan?: ControllerLeaseContext): value is ControllerLease {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 	const lease = value as Partial<ControllerLease>;
 	return lease.version === CONTROLLER_LEASE_VERSION
 		&& typeof lease.controllerToken === "string" && /^[0-9a-f-]{20,}$/i.test(lease.controllerToken)
-		&& typeof lease.runId === "string" && (!plan || lease.runId === plan.runId)
+		&& typeof lease.runId === "string" && Boolean(lease.runId)
 		&& typeof lease.repoIdentity === "string" && (!plan || lease.repoIdentity === plan.repoIdentity)
-		&& typeof lease.epicId === "string" && (!plan || lease.epicId === plan.epicId)
+		&& typeof lease.checkoutRoot === "string" && path.isAbsolute(lease.checkoutRoot)
+		&& canonicalCheckoutRoot(lease.checkoutRoot) === lease.checkoutRoot
+		&& (!plan || lease.checkoutRoot === canonicalCheckoutRoot(plan.repoRoot))
+		&& typeof lease.epicId === "string" && Boolean(lease.epicId)
 		&& validTimestamp(lease.acquiredAt) && validTimestamp(lease.heartbeatAt) && validTimestamp(lease.expiresAt)
 		&& Date.parse(lease.acquiredAt) <= Date.parse(lease.heartbeatAt)
 		&& Date.parse(lease.heartbeatAt) < Date.parse(lease.expiresAt);
 }
 
-export function readControllerLease(file: string, plan?: Pick<RunPaths, "runId" | "repoIdentity" | "epicId">): ControllerLease | undefined {
+export function readControllerLease(file: string, plan?: ControllerLeaseContext): ControllerLease | undefined {
 	try {
 		const stat = fs.lstatSync(file);
 		if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1_024) return undefined;
@@ -283,18 +301,20 @@ export function acquireControllerLease(
 	const duration = options.durationMs ?? DEFAULT_CONTROLLER_LEASE_MS;
 	if (!Number.isSafeInteger(duration) || duration < 100) throw new Error("Controller lease duration must be at least 100ms");
 	const file = controllerLeasePath(plan);
-	if (hasSymlinkBelow(plan.stateRoot, file)) throw new Error(`Unsafe controller lease path: ${file}`);
-	fs.mkdirSync(plan.runDir, { recursive: true, mode: 0o700 });
+	if (hasSymlinkBelow(plan.stateRoot, file)) throw new Error(`Unsafe checkout controller lease path: ${file}`);
+	fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+	if (hasSymlinkBelow(plan.stateRoot, file)) throw new Error(`Unsafe checkout controller lease path after creation: ${file}`);
 	return withLeaseGuard(file, () => {
 		const existing = readControllerLease(file, plan);
-		if (fs.existsSync(file) && !existing) throw new Error(`Malformed controller lease blocks takeover: ${file}`);
-		if (existing && Date.parse(existing.expiresAt) > now) throw new Error(`Fresh controller lease already owns ${plan.repoIdentity}/${plan.epicId} until ${existing.expiresAt}`);
+		if (fs.existsSync(file) && !existing) throw new Error(`Malformed checkout controller lease blocks takeover: ${file}`);
+		if (existing && Date.parse(existing.expiresAt) > now) throw new Error(`Fresh checkout controller lease already owns ${existing.checkoutRoot} for epic ${existing.epicId} until ${existing.expiresAt}`);
 		const stamp = new Date(now).toISOString();
 		const lease: ControllerLease = {
 			version: CONTROLLER_LEASE_VERSION,
 			controllerToken: options.controllerToken ?? randomUUID(),
 			runId: plan.runId,
 			repoIdentity: plan.repoIdentity,
+			checkoutRoot: canonicalCheckoutRoot(plan.repoRoot),
 			epicId: plan.epicId,
 			acquiredAt: stamp,
 			heartbeatAt: stamp,

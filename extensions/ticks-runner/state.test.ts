@@ -5,6 +5,8 @@ import * as path from "node:path";
 import test from "node:test";
 import {
 	acquireControllerLease,
+	canonicalCheckoutRoot,
+	controllerLeasePath,
 	createRunId,
 	createRunManifest,
 	discoverRuns,
@@ -133,22 +135,47 @@ test("malformed manifests are surfaced as stale recovery artifacts", () => {
 	assert.equal(run.manifest, undefined);
 });
 
-test("controller leases block fresh owners, heartbeat independently, expire, and release compare-and-delete safely", () => {
+test("checkout-wide controller leases block same- and cross-epic owners, heartbeat, expire, and release safely", () => {
 	const stateRoot = temporaryDirectory();
-	const plan = planRunPaths({ repoRoot: "/checkout/widgets", repoIdentity: remote, epicId: "lease", tickIds: [], stateRoot });
+	const plan = planRunPaths({ repoRoot: "/checkout/widgets", repoIdentity: remote, epicId: "lease-a", tickIds: [], stateRoot });
+	const otherEpic = planRunPaths({ repoRoot: "/checkout/widgets", repoIdentity: remote, epicId: "lease-b", tickIds: [], stateRoot });
+	const otherCheckout = planRunPaths({ repoRoot: "/checkout/widgets-copy", repoIdentity: remote, epicId: "lease-b", tickIds: [], stateRoot });
+	assert.equal(controllerLeasePath(plan), controllerLeasePath(otherEpic), "epic IDs do not partition Git/index authority");
+	assert.notEqual(controllerLeasePath(plan), controllerLeasePath(otherCheckout), "independent checkout roots have independent authority");
+	assert.equal(plan.repoRoot, canonicalCheckoutRoot("/checkout/widgets"));
+
 	writeRunManifest(plan.manifest, createRunManifest(plan, "running", new Date(0)));
 	const first = acquireControllerLease(plan, { now: 1_000, durationMs: 500, controllerToken: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" });
-	assert.equal(discoverRuns(stateRoot, { now: 1_200, staleAfterMs: 50 })[0].stale, false, "fresh ownership overrides an old manifest timestamp");
-	assert.throws(() => acquireControllerLease(plan, { now: 1_200, durationMs: 500 }), /Fresh controller lease/);
-	heartbeatControllerLease(first, 500, 1_300);
-	assert.equal(readControllerLease(first.path, plan)?.expiresAt, new Date(1_800).toISOString());
-	assert.throws(() => acquireControllerLease(plan, { now: 1_700, durationMs: 500 }), /Fresh controller lease/);
+	assert.equal(first.lease.checkoutRoot, plan.repoRoot);
+	assert.equal(discoverRuns(stateRoot, { now: 1_200, staleAfterMs: 50 })[0].stale, false, "fresh checkout ownership overrides an old manifest timestamp");
+	assert.throws(() => acquireControllerLease(plan, { now: 1_200, durationMs: 500 }), /Fresh checkout controller lease/);
+	assert.throws(() => acquireControllerLease(otherEpic, { now: 1_200, durationMs: 500 }), /epic lease-a/, "a different epic cannot own the same checkout");
+	const independent = acquireControllerLease(otherCheckout, { now: 1_200, durationMs: 500 });
+	releaseControllerLease(independent);
 
-	const successor = acquireControllerLease(plan, { now: 1_900, durationMs: 500, controllerToken: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb" });
+	heartbeatControllerLease(first, 500, 1_300);
+	assert.equal(readControllerLease(first.path, otherEpic)?.expiresAt, new Date(1_800).toISOString(), "cross-epic readers observe checkout authority");
+	assert.throws(() => acquireControllerLease(otherEpic, { now: 1_700, durationMs: 500 }), /Fresh checkout controller lease/);
+
+	const successor = acquireControllerLease(otherEpic, { now: 1_900, durationMs: 500, controllerToken: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb" });
 	releaseControllerLease(first);
-	assert.equal(readControllerLease(successor.path, plan)?.controllerToken, successor.lease.controllerToken, "stale owner cannot unlink its successor");
+	assert.equal(readControllerLease(successor.path, plan)?.controllerToken, successor.lease.controllerToken, "stale owner cannot unlink its cross-epic successor");
 	releaseControllerLease(successor);
 	assert.equal(fs.existsSync(successor.path), false);
+});
+
+test("checkout lease paths are contained by stateRoot and reject symlinked authority directories", { skip: process.platform === "win32" }, () => {
+	const root = temporaryDirectory();
+	const stateRoot = path.join(root, "state");
+	const outside = path.join(root, "outside");
+	fs.mkdirSync(stateRoot);
+	fs.mkdirSync(outside);
+	fs.symlinkSync(outside, path.join(stateRoot, "controllers"), "dir");
+	const plan = planRunPaths({ repoRoot: path.join(root, "checkout"), repoIdentity: remote, epicId: "safe", tickIds: [], stateRoot });
+	const relative = path.relative(stateRoot, controllerLeasePath(plan));
+	assert.equal(relative.startsWith("..") || path.isAbsolute(relative), false);
+	assert.throws(() => acquireControllerLease(plan), /Unsafe checkout controller lease path/);
+	assert.deepEqual(fs.readdirSync(outside), [], "authority files never follow the symlink outside stateRoot");
 });
 
 test("discovery is bounded and malformed entries do not abort the scan", () => {

@@ -57,7 +57,7 @@ async function waitForValue<T>(label: string, probe: () => T | undefined, timeou
 	throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}${detail ? ` (${detail})` : ""}`);
 }
 
-function createFixture(name: string, tasks: FixtureTask[], options: { failTick?: string; failPostWave?: boolean; missing?: string[] } = {}) {
+function createFixture(name: string, tasks: FixtureTask[], options: { failTick?: string; failPostWave?: boolean; missing?: string[]; omitAwaitingFromWaves?: boolean } = {}) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), `ticks-runner-${name}-`));
 	const repo = path.join(root, "controller");
 	const stateRoot = path.join(root, "state");
@@ -69,11 +69,13 @@ function createFixture(name: string, tasks: FixtureTask[], options: { failTick?:
 	const state = {
 		epic: { id: "epic", title: "Disposable epic", description: "Fixture epic", acceptance_criteria: "Fixture verification passes", base_branch: "base", status: "open" },
 		missing_process_ticks: options.missing ?? [],
+		omit_awaiting_from_waves: options.omitAwaitingFromWaves ?? false,
 		tasks: tasks.map((item, index) => ({
 			title: `Task ${item.id}`,
 			description: `Implement ${item.id}`,
 			acceptance_criteria: "Fixture verification passes",
 			status: "open",
+			parent: "epic",
 			wave: 1,
 			...item,
 		})),
@@ -409,6 +411,24 @@ test("run cancellation propagates to a live child and publishes a cancelled dash
 	assert.equal(readState(fixture.repo).tasks[0].status, "open");
 });
 
+test("production-shaped awaiting-only graph returns actionable gate data and never completes", async () => {
+	const fixture = createFixture("awaiting-omitted", [{ id: "human", title: "Approve rollout", awaiting: "approval" }], { omitAwaitingFromWaves: true });
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "awaiting", result.summary);
+	assert.deepEqual(result.awaiting, {
+		tickId: "human",
+		title: "Approve rollout",
+		type: "approval",
+		action: "Inspect tk show human, then tk approve human or tk reject human \"<feedback>\", commit .tick/, and rerun /ticks-run.",
+	});
+	assert.match(result.summary, /Human gate human awaits approval/);
+	assert.equal(result.dashboard?.humanGates[0]?.tickId, "human");
+	assert.equal(result.dashboard?.humanGates[0]?.type, "approval");
+	assert.equal(fs.existsSync(fixture.marker), false);
+	assert.equal(readState(fixture.repo).tasks[0].status, "open");
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.command === "next" && entry.awaiting === true && entry.selected === "human"), true);
+});
+
 test("a heartbeat keeps a silent child owned beyond the old stale threshold and blocks duplicate launch", async () => {
 	const fixture = createFixture("silent-lease", [{ id: "silent" }]);
 	const invoke = () => runEpic({
@@ -434,6 +454,35 @@ test("a heartbeat keeps a silent child owned beyond the old stale threshold and 
 	assert.equal(completed.status, "completed", completed.summary);
 	const starts = fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.startsWith("silent:start"));
 	assert.equal(starts.length, 1, "the second controller never launches a duplicate child");
+});
+
+test("concurrent controllers for different epics in one checkout cannot overlap authority or children", async () => {
+	const fixture = createFixture("cross-epic-lease", [{ id: "first" }]);
+	const statePath = path.join(fixture.repo, ".tick", "fake-runner-state.json");
+	const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+	state.epics = [state.epic, { id: "epic-two", title: "Second epic", description: "Must serialize", acceptance_criteria: "No overlap", base_branch: "base", status: "open" }];
+	fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+	command(fixture.repo, "git", "add", statePath);
+	command(fixture.repo, "git", "commit", "-m", "add second epic fixture");
+
+	const first = runEpic({
+		cwd: fixture.repo, epicId: "epic", execute: true, worktrees: true,
+		stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env,
+		leaseDurationMs: 2_000, leaseHeartbeatMs: 100,
+		invocationForTask: ({ task }) => ({ command: process.execPath, args: [fakePi, task.id, "DONE", "500", "", fixture.marker] }),
+	});
+	await waitForValue("first epic child start", () => fs.existsSync(fixture.marker) && fs.readFileSync(fixture.marker, "utf8").includes("first:start") ? true : undefined);
+	const second = await runEpic({
+		cwd: fixture.repo, epicId: "epic-two", execute: true, worktrees: true,
+		stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env,
+		invocationForTask: () => ({ command: process.execPath, args: [fakePi, "second", "DONE", "0", "", fixture.marker] }),
+	});
+	assert.equal(second.status, "blocked");
+	assert.match(second.summary, /checkout controller lease.*epic epic/i);
+	assert.equal(fs.readFileSync(fixture.marker, "utf8").includes("second:start"), false, "losing epic never launches a child");
+	assert.equal(trackerLog(fixture.repo).some((entry) => entry.id === "epic-two" && ["update", "note", "close"].includes(String(entry.command))), false, "losing epic performs no tracker mutation");
+	const completed = await first;
+	assert.equal(completed.status, "completed", completed.summary);
 });
 
 test("lease ownership loss aborts and settles a live process tree before stale takeover", { skip: process.platform === "win32", timeout: 60_000 }, async () => {
@@ -938,7 +987,7 @@ test("unverified or malformed closeout fails closed and leaves epic open", async
 test("autonomous selection bypasses checkpoint only and always uses tk next policy", async () => {
 	const checkpoint = createFixture("autonomous-checkpoint", [{ id: "checkpoint", awaiting: "checkpoint" }]);
 	const off = await executeFixture(checkpoint);
-	assert.equal(off.status, "blocked");
+	assert.equal(off.status, "awaiting");
 	assert.equal(fs.existsSync(checkpoint.marker), false);
 	const on = await runEpic({
 		cwd: checkpoint.repo, epicId: "epic", execute: true, worktrees: true, autonomous: true,
@@ -953,7 +1002,7 @@ test("autonomous selection bypasses checkpoint only and always uses tk next poli
 	for (const awaiting of ["approval", "input"]) {
 		const fixture = createFixture(`autonomous-${awaiting}`, [{ id: awaiting, awaiting }]);
 		const result = await runEpic({ cwd: fixture.repo, epicId: "epic", execute: true, worktrees: true, autonomous: true, stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env });
-		assert.equal(result.status, "blocked", `${awaiting} must remain blocking`);
+		assert.equal(result.status, "awaiting", `${awaiting} must remain an actionable human gate`);
 		assert.equal(readState(fixture.repo).tasks[0].status, "open");
 		assert.equal(fs.existsSync(fixture.marker), false);
 	}
