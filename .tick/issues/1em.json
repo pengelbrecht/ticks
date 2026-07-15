@@ -2,7 +2,8 @@
   "id": "1em",
   "title": "Make process recovery and dashboard status production-truthful",
   "description": "Exclude role-tagged review/closeout controller checkout notes from implementation deterministic-worktree conflict logic while retaining strict process recovery. Make historical dashboard honor stale recovery classification over tracker in_progress. Stabilize lease-loss process-tree test under full parallel suite without weakening assertion. Ensure dry-run plans future wave tick/worktree/model routing or explicitly compute the complete plan promised by acceptance. Add qfs-specific regression.",
-  "status": "open",
+  "notes": "2026-07-15 13:10 - Dispatched by Pi orchestrator on tick/qfs/1em with openai-codex/gpt-5.6-sol:high; child must not modify .tick/**.",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "qfs dry-run reaches process handling without false branch conflict; stale status/dashboard agree; configured full suite is deterministic; dry-run reports wave/tick/worktree/model for future waves; tests pass.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-15T11:10:18.710765Z",
-  "updated_at": "2026-07-15T11:10:18.710765Z"
+  "updated_at": "2026-07-15T11:10:25.526758Z",
+  "started_at": "2026-07-15T11:10:25.490579Z"
 }

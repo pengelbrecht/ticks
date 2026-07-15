@@ -2,7 +2,8 @@
   "id": "blc",
   "title": "Close remaining execution and planning trust gaps",
   "description": "Reject execution on the epic's recorded base branch, including nested non-default bases. Stop interpreting arbitrary epic acceptance inline code as shell; derive acceptance proof only from controller-trusted Testing configuration while retaining item-scoped evidence. Make true process-death planning create recovery work despite controller-owned dirty .tick state/lease, without accepting unrelated dirt. Archive prior wave transaction/test evidence before retry. Add adversarial tests.",
-  "status": "open",
+  "notes": "2026-07-15 13:10 - Dispatched by Pi orchestrator on tick/qfs/blc with openai-codex/gpt-5.6-sol:high; child must not modify .tick/**.",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "Recorded base cannot be mutated directly; tracker acceptance cannot execute injected shell; each acceptance item receives trusted scoped evidence; true crash-after-create resumes without duplicates or unsafe dirt; wave failure evidence remains archived; tests pass.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-15T11:10:18.68661Z",
-  "updated_at": "2026-07-15T11:10:18.68661Z"
+  "updated_at": "2026-07-15T11:10:25.450954Z",
+  "started_at": "2026-07-15T11:10:25.412945Z"
 }
