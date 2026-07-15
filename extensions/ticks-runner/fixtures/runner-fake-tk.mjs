@@ -5,11 +5,16 @@ import * as path from "node:path";
 const root = process.cwd();
 const statePath = path.join(root, ".tick", "fake-runner-state.json");
 const logPath = path.join(root, ".tick", "fake-runner-log.jsonl");
+const activityPath = path.join(root, ".tick", "activity", "activity.jsonl");
 const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
 const argv = process.argv.slice(2);
 const command = argv.shift();
 const save = () => fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
 const log = (data = {}) => fs.appendFileSync(logPath, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, args: argv, ...data })}\n`);
+const activity = (tickId, action, actor, data = {}) => {
+	fs.mkdirSync(path.dirname(activityPath), { recursive: true });
+	fs.appendFileSync(activityPath, `${JSON.stringify({ ts: new Date().toISOString(), tick: tickId, action, actor, data })}\n`);
+};
 const readLog = (data = {}) => {
 	if (process.env.FAKE_TK_READ_LOG) fs.appendFileSync(process.env.FAKE_TK_READ_LOG, `${JSON.stringify({ actor: process.env.TK_ACTOR, command, args: argv, ...data })}\n`);
 };
@@ -143,7 +148,10 @@ if (command === "list") {
 	if (!found) process.exitCode = 2;
 	else {
 		(found.notes ??= []).push(note);
+		const fromHuman = option(argv, "--from") === "human";
+		const actor = fromHuman ? "human" : (process.env.TK_ACTOR || found.owner || "unknown");
 		log({ id, note });
+		activity(id, "note", actor, { note: `${new Date().toISOString().slice(0, 16).replace("T", " ")} - ${fromHuman ? "[human] " : ""}${note}`, title: found.title });
 		save();
 	}
 } else if (command === "approve") {
@@ -153,9 +161,16 @@ if (command === "list") {
 	else {
 		const awaiting = found.awaiting;
 		delete found.awaiting;
-		found.verdict = "approved";
-		log({ id, action: "approved", awaiting });
+		if (["work", "approval", "review", "content"].includes(awaiting)) {
+			found.status = "closed";
+			found.verdict = "approved";
+		} else {
+			delete found.verdict;
+		}
+		log({ id, action: "approved", awaiting, status: found.status, verdict: found.verdict });
+		activity(id, found.status === "closed" ? "close" : "approve", process.env.TK_ACTOR || found.owner || "unknown", { awaiting, title: found.title });
 		save();
+		if (has(argv, "--json")) console.log(JSON.stringify({ tick: found, closed: found.status === "closed" }));
 	}
 } else if (command === "reject") {
 	const [id, feedback = ""] = argv;
@@ -164,15 +179,30 @@ if (command === "list") {
 	else {
 		const awaiting = found.awaiting;
 		delete found.awaiting;
-		found.status = "open";
-		log({ id, action: "rejected", awaiting, feedback });
+		if (["input", "escalation"].includes(awaiting)) {
+			found.status = "closed";
+			found.verdict = "rejected";
+		} else {
+			found.status = "open";
+			delete found.verdict;
+		}
+		(found.notes ??= []).push(`[human] ${feedback}`);
+		log({ id, action: "rejected", awaiting, feedback, status: found.status });
+		activity(id, found.status === "closed" ? "close" : "note", process.env.TK_ACTOR || found.owner || "unknown", { awaiting, note: `[human] ${feedback}`, title: found.title });
 		save();
 	}
 } else if (command === "close") {
 	const id = argv[0];
 	const found = entity(id);
 	if (!found) process.exitCode = 2;
-	else {
+	else if (found.requires && !has(argv, "--force")) {
+		found.awaiting = found.requires;
+		(found.notes ??= []).push(`Work complete, awaiting ${found.requires}`);
+		log({ id, reason: option(argv, "--reason"), status: found.status, awaiting: found.awaiting, requires: found.requires });
+		save();
+		console.error(`tick ${id} requires ${found.requires} before closing`);
+		process.exitCode = 1;
+	} else {
 		found.status = "closed";
 		found.close_reason = option(argv, "--reason");
 		log({ id, reason: found.close_reason, status: found.status });

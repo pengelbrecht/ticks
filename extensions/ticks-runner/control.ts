@@ -16,6 +16,8 @@ export type ControlUI = {
 };
 export type DashboardControlDependencies = {
 	execute: (args: string[]) => Promise<ControlCommandResult>;
+	preflight: () => Promise<ControlCommandResult>;
+	commitTracker: (message: string) => Promise<ControlCommandResult>;
 	refresh: () => Promise<void>;
 	actor: string;
 };
@@ -49,6 +51,17 @@ export function createDashboardController(
 		const result = await dependencies.execute(["show", gate.tickId, "--json"]);
 		return result.code === 0 ? parseFreshGate(result.stdout, gate) : undefined;
 	};
+	const cleanPreflight = async (): Promise<DashboardControlResult | undefined> => {
+		const checked = await dependencies.preflight();
+		if (checked.code === 0) return undefined;
+		return { ok: false, message: `Controller checkout is not clean; no tracker mutation was attempted: ${checked.stderr || checked.stdout}` };
+	};
+	const commitMutation = async (message: string, action: string): Promise<DashboardControlResult | undefined> => {
+		const committed = await dependencies.commitTracker(message);
+		if (committed.code === 0) return undefined;
+		try { await dependencies.refresh(); } catch { /* The mutation/commit error remains authoritative. */ }
+		return { ok: false, message: `${action} succeeded in tk, but its .tick/ commit failed: ${committed.stderr || committed.stdout}. Tracker state may be dirty and was not reported as durable.` };
+	};
 	return {
 		cancel: async (expected): Promise<DashboardControlResult> => {
 			if (!control.abort || control.abort.signal.aborted || !sameSnapshot(store, expected, control) || !isActiveStatus(expected.model.status)) return { ok: false, message: "Run changed or is no longer active; cancellation was not sent." };
@@ -80,15 +93,23 @@ export function createDashboardController(
 				if (!input) return { ok: false, message: "Rejection requires non-empty feedback." };
 			}
 			if (!sameSnapshot(store, expected, control) || !await freshGate(gate)) return { ok: false, message: "Gate changed while prompting; no tracker action was taken." };
+			const dirty = await cleanPreflight();
+			if (dirty) return dirty;
 			if (action === "approve" && first.awaiting === "input") {
 				const noted = await dependencies.execute(["note", gate.tickId, input!, "--from", "human"]);
 				if (noted.code !== 0) return { ok: false, message: `Could not record required input: ${noted.stderr || noted.stdout}` };
-				if (!await freshGate(gate)) return { ok: false, message: "Gate changed after input was recorded; approval was not sent." };
+				const noteCommit = await commitMutation(`Record human input for ${gate.tickId}`, `tk note ${gate.tickId}`);
+				if (noteCommit) return noteCommit;
+				if (!await freshGate(gate)) return { ok: false, message: "Gate changed after input was recorded and committed; approval was not sent." };
+				const secondPreflight = await cleanPreflight();
+				if (secondPreflight) return secondPreflight;
 			}
 			const result = action === "approve"
 				? await dependencies.execute(["approve", gate.tickId])
 				: await dependencies.execute(["reject", gate.tickId, input!]);
 			if (result.code !== 0) return { ok: false, message: `tk ${action} failed: ${result.stderr || result.stdout}` };
+			const mutationCommit = await commitMutation(`${action === "approve" ? "Approve" : "Reject"} ${gate.tickId} from Ticks dashboard`, `tk ${action} ${gate.tickId}`);
+			if (mutationCommit) return mutationCommit;
 			await dependencies.refresh();
 			ui.notify(`${gate.tickId} ${action === "approve" ? "approved" : "rejected"} as ${dependencies.actor}`, "info");
 			return { ok: true, message: `${gate.tickId} ${action === "approve" ? "approved" : "rejected"}; dashboard refreshed.` };

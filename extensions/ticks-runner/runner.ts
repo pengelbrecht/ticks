@@ -356,6 +356,29 @@ function tracker(tk: string, args: readonly string[], root: string, env: NodeJS.
 	return requireSuccessful(runSubprocess(tk, args, root, { ...env, TK_ACTOR: ORCHESTRATOR_ACTOR }), `tk ${args.join(" ")} failed`).stdout.trim();
 }
 
+type TrackerCloseResult =
+	| { status: "closed" }
+	| { status: "awaiting"; awaiting: string }
+	| { status: "failed"; detail: string };
+
+function closeTrackerTick(tk: string, tickId: string, reason: string, root: string, env: NodeJS.ProcessEnv): TrackerCloseResult {
+	const result = runSubprocess(tk, ["close", tickId, "--reason", reason], root, { ...env, TK_ACTOR: ORCHESTRATOR_ACTOR });
+	if (result.status === 0) return { status: "closed" };
+	let value: unknown;
+	try { value = JSON.parse(tracker(tk, ["show", tickId, "--json"], root, env)); } catch {
+		return { status: "failed", detail: result.stderr.trim() || result.stdout.trim() || `tk close exited ${result.status}` };
+	}
+	if (Array.isArray(value)) value = value[0];
+	if (value && typeof value === "object") {
+		const item = value as Record<string, unknown>;
+		if (item.id === tickId && typeof item.requires === "string" && item.awaiting === item.requires
+			&& ["approval", "review", "content"].includes(item.requires) && !/^(?:closed|completed|cancelled)$/i.test(String(item.status ?? ""))) {
+			return { status: "awaiting", awaiting: item.requires };
+		}
+	}
+	return { status: "failed", detail: result.stderr.trim() || result.stdout.trim() || `tk close exited ${result.status}` };
+}
+
 function trackerCommit(root: string, message: string): string | undefined {
 	requireSuccessful(runSubprocess("git", ["add", "-A", "--", ".tick"], root), "Cannot stage tracker state");
 	const diff = runSubprocess("git", ["diff", "--cached", "--quiet", "--", ".tick"], root);
@@ -444,13 +467,14 @@ type WaveTransactionTick = {
 	title: string;
 	closeReason: string;
 	integration: "pending" | "merged" | "no-changes" | "failed";
+	tracker?: "pending" | "closed" | "awaiting";
 };
 
 type WaveTransaction = {
 	version: 1;
 	epicId: string;
 	wave: number;
-	status: "integrating" | "integrated" | "verified" | "gate-failed" | "incomplete" | "completed";
+	status: "integrating" | "integrated" | "verified" | "awaiting" | "gate-failed" | "incomplete" | "completed";
 	updatedAt: string;
 	integrationCommit?: string;
 	gateArtifact: string;
@@ -471,14 +495,15 @@ function readWaveTransaction(file: string, epicId: string, wave: number, manifes
 		const value = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<WaveTransaction>;
 		const expectedGateArtifact = path.join(path.dirname(file), `wave-${wave}-tests.md`);
 		if (value.version !== 1 || value.epicId !== epicId || value.wave !== wave || value.gateArtifact !== expectedGateArtifact || !Array.isArray(value.ticks)
-			|| !["integrating", "integrated", "verified", "gate-failed", "incomplete", "completed"].includes(value.status ?? "")) return undefined;
+			|| !["integrating", "integrated", "verified", "awaiting", "gate-failed", "incomplete", "completed"].includes(value.status ?? "")) return undefined;
 		const known = new Map((manifest?.ticks ?? []).map((tick) => [tick.tickId, tick]));
 		const seen = new Set<string>();
 		for (const tick of value.ticks) {
 			const expected = known.get(tick.tickId);
 			if (!expected || seen.has(tick.tickId) || typeof tick.title !== "string" || typeof tick.closeReason !== "string" || tick.branch !== expected.branch || path.resolve(tick.worktree) !== expected.worktree
-				|| !["pending", "merged", "no-changes", "failed"].includes(tick.integration)) return undefined;
-			if ((value.status === "integrated" || value.status === "verified") && tick.integration !== "merged" && tick.integration !== "no-changes") return undefined;
+				|| !["pending", "merged", "no-changes", "failed"].includes(tick.integration)
+				|| (tick.tracker !== undefined && !["pending", "closed", "awaiting"].includes(tick.tracker))) return undefined;
+			if ((value.status === "integrated" || value.status === "verified" || value.status === "awaiting") && tick.integration !== "merged" && tick.integration !== "no-changes") return undefined;
 			seen.add(tick.tickId);
 		}
 		if (!seen.size) return undefined;
@@ -486,6 +511,20 @@ function readWaveTransaction(file: string, epicId: string, wave: number, manifes
 	} catch {
 		return undefined;
 	}
+}
+
+function recoverableWaveTransactions(runDir: string, epicId: string, manifest: RunManifest | undefined): Array<{ file: string; transaction: WaveTransaction }> {
+	const directory = path.join(runDir, "waves");
+	let entries: string[];
+	try { entries = fs.readdirSync(directory); } catch { return []; }
+	return entries.flatMap((name) => {
+		const match = name.match(/^wave-(\d+)-transaction\.json$/);
+		if (!match) return [];
+		const wave = Number(match[1]);
+		const file = path.join(directory, name);
+		const transaction = readWaveTransaction(file, epicId, wave, manifest);
+		return transaction && ["integrated", "verified", "awaiting"].includes(transaction.status) ? [{ file, transaction }] : [];
+	}).sort((left, right) => left.transaction.wave - right.transaction.wave);
 }
 
 function gitIsAncestor(root: string, ancestor: string, descendant: string): boolean {
@@ -643,15 +682,54 @@ function humanRuleGateFingerprint(rules: readonly ProjectRule[]): string {
 	return createHash("sha256").update(JSON.stringify(rules.map((rule) => [rule.id, rule.text]))).digest("hex").slice(0, 16);
 }
 
-function humanRuleGateApproved(input: string, expectedId: string, fingerprint: string): boolean {
+function humanRuleGateApproved(root: string, input: string, expectedId: string, fingerprint: string): boolean {
 	let value: unknown;
 	try { value = JSON.parse(input); } catch { return false; }
 	if (Array.isArray(value)) value = value[0];
 	if (!value || typeof value !== "object") return false;
 	const item = value as Record<string, unknown>;
-	if (item.id !== expectedId || item.verdict !== "approved") return false;
-	const notes = Array.isArray(item.notes) ? item.notes.filter((note): note is string => typeof note === "string").join("\n") : typeof item.notes === "string" ? item.notes : "";
-	return notes.includes(`project-rule-gate:${fingerprint}`) && notes.includes(`project-rule-evidence:${fingerprint}`);
+	// Real tk intentionally clears both transient fields for a non-terminal
+	// checkpoint approval. Closed state is also wrong here: closeout still has
+	// controller verification to perform.
+	if (item.id !== expectedId || item.awaiting !== undefined || item.verdict !== undefined || /^(?:closed|completed|cancelled)$/i.test(String(item.status ?? ""))) return false;
+
+	let lines: string[];
+	try {
+		const file = path.join(root, ".tick", "activity", "activity.jsonl");
+		const stat = fs.statSync(file);
+		if (!stat.isFile() || stat.size > 8 * 1024 * 1024) return false;
+		lines = fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean);
+	} catch { return false; }
+	let gateIndex = -1;
+	let evidenceIndex = -1;
+	let approvalIndex = -1;
+	const evidencePrefix = `project-rule-evidence:${fingerprint}`;
+	const gateToken = `project-rule-gate:${fingerprint}`;
+	for (let index = 0; index < lines.length; index++) {
+		let activity: Record<string, unknown>;
+		try {
+			const parsed: unknown = JSON.parse(lines[index]);
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+			activity = parsed as Record<string, unknown>;
+		} catch { continue; }
+		if (activity.tick !== expectedId || typeof activity.data !== "object" || !activity.data || Array.isArray(activity.data)) continue;
+		const data = activity.data as Record<string, unknown>;
+		const note = typeof data.note === "string" ? data.note : "";
+		const noteBodies = note.split(/\r?\n/).map((line) => {
+			const normalized = line.trim();
+			const humanMarker = normalized.indexOf(" - [human] ");
+			if (humanMarker >= 0) return normalized.slice(humanMarker + " - [human] ".length);
+			const timestampMarker = normalized.indexOf(" - ");
+			return timestampMarker >= 0 ? normalized.slice(timestampMarker + " - ".length) : normalized;
+		});
+		if (activity.action === "note" && noteBodies.some((body) => body.startsWith(`${gateToken} `))) gateIndex = index;
+		if (activity.action === "note" && activity.actor === "human" && noteBodies.some((body) => body.startsWith(`${evidencePrefix} `) && body.slice(evidencePrefix.length + 1).trim().length > 0)) evidenceIndex = index;
+		if (activity.action === "approve") approvalIndex = index;
+	}
+	// Ordering binds concrete human-authored evidence to this exact gate and to
+	// the subsequent real tk approval. Agent/orchestrator notes containing the
+	// same substring do not qualify because actor equality is exact.
+	return gateIndex >= 0 && evidenceIndex > gateIndex && approvalIndex > evidenceIndex;
 }
 
 function humanRuleGateMarkdown(epicId: string, closeoutId: string, fingerprint: string, rules: readonly ProjectRule[]): string {
@@ -1077,7 +1155,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		let humanGateApproved = !humanRules.length;
 		if (humanRules.length) {
 			const gateState = tracker(tk, ["show", task.id, "--json"], root, env);
-			humanGateApproved = humanRuleGateApproved(gateState, task.id, gateFingerprint);
+			humanGateApproved = humanRuleGateApproved(root, gateState, task.id, gateFingerprint);
 		}
 		if (!humanGateApproved) {
 			const gateArtifact = path.join(work.artifactDir, "project-rules-gate.md");
@@ -1197,14 +1275,55 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		return finish("completed", `Closeout passed and closed both ${task.id} and epic ${options.epicId}. ${nextSummary}`, plan);
 	};
 
-	const closeAndCleanupWave = (transaction: WaveTransaction, transactionFile: string, observations = new Map<string, string>()): void => {
+	const closeAndCleanupWave = (transaction: WaveTransaction, transactionFile: string, observations = new Map<string, string>()): { status: "completed" | "awaiting" | "failed"; detail?: string } => {
+		const routedGates: Array<{ tickId: string; awaiting: string }> = [];
 		for (const tick of transaction.ticks) {
+			const graphTick = activeGraph?.waves.flatMap((wave) => wave.tasks ?? []).find((task) => task.id === tick.tickId);
+			if (graphTick?.status === "closed" || tick.tracker === "closed") {
+				tick.tracker = "closed";
+				continue;
+			}
 			const observation = observations.get(tick.tickId);
 			if (observation) tracker(tk, ["note", tick.tickId, `Observation from implementer: ${observation}`], root, env);
-			const graphTick = activeGraph?.waves.flatMap((wave) => wave.tasks ?? []).find((task) => task.id === tick.tickId);
-			if (graphTick?.status !== "closed") tracker(tk, ["close", tick.tickId, "--reason", tick.closeReason], root, env);
+			const closed = closeTrackerTick(tk, tick.tickId, tick.closeReason, root, env);
+			if (closed.status === "failed") {
+				transaction.status = routedGates.length ? "awaiting" : "verified";
+				writeWaveTransaction(transactionFile, transaction);
+				try { trackerCommit(root, `Record ${options.epicId} wave ${transaction.wave} close failure`); } catch (error) {
+					return { status: "failed", detail: `${closed.detail}; tracker commit also failed: ${error instanceof Error ? error.message : String(error)}` };
+				}
+				return { status: "failed", detail: closed.detail };
+			}
+			if (closed.status === "awaiting") {
+				tick.tracker = "awaiting";
+				if (graphTick) graphTick.awaiting = closed.awaiting;
+				routedGates.push({ tickId: tick.tickId, awaiting: closed.awaiting });
+				continue;
+			}
+			tick.tracker = "closed";
+			writeWaveTransaction(transactionFile, transaction);
 		}
-		trackerCommit(root, `Close ${options.epicId} wave ${transaction.wave} after post-wave gate`);
+		if (routedGates.length) {
+			transaction.status = "awaiting";
+			writeWaveTransaction(transactionFile, transaction);
+			const summary = routedGates.map((gate) => `${gate.tickId}=${gate.awaiting}`).join(", ");
+			try {
+				trackerCommit(root, `Await required gate(s) after ${options.epicId} wave ${transaction.wave}`);
+			} catch (error) {
+				return { status: "failed", detail: `tk close routed ${summary}, but committing .tick failed: ${error instanceof Error ? error.message : String(error)}` };
+			}
+			for (const gate of routedGates) {
+				const existing = agentInputs.get(gate.tickId);
+				if (existing) agentInputs.set(gate.tickId, { ...existing, status: "awaiting", currentAction: `merged and verified; awaiting ${gate.awaiting} before tracker close` });
+				event("requires-gate", `tk close routed to awaiting=${gate.awaiting}; wave transaction and tracker state are durable; cleanup and dependents remain stopped`, gate.tickId);
+			}
+			return { status: "awaiting", detail: `Required gate(s) ${summary}; merged work and the verified wave transaction are retained until human approval closes each tick.` };
+		}
+		try {
+			trackerCommit(root, `Close ${options.epicId} wave ${transaction.wave} after post-wave gate`);
+		} catch (error) {
+			return { status: "failed", detail: `Tracker closes succeeded, but their .tick commit failed: ${error instanceof Error ? error.message : String(error)}` };
+		}
 		for (const tick of transaction.ticks) {
 			let mergeItem = merges.find((item) => item.tickId === tick.tickId && item.branch === tick.branch);
 			if (!mergeItem) {
@@ -1220,6 +1339,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		transaction.status = "completed";
 		writeWaveTransaction(transactionFile, transaction);
+		return { status: "completed" };
 	};
 
 	for (;;) {
@@ -1297,6 +1417,32 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		if (!plan.preflight.canLaunch) return finish("blocked", plan.preflight.issues.map((issue) => issue.message).join("\n"), plan);
 
+		const awaitingTransaction = recoverableWaveTransactions(plan.durablePaths.runDir, options.epicId, manifest).find((item) => item.transaction.status === "awaiting");
+		if (awaitingTransaction) {
+			const transaction = awaitingTransaction.transaction;
+			const unsafe = transaction.ticks.find((tick) => !gitIsAncestor(root, tick.branch, integration!.branch) || !fs.existsSync(tick.worktree));
+			if (unsafe) return finish("blocked", `Awaiting wave ${transaction.wave} cannot resume safely: retained ${unsafe.branch}/${unsafe.worktree} is missing or not integrated.`, plan);
+			const byId = new Map(graphTasks(graph).map((task) => [task.id, task]));
+			const gatedTicks = transaction.ticks.filter((tick) => tick.tracker === "awaiting");
+			const stillAwaiting = gatedTicks.map((tick) => byId.get(tick.tickId)).find((task) => task?.status !== "closed" && task?.awaiting);
+			if (stillAwaiting) return finish("awaiting", `Verified wave ${transaction.wave} remains durably awaiting ${stillAwaiting.awaiting} on ${stillAwaiting.id}; cleanup and dependents remain stopped.`, plan);
+			const rejectedGate = gatedTicks.find((tick) => byId.get(tick.tickId)?.status !== "closed");
+			if (rejectedGate) {
+				transaction.status = "incomplete";
+				rejectedGate.tracker = "pending";
+				writeWaveTransaction(awaitingTransaction.file, transaction);
+				event("requires-rejected", `Gate ${rejectedGate.tickId} returned to open work; retained integration will be redispatched for repair before any dependent launch`);
+			} else {
+				event("requires-approved", `Approved gate(s) in wave ${transaction.wave} are closed; continuing pending sibling closes and retained cleanup without redispatch`);
+				const settled = closeAndCleanupWave(transaction, awaitingTransaction.file);
+				if (settled.status !== "completed") return finish(settled.status === "awaiting" ? "awaiting" : "failed", settled.detail ?? `Could not finalize wave ${transaction.wave}`, plan);
+				wavesCompleted++;
+				integration!.commit = git(root, ["rev-parse", "HEAD"]);
+				recovery = scan(ownership.handle?.lease.controllerToken);
+				continue;
+			}
+		}
+
 		const pendingTransactionFile = plan.readyWave === undefined ? undefined : waveTransactionPath(plan.durablePaths.runDir, plan.readyWave);
 		const pendingTransaction = pendingTransactionFile ? readWaveTransaction(pendingTransactionFile, options.epicId, plan.readyWave!, manifest) : undefined;
 		if (pendingTransaction && (pendingTransaction.status === "integrated" || pendingTransaction.status === "verified")) {
@@ -1321,7 +1467,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				writeWaveTransaction(pendingTransactionFile!, pendingTransaction);
 				event("wave-verified", `Recovered post-wave tests passed; tracker closure may now begin`);
 			}
-			closeAndCleanupWave(pendingTransaction, pendingTransactionFile!);
+			const settled = closeAndCleanupWave(pendingTransaction, pendingTransactionFile!);
+			if (settled.status !== "completed") return finish(settled.status === "awaiting" ? "awaiting" : "failed", settled.detail ?? `Could not close recovered wave ${pendingTransaction.wave}`, plan);
 			wavesCompleted++;
 			integration!.commit = git(root, ["rev-parse", "HEAD"]);
 			recovery = scan(ownership.handle?.lease.controllerToken);
@@ -1566,8 +1713,9 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		writeWaveTransaction(transactionFile, transaction);
 		event("wave-verified", `Post-wave tests passed after ${transaction.ticks.length} merge(s); tracker closure may now begin`);
 		const observations = new Map(waveOutcomes.filter((outcome) => outcome.kind === "accepted-observation").map((outcome) => [outcome.tickId, outcome.detail]));
-		closeAndCleanupWave(transaction, transactionFile, observations);
+		const settled = closeAndCleanupWave(transaction, transactionFile, observations);
 		outcomes.push(...waveOutcomes);
+		if (settled.status !== "completed") return finish(settled.status === "awaiting" ? "awaiting" : "failed", settled.detail ?? `Could not close wave ${waveNumber}`);
 		wavesCompleted++;
 		integration.commit = git(root, ["rev-parse", "HEAD"]);
 		recovery = scan(ownership.handle?.lease.controllerToken);

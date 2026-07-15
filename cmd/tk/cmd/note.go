@@ -108,7 +108,7 @@ func runNote(cmd *cobra.Command, args []string) error {
 		}
 		t.Notes = string(updated)
 		t.UpdatedAt = time.Now().UTC()
-		if err := store.Write(t); err != nil {
+		if err := store.WriteAs(t, resolveActor("")); err != nil {
 			return fmt.Errorf("failed to update tick: %w", err)
 		}
 		return nil
@@ -140,7 +140,14 @@ func runNote(cmd *cobra.Command, args []string) error {
 		t.Notes = strings.TrimRight(t.Notes, "\n") + "\n" + line
 	}
 	t.UpdatedAt = time.Now().UTC()
-	if err := store.Write(t); err != nil {
+	actor := resolveActor("")
+	if noteFrom == "human" {
+		// --from human is a durable provenance boundary, not merely a display
+		// substring.  In particular, do not let TK_ACTOR=*:orchestrator turn a
+		// human-confirmed dashboard/input note into an orchestrator-authored one.
+		actor = "human"
+	}
+	if err := store.WriteAs(t, actor); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 	return nil
