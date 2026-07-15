@@ -18,6 +18,7 @@ export type DashboardControlDependencies = {
 	execute: (args: string[]) => Promise<ControlCommandResult>;
 	preflight: () => Promise<ControlCommandResult>;
 	commitTracker: (message: string) => Promise<ControlCommandResult>;
+	withMutationLease: <T>(owner: string, action: () => Promise<T>) => Promise<T>;
 	refresh: () => Promise<void>;
 	actor: string;
 };
@@ -93,26 +94,35 @@ export function createDashboardController(
 				if (!input) return { ok: false, message: "Rejection requires non-empty feedback." };
 			}
 			if (!sameSnapshot(store, expected, control) || !await freshGate(gate)) return { ok: false, message: "Gate changed while prompting; no tracker action was taken." };
-			const dirty = await cleanPreflight();
-			if (dirty) return dirty;
-			if (action === "approve" && first.awaiting === "input") {
-				const noted = await dependencies.execute(["note", gate.tickId, input!, "--from", "human"]);
-				if (noted.code !== 0) return { ok: false, message: `Could not record required input: ${noted.stderr || noted.stdout}` };
-				const noteCommit = await commitMutation(`Record human input for ${gate.tickId}`, `tk note ${gate.tickId}`);
-				if (noteCommit) return noteCommit;
-				if (!await freshGate(gate)) return { ok: false, message: "Gate changed after input was recorded and committed; approval was not sent." };
-				const secondPreflight = await cleanPreflight();
-				if (secondPreflight) return secondPreflight;
+			try {
+				return await dependencies.withMutationLease(`dashboard-${action}-${gate.tickId}`, async () => {
+					// Acquisition never waits. Revalidate after it so a separate Pi process
+					// cannot change the gate between the prompt and mutation authority.
+					if (!sameSnapshot(store, expected, control) || !await freshGate(gate)) return { ok: false, message: "Gate changed before checkout mutation authority was acquired; no tracker action was taken." };
+					const dirty = await cleanPreflight();
+					if (dirty) return dirty;
+					if (action === "approve" && first.awaiting === "input") {
+						const noted = await dependencies.execute(["note", gate.tickId, input!, "--from", "human"]);
+						if (noted.code !== 0) return { ok: false, message: `Could not record required input: ${noted.stderr || noted.stdout}` };
+						const noteCommit = await commitMutation(`Record human input for ${gate.tickId}`, `tk note ${gate.tickId}`);
+						if (noteCommit) return noteCommit;
+						if (!await freshGate(gate)) return { ok: false, message: "Gate changed after input was recorded and committed; approval was not sent." };
+						const secondPreflight = await cleanPreflight();
+						if (secondPreflight) return secondPreflight;
+					}
+					const result = action === "approve"
+						? await dependencies.execute(["approve", gate.tickId])
+						: await dependencies.execute(["reject", gate.tickId, input!]);
+					if (result.code !== 0) return { ok: false, message: `tk ${action} failed: ${result.stderr || result.stdout}` };
+					const mutationCommit = await commitMutation(`${action === "approve" ? "Approve" : "Reject"} ${gate.tickId} from Ticks dashboard`, `tk ${action} ${gate.tickId}`);
+					if (mutationCommit) return mutationCommit;
+					await dependencies.refresh();
+					ui.notify(`${gate.tickId} ${action === "approve" ? "approved" : "rejected"} as ${dependencies.actor}`, "info");
+					return { ok: true, message: `${gate.tickId} ${action === "approve" ? "approved" : "rejected"}; dashboard refreshed.` };
+				});
+			} catch (error) {
+				return { ok: false, message: `Checkout mutation authority is busy or unavailable; no tracker action was taken: ${error instanceof Error ? error.message : String(error)}` };
 			}
-			const result = action === "approve"
-				? await dependencies.execute(["approve", gate.tickId])
-				: await dependencies.execute(["reject", gate.tickId, input!]);
-			if (result.code !== 0) return { ok: false, message: `tk ${action} failed: ${result.stderr || result.stdout}` };
-			const mutationCommit = await commitMutation(`${action === "approve" ? "Approve" : "Reject"} ${gate.tickId} from Ticks dashboard`, `tk ${action} ${gate.tickId}`);
-			if (mutationCommit) return mutationCommit;
-			await dependencies.refresh();
-			ui.notify(`${gate.tickId} ${action === "approve" ? "approved" : "rejected"} as ${dependencies.actor}`, "info");
-			return { ok: true, message: `${gate.tickId} ${action === "approve" ? "approved" : "rejected"}; dashboard refreshed.` };
 		},
 	};
 }

@@ -39,10 +39,10 @@ function computedWave(item, visiting = new Set()) {
 	return wave;
 }
 
-function graphOutput() {
+function graphOutput(includeAll = false) {
 	// Production tk wave.Compute intentionally omits awaiting-human children while
-	// stats.awaiting_human still counts them. Fixtures opt into that exact shape.
-	const graphTasks = state.omit_awaiting_from_waves ? state.tasks.filter((item) => !item.awaiting) : state.tasks;
+	// stats.awaiting_human still counts them. `graph --all` reinserts them.
+	const graphTasks = state.omit_awaiting_from_waves && !includeAll ? state.tasks.filter((item) => !item.awaiting) : state.tasks;
 	const waveNumbers = [...new Set(graphTasks.map((item) => computedWave(item)))].sort((a, b) => a - b);
 	let readyWave;
 	for (const wave of waveNumbers) {
@@ -75,7 +75,7 @@ if (command === "list") {
 	const parent = option(argv, "--parent");
 	console.log(JSON.stringify(parent ? state.tasks.filter((item) => item.parent === parent || parent === state.epic.id) : state.tasks));
 } else if (command === "graph") {
-	console.log(JSON.stringify(graphOutput()));
+	console.log(JSON.stringify(graphOutput(has(argv, "--all"))));
 } else if (command === "next") {
 	const epicId = argv.find((arg) => !arg.startsWith("-"));
 	const autonomous = has(argv, "--autonomous");

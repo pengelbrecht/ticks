@@ -1008,8 +1008,8 @@ test("unverified or malformed closeout fails closed and leaves epic open", async
 	}
 });
 
-test("autonomous selection bypasses checkpoint only and always uses tk next policy", async () => {
-	const checkpoint = createFixture("autonomous-checkpoint", [{ id: "checkpoint", awaiting: "checkpoint" }]);
+test("autonomous selection retrieves the exact checkpoint from production-shaped inclusive graph and uses tk next policy", async () => {
+	const checkpoint = createFixture("autonomous-checkpoint", [{ id: "checkpoint", awaiting: "checkpoint" }], { omitAwaitingFromWaves: true });
 	const off = await executeFixture(checkpoint);
 	assert.equal(off.status, "awaiting");
 	assert.equal(fs.existsSync(checkpoint.marker), false);

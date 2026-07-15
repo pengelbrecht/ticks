@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+	PLANNING_APPLY_LEASE_MS,
+	acquireCheckoutMutationLease,
+	heartbeatCheckoutMutationLease,
+	releaseCheckoutMutationLease,
+} from "./authority.ts";
 import { requireSuccessful, runSubprocess } from "./boundary.ts";
 import { loadRunnerConfig, type RunnerConfig } from "./config.ts";
 import {
@@ -11,7 +17,7 @@ import {
 	type VerificationItem,
 } from "./dashboard.ts";
 import { ORCHESTRATOR_ACTOR, parseModelInvocation, type ModelInvocation } from "./runner.ts";
-import { durableSegment, hasSymlinkBelow, normalizeRepoIdentity, repoSlug } from "./state.ts";
+import { durableSegment, hasSymlinkBelow, normalizeRepoIdentity, repoSlug, type ControllerLeaseHandle } from "./state.ts";
 import { createPiInvocation, superviseChild, type ChildReport, type ChildState, type ChildUsage } from "./supervisor.ts";
 import { commitTrackerChanges } from "./tracker-git.ts";
 
@@ -747,6 +753,18 @@ export type ApplyValidatedPlanInput = {
 	baseBranch?: string;
 };
 
+type ApplyAuthorityInput = ApplyValidatedPlanInput & { authority: ControllerLeaseHandle };
+
+function applyTrackerMutation(input: ApplyAuthorityInput, args: readonly string[]): string {
+	heartbeatCheckoutMutationLease(input.authority, PLANNING_APPLY_LEASE_MS);
+	return tracker(input.tk, args, input.root, input.env);
+}
+
+function applyTrackerCommit(input: ApplyAuthorityInput, message: string): string | undefined {
+	heartbeatCheckoutMutationLease(input.authority, PLANNING_APPLY_LEASE_MS);
+	return trackerCommit(input.root, message);
+}
+
 type ApplyGuardOwner = { version: 1; pid: number; token: string; applyStatePath: string; acquiredAt: string };
 
 function processAlive(pid: number): boolean {
@@ -852,7 +870,7 @@ function exactStringSet(left: unknown, right: readonly string[]): boolean {
  * controller records its returned ID or commits .tick. Recover only the exact
  * journaled create + append-only activity record; every other dirty path fails.
  */
-function recoverInterruptedCreateDirt(input: ApplyValidatedPlanInput, state: PlanningApplyState | undefined): string | undefined {
+function recoverInterruptedCreateDirt(input: ApplyAuthorityInput, state: PlanningApplyState | undefined): string | undefined {
 	const entries = gitStatusEntries(input.root);
 	if (!entries.length) return undefined;
 	const pending = state?.pendingCreate;
@@ -889,12 +907,14 @@ function recoverInterruptedCreateDirt(input: ApplyValidatedPlanInput, state: Pla
 		try { activity = objectValue(JSON.parse(appended[0]), "interrupted create activity"); } catch { throw new Error("Interrupted planning create activity is malformed"); }
 		if (activity.tick !== tickId || activity.action !== "create" || activity.actor !== PLANNING_ACTOR) throw new Error("Interrupted planning activity does not belong to the journaled controller create");
 	}
-	const commit = trackerCommit(input.root, `Recover interrupted automated Ticks plan ${state.idempotencyKey} ${pending.entity}`);
+	const commit = applyTrackerCommit(input, `Recover interrupted automated Ticks plan ${state.idempotencyKey} ${pending.entity}`);
 	if (!commit || gitStatusEntries(input.root).length) throw new Error("Interrupted planning tracker recovery did not produce one clean durable commit");
 	return commit;
 }
 
-function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranch: string }): ApplyResult {
+function applyValidatedPlanUnlocked(input: ApplyAuthorityInput & { baseBranch: string }): ApplyResult {
+	const keepAuthority = () => heartbeatCheckoutMutationLease(input.authority, PLANNING_APPLY_LEASE_MS);
+	keepAuthority();
 	const key = idempotencyKey(input.repoIdentity, input.target);
 	const digest = planDigest(input.plan);
 	const binding = targetBinding(input.target);
@@ -948,6 +968,7 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 	let currentStep = "initialize";
 	let mutationAttempted = false;
 	try {
+		keepAuthority();
 		if (!state.epicId) {
 			if (input.target.kind === "existing") {
 				if (!existingEpic || existingEpic.id !== input.target.epicId || existingEpic.title !== state.epicTitle) throw new Error(`Existing epic ${input.target.epicId} was not freshly verified as the requested childless/plannable epic`);
@@ -960,34 +981,37 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 				if (!state.epicId) {
 					beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: "epic", head: git(input.root, ["rev-parse", "HEAD"]), title: input.plan.epic.title, type: "epic", description: input.plan.epic.description, acceptance: input.plan.epic.acceptance, labels }));
 					mutationAttempted = true;
-					state.epicId = parseCreatedId(tracker(input.tk, ["create", "--type=epic", `--description=${input.plan.epic.description}`, `--acceptance=${input.plan.epic.acceptance}`, `--labels=${labels.join(",")}`, "--json", "--", input.plan.epic.title], input.root, input.env), "tk create epic");
+					state.epicId = parseCreatedId(applyTrackerMutation(input, ["create", "--type=epic", `--description=${input.plan.epic.description}`, `--acceptance=${input.plan.epic.acceptance}`, `--labels=${labels.join(",")}`, "--json", "--", input.plan.epic.title]), "tk create epic");
 				}
 				verifyMappedEntity(input.tk, input.root, input.env, { id: state.epicId, title: state.epicTitle, type: "epic", labels });
-				commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create epic`) ?? commit;
+				commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: create epic`) ?? commit;
 				finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 			}
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		currentStep = "record-base-branch";
 		if (!state.completedSteps.includes(currentStep)) {
+			keepAuthority();
 			mutationAttempted = true;
-			tracker(input.tk, ["update", state.epicId, "--base-branch", state.baseBranch], input.root, input.env);
+			applyTrackerMutation(input, ["update", state.epicId, "--base-branch", state.baseBranch]);
 			verifyMappedEntity(input.tk, input.root, input.env, { id: state.epicId, title: state.epicTitle, type: "epic", labels: input.target.kind === "requirements" ? markerLabels(key, "epic") : undefined, baseBranch: state.baseBranch });
-			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: record base branch`) ?? commit;
+			commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: record base branch`) ?? commit;
 			state.completedSteps.push(currentStep);
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		currentStep = "record-idempotency";
 		if (!state.completedSteps.includes(currentStep)) {
+			keepAuthority();
 			mutationAttempted = true;
 			const notes = runSubprocess(input.tk, ["notes", state.epicId], input.root, input.env);
 			if (notes.status === 0 && notes.stdout.includes("ticks-plan:") && !notes.stdout.includes(`key=${key}`)) throw new Error(`Epic ${state.epicId} already carries a different ticks-plan idempotency note; refusing to append tasks`);
-			if (notes.status !== 0 || !notes.stdout.includes(`key=${key}`)) tracker(input.tk, ["note", state.epicId, marker(key, `plan=${digest}`)], input.root, input.env);
-			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: record idempotency`) ?? commit;
+			if (notes.status !== 0 || !notes.stdout.includes(`key=${key}`)) applyTrackerMutation(input, ["note", state.epicId, marker(key, `plan=${digest}`)]);
+			commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: record idempotency`) ?? commit;
 			state.completedSteps.push(currentStep);
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		for (const task of input.plan.tasks) {
+			keepAuthority();
 			currentStep = `create:${task.client_id}`;
 			if (state.clientToTick[task.client_id]) continue;
 			const labels = [...markerLabels(key, `client-${task.client_id}`), `tier:${task.tier}`];
@@ -996,14 +1020,15 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 				beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: `client-${task.client_id}`, head: git(input.root, ["rev-parse", "HEAD"]), title: task.title, type: task.type, description: task.description, acceptance: task.acceptance, priority: task.priority, labels, parent: state.epicId }));
 				mutationAttempted = true;
 				const args = ["create", `--description=${task.description}`, `--acceptance=${task.acceptance}`, `--priority=${task.priority}`, `--type=${task.type}`, `--parent=${state.epicId}`, `--labels=${labels.join(",")}`, "--json", "--", task.title];
-				tickId = parseCreatedId(tracker(input.tk, args, input.root, input.env), `tk create ${task.client_id}`);
+				tickId = parseCreatedId(applyTrackerMutation(input, args), `tk create ${task.client_id}`);
 			}
 			verifyMappedEntity(input.tk, input.root, input.env, { id: tickId, title: task.title, type: task.type, parent: state.epicId, labels: labels.slice(0, 2) });
-			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create ${task.client_id}`) ?? commit;
+			commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: create ${task.client_id}`) ?? commit;
 			state.clientToTick[task.client_id] = tickId;
 			finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 		}
 		for (const task of input.plan.tasks) {
+			keepAuthority();
 			const tickId = state.clientToTick[task.client_id];
 			currentStep = `dependencies:${task.client_id}`;
 			if (state.completedSteps.includes(currentStep)) continue;
@@ -1011,17 +1036,18 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 			const after = (task.after ?? []).map((clientId) => state.clientToTick[clientId]);
 			if (blockers.length) {
 				mutationAttempted = true;
-				tracker(input.tk, ["block", tickId, ...blockers], input.root, input.env);
+				applyTrackerMutation(input, ["block", tickId, ...blockers]);
 			}
 			if (after.length) {
 				mutationAttempted = true;
-				tracker(input.tk, ["update", tickId, "--after", after.join(",")], input.root, input.env);
+				applyTrackerMutation(input, ["update", tickId, "--after", after.join(",")]);
 			}
-			if (blockers.length || after.length) commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: wire ${task.client_id}`) ?? commit;
+			if (blockers.length || after.length) commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: wire ${task.client_id}`) ?? commit;
 			state.completedSteps.push(currentStep);
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
 		if (!state.reviewId) {
+			keepAuthority();
 			currentStep = "create:review";
 			const labels = markerLabels(key, "review");
 			state.reviewId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "review process tick");
@@ -1032,23 +1058,24 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 				const args = ["create", `--parent=${state.epicId}`, "--role=review", `--labels=${labels.join(",")}`, "--json"];
 				for (const tickId of terminalIds) args.push(`--blocked-by=${tickId}`);
 				args.push("--", reviewTitle);
-				state.reviewId = parseCreatedId(tracker(input.tk, args, input.root, input.env), "tk create review");
+				state.reviewId = parseCreatedId(applyTrackerMutation(input, args), "tk create review");
 			}
 			verifyMappedEntity(input.tk, input.root, input.env, { id: state.reviewId, title: reviewTitle, type: "task", parent: state.epicId, role: "review", labels });
-			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create review`) ?? commit;
+			commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: create review`) ?? commit;
 			finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 		}
 		if (!state.closeoutId) {
+			keepAuthority();
 			currentStep = "create:closeout";
 			const labels = markerLabels(key, "closeout");
 			state.closeoutId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "closeout process tick");
 			if (!state.closeoutId) {
 				beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: "closeout", head: git(input.root, ["rev-parse", "HEAD"]), title: closeoutTitle, type: "task", labels, blockedBy: [state.reviewId], parent: state.epicId, role: "closeout" }));
 				mutationAttempted = true;
-				state.closeoutId = parseCreatedId(tracker(input.tk, ["create", `--parent=${state.epicId}`, "--role=closeout", `--labels=${labels.join(",")}`, `--blocked-by=${state.reviewId}`, "--json", "--", closeoutTitle], input.root, input.env), "tk create closeout");
+				state.closeoutId = parseCreatedId(applyTrackerMutation(input, ["create", `--parent=${state.epicId}`, "--role=closeout", `--labels=${labels.join(",")}`, `--blocked-by=${state.reviewId}`, "--json", "--", closeoutTitle]), "tk create closeout");
 			}
 			verifyMappedEntity(input.tk, input.root, input.env, { id: state.closeoutId, title: closeoutTitle, type: "task", parent: state.epicId, role: "closeout", labels });
-			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create closeout`) ?? commit;
+			commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}: create closeout`) ?? commit;
 			finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 		}
 		state.status = "complete";
@@ -1062,7 +1089,10 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 		writeApplyState(input.applyStatePath, state, input.stateRoot);
 	} finally {
 		if (mutationAttempted) {
-			try { commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}`); }
+			try {
+				keepAuthority();
+				commit = applyTrackerCommit(input, `Apply automated Ticks plan ${key}`);
+			}
 			catch (error) {
 				state.status = "partial";
 				state.failedStep = "commit-tracker-state";
@@ -1093,17 +1123,31 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
  * closed rather than racing or blindly recreating work.
  */
 export function applyValidatedPlan(input: ApplyValidatedPlanInput): ApplyResult {
-	const release = acquireApplyGuard(input.applyStatePath, input.stateRoot);
+	const authority = acquireCheckoutMutationLease({
+		repoRoot: input.root,
+		repoIdentity: input.repoIdentity,
+		stateRoot: input.stateRoot,
+		owner: `plan-${input.target.kind === "existing" ? input.target.epicId : idempotencyKey(input.repoIdentity, input.target)}`,
+		durationMs: PLANNING_APPLY_LEASE_MS,
+	});
+	let releaseApplyGuard: (() => void) | undefined;
 	try {
+		// The target-specific guard remains additional idempotency coordination;
+		// checkout authority above is what serializes tracker and Git mutation.
+		releaseApplyGuard = acquireApplyGuard(input.applyStatePath, input.stateRoot);
 		const key = idempotencyKey(input.repoIdentity, input.target);
 		const recovered = readApplyState(input.applyStatePath, key, targetBinding(input.target), input.stateRoot);
 		if (recovered && recovered.planDigest !== planDigest(input.plan)) throw new Error(`Recovery state ${input.applyStatePath} belongs to a different validated plan; refusing dirty-state recovery`);
 		const recordedBase = input.baseBranch ?? recovered?.baseBranch ?? input.existingEpic?.baseBranch;
 		controllerPreflight(input.root, recordedBase, true);
-		recoverInterruptedCreateDirt(input, recovered);
+		heartbeatCheckoutMutationLease(authority, PLANNING_APPLY_LEASE_MS);
+		recoverInterruptedCreateDirt({ ...input, authority }, recovered);
 		const controller = controllerPreflight(input.root, recordedBase);
-		return applyValidatedPlanUnlocked({ ...input, baseBranch: controller.baseBranch });
-	} finally { release(); }
+		return applyValidatedPlanUnlocked({ ...input, baseBranch: controller.baseBranch, authority });
+	} finally {
+		releaseApplyGuard?.();
+		releaseCheckoutMutationLease(authority);
+	}
 }
 
 function boundedSummary(value: string): string {

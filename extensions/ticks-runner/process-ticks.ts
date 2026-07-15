@@ -198,7 +198,12 @@ export function terminalImplementationTickIds(graph: GraphResult, epicTitle: str
 	return implementation.map((task) => task.id).filter((id) => !nonTerminal.has(id)).sort();
 }
 
-export function applyAutonomousSelection(graph: GraphResult, selection: NextSelection | null, autonomous: boolean): GraphResult {
+export function applyAutonomousSelection(
+	graph: GraphResult,
+	selection: NextSelection | null,
+	autonomous: boolean,
+	inclusiveGraph?: GraphResult,
+): GraphResult {
 	if (!selection || selection.action !== "implement" || selection.awaiting !== "checkpoint") return graph;
 	if (!autonomous) throw new Error("tk next surfaced an awaiting checkpoint without autonomous mode");
 	let found = false;
@@ -208,13 +213,36 @@ export function applyAutonomousSelection(graph: GraphResult, selection: NextSele
 			if (task.id !== selection.id) return task;
 			found = true;
 			waveContainsSelection = true;
-			if (task.awaiting !== "checkpoint") throw new Error(`tk next/checkpoint disagrees with graph task ${task.id}`);
+			validateAutonomousCheckpoint(task, selection);
 			return { ...task, agent_ready: true };
 		});
 		return waveContainsSelection ? { ...wave, ready: true, tasks } : { ...wave, tasks };
 	});
-	if (!found) throw new Error(`tk next selected ${selection.id}, which is absent from tk graph`);
+	if (found) return { ...graph, waves };
+	if (!inclusiveGraph) throw new Error(`tk next selected ${selection.id}, which is absent from tk graph and no inclusive graph was provided`);
+	if (!graph.epic?.id || inclusiveGraph.epic?.id !== graph.epic.id) throw new Error("Inclusive tk graph does not describe the selected epic");
+	const matches = inclusiveGraph.waves.flatMap((wave) => (wave.tasks ?? []).filter((task) => task.id === selection.id).map((task) => ({ task, wave })));
+	if (matches.length !== 1) throw new Error(`Inclusive tk graph must contain exactly one selected child ${selection.id}`);
+	const { task, wave } = matches[0];
+	validateAutonomousCheckpoint(task, selection);
+	const selectedWave = wave.wave;
+	const injected = { ...task, agent_ready: true };
+	const sameWave = waves.findIndex((candidate) => candidate.wave === selectedWave);
+	if (sameWave >= 0) {
+		if ((waves[sameWave].tasks ?? []).some((candidate) => candidate.id === selection.id)) throw new Error(`Selected checkpoint ${selection.id} is duplicated in tk graph`);
+		waves[sameWave] = { ...waves[sameWave], ready: true, tasks: [...(waves[sameWave].tasks ?? []), injected] };
+	} else {
+		waves.push({ ...wave, ready: true, parallel: 1, tasks: [injected] });
+		waves.sort((left, right) => (left.wave ?? Number.MAX_SAFE_INTEGER) - (right.wave ?? Number.MAX_SAFE_INTEGER));
+	}
 	return { ...graph, waves };
+}
+
+function validateAutonomousCheckpoint(task: GraphTask, selection: NextSelection): void {
+	if (task.id !== selection.id || task.title !== selection.title) throw new Error(`tk next/checkpoint disagrees with graph identity for ${selection.id}`);
+	if (task.awaiting !== "checkpoint") throw new Error(`tk next/checkpoint disagrees with graph task ${task.id}`);
+	if (task.status !== "open") throw new Error(`Selected checkpoint ${task.id} is not an open child`);
+	if ((task.role ?? "") !== (selection.role ?? "")) throw new Error(`tk next selection ${task.id} disagrees with tk graph role`);
 }
 
 function safeRepoFile(value: unknown, label: string): string {

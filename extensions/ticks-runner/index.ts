@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { DASHBOARD_ACTION_LEASE_MS, withCheckoutMutationLease } from "./authority.ts";
 import { loadRunnerConfig } from "./config.ts";
 import {
 	buildDashboardModel,
@@ -269,6 +270,16 @@ function controllerFor(ctx: ExtensionCommandContext, store: DashboardStore, cont
 			} catch (error) {
 				return { code: 1, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
 			}
+		},
+		withMutationLease: async (owner, action) => {
+			const checkout = await root();
+			return withCheckoutMutationLease({
+				repoRoot: checkout,
+				repoIdentity: await repoIdentity(checkout),
+				stateRoot: await durableStateRoot(checkout),
+				owner,
+				durationMs: DASHBOARD_ACTION_LEASE_MS,
+			}, async () => action());
 		},
 		refresh: async () => {
 			const refreshed = await dashboardModelForTarget(ctx.cwd, control.epicId);

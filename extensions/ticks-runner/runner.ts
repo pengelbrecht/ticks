@@ -51,11 +51,12 @@ import {
 	type RecoverySnapshot,
 } from "./recovery.ts";
 import {
-	acquireControllerLease,
+	acquireCheckoutMutationLease,
+	releaseCheckoutMutationLease,
+} from "./authority.ts";
+import {
 	createRunManifest,
 	planRunPaths,
-	releaseControllerLease,
-	startControllerHeartbeat,
 	writeRunManifest,
 	type ControllerLeaseHandle,
 	type RunManifest,
@@ -832,7 +833,7 @@ export async function runEpic(options: RunEpicOptions): Promise<EpicRunResult> {
 	try {
 		return await runEpicImplementation({ ...options, signal: cancellation.signal }, ownership);
 	} finally {
-		if (ownership.handle) releaseControllerLease(ownership.handle);
+		if (ownership.handle) releaseCheckoutMutationLease(ownership.handle);
 		if (options.signal) options.signal.removeEventListener("abort", forwardAbort);
 	}
 }
@@ -963,11 +964,13 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	if (options.execute && initialRecovery.status === "active") return finish("blocked", `A fresh active run or in-progress lease already claims ${identity}/${options.epicId}. Use /ticks-status ${options.epicId}; no second child was launched.`);
 	if (options.execute) {
 		try {
-			const leasePlan = planRunPaths({ repoRoot: root, repoIdentity: identity, epicId: options.epicId, tickIds: [], stateRoot });
-			ownership.handle = acquireControllerLease(leasePlan, { durationMs: options.leaseDurationMs });
-			startControllerHeartbeat(ownership.handle, {
+			ownership.handle = acquireCheckoutMutationLease({
+				repoRoot: root,
+				repoIdentity: identity,
+				stateRoot,
+				owner: options.epicId,
 				durationMs: options.leaseDurationMs,
-				intervalMs: options.leaseHeartbeatMs,
+				heartbeatMs: options.leaseHeartbeatMs,
 				onLost: (error) => ownership.cancellation.abort(error),
 			});
 			event("ownership", `Acquired durable controller lease until ${ownership.handle.lease.expiresAt}`);
@@ -1436,7 +1439,14 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				const selection = parseNextSelection(tracker(tk, nextArgs, root, env));
 				if (selection?.action === "await") return finish("awaiting", `Tracker selection is awaiting ${selection.awaiting ?? "human"}: ${selection.id} — ${selection.title}`);
 				if (selection?.action === "plan") return finish("blocked", `Tracker selected planning action for ${selection.id}; implementation was not dispatched.`);
-				graph = applyAutonomousSelection(graph, selection, Boolean(options.autonomous));
+				let inclusiveGraph: GraphResult | undefined;
+				if (selection?.awaiting === "checkpoint" && !graphTasks(graph).some((task) => task.id === selection.id)) {
+					// Production tk graph omits awaiting children by default. Retrieve the
+					// same epic's inclusive graph; applyAutonomousSelection still validates
+					// the exact tk-next-selected child before making only that child ready.
+					inclusiveGraph = parseGraph(tracker(tk, ["graph", options.epicId, "--all", "--json"], root, env));
+				}
+				graph = applyAutonomousSelection(graph, selection, Boolean(options.autonomous), inclusiveGraph);
 				const selectedTask = selection ? graphTasks(graph).find((task) => task.id === selection.id) : undefined;
 				if (selection && (!selectedTask || (selection.role ?? "") !== (selectedTask.role ?? ""))) throw new Error(`tk next selection ${selection.id} disagrees with tk graph role`);
 			} catch (error) {
