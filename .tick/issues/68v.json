@@ -1,0 +1,15 @@
+{
+  "id": "68v",
+  "title": "Unify all controller mutations under checkout authority",
+  "description": "Use the same checkout-wide durable controller lease for run execution, planning apply, and dashboard note/approve/reject actions. Avoid self-deadlock/reentrancy and release safely. Fix autonomous checkpoint selection against production graphs that omit awaiting tasks: fetch inclusive detail or safely inject only the exact tk-next-selected child. Add cross-surface concurrency and production-shape tests.",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "qfs",
+  "discovered_from": "9rj",
+  "acceptance_criteria": "Run/plan/dashboard tracker or Git mutations cannot race in one checkout; autonomous production checkpoints work without allowing arbitrary graph injection; tests pass.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-07-15T12:38:36.524096Z",
+  "updated_at": "2026-07-15T12:38:36.524096Z"
+}
