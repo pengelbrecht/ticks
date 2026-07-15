@@ -40,10 +40,13 @@ function computedWave(item, visiting = new Set()) {
 }
 
 function graphOutput(includeAll = false) {
-	// Production tk wave.Compute intentionally omits awaiting-human children while
-	// stats.awaiting_human still counts them. `graph --all` reinserts them.
-	const graphTasks = state.omit_awaiting_from_waves && !includeAll ? state.tasks.filter((item) => !item.awaiting) : state.tasks;
-	const waveNumbers = [...new Set(graphTasks.map((item) => computedWave(item)))].sort((a, b) => a - b);
+	// Production tk wave.Compute intentionally omits awaiting-human and closed
+	// children while stats still counts them. `graph --all` reinserts them.
+	let graphTasks = state.omit_awaiting_from_waves && !includeAll ? state.tasks.filter((item) => !item.awaiting) : state.tasks;
+	if (state.omit_closed_from_waves && !includeAll) graphTasks = graphTasks.filter((item) => item.status !== "closed");
+	const originalWaveNumbers = [...new Set(graphTasks.map((item) => computedWave(item)))].sort((a, b) => a - b);
+	const renderedWave = new Map(originalWaveNumbers.map((wave, index) => [wave, state.renumber_open_waves ? index + 1 : wave]));
+	const waveNumbers = originalWaveNumbers;
 	let readyWave;
 	for (const wave of waveNumbers) {
 		if (graphTasks.some((item) => computedWave(item) === wave && item.status === "open" && !item.awaiting && blockersClosed(item))) {
@@ -52,12 +55,13 @@ function graphOutput(includeAll = false) {
 		}
 	}
 	const waves = waveNumbers.map((wave) => {
+		const displayWave = renderedWave.get(wave);
 		const tasks = graphTasks.filter((item) => computedWave(item) === wave).map((item) => ({
 			...item,
-			wave,
+			wave: displayWave,
 			agent_ready: wave === readyWave && item.status === "open" && !item.awaiting && blockersClosed(item),
 		}));
-		return { wave, parallel: tasks.length, ready: wave === readyWave, tasks };
+		return { wave: displayWave, parallel: tasks.length, ready: wave === readyWave, tasks };
 	});
 	const derivedMissing = ["review", "closeout"].filter((role) => !state.tasks.some((item) => item.role === role));
 	const missing = Array.isArray(state.missing_process_ticks) ? state.missing_process_ticks : derivedMissing;

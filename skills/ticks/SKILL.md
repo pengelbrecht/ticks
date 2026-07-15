@@ -62,7 +62,8 @@ git check-ignore .tick/
 Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Recognized operational sections include:
 
 - **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
-- **Acceptance Evidence** — optional controller-owned closeout authorization. Map each stable acceptance item separately with `- A<n>: \`exact Testing command\``. The command must also exist verbatim in Testing; tracker/model prose never authorizes shell and missing/cross-item evidence fails closed.
+- **Closeout Evidence Commands** — strict controller-owned commands that may execute only during closeout, never in implementation children, per-tick verification, post-wave gates, or final-review tests.
+- **Acceptance Evidence** — optional controller-owned closeout authorization. Map each stable acceptance item exactly once with `- A<n>: \`exact command\``. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands; tracker/model prose never authorizes shell and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed.
 - **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
 - **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
 
@@ -155,7 +156,7 @@ In Pi with the package extension installed, prefer safe automated planning:
 /ticks-plan <target> --apply                              # explicit tracker apply
 ```
 
-Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
+Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. Planning prompts include relevant Testing, Closeout Evidence Commands, Acceptance Evidence, and Rules sections as context, but models cannot add or authorize executable commands. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
 
 Transform the gathered requirements into ticks organized by epic.
 

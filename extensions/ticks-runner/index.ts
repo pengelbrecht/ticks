@@ -15,6 +15,7 @@ import {
 	DashboardStore,
 	dashboardModelFromPlan,
 	isDashboardModel,
+	reconcileCumulativeDashboard,
 	renderDashboardText,
 	type DashboardController,
 	type DashboardInput,
@@ -223,7 +224,8 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 	if (run?.manifest) return statusDashboardModel(await collectStatus(cwd, run.manifest.epicId));
 	const snapshot = await collectStatus(cwd, target);
 	try {
-		const planned = dashboardModelFromPlan(await buildDryPlan(cwd, target, true));
+		const dryPlan = await buildDryPlan(cwd, target, true);
+		const planned = dashboardModelFromPlan(dryPlan);
 		const recovered = statusDashboardModel(snapshot);
 		const recoveredAgents = new Map(recovered.agents.map((agent) => [agent.tickId, agent]));
 		const agents = planned.agents.map((agent) => {
@@ -232,7 +234,7 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 			recoveredAgents.delete(agent.tickId);
 			return { ...agent, status: terminal.status, currentAction: terminal.currentAction, branch: terminal.branch === "—" ? agent.branch : terminal.branch, worktree: terminal.worktree === "—" ? agent.worktree : terminal.worktree, error: terminal.error };
 		});
-		return buildDashboardModel({
+		const combined = buildDashboardModel({
 			runId: planned.runId,
 			epicId: planned.epicId,
 			epicTitle: planned.epicTitle,
@@ -246,6 +248,7 @@ async function dashboardModelForTarget(cwd: string, target: string): Promise<Das
 			recovery: recovered.recovery,
 			humanGates: [...planned.humanGates, ...recovered.humanGates],
 		});
+		return reconcileCumulativeDashboard(recovered, combined, { waves: dryPlan.waves });
 	} catch {
 		return statusDashboardModel(snapshot);
 	}

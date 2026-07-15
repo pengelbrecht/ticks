@@ -5,6 +5,8 @@ export type ConfiguredCommand = {
 	command: string;
 	label?: string;
 	source: string;
+	/** The controller phase allowed to execute this command. */
+	authorization?: "testing" | "closeout";
 };
 
 export type ConfiguredAcceptanceEvidence = {
@@ -19,9 +21,12 @@ export type RunnerConfig = {
 	reviewShouldFix: "repair" | "record";
 	environmentChecks: string[];
 	testingLines: string[];
+	closeoutEvidenceLines: string[];
 	acceptanceEvidenceLines: string[];
 	environmentCommands: ConfiguredCommand[];
 	testCommands: ConfiguredCommand[];
+	closeoutEvidenceCommands: ConfiguredCommand[];
+	closeoutEvidenceErrors: string[];
 	acceptanceEvidence: ConfiguredAcceptanceEvidence[];
 	acceptanceEvidenceErrors: string[];
 	rules: string[];
@@ -104,17 +109,22 @@ export function parseExecutableCommands(lines: readonly string[]): { commands: C
 /**
  * Parse the controller-owned item authorization table. Every mapping must name
  * one stable acceptance item and repeat an exact command already authorized in
- * Testing. No tracker/model text can add a command or acquire another item's
- * authorization.
+ * exactly one of Testing or Closeout Evidence Commands. No tracker/model text
+ * can add a command or acquire another item's authorization.
  */
 export function parseAcceptanceEvidence(
 	lines: readonly string[],
 	testCommands: readonly ConfiguredCommand[],
+	closeoutCommands: readonly ConfiguredCommand[] = [],
 ): { evidence: ConfiguredAcceptanceEvidence[]; errors: string[] } {
 	if (lines.length > 64) return { evidence: [], errors: ["Acceptance Evidence contains more than 64 mappings"] };
 	const evidence: ConfiguredAcceptanceEvidence[] = [];
 	const errors: string[] = [];
-	const seen = new Set<string>();
+	const seenItems = new Set<string>();
+	const authorized = [
+		...testCommands.map((command) => ({ ...command, authorization: "testing" as const })),
+		...closeoutCommands.map((command) => ({ ...command, authorization: "closeout" as const })),
+	];
 	for (const source of lines) {
 		if (source.length > 2_000 || source.includes("\0")) {
 			errors.push(`Acceptance Evidence line is unsafe or exceeds 2000 characters: ${JSON.stringify(source.slice(0, 160))}`);
@@ -122,20 +132,19 @@ export function parseAcceptanceEvidence(
 		}
 		const match = source.match(/^[-*+]\s+(A[1-9]\d{0,2})\s*:\s*`([^`\r\n]+)`(?:\s+[^`]*)?$/);
 		if (!match || !match[2].trim()) {
-			errors.push(`Acceptance Evidence must use "- A<n>: \`exact Testing command\`": ${JSON.stringify(source)}`);
+			errors.push(`Acceptance Evidence must use "- A<n>: \`exact authorized command\`": ${JSON.stringify(source)}`);
 			continue;
 		}
 		const itemId = match[1];
 		const commandText = match[2].trim();
-		const key = `${itemId}\0${commandText}`;
-		if (seen.has(key)) {
-			errors.push(`Acceptance Evidence duplicates ${itemId} -> ${JSON.stringify(commandText)}`);
+		if (seenItems.has(itemId)) {
+			errors.push(`Acceptance Evidence duplicates mapping for ${itemId}`);
 			continue;
 		}
-		seen.add(key);
-		const matches = testCommands.filter((command) => command.command === commandText);
+		seenItems.add(itemId);
+		const matches = authorized.filter((command) => command.command === commandText);
 		if (matches.length !== 1) {
-			errors.push(`Acceptance Evidence ${itemId} command must match exactly one executable Testing command: ${JSON.stringify(commandText)}`);
+			errors.push(`Acceptance Evidence ${itemId} command must match exactly one executable Testing or Closeout Evidence Commands command: ${JSON.stringify(commandText)}`);
 			continue;
 		}
 		evidence.push({ itemId, command: matches[0], source });
@@ -170,21 +179,30 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 	}
 	const environmentChecks = parseCommandLines(extractSection(markdown, "Environment"));
 	const testingLines = parseCommandLines(extractSection(markdown, "Testing"));
+	const closeoutEvidenceLines = parseCommandLines(extractSection(markdown, "Closeout Evidence Commands"));
 	const acceptanceEvidenceLines = extractSection(markdown, "Acceptance Evidence");
 	const environment = parseExecutableCommands(environmentChecks);
 	const testing = parseExecutableCommands(testingLines);
-	const acceptanceEvidence = parseAcceptanceEvidence(acceptanceEvidenceLines, testing.commands);
+	const closeout = parseExecutableCommands(closeoutEvidenceLines);
+	const testCommands = testing.commands.map((command) => ({ ...command, authorization: "testing" as const }));
+	const closeoutEvidenceCommands = closeout.commands.map((command) => ({ ...command, authorization: "closeout" as const }));
+	const closeoutEvidenceErrors = closeout.ignored.map((line) => `Closeout Evidence Commands must contain only one isolated inline-code command per entry: ${JSON.stringify(line)}`);
+	const acceptanceEvidence = parseAcceptanceEvidence(acceptanceEvidenceLines, testCommands, closeoutEvidenceCommands);
 	for (const line of environment.ignored.filter((item) => item.includes("`"))) warnings.push(`Environment line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
 	for (const line of testing.ignored.filter((item) => item.includes("`"))) warnings.push(`Testing line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
+	for (const line of closeout.ignored.filter((item) => item.includes("`"))) warnings.push(`Closeout Evidence Commands line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
 	return {
 		models,
 		maxParallel,
 		reviewShouldFix,
 		environmentChecks,
 		testingLines,
+		closeoutEvidenceLines,
 		acceptanceEvidenceLines,
 		environmentCommands: environment.commands,
-		testCommands: testing.commands,
+		testCommands,
+		closeoutEvidenceCommands,
+		closeoutEvidenceErrors,
 		acceptanceEvidence: acceptanceEvidence.evidence,
 		acceptanceEvidenceErrors: acceptanceEvidence.errors,
 		rules: extractSection(markdown, "Rules"),

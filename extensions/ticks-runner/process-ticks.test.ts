@@ -42,39 +42,39 @@ test("closeout report requires item-scoped controller evidence and rejects cross
 		{ id: "A1", text: "User behavior works" },
 		{ id: "A2", text: "Tests: `node verify.mjs` — runnable" },
 	]);
-	const behavioral = { label: "Behavior", command: "node behavior-test.mjs", source: "Behavior: `node behavior-test.mjs`" };
-	const runnable = { label: "Runnable", command: "node trusted-test.mjs", source: "Runnable: `node trusted-test.mjs`" };
+	const behavioral = { label: "Behavior", command: "node behavior-test.mjs", source: "Behavior: `node behavior-test.mjs`", authorization: "testing" as const };
+	const runnable = { label: "Runnable", command: "node trusted-test.mjs", source: "Runnable: `node trusted-test.mjs`", authorization: "closeout" as const };
 	assert.deepEqual(acceptanceEvidenceBindings(items, [
 		{ itemId: "A1", command: behavioral, source: "- A1: `node behavior-test.mjs`" },
 		{ itemId: "A2", command: runnable, source: "- A2: `node trusted-test.mjs`" },
 	]).map((binding) => [binding.itemId, binding.evidenceId, binding.command.command]), [
 		["A1", "A1-T1", "node behavior-test.mjs"],
-		["A2", "A2-T1", "node trusted-test.mjs"],
+		["A2", "A2-C1", "node trusted-test.mjs"],
 	]);
 	assert.throws(() => acceptanceEvidenceBindings(items, [
-		{ itemId: "A1", command: { command: "true", source: "`true`" }, source: "- A1: `true`" },
+		{ itemId: "A1", command: { command: "true", source: "`true`", authorization: "testing" }, source: "- A1: `true`" },
 	]), /no controller-authorized command.*A2/);
 	assert.throws(() => acceptanceEvidenceBindings(items, [
 		{ itemId: "A1", command: behavioral, source: "- A1: `node behavior-test.mjs`" },
-		{ itemId: "A3", command: { command: "true", source: "`true`" }, source: "- A3: `true`" },
+		{ itemId: "A3", command: { command: "true", source: "`true`", authorization: "testing" }, source: "- A3: `true`" },
 	]), /unknown or stale item A3/);
 	const byItem = new Map([
 		["A1", new Set(["A1-T1"])],
-		["A2", new Set(["A2-T1"])],
+		["A2", new Set(["A2-C1"])],
 	]);
 	const valid = {
 		version: 1,
 		summary: "All acceptance verified",
 		items: [
 			{ id: "A1", verified: true, evidence: ["A1-T1"], message: "Item-scoped final test covers behavior." },
-			{ id: "A2", verified: true, evidence: ["A2-T1"], message: "Trusted Testing command passed for this item." },
+			{ id: "A2", verified: true, evidence: ["A2-C1"], message: "Trusted closeout command passed for this item." },
 		],
 		rules: [{ id: "R1", compliant: true, evidence: [], message: "Inspected generated files." }],
 		retro: { summary: "Kept scope", learned_notes: ["Keep evidence IDs stable."] },
 	};
 	assert.equal(parseCloseoutReport(JSON.stringify(valid), items, byItem, rules, new Map()).items.length, 2);
 	const crossed = structuredClone(valid);
-	crossed.items[0].evidence = ["A2-T1"];
+	crossed.items[0].evidence = ["A2-C1"];
 	assert.throws(() => parseCloseoutReport(JSON.stringify(crossed), items, byItem, rules, new Map()), /not issued for that item/);
 	const invented = structuredClone(valid);
 	invented.items[0].evidence = ["SHELL:rm -rf"];

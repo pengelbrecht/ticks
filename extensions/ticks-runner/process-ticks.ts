@@ -325,15 +325,17 @@ export function acceptanceEvidenceBindings(
 		if (!ids.has(configured.itemId)) throw new Error(`Acceptance Evidence references unknown or stale item ${configured.itemId}`);
 		const command = configured.command;
 		if (!command || typeof command.command !== "string" || !command.command.trim() || command.command.includes("\0") || command.command.length > 16 * 1_024
-			|| typeof command.source !== "string" || command.source.length > 32 * 1_024 || (command.label !== undefined && (typeof command.label !== "string" || command.label.length > 80))) {
-			throw new Error("Acceptance evidence mapping contains an invalid trusted Testing command");
+			|| typeof command.source !== "string" || command.source.length > 32 * 1_024 || (command.label !== undefined && (typeof command.label !== "string" || command.label.length > 80))
+			|| (command.authorization !== "testing" && command.authorization !== "closeout")) {
+			throw new Error("Acceptance evidence mapping contains an invalid controller-authorized Testing/Closeout command");
 		}
 		const key = `${configured.itemId}\0${command.command}`;
 		if (seen.has(key)) throw new Error(`Acceptance Evidence duplicates ${configured.itemId} -> ${JSON.stringify(command.command)}`);
 		seen.add(key);
 		const count = (counts.get(configured.itemId) ?? 0) + 1;
+		if (count > 1) throw new Error(`Acceptance Evidence must contain exactly one command mapping for ${configured.itemId}`);
 		counts.set(configured.itemId, count);
-		bindings.push({ itemId: configured.itemId, evidenceId: `${configured.itemId}-T${count}`, command });
+		bindings.push({ itemId: configured.itemId, evidenceId: `${configured.itemId}-${command.authorization === "testing" ? "T" : "C"}1`, command });
 	}
 	const missing = items.filter((item) => !counts.has(item.id)).map((item) => item.id);
 	if (missing.length) throw new Error(`Acceptance Evidence has no controller-authorized command for item(s): ${missing.join(", ")}`);
@@ -342,7 +344,7 @@ export function acceptanceEvidenceBindings(
 
 const EXTERNAL_RULE = /\b(?:human|approval|sign[- ]?off|pull request|github|gitlab|ci|continuous integration|green on|external)\b/i;
 
-/** Project Rules are prose-only. Only Testing configuration authorizes closeout shell commands. */
+/** Project Rules are prose-only. Only controller Testing/Closeout sections authorize shell commands. */
 export function projectRules(lines: readonly string[]): ProjectRule[] {
 	if (lines.length > 64) throw new Error("Project Rules contains more than 64 items");
 	return lines.map((line, index) => {

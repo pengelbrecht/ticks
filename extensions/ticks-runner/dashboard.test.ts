@@ -13,6 +13,7 @@ import {
 	dashboardModelFromPlan,
 	dashboardViewportHeight,
 	readDashboardHistory,
+	reconcileCumulativeDashboard,
 	renderDashboard,
 	renderDashboardText,
 	type DashboardInput,
@@ -80,6 +81,40 @@ test("dry-plan renderer shows future process routing without marking it executab
 	assert.match(text, /review · fake\/frontier:xhigh · blocked/);
 	assert.match(text, /branch: \(controller checkout; read-only\)/);
 	assert.match(text, /worktree: \/controller/);
+});
+
+test("cumulative stage projection ignores renumbered graph waves and retains omitted tasks", () => {
+	const initialGraph = parseGraph({ waves: [
+		{ wave: 7, ready: true, tasks: [{ id: "implementation", status: "open", agent_ready: true }] },
+		{ wave: 8, tasks: [{ id: "review", status: "open", role: "review", blocked_by: ["implementation"] }] },
+		{ wave: 9, tasks: [{ id: "closeout", status: "open", role: "closeout", blocked_by: ["review"] }] },
+	] });
+	const initial = reconcileCumulativeDashboard(undefined, buildDashboardModel({
+		epicId: "stable",
+		currentWave: 7,
+		waves: initialGraph.waves.map((wave) => ({ wave: wave.wave!, status: wave.ready ? "running" : "blocked", taskIds: wave.tasks!.map((task) => task.id) })),
+		agents: initialGraph.waves.flatMap((wave) => wave.tasks!.map((task) => ({ tickId: task.id, status: task.id === "implementation" ? "running" : "blocked", wave: wave.wave }))),
+	}), initialGraph);
+	assert.deepEqual(initial.waves.map((wave) => [wave.wave, wave.taskIds]), [[1, ["implementation"]], [2, ["review"]], [3, ["closeout"]]]);
+
+	const reviewGraph = parseGraph({ waves: [
+		{ wave: 1, ready: true, tasks: [{ id: "review", status: "open", role: "review", blocked_by: ["implementation"], agent_ready: true }] },
+		{ wave: 2, tasks: [{ id: "closeout", status: "open", role: "closeout", blocked_by: ["review"] }] },
+	] });
+	const review = reconcileCumulativeDashboard(initial, buildDashboardModel({
+		epicId: "stable",
+		currentWave: 1,
+		waves: reviewGraph.waves.map((wave) => ({ wave: wave.wave!, status: wave.ready ? "running" : "blocked", taskIds: wave.tasks!.map((task) => task.id) })),
+		agents: [
+		{ tickId: "implementation", status: "completed", wave: 1 },
+		{ tickId: "review", status: "running", wave: 1 },
+		{ tickId: "closeout", status: "blocked", wave: 2 },
+		],
+		verification: [{ label: "implementation tests", tickId: "implementation", status: "passed" }],
+	}), reviewGraph);
+	assert.equal(review.currentWave, 2);
+	assert.deepEqual(review.waves.map((wave) => [wave.wave, wave.status, wave.taskIds]), [[1, "completed", ["implementation"]], [2, "running", ["review"]], [3, "blocked", ["closeout"]]]);
+	assert.deepEqual(review.agents.map((agent) => [agent.tickId, agent.wave]), [["implementation", 1], ["review", 2], ["closeout", 3]]);
 });
 
 test("normalizes active aliases while preserving terminal agent and lane history", () => {
