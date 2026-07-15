@@ -2,6 +2,7 @@
   "id": "xrq",
   "title": "Close out Pi ticks orchestrator extension epic",
   "description": "Run the epic close-out retro, verify the qfs definition of done outside-in, harvest learnings into the ticks skill/docs where appropriate, and decide whether any follow-up epics are needed.",
+  "notes": "2026-07-15 15:18 - project-rule-gate:565913447061c048 External Project Rules require operator evidence and approval before closeout; instructions=/Users/peterengelbrecht/Development/.ticks-worktrees/pengelbrecht-ticks--303b0b3fd1/runs/qfs--2aae8fecb25d/artifacts/xrq/project-rules-gate.md",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -12,7 +13,8 @@
   "parent": "qfs",
   "role": "closeout",
   "acceptance_criteria": "Epic acceptance is verified item-by-item, retro notes are recorded, follow-up ticks are filed for remaining work, and qfs is closed only if the extension/package is actually usable.",
+  "awaiting": "checkpoint",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-09T11:15:55.62203Z",
-  "updated_at": "2026-07-09T11:15:55.62203Z"
+  "updated_at": "2026-07-15T13:18:34.703477Z"
 }
