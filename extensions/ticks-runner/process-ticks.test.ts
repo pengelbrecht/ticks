@@ -129,11 +129,20 @@ test("terminal implementation derivation excludes structural process ticks and n
 	assert.deepEqual(terminalImplementationTickIds(ambiguous, "Example"), ["one", "two"]);
 });
 
-test("autonomous graph override applies only to a tracker-selected checkpoint", () => {
-	const graph = parseGraph({ waves: [{ wave: 1, ready: false, tasks: [{ id: "cp", title: "Checkpoint", status: "open", awaiting: "checkpoint", agent_ready: false }] }] });
+test("autonomous graph override applies only to an exact tracker-selected checkpoint", () => {
+	const graph = parseGraph({ epic: { id: "epic", title: "Example" }, waves: [{ wave: 1, ready: false, tasks: [{ id: "cp", title: "Checkpoint", status: "open", awaiting: "checkpoint", agent_ready: false }] }] });
 	const selected = parseNextSelection(JSON.stringify({ id: "cp", title: "Checkpoint", action: "implement", awaiting: "checkpoint" }));
 	assert.equal(applyAutonomousSelection(graph, selected, true).waves[0].tasks?.[0].agent_ready, true);
 	assert.throws(() => applyAutonomousSelection(graph, selected, false), /without autonomous/);
 	const approval = parseNextSelection(JSON.stringify({ id: "cp", title: "Checkpoint", action: "implement", awaiting: "approval" }));
 	assert.equal(applyAutonomousSelection(graph, approval, true).waves[0].tasks?.[0].agent_ready, false);
+
+	const omitted = parseGraph({ epic: { id: "epic", title: "Example" }, stats: { awaiting_human: 1 }, waves: [] });
+	const inclusive = parseGraph({ epic: { id: "epic", title: "Example" }, waves: [{ wave: 2, ready: false, tasks: [{ id: "cp", title: "Checkpoint", status: "open", parent: "epic", awaiting: "checkpoint", role: "review", agent_ready: false }] }] });
+	const selectedReview = parseNextSelection(JSON.stringify({ id: "cp", title: "Checkpoint", action: "implement", awaiting: "checkpoint", role: "review" }));
+	const injected = applyAutonomousSelection(omitted, selectedReview, true, inclusive);
+	assert.deepEqual(injected.waves[0].tasks?.[0], { id: "cp", title: "Checkpoint", status: "open", parent: "epic", awaiting: "checkpoint", role: "review", agent_ready: true });
+	assert.throws(() => applyAutonomousSelection(omitted, selectedReview, true, parseGraph({ epic: { id: "other" }, waves: [] })), /does not describe/);
+	assert.throws(() => applyAutonomousSelection(omitted, selectedReview, true, parseGraph({ epic: { id: "epic" }, waves: [{ tasks: [{ id: "cp", title: "Checkpoint", status: "closed", awaiting: "checkpoint", role: "review" }] }] })), /not an open child/);
+	assert.throws(() => applyAutonomousSelection(omitted, selectedReview, true, parseGraph({ epic: { id: "epic" }, waves: [{ tasks: [{ id: "cp", title: "Checkpoint", status: "open", awaiting: "checkpoint", role: "closeout" }] }] })), /role/);
 });

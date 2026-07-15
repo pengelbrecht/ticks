@@ -412,6 +412,9 @@ test("true SIGKILL after real tk create recovers only its journaled marker mutat
 	assert.equal(fs.existsSync(resultFile), false);
 	assert.match(command(repo, "git", "status", "--porcelain"), /\.tick\/issues\/.+\.json/);
 	const modelEventCount = fs.readFileSync(eventFile, "utf8").trim().split("\n").length;
+	// A killed process cannot compare-delete its durable checkout lease. Recovery
+	// waits for the short planning mutation lease to expire before takeover.
+	await new Promise((resolve) => setTimeout(resolve, 2_100));
 
 	const configPath = path.join(repo, ".tick", "config.md");
 	fs.appendFileSync(configPath, "\n# unrelated operator dirt\n");

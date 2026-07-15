@@ -8,6 +8,7 @@ import { buildDashboardModel, DashboardStore } from "./dashboard.ts";
 import { createDashboardController } from "./control.ts";
 
 const fakeTk = path.join(import.meta.dirname, "fixtures", "runner-fake-tk.mjs");
+const immediateMutationLease = async <T>(_owner: string, action: () => Promise<T>): Promise<T> => action();
 
 function command(cwd: string, executable: string, ...args: string[]): void {
 	const result = spawnSync(executable, args, { cwd, encoding: "utf8" });
@@ -66,6 +67,7 @@ test("fresh detail-reviewed review gate executes and commits tk reject with orch
 				const committed = spawnSync("git", ["commit", "-m", message, "--", ".tick"], { cwd: fixture.repo, encoding: "utf8" });
 				return { code: committed.status ?? 1, stdout: committed.stdout, stderr: committed.stderr };
 			},
+			withMutationLease: immediateMutationLease,
 			refresh: async () => { store.replace(buildDashboardModel({ epicId: "epic", status: "planned" })); },
 		});
 		const result = await controller.gate!("reject", model.humanGates[0], store.getSnapshot());
@@ -99,6 +101,7 @@ test("input approval commits the human note and approval as separate durable tra
 			const committed = spawnSync("git", ["commit", "-m", message, "--", ".tick"], { cwd: fixture.repo, encoding: "utf8" });
 			return { code: committed.status ?? 1, stdout: committed.stdout, stderr: committed.stderr };
 		},
+		withMutationLease: immediateMutationLease,
 		refresh: async () => { store.replace(buildDashboardModel({ epicId: "epic", status: "planned" })); },
 	});
 	const result = await controller.gate!("approve", model.humanGates[0], store.getSnapshot());
@@ -126,6 +129,7 @@ test("dashboard gate mutations fail cleanly on dirty preflight and report post-m
 			},
 			preflight: async () => mode === "dirty" ? { code: 1, stdout: " M settings.json", stderr: "" } : { code: 0, stdout: "", stderr: "" },
 			commitTracker: async () => { commits++; return { code: 1, stdout: "", stderr: "simulated commit hook failure" }; },
+			withMutationLease: immediateMutationLease,
 			refresh: async () => { refreshes++; },
 		});
 		const result = await controller.gate!("approve", model.humanGates[0], store.getSnapshot());
@@ -157,6 +161,7 @@ test("work and escalation gates reject both actions before tracker mutation", as
 			},
 			preflight: async () => ({ code: 0, stdout: "", stderr: "" }),
 			commitTracker: async () => ({ code: 0, stdout: "", stderr: "" }),
+			withMutationLease: immediateMutationLease,
 			refresh: async () => {},
 		});
 		for (const action of ["approve", "reject"] as const) assert.match((await controller.gate!(action, model.humanGates[0], store.getSnapshot())).message, /outside the dashboard/);
@@ -180,6 +185,7 @@ test("stale snapshots and work gates never invoke tk approve", async () => {
 			},
 			preflight: async () => ({ code: 0, stdout: "", stderr: "" }),
 			commitTracker: async () => ({ code: 0, stdout: "", stderr: "" }),
+			withMutationLease: immediateMutationLease,
 			refresh: async () => {},
 		});
 		const stale = store.getSnapshot();
