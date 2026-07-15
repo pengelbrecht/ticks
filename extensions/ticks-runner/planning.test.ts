@@ -74,7 +74,7 @@ function newPlan(): PlannerDocument {
 		epic: {
 			title: "Automated safe planning",
 			description: "Operators can turn bounded requirements into validated Ticks implementation waves without granting models tracker mutation authority.",
-			acceptance: "A dry-run validates without tracker writes, while explicit apply creates an epic with implementation and canonical process tasks.",
+			acceptance: "- [A1] A dry-run validates without tracker writes.\n- [A2] Explicit apply creates an epic with implementation and canonical process tasks.",
 		},
 		tasks: validTasks(),
 	};
@@ -516,6 +516,15 @@ test("planning rejects a symlinked preexisting artifact ancestor before models o
 	assert.equal(piEvents(f).length, 0);
 	assert.equal(trackerLog(f).length, 0);
 	assert.deepEqual(fs.readdirSync(outside), []);
+});
+
+test("new epic planning requires stable acceptance IDs for later controller evidence mapping", () => {
+	const untagged = newPlan();
+	untagged.epic!.acceptance = "A generic untagged acceptance paragraph.";
+	assert.throws(() => parsePlannerOutput(JSON.stringify(untagged), "requirements"), /stable \[A<n>\] ID/);
+	const duplicated = newPlan();
+	duplicated.epic!.acceptance = "- [A1] First item\n- [A1] Duplicate item";
+	assert.throws(() => parsePlannerOutput(JSON.stringify(duplicated), "requirements"), /duplicate stable item IDs/);
 });
 
 test("strict parser rejects process injection, tracker arguments, and model-authored acceptance commands", () => {

@@ -42,11 +42,22 @@ test("closeout report requires item-scoped controller evidence and rejects cross
 		{ id: "A1", text: "User behavior works" },
 		{ id: "A2", text: "Tests: `node verify.mjs` — runnable" },
 	]);
-	const trusted = { label: "Fixture", command: "node trusted-test.mjs", source: "Fixture: `node trusted-test.mjs`" };
-	assert.deepEqual(acceptanceEvidenceBindings(items, [trusted]).map((binding) => [binding.itemId, binding.evidenceId, binding.command.command]), [
-		["A1", "A1-T1", "node trusted-test.mjs"],
+	const behavioral = { label: "Behavior", command: "node behavior-test.mjs", source: "Behavior: `node behavior-test.mjs`" };
+	const runnable = { label: "Runnable", command: "node trusted-test.mjs", source: "Runnable: `node trusted-test.mjs`" };
+	assert.deepEqual(acceptanceEvidenceBindings(items, [
+		{ itemId: "A1", command: behavioral, source: "- A1: `node behavior-test.mjs`" },
+		{ itemId: "A2", command: runnable, source: "- A2: `node trusted-test.mjs`" },
+	]).map((binding) => [binding.itemId, binding.evidenceId, binding.command.command]), [
+		["A1", "A1-T1", "node behavior-test.mjs"],
 		["A2", "A2-T1", "node trusted-test.mjs"],
 	]);
+	assert.throws(() => acceptanceEvidenceBindings(items, [
+		{ itemId: "A1", command: { command: "true", source: "`true`" }, source: "- A1: `true`" },
+	]), /no controller-authorized command.*A2/);
+	assert.throws(() => acceptanceEvidenceBindings(items, [
+		{ itemId: "A1", command: behavioral, source: "- A1: `node behavior-test.mjs`" },
+		{ itemId: "A3", command: { command: "true", source: "`true`" }, source: "- A3: `true`" },
+	]), /unknown or stale item A3/);
 	const byItem = new Map([
 		["A1", new Set(["A1-T1"])],
 		["A2", new Set(["A2-T1"])],
@@ -68,6 +79,15 @@ test("closeout report requires item-scoped controller evidence and rejects cross
 	const invented = structuredClone(valid);
 	invented.items[0].evidence = ["SHELL:rm -rf"];
 	assert.throws(() => parseCloseoutReport(JSON.stringify(invented), items, byItem, rules, new Map()), /not issued for that item/);
+});
+
+test("acceptance items support stable explicit IDs and reject partial or duplicate tagging", () => {
+	assert.deepEqual(acceptanceItems({ ...epic, acceptance: "- [A2] Second behavior\n- [A1] First behavior" }), [
+		{ id: "A2", text: "Second behavior" },
+		{ id: "A1", text: "First behavior" },
+	]);
+	assert.throws(() => acceptanceItems({ ...epic, acceptance: "- [A1] Tagged\n- Untagged" }), /identify every item/);
+	assert.throws(() => acceptanceItems({ ...epic, acceptance: "- [A1] First\n- [A1] Duplicate" }), /duplicate stable item ID/);
 });
 
 test("Project Rules remain prose-only and are embedded in both process prompts", () => {

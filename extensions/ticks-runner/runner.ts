@@ -1226,10 +1226,19 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			return finish("awaiting", detail, plan);
 		}
 
+		let bindings: ReturnType<typeof acceptanceEvidenceBindings>;
+		try {
+			if (config.acceptanceEvidenceErrors.length) throw new Error(config.acceptanceEvidenceErrors.join("; "));
+			bindings = acceptanceEvidenceBindings(items, config.acceptanceEvidence);
+		} catch (error) {
+			const detail = `Controller-owned Acceptance Evidence is incomplete or invalid: ${error instanceof Error ? error.message : String(error)}. Add exact item mappings under ## Acceptance Evidence in .tick/config.md; mapped commands must also exist verbatim under ## Testing.`;
+			failProcessOpen(task, "closeout", detail, [], "closeout-failure");
+			return finish("failed", `Closeout authorization failed closed: ${detail}`, plan);
+		}
+
 		markProcessStarted(task, work, "closeout");
 		const evidenceArtifact = path.join(work.artifactDir, "acceptance-evidence.md");
 		const evidence: Array<{ id: string; item?: string; command: CommandEvidence }> = [];
-		const bindings = acceptanceEvidenceBindings(items, config.testCommands);
 		for (const binding of bindings) {
 			const [result] = await runConfiguredCommands([binding.command], root, env, options.signal);
 			const item = items.find((candidate) => candidate.id === binding.itemId)!;
@@ -1246,12 +1255,10 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		const evidenceLane: VerificationItem = { tickId: task.id, label: "outside-in acceptance and rules evidence", status: "running", artifact: evidenceArtifact };
 		verification.push(evidenceLane);
 		const failedEvidence = evidence.find((entry) => entry.command.status !== "passed");
-		if (!config.testCommands.length || !evidence.length || failedEvidence) {
+		if (!bindings.length || !evidence.length || failedEvidence) {
 			const detail = failedEvidence
 				? `${failedEvidence.id} failed: ${failedEvidence.command.stderr || failedEvidence.command.stdout || failedEvidence.command.status}`
-				: !config.testCommands.length
-					? "No executable final configured tests are available. Add an isolated inline-code command under ## Testing in .tick/config.md, commit it, and rerun."
-					: "No runnable acceptance evidence is available";
+				: "No runnable item-authorized acceptance evidence is available";
 			evidenceLane.status = "failed";
 			evidenceLane.detail = detail;
 			failProcessOpen(task, "closeout", detail, [evidenceArtifact], "closeout-failure");

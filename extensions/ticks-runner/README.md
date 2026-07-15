@@ -43,7 +43,7 @@ Lists the four primary commands.
 
 The default scouts separately map subsystems, tests, and contracts. `--scouts` may add integration, risk, and documentation scouts, but is bounded to 3–6; `--scout-cap` is bounded to 2–4 and is also capped by configured `max_parallel` (planning fails before models if configuration permits fewer than two parallel scouts). Scouts run with exactly `read,grep,find,ls`, no bash and no extensions. The planner receives requirements or existing epic details, bounded scout summaries, fresh Testing/Rules configuration, and bundled tick-authoring patterns. `scout_model` and `planner_model` must be configured; no ambient-model fallback is accepted.
 
-The planner may return only schema `ticks-plan/v1`: new-epic metadata when applicable and 1–12 implementation tasks with safe client IDs, title/description/acceptance, priority/type/tier/files, hard `blocked_by`, and optional soft `after`. Acceptance is prose-only: backticks and model-authored command/code snippets are rejected, so planner output can never become closeout shell. Executable verification evidence comes from controller-owned configuration, not model prose. Validation also rejects unknown shell/tracker/process fields, malformed or oversized text, unsafe/duplicate IDs and files, missing dependencies, hard cycles, model-supplied review/closeout, non-atomic horizontal task shapes, missing acceptance, and same-wave file conflicts. Rejection occurs before controller mutation.
+The planner may return only schema `ticks-plan/v1`: new-epic metadata when applicable and 1–12 implementation tasks with safe client IDs, title/description/acceptance, priority/type/tier/files, hard `blocked_by`, and optional soft `after`. Acceptance is prose-only: backticks and model-authored command/code snippets are rejected, so planner output can never become closeout shell. New epic acceptance uses stable `[A<n>]` bullet IDs. Planning reports that the controller must separately map each item under `## Acceptance Evidence` before closeout; executable verification evidence comes from that controller-owned configuration, not model prose. Validation also rejects unknown shell/tracker/process fields, malformed or oversized text, unsafe/duplicate IDs and files, missing dependencies, hard cycles, model-supplied review/closeout, non-atomic horizontal task shapes, missing acceptance, and same-wave file conflicts. Rejection occurs before controller mutation.
 
 `--apply` is the only tracker-writing mode. It requires a clean non-default branch and validates an existing recorded base when present; otherwise it derives one resolvable, Git-valid base branch from `origin/HEAD` (or a single local `main`/`master` fallback). Ambiguous base context fails before models or tracker writes. The controller records that `base_branch` on both new and existing target epics so review/closeout can use it later. TUI mode also asks for explicit confirmation; in RPC/print command contexts, the flag itself is confirmation because a terminal dialog is unsafe or unavailable. The controller creates a requirements epic or freshly verifies an existing epic is open, childless, and plannable; creates/maps implementation tasks as `pi:orchestrator`; wires hard/soft edges; then appends canonical role-tagged review blocked by terminal implementation tasks and closeout blocked by review. The model cannot inject this process skeleton or change roadmap-level ordering.
 
@@ -89,7 +89,7 @@ Real `tk graph --json` omits awaiting-human children from `waves` while retainin
 
 A ready `role: review` tick launches the configured frontier reviewer in the controller checkout with only `read,grep,find,ls`; extensions, bash, edit, write, tracker authority, and source worktrees are absent. The reviewer reads a persisted full source diff from the epic's validated `base_branch` plus description/acceptance/specs and must emit strict JSON findings. Malformed output fails closed. Blockers—and should-fix findings under the default `repair` policy—become controller-created repair ticks discovered from the review and block it. A clean/routable review closes only after persisted configured-test evidence.
 
-A ready `role: closeout` tick treats every tracker acceptance item as prose and executes only Testing commands parsed from controller-trusted `.tick/config.md`. It issues a distinct item-scoped evidence ID for each acceptance-item/Testing-command binding, then asks the dedicated read-only closeout model to verify every item using only passing IDs issued for that item. Missing, malformed, or unverified evidence leaves closeout and epic open. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
+A ready `role: closeout` tick treats every tracker acceptance item as prose. It executes only exact commands explicitly authorized for that item in controller-owned `.tick/config.md` under `## Acceptance Evidence`; each mapped command must also exist verbatim as one executable `## Testing` command. There is no Cartesian Testing×acceptance fallback. Stable `[A<n>]` IDs are recommended in epic acceptance (legacy untagged lines deterministically receive A1, A2, …). Unknown, duplicate, stale, or missing mappings fail closed before the closeout model starts. The controller issues distinct item-scoped evidence IDs only for mapped passing commands, then the dedicated read-only model verifies each item using IDs issued for that same item. Cross-item IDs are rejected. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
 
 ### `/ticks-status [<epic-id>]`
 
@@ -121,6 +121,10 @@ The extension reads `.tick/config.md` fresh. Commands are only executable when a
 - Runner: `node --test extensions/ticks-runner/*.test.ts` — per tick and after each merged wave
 - Go: `go test ./...`
 
+## Acceptance Evidence
+- A1: `node --test extensions/ticks-runner/*.test.ts`
+- A2: `go test ./...` — trailing audit prose is allowed
+
 ## Rules
 - Do not add npm lockfiles; use pnpm for JavaScript package operations.
 - Preserve public JSON compatibility.
@@ -137,7 +141,7 @@ The extension reads `.tick/config.md` fresh. Commands are only executable when a
 - max_parallel: 4
 ```
 
-Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Acceptance criteria and Rules are always prose, even when they contain backticks; they never authorize shell execution. Commands run through `/bin/sh -lc` on POSIX or `cmd.exe /d /s /c` on Windows and stop at the first failure.
+Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Acceptance criteria and Rules are always prose, even when they contain backticks; they never authorize shell execution. `Acceptance Evidence` is a strict bounded authorization table: `- A<n>: \`exact command\``. The command must match exactly one executable Testing entry, every current epic item must have at least one mapping, and mappings for unknown items are rejected. Reusing one command for multiple items requires a separate explicit line for each item. Commands run through `/bin/sh -lc` on POSIX or `cmd.exe /d /s /c` on Windows and stop at the first failure.
 
 Environment overrides take precedence:
 
@@ -240,6 +244,23 @@ printf '%s\n' '{"type":"get_commands"}' | pi --mode rpc --no-session \
 ```
 
 Use `/ticks-run <real-epic>` without `--execute`, `/ticks-status [epic]`, and `/ticks-dashboard --demo --dump --width 80` for read-only smoke tests. Command output is immediate and never invokes a model: TUI uses a rendered session entry, RPC uses bounded extension UI with a full-result artifact when needed, print writes text, and JSON writes an `extension_output` JSONL event.
+
+### Disposable real tk + real Pi scenario
+
+Dry validation is safe for ordinary tests and never looks up or launches `tk`/Pi:
+
+```bash
+node --no-warnings scripts/pi-ticks-live-scenario.ts --validate
+```
+
+The live scenario is explicit and billable. It requires working `tk`, authenticated Pi Codex OAuth, and the configured `openai-codex` model. It creates a temporary git repository with real `.tick` state/config/epic, runs one tiny implementation through real Pi JSON subprocess supervision, verifies artifacts/boundary/merge/close/cleanup, copies retained evidence outside the source repository (default `~/.local/state/ticks/live-scenarios/`), and removes the temporary repository even on failure:
+
+```bash
+node --no-warnings scripts/pi-ticks-live-scenario.ts --execute \
+  --model openai-codex/gpt-5.6-sol:medium
+```
+
+Use `--evidence-dir /absolute/path/outside/the/source/repo` to choose the retained evidence root, or `--tk`/`--pi` to select real executable paths. The harness rejects evidence paths inside this source checkout and snapshots the source HEAD/status to prove it remained untouched. Ordinary test suites run only `--validate`; they never invoke a live model.
 
 ## Known limitations
 
