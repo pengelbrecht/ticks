@@ -13,6 +13,7 @@ import {
 import { ORCHESTRATOR_ACTOR, parseModelInvocation, type ModelInvocation } from "./runner.ts";
 import { durableSegment, hasSymlinkBelow, normalizeRepoIdentity, repoSlug } from "./state.ts";
 import { createPiInvocation, superviseChild, type ChildReport, type ChildState, type ChildUsage } from "./supervisor.ts";
+import { commitTrackerChanges } from "./tracker-git.ts";
 
 export const PLANNER_SCHEMA_VERSION = "ticks-plan/v1" as const;
 export const PLANNING_APPLY_STATE_VERSION = 2 as const;
@@ -614,12 +615,7 @@ function tracker(tk: string, args: readonly string[], root: string, env: NodeJS.
 }
 
 function trackerCommit(root: string, message: string): string | undefined {
-	requireSuccessful(runSubprocess("git", ["add", "-A", "--", ".tick"], root), "Cannot stage tracker planning state");
-	const diff = runSubprocess("git", ["diff", "--cached", "--quiet", "--", ".tick"], root);
-	if (diff.status === 0) return undefined;
-	if (diff.status !== 1) requireSuccessful(diff, "Cannot inspect staged tracker planning state");
-	requireSuccessful(runSubprocess("git", ["commit", "-m", message, "--", ".tick"], root), "Cannot commit tracker planning state");
-	return git(root, ["rev-parse", "HEAD"]);
+	return commitTrackerChanges(root, message);
 }
 
 function parseCreatedId(output: string, label: string): string {

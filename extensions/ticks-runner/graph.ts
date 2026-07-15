@@ -109,6 +109,13 @@ export function parseGraph(input: string | unknown): GraphResult {
 	}
 	if (!isRecord(value)) throw new Error("tk graph output must be a JSON object");
 	if (value.epic !== undefined && !isRecord(value.epic)) throw new Error("tk graph field epic must be an object");
+	if (value.stats !== undefined && !isRecord(value.stats)) throw new Error("tk graph field stats must be an object");
+	if (isRecord(value.stats)) {
+		for (const field of ["total_tasks", "wave_count", "max_parallel", "ready_for_agent", "awaiting_human", "deferred"] as const) {
+			const count = value.stats[field];
+			if (count !== undefined && (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0)) throw new Error(`tk graph stats.${field} must be a non-negative integer`);
+		}
+	}
 	if (value.waves !== undefined && value.waves !== null && !Array.isArray(value.waves)) throw new Error("tk graph field waves must be an array");
 	if (value.missing_process_ticks !== undefined && value.missing_process_ticks !== null && !Array.isArray(value.missing_process_ticks)) {
 		throw new Error("tk graph field missing_process_ticks must be an array");
@@ -133,6 +140,11 @@ export function parseGraph(input: string | unknown): GraphResult {
 
 export function firstReadyWave(graph: GraphResult): GraphWave | undefined {
 	return graph.waves.find((wave) => wave.ready || (wave.tasks ?? []).some((task) => task.agent_ready));
+}
+
+/** Real tk intentionally omits awaiting-human children from waves and reports them only in stats. */
+export function awaitingHumanCount(graph: GraphResult): number {
+	return graph.stats?.awaiting_human ?? 0;
 }
 
 export function buildPreflight(graph: GraphResult, config: RunnerConfig): PreflightResult {

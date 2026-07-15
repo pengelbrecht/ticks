@@ -26,6 +26,7 @@ import {
 } from "./recovery.ts";
 import { formatRunResult, ORCHESTRATOR_ACTOR, runEpic } from "./runner.ts";
 import { statusDashboardModel } from "./historical.ts";
+import { commitTrackerChanges } from "./tracker-git.ts";
 import { emitCommandOutput } from "./output.ts";
 import { createDashboardController, type LiveControlState } from "./control.ts";
 import {
@@ -250,13 +251,14 @@ function controllerFor(ctx: ExtensionCommandContext, store: DashboardStore, cont
 			return { code: 1, stdout: result.stdout, stderr: "The controller checkout has uncommitted files." };
 		},
 		commitTracker: async (message) => {
-			const cwd = await root();
-			const staged = await run("git", ["add", "-A", "--", ".tick"], cwd);
-			if (staged.code !== 0) return staged;
-			const changed = await run("git", ["diff", "--cached", "--quiet", "--", ".tick"], cwd);
-			if (changed.code === 0) return { code: 1, stdout: "", stderr: "tk reported success but produced no committable .tick/ change" };
-			if (changed.code !== 1) return changed;
-			return run("git", ["commit", "-m", message, "--", ".tick"], cwd);
+			try {
+				const commit = commitTrackerChanges(await root(), message);
+				return commit
+					? { code: 0, stdout: commit, stderr: "" }
+					: { code: 1, stdout: "", stderr: "tk reported success but produced no committable .tick/ change" };
+			} catch (error) {
+				return { code: 1, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
+			}
 		},
 		refresh: async () => {
 			const refreshed = await dashboardModelForTarget(ctx.cwd, control.epicId);
