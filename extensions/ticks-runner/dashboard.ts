@@ -518,21 +518,102 @@ export type DashboardController = {
 	gate?: (action: "approve" | "reject", gate: HumanGate, expected: DashboardStoreSnapshot) => Promise<DashboardControlResult>;
 };
 
+export const DASHBOARD_OVERLAY_MAX_HEIGHT = "90%" as const;
+export const DASHBOARD_OVERLAY_MARGIN = 1;
+
+/** Match Pi's percentage maxHeight and margin resolution for the component's viewport. */
+export function dashboardViewportHeight(terminalRows: number): number {
+	const rows = Math.max(1, Math.floor(terminalRows));
+	const percentageHeight = Math.floor(rows * (Number.parseFloat(DASHBOARD_OVERLAY_MAX_HEIGHT) / 100));
+	const availableHeight = Math.max(1, rows - DASHBOARD_OVERLAY_MARGIN * 2);
+	return Math.max(1, Math.min(percentageHeight, availableHeight));
+}
+
+type DashboardKeybinding = "tui.select.up" | "tui.select.down" | "tui.select.pageUp" | "tui.select.pageDown" | "tui.select.confirm" | "tui.select.cancel";
+
 export type DashboardComponentOptions = {
 	store: DashboardStore;
 	theme: DashboardTheme;
 	requestRender: () => void;
 	close: () => void;
 	controller?: DashboardController;
+	/** Read during every render; Pi requests a render automatically when terminal rows change. */
+	terminalRows?: () => number;
+	keybindings?: { matches: (data: string, keybinding: DashboardKeybinding) => boolean };
 };
 
-/** Pi overlay component with local-only selection state; it never replaces the editor/footer. */
+type DashboardViewportRender = {
+	lines: string[];
+	offset: number;
+	bodyCapacity: number;
+	maximumOffset: number;
+};
+
+function interactiveControlHints(width: number): string[] {
+	const segments = ["↑/↓ select", "PgUp/PgDn scroll", "Home/End edges", "Enter/Space details", "a/x gate", "c cancel run", "q/Esc/Ctrl-C close"];
+	const rows: string[] = [];
+	let row = "";
+	for (const segment of segments) {
+		const candidate = row ? `${row} · ${segment}` : segment;
+		if (row && dashboardVisibleWidth(candidate) > Math.max(1, width)) {
+			rows.push(fit(row, width));
+			row = segment;
+		} else row = candidate;
+	}
+	if (row) rows.push(fit(row, width));
+	return rows;
+}
+
+function viewportLines(fullLines: string[], width: number, height: number, requestedOffset: number, selected?: { start: number; end: number }, ensureSelected = false): DashboardViewportRender {
+	const safeHeight = Math.max(1, Math.floor(height));
+	const headerEnd = fullLines.findIndex((line) => line === "");
+	const header = fullLines.slice(0, headerEnd < 0 ? Math.min(4, fullLines.length) : headerEnd);
+	const bodyStart = headerEnd < 0 ? header.length : headerEnd + 1;
+	const body = fullLines.slice(bodyStart, Math.max(bodyStart, fullLines.length - 1));
+	while (body.at(-1) === "") body.pop();
+
+	let controls = interactiveControlHints(width);
+	if (safeHeight < 10) controls = [fit("↑↓ select · Pg scroll · Home/End · Enter · a/x · c · q/Esc", width)];
+	const headerCapacity = Math.max(1, safeHeight - controls.length - 2);
+	const visibleHeader = header.slice(0, headerCapacity);
+	const bodyCapacity = Math.max(1, safeHeight - visibleHeader.length - controls.length - 1);
+	const maximumOffset = Math.max(0, body.length - bodyCapacity);
+	let offset = Math.max(0, Math.min(requestedOffset, maximumOffset));
+	if (ensureSelected && selected) {
+		const start = Math.max(0, Math.min(selected.start, Math.max(0, body.length - 1)));
+		const end = Math.max(start, Math.min(selected.end, Math.max(0, body.length - 1)));
+		if (start < offset) offset = start;
+		else if (end >= offset + bodyCapacity) offset = Math.min(start, end - bodyCapacity + 1);
+		offset = Math.max(0, Math.min(offset, maximumOffset));
+	}
+
+	const visibleBody = body.slice(offset, offset + bodyCapacity);
+	const first = body.length ? offset + 1 : 0;
+	const last = body.length ? offset + visibleBody.length : 0;
+	const above = offset > 0 ? "↑ more · " : "";
+	const below = offset < maximumOffset ? " · ↓ more" : "";
+	const indicator = fit(`${above}Viewport ${first}–${last}/${body.length}${below}`, width);
+	return {
+		lines: [...visibleHeader, indicator, ...visibleBody, ...controls].slice(0, safeHeight),
+		offset,
+		bodyCapacity,
+		maximumOffset,
+	};
+}
+
+/** Pi overlay component with local-only selection and viewport state; it never replaces the editor/footer. */
 export class DashboardComponent {
 	private selected = 0;
 	private expanded = false;
 	private detailGate?: string;
 	private feedback?: string;
 	private controlPending = false;
+	private scrollOffset = 0;
+	private pageSize = 1;
+	private maximumScrollOffset = 0;
+	private ensureSelected = true;
+	private lastViewportHeight?: number;
+	private lastWidth?: number;
 	private readonly options: DashboardComponentOptions;
 	constructor(options: DashboardComponentOptions) {
 		this.options = options;
@@ -545,20 +626,62 @@ export class DashboardComponent {
 		return { model, agent: this.selected < model.agents.length ? this.selected : Math.max(0, model.agents.length - 1), gate: this.selected >= model.agents.length ? this.selected - model.agents.length : -1 };
 	}
 
-	render(width: number): string[] {
-		const { model, agent, gate } = this.selection();
-		if (this.detailGate && !model.humanGates.some((item) => item.tickId === this.detailGate && (item.status ?? "awaiting") === "awaiting")) this.detailGate = undefined;
-		return renderDashboard(model, width, { selected: agent, expanded: this.expanded && gate < 0, selectedGate: gate, detailGate: this.detailGate, feedback: this.feedback }).map((line, index) => {
+	private selectedRange(lines: string[], model: DashboardModel, agent: number, gate: number): { start: number; end: number } | undefined {
+		const headerEnd = lines.findIndex((line) => line === "");
+		const bodyStart = headerEnd < 0 ? Math.min(4, lines.length) : headerEnd + 1;
+		if (gate >= 0) {
+			const selectedGate = model.humanGates[gate];
+			if (!selectedGate) return undefined;
+			const start = lines.findIndex((line) => line.includes(`> ◆ ${selectedGate.tickId} `));
+			if (start < bodyStart) return undefined;
+			return { start: start - bodyStart, end: start - bodyStart + (this.detailGate === selectedGate.tickId ? 2 : 0) };
+		}
+		const selectedAgent = model.agents[agent];
+		if (!selectedAgent) return undefined;
+		const start = lines.findIndex((line) => line.includes(`> ${icon(selectedAgent.status)} ${selectedAgent.tickId}  `));
+		if (start < bodyStart) return undefined;
+		const detailLines = this.expanded ? 3 + selectedAgent.recentOutput.slice(-3).length + (selectedAgent.error ? 1 : 0) : 0;
+		return { start: start - bodyStart, end: start - bodyStart + 3 + detailLines };
+	}
+
+	private style(lines: string[]): string[] {
+		return lines.map((line, index) => {
 			if (index === 0) return this.options.theme.fg("accent", this.options.theme.bold(line));
 			if (line.startsWith("──")) return this.options.theme.fg("muted", line);
-			if (line.startsWith(">")) return this.options.theme.fg("accent", line);
+			if (line.startsWith(">") || line.includes("> ◆")) return this.options.theme.fg("accent", line);
 			if (/ [!◆] /.test(line)) return this.options.theme.fg(line.includes(" ! ") ? "error" : "warning", line);
-			if (line.includes("navigate agents")) return this.options.theme.fg("dim", line);
+			if (line.includes("Viewport ") || line.includes("select") || line.includes("details") || line.includes("cancel run")) return this.options.theme.fg("dim", line);
 			return line;
 		});
 	}
 
+	render(width: number): string[] {
+		const { model, agent, gate } = this.selection();
+		if (this.detailGate && !model.humanGates.some((item) => item.tickId === this.detailGate && (item.status ?? "awaiting") === "awaiting")) this.detailGate = undefined;
+		const lines = renderDashboard(model, width, { selected: agent, expanded: this.expanded && gate < 0, selectedGate: gate, detailGate: this.detailGate, feedback: this.feedback });
+		if (!this.options.terminalRows) return this.style(lines);
+
+		const height = dashboardViewportHeight(this.options.terminalRows());
+		if (height !== this.lastViewportHeight || width !== this.lastWidth) this.ensureSelected = true;
+		this.lastViewportHeight = height;
+		this.lastWidth = width;
+		const viewport = viewportLines(lines, width, height, this.scrollOffset, this.selectedRange(lines, model, agent, gate), this.ensureSelected);
+		this.scrollOffset = viewport.offset;
+		this.pageSize = viewport.bodyCapacity;
+		this.maximumScrollOffset = viewport.maximumOffset;
+		this.ensureSelected = false;
+		return this.style(viewport.lines);
+	}
+
 	invalidate(): void {}
+
+	private matches(data: string, keybinding: DashboardKeybinding, fallback: string[]): boolean {
+		return this.options.keybindings ? this.options.keybindings.matches(data, keybinding) : fallback.includes(data);
+	}
+
+	private selectionChanged(): void {
+		this.ensureSelected = true;
+	}
 
 	private async control(action: "approve" | "reject" | "cancel", gate?: HumanGate): Promise<void> {
 		if (this.controlPending) return;
@@ -566,11 +689,13 @@ export class DashboardComponent {
 		const operation = action === "cancel" ? this.options.controller?.cancel?.(expected) : gate ? this.options.controller?.gate?.(action, gate, expected) : undefined;
 		if (!operation) {
 			this.feedback = action === "cancel" ? "No active run can be cancelled from this snapshot." : "Gate controls are unavailable for this snapshot.";
+			this.selectionChanged();
 			this.options.requestRender();
 			return;
 		}
 		this.controlPending = true;
 		this.feedback = `${action} pending…`;
+		this.selectionChanged();
 		this.options.requestRender();
 		try {
 			const result = await operation;
@@ -580,26 +705,45 @@ export class DashboardComponent {
 			this.feedback = error instanceof Error ? error.message : String(error);
 		} finally {
 			this.controlPending = false;
+			this.selectionChanged();
 			this.options.requestRender();
 		}
 	}
 
 	handleInput(data: string): void {
-		if (data === "\u001b" || data === "\u0003" || data === "q") {
+		if (data === "q" || this.matches(data, "tui.select.cancel", ["\u001b", "\u0003"])) {
 			this.options.close();
 			return;
 		}
 		const { model, gate } = this.selection();
-		if (data === "\u001b[A") this.selected = Math.max(0, this.selected - 1);
-		else if (data === "\u001b[B") this.selected = Math.min(Math.max(0, model.agents.length + model.humanGates.length - 1), this.selected + 1);
-		else if (data === "\r" || data === "\n" || data === " ") {
+		if (this.matches(data, "tui.select.up", ["\u001b[A"])) {
+			this.selected = Math.max(0, this.selected - 1);
+			this.selectionChanged();
+		} else if (this.matches(data, "tui.select.down", ["\u001b[B"])) {
+			this.selected = Math.min(Math.max(0, model.agents.length + model.humanGates.length - 1), this.selected + 1);
+			this.selectionChanged();
+		} else if (this.matches(data, "tui.select.pageUp", ["\u001b[5~"])) {
+			this.scrollOffset = Math.max(0, this.scrollOffset - Math.max(1, this.pageSize - 1));
+			this.ensureSelected = false;
+		} else if (this.matches(data, "tui.select.pageDown", ["\u001b[6~"])) {
+			this.scrollOffset = Math.min(this.maximumScrollOffset, this.scrollOffset + Math.max(1, this.pageSize - 1));
+			this.ensureSelected = false;
+		} else if (["\u001b[H", "\u001b[1~", "\u001bOH"].includes(data)) {
+			this.scrollOffset = 0;
+			this.ensureSelected = false;
+		} else if (["\u001b[F", "\u001b[4~", "\u001bOF"].includes(data)) {
+			this.scrollOffset = this.maximumScrollOffset;
+			this.ensureSelected = false;
+		} else if (data === " " || this.matches(data, "tui.select.confirm", ["\r", "\n"])) {
 			if (gate >= 0) this.detailGate = this.detailGate === model.humanGates[gate]?.tickId ? undefined : model.humanGates[gate]?.tickId;
 			else this.expanded = !this.expanded;
+			this.selectionChanged();
 		} else if (data === "a" || data === "x") {
 			const selectedGate = gate >= 0 ? model.humanGates[gate] : undefined;
 			if (!selectedGate) this.feedback = "Select an awaiting human gate before using a/x.";
 			else if (this.detailGate !== selectedGate.tickId) this.detailGate = selectedGate.tickId;
 			else void this.control(data === "a" ? "approve" : "reject", selectedGate);
+			this.selectionChanged();
 		} else if (data === "c") void this.control("cancel");
 		else return;
 		this.options.requestRender();
