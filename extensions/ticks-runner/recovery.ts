@@ -349,6 +349,11 @@ function relevantEpic(tick: TrackerTick | undefined, epicId: string | undefined,
 	return tick?.id === epicId || tick?.parent === epicId || inferred === epicId || inferred === durableSegment(epicId);
 }
 
+/** Review/closeout run in the controller checkout; their notes are provenance, never implementation claims. */
+function isControllerProcessTick(tick: TrackerTick | undefined): boolean {
+	return tick?.role === "review" || tick?.role === "closeout";
+}
+
 function childFinalOutput(report: string): string | undefined {
 	const marker = "\n## Final output\n\n";
 	const start = report.indexOf(marker);
@@ -502,12 +507,12 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 	let branches: string[] = [];
 	try { worktrees = listGitWorktrees(repoRoot); } catch (error) { warnings.push(`Cannot list git worktrees: ${error instanceof Error ? error.message : String(error)}`); }
 	try { branches = listTickBranches(repoRoot); } catch (error) { warnings.push(`Cannot list tick branches: ${error instanceof Error ? error.message : String(error)}`); }
-	for (const note of runnerNotes) if (note.branch && !branches.includes(note.branch)) {
+	for (const note of runnerNotes) if (note.branch && !isControllerProcessTick(tracker.get(note.tickId)) && !branches.includes(note.branch)) {
 		try { if (branchExists(repoRoot, note.branch)) branches.push(note.branch); } catch { /* stale note */ }
 	}
 	branches.sort();
 	const noteOwnersByBranch = new Map<string, string[]>();
-	for (const note of runnerNotes) if (note.branch) noteOwnersByBranch.set(note.branch, unique([...(noteOwnersByBranch.get(note.branch) ?? []), note.tickId]).sort());
+	for (const note of runnerNotes) if (note.branch && !isControllerProcessTick(tracker.get(note.tickId))) noteOwnersByBranch.set(note.branch, unique([...(noteOwnersByBranch.get(note.branch) ?? []), note.tickId]).sort());
 	const identifyBranch = (branch: string): { epicId?: string; tickId?: string } => {
 		const owners = noteOwnersByBranch.get(branch) ?? [];
 		if (owners.length === 1) {
@@ -560,14 +565,14 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 	for (const branch of branches) {
 		const inferred = identifyBranch(branch);
 		const tick = inferred.tickId ? tracker.get(inferred.tickId) : undefined;
-		if (!inferred.tickId || !relevantEpic(tick, options.epicId, inferred.epicId)) continue;
+		if (!inferred.tickId || isControllerProcessTick(tick) || !relevantEpic(tick, options.epicId, inferred.epicId)) continue;
 		stateFor(inferred.tickId, tick?.parent ?? inferred.epicId).branches.push(branch);
 	}
 	for (const record of worktrees) {
 		if (!record.branch) continue;
 		const inferred = identifyBranch(record.branch);
 		const tick = inferred.tickId ? tracker.get(inferred.tickId) : undefined;
-		if (!inferred.tickId || !relevantEpic(tick, options.epicId, inferred.epicId)) continue;
+		if (!inferred.tickId || isControllerProcessTick(tick) || !relevantEpic(tick, options.epicId, inferred.epicId)) continue;
 		const managed = record.path.startsWith(`${stateRoot}${path.sep}`) || runnerNotes.some((note) => note.worktree && samePath(note.worktree, record.path));
 		stateFor(inferred.tickId, tick?.parent ?? inferred.epicId).worktrees.push({ ...record, managed });
 	}
@@ -577,6 +582,7 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 			for (const match of note.matchAll(/artifact=([^;\s]+)/g)) if (knownArtifacts.has(match[1])) state.artifacts.push(match[1]);
 		}
 		for (const note of state.runnerNotes) {
+			if (isControllerProcessTick(state.tracker)) continue;
 			if (note.branch && !state.branches.includes(note.branch) && branches.includes(note.branch)) state.branches.push(note.branch);
 			if (note.worktree) {
 				const attached = worktrees.find((record) => samePath(record.path, note.worktree!));
@@ -769,8 +775,9 @@ export function reconcileRun(snapshot: RecoverySnapshot, plan: RunPaths): Reconc
 		const state = snapshot.ticks.find((tick) => tick.tickId === planned.tickId && tick.epicId === plan.epicId);
 		if (!state) return planned;
 		const manifestHints = state.manifestTicks.map((item) => item.paths);
-		const actualBranches = unique([...state.branches, ...state.worktrees.map((item) => item.branch).filter((value): value is string => Boolean(value))]);
-		const hintedExistingBranches = unique(state.runnerNotes.map((note) => note.branch).filter((value): value is string => Boolean(value) && branchExists(snapshot.repoRoot, value)));
+		const processTick = isControllerProcessTick(state.tracker);
+		const actualBranches = processTick ? [] : unique([...state.branches, ...state.worktrees.map((item) => item.branch).filter((value): value is string => Boolean(value))]);
+		const hintedExistingBranches = processTick ? [] : unique(state.runnerNotes.map((note) => note.branch).filter((value): value is string => Boolean(value) && branchExists(snapshot.repoRoot, value)));
 		const branches = unique([...actualBranches, ...hintedExistingBranches]);
 		if (branches.length > 1) {
 			conflicts.push(`${planned.tickId} has multiple recoverable branches: ${branches.join(", ")}`);
@@ -783,7 +790,7 @@ export function reconcileRun(snapshot: RecoverySnapshot, plan: RunPaths): Reconc
 			return planned;
 		}
 		if (attached[0] && !samePath(attached[0].path, planned.worktree)) conflicts.push(`${planned.tickId} branch ${branch} is attached outside its deterministic worktree: ${attached[0].path}`);
-		const notePaths = state.runnerNotes.filter((note) => note.branch === branch && note.worktree).map((note) => note.worktree!);
+		const notePaths = processTick ? [] : state.runnerNotes.filter((note) => note.branch === branch && note.worktree).map((note) => note.worktree!);
 		const manifestPaths = manifestHints.filter((hint) => hint.branch === branch).map((hint) => hint.worktree);
 		const existingHints = unique([...notePaths, ...manifestPaths].filter((item) => fs.existsSync(item)));
 		const worktree = attached[0] && samePath(attached[0].path, planned.worktree) ? planned.worktree : existingHints[0] ?? notePaths[0] ?? manifestPaths[0] ?? planned.worktree;

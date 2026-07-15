@@ -53,7 +53,7 @@ Planning feeds the live dashboard/widget. Cards show every scout and the planner
 
 ### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous] [--compact]`
 
-**Dry-run is the default.** Without `--execute`, the command reads `.tick/config.md` and `tk graph <epic-id> --json`, reconstructs recovery state, and prints waves, the resolved concurrency cap, model selection, deterministic branch/worktree/artifact paths, and blocking preflight findings. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
+**Dry-run is the default.** Without `--execute`, the command reads `.tick/config.md` and `tk graph <epic-id> --json`, reconstructs recovery state, and prints every graph wave and tick with its resolved model/tier plus deterministic branch/worktree/artifact paths. Ready work is marked `ready now`; future blocked work is explicitly marked planned-only/not-ready, including review and closeout controller-checkout routing. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
 
 ```text
 /ticks-run qfs
@@ -61,7 +61,7 @@ Planning feeds the live dashboard/widget. Cards show every scout and the planner
 /ticks-run qfs --max-parallel 2
 ```
 
-`--worktrees` makes dry-run display isolated worktree paths for implementation ticks. Review and closeout always display the controller checkout because they use dedicated read-only process execution, never an ordinary source worktree. `--max-parallel N` must be a positive integer. The effective cap is the minimum of ready work, `tk graph`'s maximum, and the command/config cap.
+`--worktrees` makes dry-run display isolated worktree paths for implementation ticks. Review and closeout in every wave always display the controller checkout because they use dedicated read-only process execution, never an ordinary source worktree. `--max-parallel N` must be a positive integer. The effective cap is the minimum of ready work, `tk graph`'s maximum, and the command/config cap.
 
 Execution requires the explicit safety switch:
 
@@ -219,7 +219,7 @@ For epic execution:
 7. For `completed-but-not-cleaned`, confirm both merge ancestry and durable tracker closure before removing worktree then branch.
 8. Never delete incomplete artifacts merely to make status green. They are the cross-session/cross-runner handoff.
 
-A stale `runner-state:` note is only a hint. Repository identity + epic/tick ID, tracker status, git branches/worktrees, and reports are authoritative.
+A stale `runner-state:` note is only a hint. Repository identity + epic/tick ID, tracker status, git branches/worktrees, and reports are authoritative. Role-tagged review/closeout notes may name the controller branch/checkout for provenance; recovery never treats those fields as deterministic implementation branch/worktree claims, while still validating their role-specific reports and artifacts strictly.
 
 ## Testing
 

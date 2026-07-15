@@ -3,18 +3,21 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { resolveRunnerConfig } from "./config.ts";
 import {
 	buildDashboardModel,
 	dashboardVisibleWidth,
 	compactDashboardSummary,
 	DashboardComponent,
 	DashboardStore,
+	dashboardModelFromPlan,
 	readDashboardHistory,
 	renderDashboard,
 	renderDashboardText,
 	type DashboardInput,
 	writeDashboardHistory,
 } from "./dashboard.ts";
+import { buildRunPlan, parseGraph } from "./graph.ts";
 
 const fixturePath = new URL("./fixtures/dashboard-demo.json", import.meta.url);
 const input = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as DashboardInput;
@@ -49,6 +52,33 @@ test("wide rendering uses columns and --dump is the same pure renderer", () => {
 	assert.equal(renderDashboardText(model, 120), lines.join("\n"));
 	assert.ok(lines.every((line) => dashboardVisibleWidth(line) <= 120));
 	assert.ok(lines.some((line) => line.includes("Agent cards") && line.includes("Verification lane")));
+});
+
+test("dry-plan renderer shows future process routing without marking it executable", () => {
+	const plan = buildRunPlan({
+		graph: parseGraph({
+			epic: { id: "qfs", title: "Future plan" },
+			waves: [
+				{ wave: 1, ready: true, tasks: [{ id: "impl", title: "Ready implementation", status: "open", agent_ready: true }] },
+				{ wave: 2, ready: false, tasks: [{ id: "review", title: "Future review", status: "open", role: "review", agent_ready: false, blocked_by: ["impl"] }] },
+			],
+		}),
+		config: resolveRunnerConfig("## Pi Orchestrator\n- implement_balanced_model: fake/implement:medium\n- review_model: fake/frontier:xhigh", {}),
+		repoRoot: "/controller",
+		repoIdentity: "git@github.com:acme/widgets.git",
+		epicId: "qfs",
+		stateRoot: "/state",
+		worktrees: true,
+	});
+	const dryDashboard = dashboardModelFromPlan(plan);
+	const future = dryDashboard.agents.find((agent) => agent.tickId === "review");
+	assert.equal(future?.status, "blocked");
+	assert.equal(future?.model, "fake/frontier:xhigh");
+	const text = renderDashboard(dryDashboard, 120, { selected: 1, expanded: true }).join("\n");
+	assert.match(text, /Future review/);
+	assert.match(text, /review · fake\/frontier:xhigh · blocked/);
+	assert.match(text, /branch: \(controller checkout; read-only\)/);
+	assert.match(text, /worktree: \/controller/);
 });
 
 test("normalizes active aliases while preserving terminal agent and lane history", () => {

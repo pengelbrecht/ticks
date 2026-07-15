@@ -42,6 +42,20 @@ function command(cwd: string, executable: string, ...args: string[]): string {
 	return result.stdout.trim();
 }
 
+async function waitForValue<T>(label: string, probe: () => T | undefined, timeoutMs = 15_000, diagnostics?: () => string): Promise<T> {
+	const deadline = Date.now() + timeoutMs;
+	let lastError: unknown;
+	while (Date.now() < deadline) {
+		try {
+			const value = probe();
+			if (value !== undefined) return value;
+		} catch (error) { lastError = error; }
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	const detail = [lastError instanceof Error ? `last probe error: ${lastError.message}` : "", diagnostics?.() ?? ""].filter(Boolean).join("; ");
+	throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}${detail ? ` (${detail})` : ""}`);
+}
+
 function createFixture(name: string, tasks: FixtureTask[], options: { failTick?: string; failPostWave?: boolean; missing?: string[] } = {}) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), `ticks-runner-${name}-`));
 	const repo = path.join(root, "controller");
@@ -368,7 +382,7 @@ test("a heartbeat keeps a silent child owned beyond the old stale threshold and 
 	assert.equal(starts.length, 1, "the second controller never launches a duplicate child");
 });
 
-test("lease ownership loss aborts and settles a live process tree before stale takeover", { skip: process.platform === "win32" }, async () => {
+test("lease ownership loss aborts and settles a live process tree before stale takeover", { skip: process.platform === "win32", timeout: 60_000 }, async () => {
 	const fixture = createFixture("lease-loss-tree", [{ id: "owned" }]);
 	const pidFile = path.join(fixture.root, "grandchild.pid");
 	const identity = command(fixture.repo, "git", "rev-parse", "--path-format=absolute", "--git-common-dir");
@@ -378,12 +392,22 @@ test("lease ownership loss aborts and settles a live process tree before stale t
 		const first = runEpic({
 			cwd: fixture.repo, epicId: "epic", execute: true, worktrees: true,
 			stateRoot: fixture.stateRoot, tkExecutable: fakeTk, env: fixture.env,
-			leaseDurationMs: 500, leaseHeartbeatMs: 20, childKillAfterMs: 50,
+			leaseDurationMs: 30_000, leaseHeartbeatMs: 100, childKillAfterMs: 50,
 			invocationForTask: () => ({ command: process.execPath, args: [supervisorFixture, "process-tree", pidFile] }),
 		});
-		for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
-		grandchildPid = Number(fs.readFileSync(pidFile, "utf8"));
-		assert.ok(Number.isSafeInteger(grandchildPid) && grandchildPid > 0);
+		let firstSettled: EpicRunResult | undefined;
+		let firstRejected: unknown;
+		void first.then((result) => { firstSettled = result; }, (error) => { firstRejected = error; });
+		grandchildPid = await waitForValue("the TERM-resistant grandchild PID to be published and alive", () => {
+			if (firstRejected) throw firstRejected;
+			if (firstSettled) throw new Error(`runner settled early: ${firstSettled.status} — ${firstSettled.summary}`);
+			if (!fs.existsSync(pidFile)) return undefined;
+			const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+			if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error(`invalid PID file contents ${JSON.stringify(fs.readFileSync(pidFile, "utf8"))}`);
+			process.kill(pid, 0);
+			return pid;
+		}, 15_000, () => `lease=${fs.existsSync(controllerLeasePath(leasePlan))}; pidFile=${fs.existsSync(pidFile)}; tracker=${fs.readFileSync(path.join(fixture.repo, ".tick", "fake-runner-state.json"), "utf8").slice(0, 1_000)}`);
+		await waitForValue("the controller lease to exist before forced ownership loss", () => fs.existsSync(controllerLeasePath(leasePlan)) ? true : undefined, 5_000);
 		fs.rmSync(controllerLeasePath(leasePlan));
 
 		const overlapping = await executeFixture(fixture);

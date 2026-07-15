@@ -1359,9 +1359,9 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		dashboard("running");
 		const prepared: PreparedChild[] = [];
 		try {
-			for (let index = 0; index < plan.readyTasks.length; index++) {
-				const task = plan.readyTasks[index];
-				const work = plan.workPlans[index];
+			for (const task of plan.readyTasks) {
+				const work = plan.workPlans.find((item) => item.tickId === task.id);
+				if (!work) throw new Error(`Ready tick ${task.id} has no deterministic work plan`);
 				const recoveredTick = recovery.ticks.find((item) => item.tickId === task.id && item.epicId === options.epicId);
 				const recoveredBranch = recoveredTick?.branches.includes(work.branch);
 				const alreadyIntegrated = Boolean(recoveredBranch && gitIsAncestor(root, work.branch, integration!.branch) && gitWorktreeClean(work.worktree));
