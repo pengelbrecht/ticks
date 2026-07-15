@@ -57,7 +57,7 @@ async function waitForValue<T>(label: string, probe: () => T | undefined, timeou
 	throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}${detail ? ` (${detail})` : ""}`);
 }
 
-function createFixture(name: string, tasks: FixtureTask[], options: { failTick?: string; failPostWave?: boolean; missing?: string[]; omitAwaitingFromWaves?: boolean } = {}) {
+function createFixture(name: string, tasks: FixtureTask[], options: { failTick?: string; failPostWave?: boolean; missing?: string[]; omitAwaitingFromWaves?: boolean; omitClosedFromWaves?: boolean; renumberOpenWaves?: boolean } = {}) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), `ticks-runner-${name}-`));
 	const repo = path.join(root, "controller");
 	const stateRoot = path.join(root, "state");
@@ -70,6 +70,8 @@ function createFixture(name: string, tasks: FixtureTask[], options: { failTick?:
 		epic: { id: "epic", title: "Disposable epic", description: "Fixture epic", acceptance_criteria: "Fixture verification passes", base_branch: "base", status: "open" },
 		missing_process_ticks: options.missing ?? [],
 		omit_awaiting_from_waves: options.omitAwaitingFromWaves ?? false,
+		omit_closed_from_waves: options.omitClosedFromWaves ?? false,
+		renumber_open_waves: options.renumberOpenWaves ?? false,
 		tasks: tasks.map((item, index) => ({
 			title: `Task ${item.id}`,
 			description: `Implement ${item.id}`,
@@ -354,6 +356,43 @@ test("fixture epic launches a wave in parallel, verifies after merges, closes du
 	assert.equal(persisted.latest.usage.inputTokens, 2);
 	assert.ok(persisted.latest.verification.some((item: { label: string }) => item.label === "post-wave 1 tests"));
 	assert.equal(persisted.latest.merges.length, 2);
+});
+
+test("cumulative dashboard retains stable implementation, review, and closeout stages across open-only renumbered regraphs", async () => {
+	const fixture = createFixture("cumulative-regraphs", [
+		{ id: "implementation", wave: 1 },
+		{ id: "review", wave: 2, role: "review", blocked_by: ["implementation"] },
+		{ id: "closeout", wave: 3, role: "closeout", blocked_by: ["review"] },
+	], { omitClosedFromWaves: true, renumberOpenWaves: true });
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "seed verification input\n");
+	command(fixture.repo, "git", "add", "delivered.txt");
+	command(fixture.repo, "git", "commit", "-m", "seed cumulative dashboard fixture");
+
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	assert.deepEqual(result.dashboard?.waves.map((wave) => [wave.wave, wave.status, wave.taskIds]), [
+		[1, "completed", ["implementation"]],
+		[2, "completed", ["review"]],
+		[3, "completed", ["closeout"]],
+	]);
+	assert.equal(result.dashboard?.currentWave, 3, "raw open wave 1 remains stable process stage 3");
+	assert.deepEqual(result.dashboard?.agents.map((agent) => [agent.tickId, agent.wave, agent.status]), [
+		["implementation", 1, "completed"],
+		["review", 2, "completed"],
+		["closeout", 3, "completed"],
+	]);
+	for (const label of ["configured verifier", "post-wave 1 tests", "review findings schema", "final review tests", "outside-in acceptance and rules evidence", "closeout acceptance/rules schema"]) {
+		assert.ok(result.dashboard?.verification.some((item) => item.label === label), `retained lane ${label}`);
+	}
+	const persisted = JSON.parse(fs.readFileSync(path.join(path.dirname(result.manifest!), "dashboard-history.json"), "utf8"));
+	assert.deepEqual(persisted.latest.waves.map((wave: { wave: number; taskIds: string[] }) => [wave.wave, wave.taskIds]), [[1, ["implementation"]], [2, ["review"]], [3, ["closeout"]]]);
+	assert.deepEqual(persisted.latest.waves.map((wave: { tasks: Array<{ tickId: string; blockedBy: string[]; role?: string }> }) => wave.tasks), [
+		[{ tickId: "implementation", blockedBy: [] }],
+		[{ tickId: "review", blockedBy: ["implementation"], role: "review" }],
+		[{ tickId: "closeout", blockedBy: ["review"], role: "closeout" }],
+	]);
+	assert.equal(persisted.latest.agents.length, 3);
+	assert.ok(persisted.latest.verification.length >= 6);
 });
 
 test("requires close durably pauses a verified wave and approval resumes without redispatch or early cleanup", async () => {
@@ -863,6 +902,51 @@ test("clean structured review runs final tests and closes from the controller ch
 	assert.equal(fs.realpathSync(processCard!.worktree), fs.realpathSync(fixture.repo));
 	assert.match(processCard!.tier, /review/);
 	assert.equal(command(fixture.repo, "git", "worktree", "list", "--porcelain").match(/worktree /g)?.length, 1);
+});
+
+test("Closeout Evidence Commands execute only in closeout, never child or post-wave test gates", async () => {
+	const configureCloseoutOnly = (fixture: ReturnType<typeof createFixture>) => {
+		const marker = path.join(fixture.root, "closeout-only.log");
+		fs.writeFileSync(path.join(fixture.repo, "closeout-only.mjs"), `import * as fs from "node:fs"; fs.appendFileSync(${JSON.stringify(marker)}, "closeout\\n");\n`);
+		const configPath = path.join(fixture.repo, ".tick", "config.md");
+		fs.writeFileSync(configPath, fs.readFileSync(configPath, "utf8")
+			.replace("## Acceptance Evidence", "## Closeout Evidence Commands\n- Closeout only: `node closeout-only.mjs`\n\n## Acceptance Evidence")
+			.replace("- A1: `node verify.mjs`", "- A1: `node closeout-only.mjs`"));
+		command(fixture.repo, "git", "add", "closeout-only.mjs", configPath);
+		command(fixture.repo, "git", "commit", "-m", "configure closeout-only evidence");
+		return marker;
+	};
+
+	const implementation = createFixture("closeout-only-implementation", [{ id: "implementation" }]);
+	const implementationMarker = configureCloseoutOnly(implementation);
+	const implemented = await executeFixture(implementation);
+	assert.equal(implemented.status, "completed", implemented.summary);
+	assert.equal(fs.existsSync(implementationMarker), false, "per-tick and post-wave gates use Testing only");
+	assert.equal(fs.readFileSync(implementation.verifyLog, "utf8").trim().split("\n").length, 2);
+
+	const closeout = createFixture("closeout-only-process", [{ id: "closeout", role: "closeout" }]);
+	const closeoutMarker = configureCloseoutOnly(closeout);
+	fs.writeFileSync(path.join(closeout.repo, "delivered.txt"), "delivered\n");
+	command(closeout.repo, "git", "add", "delivered.txt");
+	command(closeout.repo, "git", "commit", "-m", "delivered source");
+	const output = JSON.stringify({ version: 1, summary: "Acceptance passed", items: [{ id: "A1", verified: true, evidence: ["A1-C1"], message: "Closeout-only command passed" }], rules: [{ id: "R1", compliant: true, evidence: [], message: "Fixture rule inspected" }], retro: { summary: "Closeout-only evidence stayed isolated", learned_notes: [] } });
+	const closed = await executeFixture(closeout, { closeout: { detail: output } });
+	assert.equal(closed.status, "completed", closed.summary);
+	assert.equal(fs.readFileSync(closeoutMarker, "utf8"), "closeout\n");
+});
+
+test("malformed Closeout Evidence Commands fail closed before the closeout model", async () => {
+	const fixture = createFixture("closeout-malformed-command-section", [{ id: "closeout", role: "closeout" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	const configPath = path.join(fixture.repo, ".tick", "config.md");
+	fs.appendFileSync(configPath, "\n## Closeout Evidence Commands\n- Release: `node verify.mjs` and `echo injected`\n");
+	command(fixture.repo, "git", "add", "delivered.txt", configPath);
+	command(fixture.repo, "git", "commit", "-m", "add malformed closeout authorization");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "failed", result.summary);
+	assert.match(result.summary, /Closeout Evidence Commands must contain only one isolated inline-code command/);
+	assert.equal(fs.existsSync(fixture.marker), false);
+	assert.equal(readState(fixture.repo).tasks[0].status, "open");
 });
 
 test("closeout verifies acceptance with runnable evidence then closes closeout and epic", async () => {

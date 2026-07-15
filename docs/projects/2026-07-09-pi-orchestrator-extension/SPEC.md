@@ -24,7 +24,7 @@ Expose these commands:
 
 The dashboard should be richer than generic subagents:
 
-- **Wave timeline** — current wave, completed waves, upcoming blocked waves, critical path.
+- **Wave timeline** — stable cumulative stages, completed stages, current stage, upcoming blocked stages, critical path. Repeated open-only `tk graph` calls may renumber waves; identity must instead survive from persisted task IDs, hard dependencies, process roles, and the original plan.
 - **Agent cards** — tick id/title, role tier, model/provider, worktree, branch, elapsed time, status, current tool/action, recent output.
 - **Verification lane** — per-tick verifier status, post-wave test gate, failures with links to artifacts/logs.
 - **Merge queue** — branch readiness, `.tick/` boundary check, merge result, conflicts, cleanup state.
@@ -57,7 +57,8 @@ Pi extension process memory, PIDs, dashboard component state, and Pi session IDs
 8. Integrate successful branches, close ticks with concrete reasons, clean up worktrees/branches after durable success.
 9. Run post-wave tests on the integration checkout before launching dependents.
 10. Route failures to continuation, repair, human gate, or escalation with durable notes/artifacts.
-11. Treat tracker acceptance as untrusted prose. Closeout evidence is authorized item-by-item only by controller-owned `.tick/config.md` mappings to exact Testing commands; never use a generic Testing×acceptance Cartesian product.
+11. Treat tracker acceptance as untrusted prose. Closeout evidence is authorized item-by-item only by controller-owned `.tick/config.md` mappings to exactly one unique command from `Testing` or strict `Closeout Evidence Commands`; the latter execute only during closeout, never in children or post-wave/final-review gates. Reject duplicate/ambiguous/unknown/injected mappings and never use a generic command×acceptance Cartesian product.
+12. Persist the cumulative stage projection and agent/verifier/merge history so implementation → review → closeout regraphs and final historical dashboards retain the whole process in stable order.
 
 ## Packaging
 
@@ -79,5 +80,5 @@ The epic is complete when:
 - `/ticks-run`, `/ticks-plan`, `/ticks-status`, and `/ticks-dashboard` exist with useful dry-run/status behavior.
 - `/ticks-run <epic> --dry-run` shows wave/tick/worktree/model plan without launching agents.
 - Worktree-mode execution can run at least one disposable tick through child Pi JSON/RPC supervision, artifact capture, boundary check, merge, tick close, and cleanup. `scripts/pi-ticks-live-scenario.ts` provides the isolated real-tk/real-Pi proof; dry validation is no-model, while explicit live execution retains evidence outside and removes its temporary repository.
-- The dashboard shows wave progress, agent cards, verifier/merge lanes, cost/context telemetry, and recovery state.
+- The dashboard shows stable cumulative implementation/review/closeout progress across renumbered open-only regraphs, retained agent/verifier/merge lanes, cost/context telemetry, and recovery state.
 - Docs explain installation, commands, configuration, durable-state model, recovery, and limitations.

@@ -15,6 +15,8 @@ import {
 import { loadRunnerConfig, type ConfiguredCommand, type RunnerConfig } from "./config.ts";
 import {
 	buildDashboardModel,
+	dashboardModelFromPlan,
+	reconcileCumulativeDashboard,
 	writeDashboardHistory,
 	type DashboardAgentInput,
 	type DashboardModel,
@@ -844,6 +846,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	const outcomes: AgentOutcome[] = [];
 	let wavesCompleted = 0;
 	let latestDashboard: DashboardModel | undefined;
+	let cumulativeDashboard: DashboardModel | undefined;
 	let manifest: RunManifest | undefined;
 	let manifestPath: string | undefined;
 	const verification: VerificationItem[] = [];
@@ -874,7 +877,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		return "ready";
 	};
 	const dashboard = (status: string) => {
-		latestDashboard = buildDashboardModel({
+		const freshDashboard = buildDashboardModel({
 			runId: manifest?.runId ?? options.epicId,
 			epicId: options.epicId,
 			epicTitle: activeGraph?.epic?.title,
@@ -906,6 +909,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 					: []),
 			],
 		});
+		latestDashboard = reconcileCumulativeDashboard(cumulativeDashboard, freshDashboard, activeGraph);
+		cumulativeDashboard = latestDashboard;
 		const shouldPersistDashboard = status !== "running" || Date.now() - lastDashboardPersist >= 250;
 		if (options.execute && dashboardRunDir && shouldPersistDashboard) {
 			try {
@@ -958,6 +963,13 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	// during explicit execution, after controller and Environment preflight succeed.
 	const scan = (controllerToken?: string) => scanRecovery({ repoRoot: root, repoIdentity: identity, stateRoot, epicId: options.epicId, tkExecutable: tk, env, staleAfterMs: options.recoveryStaleAfterMs, controllerToken });
 	recovery = scan();
+	const recoveredDashboard = recovery.manifests.find((item) => item.manifest?.epicId === options.epicId && item.dashboard)?.dashboard;
+	if (recoveredDashboard) {
+		cumulativeDashboard = recoveredDashboard;
+		for (const agent of recoveredDashboard.agents) agentInputs.set(agent.tickId, { ...agent, recentOutput: [...agent.recentOutput], usage: { ...agent.usage } });
+		verification.push(...recoveredDashboard.verification.map((item) => ({ ...item })));
+		merges.push(...recoveredDashboard.merges.map((item) => ({ ...item })));
+	}
 	let initialRecovery = recoveryDisposition(recovery, options.epicId);
 	if (options.execute && initialRecovery.status === "conflict") return finish("blocked", `Recovery conflict; refusing to guess or create duplicate state:\n${initialRecovery.conflicts.join("\n")}`);
 	if (options.execute && initialRecovery.status === "active") return finish("blocked", `A fresh active run or in-progress lease already claims ${identity}/${options.epicId}. Use /ticks-status ${options.epicId}; no second child was launched.`);
@@ -1228,10 +1240,11 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 
 		let bindings: ReturnType<typeof acceptanceEvidenceBindings>;
 		try {
-			if (config.acceptanceEvidenceErrors.length) throw new Error(config.acceptanceEvidenceErrors.join("; "));
+			const authorizationErrors = [...config.closeoutEvidenceErrors, ...config.acceptanceEvidenceErrors];
+			if (authorizationErrors.length) throw new Error(authorizationErrors.join("; "));
 			bindings = acceptanceEvidenceBindings(items, config.acceptanceEvidence);
 		} catch (error) {
-			const detail = `Controller-owned Acceptance Evidence is incomplete or invalid: ${error instanceof Error ? error.message : String(error)}. Add exact item mappings under ## Acceptance Evidence in .tick/config.md; mapped commands must also exist verbatim under ## Testing.`;
+			const detail = `Controller-owned Acceptance Evidence is incomplete or invalid: ${error instanceof Error ? error.message : String(error)}. Add exactly one command mapping per item under ## Acceptance Evidence in .tick/config.md; each command must exist verbatim and uniquely under either ## Testing or ## Closeout Evidence Commands.`;
 			failProcessOpen(task, "closeout", detail, [], "closeout-failure");
 			return finish("failed", `Closeout authorization failed closed: ${detail}`, plan);
 		}
@@ -1459,6 +1472,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		if (reconciled.resumedTickIds.length) event("recovery", `Reusing existing branch/worktree/artifacts for ${reconciled.resumedTickIds.join(", ")}`);
 		currentWave = plan.readyWave;
+		const stableReadyWave = reconcileCumulativeDashboard(cumulativeDashboard, dashboardModelFromPlan(plan), graph).currentWave ?? plan.readyWave;
 		if (options.execute) {
 			const failedWaveRepairIds = new Set(recovery.items
 				.filter((item) => item.kind === "failed-verification" && item.artifactPaths.some((artifact) => /wave-\d+-tests\.md$/.test(artifact)))
@@ -1509,8 +1523,8 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			}
 		}
 
-		const pendingTransactionFile = plan.readyWave === undefined ? undefined : waveTransactionPath(plan.durablePaths.runDir, plan.readyWave);
-		const pendingTransaction = pendingTransactionFile ? readWaveTransaction(pendingTransactionFile, options.epicId, plan.readyWave!, manifest) : undefined;
+		const pendingTransactionFile = stableReadyWave === undefined ? undefined : waveTransactionPath(plan.durablePaths.runDir, stableReadyWave);
+		const pendingTransaction = pendingTransactionFile ? readWaveTransaction(pendingTransactionFile, options.epicId, stableReadyWave!, manifest) : undefined;
 		if (pendingTransaction && (pendingTransaction.status === "integrated" || pendingTransaction.status === "verified")) {
 			const unsafe = pendingTransaction.ticks.find((tick) => !gitIsAncestor(root, tick.branch, integration!.branch) || !fs.existsSync(tick.worktree));
 			if (unsafe) return finish("blocked", `Interrupted wave ${pendingTransaction.wave} cannot resume safely: retained ${unsafe.branch}/${unsafe.worktree} is missing or not integrated.`, plan);
@@ -1563,9 +1577,9 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		if (plan.maxParallel < 1) return finish("blocked", "Ready work exists but concurrency resolved to zero.", plan);
 
-		if (plan.readyWave !== undefined) {
-			try { archiveWaveEvidence(plan.durablePaths.runDir, plan.readyWave); }
-			catch (error) { return finish("failed", `Cannot archive prior wave ${plan.readyWave} transaction/test evidence before retry: ${error instanceof Error ? error.message : String(error)}`, plan); }
+		if (stableReadyWave !== undefined) {
+			try { archiveWaveEvidence(plan.durablePaths.runDir, stableReadyWave); }
+			catch (error) { return finish("failed", `Cannot archive prior stable wave ${stableReadyWave} transaction/test evidence before retry: ${error instanceof Error ? error.message : String(error)}`, plan); }
 		}
 		if (!manifest) {
 			manifest = createRunManifest(plan.durablePaths, "planned");
@@ -1598,7 +1612,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 				tracker(tk, ["update", child.task.id, "--status", "in_progress"], root, env);
 				tracker(tk, ["note", child.task.id, `runner-state: runner=pi branch=${child.work.branch} worktree=${child.work.worktree} base=${integration!.commit} model=${child.work.model ?? "Pi-default"}`], root, env);
 			}
-			trackerCommit(root, `Start ${options.epicId} wave ${plan.readyWave ?? wavesCompleted + 1}`);
+			trackerCommit(root, `Start ${options.epicId} wave ${stableReadyWave ?? wavesCompleted + 1}`);
 		} catch (error) {
 			for (const child of prepared) {
 				restoreTickReadOnlyFriction(child.friction);
@@ -1680,7 +1694,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			dashboard("running");
 		}
 
-		const waveNumber = plan.readyWave ?? wavesCompleted + 1;
+		const waveNumber = stableReadyWave ?? wavesCompleted + 1;
 		const transactionFile = waveTransactionPath(plan.durablePaths.runDir, waveNumber);
 		const transaction: WaveTransaction = {
 			version: 1,

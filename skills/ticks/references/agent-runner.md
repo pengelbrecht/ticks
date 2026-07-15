@@ -98,7 +98,8 @@ Both meta-ticks are owned by the orchestrator, not by implementer subagents. The
 Before calling `tk graph`, read `.tick/config.md` (if present). It contains these operational sections:
 
 - **Testing** — the exact test commands to pass on to implementers.
-- **Acceptance Evidence** — optional controller-owned closeout authorization, one bounded `- A<n>: \`exact Testing command\`` mapping per acceptance item/command. Commands must also exist verbatim in Testing. Tracker acceptance remains prose and never authorizes shell; missing, stale, generic-for-an-unmapped-item, or cross-item evidence fails closed.
+- **Closeout Evidence Commands** — strict controller-owned commands executable only by closeout, never by implementers, per-tick verifiers, post-wave gates, or final-review tests.
+- **Acceptance Evidence** — optional controller-owned closeout authorization, exactly one bounded `- A<n>: \`exact command\`` mapping per acceptance item. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands. Tracker/model prose remains non-authoritative; duplicate, ambiguous, unknown/stale, injected, missing, generic-for-an-unmapped-item, or cross-item evidence fails closed.
 - **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop; don't start a wave on a broken environment.
 - **Rules** — project-specific constraints to include verbatim in every implementer prompt.
 
@@ -387,7 +388,7 @@ Verify against the *code*, not the tick status. If the epic carries a **definiti
 
 - The behavior exists in the code.
 - Tests cover it (and pass).
-- Commands explicitly mapped to that exact stable acceptance item under controller-owned `.tick/config.md` `Acceptance Evidence` run and succeed; tracker acceptance is prose and must never be interpreted as shell.
+- The exactly one command mapped to that stable item under controller-owned `.tick/config.md` `Acceptance Evidence` exists uniquely in Testing or Closeout Evidence Commands, runs during its authorized phase, and succeeds; tracker/model prose is never shell authority.
 
 Gaps get **fixed now** or explicitly surfaced to the human. Never silently defer an undelivered scope item into the next epic.
 

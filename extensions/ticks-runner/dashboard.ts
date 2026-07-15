@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { GraphTask, RunDryPlan } from "./graph.ts";
+import type { GraphResult, GraphTask, RunDryPlan } from "./graph.ts";
 import { dashboardStatus, isActiveStatus, isCompletedStatus } from "./status.ts";
 import type { ChildReport, ChildState, ChildUsage } from "./supervisor.ts";
 
@@ -61,6 +61,20 @@ export type HumanGate = {
 	detail?: string;
 };
 
+export type DashboardStageTask = {
+	tickId: string;
+	blockedBy: string[];
+	role?: string;
+};
+
+export type DashboardWave = {
+	wave: number;
+	status: string;
+	taskIds: string[];
+	/** Durable task/dependency identity used to survive tracker wave renumbering. */
+	tasks?: DashboardStageTask[];
+};
+
 export type DashboardInput = {
 	runId?: string;
 	epicId: string;
@@ -69,7 +83,7 @@ export type DashboardInput = {
 	demo?: boolean;
 	currentWave?: number;
 	criticalPath?: number;
-	waves?: Array<{ wave: number; status?: string; taskIds: string[] }>;
+	waves?: Array<Omit<DashboardWave, "status"> & { status?: string }>;
 	agents?: DashboardAgentInput[];
 	verification?: VerificationItem[];
 	merges?: MergeItem[];
@@ -106,7 +120,7 @@ export type DashboardModel = {
 	demo: boolean;
 	currentWave?: number;
 	criticalPath?: number;
-	waves: Array<{ wave: number; status: string; taskIds: string[] }>;
+	waves: DashboardWave[];
 	agents: DashboardAgent[];
 	verification: VerificationItem[];
 	merges: MergeItem[];
@@ -199,7 +213,7 @@ export function buildDashboardModel(input: DashboardInput): DashboardModel {
 		demo: Boolean(input.demo),
 		currentWave,
 		criticalPath: input.criticalPath,
-		waves: (input.waves ?? []).map((wave) => ({ ...wave, status: wave.status ?? (wave.wave === currentWave ? "running" : "blocked") })),
+		waves: (input.waves ?? []).map((wave) => ({ ...wave, tasks: wave.tasks?.map((task) => ({ ...task, blockedBy: [...task.blockedBy] })), status: wave.status ?? (wave.wave === currentWave ? "running" : "blocked") })),
 		agents,
 		verification: [...(input.verification ?? [])],
 		merges: [...(input.merges ?? [])],
@@ -207,6 +221,109 @@ export function buildDashboardModel(input: DashboardInput): DashboardModel {
 		humanGates: [...(input.humanGates ?? [])],
 		usage,
 	};
+}
+
+/**
+ * Merge a fresh, possibly open-only/renumbered tk graph into the durable stage
+ * projection. Stable stage identity comes from task IDs and hard dependencies;
+ * raw graph wave numbers are only a peer-placement hint for previously unseen
+ * tasks. Omitted known tasks are completed unless the fresh model exposes them
+ * as a human gate.
+ */
+export function reconcileCumulativeDashboard(previous: DashboardModel | undefined, current: DashboardModel, graph?: GraphResult): DashboardModel {
+	if (!graph) return current;
+	const previousStage = new Map<string, number>();
+	const previousTask = new Map<string, DashboardStageTask>();
+	for (const wave of previous?.waves ?? []) {
+		for (const tickId of wave.taskIds) previousStage.set(tickId, wave.wave);
+		for (const task of wave.tasks ?? []) previousTask.set(task.tickId, task);
+	}
+	const entries = graph.waves.flatMap((wave) => (wave.tasks ?? []).map((task) => ({ task, rawWave: wave.wave })));
+	const currentTask = new Map(entries.map(({ task }) => [task.id, task]));
+	const rawWave = new Map(entries.map(({ task, rawWave }) => [task.id, rawWave]));
+	const orderedIds = [...new Set([...(previous?.waves.flatMap((wave) => wave.taskIds) ?? []), ...entries.map(({ task }) => task.id)])];
+	if (!orderedIds.length) return current;
+
+	const stage = new Map(previousStage);
+	const computing = new Set<string>();
+	const dependencyStage = (tickId: string): number => {
+		const fixed = stage.get(tickId);
+		if (fixed !== undefined) return fixed;
+		if (computing.has(tickId)) return 1;
+		computing.add(tickId);
+		const task = currentTask.get(tickId);
+		const blockers = task?.blocked_by ?? previousTask.get(tickId)?.blockedBy ?? [];
+		const value = blockers.length ? 1 + Math.max(0, ...blockers.map((blocker) => stage.get(blocker) ?? (currentTask.has(blocker) ? dependencyStage(blocker) : 0))) : 1;
+		computing.delete(tickId);
+		stage.set(tickId, value);
+		return value;
+	};
+	for (const tickId of orderedIds) if (!stage.has(tickId)) dependencyStage(tickId);
+
+	// Refine only newly seen tasks. A known task's stage is immutable.
+	for (const tickId of orderedIds.filter((id) => !previousStage.has(id))) {
+		const task = currentTask.get(tickId);
+		if (!task) continue;
+		const blockers = task.blocked_by ?? [];
+		const lower = blockers.length ? 1 + Math.max(0, ...blockers.map((blocker) => stage.get(blocker) ?? 0)) : 1;
+		const peerStages = entries
+			.filter((entry) => entry.rawWave === rawWave.get(tickId) && entry.task.id !== tickId)
+			.map((entry) => previousStage.get(entry.task.id))
+			.filter((value): value is number => value !== undefined);
+		const dependentStages = [...currentTask.values()]
+			.filter((candidate) => candidate.blocked_by?.includes(tickId))
+			.map((candidate) => previousStage.get(candidate.id))
+			.filter((value): value is number => value !== undefined && value > lower);
+		let selected = peerStages.length ? Math.min(...peerStages) : dependentStages.length ? Math.min(...dependentStages) - 1 : stage.get(tickId) ?? lower;
+		selected = Math.max(lower, selected);
+		stage.set(tickId, selected);
+	}
+
+	const roleFor = (tickId: string) => currentTask.get(tickId)?.role ?? previousTask.get(tickId)?.role;
+	const implementationStages = orderedIds.filter((id) => roleFor(id) !== "review" && roleFor(id) !== "closeout").map((id) => stage.get(id) ?? 1);
+	const maxImplementation = Math.max(0, ...implementationStages);
+	for (const tickId of orderedIds.filter((id) => !previousStage.has(id) && roleFor(id) === "review")) stage.set(tickId, Math.max(stage.get(tickId) ?? 1, maxImplementation + 1));
+	const maxReview = Math.max(maxImplementation, ...orderedIds.filter((id) => roleFor(id) === "review").map((id) => stage.get(id) ?? 1));
+	for (const tickId of orderedIds.filter((id) => !previousStage.has(id) && roleFor(id) === "closeout")) stage.set(tickId, Math.max(stage.get(tickId) ?? 1, maxReview + 1));
+
+	const rawCurrent = graph.waves.find((wave) => wave.wave === current.currentWave)
+		?? graph.waves.find((wave) => wave.ready || (wave.tasks ?? []).some((task) => task.agent_ready));
+	const currentStages = (rawCurrent?.tasks ?? []).map((task) => stage.get(task.id)).filter((value): value is number => value !== undefined);
+	const stableCurrent = currentStages.length ? Math.min(...currentStages) : previous?.currentWave;
+	const currentAgent = new Map(current.agents.map((agent) => [agent.tickId, agent]));
+	const gateIds = new Set(current.humanGates.map((gate) => gate.tickId));
+	const currentIds = new Set(currentTask.keys());
+	const priorWave = new Map((previous?.waves ?? []).map((wave) => [wave.wave, wave]));
+	const grouped = new Map<number, string[]>();
+	for (const tickId of orderedIds) {
+		const stable = stage.get(tickId) ?? 1;
+		const ids = grouped.get(stable) ?? [];
+		ids.push(tickId);
+		grouped.set(stable, ids);
+	}
+	const waves: DashboardWave[] = [...grouped.entries()].sort(([left], [right]) => left - right).map(([wave, taskIds]) => {
+		const complete = taskIds.every((tickId) => {
+			const task = currentTask.get(tickId);
+			const agent = currentAgent.get(tickId);
+			return isCompletedStatus(task?.status) || isCompletedStatus(agent?.status) || (!currentIds.has(tickId) && !gateIds.has(tickId));
+		});
+		let status = complete ? "completed" : wave === stableCurrent
+			? (current.status === "planned" ? "ready" : current.status)
+			: priorWave.get(wave)?.status ?? "blocked";
+		if (wave !== stableCurrent && isActiveStatus(status)) status = "blocked";
+		return {
+			wave,
+			status,
+			taskIds,
+			tasks: taskIds.map((tickId) => {
+				const task = currentTask.get(tickId);
+				const prior = previousTask.get(tickId);
+				return { tickId, blockedBy: [...(task?.blocked_by ?? prior?.blockedBy ?? [])], ...(task?.role ?? prior?.role ? { role: task?.role ?? prior?.role } : {}) };
+			}),
+		};
+	});
+	const agents = current.agents.map((agent) => ({ ...agent, wave: stage.get(agent.tickId) ?? agent.wave }));
+	return { ...current, currentWave: stableCurrent, criticalPath: Math.max(current.criticalPath ?? 0, ...waves.map((wave) => wave.wave)), waves, agents };
 }
 
 function clipped(value: string | undefined, maximum = 1_024): string | undefined {
@@ -219,7 +336,11 @@ export function boundedDashboardModel(model: DashboardModel): DashboardModel {
 	return {
 		...model,
 		epicTitle: clipped(model.epicTitle, 512) ?? model.epicId,
-		waves: model.waves.slice(0, 64).map((wave) => ({ ...wave, taskIds: wave.taskIds.slice(0, 128) })),
+		waves: model.waves.slice(0, 64).map((wave) => ({
+			...wave,
+			taskIds: wave.taskIds.slice(0, 128),
+			tasks: wave.tasks?.slice(0, 128).map((task) => ({ tickId: clipped(task.tickId, 128) ?? "unknown", blockedBy: task.blockedBy.slice(0, 128).map((id) => clipped(id, 128) ?? "unknown"), role: clipped(task.role, 32) })),
+		})),
 		agents: model.agents.slice(0, 24).map((agent) => ({
 			...agent,
 			title: clipped(agent.title, 256) ?? "(untitled)",
@@ -318,6 +439,7 @@ export function dashboardModelFromPlan(plan: RunDryPlan, extras: Omit<DashboardI
 			wave: wave.wave ?? 0,
 			status: wave.wave === plan.readyWave ? "ready" : (wave.tasks ?? []).every((task) => task.status === "closed") ? "completed" : "blocked",
 			taskIds: (wave.tasks ?? []).map((task) => task.id),
+			tasks: (wave.tasks ?? []).map((task) => ({ tickId: task.id, blockedBy: [...(task.blocked_by ?? [])], ...(task.role ? { role: task.role } : {}) })),
 		})),
 		agents,
 		humanGates: [...humanGates, ...(extras.humanGates ?? [])],

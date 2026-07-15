@@ -51,7 +51,7 @@ Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this autom
 
 Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. It validates an existing recorded base or derives one from `origin/HEAD` (single local `main`/`master` fallback), fails on ambiguity, and records `base_branch` on the target epic. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, arbitrary fields, or executable acceptance snippets; model acceptance containing backticks/code spans is rejected because only controller configuration may issue verification commands. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Every create carries target/entity labels atomically. Partial failures are committed when possible and recovered from a target-bound state file, pending-create journal, create-time labels, epic note, validated-plan artifact, and client-ID map; mapped parent/title/role/marker/base identity is verified before reuse, and symlinked artifact ancestors fail closed. After a true controller SIGKILL, a dead apply lock may be taken over only to commit the exact journaled marked issue plus its single append-only controller create activity; unrelated dirt is refused.
 
-Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Closeout can execute only controller-owned item mappings from `.tick/config.md` `Acceptance Evidence`; every mapped command must exactly match an executable Testing command, and every acceptance item must be mapped. Generic Testing commands are never distributed across items, and cross-item evidence fails closed. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
+Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Closeout can execute only controller-owned item mappings from `.tick/config.md` `Acceptance Evidence`; every item has exactly one mapping to a command that exists verbatim and uniquely in Testing or Closeout Evidence Commands. Closeout-only commands never run in child/per-tick/post-wave/final-review gates. Generic commands are never distributed across items, and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
 See [`../../../extensions/ticks-runner/README.md`](../../../extensions/ticks-runner/README.md) for exact defaults, dashboard keys, artifacts, recovery, and current limitations.
 
@@ -81,7 +81,7 @@ Reuse the generic example when an interactive agent needs ad-hoc delegation. Use
 
 ## Configuration and model routing
 
-Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment and Testing shell commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout issues evidence only from explicit controller-owned `Acceptance Evidence` lines shaped as `- A<n>: \`exact Testing command\``. Stable `[A<n>]` acceptance IDs are preferred; legacy lines receive deterministic A1/A2 IDs. Unknown, duplicate, stale, missing, or cross-item mappings fail closed.
+Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment, Testing, and Closeout Evidence Commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints; malformed Closeout entries do not run. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout issues evidence only from explicit controller-owned `Acceptance Evidence` lines shaped as `- A<n>: \`exact command\``. Every item maps exactly once to a command unique across Testing and Closeout Evidence Commands. Stable `[A<n>]` acceptance IDs are preferred; legacy lines receive deterministic A1/A2 IDs. Unknown, duplicate, ambiguous, stale, injected, missing, or cross-item mappings fail closed. Planning models see relevant sections as context but cannot authorize commands.
 
 ```markdown
 ## Environment
@@ -91,9 +91,12 @@ Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules`
 - Runner: `node --test extensions/ticks-runner/*.test.ts`
 - Go: `go test ./...`
 
+## Closeout Evidence Commands
+- Release scenario: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+
 ## Acceptance Evidence
 - A1: `node --test extensions/ticks-runner/*.test.ts`
-- A2: `go test ./...`
+- A2: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
 
 ## Rules
 - Do not add npm lockfiles.
@@ -132,6 +135,7 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 <run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl,attempts/attempt-N/*}
 <run>/artifacts/<review>/{epic.diff,findings.json,review-tests.md}
 <run>/artifacts/<closeout>/{acceptance-evidence.md,closeout-report.json,retro.md}
+<run>/dashboard-history.json  # cumulative stable stages plus retained agent/lane state
 <run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md,attempts/wave-<n>-attempt-<k>/*}
 <state>/<repo-slug>--<hash>/worktrees/<epic>/<tick>/
 <state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/apply-state.json
@@ -148,6 +152,8 @@ Operator recovery:
 4. Resolve duplicate claims manually; never create another branch for the same tick.
 5. Re-run `/ticks-run <epic> --execute`; ordinary execution is recovery-aware.
 6. Clean completed leftovers only after merge ancestry and tracker durability are both confirmed.
+
+The dashboard history also persists the cumulative task/dependency stage projection. If `tk graph` omits closed tasks and renumbers the remaining waves, implementation, review, and closeout keep their original stage identity and retained agent/verifier/merge history in live, resumed, and final dashboards.
 
 This is cross-runner recovery: another harness can consume the same tracker/git/report state without a Pi session ID.
 

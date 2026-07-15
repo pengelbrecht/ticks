@@ -89,7 +89,7 @@ function fixture(existing = true): Fixture {
 	const stateRoot = path.join(root, "state");
 	fs.mkdirSync(path.join(repo, ".tick"), { recursive: true });
 	fs.mkdirSync(bin, { recursive: true });
-	fs.writeFileSync(path.join(repo, ".tick", "config.md"), `# Tick Run Configuration\n\n## Testing\n- Runner: \`node --test planning.test.ts\`\n\n## Rules\n- Preserve public compatibility.\n\n## Pi Orchestrator\n- planner_model: fake/frontier:high\n- scout_model: fake/scout:low\n- max_parallel: 4\n`);
+	fs.writeFileSync(path.join(repo, ".tick", "config.md"), `# Tick Run Configuration\n\n## Testing\n- Runner: \`node --test planning.test.ts\`\n\n## Closeout Evidence Commands\n- Release proof: \`node scripts/release-proof.mjs\`\n\n## Acceptance Evidence\n- A1: \`node scripts/release-proof.mjs\`\n\n## Rules\n- Preserve public compatibility.\n\n## Pi Orchestrator\n- planner_model: fake/frontier:high\n- scout_model: fake/scout:low\n- max_parallel: 4\n`);
 	fs.writeFileSync(path.join(repo, ".tick", "planning-state.json"), `${JSON.stringify({
 		epic: existing ? { id: "epic-1", title: "Safe planning", description: "Build safe automated planning for operators without changing roadmap order.", acceptance_criteria: "Validated plans can be previewed and explicitly applied with no model tracker authority.", priority: 1, type: "epic", status: "open", notes: [] } : null,
 		tasks: [],
@@ -202,6 +202,9 @@ test("read-only scouts overlap in time and the frontier planner receives every b
 	assert.match(prompt, /Scout: tests/);
 	assert.match(prompt, /Scout: contracts/);
 	assert.match(prompt, /Preserve public compatibility/);
+	assert.match(prompt, /Project Closeout Evidence Commands[\s\S]*node scripts\/release-proof\.mjs/);
+	assert.match(prompt, /Existing controller-owned Acceptance Evidence[\s\S]*A1/);
+	assert.match(prompt, /cannot add or authorize commands/);
 	assert.match(prompt, /Tick Patterns/);
 	assert.equal(events.find((event) => event.planner)?.tools, "read");
 	assert.equal(events.find((event) => event.planner)?.thinking, "xhigh");
