@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { parseExecutableCommands, type ConfiguredCommand } from "./config.ts";
+import type { ConfiguredCommand } from "./config.ts";
 import type { GraphResult, GraphTask } from "./graph.ts";
 
 export const PROCESS_READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
@@ -39,14 +39,17 @@ export type ReviewReport = {
 export type AcceptanceItem = {
 	id: string;
 	text: string;
-	commands: Array<ConfiguredCommand & { evidenceId: string }>;
 };
-export type ProjectRuleKind = "inspection" | "command" | "human";
+export type AcceptanceEvidenceBinding = {
+	itemId: string;
+	evidenceId: string;
+	command: ConfiguredCommand;
+};
+export type ProjectRuleKind = "inspection" | "human";
 export type ProjectRule = {
 	id: string;
 	text: string;
 	kind: ProjectRuleKind;
-	commands: Array<ConfiguredCommand & { evidenceId: string }>;
 };
 export type CloseoutItemResult = {
 	id: string;
@@ -257,27 +260,42 @@ export function acceptanceItems(detail: EpicProcessDetail): AcceptanceItem[] {
 	const lines = itemLines(source);
 	if (!lines.length) throw new Error("Epic has neither acceptance criteria nor a description to verify");
 	if (lines.length > 64) throw new Error("Epic acceptance contains more than 64 items");
-	return lines.map((text, index) => {
-		const bounded = boundedString(text, `acceptance item ${index + 1}`, 2_000);
-		const id = `A${index + 1}`;
-		const parsed = parseExecutableCommands([bounded]);
-		return { id, text: bounded, commands: parsed.commands.map((command, commandIndex) => ({ ...command, evidenceId: `${id}-C${commandIndex + 1}` })) };
-	});
+	return lines.map((text, index) => ({ id: `A${index + 1}`, text: boundedString(text, `acceptance item ${index + 1}`, 2_000) }));
+}
+
+/**
+ * Bind every prose acceptance item to controller-trusted Testing commands.
+ * Tracker/model text is never parsed as shell, and each issued ID belongs to
+ * exactly one item even when the same trusted command verifies several items.
+ */
+export function acceptanceEvidenceBindings(
+	items: readonly AcceptanceItem[],
+	testCommands: readonly ConfiguredCommand[],
+): AcceptanceEvidenceBinding[] {
+	if (items.length > 64 || testCommands.length > 64) throw new Error("Acceptance evidence mapping exceeds its bounded schema");
+	const ids = new Set<string>();
+	for (const item of items) {
+		if (!/^A\d+$/.test(item.id) || ids.has(item.id) || !item.text || item.text.length > 2_000) throw new Error("Acceptance evidence mapping contains an invalid or duplicate item");
+		ids.add(item.id);
+	}
+	for (const command of testCommands) {
+		if (!command || typeof command.command !== "string" || !command.command.trim() || command.command.includes("\0") || command.command.length > 16 * 1_024
+			|| typeof command.source !== "string" || command.source.length > 32 * 1_024 || (command.label !== undefined && (typeof command.label !== "string" || command.label.length > 80))) {
+			throw new Error("Acceptance evidence mapping contains an invalid trusted Testing command");
+		}
+	}
+	return items.flatMap((item) => testCommands.map((command, index) => ({ itemId: item.id, evidenceId: `${item.id}-T${index + 1}`, command })));
 }
 
 const EXTERNAL_RULE = /\b(?:human|approval|sign[- ]?off|pull request|github|gitlab|ci|continuous integration|green on|external)\b/i;
 
-/** Commands use the same isolated-inline-code grammar as Testing; otherwise external facts require a human checkpoint. */
+/** Project Rules are prose-only. Only Testing configuration authorizes closeout shell commands. */
 export function projectRules(lines: readonly string[]): ProjectRule[] {
 	if (lines.length > 64) throw new Error("Project Rules contains more than 64 items");
 	return lines.map((line, index) => {
 		const id = `R${index + 1}`;
 		const text = boundedString(line.replace(/^[-*+]\s+/, ""), `project rule ${index + 1}`, 2_000);
-		const parsed = parseExecutableCommands([text]);
-		if (parsed.commands.length) {
-			return { id, text, kind: "command", commands: parsed.commands.map((command, commandIndex) => ({ ...command, evidenceId: `${id}-C${commandIndex + 1}` })) };
-		}
-		return { id, text, kind: EXTERNAL_RULE.test(text) ? "human" : "inspection", commands: [] };
+		return { id, text, kind: EXTERNAL_RULE.test(text) ? "human" : "inspection" };
 	});
 }
 
@@ -330,7 +348,7 @@ export function parseCloseoutReport(
 		const evidence = boundedEvidence(result.evidence, `closeout rule ${id}`);
 		const allowed = passingEvidenceByRule.get(id) ?? new Set<string>();
 		if (rule.kind === "inspection" && evidence.length) throw new Error(`closeout inspection rule ${id} must not invent controller evidence`);
-		if (result.compliant && rule.kind !== "inspection" && (!evidence.length || evidence.some((evidenceId) => !allowed.has(evidenceId)))) {
+		if (result.compliant && rule.kind === "human" && (!evidence.length || evidence.some((evidenceId) => !allowed.has(evidenceId)))) {
 			throw new Error(`closeout rule ${id} cites missing, failing, or wrong-rule evidence`);
 		}
 		return { id, compliant: result.compliant, evidence, message: boundedString(result.message, `closeout rule ${id} message`, 2_000) };
@@ -364,5 +382,5 @@ export function buildCloseoutPrompt(input: {
 	const firstRule = input.rules[0];
 	const ruleExample = firstRule ? [{ id: firstRule.id, compliant: true, evidence: firstRule.kind === "inspection" ? [] : [[...(input.passingEvidenceByRule.get(firstRule.id) ?? [])][0] ?? `${firstRule.id}-C1`], message: "how the rule was enforced" }] : [];
 	const schemaExample = JSON.stringify({ version: CLOSEOUT_REPORT_VERSION, summary: "bounded summary", items: [itemExample], rules: ruleExample, retro: { summary: "what worked/changed", learned_notes: ["bounded reusable note"] } });
-	return `You are the frontier closeout verifier for a Ticks epic. You are running read-only in the controller checkout. You have no shell, write/edit, or tracker tools and must never attempt tracker mutations or roadmap changes.\n\n## Epic\nID: ${input.epic.id}\nProcess tick: ${input.closeoutTick.id}\nTitle: ${input.epic.title}\nDescription:\n${input.epic.description || "(none)"}\n\n## Acceptance items\n${itemText}\n\n## Project Rules (mandatory)\n${ruleText}\n\nController-run evidence artifact: ${input.evidenceArtifact}\n\nInspect the delivered code from the outside in and read the evidence artifact completely. For every acceptance item, cite only a passing controller ID explicitly issued for that same item; an ID under A2 can never verify A1. For command/human Project Rules, cite only IDs issued for that rule. For inspection rules, inspect the repository and leave evidence empty—never invent command or human proof. Human/external facts have already been checkpointed by the controller if an ID is present; do not independently assert PR or CI status. Preserve scope: mark an item false or a rule noncompliant if missing or uncertain. Write a concise retro and learned notes, but do not invent, reorder, create, or modify roadmap work.\n\nReturn ONLY one strict JSON object (no fence or prose) with exactly this schema shape (include one entry for every listed item/rule):\n${schemaExample}`;
+	return `You are the frontier closeout verifier for a Ticks epic. You are running read-only in the controller checkout. You have no shell, write/edit, or tracker tools and must never attempt tracker mutations or roadmap changes.\n\n## Epic\nID: ${input.epic.id}\nProcess tick: ${input.closeoutTick.id}\nTitle: ${input.epic.title}\nDescription:\n${input.epic.description || "(none)"}\n\n## Acceptance items\n${itemText}\n\n## Project Rules (mandatory)\n${ruleText}\n\nController-run evidence artifact: ${input.evidenceArtifact}\n\nInspect the delivered code from the outside in and read the evidence artifact completely. For every acceptance item, cite only a passing controller ID explicitly issued for that same item; an ID under A2 can never verify A1. For human Project Rules, cite only IDs issued for that rule. Project Rules never authorize shell; for inspection rules, inspect the repository and leave evidence empty—never invent command or human proof. Human/external facts have already been checkpointed by the controller if an ID is present; do not independently assert PR or CI status. Preserve scope: mark an item false or a rule noncompliant if missing or uncertain. Write a concise retro and learned notes, but do not invent, reorder, create, or modify roadmap work.\n\nReturn ONLY one strict JSON object (no fence or prose) with exactly this schema shape (include one entry for every listed item/rule):\n${schemaExample}`;
 }

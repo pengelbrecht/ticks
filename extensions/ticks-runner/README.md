@@ -76,7 +76,7 @@ Execution uses isolated worktrees for implementation ticks, so `--worktrees` is 
 
 Before any mutation, execution requires:
 
-- a clean controller checkout on a non-default branch;
+- a clean controller checkout on a branch that is neither the repository default nor the epic's safely parsed recorded `base_branch` (including a nested feature base);
 - every `## Environment` bullet to be executable and passing;
 - an epic that is planned; a missing EPIC-SKELETON is self-repaired and committed before the first child launch;
 - no fresh active lease or ambiguous duplicate branch/worktree/manifest claim.
@@ -87,7 +87,7 @@ For each ready implementation wave, the runner creates or reuses one determinist
 
 A ready `role: review` tick launches the configured frontier reviewer in the controller checkout with only `read,grep,find,ls`; extensions, bash, edit, write, tracker authority, and source worktrees are absent. The reviewer reads a persisted full source diff from the epic's validated `base_branch` plus description/acceptance/specs and must emit strict JSON findings. Malformed output fails closed. Blockers—and should-fix findings under the default `repair` policy—become controller-created repair ticks discovered from the review and block it. A clean/routable review closes only after persisted configured-test evidence.
 
-A ready `role: closeout` tick executes strictly parsed acceptance commands and final configured tests, then asks the dedicated read-only closeout model to verify every acceptance item using only controller-issued passing evidence IDs. Missing, malformed, or unverified evidence leaves closeout and epic open. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
+A ready `role: closeout` tick treats every tracker acceptance item as prose and executes only Testing commands parsed from controller-trusted `.tick/config.md`. It issues a distinct item-scoped evidence ID for each acceptance-item/Testing-command binding, then asks the dedicated read-only closeout model to verify every item using only passing IDs issued for that item. Missing, malformed, or unverified evidence leaves closeout and epic open. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
 
 ### `/ticks-status [<epic-id>]`
 
@@ -135,7 +135,7 @@ The extension reads `.tick/config.md` fresh. Commands are only executable when a
 - max_parallel: 4
 ```
 
-Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Commands run through `/bin/sh -lc` on POSIX or `cmd.exe /d /s /c` on Windows and stop at the first failure.
+Prose outside the inline-code span is never sent to a shell. A prose-only Environment bullet blocks execution; a prose-only Testing bullet remains a child prompt hint but is not executed. Acceptance criteria and Rules are always prose, even when they contain backticks; they never authorize shell execution. Commands run through `/bin/sh -lc` on POSIX or `cmd.exe /d /s /c` on Windows and stop at the first failure.
 
 Environment overrides take precedence:
 
@@ -175,7 +175,8 @@ The default state root is `.ticks-worktrees` beside the primary checkout. Paths 
     │   └── tk-denials.jsonl
     └── waves/
         ├── wave-<n>-transaction.json
-        └── wave-<n>-tests.md
+        ├── wave-<n>-tests.md
+        └── attempts/wave-<n>-attempt-<k>/   # bounded archived transaction/tests before retry
 <state-root>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/
 ├── apply-state.json                         # --apply recovery only
 └── attempts/<plan-run-id>/
@@ -206,7 +207,7 @@ The child process still has the user's OS permissions. Use containers or stronge
 
 ## Recovery playbook
 
-For a partial `/ticks-plan --apply`, retry the exact same epic ID or requirements text. The deterministic `apply-state.json` and create-time labels reuse the validated plan and client-ID mapping, including a crash immediately after `tk create` persisted but before the controller wrote the returned ID. If that artifact is unavailable but the epic carries an idempotency note/label, the controller refuses a blind duplicate and reports the prior epic for manual inspection. Corrupted cross-target mappings or mismatched parent/title/role/marker/base fields fail closed.
+For a partial `/ticks-plan --apply`, retry the exact same epic ID or requirements text. The deterministic `apply-state.json`, pending-create journal, and create-time labels reuse the validated plan and client-ID mapping, including a true controller SIGKILL immediately after `tk create` persisted but before the controller wrote the returned ID. A dead owner lock may be taken over; the retry commits only the exact journaled marked issue plus its single append-only `pi:orchestrator` create activity, and refuses every unrelated dirty path. If that artifact is unavailable but the epic carries an idempotency note/label, the controller refuses a blind duplicate and reports the prior epic for manual inspection. Corrupted cross-target mappings or mismatched parent/title/role/marker/base fields fail closed.
 
 For epic execution:
 
@@ -214,7 +215,7 @@ For epic execution:
 2. If a run/lease is fresh, find the live controller; do not start a duplicate.
 3. For a stale lease, inspect the listed report/log/branch/worktree. A later `/ticks-run <epic> --execute` reopens it only after clean-controller and Environment preflight, then reuses the unique state.
 4. For an unattached branch, let execution attach it to the deterministic worktree. For useful existing work, resume in place; never create a second branch.
-5. Inspect `report.md`, `verifier.md`, `attempts/attempt-N/`, `wave-*-transaction.json`, or `wave-*-tests.md` for failed child, protocol, interrupted integration, or post-wave gates. Recovery recognizes role-tagged strict JSON review/closeout reports as complete; malformed process JSON remains partial. Failed-gate ticks stay open; repair on the retained branch/worktree, then rerun. A transaction interrupted after all merges resumes the gate without redispatch.
+5. Inspect `report.md`, `verifier.md`, `attempts/attempt-N/`, `wave-*-transaction.json`, `wave-*-tests.md`, or `waves/attempts/wave-*-attempt-*/` for failed child, protocol, interrupted integration, or post-wave gates. Recovery recognizes role-tagged strict JSON review/closeout reports as complete; malformed process JSON remains partial. Failed-gate ticks stay open; repair on the retained branch/worktree, then rerun. A transaction interrupted after all merges resumes the gate without redispatch.
 6. Resolve duplicate claims or malformed manifests manually. The runner blocks rather than choosing.
 7. For `completed-but-not-cleaned`, confirm both merge ancestry and durable tracker closure before removing worktree then branch.
 8. Never delete incomplete artifacts merely to make status green. They are the cross-session/cross-runner handoff.

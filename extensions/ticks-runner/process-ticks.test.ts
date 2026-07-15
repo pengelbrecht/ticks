@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	acceptanceEvidenceBindings,
 	acceptanceItems,
 	applyAutonomousSelection,
 	buildCloseoutPrompt,
@@ -37,17 +38,25 @@ test("review report parser is strict, bounded, and rejects tracker/path injectio
 test("closeout report requires item-scoped controller evidence and rejects cross-item references", () => {
 	const items = acceptanceItems(epic);
 	const rules = projectRules(["Keep generated files synchronized."]);
-	assert.deepEqual(items.map((item) => [item.id, item.commands.map((command) => command.evidenceId)]), [["A1", []], ["A2", ["A2-C1"]]]);
+	assert.deepEqual(items, [
+		{ id: "A1", text: "User behavior works" },
+		{ id: "A2", text: "Tests: `node verify.mjs` — runnable" },
+	]);
+	const trusted = { label: "Fixture", command: "node trusted-test.mjs", source: "Fixture: `node trusted-test.mjs`" };
+	assert.deepEqual(acceptanceEvidenceBindings(items, [trusted]).map((binding) => [binding.itemId, binding.evidenceId, binding.command.command]), [
+		["A1", "A1-T1", "node trusted-test.mjs"],
+		["A2", "A2-T1", "node trusted-test.mjs"],
+	]);
 	const byItem = new Map([
 		["A1", new Set(["A1-T1"])],
-		["A2", new Set(["A2-T1", "A2-C1"])],
+		["A2", new Set(["A2-T1"])],
 	]);
 	const valid = {
 		version: 1,
 		summary: "All acceptance verified",
 		items: [
 			{ id: "A1", verified: true, evidence: ["A1-T1"], message: "Item-scoped final test covers behavior." },
-			{ id: "A2", verified: true, evidence: ["A2-C1"], message: "Acceptance command passed." },
+			{ id: "A2", verified: true, evidence: ["A2-T1"], message: "Trusted Testing command passed for this item." },
 		],
 		rules: [{ id: "R1", compliant: true, evidence: [], message: "Inspected generated files." }],
 		retro: { summary: "Kept scope", learned_notes: ["Keep evidence IDs stable."] },
@@ -61,16 +70,16 @@ test("closeout report requires item-scoped controller evidence and rejects cross
 	assert.throws(() => parseCloseoutReport(JSON.stringify(invented), items, byItem, rules, new Map()), /not issued for that item/);
 });
 
-test("Project Rules are classified conservatively and embedded in both process prompts", () => {
+test("Project Rules remain prose-only and are embedded in both process prompts", () => {
 	const rules = projectRules([
 		"PR CI must be green before closeout.",
 		"Generated output: `node verify-generated.mjs`",
 		"Use pnpm only.",
 	]);
-	assert.deepEqual(rules.map((rule) => [rule.id, rule.kind, rule.commands[0]?.evidenceId]), [
-		["R1", "human", undefined],
-		["R2", "command", "R2-C1"],
-		["R3", "inspection", undefined],
+	assert.deepEqual(rules.map((rule) => [rule.id, rule.kind]), [
+		["R1", "human"],
+		["R2", "inspection"],
+		["R3", "inspection"],
 	]);
 	const review = buildReviewPrompt({ epic, reviewTick: { id: "review" }, diffArtifact: "/tmp/diff", findingsArtifact: "/tmp/findings", rules });
 	const closeout = buildCloseoutPrompt({ epic, closeoutTick: { id: "closeout" }, items: acceptanceItems(epic), rules, evidenceArtifact: "/tmp/evidence", passingEvidenceByItem: new Map(), passingEvidenceByRule: new Map() });

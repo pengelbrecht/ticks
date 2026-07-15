@@ -45,11 +45,11 @@ Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this autom
 /ticks
 ```
 
-`/ticks-run` never executes by default. Only `--execute` permits Environment checks, tracker writes, worktree creation, child launch, merges, and cleanup. Execution requires a clean non-default controller branch. Worktrees are implicit during execution. `--resume` is an explicit hint; safe reconciliation happens on every execute.
+`/ticks-run` never executes by default. Only `--execute` permits Environment checks, tracker writes, worktree creation, child launch, merges, and cleanup. Execution safely parses the target epic first and requires a clean controller branch that is neither the repository default nor the epic's recorded base (including a nested feature base). Worktrees are implicit during execution. `--resume` is an explicit hint; safe reconciliation happens on every execute.
 
 `/ticks-plan` **does run models by default**: its dry-run launches 3–6 configured scout-model processes (subsystems, tests, contracts, then optional integration/risk/docs) with only `read,grep,find,ls`, followed by the configured planner model with forced `xhigh` reasoning. It persists all prompts/events/reports and prints strict validated waves, models, usage, and cost, but never mutates the tracker. Do not describe this as a no-op: `/ticks-run` dry-run is the no-model preview.
 
-Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. It validates an existing recorded base or derives one from `origin/HEAD` (single local `main`/`master` fallback), fails on ambiguity, and records `base_branch` on the target epic. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, arbitrary fields, or executable acceptance snippets; model acceptance containing backticks/code spans is rejected because only controller configuration may issue verification commands. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Every create carries target/entity labels atomically. Partial failures are committed when possible and recovered from a target-bound state file, create-time labels, epic note, validated-plan artifact, and client-ID map; mapped parent/title/role/marker/base identity is verified before reuse, and symlinked artifact ancestors fail closed.
+Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. It validates an existing recorded base or derives one from `origin/HEAD` (single local `main`/`master` fallback), fails on ambiguity, and records `base_branch` on the target epic. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, arbitrary fields, or executable acceptance snippets; model acceptance containing backticks/code spans is rejected because only controller configuration may issue verification commands. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Every create carries target/entity labels atomically. Partial failures are committed when possible and recovered from a target-bound state file, pending-create journal, create-time labels, epic note, validated-plan artifact, and client-ID map; mapped parent/title/role/marker/base identity is verified before reuse, and symlinked artifact ancestors fail closed. After a true controller SIGKILL, a dead apply lock may be taken over only to commit the exact journaled marked issue plus its single append-only controller create activity; unrelated dirt is refused.
 
 Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
@@ -81,7 +81,7 @@ Reuse the generic example when an interactive agent needs ad-hoc delegation. Use
 
 ## Configuration and model routing
 
-Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. A shell command is executable only when its bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints.
+Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment and Testing shell commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout maps every acceptance item to distinct evidence IDs issued only from trusted Testing commands.
 
 ```markdown
 ## Environment
@@ -128,7 +128,7 @@ Artifacts default under a `.ticks-worktrees` sibling of the primary checkout:
 <run>/artifacts/<tick>/{prompt.md,events.jsonl,report.md,verifier.md,tk-denials.jsonl,attempts/attempt-N/*}
 <run>/artifacts/<review>/{epic.diff,findings.json,review-tests.md}
 <run>/artifacts/<closeout>/{acceptance-evidence.md,closeout-report.json,retro.md}
-<run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md}
+<run>/waves/{wave-<n>-transaction.json,wave-<n>-tests.md,attempts/wave-<n>-attempt-<k>/*}
 <state>/<repo-slug>--<hash>/worktrees/<epic>/<tick>/
 <state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/apply-state.json
 <state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/attempts/<run>/{validated-plan.json,planning-report.md,dashboard-history.json,artifacts/}
@@ -139,7 +139,7 @@ On every execute, the extension performs read-only reconciliation before mutatio
 Operator recovery:
 
 1. `/ticks-status <epic>`.
-2. Inspect the latest decision and bounded report/verifier/wave-test paths; event logs are listed but not loaded.
+2. Inspect the latest decision and bounded report/verifier/wave-test paths, including archived `waves/attempts/wave-N-attempt-K/` transaction/test pairs; event logs are listed but not loaded.
 3. Repair or resume in the existing worktree/branch.
 4. Resolve duplicate claims manually; never create another branch for the same tick.
 5. Re-run `/ticks-run <epic> --execute`; ordinary execution is recovery-aware.
