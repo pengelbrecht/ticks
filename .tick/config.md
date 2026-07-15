@@ -8,6 +8,24 @@
 - UI hint: when UI source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; the full suite has pre-existing failures.
 - Worker hint: when worker source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; full pnpm test has a known workerd boot crash.
 
+## Closeout Evidence Commands
+
+- Package RPC discovery: `node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc`
+- Four-command dry/status smoke: `node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke`
+- Dry-run wave plan: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dry-run-wave-plan`
+- Real live scenario: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+- Dashboard demo/dump: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dashboard-dump`
+- Docs/install content: `node --no-warnings scripts/verify-pi-ticks-qfs.ts docs-install`
+
+## Acceptance Evidence
+
+- A1: `node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc`
+- A2: `node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke`
+- A3: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dry-run-wave-plan`
+- A4: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+- A5: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dashboard-dump`
+- A6: `node --no-warnings scripts/verify-pi-ticks-qfs.ts docs-install`
+
 ## Pi Orchestrator
 
 - planner_model: openai-codex/gpt-5.6-sol:xhigh
