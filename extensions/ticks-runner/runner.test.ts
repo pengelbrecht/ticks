@@ -278,6 +278,25 @@ test("dry-run recovery is read-only even when an existing manifest is selected",
 	assert.equal(command(fixture.repo, "git", "status", "--porcelain"), "");
 });
 
+test("execution refuses the epic's recorded nested base branch before any mutation", async () => {
+	const fixture = createFixture("recorded-base", [{ id: "one" }]);
+	const statePath = path.join(fixture.repo, ".tick", "fake-runner-state.json");
+	const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+	state.epic.base_branch = "parent-feature";
+	fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+	command(fixture.repo, "git", "add", statePath);
+	command(fixture.repo, "git", "commit", "-m", "record nested feature base");
+	command(fixture.repo, "git", "branch", "parent-feature", "HEAD");
+	command(fixture.repo, "git", "switch", "parent-feature");
+	const before = command(fixture.repo, "git", "rev-parse", "HEAD");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "blocked");
+	assert.match(result.summary, /recorded base parent-feature/);
+	assert.equal(command(fixture.repo, "git", "rev-parse", "HEAD"), before);
+	assert.equal(trackerLog(fixture.repo).length, 0);
+	assert.equal(fs.existsSync(fixture.stateRoot), false);
+});
+
 test("fixture epic launches a wave in parallel, verifies after merges, closes durably, then cleans up", async () => {
 	const fixture = createFixture("parallel", [{ id: "a" }, { id: "b" }]);
 	const result = await executeFixture(fixture, { a: { delay: 180 }, b: { delay: 180 } });
@@ -381,7 +400,8 @@ test("lease ownership loss aborts and settles a live process tree before stale t
 			leaseDurationMs: 500, leaseHeartbeatMs: 20, childKillAfterMs: 50,
 			invocationForTask: () => ({ command: process.execPath, args: [supervisorFixture, "process-tree", pidFile] }),
 		});
-		for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+		for (let attempt = 0; attempt < 300 && !fs.existsSync(pidFile); attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(fs.existsSync(pidFile), true, "live process-tree fixture started before ownership-loss assertions");
 		grandchildPid = Number(fs.readFileSync(pidFile, "utf8"));
 		assert.ok(Number.isSafeInteger(grandchildPid) && grandchildPid > 0);
 		fs.rmSync(controllerLeasePath(leasePlan));
@@ -528,12 +548,26 @@ test("post-wave failure keeps affected ticks open with repair state and recovery
 	assert.equal(fs.existsSync(repairWorktree), true, "failed integrated worktree is retained");
 	assert.match(command(fixture.repo, "git", "branch", "--list", "tick/epic/base"), /tick\/epic\/base/, "failed integrated branch is retained");
 
+	const wavesDir = path.join(path.dirname(result.manifest!), "waves");
+	fs.appendFileSync(path.join(wavesDir, "wave-1-transaction.json"), "\nfirst-transaction-marker\n");
+	fs.appendFileSync(path.join(wavesDir, "wave-1-tests.md"), "\nfirst-tests-marker\n");
 	const recovered = await executeFixture(fixture);
 	assert.equal(recovered.status, "failed", recovered.summary);
 	assert.ok(recovered.events.some((event) => event.type === "recovery" && /restricts launch to repair ticks/.test(event.detail)));
+	const firstArchive = path.join(wavesDir, "attempts", "wave-1-attempt-1");
+	assert.match(fs.readFileSync(path.join(firstArchive, "wave-1-transaction.json"), "utf8"), /first-transaction-marker/);
+	assert.match(fs.readFileSync(path.join(firstArchive, "wave-1-tests.md"), "utf8"), /first-tests-marker/);
+	fs.appendFileSync(path.join(wavesDir, "wave-1-transaction.json"), "\nsecond-transaction-marker\n");
+	fs.appendFileSync(path.join(wavesDir, "wave-1-tests.md"), "\nsecond-tests-marker\n");
+	fixture.env.FAIL_POST_WAVE = undefined;
+	const completed = await executeFixture(fixture);
+	assert.equal(completed.status, "completed", completed.summary);
+	const secondArchive = path.join(wavesDir, "attempts", "wave-1-attempt-2");
+	assert.match(fs.readFileSync(path.join(secondArchive, "wave-1-transaction.json"), "utf8"), /second-transaction-marker/);
+	assert.match(fs.readFileSync(path.join(secondArchive, "wave-1-tests.md"), "utf8"), /second-tests-marker/);
 	const starts = fs.readFileSync(fixture.marker, "utf8").split(/\r?\n/).filter((line) => line.includes(":start:"));
-	assert.equal(starts.filter((line) => line.startsWith("base:")).length, 2, "recovery launches a follow-up repair on the retained branch");
-	assert.equal(starts.some((line) => line.startsWith("dependent:")), false, "dependent is never launched from a failed wave artifact");
+	assert.equal(starts.filter((line) => line.startsWith("base:")).length, 3, "each recovery launches only the retained repair tick");
+	assert.equal(starts.filter((line) => line.startsWith("dependent:")).length, 1, "dependent launches only after repaired wave evidence passes");
 });
 
 test("partial wave integration leaves previously merged siblings open and retained", async () => {
@@ -734,6 +768,35 @@ test("closeout verifies acceptance with runnable evidence then closes closeout a
 	assert.match(state.epic.notes?.join("\n") ?? "", /Epic retro/);
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance and rules evidence" && item.status === "passed"));
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "closeout acceptance/rules schema" && item.status === "passed"));
+});
+
+test("tracker acceptance inline code is prose and only trusted Testing commands receive item-scoped evidence", async () => {
+	const fixture = createFixture("closeout-acceptance-injection", [{ id: "closeout", role: "closeout" }]);
+	const injectedMarker = path.join(fixture.root, "tracker-acceptance-executed");
+	const ruleMarker = path.join(fixture.root, "rules-inline-code-executed");
+	const injectedScript = path.join(fixture.repo, "acceptance-evil.mjs");
+	const ruleScript = path.join(fixture.repo, "rules-evil.mjs");
+	fs.writeFileSync(injectedScript, `import * as fs from "node:fs"; fs.writeFileSync(${JSON.stringify(injectedMarker)}, "executed\\n");\n`);
+	fs.writeFileSync(ruleScript, `import * as fs from "node:fs"; fs.writeFileSync(${JSON.stringify(ruleMarker)}, "executed\\n");\n`);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	const statePath = path.join(fixture.repo, ".tick", "fake-runner-state.json");
+	const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+	state.epic.acceptance_criteria = `Tracker text must never execute \`node acceptance-evil.mjs\``;
+	fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+	const configPath = path.join(fixture.repo, ".tick", "config.md");
+	fs.writeFileSync(configPath, fs.readFileSync(configPath, "utf8").replace("- Fixture rule.", "- Rule text containing `node rules-evil.mjs` remains prose."));
+	command(fixture.repo, "git", "add", "delivered.txt", "acceptance-evil.mjs", "rules-evil.mjs", statePath, configPath);
+	command(fixture.repo, "git", "commit", "-m", "add adversarial tracker acceptance");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	assert.equal(fs.existsSync(injectedMarker), false, "tracker prose never reaches a shell");
+	assert.equal(fs.existsSync(ruleMarker), false, "Rules prose never reaches a shell");
+	const evidence = result.outcomes[0].artifacts?.find((file) => file.endsWith("acceptance-evidence.md"));
+	assert.ok(evidence);
+	const text = fs.readFileSync(evidence!, "utf8");
+	assert.match(text, /A1-T1/);
+	assert.match(text, /node verify\.mjs/);
+	assert.doesNotMatch(text, /Command: `node acceptance-evil\.mjs`/);
 });
 
 test("failing closeout evidence keeps closeout and epic open without invoking the verifier", async () => {

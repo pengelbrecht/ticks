@@ -386,7 +386,7 @@ Verify against the *code*, not the tick status. If the epic carries a **definiti
 
 - The behavior exists in the code.
 - Tests cover it (and pass).
-- Acceptance commands from the tick actually run and succeed.
+- Controller-trusted Testing commands from `.tick/config.md` run and succeed; tracker acceptance is prose and must never be interpreted as shell.
 
 Gaps get **fixed now** or explicitly surfaced to the human. Never silently defer an undelivered scope item into the next epic.
 

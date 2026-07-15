@@ -25,6 +25,7 @@ import { buildRunPlan, parseGraph, type GraphResult, type GraphTask, type RunDry
 import { cleanupIntegratedWorktree, ensureGitWorktree, integrateWorktreeResult } from "./merge.ts";
 import { spawnProcessTree, terminateProcessTree } from "./process.ts";
 import {
+	acceptanceEvidenceBindings,
 	acceptanceItems,
 	applyAutonomousSelection,
 	buildCloseoutPrompt,
@@ -324,12 +325,24 @@ function git(root: string, args: readonly string[]): string {
 	return requireSuccessful(runSubprocess("git", args, root), `git ${args.join(" ")} failed`).stdout.trim();
 }
 
-function controllerPreflight(root: string): { branch: string; commit: string } {
+function validatedBaseBranch(root: string, candidate: string): string {
+	const branch = candidate.trim();
+	if (!branch || branch !== candidate || branch.length > 128 || branch.startsWith("-") || branch.includes("..") || branch.includes("@{") || /[\0\r\n]/.test(branch)) {
+		throw new Error(`Epic has an unsafe recorded base_branch ${JSON.stringify(candidate)}`);
+	}
+	requireSuccessful(runSubprocess("git", ["check-ref-format", "--branch", branch], root), `Epic has an unsafe recorded base_branch ${JSON.stringify(branch)}`);
+	requireSuccessful(runSubprocess("git", ["rev-parse", "--verify", "--end-of-options", `${branch}^{commit}`], root), `Epic recorded base_branch ${branch} does not resolve to a commit`);
+	return branch;
+}
+
+function controllerPreflight(root: string, recordedBaseBranch: string): { branch: string; commit: string } {
 	const branch = git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+	const baseBranch = validatedBaseBranch(root, recordedBaseBranch);
 	const remoteHead = runSubprocess("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], root);
 	const defaultBranch = remoteHead.status === 0 ? remoteHead.stdout.trim().replace(/^origin\//, "") : undefined;
-	if (branch === "main" || branch === "master" || (defaultBranch && branch === defaultBranch)) {
-		throw new Error(`Refusing orchestration on default branch ${branch}; switch to a feature branch first`);
+	const localBase = baseBranch.replace(/^origin\//, "");
+	if (branch === "main" || branch === "master" || (defaultBranch && branch === defaultBranch) || branch === baseBranch || branch === localBase) {
+		throw new Error(`Refusing orchestration on default branch or epic recorded base ${branch}; switch to the epic's feature branch first`);
 	}
 	const dirty = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
 	if (dirty) throw new Error(`Controller checkout must be completely clean before execution:\n${dirty}`);
@@ -389,8 +402,9 @@ function parseEpicProcessDetail(input: string, expectedId: string): EpicProcessD
 	const detail = parseTickDetail(input, expectedId);
 	const value = JSON.parse(input) as Record<string, unknown> | Array<Record<string, unknown>>;
 	const item = Array.isArray(value) ? value[0] : value;
-	const baseBranch = typeof item?.base_branch === "string" ? item.base_branch.trim() : "";
-	if (!baseBranch || baseBranch.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseBranch) || baseBranch.includes("..") || baseBranch.includes("@{")) {
+	const rawBaseBranch = typeof item?.base_branch === "string" ? item.base_branch : "";
+	const baseBranch = rawBaseBranch.trim();
+	if (!baseBranch || rawBaseBranch !== baseBranch || baseBranch.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseBranch) || baseBranch.includes("..") || baseBranch.includes("@{")) {
 		throw new Error(`Epic ${expectedId} needs a safe recorded base_branch before review/closeout`);
 	}
 	return { ...detail, baseBranch };
@@ -607,6 +621,20 @@ function writeJsonArtifact(file: string, value: unknown): void {
 
 const MAX_ARCHIVED_ATTEMPTS = 1_000;
 
+function archiveWaveEvidence(runDir: string, wave: number): void {
+	const wavesRoot = path.join(runDir, "waves");
+	const existing = [waveTransactionPath(runDir, wave), path.join(wavesRoot, `wave-${wave}-tests.md`)].filter((file) => fs.existsSync(file));
+	if (!existing.length) return;
+	const attemptsRoot = path.join(wavesRoot, "attempts");
+	fs.mkdirSync(attemptsRoot, { recursive: true, mode: 0o700 });
+	let attempt = 1;
+	while (attempt <= MAX_ARCHIVED_ATTEMPTS && fs.existsSync(path.join(attemptsRoot, `wave-${wave}-attempt-${attempt}`))) attempt++;
+	if (attempt > MAX_ARCHIVED_ATTEMPTS) throw new Error(`Wave ${wave} evidence history reached its safe limit (${MAX_ARCHIVED_ATTEMPTS}); refusing to overwrite prior transaction/tests`);
+	const destination = path.join(attemptsRoot, `wave-${wave}-attempt-${attempt}`);
+	fs.mkdirSync(destination, { mode: 0o700 });
+	for (const file of existing) fs.renameSync(file, path.join(destination, path.basename(file)));
+}
+
 /** Preserve every completed attempt before fixed latest-artifact paths are reused. */
 function archiveAttemptArtifacts(artifactDir: string, names: readonly string[]): void {
 	const existing = names.map((name) => path.join(artifactDir, name)).filter((file) => fs.existsSync(file));
@@ -805,7 +833,11 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	let integration: { branch: string; commit: string } | undefined;
 	if (options.execute) {
 		if (options.worktrees === false) return finish("blocked", "Execution requires isolated worktrees. Omit the flag to use the implicit default or pass --worktrees.");
-		try { integration = controllerPreflight(root); } catch (error) { return finish("blocked", error instanceof Error ? error.message : String(error)); }
+		try {
+			// Validate the target before Environment checks, leases, manifests, or mutations.
+			const epic = parseEpicProcessDetail(tracker(tk, ["show", options.epicId, "--json"], root, env), options.epicId);
+			integration = controllerPreflight(root, epic.baseBranch);
+		} catch (error) { return finish("blocked", error instanceof Error ? error.message : String(error)); }
 	}
 
 	let config = loadRunnerConfig(root, env);
@@ -1099,21 +1131,13 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		markProcessStarted(task, work, "closeout");
 		const evidenceArtifact = path.join(work.artifactDir, "acceptance-evidence.md");
 		const evidence: Array<{ id: string; item?: string; command: CommandEvidence }> = [];
-		for (const item of items) {
-			for (const configured of item.commands) {
-				const [result] = await runConfiguredCommands([configured], root, env, options.signal);
-				if (result) evidence.push({ id: configured.evidenceId, item: `${item.id}: ${item.text}`, command: result });
-			}
-			for (let index = 0; index < config.testCommands.length; index++) {
-				const [result] = await runConfiguredCommands([config.testCommands[index]], root, env, options.signal);
-				if (result) evidence.push({ id: `${item.id}-T${index + 1}`, item: `${item.id}: ${item.text}`, command: result });
-			}
+		const bindings = acceptanceEvidenceBindings(items, config.testCommands);
+		for (const binding of bindings) {
+			const [result] = await runConfiguredCommands([binding.command], root, env, options.signal);
+			const item = items.find((candidate) => candidate.id === binding.itemId)!;
+			if (result) evidence.push({ id: binding.evidenceId, item: `${item.id}: ${item.text}`, command: result });
 		}
 		for (const rule of rules) {
-			for (const configured of rule.commands) {
-				const [result] = await runConfiguredCommands([configured], root, env, options.signal);
-				if (result) evidence.push({ id: configured.evidenceId, item: `${rule.id}: ${rule.text}`, command: result });
-			}
 			if (rule.kind === "human") evidence.push({
 				id: `${rule.id}-H1`,
 				item: `${rule.id}: ${rule.text}`,
@@ -1350,6 +1374,10 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 		}
 		if (plan.maxParallel < 1) return finish("blocked", "Ready work exists but concurrency resolved to zero.", plan);
 
+		if (plan.readyWave !== undefined) {
+			try { archiveWaveEvidence(plan.durablePaths.runDir, plan.readyWave); }
+			catch (error) { return finish("failed", `Cannot archive prior wave ${plan.readyWave} transaction/test evidence before retry: ${error instanceof Error ? error.message : String(error)}`, plan); }
+		}
 		if (!manifest) {
 			manifest = createRunManifest(plan.durablePaths, "planned");
 			manifestPath = plan.durablePaths.manifest;

@@ -31,7 +31,7 @@ The supervisor borrows process/event mechanics from Pi's generic subagent exampl
 
 ## Execution sequence
 
-`/ticks-run <epic>` is always read-only. It computes graph/config/recovery and prints what `/ticks-run <epic> --execute` would do. Execution requires a clean non-default controller branch and passing Environment checks before tracker/worktree mutation.
+`/ticks-run <epic>` is always read-only. It computes graph/config/recovery and prints what `/ticks-run <epic> --execute` would do. Execution first safely parses the epic, then requires a clean controller branch that is neither the repository default nor the epic's recorded base (including a nested feature base), plus passing Environment checks, before tracker/worktree mutation.
 
 For each wave:
 
@@ -45,7 +45,7 @@ For each wave:
 8. Run and persist Testing evidence on the fully merged controller. If this gate fails, keep/reopen all affected ticks, retain repair state, and stop dependents.
 9. Only after the gate passes, close the wave durably, clean worktrees/branches, and re-run `tk graph`.
 
-Ordinary implementation ticks route from public tracker metadata first (tier/labels, risk labels, priority, type, role), then conservative shape rules. Security/integration/subtle/large work is strong; a complete mechanical task naming one or two files may be economy; the default is balanced. Routing only selects among configured implementation models and never guesses a model family. The reason appears in plans, child cards, and reports. `review` and `closeout` route to dedicated controller-checkout frontier processes with strict findings/evidence schemas. Closeout evidence IDs are scoped to one acceptance item, and project Rules are explicit inputs. Rules requiring external facts (for example PR CI status) create a fingerprint-bound human checkpoint; the model cannot assert those facts on its own.
+Ordinary implementation ticks route from public tracker metadata first (tier/labels, risk labels, priority, type, role), then conservative shape rules. Security/integration/subtle/large work is strong; a complete mechanical task naming one or two files may be economy; the default is balanced. Routing only selects among configured implementation models and never guesses a model family. The reason appears in plans, child cards, and reports. `review` and `closeout` route to dedicated controller-checkout frontier processes with strict findings/evidence schemas. Tracker acceptance and project Rules are prose-only and never authorize shell. Only controller-trusted Testing commands execute during closeout; each acceptance-item/Testing-command binding receives its own evidence ID. Rules requiring external facts (for example PR CI status) create a fingerprint-bound human checkpoint; the model cannot assert those facts on its own.
 
 `/ticks-plan` is a separate two-wave supervised flow. Model-running dry-run (the default) launches 3–6 configured scouts, at least two concurrently, with only `read,grep,find,ls`; then it passes bounded subsystem/test/contract findings, target details, Testing/Rules, and tick patterns to `planner_model` at forced `xhigh`. The planner must emit only strict `ticks-plan/v1` JSON. The controller rejects unknown process/shell/tracker fields, unsafe or oversized IDs/text/files, missing/cyclic hard dependencies, model process ticks, non-atomic horizontal tasks, missing acceptance, and same-wave file overlap. Dry-run persists all telemetry and costs but performs no tracker write.
 
@@ -66,7 +66,8 @@ Only `/ticks-plan ... --apply` mutates. It requires a clean non-default branch (
     │   └── tk-denials.jsonl
     └── waves/
         ├── wave-<n>-transaction.json
-        └── wave-<n>-tests.md
+        ├── wave-<n>-tests.md
+        └── attempts/wave-<n>-attempt-<k>/  # archived transaction/tests before retry
 <state>/<repo-slug>--<hash>/plans/<target>--<idempotency-key>/
 ├── apply-state.json
 └── attempts/<run>/{validated-plan.json,planner-output.json,planning-report.md,dashboard-history.json,artifacts/}
@@ -76,7 +77,7 @@ The manifest is atomically replaced and has no process/session identity. Status 
 
 ## Recovery model
 
-Planning apply recovery is keyed separately from epic execution. Retry the exact same epic ID or requirements text: a partial `apply-state.json` reuses the validated plan and client-to-tracker-ID mapping without rerunning models. If local state is gone but the matching epic note remains, the controller fails closed instead of creating a duplicate; inspect/recover the reported epic. Model-only dry-run attempts are immutable evidence and a later invocation starts a new attempt.
+Planning apply recovery is keyed separately from epic execution. Retry the exact same epic ID or requirements text: a partial `apply-state.json` reuses the validated plan and client-to-tracker-ID mapping without rerunning models. A pending-create journal plus per-entity labels recovers a true SIGKILL after `tk create`: a dead owner lock can be taken over, and only the exact marked issue plus its append-only controller create activity is committed; unrelated dirt fails closed. If local state is gone but the matching epic note remains, the controller fails closed instead of creating a duplicate; inspect/recover the reported epic. Model-only dry-run attempts are immutable evidence and a later invocation starts a new attempt.
 
 `/ticks-status [epic]` is the primary epic-execution diagnosis command. It normalizes tracker `active`/`in_progress`/`running`, separates awaiting state, failed/partial lanes, and completed cleanup debt, and retains terminal lane/artifact/decision history. Authority is tracker + integration history + git branch/worktree + reports; `runner-state:` notes are hints.
 
@@ -89,7 +90,7 @@ Planning apply recovery is keyed separately from epic execution. Retry the exact
 - **completed-but-not-cleaned** — verify branch ancestry and durable tracker closure, then remove worktree before branch.
 - **awaiting-gate** — obtain the human decision. `--autonomous` does not currently bypass tracker selection gates.
 
-Never delete incomplete worktrees/artifacts just to clear status. They are durable handoff state. Retries archive fixed-name implementation, verifier, review, and closeout artifacts under bounded `attempts/` directories before writing the latest attempt.
+Never delete incomplete worktrees/artifacts just to clear status. They are durable handoff state. Retries archive fixed-name implementation, verifier, review, and closeout artifacts under bounded `attempts/` directories before writing the latest attempt; failed wave transaction/test pairs are likewise moved to bounded `waves/attempts/wave-N-attempt-K/` directories without overwrite.
 
 ## Operator troubleshooting
 

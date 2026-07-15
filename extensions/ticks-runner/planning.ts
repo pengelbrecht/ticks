@@ -85,6 +85,23 @@ export type ExistingEpicDetail = {
 	baseBranch?: string;
 };
 
+export type PendingPlanningCreate = {
+	step: string;
+	entity: string;
+	head: string;
+	title: string;
+	type: string;
+	status: "open";
+	description: string;
+	acceptance: string;
+	priority: number;
+	labels: string[];
+	blockedBy: string[];
+	parent?: string;
+	role?: "review" | "closeout";
+	createdAt: string;
+};
+
 export type PlanningApplyState = {
 	version: typeof PLANNING_APPLY_STATE_VERSION;
 	idempotencyKey: string;
@@ -99,6 +116,7 @@ export type PlanningApplyState = {
 	clientToTick: Record<string, string>;
 	reviewId?: string;
 	closeoutId?: string;
+	pendingCreate?: PendingPlanningCreate;
 	completedSteps: string[];
 	failedStep?: string;
 	error?: string;
@@ -504,6 +522,18 @@ function readApplyState(file: string, expectedKey: string, expectedTargetBinding
 		if ((value.epicId !== undefined && (typeof value.epicId !== "string" || !SAFE_TICK_ID.test(value.epicId)))
 			|| (value.reviewId !== undefined && (typeof value.reviewId !== "string" || !SAFE_TICK_ID.test(value.reviewId)))
 			|| (value.closeoutId !== undefined && (typeof value.closeoutId !== "string" || !SAFE_TICK_ID.test(value.closeoutId)))) return undefined;
+		if (value.pendingCreate !== undefined) {
+			const pending = value.pendingCreate as Partial<PendingPlanningCreate>;
+			if (!pending || typeof pending !== "object" || Array.isArray(pending) || typeof pending.step !== "string" || !pending.step
+				|| typeof pending.entity !== "string" || !pending.entity || typeof pending.head !== "string" || !/^[0-9a-f]{40,64}$/i.test(pending.head)
+				|| typeof pending.title !== "string" || !pending.title || typeof pending.type !== "string" || pending.status !== "open"
+				|| typeof pending.description !== "string" || typeof pending.acceptance !== "string" || !Number.isSafeInteger(pending.priority)
+				|| !Array.isArray(pending.labels) || !pending.labels.length || pending.labels.some((label) => typeof label !== "string" || !label)
+				|| !Array.isArray(pending.blockedBy) || pending.blockedBy.some((id) => typeof id !== "string" || !SAFE_TICK_ID.test(id))
+				|| (pending.parent !== undefined && (typeof pending.parent !== "string" || !SAFE_TICK_ID.test(pending.parent)))
+				|| (pending.role !== undefined && pending.role !== "review" && pending.role !== "closeout")
+				|| typeof pending.createdAt !== "string" || !Number.isFinite(Date.parse(pending.createdAt))) return undefined;
+		}
 		return { ...value, clientToTick: Object.fromEntries(mapping), completedSteps: [...value.completedSteps] } as PlanningApplyState;
 	} catch { return undefined; }
 }
@@ -551,7 +581,7 @@ function validateBaseBranch(root: string, candidate: string): string {
 	return branch;
 }
 
-function controllerPreflight(root: string, recordedBaseBranch?: string): { branch: string; baseBranch: string; commit: string } {
+function controllerPreflight(root: string, recordedBaseBranch?: string, allowDirty = false): { branch: string; baseBranch: string; commit: string } {
 	const branch = validateBaseBranch(root, git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]));
 	const remoteHead = runSubprocess("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], root);
 	let baseBranch = recordedBaseBranch ? validateBaseBranch(root, recordedBaseBranch) : undefined;
@@ -572,9 +602,10 @@ function controllerPreflight(root: string, recordedBaseBranch?: string): { branc
 	}
 	if (!baseBranch) throw new Error("Cannot determine one default base branch from controller context; configure origin/HEAD, record a safe epic base_branch, or keep a single local main/master branch");
 	baseBranch = validateBaseBranch(root, baseBranch);
-	if (branch === "main" || branch === "master" || branch === defaultLocal || branch === baseBranch) throw new Error(`Refusing /ticks-plan --apply on default branch or recorded base ${branch}; switch to the epic's feature branch first`);
+	const localBase = baseBranch.replace(/^origin\//, "");
+	if (branch === "main" || branch === "master" || branch === defaultLocal || branch === baseBranch || branch === localBase) throw new Error(`Refusing /ticks-plan --apply on default branch or recorded base ${branch}; switch to the epic's feature branch first`);
 	const dirty = git(root, ["status", "--porcelain=v1", "--untracked-files=all"]);
-	if (dirty) throw new Error(`/ticks-plan --apply requires a completely clean controller checkout:\n${dirty}`);
+	if (!allowDirty && dirty) throw new Error(`/ticks-plan --apply requires a completely clean controller checkout:\n${dirty}`);
 	return { branch, baseBranch, commit: git(root, ["rev-parse", "HEAD"]) };
 }
 
@@ -709,20 +740,151 @@ export type ApplyValidatedPlanInput = {
 	baseBranch?: string;
 };
 
+type ApplyGuardOwner = { version: 1; pid: number; token: string; applyStatePath: string; acquiredAt: string };
+
+function processAlive(pid: number): boolean {
+	if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+	try { process.kill(pid, 0); return true; }
+	catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
+}
+
+function readApplyGuardOwner(guard: string, applyStatePath: string): ApplyGuardOwner | undefined {
+	try {
+		const stat = fs.lstatSync(guard);
+		const ownerPath = path.join(guard, "owner.json");
+		const ownerStat = fs.lstatSync(ownerPath);
+		if (!stat.isDirectory() || stat.isSymbolicLink() || !ownerStat.isFile() || ownerStat.isSymbolicLink() || ownerStat.size > 8 * 1_024) return undefined;
+		const value = JSON.parse(fs.readFileSync(ownerPath, "utf8")) as Partial<ApplyGuardOwner>;
+		return value.version === 1 && Number.isSafeInteger(value.pid) && value.pid! > 0 && typeof value.token === "string" && /^[0-9a-f-]{20,}$/i.test(value.token)
+			&& value.applyStatePath === applyStatePath && typeof value.acquiredAt === "string" && Number.isFinite(Date.parse(value.acquiredAt)) ? value as ApplyGuardOwner : undefined;
+	} catch { return undefined; }
+}
+
 function acquireApplyGuard(applyStatePath: string, stateRoot: string): () => void {
 	const guard = `${applyStatePath}.controller.lock`;
 	if (hasSymlinkBelow(stateRoot, guard)) throw new Error(`Unsafe symlinked planning apply guard: ${guard}`);
 	ensureSafePlanningDirectory(stateRoot, path.dirname(guard));
-	try { fs.mkdirSync(guard, { mode: 0o700 }); }
+	const owner: ApplyGuardOwner = { version: 1, pid: process.pid, token: randomUUID(), applyStatePath, acquiredAt: new Date().toISOString() };
+	const create = () => {
+		fs.mkdirSync(guard, { mode: 0o700 });
+		fs.writeFileSync(path.join(guard, "owner.json"), `${JSON.stringify(owner, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+	};
+	try { create(); }
 	catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-		let stale = false;
-		try { stale = Date.now() - fs.statSync(guard).mtimeMs > 30 * 60 * 1_000; } catch { /* A competing controller owns the transition. */ }
-		if (!stale) throw new Error(`Another /ticks-plan --apply controller owns ${applyStatePath}; refusing concurrent tracker mutation`);
-		fs.rmSync(guard, { recursive: true, force: true });
-		fs.mkdirSync(guard, { mode: 0o700 });
+		const existing = readApplyGuardOwner(guard, applyStatePath);
+		if (existing && processAlive(existing.pid)) throw new Error(`Another /ticks-plan --apply controller (pid ${existing.pid}) owns ${applyStatePath}; refusing concurrent tracker mutation`);
+		let oldEnough = false;
+		try { oldEnough = Date.now() - fs.statSync(guard).mtimeMs > 30 * 60 * 1_000; } catch { /* transition raced */ }
+		if (!existing && !oldEnough) throw new Error(`Malformed or transitioning /ticks-plan --apply lock owns ${applyStatePath}; refusing unsafe takeover`);
+		const quarantine = `${guard}.stale-${owner.token}`;
+		try { fs.renameSync(guard, quarantine); }
+		catch { throw new Error(`Another /ticks-plan --apply controller is taking over ${applyStatePath}; retry after inspecting ownership`); }
+		try { create(); } finally { fs.rmSync(quarantine, { recursive: true, force: true }); }
 	}
-	return () => fs.rmSync(guard, { recursive: true, force: true });
+	return () => {
+		const current = readApplyGuardOwner(guard, applyStatePath);
+		if (current?.token === owner.token) fs.rmSync(guard, { recursive: true, force: true });
+	};
+}
+
+function pendingCreate(input: {
+	step: string;
+	entity: string;
+	head: string;
+	title: string;
+	type: string;
+	description?: string;
+	acceptance?: string;
+	priority?: number;
+	labels: string[];
+	blockedBy?: string[];
+	parent?: string;
+	role?: "review" | "closeout";
+}): PendingPlanningCreate {
+	return { ...input, status: "open", description: input.description ?? "", acceptance: input.acceptance ?? "", priority: input.priority ?? 2, blockedBy: input.blockedBy ?? [], createdAt: new Date().toISOString() };
+}
+
+function beginPendingCreate(file: string, state: PlanningApplyState, stateRoot: string, pending: PendingPlanningCreate): void {
+	if (state.pendingCreate && state.pendingCreate.step !== pending.step) throw new Error(`Apply state still has unresolved create ${state.pendingCreate.step}`);
+	state.pendingCreate = pending;
+	writeApplyState(file, state, stateRoot);
+}
+
+function finishPendingCreate(file: string, state: PlanningApplyState, stateRoot: string): void {
+	delete state.pendingCreate;
+	writeApplyState(file, state, stateRoot);
+}
+
+function gitStatusEntries(root: string): Array<{ status: string; file: string }> {
+	const output = requireSuccessful(runSubprocess("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], root), "Cannot inspect interrupted planning tracker state").stdout;
+	const records = output.split("\0").filter(Boolean);
+	const entries: Array<{ status: string; file: string }> = [];
+	for (let index = 0; index < records.length; index++) {
+		const record = records[index];
+		if (record.length < 4 || record[2] !== " ") throw new Error("Cannot parse interrupted planning git status safely");
+		const status = record.slice(0, 2);
+		if (status.includes("R") || status.includes("C")) throw new Error("Interrupted planning recovery refuses renamed/copied tracker paths");
+		entries.push({ status, file: record.slice(3).replaceAll("\\", "/") });
+	}
+	return entries;
+}
+
+function headFile(root: string, file: string): string | undefined {
+	const result = runSubprocess("git", ["show", `HEAD:${file}`], root);
+	return result.status === 0 ? result.stdout : undefined;
+}
+
+function exactStringSet(left: unknown, right: readonly string[]): boolean {
+	return Array.isArray(left) && left.every((item) => typeof item === "string") && left.length === right.length
+		&& [...left].sort().every((item, index) => item === [...right].sort()[index]);
+}
+
+/**
+ * A SIGKILL can land after tk durably creates one marked issue but before the
+ * controller records its returned ID or commits .tick. Recover only the exact
+ * journaled create + append-only activity record; every other dirty path fails.
+ */
+function recoverInterruptedCreateDirt(input: ApplyValidatedPlanInput, state: PlanningApplyState | undefined): string | undefined {
+	const entries = gitStatusEntries(input.root);
+	if (!entries.length) return undefined;
+	const pending = state?.pendingCreate;
+	if (!pending) throw new Error(`/ticks-plan --apply requires a completely clean controller checkout; dirty state has no same-target pending-create journal:\n${entries.map((entry) => `${entry.status} ${entry.file}`).join("\n")}`);
+	if (git(input.root, ["rev-parse", "HEAD"]) !== pending.head) throw new Error("Interrupted planning recovery base commit changed after the pending create; refusing to attribute dirty tracker state");
+	const markerLabelsForPending = markerLabels(state.idempotencyKey, pending.entity);
+	if (!exactStringSet(pending.labels.filter((label) => label.startsWith("ticks-plan-")), markerLabelsForPending)) throw new Error("Pending planning create has invalid target/entity markers");
+	const tickId = recoverCreatedByMarker(input.tk, input.root, input.env, markerLabelsForPending, `pending ${pending.entity}`);
+	if (!tickId) throw new Error("Dirty controller state does not contain the same-target entity journaled before tk create; refusing unrelated dirt");
+	const issuePath = `.tick/issues/${tickId}.json`;
+	const allowed = new Set([issuePath, ".tick/activity/activity.jsonl"]);
+	if (entries.some((entry) => !allowed.has(entry.file)) || !entries.some((entry) => entry.file === issuePath && entry.status === "??")) {
+		throw new Error(`Interrupted planning recovery found unrelated or non-create dirt; expected only ${issuePath} plus append-only activity:\n${entries.map((entry) => `${entry.status} ${entry.file}`).join("\n")}`);
+	}
+	const issueStat = fs.lstatSync(path.join(input.root, issuePath));
+	if (!issueStat.isFile() || issueStat.isSymbolicLink() || issueStat.size > 128 * 1_024) throw new Error(`Unsafe interrupted planning issue file ${issuePath}`);
+	const issue = objectValue(JSON.parse(fs.readFileSync(path.join(input.root, issuePath), "utf8")), `interrupted issue ${tickId}`);
+	if (issue.id !== tickId || issue.title !== pending.title || issue.type !== pending.type || issue.status !== pending.status
+		|| (issue.description ?? "") !== pending.description || (issue.acceptance_criteria ?? issue.acceptance ?? "") !== pending.acceptance
+		|| issue.priority !== pending.priority || !exactStringSet(issue.blocked_by ?? [], pending.blockedBy)
+		|| (pending.parent === undefined ? Boolean(issue.parent) : issue.parent !== pending.parent)
+		|| (pending.role === undefined ? Boolean(issue.role) : issue.role !== pending.role) || !exactStringSet(issue.labels, pending.labels)) {
+		throw new Error(`Interrupted issue ${tickId} does not exactly match the journaled same-target create`);
+	}
+	const activityEntry = entries.find((entry) => entry.file === ".tick/activity/activity.jsonl");
+	if (activityEntry) {
+		const activityPath = path.join(input.root, activityEntry.file);
+		const current = fs.readFileSync(activityPath, "utf8");
+		const baseline = headFile(input.root, activityEntry.file) ?? "";
+		if (!current.startsWith(baseline)) throw new Error("Interrupted planning activity is not an append to HEAD");
+		const appended = current.slice(baseline.length).split(/\r?\n/).filter(Boolean);
+		if (appended.length !== 1) throw new Error("Interrupted planning recovery expected exactly one appended create activity");
+		let activity: Record<string, unknown>;
+		try { activity = objectValue(JSON.parse(appended[0]), "interrupted create activity"); } catch { throw new Error("Interrupted planning create activity is malformed"); }
+		if (activity.tick !== tickId || activity.action !== "create" || activity.actor !== PLANNING_ACTOR) throw new Error("Interrupted planning activity does not belong to the journaled controller create");
+	}
+	const commit = trackerCommit(input.root, `Recover interrupted automated Ticks plan ${state.idempotencyKey} ${pending.entity}`);
+	if (!commit || gitStatusEntries(input.root).length) throw new Error("Interrupted planning tracker recovery did not produce one clean durable commit");
+	return commit;
 }
 
 function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranch: string }): ApplyResult {
@@ -747,9 +909,9 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 	if (mappedEntries.some(([clientId]) => !plannedClientIds.has(clientId)) || new Set(mappedEntries.map(([, tickId]) => tickId)).size !== mappedEntries.length) {
 		throw new Error(`Recovery state ${input.applyStatePath} contains unknown or duplicate task mappings`);
 	}
-	const dependentState = mappedEntries.length || state.reviewId || state.closeoutId || state.completedSteps.length;
+	const dependentState = mappedEntries.length || state.reviewId || state.closeoutId || (state.pendingCreate && state.pendingCreate.entity !== "epic") || state.completedSteps.length;
 	if (!state.epicId && dependentState) throw new Error(`Recovery state ${input.applyStatePath} contains task/process progress without its bound epic ID`);
-	if (state.status === "complete" && (!state.epicId || !state.reviewId || !state.closeoutId || input.plan.tasks.some((task) => !state.clientToTick[task.client_id])
+	if (state.status === "complete" && (state.pendingCreate || !state.epicId || !state.reviewId || !state.closeoutId || input.plan.tasks.some((task) => !state.clientToTick[task.client_id])
 		|| !state.completedSteps.includes("record-base-branch") || !state.completedSteps.includes("record-idempotency")
 		|| input.plan.tasks.some((task) => !state.completedSteps.includes(`dependencies:${task.client_id}`)))) {
 		throw new Error(`Recovery state ${input.applyStatePath} claims completion without a complete bound epic/task/process mapping`);
@@ -789,10 +951,13 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 				const labels = markerLabels(key, "epic");
 				state.epicId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "requirements epic");
 				if (!state.epicId) {
+					beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: "epic", head: git(input.root, ["rev-parse", "HEAD"]), title: input.plan.epic.title, type: "epic", description: input.plan.epic.description, acceptance: input.plan.epic.acceptance, labels }));
 					mutationAttempted = true;
 					state.epicId = parseCreatedId(tracker(input.tk, ["create", "--type=epic", `--description=${input.plan.epic.description}`, `--acceptance=${input.plan.epic.acceptance}`, `--labels=${labels.join(",")}`, "--json", "--", input.plan.epic.title], input.root, input.env), "tk create epic");
 				}
 				verifyMappedEntity(input.tk, input.root, input.env, { id: state.epicId, title: state.epicTitle, type: "epic", labels });
+				commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create epic`) ?? commit;
+				finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 			}
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
@@ -801,6 +966,7 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 			mutationAttempted = true;
 			tracker(input.tk, ["update", state.epicId, "--base-branch", state.baseBranch], input.root, input.env);
 			verifyMappedEntity(input.tk, input.root, input.env, { id: state.epicId, title: state.epicTitle, type: "epic", labels: input.target.kind === "requirements" ? markerLabels(key, "epic") : undefined, baseBranch: state.baseBranch });
+			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: record base branch`) ?? commit;
 			state.completedSteps.push(currentStep);
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
@@ -810,6 +976,7 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 			const notes = runSubprocess(input.tk, ["notes", state.epicId], input.root, input.env);
 			if (notes.status === 0 && notes.stdout.includes("ticks-plan:") && !notes.stdout.includes(`key=${key}`)) throw new Error(`Epic ${state.epicId} already carries a different ticks-plan idempotency note; refusing to append tasks`);
 			if (notes.status !== 0 || !notes.stdout.includes(`key=${key}`)) tracker(input.tk, ["note", state.epicId, marker(key, `plan=${digest}`)], input.root, input.env);
+			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: record idempotency`) ?? commit;
 			state.completedSteps.push(currentStep);
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
@@ -819,13 +986,15 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 			const labels = [...markerLabels(key, `client-${task.client_id}`), `tier:${task.tier}`];
 			let tickId = recoverCreatedByMarker(input.tk, input.root, input.env, labels.slice(0, 2), `task ${task.client_id}`);
 			if (!tickId) {
+				beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: `client-${task.client_id}`, head: git(input.root, ["rev-parse", "HEAD"]), title: task.title, type: task.type, description: task.description, acceptance: task.acceptance, priority: task.priority, labels, parent: state.epicId }));
 				mutationAttempted = true;
 				const args = ["create", `--description=${task.description}`, `--acceptance=${task.acceptance}`, `--priority=${task.priority}`, `--type=${task.type}`, `--parent=${state.epicId}`, `--labels=${labels.join(",")}`, "--json", "--", task.title];
 				tickId = parseCreatedId(tracker(input.tk, args, input.root, input.env), `tk create ${task.client_id}`);
 			}
 			verifyMappedEntity(input.tk, input.root, input.env, { id: tickId, title: task.title, type: task.type, parent: state.epicId, labels: labels.slice(0, 2) });
+			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create ${task.client_id}`) ?? commit;
 			state.clientToTick[task.client_id] = tickId;
-			writeApplyState(input.applyStatePath, state, input.stateRoot);
+			finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 		}
 		for (const task of input.plan.tasks) {
 			const tickId = state.clientToTick[task.client_id];
@@ -841,6 +1010,7 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 				mutationAttempted = true;
 				tracker(input.tk, ["update", tickId, "--after", after.join(",")], input.root, input.env);
 			}
+			if (blockers.length || after.length) commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: wire ${task.client_id}`) ?? commit;
 			state.completedSteps.push(currentStep);
 			writeApplyState(input.applyStatePath, state, input.stateRoot);
 		}
@@ -849,6 +1019,7 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 			const labels = markerLabels(key, "review");
 			state.reviewId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "review process tick");
 			if (!state.reviewId) {
+				beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: "review", head: git(input.root, ["rev-parse", "HEAD"]), title: reviewTitle, type: "task", labels, blockedBy: input.plan.terminalClientIds.map((clientId) => state.clientToTick[clientId]), parent: state.epicId, role: "review" }));
 				mutationAttempted = true;
 				const terminalIds = input.plan.terminalClientIds.map((clientId) => state.clientToTick[clientId]);
 				const args = ["create", `--parent=${state.epicId}`, "--role=review", `--labels=${labels.join(",")}`, "--json"];
@@ -857,18 +1028,21 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
 				state.reviewId = parseCreatedId(tracker(input.tk, args, input.root, input.env), "tk create review");
 			}
 			verifyMappedEntity(input.tk, input.root, input.env, { id: state.reviewId, title: reviewTitle, type: "task", parent: state.epicId, role: "review", labels });
-			writeApplyState(input.applyStatePath, state, input.stateRoot);
+			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create review`) ?? commit;
+			finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 		}
 		if (!state.closeoutId) {
 			currentStep = "create:closeout";
 			const labels = markerLabels(key, "closeout");
 			state.closeoutId = recoverCreatedByMarker(input.tk, input.root, input.env, labels, "closeout process tick");
 			if (!state.closeoutId) {
+				beginPendingCreate(input.applyStatePath, state, input.stateRoot, pendingCreate({ step: currentStep, entity: "closeout", head: git(input.root, ["rev-parse", "HEAD"]), title: closeoutTitle, type: "task", labels, blockedBy: [state.reviewId], parent: state.epicId, role: "closeout" }));
 				mutationAttempted = true;
 				state.closeoutId = parseCreatedId(tracker(input.tk, ["create", `--parent=${state.epicId}`, "--role=closeout", `--labels=${labels.join(",")}`, `--blocked-by=${state.reviewId}`, "--json", "--", closeoutTitle], input.root, input.env), "tk create closeout");
 			}
 			verifyMappedEntity(input.tk, input.root, input.env, { id: state.closeoutId, title: closeoutTitle, type: "task", parent: state.epicId, role: "closeout", labels });
-			writeApplyState(input.applyStatePath, state, input.stateRoot);
+			commit = trackerCommit(input.root, `Apply automated Ticks plan ${key}: create closeout`) ?? commit;
+			finishPendingCreate(input.applyStatePath, state, input.stateRoot);
 		}
 		state.status = "complete";
 		state.failedStep = undefined;
@@ -912,10 +1086,17 @@ function applyValidatedPlanUnlocked(input: ApplyValidatedPlanInput & { baseBranc
  * closed rather than racing or blindly recreating work.
  */
 export function applyValidatedPlan(input: ApplyValidatedPlanInput): ApplyResult {
-	const controller = controllerPreflight(input.root, input.baseBranch ?? input.existingEpic?.baseBranch);
 	const release = acquireApplyGuard(input.applyStatePath, input.stateRoot);
-	try { return applyValidatedPlanUnlocked({ ...input, baseBranch: controller.baseBranch }); }
-	finally { release(); }
+	try {
+		const key = idempotencyKey(input.repoIdentity, input.target);
+		const recovered = readApplyState(input.applyStatePath, key, targetBinding(input.target), input.stateRoot);
+		if (recovered && recovered.planDigest !== planDigest(input.plan)) throw new Error(`Recovery state ${input.applyStatePath} belongs to a different validated plan; refusing dirty-state recovery`);
+		const recordedBase = input.baseBranch ?? recovered?.baseBranch ?? input.existingEpic?.baseBranch;
+		controllerPreflight(input.root, recordedBase, true);
+		recoverInterruptedCreateDirt(input, recovered);
+		const controller = controllerPreflight(input.root, recordedBase);
+		return applyValidatedPlanUnlocked({ ...input, baseBranch: controller.baseBranch });
+	} finally { release(); }
 }
 
 function boundedSummary(value: string): string {
@@ -1089,7 +1270,6 @@ export async function runAutomatedPlanning(options: AutomatedPlanningOptions): P
 		const key = idempotencyKey(identity, options.target);
 		const recovery = apply ? readApplyState(paths.applyState, key, targetBinding(options.target), paths.stateRoot) : undefined;
 		if (recovery) {
-			controllerPreflight(root, recovery.baseBranch);
 			if (!path.resolve(recovery.planArtifact).startsWith(`${path.resolve(paths.planRoot)}${path.sep}`) || hasSymlinkBelow(paths.stateRoot, recovery.planArtifact)) return failed("Apply recovery state references an unsafe plan outside its planning artifact root");
 			const plan = validatePlannerDocument(readJson(recovery.planArtifact), options.target.kind);
 			if (planDigest(plan) !== recovery.planDigest) return failed("Apply recovery plan artifact digest no longer matches recovery state");

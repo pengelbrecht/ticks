@@ -16,6 +16,8 @@ import { repoSlug } from "./state.ts";
 
 const fakePi = path.join(import.meta.dirname, "fixtures", "planning-fake-pi.mjs");
 const fakeTkScript = path.join(import.meta.dirname, "fixtures", "planning-fake-tk.mjs");
+const killTkScript = path.join(import.meta.dirname, "fixtures", "planning-kill-tk.mjs");
+const applyChildScript = path.join(import.meta.dirname, "fixtures", "planning-apply-child.mjs");
 
 function command(cwd: string, executable: string, ...args: string[]): string {
 	const result = spawnSync(executable, args, { cwd, encoding: "utf8" });
@@ -359,6 +361,76 @@ test("every controller create recovers from an uncertain post-create crash witho
 		const matchingCreates = trackerLog(f).filter((entry) => entry.command === "create" && Array.isArray(entry.labels) && entry.labels.includes(`ticks-plan-entity-${entity}`));
 		assert.equal(matchingCreates.length, 1, `${entity} must be discovered by its atomically-created marker`);
 	});
+});
+
+test("true SIGKILL after real tk create recovers only its journaled marker mutation and stale apply lock", async () => {
+	if (process.platform === "win32") return;
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ticks-planning-sigkill-"));
+	const repo = path.join(root, "repo");
+	const bin = path.join(root, "bin");
+	const stateRoot = path.join(root, "state");
+	const actualTk = path.join(bin, "tk-real");
+	const wrappedTk = path.join(bin, "tk");
+	const projectRoot = path.resolve(import.meta.dirname, "..", "..");
+	fs.mkdirSync(repo, { recursive: true });
+	fs.mkdirSync(bin, { recursive: true });
+	const built = spawnSync("go", ["build", "-o", actualTk, "./cmd/tk"], { cwd: projectRoot, encoding: "utf8" });
+	assert.equal(built.status, 0, built.stderr);
+	fs.copyFileSync(killTkScript, wrappedTk);
+	fs.chmodSync(wrappedTk, 0o755);
+	command(repo, "git", "init", "--initial-branch=main");
+	command(repo, "git", "config", "user.name", "Planning Death Test");
+	command(repo, "git", "config", "user.email", "planning-death@example.invalid");
+	command(repo, "git", "remote", "add", "origin", "https://github.com/acme/planning-death.git");
+	const baseEnv = { ...process.env, TICK_OWNER: "planning-death-test", ACTUAL_TK: actualTk };
+	let invoked = spawnSync(actualTk, ["init"], { cwd: repo, env: baseEnv, encoding: "utf8" });
+	assert.equal(invoked.status, 0, invoked.stderr);
+	invoked = spawnSync(actualTk, ["create", "Crash-safe planning", "--type", "epic", "--description", "Prove a real process-death recovery path with controller-owned tracker state.", "--acceptance", "The validated plan resumes once without duplicate implementation ticks.", "--json"], { cwd: repo, env: baseEnv, encoding: "utf8" });
+	assert.equal(invoked.status, 0, invoked.stderr);
+	const epicId = JSON.parse(invoked.stdout).id as string;
+	fs.writeFileSync(path.join(repo, ".tick", "config.md"), `## Testing\n- Runner: \`node --test extensions/ticks-runner/planning.test.ts\`\n\n## Pi Orchestrator\n- planner_model: fake/frontier:high\n- scout_model: fake/scout:low\n- max_parallel: 4\n`);
+	command(repo, "git", "add", "-A");
+	command(repo, "git", "commit", "-m", "real tracker fixture");
+	command(repo, "git", "switch", "-c", "feature/planning-death");
+
+	const eventFile = path.join(root, "pi-events.jsonl");
+	const resultFile = path.join(root, "child-result.json");
+	const onceFile = path.join(root, "killed-once");
+	const childOptions = { cwd: repo, target: { kind: "existing", epicId }, apply: true, scoutCount: 3, scoutCap: 3, piExecutable: process.execPath, piScriptPath: fakePi, tkExecutable: wrappedTk, stateRoot };
+	const deathEnv = {
+		...baseEnv,
+		FAKE_PI_PLAN: JSON.stringify(existingPlan()),
+		FAKE_PI_EVENT_FILE: eventFile,
+		FAKE_PI_PLANNER_PROMPT_FILE: path.join(root, "planner-prompt.md"),
+		KILL_AFTER_CREATE_ENTITY: "client-contract",
+		KILL_AFTER_CREATE_ONCE_FILE: onceFile,
+		PLANNING_CHILD_OPTIONS: JSON.stringify(childOptions),
+		PLANNING_CHILD_RESULT: resultFile,
+	};
+	const killed = spawnSync(process.execPath, [applyChildScript], { cwd: projectRoot, env: deathEnv, encoding: "utf8", timeout: 60_000 });
+	assert.equal(killed.signal, "SIGKILL", `${killed.stderr}\n${killed.stdout}`);
+	assert.equal(fs.existsSync(resultFile), false);
+	assert.match(command(repo, "git", "status", "--porcelain"), /\.tick\/issues\/.+\.json/);
+	const modelEventCount = fs.readFileSync(eventFile, "utf8").trim().split("\n").length;
+
+	const configPath = path.join(repo, ".tick", "config.md");
+	fs.appendFileSync(configPath, "\n# unrelated operator dirt\n");
+	const refused = await runAutomatedPlanning({ ...childOptions, env: deathEnv });
+	assert.equal(refused.status, "failed");
+	assert.match(refused.error ?? "", /unrelated|expected only/);
+	assert.match(command(repo, "git", "status", "--porcelain"), /config\.md/);
+	command(repo, "git", "checkout", "--", ".tick/config.md");
+
+	const resumed = await runAutomatedPlanning({ ...childOptions, env: deathEnv });
+	assert.equal(resumed.status, "applied", resumed.error);
+	assert.equal(command(repo, "git", "status", "--porcelain"), "");
+	assert.equal(fs.readFileSync(eventFile, "utf8").trim().split("\n").length, modelEventCount, "recovery reuses the validated plan without rerunning models");
+	const listed = spawnSync(actualTk, ["list", "--all", "--json"], { cwd: repo, env: baseEnv, encoding: "utf8" });
+	assert.equal(listed.status, 0, listed.stderr);
+	const listedJson = JSON.parse(listed.stdout) as Array<{ labels?: string[] }> | { ticks: Array<{ labels?: string[] }> };
+	const records = Array.isArray(listedJson) ? listedJson : listedJson.ticks;
+	assert.equal(records.filter((item) => item.labels?.some((label) => label === "ticks-plan-entity-client-contract")).length, 1);
+	assert.match(command(repo, "git", "log", "--format=%s"), /Recover interrupted automated Ticks plan/);
 });
 
 test("recovery binds mapped entities to target, parent, title, role, and stable marker", async (t) => {
