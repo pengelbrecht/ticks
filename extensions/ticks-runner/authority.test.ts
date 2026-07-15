@@ -4,6 +4,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { acquireCheckoutMutationLease, releaseCheckoutMutationLease } from "./authority.ts";
+import { readControllerLease } from "./state.ts";
 
 const raceChild = path.join(import.meta.dirname, "fixtures", "authority-race-child.mjs");
 
@@ -29,6 +31,28 @@ async function settle(child: ChildProcess): Promise<void> {
 		child.once("close", (code) => code === 0 ? resolve() : reject(new Error(`authority child exited ${code}`)));
 	});
 }
+
+test("checkout authority heartbeats by default when callers omit an interval", async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ticks-authority-heartbeat-"));
+	const repo = path.join(root, "repo");
+	fs.mkdirSync(repo);
+	const handle = acquireCheckoutMutationLease({
+		repoRoot: repo,
+		repoIdentity: "https://github.com/acme/default-heartbeat.git",
+		stateRoot: path.join(root, "state"),
+		owner: "production-default",
+		durationMs: 120,
+	});
+	try {
+		assert.ok(handle.timer, "default acquisition starts a heartbeat timer");
+		await new Promise((resolve) => setTimeout(resolve, 180));
+		const current = readControllerLease(handle.path);
+		assert.equal(current?.controllerToken, handle.lease.controllerToken);
+		assert.ok(Date.parse(current!.expiresAt) > Date.now(), "default heartbeat renews beyond the original lease");
+	} finally {
+		releaseCheckoutMutationLease(handle);
+	}
+});
 
 test("run, planning apply, and dashboard processes race one checkout lease and stage only the winner", async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "ticks-authority-race-"));

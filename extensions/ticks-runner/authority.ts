@@ -1,4 +1,5 @@
 import {
+	DEFAULT_CONTROLLER_HEARTBEAT_MS,
 	DEFAULT_CONTROLLER_LEASE_MS,
 	acquireControllerLease,
 	heartbeatControllerLease,
@@ -35,14 +36,14 @@ export function acquireCheckoutMutationLease(options: CheckoutMutationLeaseOptio
 		tickIds: [],
 		stateRoot: options.stateRoot,
 	});
-	const handle = acquireControllerLease(plan, { durationMs: options.durationMs });
-	if (options.heartbeatMs !== undefined) {
-		startControllerHeartbeat(handle, {
-			durationMs: options.durationMs,
-			intervalMs: options.heartbeatMs,
-			onLost: options.onLost,
-		});
-	}
+	const durationMs = options.durationMs ?? DEFAULT_CONTROLLER_LEASE_MS;
+	const heartbeatMs = options.heartbeatMs ?? Math.min(DEFAULT_CONTROLLER_HEARTBEAT_MS, Math.max(10, Math.floor(durationMs / 4)));
+	const handle = acquireControllerLease(plan, { durationMs });
+	startControllerHeartbeat(handle, {
+		durationMs,
+		intervalMs: heartbeatMs,
+		onLost: options.onLost,
+	});
 	return handle;
 }
 
