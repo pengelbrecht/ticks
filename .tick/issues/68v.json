@@ -2,7 +2,8 @@
   "id": "68v",
   "title": "Unify all controller mutations under checkout authority",
   "description": "Use the same checkout-wide durable controller lease for run execution, planning apply, and dashboard note/approve/reject actions. Avoid self-deadlock/reentrancy and release safely. Fix autonomous checkpoint selection against production graphs that omit awaiting tasks: fetch inclusive detail or safely inject only the exact tk-next-selected child. Add cross-surface concurrency and production-shape tests.",
-  "status": "open",
+  "notes": "2026-07-15 14:38 - Dispatched on tick/qfs/68v via openai-codex/gpt-5.6-sol:high; no .tick mutations by child.",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "Run/plan/dashboard tracker or Git mutations cannot race in one checkout; autonomous production checkpoints work without allowing arbitrary graph injection; tests pass.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-07-15T12:38:36.524096Z",
-  "updated_at": "2026-07-15T12:38:36.524096Z"
+  "updated_at": "2026-07-15T12:38:42.310683Z",
+  "started_at": "2026-07-15T12:38:42.285228Z"
 }
