@@ -51,7 +51,7 @@ Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this autom
 
 Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. It validates an existing recorded base or derives one from `origin/HEAD` (single local `main`/`master` fallback), fails on ambiguity, and records `base_branch` on the target epic. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, arbitrary fields, or executable acceptance snippets; model acceptance containing backticks/code spans is rejected because only controller configuration may issue verification commands. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Every create carries target/entity labels atomically. Partial failures are committed when possible and recovered from a target-bound state file, pending-create journal, create-time labels, epic note, validated-plan artifact, and client-ID map; mapped parent/title/role/marker/base identity is verified before reuse, and symlinked artifact ancestors fail closed. After a true controller SIGKILL, a dead apply lock may be taken over only to commit the exact journaled marked issue plus its single append-only controller create activity; unrelated dirt is refused.
 
-Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
+Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Closeout can execute only controller-owned item mappings from `.tick/config.md` `Acceptance Evidence`; every mapped command must exactly match an executable Testing command, and every acceptance item must be mapped. Generic Testing commands are never distributed across items, and cross-item evidence fails closed. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
 See [`../../../extensions/ticks-runner/README.md`](../../../extensions/ticks-runner/README.md) for exact defaults, dashboard keys, artifacts, recovery, and current limitations.
 
@@ -81,7 +81,7 @@ Reuse the generic example when an interactive agent needs ad-hoc delegation. Use
 
 ## Configuration and model routing
 
-Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment and Testing shell commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout maps every acceptance item to distinct evidence IDs issued only from trusted Testing commands.
+Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment and Testing shell commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout issues evidence only from explicit controller-owned `Acceptance Evidence` lines shaped as `- A<n>: \`exact Testing command\``. Stable `[A<n>]` acceptance IDs are preferred; legacy lines receive deterministic A1/A2 IDs. Unknown, duplicate, stale, missing, or cross-item mappings fail closed.
 
 ```markdown
 ## Environment
@@ -90,6 +90,10 @@ Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules`
 ## Testing
 - Runner: `node --test extensions/ticks-runner/*.test.ts`
 - Go: `go test ./...`
+
+## Acceptance Evidence
+- A1: `node --test extensions/ticks-runner/*.test.ts`
+- A2: `go test ./...`
 
 ## Rules
 - Do not add npm lockfiles.
@@ -181,6 +185,23 @@ pid=$!
 ```
 
 Launch every ready tick before waiting, block on process completion rather than polling, preserve a compact final report, enforce the boundary, verify after merges, and never use the Pi session ID as handoff state.
+
+## Disposable real-run proof
+
+Ordinary suites use the no-model validator:
+
+```bash
+node --no-warnings scripts/pi-ticks-live-scenario.ts --validate
+```
+
+An operator can explicitly run the isolated, billable real `tk` + real Pi lifecycle and retain evidence outside the source repository:
+
+```bash
+node --no-warnings scripts/pi-ticks-live-scenario.ts --execute \
+  --model openai-codex/gpt-5.6-sol:medium
+```
+
+The harness creates and later removes a temporary git/tick repository, executes implementation/review/closeout through actual Pi subprocesses, checks merge/close/cleanup, and copies the run artifacts to `~/.local/state/ticks/live-scenarios/` by default. See the extension README for overrides and safety details.
 
 ## Current limitations
 

@@ -89,15 +89,16 @@ The `--role` flag is what makes the skeleton machine-detectable: `tk graph <epic
 
 **Final-review tick** — run the configured frontier reviewer read-only in the controller checkout, never in an implementation worktree and never with edit/write/tracker authority. Review the full source diff from the epic's recorded base branch against its description, acceptance, and applicable spec. Require schema-validated findings (`severity`, `confidence`, `file`, `line`, `message`) and persist the full log, report, and findings; malformed output fails closed. Blockers create controller-owned repair ticks discovered from the review (or reopen work only when routing is unambiguous), and those repairs block the still-open review. Route should-fix findings according to explicit policy. A clean/routable review closes only after final configured tests have persisted passing evidence.
 
-**Close-out tick** — verify epic acceptance outside-in, item by item, with controller-run evidence and final configured tests. Malformed output, a failing command, or any unverified item leaves closeout and epic open. On pass, persist the verification report and retro/learned notes, close closeout, then close the epic. Ask `tk next` for the next feasible action and surface it without creating, reordering, or otherwise changing roadmap scope. This is the existing close-out convention with a formal predecessor; both process ticks are created at planning time rather than ad-hoc at run end.
+**Close-out tick** — verify epic acceptance outside-in, item by item, with controller-run evidence explicitly authorized for that item in controller-owned configuration. Never form a Cartesian product between generic tests and acceptance prose. Malformed output, a missing/stale/cross-item authorization, a failing command, or any unverified item leaves closeout and epic open. On pass, persist the verification report and retro/learned notes, close closeout, then close the epic. Ask `tk next` for the next feasible action and surface it without creating, reordering, or otherwise changing roadmap scope. This is the existing close-out convention with a formal predecessor; both process ticks are created at planning time rather than ad-hoc at run end.
 
 Both meta-ticks are owned by the orchestrator, not by implementer subagents. They follow the same integrator–tick-state invariant: only the orchestrator runs `tk`; implementers never touch `.tick/`.
 
 ### Run-start: reading `.tick/config.md`
 
-Before calling `tk graph`, read `.tick/config.md` (if present). It contains up to three sections:
+Before calling `tk graph`, read `.tick/config.md` (if present). It contains these operational sections:
 
 - **Testing** — the exact test commands to pass on to implementers.
+- **Acceptance Evidence** — optional controller-owned closeout authorization, one bounded `- A<n>: \`exact Testing command\`` mapping per acceptance item/command. Commands must also exist verbatim in Testing. Tracker acceptance remains prose and never authorizes shell; missing, stale, generic-for-an-unmapped-item, or cross-item evidence fails closed.
 - **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop; don't start a wave on a broken environment.
 - **Rules** — project-specific constraints to include verbatim in every implementer prompt.
 
@@ -386,7 +387,7 @@ Verify against the *code*, not the tick status. If the epic carries a **definiti
 
 - The behavior exists in the code.
 - Tests cover it (and pass).
-- Controller-trusted Testing commands from `.tick/config.md` run and succeed; tracker acceptance is prose and must never be interpreted as shell.
+- Commands explicitly mapped to that exact stable acceptance item under controller-owned `.tick/config.md` `Acceptance Evidence` run and succeed; tracker acceptance is prose and must never be interpreted as shell.
 
 Gaps get **fixed now** or explicitly surfaced to the human. Never silently defer an undelivered scope item into the next epic.
 

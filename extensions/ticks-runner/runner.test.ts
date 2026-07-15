@@ -86,6 +86,9 @@ function createFixture(name: string, tasks: FixtureTask[], options: { failTick?:
 		"## Testing",
 		"- Fixture: `node verify.mjs` (the exact inline code is executable; this prose is not)",
 		"",
+		"## Acceptance Evidence",
+		"- A1: `node verify.mjs`",
+		"",
 		"## Pi Orchestrator",
 		"- implement_balanced_model: openai-codex/gpt-5.6-sol:medium",
 		"- review_model: openai-codex/gpt-5.6-sol:xhigh",
@@ -828,7 +831,28 @@ test("closeout verifies acceptance with runnable evidence then closes closeout a
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "closeout acceptance/rules schema" && item.status === "passed"));
 });
 
-test("tracker acceptance inline code is prose and only trusted Testing commands receive item-scoped evidence", async () => {
+test("missing, cross-item, and unrelated generic evidence fail closed before the closeout model", async () => {
+	const fixture = createFixture("closeout-missing-item-evidence", [{ id: "closeout", role: "closeout" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	const statePath = path.join(fixture.repo, ".tick", "fake-runner-state.json");
+	const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+	state.epic.acceptance_criteria = "- First behavior\n- Unrelated second behavior";
+	fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+	const configPath = path.join(fixture.repo, ".tick", "config.md");
+	fs.writeFileSync(configPath, fs.readFileSync(configPath, "utf8")
+		.replace("- Fixture: `node verify.mjs` (the exact inline code is executable; this prose is not)", "- Fixture: `node verify.mjs` (the exact inline code is executable; this prose is not)\n- Generic: `true`")
+		.replace("- A1: `node verify.mjs`", "- A1: `true`"));
+	command(fixture.repo, "git", "add", "delivered.txt", statePath, configPath);
+	command(fixture.repo, "git", "commit", "-m", "configure unrelated generic evidence");
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "failed", result.summary);
+	assert.match(result.summary, /no controller-authorized command.*A2/);
+	assert.equal(fs.existsSync(fixture.marker), false, "missing A2 authorization prevents closeout model launch");
+	assert.equal(readState(fixture.repo).tasks[0].status, "open");
+	assert.equal(readState(fixture.repo).epic.status, "open");
+});
+
+test("tracker acceptance inline code is prose and only explicitly mapped Testing commands receive item-scoped evidence", async () => {
 	const fixture = createFixture("closeout-acceptance-injection", [{ id: "closeout", role: "closeout" }]);
 	const injectedMarker = path.join(fixture.root, "tracker-acceptance-executed");
 	const ruleMarker = path.join(fixture.root, "rules-inline-code-executed");

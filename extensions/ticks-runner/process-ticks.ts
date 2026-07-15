@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { ConfiguredCommand } from "./config.ts";
+import type { ConfiguredAcceptanceEvidence, ConfiguredCommand } from "./config.ts";
 import type { GraphResult, GraphTask } from "./graph.ts";
 
 export const PROCESS_READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
@@ -260,31 +260,56 @@ export function acceptanceItems(detail: EpicProcessDetail): AcceptanceItem[] {
 	const lines = itemLines(source);
 	if (!lines.length) throw new Error("Epic has neither acceptance criteria nor a description to verify");
 	if (lines.length > 64) throw new Error("Epic acceptance contains more than 64 items");
-	return lines.map((text, index) => ({ id: `A${index + 1}`, text: boundedString(text, `acceptance item ${index + 1}`, 2_000) }));
+	const explicitlyIdentified = lines.some((line) => /^\[A[1-9]\d{0,2}\]\s+/.test(line));
+	if (explicitlyIdentified && lines.some((line) => !/^\[A[1-9]\d{0,2}\]\s+/.test(line))) {
+		throw new Error("Epic acceptance must identify every item when any item uses a stable [A<n>] ID");
+	}
+	const seen = new Set<string>();
+	return lines.map((line, index) => {
+		const match = line.match(/^\[(A[1-9]\d{0,2})\]\s+(.+)$/);
+		const id = match?.[1] ?? `A${index + 1}`;
+		const text = match?.[2] ?? line;
+		if (seen.has(id)) throw new Error(`Epic acceptance contains duplicate stable item ID ${id}`);
+		seen.add(id);
+		return { id, text: boundedString(text, `acceptance item ${id}`, 2_000) };
+	});
 }
 
 /**
- * Bind every prose acceptance item to controller-trusted Testing commands.
- * Tracker/model text is never parsed as shell, and each issued ID belongs to
- * exactly one item even when the same trusted command verifies several items.
+ * Issue evidence only for explicit controller-owned item mappings. Tracker/model
+ * acceptance remains prose, no Cartesian product is created, and a stale,
+ * unknown, duplicate, or missing item authorization fails closed.
  */
 export function acceptanceEvidenceBindings(
 	items: readonly AcceptanceItem[],
-	testCommands: readonly ConfiguredCommand[],
+	configuredEvidence: readonly ConfiguredAcceptanceEvidence[],
 ): AcceptanceEvidenceBinding[] {
-	if (items.length > 64 || testCommands.length > 64) throw new Error("Acceptance evidence mapping exceeds its bounded schema");
+	if (items.length > 64 || configuredEvidence.length > 64) throw new Error("Acceptance evidence mapping exceeds its bounded schema");
 	const ids = new Set<string>();
 	for (const item of items) {
-		if (!/^A\d+$/.test(item.id) || ids.has(item.id) || !item.text || item.text.length > 2_000) throw new Error("Acceptance evidence mapping contains an invalid or duplicate item");
+		if (!/^A[1-9]\d{0,2}$/.test(item.id) || ids.has(item.id) || !item.text || item.text.length > 2_000) throw new Error("Acceptance evidence mapping contains an invalid or duplicate item");
 		ids.add(item.id);
 	}
-	for (const command of testCommands) {
+	const counts = new Map<string, number>();
+	const seen = new Set<string>();
+	const bindings: AcceptanceEvidenceBinding[] = [];
+	for (const configured of configuredEvidence) {
+		if (!ids.has(configured.itemId)) throw new Error(`Acceptance Evidence references unknown or stale item ${configured.itemId}`);
+		const command = configured.command;
 		if (!command || typeof command.command !== "string" || !command.command.trim() || command.command.includes("\0") || command.command.length > 16 * 1_024
 			|| typeof command.source !== "string" || command.source.length > 32 * 1_024 || (command.label !== undefined && (typeof command.label !== "string" || command.label.length > 80))) {
 			throw new Error("Acceptance evidence mapping contains an invalid trusted Testing command");
 		}
+		const key = `${configured.itemId}\0${command.command}`;
+		if (seen.has(key)) throw new Error(`Acceptance Evidence duplicates ${configured.itemId} -> ${JSON.stringify(command.command)}`);
+		seen.add(key);
+		const count = (counts.get(configured.itemId) ?? 0) + 1;
+		counts.set(configured.itemId, count);
+		bindings.push({ itemId: configured.itemId, evidenceId: `${configured.itemId}-T${count}`, command });
 	}
-	return items.flatMap((item) => testCommands.map((command, index) => ({ itemId: item.id, evidenceId: `${item.id}-T${index + 1}`, command })));
+	const missing = items.filter((item) => !counts.has(item.id)).map((item) => item.id);
+	if (missing.length) throw new Error(`Acceptance Evidence has no controller-authorized command for item(s): ${missing.join(", ")}`);
+	return bindings;
 }
 
 const EXTERNAL_RULE = /\b(?:human|approval|sign[- ]?off|pull request|github|gitlab|ci|continuous integration|green on|external)\b/i;

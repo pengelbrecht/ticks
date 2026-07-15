@@ -59,9 +59,10 @@ git check-ignore .tick/
 
 **5. Per-project runner config (`.tick/config.md`):**
 
-Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Three recognized sections:
+Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Recognized operational sections include:
 
 - **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
+- **Acceptance Evidence** — optional controller-owned closeout authorization. Map each stable acceptance item separately with `- A<n>: \`exact Testing command\``. The command must also exist verbatim in Testing; tracker/model prose never authorizes shell and missing/cross-item evidence fails closed.
 - **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
 - **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
 

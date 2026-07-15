@@ -255,6 +255,17 @@ function modelAcceptance(value: unknown, label: string, minimum: number, maximum
 	return acceptance;
 }
 
+function stableEpicAcceptance(value: unknown): string {
+	const acceptance = modelAcceptance(value, "epic.acceptance", 8, 8 * 1_024);
+	const lines = acceptance.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+	if (!lines.length || lines.length > 64 || lines.some((line) => !/^[-*+]\s+\[A[1-9]\d{0,2}\]\s+\S/.test(line))) {
+		throw new Error("epic.acceptance must be a bounded bullet list whose every item starts with a stable [A<n>] ID");
+	}
+	const ids = lines.map((line) => line.match(/\[(A[1-9]\d{0,2})\]/)![1]);
+	if (new Set(ids).size !== ids.length) throw new Error("epic.acceptance contains duplicate stable item IDs");
+	return acceptance;
+}
+
 function exactKeys(value: Record<string, unknown>, allowed: readonly string[], required: readonly string[], label: string): void {
 	const keys = Object.keys(value);
 	for (const key of keys) if (!allowed.includes(key)) throw new Error(`${label} contains unsupported field ${JSON.stringify(key)}; shell/tracker/process arguments are not accepted`);
@@ -371,7 +382,7 @@ export function validatePlannerDocument(value: unknown, targetKind: PlanningTarg
 		epic = {
 			title: validateText(value.title, "epic.title", 4, 200),
 			description: validateText(value.description, "epic.description", 24, 16 * 1_024),
-			acceptance: modelAcceptance(value.acceptance, "epic.acceptance", 8, 8 * 1_024),
+			acceptance: stableEpicAcceptance(value.acceptance),
 		};
 	} else if (Object.hasOwn(root, "epic")) {
 		throw new Error("existing-epic planner output must not redefine epic metadata");
@@ -1144,7 +1155,7 @@ function plannerPrompt(target: PlanningTarget, existing: ExistingEpicDetail | un
   }]
 }`;
 	const scoutText = summaries.map((item) => `## Scout: ${item.id}\n${item.summary}`).join("\n\n").slice(0, MAX_SCOUT_SUMMARIES);
-	return `You are the frontier Ticks planner. Synthesize an implementation plan; do not explore or implement.\n\n${targetContext(target, existing)}\n\n## Project Testing\n${config.testingLines.join("\n") || "(none)"}\n\n## Project Rules\n${config.rules.join("\n") || "(none)"}\n\n## Tick authoring patterns\n${patterns}\n\n## Bounded scout summaries\n${scoutText}\n\nReturn ONLY one strict JSON object matching this schema exactly:\n${schema}\n\nRules:\n- 1-${MAX_PLAN_TASKS} implementation tasks, vertically sliced and independently useful; explicit shared-contract foundation tasks are allowed where necessary.\n- Every task is standalone, has concrete prose-only acceptance, at most 3 acceptance bullets, and lists likely files including lock/generated files.\n- Acceptance must not contain backticks, code spans, or command snippets. Only controller-configured Testing commands may become executable verification evidence.\n- client_id is unique and matches ${SAFE_ID}. Hard blocked_by and optional soft after refer only to client IDs. No cycles.\n- Same-wave tasks must have disjoint files; use hard dependencies for same-file conflicts. Soft order never resolves a conflict.\n- Do not output role, review, closeout, retro, shell, command, tracker, argv, roadmap, parent, or epic-order fields. The controller validates and adds the canonical process skeleton.\n- Do not add/remove/reorder roadmap epics.\n- Existing epic mode must omit epic. New requirements mode must include epic.\n- No Markdown fences or prose outside JSON.`;
+	return `You are the frontier Ticks planner. Synthesize an implementation plan; do not explore or implement.\n\n${targetContext(target, existing)}\n\n## Project Testing\n${config.testingLines.join("\n") || "(none)"}\n\n## Existing controller-owned Acceptance Evidence\n${config.acceptanceEvidenceLines.join("\n") || "(none; the controller must add item mappings before closeout)"}\n\n## Project Rules\n${config.rules.join("\n") || "(none)"}\n\n## Tick authoring patterns\n${patterns}\n\n## Bounded scout summaries\n${scoutText}\n\nReturn ONLY one strict JSON object matching this schema exactly:\n${schema}\n\nRules:\n- 1-${MAX_PLAN_TASKS} implementation tasks, vertically sliced and independently useful; explicit shared-contract foundation tasks are allowed where necessary.\n- Every task is standalone, has concrete prose-only acceptance, at most 3 acceptance bullets, and lists likely files including lock/generated files.\n- Acceptance must not contain backticks, code spans, or command snippets. Only controller-configured Testing commands may become executable verification evidence.\n- In new requirements mode, epic.acceptance is a bullet list and every bullet starts with a unique stable [A<n>] ID. The planner never authors the separate controller-owned Acceptance Evidence mapping.\n- client_id is unique and matches ${SAFE_ID}. Hard blocked_by and optional soft after refer only to client IDs. No cycles.\n- Same-wave tasks must have disjoint files; use hard dependencies for same-file conflicts. Soft order never resolves a conflict.\n- Do not output role, review, closeout, retro, shell, command, tracker, argv, roadmap, parent, or epic-order fields. The controller validates and adds the canonical process skeleton.\n- Do not add/remove/reorder roadmap epics.\n- Existing epic mode must omit epic. New requirements mode must include epic.\n- No Markdown fences or prose outside JSON.`;
 }
 
 function artifactPaths(attemptDir: string, id: string): { dir: string; prompt: string; log: string; report: string } {
@@ -1186,7 +1197,7 @@ function planningReport(result: AutomatedPlanningResult): string {
 	if (result.plan) {
 		lines.push("", "## Validated waves", "");
 		for (const wave of result.plan.waves) lines.push(`- Wave ${wave.wave}: ${wave.taskIds.join(", ")}`);
-		lines.push(`- Process review: blocked by ${result.plan.terminalClientIds.join(", ")}`, "- Process closeout: blocked by review");
+		lines.push(`- Process review: blocked by ${result.plan.terminalClientIds.join(", ")}`, "- Process closeout: blocked by review", "- Closeout authorization: controller must map every epic acceptance item to exact Testing commands under .tick/config.md ## Acceptance Evidence.");
 	}
 	if (result.error) lines.push("", "## Error", "", result.error);
 	return `${lines.join("\n")}\n`;
@@ -1365,7 +1376,7 @@ export function formatPlanningResult(result: AutomatedPlanningResult): string {
 				lines.push(`- **${id}** — ${task.title} (P${task.priority}, ${task.type}, ${task.tier})`, `  - Files: ${task.files.map((file) => `\`${file}\``).join(", ")}`, `  - Hard blockers: ${task.blocked_by.join(", ") || "none"}${task.after?.length ? `; soft after: ${task.after.join(", ")}` : ""}`);
 			}
 		}
-		lines.push("", "### Controller-implied process skeleton", `- Review is blocked by terminal implementation tasks: ${result.plan.terminalClientIds.join(", ")}.`, "- Closeout is blocked by review. These roles were not accepted from model output.");
+		lines.push("", "### Controller-implied process skeleton", `- Review is blocked by terminal implementation tasks: ${result.plan.terminalClientIds.join(", ")}.`, "- Closeout is blocked by review. These roles were not accepted from model output.", "- Before closeout, the controller must map every epic acceptance item to exact Testing commands in `.tick/config.md` under `## Acceptance Evidence`.");
 	}
 	if (result.apply?.status === "partial" && result.apply.partialState) {
 		lines.push("", "## Partial tracker state (recovery required)", `- Epic: ${result.apply.epicId ?? "not created"}`, `- Failed step: ${result.apply.partialState.failedStep}`, `- Error: ${result.apply.partialState.error}`, `- Mapping: \`${JSON.stringify(result.apply.clientToTick)}\``, "- Retry the same target; the controller will reuse this idempotency mapping instead of recreating tasks.");

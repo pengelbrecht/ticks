@@ -57,6 +57,7 @@ Pi extension process memory, PIDs, dashboard component state, and Pi session IDs
 8. Integrate successful branches, close ticks with concrete reasons, clean up worktrees/branches after durable success.
 9. Run post-wave tests on the integration checkout before launching dependents.
 10. Route failures to continuation, repair, human gate, or escalation with durable notes/artifacts.
+11. Treat tracker acceptance as untrusted prose. Closeout evidence is authorized item-by-item only by controller-owned `.tick/config.md` mappings to exact Testing commands; never use a generic Testing×acceptance Cartesian product.
 
 ## Packaging
 
@@ -77,6 +78,6 @@ The epic is complete when:
 - A Pi package manifest loads both the ticks skill and the ticks orchestrator extension.
 - `/ticks-run`, `/ticks-plan`, `/ticks-status`, and `/ticks-dashboard` exist with useful dry-run/status behavior.
 - `/ticks-run <epic> --dry-run` shows wave/tick/worktree/model plan without launching agents.
-- Worktree-mode execution can run at least one disposable tick through child Pi JSON/RPC supervision, artifact capture, boundary check, merge, tick close, and cleanup.
+- Worktree-mode execution can run at least one disposable tick through child Pi JSON/RPC supervision, artifact capture, boundary check, merge, tick close, and cleanup. `scripts/pi-ticks-live-scenario.ts` provides the isolated real-tk/real-Pi proof; dry validation is no-model, while explicit live execution retains evidence outside and removes its temporary repository.
 - The dashboard shows wave progress, agent cards, verifier/merge lanes, cost/context telemetry, and recovery state.
 - Docs explain installation, commands, configuration, durable-state model, recovery, and limitations.

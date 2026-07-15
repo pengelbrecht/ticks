@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pi Ticks orchestrator package** — the root Pi package now distributes the ticks skill and the Ticks-specific runner extension for local-path or git installation. It provides explicit opt-in epic execution, parallel isolated worktrees, model routing, durable reports/manifests, bounded recovery/status, and a TUI/RPC dashboard.
 - **Safe automated `/ticks-plan`** — model-running dry-run launches bounded parallel read-only scouts and frontier `xhigh` synthesis, strictly validates versioned implementation-plan JSON and wave file safety, and persists telemetry without tracker writes. Explicit confirmed `--apply` creates/verifies one epic through an argv-safe controller, maps dependencies, adds canonical process roles, commits tracker state, and recovers partial application idempotently.
 - **Pi operator documentation** — installation, exact commands and defaults, `.tick/config.md` keys, dashboard controls, artifacts, boundary hardening, recovery playbook, tests, and process-tick limitations are now documented in the runner README, skill adapter, and repository wiki.
+- **Disposable real-run proof** — a safe explicit harness builds a temporary real `tk` repository, supervises actual Pi implementation/review/closeout subprocesses, verifies artifacts/boundary/merge/close/cleanup, retains evidence outside the source checkout, and removes the temporary state. Ordinary tests use its no-model dry validator.
 
 ### Changed
 
@@ -20,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Semantically scoped closeout evidence** — tracker acceptance remains prose; closeout now requires bounded controller-owned `Acceptance Evidence` mappings from stable item IDs to exact Testing commands. Missing, stale, cross-item, and generic-for-unmapped-item proof fails closed instead of receiving Cartesian test evidence.
 - **Pi process-tree cancellation** — supervised children and configured commands use POSIX process groups with TERM/KILL escalation (and a Windows-safe fallback); graceful extension shutdown aborts and awaits active run settlement.
 
 ## [0.19.0] - 2026-07-02

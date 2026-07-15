@@ -7,14 +7,23 @@ export type ConfiguredCommand = {
 	source: string;
 };
 
+export type ConfiguredAcceptanceEvidence = {
+	itemId: string;
+	command: ConfiguredCommand;
+	source: string;
+};
+
 export type RunnerConfig = {
 	models: Record<string, string>;
 	maxParallel?: number;
 	reviewShouldFix: "repair" | "record";
 	environmentChecks: string[];
 	testingLines: string[];
+	acceptanceEvidenceLines: string[];
 	environmentCommands: ConfiguredCommand[];
 	testCommands: ConfiguredCommand[];
+	acceptanceEvidence: ConfiguredAcceptanceEvidence[];
+	acceptanceEvidenceErrors: string[];
 	rules: string[];
 	warnings: string[];
 };
@@ -92,6 +101,48 @@ export function parseExecutableCommands(lines: readonly string[]): { commands: C
 	return { commands, ignored };
 }
 
+/**
+ * Parse the controller-owned item authorization table. Every mapping must name
+ * one stable acceptance item and repeat an exact command already authorized in
+ * Testing. No tracker/model text can add a command or acquire another item's
+ * authorization.
+ */
+export function parseAcceptanceEvidence(
+	lines: readonly string[],
+	testCommands: readonly ConfiguredCommand[],
+): { evidence: ConfiguredAcceptanceEvidence[]; errors: string[] } {
+	if (lines.length > 64) return { evidence: [], errors: ["Acceptance Evidence contains more than 64 mappings"] };
+	const evidence: ConfiguredAcceptanceEvidence[] = [];
+	const errors: string[] = [];
+	const seen = new Set<string>();
+	for (const source of lines) {
+		if (source.length > 2_000 || source.includes("\0")) {
+			errors.push(`Acceptance Evidence line is unsafe or exceeds 2000 characters: ${JSON.stringify(source.slice(0, 160))}`);
+			continue;
+		}
+		const match = source.match(/^[-*+]\s+(A[1-9]\d{0,2})\s*:\s*`([^`\r\n]+)`(?:\s+[^`]*)?$/);
+		if (!match || !match[2].trim()) {
+			errors.push(`Acceptance Evidence must use "- A<n>: \`exact Testing command\`": ${JSON.stringify(source)}`);
+			continue;
+		}
+		const itemId = match[1];
+		const commandText = match[2].trim();
+		const key = `${itemId}\0${commandText}`;
+		if (seen.has(key)) {
+			errors.push(`Acceptance Evidence duplicates ${itemId} -> ${JSON.stringify(commandText)}`);
+			continue;
+		}
+		seen.add(key);
+		const matches = testCommands.filter((command) => command.command === commandText);
+		if (matches.length !== 1) {
+			errors.push(`Acceptance Evidence ${itemId} command must match exactly one executable Testing command: ${JSON.stringify(commandText)}`);
+			continue;
+		}
+		evidence.push({ itemId, command: matches[0], source });
+	}
+	return { evidence, errors };
+}
+
 /** Resolve runner settings with environment variables taking precedence over markdown. */
 export function resolveRunnerConfig(markdown: string, env: Environment = process.env): RunnerConfig {
 	const piSection = parseKeyValueBullets(extractSection(markdown, "Pi Orchestrator"));
@@ -119,8 +170,10 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 	}
 	const environmentChecks = parseCommandLines(extractSection(markdown, "Environment"));
 	const testingLines = parseCommandLines(extractSection(markdown, "Testing"));
+	const acceptanceEvidenceLines = extractSection(markdown, "Acceptance Evidence");
 	const environment = parseExecutableCommands(environmentChecks);
 	const testing = parseExecutableCommands(testingLines);
+	const acceptanceEvidence = parseAcceptanceEvidence(acceptanceEvidenceLines, testing.commands);
 	for (const line of environment.ignored.filter((item) => item.includes("`"))) warnings.push(`Environment line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
 	for (const line of testing.ignored.filter((item) => item.includes("`"))) warnings.push(`Testing line contains ambiguous inline code and will not run: ${JSON.stringify(line)}`);
 	return {
@@ -129,8 +182,11 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 		reviewShouldFix,
 		environmentChecks,
 		testingLines,
+		acceptanceEvidenceLines,
 		environmentCommands: environment.commands,
 		testCommands: testing.commands,
+		acceptanceEvidence: acceptanceEvidence.evidence,
+		acceptanceEvidenceErrors: acceptanceEvidence.errors,
 		rules: extractSection(markdown, "Rules"),
 		warnings,
 	};

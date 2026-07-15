@@ -16,6 +16,7 @@
   ],
   "files": [
     "extensions/ticks-runner",
+    "scripts/pi-ticks-live-scenario.ts",
     "skills/ticks",
     "CHANGELOG.md",
     "LICENSE",
