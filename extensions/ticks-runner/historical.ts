@@ -6,8 +6,9 @@ import { dashboardStatus, isActiveStatus, normalizeStatus } from "./status.ts";
 /** Rebuild a dashboard from bounded persisted history, overlaid with fresh tracker/recovery state. */
 export function statusDashboardModel(snapshot: RecoverySnapshot): DashboardModel {
 	const manifestStatuses = snapshot.manifests.map((item) => normalizeStatus(item.manifest?.status));
+	const staleTickIds = new Set(snapshot.items.filter((item) => item.kind === "stale-lease" && item.tickId).map((item) => item.tickId!));
 	const active = snapshot.items.some((item) => item.kind === "active-run" || item.kind === "in-progress")
-		|| snapshot.ticks.some((tick) => isActiveStatus(tick.tracker?.status));
+		|| snapshot.ticks.some((tick) => isActiveStatus(tick.tracker?.status) && !staleTickIds.has(tick.tickId));
 	const status = active ? "running"
 		: snapshot.items.some((item) => item.kind === "awaiting-gate") || manifestStatuses.includes("awaiting") ? "awaiting"
 		: snapshot.items.some((item) => item.kind === "failed-run" || item.kind === "failed-verification") || manifestStatuses.includes("failed") ? "failed"
@@ -20,12 +21,13 @@ export function statusDashboardModel(snapshot: RecoverySnapshot): DashboardModel
 	}).map((tick) => {
 		const items = snapshot.items.filter((item) => item.tickId === tick.tickId);
 		const failed = items.some((item) => item.kind === "failed-run" || item.kind === "failed-verification" || item.kind === "partial-report" || item.kind === "missing-report");
+		const stale = staleTickIds.has(tick.tickId);
 		return {
 			tickId: tick.tickId,
 			title: tick.tracker?.title,
 			branch: tick.branches[0],
 			worktree: tick.worktrees[0]?.path,
-			status: failed ? "failed" : tick.tracker?.awaiting ? "awaiting" : dashboardStatus(tick.tracker?.status ?? "recoverable"),
+			status: failed ? "failed" : tick.tracker?.awaiting ? "awaiting" : stale ? "recoverable" : dashboardStatus(tick.tracker?.status ?? "recoverable"),
 		};
 	});
 	const byTick = new Map(recoveredAgents.map((agent) => [agent.tickId, agent]));

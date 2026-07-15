@@ -113,6 +113,33 @@ test("strict JSON review and closeout reports are complete while malformed proce
 	assert.equal(recovered.items.some((item) => item.kind === "partial-report" && item.tickId === "bad-review"), true);
 });
 
+test("qfs-shaped process note on controller branch is not an implementation worktree claim", () => {
+	const f = fixture("qfs-process-controller");
+	git(f.repo, "branch", "-m", "epic/qfs");
+	issue(f.repo, {
+		id: "review", parent: "qfs", title: "Final review", role: "review", status: "in_progress",
+		started_at: "2026-07-13T10:00:00Z", updated_at: "2026-07-13T10:00:00Z",
+		notes: `2026-07-13T10:00:00Z - runner-state: runner=pi role=review branch=epic/qfs worktree=${f.repo} artifact=review-report`,
+	});
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "qfs", tickIds: ["review"], stateRoot: f.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "failed", new Date("2026-07-13T10:00:00Z")));
+	fs.mkdirSync(plan.ticks[0].artifactDir, { recursive: true });
+	fs.writeFileSync(plan.ticks[0].report, `# Child report: review\n\n- Outcome: **success** (completed)\n\n## Final output\n\n${JSON.stringify({ version: 1, summary: "Clean", findings: [] })}\n`);
+
+	const recovered = scan(f, "qfs");
+	const review = recovered.ticks.find((tick) => tick.tickId === "review");
+	assert.ok(review);
+	assert.deepEqual(review.branches, [], "controller branch is provenance, not a deterministic implementation claim");
+	assert.deepEqual(review.worktrees, [], "controller checkout is not a process tick implementation worktree");
+	assert.equal(recovered.items.some((item) => item.kind === "duplicate-conflict" && item.tickId === "review"), false);
+	assert.equal(recovered.items.some((item) => item.kind === "partial-report" && item.tickId === "review"), false, "strict role report recovery remains active");
+	const reconciled = reconcileRun(recovered, plan);
+	assert.equal(reconciled.status, "resume");
+	assert.deepEqual(reconciled.conflicts, []);
+	assert.equal(reconciled.tickPaths[0].branch, plan.ticks[0].branch);
+	assert.equal(reconciled.tickPaths[0].report, plan.ticks[0].report);
+});
+
 test("existing useful deterministic worktree and failed manifest are selected for in-place resume", () => {
 	const f = fixture("resume");
 	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });
@@ -227,6 +254,25 @@ test("bounded dashboard history reconstructs agent, verifier, merge, and usage l
 	assert.equal(model.verification[0].detail, "kept");
 	assert.equal(model.merges[0].detail, "conflict");
 	assert.equal(model.usage.inputTokens, 11);
+});
+
+test("historical dashboard yields to stale recovery truth instead of tracker in_progress", () => {
+	const f = fixture("stale-dashboard-truth");
+	issue(f.repo, { id: "stale", parent: "epic", title: "Stale child", status: "in_progress", started_at: "2026-07-13T10:00:00Z", updated_at: "2026-07-13T10:00:00Z" });
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["stale"], stateRoot: f.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "running", new Date("2026-07-13T10:00:00Z")));
+	fs.mkdirSync(plan.ticks[0].artifactDir, { recursive: true });
+	fs.writeFileSync(plan.ticks[0].report, "# Child report: stale\n\n- Outcome: **success** (completed)\n\n## Final output\n\nSTATUS: DONE\n");
+	writeDashboardHistory(plan.runDir, buildDashboardModel({ epicId: "epic", status: "running", agents: [{ tickId: "stale", status: "running", currentAction: "historical child activity" }] }), new Date("2026-07-13T10:01:00Z"));
+
+	const recovered = scan(f);
+	assert.ok(recovered.items.some((item) => item.kind === "stale-lease" && item.tickId === "stale"));
+	assert.equal(recovered.items.some((item) => item.kind === "in-progress" && item.tickId === "stale"), false);
+	const dashboard = statusDashboardModel(recovered);
+	assert.equal(dashboard.status, "recoverable", "dashboard and recovery status must agree that no child is live");
+	assert.equal(dashboard.agents.find((agent) => agent.tickId === "stale")?.status, "recoverable");
+	assert.equal(dashboard.agents.filter((agent) => agent.status === "running").length, 0, "historical running state cannot resurrect an inactive child");
+	assert.equal(dashboard.agents.find((agent) => agent.tickId === "stale")?.currentAction, "historical child activity", "bounded history remains visible without overriding recovery truth");
 });
 
 test("failed wave journal assigns blocking verification evidence without relying on tracker notes", () => {

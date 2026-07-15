@@ -61,6 +61,8 @@ export type PreflightResult = {
 
 export type WorkPlan = {
 	tickId: string;
+	wave?: number;
+	launchStatus: "ready" | "not-ready" | "completed";
 	branch: string;
 	worktree: string;
 	artifactDir: string;
@@ -168,23 +170,27 @@ export function buildRunPlan(options: {
 	const { graph, config, repoRoot, repoIdentity, epicId, stateRoot, worktrees } = options;
 	const wave = firstReadyWave(graph);
 	const readyTasks = (wave?.tasks ?? []).filter((task) => task.agent_ready !== false && !isCompletedStatus(task.status));
+	const readyIds = new Set(readyTasks.map((task) => task.id));
 	const caps = [readyTasks.length];
 	if (config.maxParallel !== undefined) caps.push(config.maxParallel);
 	if (graph.stats?.max_parallel !== undefined && graph.stats.max_parallel > 0) caps.push(graph.stats.max_parallel);
 	const maxParallel = readyTasks.length === 0 ? 0 : Math.min(...caps);
+	const allTasks = graph.waves.flatMap((graphWave) => (graphWave.tasks ?? []).map((task) => ({ task, wave: graphWave.wave })));
 	const durablePaths = planRunPaths({
 		repoRoot,
 		repoIdentity,
 		epicId,
-		tickIds: readyTasks.map((task) => task.id),
+		tickIds: allTasks.map(({ task }) => task.id),
 		stateRoot,
 	});
-	const workPlans = readyTasks.map((task, index) => {
+	const workPlans: WorkPlan[] = allTasks.map(({ task, wave: taskWave }, index): WorkPlan => {
 		const routing = routeTask(task);
 		const durable = durablePaths.ticks[index];
 		const processRole = task.role === "review" || task.role === "closeout";
 		return {
 			...durable,
+			wave: taskWave,
+			launchStatus: isCompletedStatus(task.status) ? "completed" : readyIds.has(task.id) ? "ready" : "not-ready",
 			worktree: processRole ? durablePaths.repoRoot : worktrees ? durable.worktree : durablePaths.repoRoot,
 			branch: processRole ? "(controller checkout; read-only)" : durable.branch,
 			model: modelForTier(config, routing.tier),
@@ -234,13 +240,21 @@ export function formatDryPlan(plan: RunDryPlan): string {
 		lines.push(`- Wave ${wave.wave ?? "?"}: ${tasks.length} task(s), parallel ${wave.parallel ?? tasks.length}${wave.ready ? ", ready" : ""}`);
 		if (ready.length > 0) lines.push(`  - ready ticks: ${ready.join(", ")}`);
 	}
-	lines.push("", `## Ready wave ${plan.readyWave ?? "none"}`);
-	if (plan.readyTasks.length === 0) {
-		lines.push("No ready tasks found.");
-	} else {
-		for (const task of plan.readyTasks) {
+	lines.push("", "## Deterministic work plan (all waves)");
+	if (plan.workPlans.length === 0) lines.push("No tasks found.");
+	for (const wave of plan.waves) {
+		const tasks = wave.tasks ?? [];
+		if (!tasks.length) continue;
+		lines.push(`### Wave ${wave.wave ?? "?"}`);
+		for (const task of tasks) {
 			const work = plan.workPlans.find((item) => item.tickId === task.id);
+			const launch = work?.launchStatus === "ready"
+				? "ready now"
+				: work?.launchStatus === "completed"
+					? "completed; no execution"
+					: "not ready; planned only, no execution";
 			lines.push(`- ${task.id} — ${task.title ?? "(untitled)"}`);
+			lines.push(`  - launch: ${launch}`);
 			lines.push(`  - tier/model: ${work?.tier ?? "balanced"}${work?.model ? ` / ${work.model}` : " / Pi default"}`);
 			lines.push(`  - routing: ${work?.tierReason ?? "default balanced"}`);
 			lines.push(`  - execution: ${work?.executionMode ?? "implementation-worktree"}`);

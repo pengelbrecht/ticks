@@ -7,20 +7,19 @@ const graphJson = JSON.stringify({
 	epic: { id: "qfs", title: "Pi orchestration" },
 	needs_planning: false,
 	missing_process_ticks: [],
-	stats: { total_tasks: 3, wave_count: 2, max_parallel: 3, ready_for_agent: 2 },
+	stats: { total_tasks: 4, wave_count: 4, max_parallel: 2, ready_for_agent: 1 },
 	waves: [
 		{
 			wave: 1,
-			parallel: 2,
+			parallel: 1,
 			ready: true,
-			tasks: [
-				{ id: "a", title: "Normal work", status: "open", agent_ready: true },
-				{ id: "b", title: "Review", status: "open", role: "review", agent_ready: true },
-			],
+			tasks: [{ id: "a", title: "Normal work", status: "open", agent_ready: true }],
 		},
-		{ wave: 2, parallel: 1, ready: false, tasks: [{ id: "c", status: "open", agent_ready: false, blocked_by: ["a"] }] },
+		{ wave: 2, parallel: 1, ready: false, tasks: [{ id: "c", title: "Future implementation", status: "open", agent_ready: false, blocked_by: ["a"] }] },
+		{ wave: 3, parallel: 1, ready: false, tasks: [{ id: "b", title: "Future review", status: "open", role: "review", agent_ready: false, blocked_by: ["c"] }] },
+		{ wave: 4, parallel: 1, ready: false, tasks: [{ id: "d", title: "Future closeout", status: "open", role: "closeout", agent_ready: false, blocked_by: ["b"] }] },
 	],
-	critical_path: 2,
+	critical_path: 4,
 });
 
 test("graph parser preserves routing metadata and rejects malformed task records", () => {
@@ -42,6 +41,7 @@ test("run planning caps ready work and routes role models", () => {
 	const config = resolveRunnerConfig(`## Pi Orchestrator
 - implement_balanced_model: openai-codex/gpt-5.6-sol:medium
 - review_model: openai-codex/gpt-5.6-sol:xhigh
+- closeout_model: openai-codex/gpt-5.6-sol:xhigh
 - max_parallel: 1`, {});
 	const plan = buildRunPlan({
 		graph,
@@ -54,16 +54,19 @@ test("run planning caps ready work and routes role models", () => {
 	});
 
 	assert.equal(plan.maxParallel, 1);
-	assert.deepEqual(plan.readyTasks.map((task) => task.id), ["a", "b"]);
-	assert.deepEqual(plan.waves.map((wave) => wave.wave), [1, 2]);
-	assert.deepEqual(plan.workPlans.map((work) => [work.tickId, work.tier, work.model]), [
-		["a", "balanced", "openai-codex/gpt-5.6-sol:medium"],
-		["b", "review", "openai-codex/gpt-5.6-sol:xhigh"],
+	assert.deepEqual(plan.readyTasks.map((task) => task.id), ["a"]);
+	assert.deepEqual(plan.waves.map((wave) => wave.wave), [1, 2, 3, 4]);
+	assert.deepEqual(plan.workPlans.map((work) => [work.tickId, work.wave, work.launchStatus, work.tier, work.model]), [
+		["a", 1, "ready", "balanced", "openai-codex/gpt-5.6-sol:medium"],
+		["c", 2, "not-ready", "balanced", "openai-codex/gpt-5.6-sol:medium"],
+		["b", 3, "not-ready", "review", "openai-codex/gpt-5.6-sol:xhigh"],
+		["d", 4, "not-ready", "closeout", "openai-codex/gpt-5.6-sol:xhigh"],
 	]);
-	assert.match(plan.workPlans[1].tierReason, /dedicated frontier read-only/);
-	assert.equal(plan.workPlans[1].executionMode, "process-controller-readonly");
-	assert.equal(plan.workPlans[1].worktree, "/repo");
-	assert.equal(plan.workPlans[1].branch, "(controller checkout; read-only)");
+	assert.match(plan.workPlans[2].tierReason, /dedicated frontier read-only/);
+	assert.equal(plan.workPlans[2].executionMode, "process-controller-readonly");
+	assert.equal(plan.workPlans[2].worktree, "/repo");
+	assert.equal(plan.workPlans[2].branch, "(controller checkout; read-only)");
+	assert.equal(plan.workPlans[3].executionMode, "process-controller-readonly");
 	assert.equal(plan.workPlans[0].branch, plan.durablePaths.ticks[0].branch);
 	assert.equal(plan.workPlans[0].worktree, `/state/${plan.durablePaths.repoSlug}/worktrees/qfs/a`);
 	assert.equal(plan.workPlans[0].prompt, `${plan.durablePaths.runDir}/artifacts/a/prompt.md`);
@@ -98,14 +101,17 @@ test("run planning caps ready work and routes role models", () => {
 
 	const output = formatDryPlan(plan);
 	assert.match(output, /## Waves/);
-	assert.match(output, /ready ticks: a, b/);
+	assert.match(output, /ready ticks: a/);
 	assert.match(output, /cap 1/);
 	assert.match(output, /Run manifest: \/state\/acme-widgets--[0-9a-f]+\/runs\/qfs--[0-9a-f]+\/run\.json/);
 	assert.match(output, /worktree: \/state\/acme-widgets--[0-9a-f]+\/worktrees\/qfs\/a/);
 	assert.match(output, /prompt: .*\/artifacts\/a\/prompt\.md/);
 	assert.match(output, /report: .*\/artifacts\/a\/report\.md/);
 	assert.match(output, /log: .*\/artifacts\/a\/events\.jsonl/);
-	assert.match(output, /review \/ openai-codex\/gpt-5\.6-sol:xhigh/);
+	assert.match(output, /## Deterministic work plan \(all waves\)/);
+	assert.match(output, /### Wave 2[\s\S]*c — Future implementation[\s\S]*launch: not ready; planned only, no execution[\s\S]*branch: tick\/qfs\/c[\s\S]*worktree: \/state\/acme-widgets--[0-9a-f]+\/worktrees\/qfs\/c/);
+	assert.match(output, /### Wave 3[\s\S]*b — Future review[\s\S]*review \/ openai-codex\/gpt-5\.6-sol:xhigh[\s\S]*branch: \(controller checkout; read-only\)[\s\S]*worktree: \/repo/);
+	assert.match(output, /### Wave 4[\s\S]*d — Future closeout[\s\S]*closeout \/ openai-codex\/gpt-5\.6-sol:xhigh/);
 	assert.match(output, /routing: role=review uses the dedicated frontier read-only/);
 	assert.match(output, /execution: process-controller-readonly/);
 });
