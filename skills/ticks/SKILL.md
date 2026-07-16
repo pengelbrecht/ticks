@@ -1,6 +1,6 @@
 ---
 name: ticks
-description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticker, epic, close the task, plan this, break this down.
+description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticks, epic, close the task, plan this, break this down.
 ---
 
 # Ticks Workflow
@@ -367,7 +367,7 @@ tk blocked  # See what's waiting
 
 Walk the user through each blocking task, then close it:
 ```bash
-tk close <id> --reason "Completed - connection string in .env"
+tk close <id> --reason "Completed: connection string in .env"
 ```
 
 ### Step 5: Run the Epic
@@ -381,8 +381,6 @@ Execute the epic from the current harness. Read **`references/agent-runner.md`**
 5. Persist and run the post-wave test gate on the fully merged tree. Only on success, close the wave durably and clean up; on failure, keep all affected ticks open with repair state retained and block dependents. Then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
 
 You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
-
-> Ticks previously shipped a standalone runner (`tk run`). It has been removed; execution now goes through a supported harness adapter.
 
 ## Quick Reference
 
