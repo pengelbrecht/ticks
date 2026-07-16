@@ -17,7 +17,7 @@ Run this before `tk create`. A fresh subagent sees *only this tick* — not the 
 - [ ] **Verification is concrete** — a runnable test command or explicit check, never "works appropriately"
 - [ ] **Test cases spelled out** — actual inputs → expected outputs, including edge and error cases
 - [ ] **Self-contained** — no placeholders, and no reference to a type or function defined only in another tick (see *The Ideal Tick*)
-- [ ] **Files likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
+- [ ] **Files (and shared resources) likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
 - [ ] **Human gate decided** — if the tick needs a person (a decision, a secret, a review), create it with the right `--awaiting`/`--requires` flag rather than letting an agent guess
 
 The sections below are the detailed backing for each line; this checklist is just the fast gate.
@@ -34,25 +34,29 @@ Use this ordered procedure every time you plan an epic. It replaces ad-hoc "defi
 
 **Step 1 — List every deliverable in the epic.** Write them out explicitly; don't carry them only in your head. One deliverable = one named user-visible or system behaviour to be produced.
 
-**Step 2 — Build a work-to-file matrix.** For each deliverable, list the files it will create or modify. A rough list is fine — the goal is to surface sharing, not produce an exhaustive path inventory.
+**Step 2 — Build a work-to-constraint matrix.** For each deliverable, list the files it will create or modify — and any **shared resource** it touches that the tests cannot isolate per worktree (a singleton test DB, a migration chain, a fixed port, a browser runner). A rough list is fine — the goal is to surface sharing, not produce an exhaustive path inventory.
 
-| Deliverable | Files created/modified |
-|---|---|
-| User can register | `schema.sql`, `handlers/auth.go`, `ui/signup.ts` |
-| User can log in | `handlers/auth.go`, `ui/login.ts` |
-| User sees profile | `handlers/profile.go`, `ui/profile.ts` |
+| Deliverable | Files created/modified | Shared resources |
+|---|---|---|
+| User can register | `schema.sql`, `handlers/auth.go`, `ui/signup.ts` | DB (migration) |
+| User can log in | `handlers/auth.go`, `ui/login.ts` | — |
+| User sees profile | `handlers/profile.go`, `ui/profile.ts` | — |
 
-**Step 3 — Cluster by shared files.** Deliverables that touch the same files cannot safely run in parallel. For each cluster of overlap, either make the ticks sequential with `--blocked-by`, or merge them into one tick if they are tightly coupled enough that separation adds no value.
+**Step 3 — Cluster by constraint surface.** Whatever two deliverables share — a file or a resource — is the *constraint surface*, and it decides the tick boundaries, not the feature list. Resolve each shared surface in this order of preference:
+
+1. **A seam file both would edit → give it to one tick.** A seam owned by a single tick cannot conflict with itself; sequencing two ticks only postpones the collision to the second merge. Split and sequence with `--blocked-by` only when the combined tick would be oversized.
+2. **A shared un-isolable resource → at most one tick per wave touches it.** Concentrate the wave's DB/migration work in a single tick even if that groups work across feature lines. Never two same-wave ticks against the same singleton.
+3. **Otherwise sequence** with `--blocked-by`.
 
 **Pick the right edge type.** Same-file overlap between ticks or epics is a real feasibility constraint — sequence it with `--blocked-by` (hard), never `--after`. A merge conflict you can predict is a dependency, not a preference. Reserve `--after` (soft) for pure ordering preference where nothing actually conflicts: it biases `tk next` ordering but never gates readiness, so a soft-deferred tick can still be picked up when its preferred predecessor is infeasible.
 
 **Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
 
-**Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so that everything that *can* run in parallel *does*. Verify with `tk graph <epic>` that no two ticks in the same wave share a file. If they do, add `--blocked-by` or re-merge until the graph is clean.
+**Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so the graph permits everything to run in parallel that safely can. Verify with `tk graph <epic>` that no two ticks in the same wave share a file or an un-isolable resource; if they do, add `--blocked-by`, re-merge, or concentrate the resource work (Step 3) until the graph is clean. The waves are a **feasibility map, not a dispatch order** — they say what *may* run at once; the orchestrator still decides at run time how much of that width to spend.
 
-### Vertical slicing (the backbone principle)
+### Vertical slicing (the default shape — constraint surfaces override it)
 
-The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to define what each tick does.
+The procedure above answers *when* ticks can run concurrently. The principle below answers *how* to shape each tick — within the bounds the constraint surfaces set. Vertical slicing is the default; where it conflicts with a constraint surface, the surface wins. It is correct — not a violation — to group one wave's DB work across features (the shared-singleton rule), or to give one tick a seam file that several features touch.
 
 **Slice vertically, not horizontally.** Don't make a "schema" tick, an "API" tick, and a "UI" tick — each is useless until the others land, and nothing is demoable until the very end. Instead slice by user-visible capability, so each tick takes one feature front-to-back and leaves the system working:
 
@@ -70,7 +74,7 @@ The foundation-first procedure and vertical slicing work together: vertical slic
 **Keep parallel ticks on disjoint files.** Vertical slices tend to touch shared files (the same schema file, the same router). That's fine in sequence, but ticks that run in the *same wave* each execute in their own worktree and get merged afterward — two same-wave ticks editing `router.go` will collide at merge. So:
 
 - Slice vertically to define the dependency backbone.
-- Within any wave you intend to run in parallel, make sure the ticks touch *different* files. Where they'd overlap, add a `--blocked-by` so they fall into different waves, or pull the shared edit into its own earlier tick the others depend on.
+- Within any wave you intend to run in parallel, make sure the ticks touch *different* files. Where they'd overlap, prefer giving the shared file to one tick (Step 3's seam rule), or pull the shared edit into an earlier foundation tick; sequencing with `--blocked-by` is the fallback.
 - **Watch for lockfiles and generated files.** Two ticks that each add a dependency will both rewrite `pnpm-lock.yaml` / `go.sum` / `Cargo.lock` and conflict at merge even with perfectly disjoint source files. Same for generated code, migration indexes, and barrel/export files. Either serialize dependency-adding ticks with `--blocked-by`, or pull all dependency additions into one early tick the rest depend on. Count these files in "files likely touched" — a tick that runs `pnpm add` touches the lockfile.
 - This is why every tick records its **files likely touched** (below) — it's the input to this decision. Run `tk graph <epic>` to see the waves and check for collisions before launching.
 
