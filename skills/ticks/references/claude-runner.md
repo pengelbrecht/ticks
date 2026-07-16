@@ -14,7 +14,7 @@ Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability c
 
 Set `TK_ACTOR=claude:orchestrator` before tracker writes. For orchestrator self-isolation (the "don't run on main" rule), `EnterWorktree` gives the orchestrating session its own worktree as an alternative to creating a feature branch.
 
-## Tier resolution
+## Capability tier resolution
 
 Resolve the shared capability tiers to Claude model classes. The tier names are the contract; the parenthesized models are dated examples — resolve each against what the harness offers today, and when it exposes fewer levels, collapse adjacent tiers downward (balanced and strong merge first).
 

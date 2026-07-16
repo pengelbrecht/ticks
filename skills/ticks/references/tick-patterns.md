@@ -260,23 +260,30 @@ Run: [test command]
 
 ## Epic Structure
 
-Group related tasks under an epic:
+Group related ticks under an epic — foundation first, then vertical slices that can run in parallel, then the EPIC-SKELETON process ticks:
 
 ```bash
-# Create epic
-tk create "Search Feature" -t epic -d "Full-text search for documents"
+# Create the epic with a definition of done
+tk create "Search Feature" -t epic -d "Full-text search for documents" \
+  --acceptance "User can search documents end-to-end; go test ./internal/search/... passes"
 
-# Create tasks with dependencies
-tk create "Add search index schema" --parent <epic>
-tk create "Implement indexing service" --parent <epic> --blocked-by <schema>
-tk create "Add search API endpoint" --parent <epic> --blocked-by <indexing>
-tk create "Add search UI component" --parent <epic> --blocked-by <api>
+# Wave 1 — foundation: the contract every slice consumes
+tk create "Search index schema + query contract" --parent <epic>
+
+# Wave 2 — vertical slices on disjoint files; both block only on the foundation
+tk create "Index documents on save (service + tests)" --parent <epic> --blocked-by <schema>
+tk create "Search endpoint + results UI" --parent <epic> --blocked-by <schema>
+
+# EPIC-SKELETON — final review, then close-out (templates in SKILL.md)
+tk create "Final review of Search Feature diff" --parent <epic> --role review \
+  --blocked-by <slice-1> --blocked-by <slice-2>
+tk create "Close out Search Feature: retro + plan next epic" --parent <epic> --role closeout \
+  --blocked-by <review-tick>
 ```
 
 **Guidelines:**
-- Aim for 3-5 tasks per epic for optimal parallelization
-- Keep dependent chains in same epic
-- Independent tasks can be split across epics
+- Foundation first, vertical slices behind it on disjoint files — that is what lets a wave run wide.
+- Keep dependent chains in the same epic; genuinely independent work can be its own epic.
 
 ## Anti-Patterns
 
