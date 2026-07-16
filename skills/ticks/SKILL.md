@@ -335,13 +335,15 @@ tk create "Dashboard chart off-by-one" --parent <triage>
 
 #### Designing for parallel execution
 
-Ticks in the same wave (no blocking relationship) run concurrently, each in its own git worktree. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file will still collide at merge time. To keep merges clean:
-- If two ticks edit the same file, make one block the other so they land in different waves
-- Use `tk graph <epic>` to see the waves and confirm ticks in the same wave touch different files
-- Example: Task A edits `auth.go`, Task B edits `auth.go` → B should block on A
-- Lockfiles count: two same-wave ticks that each add a dependency will both rewrite `pnpm-lock.yaml`/`go.sum` and conflict — serialize them, or put all dependency additions in one early tick (see `references/tick-patterns.md`)
+Ticks in the same wave (no blocking relationship between them) run concurrently, each in its own git worktree. Worktrees keep agents from clobbering each other mid-run, but two ticks that edit the same file still collide when their branches merge — and two ticks whose tests hit the same un-isolable resource (one test DB, a fixed port) corrupt each other's runs.
 
-**Slice vertically.** Carve the epic into ticks by user-visible capability (one feature front-to-back), not by layer (all schema, then all API, then all UI). Each tick should leave the system working and demoable. See `references/tick-patterns.md` for the full reasoning and the parallel-safety caveat.
+**Partition by constraint surface.** When two deliverables would share a file or a resource, that shared thing — the *constraint surface* — decides the tick boundaries, not the feature list. Resolve each shared surface in this order (worked procedure in `references/tick-patterns.md`):
+
+- **A seam file both would edit → give it to one tick.** One owner cannot conflict with itself; sequencing two ticks only postpones the collision. Split and sequence with `--blocked-by` only if the combined tick would be oversized — a predictable merge conflict is a hard dependency, never `--after`.
+- **A shared un-isolable resource (one test DB, a fixed port) → at most one tick per wave touches it**, even if that groups work across feature lines.
+- **Lockfiles and generated files are seams too:** two same-wave ticks that each add a dependency both rewrite `pnpm-lock.yaml`/`go.sum` — put all dependency additions in one early tick, or serialize them.
+
+**Slice vertically within each constraint group.** Carve ticks by user-visible capability (one feature front-to-back), not by layer (all schema, then all API, then all UI), so every tick leaves the system working and demoable. When vertical slicing and a constraint surface disagree, the surface wins. See `references/tick-patterns.md` for the full reasoning.
 
 **Define shared contracts first.** When several ticks consume the same interface (an API shape, a DB schema, a shared type), make one tick that defines it and have the others `--blocked-by` it. A stable contract up front lets the dependents run in parallel against a known shape instead of guessing — and keeps their descriptions naming things the same way.
 
@@ -351,7 +353,7 @@ Ticks in the same wave (no blocking relationship) run concurrently, each in its 
 1. **Coverage** — walk each requirement from the gathered understanding (for this phase) and point to the tick that implements it. Add ticks for any gaps.
 2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
 3. **Naming consistency** — the same interface should be called the same thing across tick descriptions; a contract named `clearLayers` in one tick and `clearFullLayers` in another is a latent bug.
-4. **Wave safety** — run `tk graph <epic>` and confirm ticks in the same wave touch different files.
+4. **Wave safety** — run `tk graph <epic>` and confirm no two ticks in the same wave share a file or an un-isolable resource.
 
 This review is cheap and catches the partitioning mistakes that are expensive to unwind once agents are running.
 
