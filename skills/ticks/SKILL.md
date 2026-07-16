@@ -59,15 +59,26 @@ git check-ignore .tick/
 
 **5. Per-project runner config (`.tick/config.md`):**
 
-Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Recognized operational sections include:
+Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give the runner reliable, project-specific guidance. Sections are **delivery addresses, not topics**: each recognized name is wired to exactly one consumption point — who reads it, when, and into whose context it goes. Content within a section is free-form.
 
-- **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
-- **Closeout Evidence Commands** — strict controller-owned commands that may execute only during closeout, never in implementation children, per-tick verification, post-wave gates, or final-review tests.
-- **Acceptance Evidence** — optional controller-owned closeout authorization. Map each stable acceptance item exactly once with `- A<n>: \`exact command\``. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands; tracker/model prose never authorizes shell and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed.
-- **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
-- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
+| Section | Consumer | When | Context cost |
+|---|---|---|---|
+| `## Testing` | implementers + orchestrator | per tick, and at wave-end verification | every implementer prompt — keep surgical |
+| `## Environment` | orchestrator | once, before wave 1 — executable pre-flight checks (CLI tools present, services up). Write commands that *verify* the condition, never instructions to ask the human. *Test, don't ask.* | once per run |
+| `## Rules` | every implementer | inlined verbatim in each implementer prompt (naming conventions, forbidden patterns, required review steps) | **N× per run — keep lean** |
+| `## At wave end` | orchestrator only | after each wave's post-wave gate passes | once per wave |
+| `## Closeout Evidence Commands` | orchestrator only | closeout — never implementers, per-tick verification, post-wave gates, or final-review | closeout only |
+| `## Acceptance Evidence` | orchestrator only | closeout — authorizes acceptance verification | closeout only |
+| `## At epic close-out` | orchestrator only | during the epic-close retro | once per epic |
+| `## At project checkpoint` | orchestrator only | at a project-boundary stop | once per project |
 
-**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads it at run start; implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
+**`Closeout Evidence Commands`** and **`Acceptance Evidence`** are controller-owned authorization, and they **fail closed**. Closeout Evidence Commands may execute *only* during closeout — never in implementation children, per-tick verification, post-wave gates, or final-review tests. Acceptance Evidence is optional; when present it maps each stable acceptance item exactly once with `- A<n>: \`exact command\``, and the command must exist verbatim and uniquely in Testing or Closeout Evidence Commands — tracker/model prose never authorizes shell, and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed.
+
+The three **`At …`** sections are **hooks**, not authorization: a project runs its own steps (a release tag, a history file, a durable report) at a boundary the runner already reaches, instead of forking the skill. They are orchestrator-only — never inlined into implementer prompts, so they carry zero per-agent context tax. `references/agent-runner.md` wires each into the loop.
+
+**An absent or empty `At …` hook section is a no-op** — the hook simply doesn't fire. An unrecognized `##` heading is also a no-op, so a typo is silent; the orchestrator lists any unrecognized headings it finds at run start rather than ignoring them quietly.
+
+**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator re-reads the file at each consumption point (run start, wave end, close-out, checkpoint); implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
 
 **Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
 
