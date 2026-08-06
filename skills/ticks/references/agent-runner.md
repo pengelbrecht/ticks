@@ -11,6 +11,15 @@ This is the runner-neutral execution contract. **Before reading further, identif
 | Pi | [`pi-runner.md`](pi-runner.md) |
 | Prime Agent | [`prime-runner.md`](prime-runner.md) |
 
+**Detect the harness from runtime capabilities, not from the system prompt's self-description** — a harness may present another product's identity in its preamble (Prime Agent, for example, opens with a Claude-Code-style preamble while being a different runtime). Check in this order:
+
+- A persistent IPython kernel is your primary tool and `"rlm" in globals()` is true (equivalently, `RLM_SESSION_DIR` is in the kernel env) → **Prime Agent**.
+- You have `Agent` / `TaskOutput` tools and harness-managed `.claude/` worktrees → **Claude Code**.
+- You are a `codex` CLI session (e.g. `codex exec` semantics, `--output-last-message`) → **Codex**.
+- `/ticks-run` and `/ticks-status` commands are registered, or you are a Pi RPC/TUI session → **Pi**.
+
+One probe settles it; do not guess from vibes, and re-detect on every fresh session — adapter choice is per-session state, not something a tracker note can carry.
+
 Read this file first, then the matching adapter. The adapter maps every capability in this doc to the primitives your harness actually provides. Vocabulary: the **harness** is the coding-agent product you run in (Claude Code, Codex, Pi, Prime Agent); the **runner** is the orchestration role this protocol defines — runner-neutral means any harness can play it through its adapter.
 
 The harness plays the orchestrator; git and `.tick/` are the durable coordination layer.
