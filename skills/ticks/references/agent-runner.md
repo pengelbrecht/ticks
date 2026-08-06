@@ -537,6 +537,7 @@ Epic: <epic-title> (<epic-id>)
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
 - Stay in scope: implement this tick only. Don't add features it didn't ask for.
+- Commit source and tests only — never build/run artifacts (`__pycache__`, `*.pyc`, coverage files, caches). If the repo's `.gitignore` doesn't cover the artifacts your test run produces, extend it as part of your change.
 - If the task is ambiguous or you're missing something, stop and report it — don't guess.
 
 ## Report back, ending with one status line

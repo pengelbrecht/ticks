@@ -2,7 +2,7 @@
   "id": "98i",
   "title": "Verify prime-runner claims against a live Prime Agent epic run",
   "description": "prime-runner.md is verified against prime-agent 0.7.0 source and docs, but never exercised end to end. Run a small epic with the adapter and confirm: worktree-process dispatch, --autonomous-gate behaviour, provider failover path, RLM watchdog settling a child that never replies, and detach/reattach of the orchestrator mid-run.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "A real epic completes under prime-runner.md; each claim above confirmed or corrected in the adapter",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-06T09:12:31.520741Z",
-  "updated_at": "2026-08-06T09:12:31.520741Z"
+  "updated_at": "2026-08-06T09:34:51.372509Z",
+  "closed_at": "2026-08-06T09:34:51.372509Z",
+  "closed_reason": "Completed: live epic run in a disposable repo confirmed worktree dispatch, --autonomous-gate (exit 0 == gate passed), boundary check, integrated gate, review + closeout as RLM children, watchdog notice for a non-replying child, continuation into an idle child's intact context, and spawn hard-fail on a bogus selector. Found+fixed live: worktree remove blocked by untracked artifacts; branch-identity hazard (review child left shared checkout on main); implementer template now forbids committing build artifacts. Not verified live: real 429 provider failover, detach/reattach mid-run."
 }

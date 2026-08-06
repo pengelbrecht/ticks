@@ -205,6 +205,9 @@ handle = await rlm(prompt_text, name=f"review-{tick_id}", model=TIERS["frontier"
 `name` must be unique among live siblings and ≤64 chars; use a deterministic scheme (`scout-<subsystem>`, `review-<tick>`, `closeout-<epic>`) so a resumed run can find children by name. Every such prompt must end with an explicit reply instruction, or the result never reaches you:
 
 ```
+You share the controller checkout. Read-only means git state too: do not run
+git switch/checkout/stash/reset — diff with `git diff <base>...<branch>` and read
+files with `git show <branch>:<path>`. Do not run tk or modify anything.
 When you are finished, send your complete findings with:
   await agent_message.send(<your full report>, receiver_role='parent')
 Agent messages are size-limited — write the full report to <artifact path> and send a
@@ -268,8 +271,14 @@ For a merge conflict the shared move is unchanged: `git merge --abort`, then con
 Integration follows the shared protocol exactly — boundary check, provisional merge, post-wave integrated gate, then durable closes, then cleanup:
 
 ```bash
-git worktree remove "$worktree"
-git branch -d "$branch"          # -d, not -D: refuses an unmerged branch
+# gate runs leave untracked artifacts (__pycache__, coverage files) that make
+# a plain `git worktree remove` refuse; --force is safe only when nothing tracked changed
+if git -C "$worktree" status --porcelain | grep -qv '^??'; then
+  echo "tracked changes present — not removing"   # investigate, don't force
+else
+  git worktree remove --force "$worktree"
+  git branch -d "$branch"        # -d, not -D: stays the merged-ancestry guard
+fi
 rm -rf "$worktree".{report,log,session} "$prompt_file"
 ```
 
@@ -291,6 +300,7 @@ Two Prime-specific hazards deserve naming:
 
 - **The cwd hazard.** Because RLM children inherit the orchestrator's cwd, an implementer accidentally dispatched as an RLM child will edit the *controller checkout*, and its changes will look like orchestrator work. Verify at run start and before each merge that the controller checkout has no unexpected modifications.
 - **The kernel-shell hazard.** `%cd` in the orchestrator's own kernel is sticky across every later `%%bash` cell. Set `%cd <repo-root>` once and never `%cd` into a worktree.
+- **The branch-identity hazard.** RLM children share the controller checkout's *git state*, not just its files. A "read-only" reviewer that runs `git switch`/`checkout`/`stash` to inspect a branch leaves the controller on the wrong branch — after which the orchestrator's tracker writes and commits land there, and the `.tick/` contents it reads silently revert to that branch's copy. (This happened on the first live run of this adapter.) Two defences, use both: every read-only child prompt forbids mutating git state — diff with `git diff <base>...<branch>` and read files with `git show <branch>:<path>`, never by switching — and the orchestrator checks `git branch --show-current` before every tracker write and merge, not just before the run.
 
 ## Planning
 
