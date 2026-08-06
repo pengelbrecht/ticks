@@ -1,0 +1,14 @@
+{
+  "id": "98i",
+  "title": "Verify prime-runner claims against a live Prime Agent epic run",
+  "description": "prime-runner.md is verified against prime-agent 0.7.0 source and docs, but never exercised end to end. Run a small epic with the adapter and confirm: worktree-process dispatch, --autonomous-gate behaviour, provider failover path, RLM watchdog settling a child that never replies, and detach/reattach of the orchestrator mid-run.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "discovered_from": "ux4",
+  "acceptance_criteria": "A real epic completes under prime-runner.md; each claim above confirmed or corrected in the adapter",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-06T09:12:31.520741Z",
+  "updated_at": "2026-08-06T09:12:31.520741Z"
+}

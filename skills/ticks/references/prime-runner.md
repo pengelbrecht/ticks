@@ -2,22 +2,33 @@
 
 Read [`agent-runner.md`](agent-runner.md) first. This file maps its capability contract onto **Prime Agent** (the `prime-agent` CLI and its RLM runtime); it does not redefine tick semantics or recovery.
 
+## The REPL is the orchestrator
+
+Prime Agent has first-class subagents, and they are not a side feature: delegation is a **function call inside a persistent REPL**, context is a **variable**, and the orchestrator's job is to write language-model programs over its own history. That maps onto the Ticks wave loop almost exactly — `tk graph` yields waves, a wave is a map over ready ticks, integration is a fold — so express the loop as code in the kernel rather than as remembered prose. Helpers you define (`dispatch_wave`, `settle`, `next_candidate`) persist across turns and compaction and are the run's real control flow.
+
+The corollary matters more than it sounds: **keep the run's data in variables, not in your context.** Implementer reports, diffs, scout findings, and review output are values to slice, filter, and summarize programmatically. Read a status line by extracting it; do not load a transcript to find it. This is what lets one orchestrator session outlive an epic that would otherwise bury it — and it is why `agent_observe.recent_messages` is bounded and why long child reports go to disk with the message carrying the path.
+
 ## Two dispatch surfaces — pick per role
 
-Prime Agent has two ways to run an agent, and they are not interchangeable. **The deciding fact: `rlm.run` accepts only `name` and `model`. There is no `cwd` kwarg — an RLM child is constructed with its parent's cwd and cannot be pointed at a git worktree.**
+There is one thing an RLM child cannot do, and it is the thing the wave protocol is built on. **`rlm.run` accepts only `name` and `model` — there is no `cwd` kwarg, and a child's session is anchored to its parent's working directory.** A child *can* be told to work in a worktree through absolute paths and a `%cd` in its own kernel, but then filesystem isolation is prompt-enforced rather than structural, and its `AGENTS.md` and project-skill discovery stay anchored to the controller checkout. For parallel implementers — the exact case worktrees exist to protect — that is not good enough.
+
+So the filesystem anchor, and only that, is delegated to processes:
 
 | | **RLM child** — `await rlm(prompt, name=, model=)` | **Worktree process** — `prime-agent -p --cwd <worktree>` |
 |---|---|---|
-| Working directory | Parent's cwd. Not changeable. | `--cwd <worktree>` — true isolation |
-| Completion | Child calls `agent_message.send(..., receiver_role="parent")`; arrives as a message on a later turn | Process exit code + captured stdout/stderr; blocking `wait` |
-| Continuation | `agent_message.send(..., receiver_role="child", receiver_name=...)` reopens **the same session with its full context**, even after it went idle | `-r <session-id>`, or redispatch into the same worktree |
-| Test gate | Prompt-enforced only | `--autonomous --autonomous-gate "<test cmd>"` — host-enforced; the run cannot finish until the gate passes |
+| Working directory | Parent's, structurally | `--cwd <worktree>` — isolation the child cannot drift out of |
+| Instruction discovery | Controller checkout's `AGENTS.md` and skills | The worktree's own, discovered from `--cwd` up to the git root |
+| Completion | `agent_message.send(..., receiver_role="parent")`, arriving as a message on a later turn | Process exit code + captured stdout/stderr; blocking `wait` |
+| Continuation | `agent_message.send(..., receiver_role="child", ...)` reopens **the same session with its full context**, even after it went idle | `-r <session-id>`, or redispatch into the same worktree |
+| Test gate | Prompt-enforced | `--autonomous --autonomous-gate "<test cmd>"` — host-enforced; the run cannot finish until it passes |
 | Introspection | `rlm.list_subagents()`, `agent_observe.get_agent/recent_messages` | `prime-agent list --json` (each entry carries `cwd`, so lanes map back to worktrees) |
 
-**The rule: implementers are worktree processes; every read-only role is an RLM child.**
+**The rule: implementers are worktree processes; every other role is an RLM child.**
 
-- **Implementation ticks → `prime-agent -p --cwd <worktree>`.** One tick, one worktree, one branch requires a real cwd. Never dispatch implementation work through `rlm()` — it will edit the controller checkout.
-- **Planning scouts, the planner, per-tick reviewers, the epic final review, and close-out → RLM children.** These are read-only against the controller checkout, which is where an RLM child already is — matching the shared requirement that review and close-out never run in an implementation worktree. In exchange you get `agent_message` continuation, `agent_observe`, and per-child model selection.
+- **Implementation ticks → `prime-agent -p --cwd <worktree>`.** One tick, one worktree, one branch needs a structural anchor, not a prompt asking for one. Never dispatch implementation work through `rlm()`.
+- **Planning scouts, the planner, per-tick reviewers, the epic final review, and close-out → RLM children.** These are read-only against the controller checkout, which is where a child already is — matching the shared requirement that review and close-out never run in an implementation worktree. Here the RLM primitives are strictly better than a subprocess: composable dispatch, `agent_message` continuation into a child's intact context, bounded observation, per-child model selection, and automatic cost attribution.
+
+Both surfaces are driven from the same REPL, so this is one program with two executors — not two orchestration styles.
 
 ## Capability mapping
 
@@ -206,6 +217,8 @@ Long artifacts go to disk; messages carry summaries and paths. Keep concurrent r
 
 **Worktree processes — block on the shell.** Launch every ready tick in the wave first, keep a `tick -> pid` map, then `wait`. Blocking process supervision, not polling.
 
+One caveat: the kernel serializes cells, so a blocking `wait` holds the whole control environment until the wave's last process exits — fine when implementers are all you are supervising, wrong when RLM children are working in parallel. In that case launch the processes detached, write their reports to files, end the turn, and let the wave heartbeat below collect both surfaces on the same wake. (Child agents themselves are unaffected: each delegation runs in its own runtime and they are genuinely concurrent.)
+
 **RLM children — end your turn.** There is no blocking wait: `rlm()` returns at admission and the child's `agent_message` reply arrives as an ordinary message that resumes you on a later turn. Launch the wave's children in one cell, record them in a kernel dict, end the turn, and fold in each reply as it wakes you.
 
 ```python
@@ -299,7 +312,7 @@ await compact.status()
 await compact.run("Keep: epic <id>, TIERS, the wave dict, open branches, and the failed-gate evidence.")
 ```
 
-The kernel survives compaction, so helpers and the wave dict remain available afterwards.
+The kernel survives compaction, so helpers, `TIERS`, and the wave dict remain available afterwards. This is the payoff of keeping run data in variables rather than in context: compaction costs you narration, never state.
 
 ## Durable state and recovery
 
@@ -309,12 +322,25 @@ The kernel is a fast cache — variables persist across turns and compaction, an
 
 On re-entry, run the shared stale-state recovery and worktree reconciliation unchanged, then add two Prime-specific sweeps:
 
-- `prime-agent list --json` reports every live session with its `cwd` — the fastest way to find an implementer still running in a worktree after the orchestrator died. Print-mode clients are client-owned and may not appear by default.
+- `prime-agent list --json` reports every live session with its `cwd` — the fastest way to find an implementer still running in a worktree after the orchestrator died, and to distinguish that case from an orchestrator that merely detached (see *Unattended runs*). Print-mode clients are client-owned and may not appear by default.
 - A leftover `<worktree>.session` whose branch has commits but whose tick is open is a resume candidate: `prime-agent -r <session-id> --cwd <worktree>`. Never point two processes at one session file.
 
-## Goal-ready handoff
+## Unattended runs
 
-The shared protocol asks the orchestrator to run continuously and names the stall instinct. Prime Agent can make that structural. When the user has settled the *Goal-ready handoff* decision and the front epic's definition of done is goal-compatible, create a thread goal at run start:
+The shared protocol's *Goal-ready handoff* asks how far a run should go before it stops for a human. Prime Agent is built for the far end of that range, and four independent mechanisms combine to get there.
+
+**1. The run survives the terminal.** Sessions are daemon-backed: closing the UI detaches the client, it does not stop the worker, which keeps owning the session, its kernel, its schedules, and its RLM children. An epic launched at the end of the day keeps merging waves overnight. Reattach with:
+
+```bash
+prime-agent list                    # every live agent, with cwd — find the run by repository
+prime-agent rename <agent> ticks-<epic-id>   # do this at run start; a stable name beats a uuid on resume
+prime-agent attach <agent>
+prime-agent stop <agent>            # deliberate abort; worktrees and tick state survive it
+```
+
+Name the orchestrator after the epic at run start. It costs nothing and turns "which of these five agents is my epic" into a lookup.
+
+**2. A goal carries the objective across turns.** When the user has settled the shared *Goal-ready handoff* decision, asked for a walk-away run, and the front epic's definition of done is goal-compatible:
 
 ```python
 await goal.create(
@@ -324,12 +350,17 @@ await goal.create(
 )
 ```
 
-The host then keeps re-prompting across turns until `await goal.complete()` — which turns "run wave to wave without stopping to ask" from a rule you might drift past into a loop the harness runs. It pairs naturally with reactive completion: each child reply is a turn, and the goal carries intent across them.
+The host keeps re-prompting until `await goal.complete()`, which turns "run wave to wave without stopping to ask" from a rule you might drift past into a loop the harness runs. It pairs naturally with reactive completion: each child reply is a turn, and the goal carries intent across them.
 
 - **Only create a goal when the user explicitly asked for a walk-away run.** An ordinary "run this epic" is not a goal.
 - **`goal.complete()` means the objective was achieved**, not that you are stopping. A project checkpoint, a blocker, or an exhausted budget is a report to the user.
-- `await goal.get()` returns `remaining_tokens` — worth surfacing in the between-wave report so spend stops being invisible.
-- The goal is orthogonal to per-implementer `--autonomous`: one governs the orchestrator's continuation, the other a single implementer's gate loop.
+- `await goal.get()` returns `remaining_tokens` — surface it in the between-wave report so spend stops being invisible.
+
+**3. Autonomous mode decides whether to continue.** Goals and autonomous mode are complementary, not alternatives: the goal stores the objective and its progress, autonomous mode decides whether to inject another continuation based on gates and limits. Note it applies at two levels here — the orchestrator's own continuation policy, and each implementer's `--autonomous-gate` loop. Keep them straight: an orchestrator gate should assert integration state (the wave gate), never a single tick's tests.
+
+**4. A heartbeat re-enters the session.** Beyond the wave watchdog below, `prime-agent schedule` targets an agent with a one-time or cron prompt that persists per session and survives detach — the right tool for "check this epic again at 9am" as opposed to the in-run watchdog. Due ticks are claimed before delivery, so a crash does not replay an uncertain prompt.
+
+Compaction does not interrupt any of this: it is not a completion signal, and it stops neither goals, nor autonomous continuations, nor heartbeats, nor existing child sessions.
 
 ## Retro learnings and the continual harness
 

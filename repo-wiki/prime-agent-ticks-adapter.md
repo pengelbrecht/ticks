@@ -4,9 +4,11 @@
 
 ## Why the adapter is a hybrid
 
-Prime Agent's in-process children (`await rlm(...)`) accept only `name` and `model` — **there is no `cwd` kwarg**, and a child is constructed with its parent's working directory. A single Prime Agent session therefore cannot place children in different git worktrees, which is the primitive the whole Ticks wave protocol rests on.
+Prime Agent's subagents are first-class — delegation is a function call in a persistent REPL, and the orchestration loop is written as code over kernel variables. The adapter is built on them. There is exactly one thing they cannot do: `rlm.run` accepts only `name` and `model`, and a child's session is anchored to its parent's working directory (`cwd: this._cwd`).
 
-The adapter resolves this by splitting dispatch by role:
+A child can still be *told* to work in a worktree via absolute paths, but then filesystem isolation is prompt-enforced rather than structural, and its `AGENTS.md`/project-skill discovery stays anchored to the controller checkout. For parallel implementers — the case worktrees exist to protect — that is not sufficient.
+
+The adapter therefore delegates the filesystem anchor, and only that, to processes:
 
 - **Implementers** are separate `prime-agent -p --cwd <worktree>` processes — real cwd isolation, exit-code completion, and `--autonomous-gate` as a host-enforced per-tick test gate.
 - **Read-only roles** (planning scouts, planner, reviewers, close-out) are RLM children in the controller checkout, where sharing the parent's cwd is correct anyway, and where `agent_message` continuation, `agent_observe`, and per-child model selection are worth having.
