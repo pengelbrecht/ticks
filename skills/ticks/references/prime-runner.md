@@ -26,7 +26,7 @@ So the filesystem anchor, and only that, is delegated to processes:
 **The rule: implementers are worktree processes; every other role is an RLM child.**
 
 - **Implementation ticks → `prime-agent -p --cwd <worktree>`.** One tick, one worktree, one branch needs a structural anchor, not a prompt asking for one. Never dispatch implementation work through `rlm()`.
-- **Planning scouts, the planner, per-tick reviewers, the epic final review, and close-out → RLM children.** These are read-only against the controller checkout, which is where a child already is — matching the shared requirement that review and close-out never run in an implementation worktree. Here the RLM primitives are strictly better than a subprocess: composable dispatch, `agent_message` continuation into a child's intact context, bounded observation, per-child model selection, and automatic cost attribution.
+- **Planning scouts, the planner, per-tick reviewers, the epic final review, and close-out analysis → RLM children.** These are read-only against the controller checkout, which is where a child already is — matching the shared requirement that review and close-out never run in an implementation worktree. Here the RLM primitives are strictly better than a subprocess: composable dispatch, `agent_message` continuation into a child's intact context, bounded observation, per-child model selection, and automatic cost attribution. One scope note on close-out: the child does the *analysis* — outside-in verification reasoning, drift review, retro drafting. The orchestrator itself runs the controller-owned Acceptance Evidence commands and every `tk` transition; those never delegate to a child, per the shared close-out semantics.
 
 Both surfaces are driven from the same REPL, so this is one program with two executors — not two orchestration styles.
 
@@ -166,7 +166,7 @@ PI_SKIP_VERSION_CHECK=1 prime-agent -p \
 pid=$!
 ```
 
-Branch naming is deterministic here, so — unlike Claude — record the `runner-state:` note *before* launch; there is no window where a live branch has no note.
+Prepare `$prompt_file` from the shared implementer template before launch. Branch naming is deterministic here, so — unlike Claude — record the `runner-state:` note *before* launch; there is no window where a live branch has no note.
 
 Notes on the flags that matter:
 
@@ -369,7 +369,7 @@ An objective phrased as "…then continue to the next feasible epic" has no comp
 
 **3. Autonomous mode decides whether to continue.** Goals and autonomous mode are complementary, not alternatives: the goal stores the objective and its progress, autonomous mode decides whether to inject another continuation based on gates and limits. Note it applies at two levels here — the orchestrator's own continuation policy, and each implementer's `--autonomous-gate` loop. Keep them straight: an orchestrator gate should assert integration state (the wave gate), never a single tick's tests.
 
-**4. A heartbeat re-enters the session.** Beyond the wave watchdog below, `prime-agent schedule` targets an agent with a one-time or cron prompt that persists per session and survives detach — the right tool for "check this epic again at 9am" as opposed to the in-run watchdog. Due ticks are claimed before delivery, so a crash does not replay an uncertain prompt.
+**4. A heartbeat re-enters the session.** Beyond the per-wave watchdog (see *Waiting for completion*), `prime-agent schedule` targets an agent with a one-time or cron prompt that persists per session and survives detach — the right tool for "check this epic again at 9am" as opposed to the in-run watchdog. Due ticks are claimed before delivery, so a crash does not replay an uncertain prompt.
 
 Compaction does not interrupt any of this: it is not a completion signal, and it stops neither goals, nor autonomous continuations, nor heartbeats, nor existing child sessions.
 
