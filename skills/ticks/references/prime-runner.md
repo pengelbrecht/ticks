@@ -345,15 +345,26 @@ Name the orchestrator after the epic at run start. It costs nothing and turns "w
 ```python
 await goal.create(
     "Run epic <id> to close-out: every child tick merged and green, final review clean, "
-    "close-out executed with acceptance evidence, then continue to the next feasible epic.",
+    "close-out executed with acceptance evidence. Complete at the epic's close, or at the "
+    "first project checkpoint, blocker, or human gate reached before it.",
     token_budget=<n>,           # only when the user asked for a budget
 )
 ```
 
 The host keeps re-prompting until `await goal.complete()`, which turns "run wave to wave without stopping to ask" from a rule you might drift past into a loop the harness runs. It pairs naturally with reactive completion: each child reply is a turn, and the goal carries intent across them.
 
-- **Only create a goal when the user explicitly asked for a walk-away run.** An ordinary "run this epic" is not a goal.
-- **`goal.complete()` means the objective was achieved**, not that you are stopping. A project checkpoint, a blocker, or an exhausted budget is a report to the user.
+**Scope the objective to the run's first legitimate stopping point.** This is the rule that makes goals safe here, and it is easy to get wrong. The agent cannot pause or clear a goal — those transitions are user- and host-owned — so an objective that outruns the run's permitted scope leaves the harness re-prompting an agent that is correctly refusing to proceed. Ticks stops for a human at project checkpoints, approval gates, and unresolvable blockers, so the objective must end there too:
+
+| Permitted scope | Objective terminates at |
+|---|---|
+| One epic (the usual walk-away request) | that epic's close-out, or an earlier gate/blocker |
+| Through a project | the project checkpoint, or an earlier gate/blocker |
+| Full roadmap, `--autonomous` on | `tk next` returning nothing, or a non-checkpoint gate/blocker |
+
+An objective phrased as "…then continue to the next feasible epic" has no completion condition and is the failure mode to avoid.
+
+- **Only create a goal when the user explicitly asked for a walk-away run.** An ordinary "run this epic" is not a goal, and the `goal` skill's own rule is not to infer one from an ordinary task.
+- **`goal.complete()` means the run reached its scoped boundary** — including stopping at a checkpoint or blocker that the objective named as a terminus. It does not mean "I am tired of this"; an unexpected stop is a report to the user with the goal still active.
 - `await goal.get()` returns `remaining_tokens` — surface it in the between-wave report so spend stops being invisible.
 
 **3. Autonomous mode decides whether to continue.** Goals and autonomous mode are complementary, not alternatives: the goal stores the objective and its progress, autonomous mode decides whether to inject another continuation based on gates and limits. Note it applies at two levels here — the orchestrator's own continuation policy, and each implementer's `--autonomous-gate` loop. Keep them straight: an orchestrator gate should assert integration state (the wave gate), never a single tick's tests.
