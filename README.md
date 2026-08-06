@@ -143,7 +143,7 @@ tk snippet >> AGENTS.md   # Codex and other AGENTS.md-aware tools
 tk snippet >> CLAUDE.md   # Claude Code
 ```
 
-For epic execution, the distributable skill includes a shared orchestration protocol plus Claude Code and Codex adapters. Tick files, notes, branches, and worktrees are the handoff format, so one runner can plan an epic and the other can execute or resume it.
+For epic execution, the distributable skill includes a shared orchestration protocol plus Claude Code, Codex, Pi, and Prime Agent adapters. Tick files, notes, branches, and worktrees are the handoff format, so one runner can plan an epic and the other can execute or resume it.
 
 This tells agents to use ticks for persistent tracking instead of TodoWrite.
 

@@ -1,0 +1,15 @@
+{
+  "id": "ux4",
+  "title": "Add Prime Agent runner adapter (prime-runner.md)",
+  "description": "New harness adapter mapping agent-runner.md onto Prime Agent: hybrid dispatch (worktree processes for implementers, RLM children for read-only roles), runtime cross-provider model tier chains, quota-driven provider failover, reactive completion + heartbeat watchdog, goal/compact/continual-harness integration. Also registers Prime Agent in agent-runner.md and SKILL.md routing tables.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "prime-runner.md exists in skills/ticks/references/; agent-runner.md and SKILL.md route to it; factual claims verified against the installed prime-agent runtime",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-06T08:57:46.661584Z",
+  "updated_at": "2026-08-06T09:06:36.700207Z",
+  "closed_at": "2026-08-06T09:06:36.700207Z",
+  "closed_reason": "Completed: added skills/ticks/references/prime-runner.md (hybrid dispatch, runtime cross-provider tier chains, quota failover, reactive completion + heartbeat watchdog, goal/compact/harness integration) and registered Prime Agent in agent-runner.md, SKILL.md, and README"
+}

@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "KB=\"/Users/peterengelbrecht/Development/canonify/.agents/skills/repo-wiki/scripts/kb.py\"; PENDING=\"$(python3 \"$KB\" comments list 2>/dev/null)\" || true; [ -z \"$PENDING\" ] || [ \"$PENDING\" = \"No open comments.\" ] && exit 0; printf '=== PENDING WIKI COMMENTS (feedback from the viewer -- please act on these) ===\\n'; printf '%s\\n' \"$PENDING\"; printf '=== end wiki comments -- resolve each with: kb.py comments resolve <id> --note \"<what you did>\" ===\\n'"
+            "command": "KB=\"/Users/peterengelbrecht/Development/canonify/.agents/skills/repo-wiki/scripts/kb.py\"; python3 \"$KB\" turn-tick 2>/dev/null || true; PENDING=\"$(python3 \"$KB\" comments list 2>/dev/null)\" || true; { [ -z \"$PENDING\" ] || [ \"$PENDING\" = \"No open comments.\" ]; } && exit 0; printf '=== PENDING WIKI COMMENTS (feedback from the viewer -- please act on these) ===\\n'; printf '%s\\n' \"$PENDING\"; printf '=== end wiki comments -- resolve each with: kb.py comments resolve <id> --note \"<what you did>\" ===\\n'"
           }
         ]
       }
