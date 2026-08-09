@@ -78,6 +78,11 @@ Order matters: integrate a wave's work *before* launching the next, so wave N+1 
 
 **Verify the wave after merging, not just the ticks.** Each implementer ran its tests in its own worktree — against a tree that didn't contain its siblings' changes. Two branches can merge cleanly and still break each other. A merge is provisional until the integrated gate passes: defer every close and cleanup. If the gate fails, reopen/keep open every affected tick, note the failed evidence, retain every branch/worktree, and block dependents. For repair, advance each already-merged retained branch to the integrated failure commit before adding a follow-up commit; this avoids replaying the original change or creating a duplicate branch. Only a passed gate authorizes durable closes and cleanup.
 
+**Reading a red gate under load.** Wide fan-out can starve the very host that runs the gate, and two patterns then masquerade as code failure (both field-observed):
+
+- **Mass-timeout flake signature**: many uniform timeout-class failures scattered across *unrelated* suites — durations clustering at the runner's per-test timeout, absurd totals, each test passing in isolation. That is machine contention, not code. Check host load before trusting a single red, and re-run the gate once contention clears rather than dispatching repair work against phantom failures.
+- **Killed jobs leak test workers**: cancelling an implementer or gate mid-run leaves its test-worker processes running, eating CPU and poisoning every subsequent run on that host. After killing anything mid-run, sweep its process tree before the next gate.
+
 **Optional: dependency-driven launching.** Waves are a barrier: nothing in wave N+1 starts until all of wave N is integrated. But a tick is actually ready the moment *its specific blockers* are merged and verified. Since you're woken per-agent anyway, you can launch a tick as soon as its last blocker integrates instead of waiting for the whole wave — a throughput win on epics with uneven waves. Wave barriers remain the simpler default and easier to audit; if you go dependency-driven, the per-tick rules below (merge, verify, then launch dependents) still apply unchanged.
 
 ### Meta-work ticks
