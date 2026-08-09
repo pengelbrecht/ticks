@@ -17,7 +17,9 @@ If `rlm.run` ever gains `cwd`, the two surfaces collapse into one and the adapte
 
 ## Runtime facts the adapter depends on
 
-Verified against prime-agent 0.7.0. These are the claims most likely to rot; re-check them before trusting the adapter after a major upgrade.
+Verified against prime-agent 0.7.0, exercised once end-to-end in a disposable repo (tick 98i), and field-tested on a production epic by a second session (epic tys). These are the claims most likely to rot; re-check them before trusting the adapter after a major upgrade.
+
+- **Known runtime defect (0.7.0, upstream report tracked as tick e2h):** a terminated provider stream can leave an `--autonomous` run idling forever — no retry, no exit. Supervision must include a no-exit signature (session `.jsonl` mtime frozen + no child processes), not just exit codes. `-r` may also fail to resolve sessions under a custom `--session-dir`.
 
 - **Depth.** `RLM_MAX_DEPTH` defaults to `1`, so children cannot spawn grandchildren. The orchestrator — not a planner child — must be the fan-out point for scouts.
 - **Model selection.** `rlm.find_models()` is bounded to live, non-expired credentials and returns `provider/id` selectors; an unavailable selector fails the spawn rather than degrading. Omitting `model=` silently inherits the parent's model.
