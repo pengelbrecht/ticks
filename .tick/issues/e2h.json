@@ -1,0 +1,13 @@
+{
+  "id": "e2h",
+  "title": "File upstream prime-agent bug: terminated provider stream hangs --autonomous runs forever",
+  "description": "Field-verified 4x in one production epic (2x opus-5, 2x sonnet-5; one died right after an issued toolCall). A terminated provider stream in an --autonomous run neither retries nor exits — the process idles forever with no report. Detection: session .jsonl mtime frozen \u003e15min, no child processes, transcript tail shows stopReason:error/'terminated' or dangling toolCall. Expected: autonomous mode should treat a terminated stream as retry-or-exit, never idle. Also worth reporting: -r \u003csession-id\u003e does not resolve sessions under a custom --session-dir. Full retro evidence: /tmp/tys-retro.md (epic tys). File against PrimeIntellect-ai/prime-agent.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Upstream issue filed with the detection signature and reproduction context; issue link recorded in a note here",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-09T08:53:35.957694Z",
+  "updated_at": "2026-08-09T08:53:35.957694Z"
+}

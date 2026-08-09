@@ -190,6 +190,9 @@ Exit code first, report second, log only on failure:
 | exit `1`, other | Model error, abort, or exception — read the log and classify any `Provider …` line |
 | exit `124` | Wall-clock timeout |
 | exit `130/129/143` | SIGINT / SIGHUP / SIGTERM |
+| **no exit at all** | Hung run — see below; do not wait indefinitely |
+
+**Hung implementers are real** (observed 4× in one production epic, across models): a terminated provider stream can leave an `--autonomous` run idling forever — no retry, no exit, no report. Detection signature: the tick's session `.jsonl` mtime frozen for >15 minutes **and** the process has no child processes; the transcript tail shows `stopReason: error`/`terminated` or a tool call with no result. Recovery that works: kill the process, **salvage-commit** any WIP in the worktree (run the repo's formatter first — commit hooks reject unformatted salvage; a labelled `--no-verify` WIP commit is the fallback), then dispatch fresh with a continuation note pointing at the salvage commit. Worktree-as-state makes this cost minutes, not the tick.
 
 The implementer still ends its report with the shared four-status line; the exit code is a second channel that a prompt cannot lie about. When they disagree, **the exit code wins** — except in `--mode json`, where the exit code stays `0` on a model error and you must settle on `stopReason`.
 
@@ -262,7 +265,7 @@ await agent_message.send(
 
 Use it for `NEEDS_CONTEXT`, for review feedback loops, to ask a reviewer to defend a low-confidence finding, and for a human-in-the-loop tick rejected with feedback — the same reviewer or implementer child resumes with the feedback rather than starting cold.
 
-**Worktree processes: resume or redispatch.** `prime-agent -r <session-id> --cwd <worktree>` continues the same transcript; a fresh `prime-agent -p --cwd <worktree>` carrying the prior report and current branch state is the durable fallback. Either way **the worktree and branch are the state that matters** — never open a second branch for a tick, and never treat a Prime Agent session ID as the only way to find work.
+**Worktree processes: resume or redispatch.** `prime-agent -r <session-id> --cwd <worktree>` continues the same transcript — but `-r` has been observed not to resolve sessions stored under a custom `--session-dir` ("No session found"); pass the same `--session-dir` again, and when it still fails, fall back without ceremony. A fresh `prime-agent -p --cwd <worktree>` carrying the prior report and current branch state is the durable fallback and the default to reach for. Either way **the worktree and branch are the state that matters** — never open a second branch for a tick, and never treat a Prime Agent session ID as the only way to find work.
 
 For a merge conflict the shared move is unchanged: `git merge --abort`, then continue the implementer in its own worktree with the integration HEAD hash, telling it to rebase, resolve, re-test, re-commit.
 
@@ -424,6 +427,7 @@ Unchanged: hand off through git and `.tick/`. Specifically **do not** hand off a
 - **No `cwd` on RLM children.** Implementers must be `prime-agent --cwd` processes; this is the constraint the whole adapter is built around. If `rlm.run` ever gains `cwd`, the two dispatch surfaces collapse into one and this file should be simplified accordingly.
 - **No provider failover in the runtime.** Auto-retry retries the same model; cross-provider failover is orchestrator policy. Pointing a tier at a gateway model that does its own routing is the only way to make it automatic.
 - **No quota introspection.** Nothing reports credits, balance, or rate-limit headroom, so failover is reactive. `find_models()` filters on credential liveness, not availability.
-- **RLM children mask provider failures as `completed`.** Settle children on replies received, not on registry status.
+- **RLM children mask provider failures as `completed`.** Settle children on replies received, not on registry status. (Confirmed live: an openai zero-credit failure surfaced exactly this way.)
+- **A terminated provider stream can hang an `--autonomous` run forever** (runtime defect, reported upstream): no retry, no exit. Supervise implementers with the mtime+no-children signature above; never assume every process eventually exits.
 - **Default depth 1.** The orchestrator must be the fan-out point for planning scouts.
 - **Retained children live only as long as the orchestrator session.** After that, continuation comes from worktrees and tracker state — which is what the shared protocol already requires.
