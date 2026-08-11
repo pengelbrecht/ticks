@@ -15,6 +15,7 @@ Scaffold. What ships today:
 | `[[panes]]` | `dashboard` | **Working** — launches `tk herd dashboard`, the live read-only run board |
 | `[[actions]]` | `open-tick-board` | **Working** — finds/opens the `tk board` web UI |
 | `[[events]]` | 5 hooks → `paint-hook.sh` | **Working** — badges herd workspaces with tick id, role and status |
+| `[[events]]` | 1 hook → `notify-hook.sh` | **Working** — chimes when a worker blocks (`request`) or a wave finishes (`done`) |
 
 ## Install
 
@@ -102,6 +103,7 @@ plugins/herdr-ticks/
     open-tick-board.sh           [[actions]] open-tick-board
     events-noop.sh               [[events]] inert template for tick sku
     paint-hook.sh                [[events]] runs `tk herd paint` on the badge-relevant events
+    notify-hook.sh               [[events]] runs `tk herd notify` on pane.agent_status_changed
 ```
 
 ## Workspace badges
@@ -146,3 +148,45 @@ milliseconds, inside the debounce window, and the loop stops. Do not set
 The hook exits 0 and prints why
 in any repo with no `.tick/` or no run in flight, and debounces bursts
 (`$TICKS_PAINT_DEBOUNCE_SECONDS`, default 2s).
+
+## Notifications
+
+`notify-hook.sh` runs `tk herd notify` on `pane.agent_status_changed`. It raises the two
+things in a run a human has to hear about:
+
+| Trigger | Sound | Title |
+| --- | --- | --- |
+| a herd worker enters `blocked` | `request` | `tick <id> blocked` |
+| every in-flight worker of an epic has settled | `done` | `wave complete: <n> workers settled` |
+
+Settled means `idle`, `done` or `blocked`. Blocked counts as settled deliberately: the
+wave will not progress without you either way, and a wave whose last worker is stuck on an
+approval prompt is exactly when you want to be told — so both chimes can fire at once.
+
+**One transition, one notification.** `notification.show` is not the metadata channel: it
+has no TTL, it is not idempotent, and every call is another interruption. So the decision
+is edge-triggered against state persisted per epic beside the manifests,
+
+```
+.tick/logs/herd/<epic>/.notify-state.json
+```
+
+taken under a lock so two concurrent hook invocations cannot both chime. A blocked worker
+is announced once and re-armed when it stops being blocked (block → answer → block chimes
+twice, which is two requests). A wave completion is announced once and re-armed when a
+**new worker manifest** joins — a teardown that shrinks the roster does not re-announce.
+
+That is also what makes the **paint feedback bounce** harmless here rather than something
+to debounce away: the bounce re-runs the notifier with the same statuses, so it finds
+nothing new and logs why. There is deliberately **no time-window debounce** on this hook —
+an elided invocation could be the only one that would have seen a blocked transition,
+while an elided *paint* is simply repainted by the next event.
+
+**Focus safety.** `notification.show` carries no pane or workspace target — it is an
+overlay herdr renders on the foreground client — so this hook can never open, split or
+steal anything in the workspace you happen to be looking at. `position` is left unset so
+your own placement preference wins.
+
+Only workers named by the run's own manifests are ever considered, `tk` is resolved the
+same way as in `paint-hook.sh`, and the hook exits 0 with an explanation in any repo with
+no `.tick/` or no run in flight.

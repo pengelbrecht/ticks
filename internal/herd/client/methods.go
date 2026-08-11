@@ -553,6 +553,111 @@ func (p WorkspaceReportMetadataParams) MarshalJSON() ([]byte, error) {
 	}{wire(p), tokens, millis(p.TTL)})
 }
 
+// ---------------------------------------------------------------------------
+// notification.show — the operator's attention channel.
+// ---------------------------------------------------------------------------
+
+// NotificationSound is the sound herdr plays with a notification. The set is
+// a CLOSED enum in herdr's schema (`herdr api schema --json`, protocol 19) —
+// an unknown value is rejected, not ignored.
+type NotificationSound string
+
+// The notification sounds herdr accepts.
+const (
+	// SoundNone shows the notification silently.
+	SoundNone NotificationSound = "none"
+	// SoundDone is the completion chime: a wave finished, nothing is owed.
+	SoundDone NotificationSound = "done"
+	// SoundRequest is the attention chime: something is WAITING on the
+	// operator. Reserve it for states a human must act on, or it stops
+	// meaning anything.
+	SoundRequest NotificationSound = "request"
+)
+
+// ToastPosition is where herdr renders an in-app toast. A closed enum.
+type ToastPosition string
+
+// The toast positions herdr accepts.
+const (
+	PositionTopLeft     ToastPosition = "top-left"
+	PositionTopRight    ToastPosition = "top-right"
+	PositionBottomLeft  ToastPosition = "bottom-left"
+	PositionBottomRight ToastPosition = "bottom-right"
+)
+
+// NotificationShowReason is why herdr did or did not show a notification.
+type NotificationShowReason string
+
+// The reasons herdr reports. Only [ReasonShown] means the operator saw it;
+// the rest are ordinary, non-error outcomes.
+const (
+	// ReasonShown means the notification reached the foreground client.
+	ReasonShown NotificationShowReason = "shown"
+	// ReasonDisabled means notifications are turned off in herdr's config.
+	ReasonDisabled NotificationShowReason = "disabled"
+	// ReasonRateLimited means herdr suppressed it as too frequent — its own
+	// backstop, NOT a substitute for a caller's debounce.
+	ReasonRateLimited NotificationShowReason = "rate_limited"
+	// ReasonNoForegroundClient means no herdr UI was attached to show it.
+	ReasonNoForegroundClient NotificationShowReason = "no_foreground_client"
+	// ReasonBusy means herdr was already showing something.
+	ReasonBusy NotificationShowReason = "busy"
+)
+
+// NotificationShowParams are the parameters of notification.show.
+//
+// Field names are the wire names verified against `herdr api schema --json`
+// (herdr 0.8.0, protocol 19): only `title` is required; `body` and `position`
+// are nullable; `sound` is the closed [NotificationSound] enum.
+type NotificationShowParams struct {
+	// Title is the notification headline. Required — herdr rejects an
+	// absent title, and [Client.NotificationShow] rejects an empty one.
+	Title string `json:"title"`
+	// Body is the second line. Nil omits it.
+	Body *string `json:"body,omitempty"`
+	// Sound is the chime. Empty omits the field, leaving herdr's default;
+	// pass [SoundNone] to be explicitly silent.
+	Sound NotificationSound `json:"sound,omitempty"`
+	// Position places an in-app toast. Nil leaves herdr's own placement.
+	Position *ToastPosition `json:"position,omitempty"`
+}
+
+// NotificationShown is the result of notification.show. `Shown` is false for
+// every reason other than [ReasonShown]; none of them is an error.
+type NotificationShown struct {
+	Shown  bool                   `json:"shown"`
+	Reason NotificationShowReason `json:"reason"`
+}
+
+// NotificationShow raises a notification on the operator's herdr client.
+//
+// It is NOT idempotent and carries no TTL: unlike the report_metadata channel,
+// calling it twice with the same content interrupts the operator twice. A
+// caller driven by an event hook must therefore hold its own once-semantics
+// state — herdr's `rate_limited` is a backstop against a storm, not a
+// de-duplicator, and a suppressed notification is silently lost.
+//
+// A notification herdr chose not to show comes back as a normal result with
+// Shown false and the reason; only a transport or protocol failure is an
+// error.
+func (c *Client) NotificationShow(ctx context.Context, params NotificationShowParams) (*NotificationShown, error) {
+	if params.Title == "" {
+		return nil, fmt.Errorf("herd/client: notification.show needs a title")
+	}
+	switch params.Sound {
+	case "", SoundNone, SoundDone, SoundRequest:
+	default:
+		return nil, fmt.Errorf(
+			"herd/client: notification.show sound %q is not one of %q, %q, %q",
+			params.Sound, SoundNone, SoundDone, SoundRequest)
+	}
+	var out NotificationShown
+	if err := c.call(ctx, MethodNotificationShow, resultNotificationShow, params, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // WorkspaceReportMetadata reports display-only tokens for a workspace.
 func (c *Client) WorkspaceReportMetadata(ctx context.Context, params WorkspaceReportMetadataParams) error {
 	if params.WorkspaceID == "" {
