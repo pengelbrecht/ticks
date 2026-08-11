@@ -444,6 +444,9 @@ func ResetFlags() {
 	// Reset herd collect flags
 	herdCollectEpic, herdCollectJSON = "", false
 
+	// Reset herd dashboard flags
+	herdDashboardEpic, herdDashboardSocket, herdDashboardInterval = "", "", defaultHerdDashboardIntervalMs
+
 	// Reset herd cleanup flags
 	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
 	herdCleanupPreview, herdCleanupApply = false, false

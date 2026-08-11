@@ -12,7 +12,7 @@ Scaffold. What ships today:
 
 | Section | Id | State |
 | --- | --- | --- |
-| `[[panes]]` | `dashboard` | Placeholder banner — the real dashboard lands in tick `m05` |
+| `[[panes]]` | `dashboard` | **Working** — launches `tk herd dashboard`, the live read-only run board |
 | `[[actions]]` | `open-tick-board` | **Working** — finds/opens the `tk board` web UI |
 | `[[events]]` | `workspace.renamed` | Inert no-op — shape template for tick `sku` |
 
@@ -98,7 +98,7 @@ plugins/herdr-ticks/
   herdr-plugin.toml              manifest
   README.md                      this file
   scripts/
-    dashboard-placeholder.sh     [[panes]] dashboard — banner until tick m05
+    dashboard.sh                 [[panes]] dashboard — launches `tk herd dashboard`
     open-tick-board.sh           [[actions]] open-tick-board
     events-noop.sh               [[events]] inert template for tick sku
 ```
