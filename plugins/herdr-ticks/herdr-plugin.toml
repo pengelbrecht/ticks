@@ -1,0 +1,63 @@
+# herdr-plugin.toml — manifest for the herdr-ticks mission-control plugin.
+#
+# Ticks (https://ticks.sh) issue tracking, surfaced inside herdr: a dashboard pane
+# and actions that reach the tick board without leaving the multiplexer.
+#
+# Schema notes — all VERIFIED live against herdr 0.8.0, not guessed:
+#  - Top-level key is `id`; `herdr plugin list --json` reports it as `plugin_id`.
+#  - `[[panes]]`, `[[actions]]`, `[[events]]` and `[[link_handlers]]` are arrays of tables.
+#  - `command` is an argv array — no shell, no word splitting. Anything needing a pipeline
+#    or a conditional goes in a script under scripts/.
+#  - Commands run with cwd = the plugin root, so "scripts/foo.sh" resolves against this
+#    directory. NEVER use cwd to find the user's repo — read the context env instead
+#    (HERDR_PLUGIN_CONTEXT_JSON; see README.md for the full contract).
+#  - `contexts` is a CLOSED enum: global | workspace | tab | pane | selection.
+#  - `placement` is a CLOSED enum: overlay | popup | split | tab | zoomed.
+#  - `events.on` is NOT validated — a typo'd event name parses fine and silently never
+#    fires. Cross-check names against a plugin herdr already runs.
+#  - Action ids must be unique across the whole manifest, including across `platforms`
+#    gates — see herdr-file-viewer's `-windows` id suffixes.
+
+id = "pengelbrecht.herdr-ticks"
+name = "Ticks mission control"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Ticks issue tracking inside herdr: a mission-control dashboard pane and tick board actions."
+platforms = ["macos", "linux"]
+
+# The mission-control dashboard pane.
+#
+# PLACEHOLDER: the real dashboard lands in tick m05. Until then this pane prints a
+# banner and stays open, so the pane wiring (id/title/placement) is exercisable today.
+[[panes]]
+id = "dashboard"
+title = "Ticks"
+placement = "split"
+command = ["bash", "scripts/dashboard-placeholder.sh"]
+
+# Open the ticks board (the local web UI served by `tk board`) for the invoking repo.
+# Works today: reports the board URL, opens it when a board is already listening, and
+# prints the command to start one when it is not. Read-only — never mutates .tick.
+[[actions]]
+id = "open-tick-board"
+title = "Open tick board"
+description = "Open the ticks board web UI for the current repository (or show how to start it)."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/open-tick-board.sh"]
+
+# Event hooks.
+#
+# This entry is deliberately INERT: it is the shape template for the notification wiring
+# that tick sku owns, kept live (rather than commented out) so `herdr plugin list --json`
+# reports a parsed `events` section and the shape stays honest. `workspace.renamed` is
+# chosen because it does not fire during ordinary use, and the handler is a no-op.
+#
+# Event names herdr is known to emit (copied from a plugin herdr already runs — remember
+# `on` is unvalidated, so never invent one):
+#   workspace.focused  workspace.renamed  workspace.updated
+#   tab.focused        tab.renamed
+#   pane.created       pane.closed        pane.focused  pane.moved
+#   pane.agent_detected                   pane.agent_status_changed
+[[events]]
+on = "workspace.renamed"
+command = ["bash", "scripts/events-noop.sh"]

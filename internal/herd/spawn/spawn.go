@@ -47,12 +47,16 @@ const (
 // pane cannot hang a wave. Readiness has no push event, so it is the one place
 // this package samples rather than blocks — herdr's own CLI does the same
 // thing behind its blocking `herdr agent start`.
+// paneReadyBackoff is the delay between agent_pane_busy retries, and between
+// interactive-readiness samples. Measured pane-ready is ~0.3s, so this samples
+// a handful of times across the normal race and the caller's startup timeout
+// sets the ceiling.
+//
+// It is a var only so a test can compress the retry window; production never
+// reassigns it.
+var paneReadyBackoff = 250 * time.Millisecond
+
 const (
-	// paneReadyAttempts bounds agent.start retries on agent_pane_busy.
-	paneReadyAttempts = 12
-	// paneReadyBackoff is the delay between those retries, and between
-	// interactive-readiness samples.
-	paneReadyBackoff = 250 * time.Millisecond
 	// maxDispatchConfirm caps the wait for a dispatched implementer prompt
 	// to be observed as `working`. It is a confirmation, not the work: a
 	// worker that has not started a minute after the prompt landed is
@@ -343,21 +347,49 @@ func Run(ctx context.Context, c *client.Client, opts Options) (*Result, error) {
 // retrying those only delays a stop the operator has to act on anyway. The
 // last error is returned unchanged when the pane never becomes usable, so the
 // message an operator sees is still herdr's own.
+//
+// The retry window is the CALLER'S startup timeout, not a fixed attempt count.
+// It used to be twelve tries at 250ms — a hard ~3s ceiling that ignored
+// --startup-timeout entirely, so an operator who asked for two minutes of
+// patience because the machine is loaded still got three seconds of it. The
+// poll interval is unchanged; only the ceiling moved.
 func startWhenPaneReady(ctx context.Context, c *client.Client, params client.AgentStartParams) (*client.AgentStarted, error) {
-	var err error
-	for attempt := 1; ; attempt++ {
-		var started *client.AgentStarted
-		started, err = c.AgentStart(ctx, params)
+	return startWhenPaneReadyWithin(ctx, c, params, paneReadyWindow(params.StartupTimeout), paneReadyBackoff)
+}
+
+// paneReadyWindow is how long agent_pane_busy is retried for: whatever the
+// caller allowed the agent to start in. A zero timeout means "herdr's own
+// default", which this package cannot read, so it uses its own documented
+// default rather than inventing a shorter one.
+func paneReadyWindow(startupTimeout time.Duration) time.Duration {
+	if startupTimeout <= 0 {
+		return DefaultStartupTimeout
+	}
+	return startupTimeout
+}
+
+// startWhenPaneReadyWithin is [startWhenPaneReady] with its bounds spelled
+// out, so a test can drive the window and the interval directly instead of
+// spending the real ones.
+func startWhenPaneReadyWithin(ctx context.Context, c *client.Client, params client.AgentStartParams,
+	window, interval time.Duration) (*client.AgentStarted, error) {
+	deadline := time.Now().Add(window)
+	for {
+		started, err := c.AgentStart(ctx, params)
 		if err == nil {
 			return started, nil
 		}
-		if !client.IsCode(err, client.CodeAgentPaneBusy) || attempt >= paneReadyAttempts {
+		if !client.IsCode(err, client.CodeAgentPaneBusy) {
+			return nil, err
+		}
+		// Only sleep for a retry that would still land inside the window.
+		if !time.Now().Add(interval).Before(deadline) {
 			return nil, err
 		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(paneReadyBackoff):
+		case <-time.After(interval):
 		}
 	}
 }

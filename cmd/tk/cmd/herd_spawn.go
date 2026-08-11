@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/github"
-	"github.com/pengelbrecht/ticks/internal/herd/client"
 	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
@@ -106,7 +105,7 @@ func init() {
 	herdSpawnCmd.Flags().BoolVar(&herdSpawnWait, "wait", false,
 		"block until the worker settles after the implementer prompt (serializes a wave)")
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnStartupTimeout, "startup-timeout", defaultHerdSpawnStartupTimeoutMs,
-		"agent.start startup deadline, in milliseconds")
+		"agent.start startup deadline, in milliseconds (also bounds the agent_pane_busy retries)")
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnGateTimeout, "gate-timeout", defaultHerdSpawnGateTimeoutMs,
 		"deadline for each first-round-trip gate probe, in milliseconds")
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnPromptTimeout, "prompt-timeout", defaultHerdSpawnPromptTimeoutMs,
@@ -145,7 +144,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 
 	// 2. Routing. Compiled BEFORE any herdr connection, so a refusal costs
 	//    zero dials and leaves no half-made workspace behind.
-	cfg, err := herdSpawnLoadConfig(root)
+	cfg, err := herdLoadConfig(root, herdSpawnConfig)
 	if err != nil {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
@@ -177,9 +176,9 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	agentName := spawn.AgentName(t.ID)
 
 	// 3. herdr.
-	herd, err := client.New(ctx, client.Options{SocketPath: herdSpawnSocket})
+	herd, err := herdConnect(ctx, herdSpawnSocket)
 	if err != nil {
-		return NewExitError(ExitGeneric, "connecting to herdr: %v", err)
+		return err
 	}
 
 	prompt := spawn.BuildPrompt(spawn.PromptInput{
@@ -306,15 +305,6 @@ func herdSpawnLoadTick(root, rawID string) (tick.Tick, tick.Tick, error) {
 		}
 	}
 	return t, epic, nil
-}
-
-// herdSpawnLoadConfig loads the routing config. A missing file yields a nil
-// config (defaults apply); an invalid one is a hard stop, never a guess.
-func herdSpawnLoadConfig(root string) (*herdconfig.Config, error) {
-	if herdSpawnConfig != "" {
-		return herdconfig.Load(herdSpawnConfig)
-	}
-	return herdconfig.LoadRepo(root)
 }
 
 // herdSpawnHeadCommit resolves the repo's current HEAD, which is the default

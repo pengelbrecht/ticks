@@ -73,6 +73,12 @@ func (w *ConnWriter) WriteLine(line string) error {
 // Handler answers one request. Returning an error abandons the connection.
 type Handler func(t *testing.T, req Request, w *ConnWriter) error
 
+// HandlerN is a Handler that also sees n, the 1-based index of this call among
+// the calls to the same method. It is how a test scripts a server that answers
+// differently the second time — the shape every time-of-check/time-of-use pin
+// needs.
+type HandlerN func(t *testing.T, req Request, w *ConnWriter, n int) error
+
 // Agent is one agent-bearing pane in the fake session.
 type Agent struct {
 	// Name is the herdr agent name (the "tick-<id>" the engines match on).
@@ -161,23 +167,30 @@ type Server struct {
 	ln   net.Listener
 	cfg  Config
 
-	mu         sync.Mutex
-	requests   []Request
-	dials      int
-	routes     map[string]Handler
-	agents     []Agent
-	workspaces []string
-	focused    string
-	focusSteal string
-	removeErr  string
-	removed    []string
-	focusCalls []string
-	paneTexts  []string
-	paneReads  int
-	lists      int
-	subs       int
-	lastSubs   []Subscription
-	streams    []*stream
+	mu       sync.Mutex
+	requests []Request
+	dials    int
+	routes   map[string]Handler
+	agents   []Agent
+	// agentsAfterFirstList, when non-nil, is what agent.list answers from the
+	// SECOND call on — the time-of-check/time-of-use seam: a planning
+	// snapshot sees one status, an apply-time re-check another.
+	agentsAfterFirstList []Agent
+	// listErrAfterFirstList, when set, makes every agent.list after the first
+	// fail — herdr going quiet between the snapshot and the re-check.
+	listErrAfterFirstList string
+	workspaces            []string
+	focused               string
+	focusSteal            string
+	removeErr             string
+	removed               []string
+	focusCalls            []string
+	paneTexts             []string
+	paneReads             int
+	lists                 int
+	subs                  int
+	lastSubs              []Subscription
+	streams               []*stream
 
 	afterList func(n int)
 	rejectSub func(n int) (index int, ok bool)
@@ -258,6 +271,32 @@ func (s *Server) Route(method string, h Handler) {
 	s.routes[method] = h
 }
 
+// RouteN replaces the handler for one method with a call-count-aware one. The
+// count is taken from the requests already recorded, so it is 1 on the first
+// call to that method.
+func (s *Server) RouteN(method string, h HandlerN) {
+	s.Route(method, func(t *testing.T, req Request, w *ConnWriter) error {
+		return h(t, req, w, s.CountMethod(method))
+	})
+}
+
+// Builtin returns this fake's canonical handler for a method. A test that
+// overrides a route with [Server.Route] uses it to fall through to the normal
+// reply once its own scripted deviation is over — the alternative being a
+// hand-written reply literal, which is what this package exists to prevent.
+func (s *Server) Builtin(method string) Handler {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if method == MethodPing {
+		return s.handlePing
+	}
+	h, ok := s.builtin(method)
+	if !ok {
+		s.t.Fatalf("herdtest: no canonical handler for %s", method)
+	}
+	return h
+}
+
 // Requests returns a copy of every request the server has decoded.
 func (s *Server) Requests() []Request {
 	s.mu.Lock()
@@ -307,6 +346,23 @@ func (s *Server) SetAgents(agents ...Agent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agents = append([]Agent(nil), agents...)
+}
+
+// SetAgentsAfterFirstList scripts the time-of-check/time-of-use seam: the
+// first agent.list answers with [Server.SetAgents]' session, every later one —
+// the apply-time re-checks — answers with this one.
+func (s *Server) SetAgentsAfterFirstList(agents ...Agent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentsAfterFirstList = append([]Agent(nil), agents...)
+}
+
+// SetListErrorAfterFirstList makes every agent.list after the first fail —
+// herdr going quiet mid-teardown, which must never read as "safe to remove".
+func (s *Server) SetListErrorAfterFirstList(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listErrAfterFirstList = msg
 }
 
 // SetStatus changes an agent's status without announcing it — the state a

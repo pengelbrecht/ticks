@@ -13,10 +13,12 @@ import (
 // these tests exercise the production transport rather than a stubbed Conn.
 //
 // The protocol fact cleanup depends on: herdr answers exactly one request per
-// connection and then hangs up. Cleanup makes one agent.list plus one
-// worktree.remove per applied plan, so the fake accepts that many sequential
-// connections. It also models herdr's focus behaviour — removing a workspace
-// moves focus to a neighbour — which is what SetSession scripts.
+// connection and then hangs up. Cleanup makes one planning agent.list, one
+// apply-time re-check per destructive plan and one worktree.remove per applied
+// plan, so the fake accepts that many sequential connections. It also models
+// herdr's focus behaviour — removing a workspace moves focus to a neighbour —
+// which is what setSession scripts, and the time-of-check/time-of-use window
+// the re-check exists to close, which is what setAgentsAfterFirstList scripts.
 
 // fakeHerd is an in-process herdr server.
 type fakeHerd struct {
@@ -44,6 +46,19 @@ func (s *fakeHerd) Client(t *testing.T) *client.Client {
 // setAgents scripts what agent.list answers.
 func (s *fakeHerd) setAgents(agents ...herdtest.Agent) {
 	s.SetAgents(agents...)
+}
+
+// setAgentsAfterFirstList scripts the TOCTOU seam: the first agent.list (the
+// planning snapshot) answers with setAgents' list, every later one — the
+// apply-time re-checks — answers with this.
+func (s *fakeHerd) setAgentsAfterFirstList(agents ...herdtest.Agent) {
+	s.SetAgentsAfterFirstList(agents...)
+}
+
+// setListErrorAfterFirstList makes every agent.list after the planning
+// snapshot fail — herdr going quiet mid-teardown.
+func (s *fakeHerd) setListErrorAfterFirstList(msg string) {
+	s.SetListErrorAfterFirstList(msg)
 }
 
 // setSession scripts the focus model. focused is what session.snapshot

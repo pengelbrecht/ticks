@@ -121,8 +121,16 @@ func (s *Server) handleAgentList(_ *testing.T, req Request, w *ConnWriter) error
 	s.mu.Lock()
 	s.lists++
 	n := s.lists
-	listed := make([]map[string]any, 0, len(s.agents))
-	for _, a := range s.agents {
+	agents := s.agents
+	listErr := ""
+	if n > 1 {
+		if s.agentsAfterFirstList != nil {
+			agents = s.agentsAfterFirstList
+		}
+		listErr = s.listErrAfterFirstList
+	}
+	listed := make([]map[string]any, 0, len(agents))
+	for _, a := range agents {
 		if a.ListHidden {
 			continue
 		}
@@ -130,6 +138,10 @@ func (s *Server) handleAgentList(_ *testing.T, req Request, w *ConnWriter) error
 	}
 	after := s.afterList
 	s.mu.Unlock()
+
+	if listErr != "" {
+		return RespondErr(w, req.ID, CodeInvalidRequest, listErr)
+	}
 
 	if after != nil {
 		// The hook models a change that happens between this reply and the

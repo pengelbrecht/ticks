@@ -500,9 +500,11 @@ func TestRefusalIsPerTick(t *testing.T) {
 	if got := srv.Removed(); len(got) != 1 || got[0] != "w-bbb" {
 		t.Errorf("removed = %v, want only the clean tick's workspace", got)
 	}
-	// One agent.list for the whole wave, not one per tick.
-	if n := strings.Count(strings.Join(srv.Methods(), ","), "agent.list"); n != 1 {
-		t.Errorf("agent.list called %d times, want 1 for the wave", n)
+	// One planning agent.list for the whole wave, plus one apply-time
+	// re-check for each plan that got as far as its destructive step. The
+	// refused tick never reaches a re-check.
+	if n := strings.Count(strings.Join(srv.Methods(), ","), "agent.list"); n != 2 {
+		t.Errorf("agent.list called %d times, want 2 (wave snapshot + one re-check for the clean tick)", n)
 	}
 }
 
@@ -528,5 +530,137 @@ func TestBranchDeleteUsesLowercaseD(t *testing.T) {
 	}
 	if !branchExists(repo, "tick/nhk") {
 		t.Fatal("the unmerged branch was deleted")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Apply-time liveness re-check (the TOCTOU window)
+// ---------------------------------------------------------------------------
+
+// TestApplyRechecksLivenessBeforeRemoving is the TOCTOU pin. The wave's plans
+// are built from ONE agent.list and then applied one at a time; a worker that
+// was idle in that snapshot can be prompted and be mid-turn by the time its
+// own worktree.remove is issued — which would kill the pane and the running
+// agent together. The check that authorises the removal is therefore taken
+// again, next to the removal.
+func TestApplyRechecksLivenessBeforeRemoving(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		reason Reason
+	}{
+		{"working", LiveWorker},
+		{"blocked", BlockedWorker},
+	} {
+		t.Run(tc.status, func(t *testing.T) {
+			repo, base := newRepo(t)
+			workerBranch(t, repo, "tick/nhk", base, true)
+			m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+			srv := newFakeHerd(t)
+			// Idle when the plan is built, live when it is applied.
+			srv.setAgents(agent("tick-nhk", "idle"))
+			srv.setAgentsAfterFirstList(agent("tick-nhk", tc.status))
+
+			plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			p := plans[0]
+			if !p.Refused || p.Reason != tc.reason {
+				t.Fatalf("plan = %+v, want a %s refusal from the apply-time re-check", p, tc.reason)
+			}
+			if len(p.Steps) != 0 {
+				t.Errorf("steps = %v, want none on a refusal", actions(p))
+			}
+			if !strings.Contains(p.Detail, "after this plan was built") {
+				t.Errorf("detail = %q, want it to say the status changed after planning", p.Detail)
+			}
+			if got := srv.Removed(); len(got) != 0 {
+				t.Errorf("removed = %v, want nothing torn down under a live worker", got)
+			}
+			if !branchExists(repo, "tick/nhk") {
+				t.Error("the branch was deleted despite the re-check refusal")
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("the manifest was removed despite the re-check refusal: %v", err)
+			}
+		})
+	}
+}
+
+// TestRecheckRefusalIsPerPlan pins that one worker waking up does not strand
+// the rest of the wave: its plan refuses, the others still apply.
+func TestRecheckRefusalIsPerPlan(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/aaa", base, true)
+	workerBranch(t, repo, "tick/bbb", base, true)
+	a, aPath := manifestOnDisk(t, repo, newManifest("aaa", "tick/aaa"))
+	b, bPath := manifestOnDisk(t, repo, newManifest("bbb", "tick/bbb"))
+	srv := newFakeHerd(t)
+	srv.setAgents(agent("tick-aaa", "idle"), agent("tick-bbb", "idle"))
+	srv.setAgentsAfterFirstList(agent("tick-aaa", "working"), agent("tick-bbb", "idle"))
+
+	plans, err := Run(t.Context(), srv.Client(t), Options{
+		RepoRoot:      repo,
+		Manifests:     []state.Manifest{a, b},
+		ManifestPaths: map[string]string{"aaa": aPath, "bbb": bPath},
+		Apply:         true,
+	})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !plans[0].Refused || plans[0].Reason != LiveWorker {
+		t.Errorf("plans[0] = %+v, want the woken worker refused", plans[0])
+	}
+	if !plans[1].Applied {
+		t.Errorf("plans[1] was not applied: %+v", plans[1])
+	}
+	if got := srv.Removed(); len(got) != 1 || got[0] != "w-bbb" {
+		t.Errorf("removed = %v, want only the still-settled tick's workspace", got)
+	}
+}
+
+// TestPreviewDoesNotRecheck pins that the extra round-trip belongs to --apply
+// only: a preview removes nothing, so there is nothing to re-check.
+func TestPreviewDoesNotRecheck(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	srv.setAgents(agent("tick-nhk", "idle"))
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, false))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if plans[0].Refused {
+		t.Fatalf("preview refused: %+v", plans[0])
+	}
+	if n := strings.Count(strings.Join(srv.Methods(), ","), "agent.list"); n != 1 {
+		t.Errorf("agent.list called %d times in a preview, want 1", n)
+	}
+}
+
+// TestRecheckFailureRefuses pins the fail-safe: herdr going quiet between the
+// snapshot and the teardown is not evidence that killing an agent is safe.
+func TestRecheckFailureRefuses(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	srv.setListErrorAfterFirstList("herdr is shutting down")
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply returned a run error, want a per-plan refusal: %v", err)
+	}
+	p := plans[0]
+	if !p.Refused || p.Reason != RecheckFailed {
+		t.Fatalf("plan = %+v, want a %s refusal", p, RecheckFailed)
+	}
+	if got := srv.Removed(); len(got) != 0 {
+		t.Errorf("removed = %v, want nothing torn down on an unanswerable re-check", got)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the manifest was removed on an unanswerable re-check: %v", err)
 	}
 }
