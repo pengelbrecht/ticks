@@ -2,6 +2,7 @@
   "id": "9z6",
   "title": "tk herd wait: event-driven wave fan-in",
   "description": "New cobra command group file cmd/tk/cmd/herd.go (parent \"tk herd\" command — this tick creates it) plus cmd/tk/cmd/herd_wait.go and package internal/herd/wait. tk herd wait --agents tick-a,tick-b [--timeout MS] [--json]: subscribe once via internal/herd/client events.subscribe (pane.agent_status_changed and pane.exited), resolve current states first (herdr agent list) so already-settled workers return immediately, then block on pushed events until every named worker reaches a settled state (idle|done|blocked) or exits, with a hard overall timeout (never indefinite). NO polling loops — the event stream is the mechanism; a coarse safety re-list on reconnect only. Output one JSON line per worker: name, final state, pane_id, exited. Register the command in BOTH cobra and the legacy switch + usage text in cmd/tk/main.go (see .tick/learnings.md — TestLegacyDispatchCoversAllCobraCommands enforces this). Reset any new persistent flags in ResetFlags() in root.go. Unit tests drive the fake socket server (pushed events, pre-settled fast path, timeout, disconnect/reconnect). Do not implement spawn/collect/reconcile.",
+  "notes": "2026-08-11 14:59 - runner-state: runner=claude branch=worktree-agent-ae3a3bb301e402076 substrate=harness",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -13,6 +14,6 @@
   "acceptance_criteria": "go test -short -count=1 ./... passes incl. TestLegacyDispatchCoversAllCobraCommands; wait returns on pushed events with no polling in the implementation; pre-settled and timeout paths covered by tests",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T12:06:09.458083Z",
-  "updated_at": "2026-08-11T12:49:21.663584Z",
+  "updated_at": "2026-08-11T12:59:49.278017Z",
   "started_at": "2026-08-11T12:49:21.663584Z"
 }

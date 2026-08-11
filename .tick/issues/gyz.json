@@ -2,7 +2,7 @@
   "id": "gyz",
   "title": "Herd helper CLI (deterministic spawn/wait/collect)",
   "description": "Layer 2. Deterministic helper wrapping the herdr socket API so the wave loop is a handful of calls: spawn \u003ctick\u003e (worktree + agent start + prompt from tick body + runners.toml routing), wait-wave (event-driven fan-in via events.subscribe/events.wait on pane.agent_status_changed - no polling), collect \u003ctick\u003e (branch has commits + RESULT.md, .tick/ boundary check), cleanup --preview, reconcile (rebuild run state after orchestrator death from tracker + herdr snapshot + agent_session IDs). Open decisions at flesh-out: standalone tkherd vs tk herd subcommand (Go, alongside tk); socket protocol client vs shelling to herdr CLI. Rough deliverables: the CLI, socket event client, run-state manifest format, integration tests against a named herdr test session, herdr-runner.md updated to prefer the helper.",
-  "notes": "2026-08-11 14:06 - Branch strategy: epic/gyz stacked on epic/ias (PR #37 pending merge to main). When #37 merges, epic/gyz PR diff against main collapses to layer-2 work only. Base branch recorded as main.",
+  "notes": "2026-08-11 14:06 - Branch strategy: epic/gyz stacked on epic/ias (PR #37 pending merge to main). When #37 merges, epic/gyz PR diff against main collapses to layer-2 work only. Base branch recorded as main.\n2026-08-11 14:59 - Drift/cleanup candidate for next epic (surfaced by 9z6): GetExitCode in cmd/tk/cmd/root.go classifies errors by message substring (\"invalid argument\" → usage exit 2), misclassifying e.g. unix dial failures; 9z6 worked around with explicit ExitError. Proposal: replace heuristic with typed error checks.",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -15,5 +15,5 @@
   "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:19.807927Z",
-  "updated_at": "2026-08-11T12:06:42.637784Z"
+  "updated_at": "2026-08-11T12:59:49.351367Z"
 }
