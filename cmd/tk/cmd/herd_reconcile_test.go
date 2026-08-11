@@ -1,171 +1,31 @@
 package cmd
 
 import (
-	"bufio"
 	"encoding/json"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
+	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
 	"github.com/pengelbrecht/ticks/internal/herd/reconcile"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 )
 
 // ---------------------------------------------------------------------------
-// A minimal fake herdr server for the reconcile command tests.
-//
-// herd/client's, herd/wait's and herd/reconcile's fakes are package-internal by
-// design, so this package builds its own. Like herdr, it answers exactly one
-// request per connection; reconcile makes three calls (ping, agent.list,
-// session.snapshot) and no live herdr session is ever contacted.
+// The fake herdr server is internal/herd/herdtest — one canonical fake for the
+// whole repo, a real unix listener speaking the real wire protocol. Like herdr
+// it answers exactly one request per connection; reconcile makes three calls
+// (ping, agent.list, session.snapshot) and no live herdr session is ever
+// contacted.
 // ---------------------------------------------------------------------------
 
-type reconcileFakeAgent struct {
-	name        string
-	paneID      string
-	workspaceID string
-	status      string
-	session     string
-}
-
-type reconcileFakeHerd struct {
-	t    *testing.T
-	path string
-	ln   net.Listener
-
-	mu         sync.Mutex
-	agents     []reconcileFakeAgent
-	workspaces []string
-	methods    []string
-
-	wg sync.WaitGroup
-}
-
-func newReconcileFakeHerd(t *testing.T, workspaces []string, agents ...reconcileFakeAgent) *reconcileFakeHerd {
+// newReconcileFakeHerd starts the canonical fake seeded with the workspaces
+// session.snapshot lists and the agents agent.list reports.
+func newReconcileFakeHerd(t *testing.T, workspaces []string, agents ...herdtest.Agent) *herdtest.Server {
 	t.Helper()
-	// Unix socket paths are length-limited on darwin; keep the prefix short.
-	dir, err := os.MkdirTemp("", "hc")
-	if err != nil {
-		t.Fatalf("temp dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-
-	path := filepath.Join(dir, "h.sock")
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	s := &reconcileFakeHerd{t: t, path: path, ln: ln, agents: agents, workspaces: workspaces}
-	s.wg.Add(1)
-	go s.acceptLoop()
-	t.Cleanup(func() {
-		_ = s.ln.Close()
-		s.wg.Wait()
-	})
-	return s
-}
-
-func (s *reconcileFakeHerd) acceptLoop() {
-	defer s.wg.Done()
-	for {
-		conn, err := s.ln.Accept()
-		if err != nil {
-			return
-		}
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.serve(conn)
-		}()
-	}
-}
-
-func (s *reconcileFakeHerd) agentJSON(a reconcileFakeAgent) map[string]any {
-	m := map[string]any{
-		"terminal_id":  a.paneID,
-		"agent_status": a.status,
-		"workspace_id": a.workspaceID,
-		"tab_id":       a.workspaceID + ":t1",
-		"pane_id":      a.paneID,
-		"revision":     1,
-		"name":         a.name,
-	}
-	if a.session != "" {
-		m["agent_session"] = map[string]any{
-			"source": "herdr:claude", "agent": "claude", "kind": "id", "value": a.session,
-		}
-	}
-	return m
-}
-
-func (s *reconcileFakeHerd) serve(conn net.Conn) {
-	defer conn.Close()
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
-	if err != nil {
-		return
-	}
-	var req struct {
-		ID     string `json:"id"`
-		Method string `json:"method"`
-	}
-	if err := json.Unmarshal(line, &req); err != nil {
-		return
-	}
-	s.mu.Lock()
-	s.methods = append(s.methods, req.Method)
-	agents := append([]reconcileFakeAgent(nil), s.agents...)
-	workspaces := append([]string(nil), s.workspaces...)
-	s.mu.Unlock()
-
-	var result any
-	switch req.Method {
-	case "ping":
-		result = map[string]any{"type": "pong", "version": "0.8.0", "protocol": 19}
-	case "agent.list":
-		listed := make([]map[string]any, 0, len(agents))
-		for _, a := range agents {
-			listed = append(listed, s.agentJSON(a))
-		}
-		result = map[string]any{"type": "agent_list", "agents": listed}
-	case "session.snapshot":
-		all := make([]map[string]any, 0, len(agents))
-		for _, a := range agents {
-			all = append(all, s.agentJSON(a))
-		}
-		ws := make([]map[string]any, 0, len(workspaces))
-		for i, id := range workspaces {
-			ws = append(ws, map[string]any{
-				"workspace_id": id, "number": i + 1, "label": id,
-				"pane_count": 1, "tab_count": 1, "active_tab_id": id + ":t1",
-				"agent_status": "idle",
-			})
-		}
-		result = map[string]any{
-			"type": "session_snapshot",
-			"snapshot": map[string]any{
-				"version": "0.8.0", "protocol": 19,
-				"workspaces": ws, "tabs": []any{}, "panes": []any{},
-				"agents": all, "layouts": []any{},
-			},
-		}
-	default:
-		body, _ := json.Marshal(map[string]any{
-			"id":    req.ID,
-			"error": map[string]string{"code": "invalid_request", "message": "unexpected " + req.Method},
-		})
-		w := bufio.NewWriter(conn)
-		_, _ = w.Write(append(body, '\n'))
-		_ = w.Flush()
-		return
-	}
-	body, _ := json.Marshal(map[string]any{"id": req.ID, "result": result})
-	w := bufio.NewWriter(conn)
-	_, _ = w.Write(append(body, '\n'))
-	_ = w.Flush()
+	return herdtest.New(t, herdtest.Config{Agents: agents, Workspaces: workspaces})
 }
 
 // ---------------------------------------------------------------------------
@@ -276,12 +136,12 @@ func TestHerdReconcilePlanExitsZeroWithUnknowns(t *testing.T) {
 		PaneID: "w4:p1", Agent: "tick-ddd", Kind: "claude", Base: base,
 	})
 
-	srv := newReconcileFakeHerd(t, []string{"w1"}, reconcileFakeAgent{
-		name: "tick-aaa", paneID: "w1:p1", workspaceID: "w1", status: "working",
+	srv := newReconcileFakeHerd(t, []string{"w1"}, herdtest.Agent{
+		Name: "tick-aaa", PaneID: "w1:p1", WorkspaceID: "w1", Status: "working",
 	})
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.path, "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.Path(), "--json"}); err != nil {
 		t.Fatalf("herd reconcile: %v\n%s", err, buf.String())
 	}
 
@@ -345,7 +205,7 @@ model = "sonnet"
 	srv := newReconcileFakeHerd(t, nil)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.path, "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.Path(), "--json"}); err != nil {
 		t.Fatalf("herd reconcile: %v\n%s", err, buf.String())
 	}
 	var report reconcile.Report
@@ -380,14 +240,14 @@ func TestHerdReconcileAdoptRefreshesOnlyLiveManifests(t *testing.T) {
 	})
 	staleBefore, _ := os.ReadFile(state.Path(repo, "e1", "ggg"))
 
-	srv := newReconcileFakeHerd(t, []string{"w6"}, reconcileFakeAgent{
+	srv := newReconcileFakeHerd(t, []string{"w6"}, herdtest.Agent{
 		// A respawn: prefix-matched, and the manifest must learn the new name.
-		name: "tick-fff-r2", paneID: "w6:p8", workspaceID: "w6",
-		status: "idle", session: "sess-fff",
+		Name: "tick-fff-r2", PaneID: "w6:p8", WorkspaceID: "w6",
+		Status: "idle", Session: "sess-fff",
 	})
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.path, "--adopt"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.Path(), "--adopt"}); err != nil {
 		t.Fatalf("herd reconcile --adopt: %v\n%s", err, buf.String())
 	}
 
@@ -429,7 +289,7 @@ func TestHerdReconcileTextOutputNamesTheEvidence(t *testing.T) {
 	srv := newReconcileFakeHerd(t, nil)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.path}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "reconcile", "--epic", "e1", "--socket", srv.Path()}); err != nil {
 		t.Fatalf("herd reconcile: %v\n%s", err, buf.String())
 	}
 	out := buf.String()

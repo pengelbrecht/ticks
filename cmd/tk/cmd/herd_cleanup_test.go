@@ -1,152 +1,45 @@
 package cmd
 
 import (
-	"bufio"
 	"encoding/json"
-	"net"
 	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/pengelbrecht/ticks/internal/herd/cleanup"
+	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
 )
 
 // ---------------------------------------------------------------------------
-// A minimal fake herdr server for the cleanup command tests.
-//
-// herd/client's, herd/wait's and herd/cleanup's fakes are package-internal by
-// design, so this package builds its own. It is a real unix listener speaking
-// the real wire protocol and, like herdr, answers exactly one request per
-// connection: cleanup makes one agent.list plus one worktree.remove per applied
-// plan.
+// The fake herdr server is internal/herd/herdtest — one canonical fake for the
+// whole repo, a real unix listener speaking the real wire protocol. Like herdr
+// it answers exactly one request per connection: cleanup makes one agent.list
+// plus one worktree.remove per applied plan.
 // ---------------------------------------------------------------------------
 
-type cleanupFakeHerd struct {
-	t    *testing.T
-	path string
-	ln   net.Listener
-
-	mu        sync.Mutex
-	agents    []map[string]any
-	removed   []string
-	removeErr string
-
-	wg sync.WaitGroup
-}
-
-func newCleanupFakeHerd(t *testing.T) *cleanupFakeHerd {
+// newCleanupFakeHerd starts the canonical fake and adds the one assertion that
+// belongs to this command rather than to the protocol: cleanup must never pass
+// force:true to worktree.remove. The route wraps the canonical handler, so the
+// reply itself still comes from herdtest.
+func newCleanupFakeHerd(t *testing.T) *herdtest.Server {
 	t.Helper()
-	// Unix socket paths are length-limited on darwin; keep the prefix short.
-	dir, err := os.MkdirTemp("", "hk")
-	if err != nil {
-		t.Fatalf("temp dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-
-	path := filepath.Join(dir, "h.sock")
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	s := &cleanupFakeHerd{t: t, path: path, ln: ln}
-	s.wg.Add(1)
-	go s.acceptLoop()
-	t.Cleanup(func() {
-		_ = s.ln.Close()
-		s.wg.Wait()
-	})
-	return s
-}
-
-func (s *cleanupFakeHerd) setAgents(agents ...map[string]any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.agents = agents
-}
-
-func cleanupAgent(name, status string) map[string]any {
-	return map[string]any{"pane_id": "w1:p1", "name": name, "agent_status": status}
-}
-
-func (s *cleanupFakeHerd) acceptLoop() {
-	defer s.wg.Done()
-	for {
-		conn, err := s.ln.Accept()
-		if err != nil {
-			return
-		}
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.serve(conn)
-		}()
-	}
-}
-
-func (s *cleanupFakeHerd) serve(conn net.Conn) {
-	defer conn.Close()
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
-	if err != nil {
-		return
-	}
-	var req struct {
-		ID     string          `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
-	}
-	if err := json.Unmarshal(line, &req); err != nil {
-		return
-	}
-	s.mu.Lock()
-	agents := s.agents
-	removeErr := s.removeErr
-	s.mu.Unlock()
-
-	var body []byte
-	switch req.Method {
-	case "ping":
-		body, _ = json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{
-			"type": "pong", "version": "0.8.0", "protocol": 19}})
-	case "agent.list":
-		if agents == nil {
-			agents = []map[string]any{}
-		}
-		body, _ = json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{
-			"type": "agent_list", "agents": agents}})
-	case "worktree.remove":
+	srv := herdtest.New(t, herdtest.Config{})
+	remove := srv.Builtin(herdtest.MethodWorktreeRemove)
+	srv.Route(herdtest.MethodWorktreeRemove, func(t *testing.T, req herdtest.Request, w *herdtest.ConnWriter) error {
 		var p struct {
-			WorkspaceID string `json:"workspace_id"`
-			Force       bool   `json:"force"`
+			Force bool `json:"force"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		if p.Force {
-			s.t.Error("cleanup passed force:true to worktree.remove — it must never force")
+			t.Error("cleanup passed force:true to worktree.remove — it must never force")
 		}
-		if removeErr != "" {
-			body, _ = json.Marshal(map[string]any{"id": req.ID,
-				"error": map[string]string{"code": "workspace_not_found", "message": removeErr}})
-			break
-		}
-		s.mu.Lock()
-		s.removed = append(s.removed, p.WorkspaceID)
-		s.mu.Unlock()
-		body, _ = json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{
-			"type": "worktree_removed", "workspace_id": p.WorkspaceID, "path": "/wt", "forced": false}})
-	default:
-		body, _ = json.Marshal(map[string]any{"id": req.ID,
-			"error": map[string]string{"code": "invalid_request", "message": "unexpected " + req.Method}})
-	}
-	w := bufio.NewWriter(conn)
-	_, _ = w.Write(append(body, '\n'))
-	_ = w.Flush()
+		return remove(t, req, w)
+	})
+	return srv
 }
 
-func (s *cleanupFakeHerd) Removed() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.removed...)
+func cleanupAgent(name, status string) herdtest.Agent {
+	return herdtest.Agent{PaneID: "w1:p1", Name: name, Status: status}
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +69,7 @@ func decodeCleanupJSON(t *testing.T, out string) cleanupDoc {
 
 // setupCleanupTick makes a repo with a worker branch (merged or not) and its
 // manifest, and returns the repo, the manifest path and the fake herdr.
-func setupCleanupTick(t *testing.T, merged bool) (repo, manifestPath string, srv *cleanupFakeHerd) {
+func setupCleanupTick(t *testing.T, merged bool) (repo, manifestPath string, srv *herdtest.Server) {
 	t.Helper()
 	repo, base := setupHerdRepo(t)
 	herdWorkerBranch(t, repo, "tick/nhk", base, map[string]string{"a.go": "package a\n"})
@@ -203,7 +96,7 @@ func TestHerdCleanupPreviewIsTheDefaultAndTouchesNothing(t *testing.T) {
 	repo, manifestPath, srv := setupCleanupTick(t, true)
 	buf, _ := captureHerdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--json"}); err != nil {
 		t.Fatalf("herd cleanup: %v\n%s", err, buf.String())
 	}
 	doc := decodeCleanupJSON(t, buf.String())
@@ -227,14 +120,14 @@ func TestHerdCleanupPreviewListsWhatApplyRemoves(t *testing.T) {
 	repo, manifestPath, srv := setupCleanupTick(t, true)
 
 	previewBuf, _ := captureHerdOutput(t)
-	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--preview", "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--preview", "--json"}); err != nil {
 		t.Fatalf("preview: %v", err)
 	}
 	preview := decodeCleanupJSON(t, previewBuf.String())
 	previewBuf.Reset()
 
 	applyBuf, _ := captureHerdOutput(t)
-	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--apply", "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--apply", "--json"}); err != nil {
 		t.Fatalf("apply: %v\n%s", err, applyBuf.String())
 	}
 	applied := decodeCleanupJSON(t, applyBuf.String())
@@ -271,10 +164,10 @@ func TestHerdCleanupPreviewListsWhatApplyRemoves(t *testing.T) {
 // end: a half-cleaned tick stays visible to the next reconcile.
 func TestHerdCleanupApplyKeepsManifestWhenAStepFails(t *testing.T) {
 	repo, manifestPath, srv := setupCleanupTick(t, true)
-	srv.removeErr = "no such workspace"
+	srv.SetRemoveError("no such workspace")
 	buf, _ := captureHerdOutput(t)
 
-	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--apply", "--json"})
+	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--apply", "--json"})
 	if err == nil {
 		t.Fatal("a failed removal exited 0")
 	}
@@ -295,7 +188,7 @@ func TestHerdCleanupApplyKeepsManifestWhenAStepFails(t *testing.T) {
 
 func TestHerdCleanupPreviewAndApplyAreMutuallyExclusive(t *testing.T) {
 	_, _, srv := setupCleanupTick(t, true)
-	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--preview", "--apply"})
+	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--preview", "--apply"})
 	if err == nil {
 		t.Fatal("--preview --apply together returned nil error")
 	}
@@ -312,21 +205,21 @@ func TestHerdCleanupRefusals(t *testing.T) {
 	cases := []struct {
 		name   string
 		merged bool
-		agents []map[string]any
+		agents []herdtest.Agent
 		reason cleanup.Reason
 	}{
 		{"unmerged branch", false, nil, cleanup.UnmergedBranch},
-		{"working worker", true, []map[string]any{cleanupAgent("tick-nhk", "working")}, cleanup.LiveWorker},
-		{"respawned worker still working", true, []map[string]any{cleanupAgent("tick-nhk-r2", "working")}, cleanup.LiveWorker},
-		{"blocked worker", true, []map[string]any{cleanupAgent("tick-nhk", "blocked")}, cleanup.BlockedWorker},
+		{"working worker", true, []herdtest.Agent{cleanupAgent("tick-nhk", "working")}, cleanup.LiveWorker},
+		{"respawned worker still working", true, []herdtest.Agent{cleanupAgent("tick-nhk-r2", "working")}, cleanup.LiveWorker},
+		{"blocked worker", true, []herdtest.Agent{cleanupAgent("tick-nhk", "blocked")}, cleanup.BlockedWorker},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			repo, manifestPath, srv := setupCleanupTick(t, c.merged)
-			srv.setAgents(c.agents...)
+			srv.SetAgents(c.agents...)
 			buf, _ := captureHerdOutput(t)
 
-			err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--apply", "--json"})
+			err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--apply", "--json"})
 			if err == nil {
 				t.Fatal("a refusal exited 0")
 			}
@@ -358,7 +251,7 @@ func TestHerdCleanupRefusals(t *testing.T) {
 func TestHerdCleanupMissingManifestIsNotFound(t *testing.T) {
 	setupHerdRepo(t)
 	srv := newCleanupFakeHerd(t)
-	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--apply"})
+	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--apply"})
 	if err == nil {
 		t.Fatal("cleanup with no manifest returned nil error")
 	}
@@ -392,10 +285,10 @@ func TestHerdCleanupWholeEpicRefusalIsPerTick(t *testing.T) {
 			herdWorktree(t, id, "STATUS: DONE\n")))
 	}
 	srv := newCleanupFakeHerd(t)
-	srv.setAgents(cleanupAgent("tick-aaa", "working"))
+	srv.SetAgents(cleanupAgent("tick-aaa", "working"))
 	buf, _ := captureHerdOutput(t)
 
-	err := ExecuteArgs([]string{"herd", "cleanup", "--epic", "gyz", "--socket", srv.path, "--apply", "--json"})
+	err := ExecuteArgs([]string{"herd", "cleanup", "--epic", "gyz", "--socket", srv.Path(), "--apply", "--json"})
 	if err == nil {
 		t.Fatal("a wave with a live worker exited 0")
 	}
@@ -428,7 +321,7 @@ func TestHerdCleanupHelpNamesTheCheckoutWorkspaceDuty(t *testing.T) {
 // TestHerdCleanupFlagsResetBetweenExecutions pins the ResetFlags contract.
 func TestHerdCleanupFlagsResetBetweenExecutions(t *testing.T) {
 	_, _, srv := setupCleanupTick(t, true)
-	_ = ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.path, "--epic", "gyz", "--json", "--apply"})
+	_ = ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--epic", "gyz", "--json", "--apply"})
 	_ = ExecuteArgs([]string{"herd", "cleanup", "nhk"})
 	if herdCleanupJSON || herdCleanupApply || herdCleanupPreview {
 		t.Error("a cleanup bool flag leaked across executions")

@@ -56,6 +56,29 @@ func StatusEventLine(pane, status string) string {
 	return string(body)
 }
 
+// EventLine renders an envelope of the underscored `event` schema — the one
+// events.wait and every session-wide subscription deliver. Its kind is
+// underscored and its data repeats the kind in a "type" field; see
+// internal/herd/client/testdata/event_stream.ndjson.
+//
+// It exists so a test can push a kind a consumer is NOT waiting on (a
+// session-wide `pane_updated`, an event kind newer than the consumer) without
+// writing a reply literal.
+func EventLine(kind string, data map[string]any) string {
+	payload := map[string]any{"type": kind}
+	for k, v := range data {
+		payload[k] = v
+	}
+	body, _ := json.Marshal(map[string]any{"event": kind, "data": payload})
+	return string(body)
+}
+
+// IgnoredNonEventLine is a protocol line that is neither an event envelope nor
+// an error response — the shape herdr may grow (a keepalive, say) and which a
+// client must skip rather than treat as corruption. Pushing it with
+// [Server.PushLine] proves a consumer survives it.
+const IgnoredNonEventLine = `{"type":"keepalive"}`
+
 // workspaceOf is the workspace id embedded in a pane id.
 func workspaceOf(pane string) string {
 	for i := 0; i < len(pane); i++ {
@@ -91,6 +114,24 @@ func (s *Server) PushStatus(name, status string) {
 		if st.matches(pane, status) {
 			_ = st.w.WriteLine(StatusEventLine(pane, status))
 		}
+	}
+}
+
+// PushLine writes one raw line to every live stream, bypassing subscription
+// matching entirely. It is how a test delivers what [Server.PushStatus] cannot:
+// a status event for a pane nobody is waiting on, a session-wide event kind, or
+// a line that is not an event envelope at all ([IgnoredNonEventLine]) — the
+// traffic a consumer's ignore paths have to survive.
+//
+// Lines are written in call order on each stream's own connection, so a test
+// can push stray traffic and then a real settle and rely on the consumer
+// seeing the strays first.
+func (s *Server) PushLine(line string) {
+	s.mu.Lock()
+	streams := append([]*stream(nil), s.streams...)
+	s.mu.Unlock()
+	for _, st := range streams {
+		_ = st.w.WriteLine(line)
 	}
 }
 
