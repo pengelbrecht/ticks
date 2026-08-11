@@ -2,6 +2,7 @@
   "id": "vvw",
   "title": "Live plugin demo, install docs, and skill docs cutover",
   "description": "End-to-end proof + docs. Extend scripts/verify-herd-helper.sh with a --plugin mode (or a sibling script) that runs a wave with the plugin linked and asserts: badges painted, dashboard renders, blocked notification fires (simulate blocked), actions functional; capture a field report to docs/design/. Write install docs (herdr plugin install path + link dev flow) and add a mission-control section to skills/ticks/references/herdr-runner.md. Fold every deviation back. Report the Closeout Evidence Command line for the orchestrator to add.",
+  "notes": "2026-08-11 19:38 - Carry-over for this tick (from m05 post-merge notes): mirror dashboard.sh pin-file hardening (first-line only, CRLF strip, ~ expansion, fall-through on broken pin) into paint-hook.sh and notify-hook.sh so all plugin scripts share one tk-resolution behavior; verify the merged manifest events section is o83+sku union after wave 3.",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -16,5 +17,5 @@
   "acceptance_criteria": "Plugin-mode smoke passes live with evidence committed; install docs accurate on a machine with tk; herdr-runner.md mission-control section matches shipped behavior",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:25.544926Z",
-  "updated_at": "2026-08-11T16:53:25.544926Z"
+  "updated_at": "2026-08-11T17:38:42.72394Z"
 }
