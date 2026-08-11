@@ -131,6 +131,16 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// A misspelled tier is a USAGE error, not a routing refusal: it is a typo
+	// in the invocation, so it is caught here — before the repo is located,
+	// the config is read or herdr is dialled. Reaching Resolve with it would
+	// report the same mistake as a generic failure (exit 1) after the work of
+	// loading and resolving.
+	if herdSpawnTier != "" && !herdSpawnKnownTier(herdSpawnTier) {
+		return NewExitError(ExitUsage, "unknown --tier %q (want one of %s)",
+			herdSpawnTier, strings.Join(herdSpawnTierNames(), ", "))
+	}
+
 	root, err := repoRoot()
 	if err != nil {
 		return NewExitError(ExitNoRepo, "failed to detect repo root: %v", err)
@@ -162,6 +172,17 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	}
 	for _, w := range compiled.Warnings {
 		fmt.Fprintln(errOut, "warning: "+w)
+	}
+	// A role with no table falls back to [roles.implement]. That fallback is
+	// deliberate for a role nobody configured, and indistinguishable from a
+	// typo (`--role reveiw`) that silently routes a reviewer as an
+	// implementer — so say both names out loud. The manifest records the role
+	// that was ASKED FOR plus the one the routing came from, so a later reader
+	// can tell the two apart without re-resolving the config.
+	if compiled.ResolvedRole != herdSpawnRole {
+		fmt.Fprintf(errOut, "warning: no [roles.%s] in %s — this worker is routed from [roles.%s] instead"+
+			" (fix the role name, or add the table)\n",
+			herdSpawnRole, herdconfig.FileName, compiled.ResolvedRole)
 	}
 
 	base := herdSpawnBase
@@ -219,6 +240,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		Epic:         epic.ID,
 		Role:         herdSpawnRole,
 		Tier:         herdSpawnTier,
+		ResolvedRole: herdSpawnResolvedRole(compiled.ResolvedRole),
 		Branch:       res.Branch,
 		Worktree:     res.WorktreePath,
 		WorkspaceID:  res.WorkspaceID,
@@ -274,6 +296,35 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "manifest  %s\n", rel)
 	fmt.Fprintln(out, note)
 	return nil
+}
+
+// herdSpawnKnownTier reports whether name is one of the four capability tiers.
+func herdSpawnKnownTier(name string) bool {
+	for _, t := range herdconfig.TierNames {
+		if string(t) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// herdSpawnTierNames is the tier vocabulary, for a usage message.
+func herdSpawnTierNames() []string {
+	names := make([]string, 0, len(herdconfig.TierNames))
+	for _, t := range herdconfig.TierNames {
+		names = append(names, string(t))
+	}
+	return names
+}
+
+// herdSpawnResolvedRole is the role the routing came from, recorded only when
+// it differs from the requested one: a manifest carrying both is how a reader
+// sees a fallback that the operator may have missed on stderr.
+func herdSpawnResolvedRole(resolved string) string {
+	if resolved == herdSpawnRole {
+		return ""
+	}
+	return resolved
 }
 
 // herdSpawnLoadTick reads the tick and, when it has one, its parent epic. Both

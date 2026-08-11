@@ -258,13 +258,21 @@ func (s *Server) handleAgentStart(_ *testing.T, req Request, w *ConnWriter) erro
 	}
 	_ = json.Unmarshal(req.Params, &p)
 
+	agent := map[string]any{
+		"pane_id": s.cfg.Worktree.PaneID, "agent_status": "idle",
+		"name": p.Name, "interactive_ready": true,
+	}
+	if s.cfg.LaunchPending {
+		// The accepted-but-pending launch: herdr answers green, with no agent
+		// behind it yet. See [Config.LaunchPending].
+		agent["agent_status"] = "unknown"
+		agent["interactive_ready"] = false
+		agent["launch_pending"] = true
+	}
 	return RespondJSON(w, req.ID, map[string]any{
-		"type": "agent_started",
-		"agent": map[string]any{
-			"pane_id": s.cfg.Worktree.PaneID, "agent_status": "idle",
-			"name": p.Name, "interactive_ready": true,
-		},
-		"argv": append([]string{p.Kind}, p.Args...),
+		"type":  "agent_started",
+		"agent": agent,
+		"argv":  append([]string{p.Kind}, p.Args...),
 	})
 }
 
@@ -283,15 +291,40 @@ func (s *Server) handleAgentPrompt(_ *testing.T, req Request, w *ConnWriter) err
 // reports interactive_ready.
 func (s *Server) handleAgentGet(_ *testing.T, req Request, w *ConnWriter) error {
 	var p struct {
+		// herdr's agent.get takes ONE `target` that is either a pane id or an
+		// agent name — which is what internal/herd/client sends. name/pane_id
+		// are accepted too so a hand-written request in a test still resolves.
+		Target string `json:"target"`
 		Name   string `json:"name"`
 		PaneID string `json:"pane_id"`
 	}
 	_ = json.Unmarshal(req.Params, &p)
+	if p.Target != "" {
+		return s.respondAgentInfo(req, w, p.Target, p.Target)
+	}
+	return s.respondAgentInfo(req, w, p.Name, p.PaneID)
+}
 
+// handleAgentWait answers herdr's blocking wait. The fake resolves it at once
+// from the modelled session — a test that needs the wait to elapse, or to
+// observe a status change while it blocks, routes the method itself.
+func (s *Server) handleAgentWait(_ *testing.T, req Request, w *ConnWriter) error {
+	var p struct {
+		Target string `json:"target"`
+	}
+	_ = json.Unmarshal(req.Params, &p)
+	// agent.wait takes one `target` that is either a pane id or an agent name.
+	return s.respondAgentInfo(req, w, p.Target, p.Target)
+}
+
+// respondAgentInfo answers the agent_info result from the modelled session
+// when either identifier names a known agent, and from the spawned worktree
+// pane otherwise. Either way it reports interactive_ready.
+func (s *Server) respondAgentInfo(req Request, w *ConnWriter, name, paneID string) error {
 	s.mu.Lock()
 	var found *Agent
 	for i := range s.agents {
-		if (p.Name != "" && s.agents[i].Name == p.Name) || (p.PaneID != "" && s.agents[i].PaneID == p.PaneID) {
+		if (name != "" && s.agents[i].Name == name) || (paneID != "" && s.agents[i].PaneID == paneID) {
 			found = &s.agents[i]
 			break
 		}
@@ -307,7 +340,7 @@ func (s *Server) handleAgentGet(_ *testing.T, req Request, w *ConnWriter) error 
 		"type": "agent_info",
 		"agent": map[string]any{
 			"pane_id": s.cfg.Worktree.PaneID, "agent_status": "idle",
-			"name": p.Name, "interactive_ready": true,
+			"name": name, "interactive_ready": true,
 		},
 	})
 }

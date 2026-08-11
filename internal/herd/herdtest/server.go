@@ -153,6 +153,13 @@ type Config struct {
 
 	// Worktree is what worktree.create answers with.
 	Worktree Worktree
+	// LaunchPending makes agent.start answer with the PENDING launch herdr
+	// really returns while it has typed the command into the pane but has not
+	// detected the agent yet: `launch_pending: true`,
+	// `interactive_ready: false`, `agent_status: unknown`. It is a success,
+	// not an error — and prompting that agent fails with agent_not_ready, so a
+	// consumer has to sample agent.get until readiness flips.
+	LaunchPending bool
 	// AgentSession is the agent_session id agent.prompt reports.
 	AgentSession string
 	// PaneTexts scripts pane.read, one entry per read in order; the last
@@ -547,6 +554,8 @@ func (s *Server) builtin(method string) (Handler, bool) {
 		return s.handleAgentPrompt, true
 	case MethodAgentGet:
 		return s.handleAgentGet, true
+	case MethodAgentWait:
+		return s.handleAgentWait, true
 	case MethodPaneRead:
 		return s.handlePaneRead, true
 	case MethodEventsSubscribe:

@@ -341,6 +341,105 @@ func TestHerdSpawnRejectsNonPositiveTimeouts(t *testing.T) {
 	}
 }
 
+// TestHerdSpawnUnknownTierIsUsage pins that a misspelled tier is a usage stop
+// (exit 2) taken BEFORE anything is resolved or dialled — not a generic exit-1
+// routing failure discovered after the config was loaded.
+func TestHerdSpawnUnknownTierIsUsage(t *testing.T) {
+	setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+
+	for _, tier := range []string{"strongg", "STRONG", "fast"} {
+		err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--tier", tier})
+		if err == nil {
+			t.Fatalf("--tier %q returned nil error", tier)
+		}
+		if code := GetExitCode(err); code != ExitUsage {
+			t.Errorf("--tier %q: exit code = %d, want %d (usage): %v", tier, code, ExitUsage, err)
+		}
+		if !strings.Contains(err.Error(), tier) || !strings.Contains(err.Error(), "economy, balanced, strong, frontier") {
+			t.Errorf("--tier %q: error = %v, want it to name the bad value and the vocabulary", tier, err)
+		}
+	}
+	if srv.Dials() != 0 {
+		t.Errorf("dials = %d, want 0 — a bad flag must cost zero herdr calls", srv.Dials())
+	}
+}
+
+// TestHerdSpawnKnownTiersPass pins the other side of the check: every tier the
+// config vocabulary defines is accepted, tier tables or not.
+func TestHerdSpawnKnownTiersPass(t *testing.T) {
+	setupSpawnRepo(t, validRunners)
+	for _, tier := range []string{"economy", "balanced", "strong", "frontier"} {
+		srv := newSpawnFakeHerd(t)
+		if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--tier", tier}); err != nil {
+			t.Errorf("--tier %s was rejected: %v", tier, err)
+		}
+	}
+}
+
+// TestHerdSpawnRoleFallbackWarns pins the typo trap: `--role reveiw` has no
+// table, so the routing falls back to [roles.implement] — a reviewer silently
+// spawned as an implementer. The fallback still spawns, but it must name both
+// roles on stderr and the manifest must record the role that was ASKED FOR
+// alongside the one it resolved to.
+func TestHerdSpawnRoleFallbackWarns(t *testing.T) {
+	repo, _ := setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--role", "reveiw"}); err != nil {
+		t.Fatalf("herd spawn --role reveiw: %v\n%s", err, buf.String())
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "warning:") {
+		t.Errorf("output has no warning about the role fallback:\n%s", out)
+	}
+	for _, want := range []string{"roles.reveiw", "roles.implement", "runners.toml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("fallback warning missing %q:\n%s", want, out)
+		}
+	}
+
+	m, err := state.Read(filepath.Join(repo, ".tick", "logs", "herd", "gy1", "a1w.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.Role != "reveiw" {
+		t.Errorf("manifest role = %q, want the REQUESTED role reveiw", m.Role)
+	}
+	if m.ResolvedRole != "implement" {
+		t.Errorf("manifest resolved_role = %q, want implement", m.ResolvedRole)
+	}
+}
+
+// TestHerdSpawnNoRoleFallbackRecordsNoResolvedRole pins that resolved_role is a
+// signal, not noise: a role that resolved to itself warns about nothing and
+// leaves the field out of the manifest.
+func TestHerdSpawnNoRoleFallbackRecordsNoResolvedRole(t *testing.T) {
+	repo, _ := setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--role", "implement"}); err != nil {
+		t.Fatalf("herd spawn: %v\n%s", err, buf.String())
+	}
+	if strings.Contains(buf.String(), "warning:") {
+		t.Errorf("a role that resolved to itself warned:\n%s", buf.String())
+	}
+
+	m, err := state.Read(filepath.Join(repo, ".tick", "logs", "herd", "gy1", "a1w.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.ResolvedRole != "" {
+		t.Errorf("manifest resolved_role = %q, want it omitted when the role resolved to itself", m.ResolvedRole)
+	}
+	if m.Role != "implement" {
+		t.Errorf("manifest role = %q, want implement", m.Role)
+	}
+}
+
 // TestHerdSpawnFlagsResetBetweenExecutions pins the ResetFlags contract for the
 // flags this command adds.
 func TestHerdSpawnFlagsResetBetweenExecutions(t *testing.T) {
