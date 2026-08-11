@@ -8,7 +8,7 @@ Requires herdr **0.8.0+**. macOS and Linux.
 
 ## Status
 
-Every surface below is exercised live, against a real herdr session and two real
+The pane, both hook families, and the collect-tick action are exercised live against a real herdr session and two real
 workers, by `scripts/verify-herd-plugin.sh` in the ticks repo — findings in
 [`docs/design/herd-plugin-smoke-report.md`](../../docs/design/herd-plugin-smoke-report.md).
 What ships today:
@@ -33,6 +33,9 @@ Two steps. **Both** are required — the plugin is inert without the second.
 
 ```sh
 herdr plugin install pengelbrecht/ticks/plugins/herdr-ticks
+# ^ expected form — unverifiable until this plugin is on the repo's default
+#   branch on GitHub. The verified install path today is `herdr plugin link`
+#   (below), which the live smoke exercises end to end.
 ```
 
 The plugin lives in a subdirectory of the `ticks` repo, hence the
@@ -194,7 +197,7 @@ plugins/herdr-ticks/
   herdr-plugin.toml              manifest
   README.md                      this file
   scripts/
-    lib/tk-resolve.sh            THE tk resolution — sourced by every script below
+    lib/tk-resolve.sh            THE tk resolution — sourced by every script that runs tk
     dashboard.sh                 [[panes]] dashboard — launches `tk herd dashboard`
     open-tick-board.sh           [[actions]] open-tick-board
     action-open-worktree.sh      [[actions]] open-worktree

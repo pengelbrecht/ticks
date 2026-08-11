@@ -225,6 +225,16 @@ for s in action-open-worktree.sh action-open-tick-dashboard.sh; do
     grep -qi 'refusing' "$PLUGIN_DIR/scripts/$s"
 done
 
+# The settle re-check (fix for the measured silent-wave bug) triggers on a
+# string shared between `tk herd notify`'s output and notify-hook.sh's case
+# match. A rewording on either side silently disables the re-check — the
+# failure mode is a MISSING chime — so pin the contract here.
+SETTLE_STR='workers still running'
+assert "notify.go emits the settle-recheck trigger string" \
+  grep -q "$SETTLE_STR" internal/herd/notify/notify.go
+assert "notify-hook.sh matches the settle-recheck trigger string" \
+  grep -q "$SETTLE_STR" "$PLUGIN_DIR/scripts/notify-hook.sh"
+
 if [ "$OFFLINE_ONLY" = 1 ]; then
   echo
   echo "================ herd plugin smoke (offline only): PASS ================"

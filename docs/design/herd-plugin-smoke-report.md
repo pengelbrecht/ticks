@@ -10,9 +10,12 @@ live shared herdr session (a human and other agents were working in it
 throughout — which turned out to matter, see finding 4).
 
 **Script.** `scripts/verify-herd-plugin.sh`, run by hand, **seven** full live
-runs. Four of them failed, and every failure is a finding below — two product
-bugs and three test bugs that were themselves evidence about the substrate. The
-run reported below is the final green one:
+runs. Four of them failed, yielding five findings below (one failed run produced
+two) — two product bugs and three test bugs that were themselves evidence about
+the substrate. Unless a line says otherwise, counts in the findings come from
+the diagnostic run that produced them and will not match the final-run banner
+(hook counts vary with event timing between runs). The run reported below is
+the final green one:
 
 ```text
 ================ herd plugin smoke: PASS ================
@@ -50,7 +53,7 @@ and explicit-target checks with **zero herdr calls** and no session at all.
 | 2 | two real workers, one driven to a genuine `blocked` | `full_auto = false` → argv without `bypassPermissions` → real approval prompt |
 | 3 | paint hooks fired **and herdr echoes the badge back** | `tokens.TICK`/`tokens.EPIC`/pane title round-tripped per worker |
 | 4 | the board pane opens pinned to a run-created pane and renders the run | header + epic id + both tick ids + worker rows on screen |
-| 5 | exactly one blocked chime, exactly one wave-complete chime | 15 hook invocations, 2 chimes, 23 explicit refusals to repeat |
+| 5 | exactly one blocked chime, exactly one wave-complete chime | 15 hook invocations, 2 chimes, every other outcome an explicit logged refusal to repeat |
 | 6 | an action runs against the right worker and notifies | `collect-tick` → `ready-to-merge`, verdict raised |
 | 7 | cleanup refuses correctly, then the sweep leaves nothing | 0 run-created workspaces, 0 agents, link restored |
 
@@ -200,8 +203,8 @@ file is never deleted — the package does not own it.
 
 
 The merged manifest registers `paint-hook.sh` and `notify-hook.sh` on the same
-`pane.agent_status_changed`. herdr 0.8.0 runs **both**; the run shows 17 paint
-invocations and 16 notify invocations interleaved. The union survived the wave-3
+`pane.agent_status_changed`. herdr 0.8.0 runs **both**; the diagnostic run this finding came from shows 17 paint
+invocations and 16 notify invocations interleaved (the final run: 14/15). The union survived the wave-3
 merge intact (5 + 1), which is asserted from `herdr plugin list --json` — what
 herdr actually parsed, not what the file says, since `events.on` is unvalidated.
 
@@ -317,9 +320,9 @@ replace it. `sku` did; nothing has referenced it since. Removed.
   blocks differently, this step needs a per-kind answer.
 - The `ticks://` **link handler cannot be exercised**: herdr exposes no socket
   method to simulate a click (`plugin.link/unlink/enable/disable/list` only), and
-  a Ctrl-click is a UI act. The handler's target action `open-tick-dashboard` is
-  covered directly via `TICKS_TICK`; the click routing itself remains
-  UI-verified only.
+  a Ctrl-click is a UI act. The handler's target action `open-tick-dashboard` is covered by the
+  offline explicit-target lint only; neither the click routing nor a direct
+  scripted invocation of that action is exercised by the smoke.
 - Total live cost of a run: ~90 s, two haiku workers.
 - The settle re-check (finding 7) makes each hook invocation linger 4 s while a
   wave is incomplete — 8 re-checks in the reported run. That is cheap and
