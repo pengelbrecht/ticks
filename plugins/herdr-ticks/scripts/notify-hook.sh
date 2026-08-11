@@ -68,27 +68,16 @@ if [ ! -d "$repo/.tick/logs/herd" ]; then
   exit 0
 fi
 
-# Resolve tk, in the same spirit as herdr's own HERDR_BIN_PATH:
-#
-#   1. $TK_BIN_PATH                            explicit override
-#   2. $HERDR_PLUGIN_CONFIG_DIR/tk-bin-path    a file holding one path
-#   3. PATH
-#
-# Step 2 is not decoration. herdr's server does not inherit the interactive
-# shell's PATH, so a `tk` installed in ~/.local/bin (or any fnm/asdf shim) can
-# be perfectly present and still invisible here — and an event hook has no way
-# to be handed an env var. The config file is the supported answer:
-#   echo /abs/path/to/tk > "$(herdr plugin config-dir pengelbrecht.herdr-ticks)/tk-bin-path"
-tk="${TK_BIN_PATH:-}"
-if [ -z "$tk" ] && [ -n "${HERDR_PLUGIN_CONFIG_DIR:-}" ] && [ -r "$HERDR_PLUGIN_CONFIG_DIR/tk-bin-path" ]; then
-  tk="$(head -n 1 "$HERDR_PLUGIN_CONFIG_DIR/tk-bin-path" 2>/dev/null | tr -d '[:space:]')"
-fi
+# Resolve tk exactly as every other script in this plugin does — one shared
+# implementation, see lib/tk-resolve.sh. The pin file matters most HERE: an
+# event hook is the one entry point nobody can hand an env var to, and a hook
+# that cannot find tk is a blocked worker nobody gets told about.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tk-resolve.sh"
+
+tk="$(ticks_resolve_tk || true)"
 if [ -z "$tk" ]; then
-  tk="$(command -v tk 2>/dev/null || true)"
-fi
-if [ -z "$tk" ] || [ ! -x "$tk" ]; then
-  echo "notify-hook($event): no usable 'tk' (set TK_BIN_PATH or write one into"
-  echo "  \$HERDR_PLUGIN_CONFIG_DIR/tk-bin-path) — skipping"
+  echo "notify-hook($event): no usable 'tk' — skipping. Pin one with:"
+  echo "  echo /abs/path/to/tk > \"\$(herdr plugin config-dir ${HERDR_PLUGIN_ID:-pengelbrecht.herdr-ticks})/tk-bin-path\""
   exit 0
 fi
 
@@ -103,6 +92,41 @@ output="$("$tk" herd notify 2>&1)"
 status=$?
 echo "notify-hook($event): tk herd notify exited $status"
 echo "$output"
+
+# THE LAST EDGE IS THE ONE THAT CAN BE LOST — re-check once when a wave is
+# still incomplete.
+#
+# This notifier is edge-triggered: it decides when an event says a status
+# changed. That is exactly right for `blocked`, and it has one hole at the END
+# of a wave. When the final workers settle within moments of each other, the
+# hook invocations racing behind them can each read `agent.list` before the last
+# transition is visible, so every one of them concludes "still running" — and
+# then there is no further status change, so no further event, so no further
+# invocation. The wave completes in silence.
+#
+# Measured live on 2026-08-11 (herdr 0.8.0, scripts/verify-herd-plugin.sh): two
+# workers settled at state_change_seq 545 and 546, both hooks fired, and the
+# last decision recorded was "1 of 2 workers still running". No wave-complete
+# chime was ever sent.
+#
+# The fix is a settle re-check, not a debounce: sleep briefly and ask again.
+# It is safe to be wrong about needing it — `tk herd notify` is idempotent by
+# construction (once-semantics in .notify-state.json under a lock), so a
+# re-check with nothing new to say sends nothing and logs why. It runs ONLY
+# when a wave was judged incomplete, so a settled run costs nothing, and it
+# happens at most once per invocation, so it cannot recurse.
+case "$output" in
+  *"workers still running"*)
+    settle="${TICKS_NOTIFY_SETTLE_SECONDS:-4}"
+    if [ "$settle" -gt 0 ] 2>/dev/null; then
+      sleep "$settle"
+      recheck="$("$tk" herd notify 2>&1)"
+      echo "notify-hook($event): settle re-check after ${settle}s exited $?"
+      echo "$recheck"
+    fi
+    ;;
+esac
+
 # Deliberately zero: a notifier that could not notify is not a reason to mark
 # the hook failed. The exit status above is the record.
 exit 0

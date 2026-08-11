@@ -106,6 +106,10 @@ if [ -z "$tick" ] && [ -n "$repo" ] && [ -d "$repo/.tick/logs/herd" ]; then
   if [ -n "$manifest" ]; then
     tick="$(mf_field "$manifest" tick)"
     [ -n "$epic" ] || epic="$(mf_field "$manifest" epic)"
+    # The manifest records the worker's own pane, which is a better target than
+    # anything else when the invocation carried only a workspace — see the
+    # target resolution below for why a PANE specifically is required.
+    [ -n "$pane" ] || pane="$(mf_field "$manifest" pane_id)"
   fi
 fi
 
@@ -142,29 +146,49 @@ fi
 # narrows it to one epic (`tk herd dashboard --epic`); a dashboard.sh that does
 # not yet forward TICKS_EPIC simply shows every epic — degraded, never broken.
 #
-# --target-pane / --workspace are NOT optional. Measured live: `plugin pane open`
-# with neither opens the pane in whatever workspace happens to be FOCUSED at the
-# moment the server runs the command, which is not necessarily the one the link
-# was clicked in — a plugin command runs asynchronously and focus can move in
-# between. Pinning the pane from the invocation context is what keeps the
-# dashboard beside the tick reference the operator actually clicked.
+# --target-pane is NOT optional, for two independent reasons.
+#
+# ETIQUETTE: `plugin pane open` with no target opens the pane in whatever
+# workspace happens to be FOCUSED at the moment the SERVER runs the command,
+# which is not necessarily the one the link was clicked in — a plugin command
+# runs asynchronously and focus can move in between (measured live). Pinning is
+# what keeps the dashboard beside the tick reference the operator clicked.
+#
+# AND IT IS A HARD API REQUIREMENT for this pane. The `dashboard` entrypoint is
+# `placement = "split"`, and herdr 0.8.0 refuses a split or zoomed plugin pane
+# that is given only a workspace:
+#
+#   invalid_params: split and zoomed plugin panes target an existing pane;
+#                   use target_pane_id
+#
+# (Measured 2026-08-11, herdr 0.8.0, by scripts/verify-herd-plugin.sh — it is
+# what turned this from a silent fallback into a refusal.) So a `--workspace`
+# fallback is not a degraded path, it is a guaranteed failure: a split has to
+# split SOMETHING. When the invocation carries no pane, resolve one inside the
+# target workspace rather than pretending a workspace will do.
+if [ -z "$pane" ] && [ -n "$workspace" ] && [ -n "$herdr" ] && [ -x "$herdr" ]; then
+  pane="$("$herdr" pane list 2>/dev/null |
+    sed -n 's/.*"pane_id"[[:space:]]*:[[:space:]]*"\('"$workspace"':[^"]*\)".*/\1/p' |
+    head -n 1)"
+  [ -n "$pane" ] && echo "No pane in the invocation context — splitting $pane, the first pane of workspace $workspace"
+fi
+
+if [ -z "$pane" ]; then
+  # No pinnable pane means the only remaining behaviour is "wherever the user
+  # happens to be looking", and that is never acceptable: the operator may be
+  # in an unrelated repo's workspace. Refusing is the correct answer.
+  echo "No pane in the invocation context and none resolvable from workspace"
+  echo "${workspace:-<none>} — refusing to open a pane into whatever workspace is"
+  echo "focused. Nothing was opened."
+  exit 0
+fi
+
 set -- plugin pane open \
   --plugin "${HERDR_PLUGIN_ID:-pengelbrecht.herdr-ticks}" \
   --entrypoint dashboard \
   --env "TICKS_REPO=$repo" \
+  --target-pane "$pane" \
   --no-focus
-if [ -n "$pane" ]; then
-  set -- "$@" --target-pane "$pane"
-elif [ -n "$workspace" ]; then
-  set -- "$@" --workspace "$workspace"
-else
-  # No pinnable target means the only remaining behaviour is "wherever the user
-  # happens to be looking", and that is never acceptable: the operator may be
-  # in an unrelated repo's workspace. Refusing is the correct answer.
-  echo "No pane or workspace in the invocation context — refusing to open a pane"
-  echo "into whatever workspace is focused. Nothing was opened."
-  exit 0
-fi
 [ -n "$epic" ] && set -- "$@" --env "TICKS_EPIC=$epic"
 
 out="$("$herdr" "$@" 2>&1)"

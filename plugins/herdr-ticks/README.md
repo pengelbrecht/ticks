@@ -8,7 +8,10 @@ Requires herdr **0.8.0+**. macOS and Linux.
 
 ## Status
 
-Scaffold. What ships today:
+Every surface below is exercised live, against a real herdr session and two real
+workers, by `scripts/verify-herd-plugin.sh` in the ticks repo — findings in
+[`docs/design/herd-plugin-smoke-report.md`](../../docs/design/herd-plugin-smoke-report.md).
+What ships today:
 
 | Section | Id | State |
 | --- | --- | --- |
@@ -24,12 +27,89 @@ Scaffold. What ships today:
 
 ## Install
 
+Two steps. **Both** are required — the plugin is inert without the second.
+
+### 1. Install the plugin
+
 ```sh
 herdr plugin install pengelbrecht/ticks/plugins/herdr-ticks
 ```
 
-(The plugin lives in a subdirectory of the `ticks` repo, hence the
-`owner/repo/subdir` form.)
+The plugin lives in a subdirectory of the `ticks` repo, hence the
+`owner/repo/subdir` form. Confirm herdr parsed it:
+
+```sh
+herdr plugin list --json | jq '.result.plugins[] | select(.plugin_id=="pengelbrecht.herdr-ticks") | {version, plugin_root, events: (.events|length)}'
+```
+
+You should see six `events` entries: five paint hooks and one notify hook.
+
+### 2. Pin the `tk` binary
+
+```sh
+echo "$(command -v tk)" > "$(herdr plugin config-dir pengelbrecht.herdr-ticks)/tk-bin-path"
+```
+
+**This is not optional, and it is not just a `PATH` convenience.** Two separate
+things go wrong without it:
+
+**herdr's server does not inherit your interactive shell's `PATH`.** A `tk` in
+`~/.local/bin`, or behind an `fnm`/`asdf`/`mise` shim, is present in your
+terminal and invisible to a plugin command. The dashboard pane would tell you
+so; the two **event hooks cannot** — nobody can hand an event hook an env var,
+and a hook that fails loudly just fills `herdr plugin log list` with noise, so
+they log the miss and exit 0. Painting and notifications simply never happen.
+
+**The stale-installed-tk trap.** This is the one that actually bites, because
+`tk` *is* on `PATH` and everything looks fine. `tk herd` is newer than most
+installed releases: a released `tk` that predates it answers `unknown command:
+herd` and exits 2. The hooks dutifully log that and exit 0, so you get a linked,
+enabled, green-looking plugin whose badges never appear and whose chimes never
+sound. Check before you blame the plugin:
+
+```sh
+tk herd --help >/dev/null 2>&1 && echo "ok: this tk understands herd" || echo "TOO OLD — pin a newer tk"
+```
+
+If the `tk` on `PATH` is too old, pin the one that is not — a local build is
+fine:
+
+```sh
+cd /path/to/ticks && go build -o ./tk ./cmd/tk
+echo "/path/to/ticks/tk" > "$(herdr plugin config-dir pengelbrecht.herdr-ticks)/tk-bin-path"
+```
+
+### How `tk` is resolved
+
+One implementation for every entry point — pane, actions and both hooks —
+in [`scripts/lib/tk-resolve.sh`](scripts/lib/tk-resolve.sh). Candidates, in
+order, first one that exists and is executable:
+
+| # | Candidate | Notes |
+| --- | --- | --- |
+| 1 | `$TK_BIN`, `$TK_BIN_PATH` | explicit override; reaches panes and actions, never hooks |
+| 2 | `$HERDR_PLUGIN_CONFIG_DIR/tk-bin-path` | the pin above — the only channel that also reaches hooks |
+| 3 | `<plugin root>/../../tk` | a dev checkout's own build, since this plugin sits inside the ticks repo |
+| 4 | `PATH` | works only when the server inherited one |
+| 5 | `~/.local/bin/tk`, `~/go/bin/tk` | the usual install locations |
+
+A candidate that does not resolve **falls through to the next one**. That
+matters most for the pin: a path that was moved, renamed or deleted degrades to
+"look elsewhere", never to "no tk at all". The pin file is read as the
+hand-edited file it is — first line only, `CR` stripped, surrounding whitespace
+trimmed, a leading `~/` expanded (nothing expands `~` inside a file), interior
+spaces preserved.
+
+### Verify the install
+
+```sh
+bash scripts/verify-herd-plugin.sh --offline-only   # no herdr calls, no session needed
+```
+
+The full live smoke — two real workers, both chimes, the dashboard pane, an
+action, complete teardown — is `bash scripts/verify-herd-plugin.sh` from the
+ticks repo. It **relinks the plugin** to the checkout it runs from and restores
+your link on every exit path; read the header before running it.
 
 ## Development
 
@@ -114,13 +194,13 @@ plugins/herdr-ticks/
   herdr-plugin.toml              manifest
   README.md                      this file
   scripts/
+    lib/tk-resolve.sh            THE tk resolution — sourced by every script below
     dashboard.sh                 [[panes]] dashboard — launches `tk herd dashboard`
     open-tick-board.sh           [[actions]] open-tick-board
     action-open-worktree.sh      [[actions]] open-worktree
     action-collect-tick.sh       [[actions]] collect-tick
     action-retry-tick.sh         [[actions]] retry-tick (advisory)
     action-open-tick-dashboard.sh  [[actions]] open-tick-dashboard + [[link_handlers]] target
-    events-noop.sh               [[events]] inert template for tick sku
     paint-hook.sh                [[events]] runs `tk herd paint` on the badge-relevant events
     notify-hook.sh               [[events]] runs `tk herd notify` on pane.agent_status_changed
 ```
@@ -196,10 +276,23 @@ Ctrl-clicking one opens the mission-control dashboard scoped to that tick's epic
 herdr grows non-URL link patterns only the `pattern` in the manifest changes.
 
 The dashboard pane is opened with `--env TICKS_REPO=<controller repo>` and
-`--env TICKS_EPIC=<epic>`. `scripts/dashboard.sh` honours `TICKS_REPO` today;
-until it also forwards `TICKS_EPIC` to `tk herd dashboard --epic`, a link click
-opens the dashboard on the right repository showing **every** epic instead of
-one — degraded, never broken.
+`--env TICKS_EPIC=<epic>`; `scripts/dashboard.sh` honours both, forwarding the
+latter as `tk herd dashboard --epic`. A reference that carries no epic still
+works — the board simply shows every epic in the repo.
+
+**The target must be a `--target-pane`, and that is an API requirement, not just
+etiquette.** The `dashboard` entrypoint is `placement = "split"`, and herdr
+0.8.0 refuses a split or zoomed plugin pane that is given only a workspace:
+
+```text
+invalid_params: split and zoomed plugin panes target an existing pane; use target_pane_id
+```
+
+(Measured 2026-08-11 by `scripts/verify-herd-plugin.sh`.) A split has to split
+*something*, so a `--workspace` fallback is not a degraded path — it is a
+guaranteed failure. When the invocation carries no pane,
+`action-open-tick-dashboard.sh` takes the worker's own pane from the manifest,
+then any pane inside the target workspace, and refuses if it finds neither.
 
 ## Etiquette: explicit targets, always
 
@@ -249,14 +342,26 @@ Three properties make this safe to run on every event:
 Only workspaces named by the run's own manifests (`.tick/logs/herd/`) are ever painted.
 `tk herd paint` reads `.tick/` read-only and never shells out to another `tk`.
 
-`paint-hook.sh` resolves `tk` from `$TK_BIN_PATH`, then
-`$HERDR_PLUGIN_CONFIG_DIR/tk-bin-path`, then `PATH`. The middle step matters: **herdr's
-server does not inherit your interactive shell's `PATH`**, so a `tk` in `~/.local/bin`
-can be installed and still invisible to a hook. Point at it once with
+**To see what actually landed, read `herdr agent list`** — not `pane get` or
+`workspace get`, neither of which reports painted metadata in 0.8.0. The agent object
+echoes it straight back:
 
-```sh
-echo "$(command -v tk)" > "$(herdr plugin config-dir pengelbrecht.herdr-ticks)/tk-bin-path"
+```json
+"title": "j6b · implement · open",
+"state_labels": {"done": "j6b open"},
+"tokens": {"EPIC": "zi7", "ROLE": "implement", "STATUS": "open", "TICK": "j6b"}
 ```
+
+Badges are **eventually consistent**, by design: the hook debounces bursts, so a worker
+spawned inside the window gets its badge on the next event rather than instantly. A
+missing badge a second after spawn is normal; a missing badge a minute later is the
+`tk-bin-path` pin.
+
+`paint-hook.sh` resolves `tk` through the shared
+[`scripts/lib/tk-resolve.sh`](scripts/lib/tk-resolve.sh) — see
+[Pin the `tk` binary](#2-pin-the-tk-binary). A hook is the entry point where the
+pin matters most: nobody can hand it an env var, so the config file is the only
+channel that reaches it at all.
 
 **The debounce is load-bearing.** Measured live: a `pane.report_metadata` carrying a title
 or state labels makes herdr emit `pane.agent_status_changed` for that pane — one of the
@@ -300,6 +405,21 @@ to debounce away: the bounce re-runs the notifier with the same statuses, so it 
 nothing new and logs why. There is deliberately **no time-window debounce** on this hook —
 an elided invocation could be the only one that would have seen a blocked transition,
 while an elided *paint* is simply repainted by the next event.
+
+**The settle re-check, and why the last edge needs one.** An edge-triggered notifier has
+one hole, at the end of a wave: when the final workers settle within moments of each
+other, the hook invocations racing behind them can each read `agent.list` before the last
+transition is visible, all conclude "still running", and then there is no further status
+change to fire on. The wave completes in silence. Measured live (2026-08-11, herdr 0.8.0):
+two workers settled at `state_change_seq` 545 and 546 and the last decision recorded was
+`1 of 2 workers still running` — no chime, ever.
+
+So when a decision reports a wave still incomplete, the hook sleeps
+`$TICKS_NOTIFY_SETTLE_SECONDS` (default 4) and asks once more. This is a **re-check, not a
+debounce** — it adds an invocation rather than eliding one, which is the only safe
+direction for notifications, and it is free to be wrong because the once-semantics above
+make a repeat ask silent. It runs only when a wave was judged incomplete, and at most once
+per invocation, so it cannot recurse.
 
 **Focus safety.** `notification.show` carries no pane or workspace target — it is an
 overlay herdr renders on the foreground client — so this hook can never open, split or

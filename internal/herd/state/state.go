@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,19 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrNoTick reports a JSON file that parsed as a manifest but carries no
+// `tick` field.
+//
+// The tick id is a manifest's identity: it names the worker in every paint
+// badge, collect verdict, cleanup plan, reconcile class and notification. A
+// manifest without one is not a degraded manifest, it is not a manifest — and
+// `.tick/logs/herd/<epic>/` is an ordinary directory that anything may drop a
+// stray `.json` into. Before this check such a file became a PHANTOM WORKER
+// with an empty tick id, visible across paint, collect, cleanup, reconcile and
+// notify. So [Read] refuses it and [List] skips it: one bad file in a
+// directory must not deny the operator the whole wave.
+var ErrNoTick = errors.New("manifest has no tick id")
 
 // RelDir is the repo-relative directory every manifest lives under. It is
 // inside `.tick/logs/`, which `.tick/.gitignore` already excludes from git.
@@ -118,7 +132,7 @@ func RelPath(epicID, tickID string) string {
 // reader listing the directory sees complete manifests only.
 func Write(repoRoot string, m Manifest) (string, error) {
 	if m.Tick == "" {
-		return "", fmt.Errorf("herd/state: manifest has no tick id")
+		return "", fmt.Errorf("herd/state: %w", ErrNoTick)
 	}
 	if m.CreatedAt == "" {
 		m.CreatedAt = time.Now().UTC().Format(TimeLayout)
@@ -168,6 +182,10 @@ func Write(repoRoot string, m Manifest) (string, error) {
 }
 
 // Read loads one manifest by path.
+//
+// A file that parses but carries no `tick` field is rejected with [ErrNoTick]
+// rather than returned as a manifest with an empty tick id — see ErrNoTick for
+// why an empty id is never a usable answer.
 func Read(path string) (Manifest, error) {
 	var m Manifest
 	data, err := os.ReadFile(path)
@@ -176,6 +194,9 @@ func Read(path string) (Manifest, error) {
 	}
 	if err := json.Unmarshal(data, &m); err != nil {
 		return m, fmt.Errorf("herd/state: parsing %s: %w", path, err)
+	}
+	if m.Tick == "" {
+		return Manifest{}, fmt.Errorf("herd/state: %s: %w", path, ErrNoTick)
 	}
 	return m, nil
 }
@@ -201,6 +222,14 @@ func List(repoRoot, epicID string) ([]Manifest, error) {
 		}
 		m, err := Read(filepath.Join(dir, name))
 		if err != nil {
+			// A stray .json that is not a manifest is skipped, not fatal: the
+			// directory is an ordinary one and a file nobody here wrote must
+			// not deny the operator every real worker in the wave. A manifest
+			// that is CORRUPT (unparseable) still fails loudly — that one is a
+			// file this code wrote, and silence there would hide a real worker.
+			if errors.Is(err, ErrNoTick) {
+				continue
+			}
 			return nil, err
 		}
 		out = append(out, m)

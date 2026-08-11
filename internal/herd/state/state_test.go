@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,6 +204,82 @@ func TestList(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Tick != "1aw" || got[1].Tick != "9z6" {
 		t.Errorf("List = %+v, want the two manifests sorted by tick id", got)
+	}
+}
+
+// TestReadRejectsManifestWithoutTick pins that a JSON file with no `tick`
+// field is an error, not a manifest with an empty tick id. An empty id becomes
+// a PHANTOM WORKER the moment it reaches paint / collect / cleanup /
+// reconcile / notify.
+func TestReadRejectsManifestWithoutTick(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct{ name, body string }{
+		{"empty object", `{}`},
+		{"unrelated json", `{"note": "some other tool's scratch file"}`},
+		{"explicitly blank tick", `{"tick": "", "epic": "gyz", "branch": "tick/"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, tc.name+".json")
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatalf("fixture: %v", err)
+			}
+			got, err := Read(path)
+			if !errors.Is(err, ErrNoTick) {
+				t.Fatalf("Read = %+v, %v; want ErrNoTick", got, err)
+			}
+			// The path is named so the operator can find and delete the file.
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("error %q does not name the offending file", err)
+			}
+			if got.Tick != "" || got.Epic != "" {
+				t.Errorf("Read returned a partial manifest %+v on rejection, want the zero value", got)
+			}
+		})
+	}
+}
+
+// TestListSkipsManifestWithoutTick pins the other half: a stray .json in the
+// run-state directory costs the operator that file and nothing else. Corrupt
+// (unparseable) JSON still fails loudly — that one is a file this package
+// wrote, so silence there would hide a real worker.
+func TestListSkipsManifestWithoutTick(t *testing.T) {
+	root := t.TempDir()
+	for _, id := range []string{"9z6", "1aw"} {
+		m := sampleManifest()
+		m.Tick = id
+		if _, err := Write(root, m); err != nil {
+			t.Fatalf("Write %s: %v", id, err)
+		}
+	}
+	stray := filepath.Join(Dir(root, "gyz"), "notes.json")
+	if err := os.WriteFile(stray, []byte(`{"hello": "world"}`), 0o644); err != nil {
+		t.Fatalf("stray fixture: %v", err)
+	}
+
+	got, err := List(root, "gyz")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 2 || got[0].Tick != "1aw" || got[1].Tick != "9z6" {
+		t.Fatalf("List = %+v, want only the two real manifests", got)
+	}
+	for _, m := range got {
+		if m.Tick == "" {
+			t.Errorf("List returned a phantom worker with an empty tick id: %+v", m)
+		}
+	}
+
+	// The stray file is only skipped, never deleted: this package does not own it.
+	if _, err := os.Stat(stray); err != nil {
+		t.Errorf("List removed a file it does not own: %v", err)
+	}
+
+	// Contrast: unparseable JSON under a manifest name is still fatal.
+	if err := os.WriteFile(filepath.Join(Dir(root, "gyz"), "brk.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("corrupt fixture: %v", err)
+	}
+	if _, err := List(root, "gyz"); err == nil {
+		t.Error("List over a corrupt manifest returned nil error, want it to fail loudly")
 	}
 }
 

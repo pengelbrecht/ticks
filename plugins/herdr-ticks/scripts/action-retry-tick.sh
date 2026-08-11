@@ -84,32 +84,13 @@ tick="$(mf_field "$manifest" tick)"
 epic="$(mf_field "$manifest" epic)"
 echo "Matched tick $tick (epic ${epic:-<none>}) via $manifest"
 
-pinned_tk() {
-  local file="${HERDR_PLUGIN_CONFIG_DIR:-}/tk-bin-path"
-  [ -n "${HERDR_PLUGIN_CONFIG_DIR:-}" ] && [ -f "$file" ] || return 0
-  local line
-  line="$(head -n 1 "$file" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  case "$line" in
-    "~/"*) printf '%s' "$HOME/${line#\~/}" ;;
-    *) printf '%s' "$line" ;;
-  esac
-}
+# Resolve tk the way every script in this plugin does — see lib/tk-resolve.sh.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tk-resolve.sh"
 
-tk=""
-for candidate in \
-  "${TK_BIN:-}" \
-  "${TK_BIN_PATH:-}" \
-  "$(pinned_tk)" \
-  "${HERDR_PLUGIN_ROOT:-$PWD}/../../tk" \
-  "$(command -v tk 2>/dev/null || true)" \
-  "$HOME/.local/bin/tk" \
-  "$HOME/go/bin/tk"; do
-  if [ -n "$candidate" ] && [ -x "$candidate" ]; then tk="$candidate"; break; fi
-done
-
+tk="$(ticks_resolve_tk || true)"
 if [ -z "$tk" ]; then
-  echo "Could not find the 'tk' binary. Pin it once:"
-  echo "  echo /absolute/path/to/tk > \"\$(herdr plugin config-dir ${HERDR_PLUGIN_ID:-pengelbrecht.herdr-ticks})/tk-bin-path\""
+  echo "Could not find the 'tk' binary."
+  ticks_tk_pin_hint
   notify "tk not found" "Pin tk in the plugin config dir to reconcile $tick."
   exit 1
 fi

@@ -108,7 +108,21 @@ fi
 # and --no-focus so the operator's cursor stays where it was. `--cwd` is the
 # worktree path herdr itself chose at spawn time, read from the manifest and
 # never re-derived.
+#
+# The target is NEVER allowed to be empty. `pane split` with no usable --pane
+# splits whatever pane is FOCUSED when the server runs the command, which can
+# be an unrelated repo's workspace the operator moved to in the meantime — a
+# plugin action runs asynchronously and focus is never a safe implicit target
+# (repo-wiki/herd-helper-cli.md: "explicit targets always"). A manifest written
+# before the pane id was captured, invoked from a workspace-context right-click,
+# is exactly the path that reaches here with both ids blank; refusing is the
+# only correct answer.
 split_target="${target_pane:-$pane}"
+if [ -z "$split_target" ]; then
+  echo "Worker $tick has no recorded pane and this invocation carries none either."
+  echo "Refusing to split whatever pane happens to be focused. Nothing was opened."
+  exit 0
+fi
 echo "Splitting pane $split_target with cwd $worktree (no focus)"
 out="$("$herdr" pane split --pane "$split_target" --cwd "$worktree" --direction down --no-focus 2>&1)"
 status=$?

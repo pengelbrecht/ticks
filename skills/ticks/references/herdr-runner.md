@@ -295,11 +295,37 @@ So a wave's teardown silently drags the user onto a pane the run created, and th
 
 **Two more consequences of the implicit source-checkout workspace.** `worktree.create` against a repo with no open workspace opens *two*: the worker's, and one for the repo's source checkout. The response describes only the first — there is no `source_workspace_id` field — so the second is discoverable only by diffing `herdr workspace list` around the call, or by the run-end sweep above. That is why the sweep is defined as "zero run-created workspaces remain in the listing" rather than as a list of ids the run collected.
 
-Three prohibitions:
+Four prohibitions:
 
 - **Never clean a blocked or incomplete worker's workspace.** It is durable handoff state.
 - **Close only panes, workspaces, and worktrees this run created.** The user's own session is next door.
+- **Explicit targets, always.** Every herdr command that *can* take a target must be *given* one, pinned to a resource this run created. A long list of commands — `plugin pane open`, `pane split`, `workspace close`, and friends — silently defaults to **whatever the UI has focused** when no target is passed. That default is never safe: the user jumps between sessions constantly, and a command issued by a run is executed asynchronously by the server, so focus can move between the decision and the call. Field-observed twice: a verification pane opened in the user's unrelated focused workspace, and a dashboard pane landing in the wrong repo entirely. When no pinnable target can be derived, **refuse and say so** — doing nothing is correct; guessing is not.
 - **Never `herdr server stop`.** It takes down every pane process on the machine, including workers of runs you know nothing about.
+
+## Mission control (the `herdr-ticks` plugin)
+
+The five commands above drive a run. Three more — `tk herd paint`, `tk herd dashboard`, `tk herd notify` — make one *visible*, and a herdr plugin, [`plugins/herdr-ticks/`](../../../plugins/herdr-ticks/README.md), wires them into the multiplexer so an operator sees the run without asking for it.
+
+**None of this is on the orchestrator's critical path.** The plugin is display and convenience: every command it runs is read-only with respect to `.tick/` (bar one small notification-state file), and a machine with no plugin installed runs waves identically. Do not make the loop depend on it, and never treat a badge or a chime as evidence — [`collect`](#result-contract) is still the only completion authority.
+
+What it provides:
+
+| Surface | What the operator gets | Underneath |
+|---|---|---|
+| **Board pane** | a live read-only board of the run — the epic's waves and ticks beside the workers herdr is running, updated by pushed events, not polling | `tk herd dashboard [--epic <id>]` |
+| **Workspace/pane badges** | every worker's workspace and pane labelled with its tick id, role and tracker status, so the session strip says *what* each pane is working on | `tk herd paint`, on five event hooks |
+| **Notifications** | two chimes, and only two: a worker went **blocked** and wants a human (sound `request`), and every worker of a wave has **settled** (sound `done`) | `tk herd notify`, on `pane.agent_status_changed` |
+| **Actions** (right-click a worker) | *Open worktree* (a shell in the worker's worktree), *Collect tick* (verdict as a notification), *Retry tick* (reconcile classification — **advisory, dispatches nothing**), *Open tick board*, *Open tick dashboard* | `tk herd collect` / `reconcile`, `herdr pane split` |
+| **`ticks://` links** | Ctrl-clicking `ticks://<epic>/<tick>` in any pane opens the board scoped to that tick's epic | a `[[link_handlers]]` entry |
+
+Install and the full env contract are in the plugin's own [README](../../../plugins/herdr-ticks/README.md). Two things an orchestrator should know because they change what the operator sees:
+
+- **The `tk-bin-path` pin is mandatory**, not a fallback. herdr's server does not inherit an interactive shell's `PATH`, and an event hook cannot be handed an env var — so without the pin the hooks resolve whatever `tk` is on the server's `PATH`, which is very often a released build with no `herd` command at all. The result is a linked, enabled, entirely silent plugin. If badges and chimes are missing, check the pin first.
+- **Badges are TTL'd and display-only** (90 s default, namespaced source). A dead run's badges expire by themselves; there is no unpaint step for a crashed orchestrator to have skipped.
+
+> *Observed 2026-08-11, herdr 0.8.0:* `events.on` is not validated — a mistyped event name links cleanly and then never fires, so the **plugin log (`herdr plugin log list`) is the only channel that proves a hook ran**; `herdr plugin action invoke` takes no target and builds its context from the **focused** workspace, so aiming an action at a specific worker means focusing it and focusing back; and a `placement = "split"` plugin pane is refused when targeted by workspace alone (`use target_pane_id`) — a split has to split an existing pane. Re-verify these against a newer herdr before relying on them.
+
+The live proof is `bash scripts/verify-herd-plugin.sh` — two real workers (one driven into a genuine `blocked` via `orchestration.full_auto = false`), both chimes asserted exactly once, the board pane pinned to a run-created pane, an action invoked, and full teardown including the plugin link. Findings: [`docs/design/herd-plugin-smoke-report.md`](../../../docs/design/herd-plugin-smoke-report.md).
 
 ## Boundary
 
