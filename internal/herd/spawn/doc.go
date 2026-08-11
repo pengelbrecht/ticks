@@ -34,7 +34,9 @@
 // are in docs/design/herd-helper-smoke-report.md.
 //
 //   - `agent.start` → `agent_pane_busy`. The root pane is not an interactive
-//     shell yet. Retried on that code alone, bounded.
+//     shell yet. Retried on that code alone, bounded by the caller's
+//     [Options.StartupTimeout] — the operator's own patience budget — rather
+//     than by a fixed attempt count that ignored it.
 //   - `agent.start` succeeds with `launch_pending: true`. herdr typed the
 //     command but has not detected the agent; prompting fails with
 //     `agent_not_ready`, and waiting on lifecycle status does not help because

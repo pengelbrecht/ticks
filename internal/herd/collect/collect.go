@@ -1,15 +1,14 @@
 package collect
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 )
@@ -230,18 +229,12 @@ func boundaryFiles(repoRoot, base, ref string) ([]string, error) {
 	return files, nil
 }
 
-// git runs one git command in repoRoot and returns its trimmed stdout.
+// git runs one git command in repoRoot, tagging the shared runner's error
+// with this package's name.
 func git(repoRoot string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("herd/collect: git %s: %s", strings.Join(args, " "), msg)
+	out, err := gitcmd.Run(repoRoot, args...)
+	if err != nil {
+		return "", fmt.Errorf("herd/collect: %w", err)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return out, nil
 }
