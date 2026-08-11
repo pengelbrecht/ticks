@@ -108,6 +108,16 @@ current HEAD.
 (`git merge-base --is-ancestor <sha> HEAD`) — never cherry-pick around it or re-implement a
 sibling tick's work. (Claude worktrees branch from session-start HEAD; see claude-runner.md.)
 
+## Orchestrator gates
+
+**Problem:** A red test gate reported green: `go test ./... | grep -Ev '^ok' ; echo $?` masks
+the test exit (the status is grep's/echo's), and a background task reports "exit 0" for the
+pipeline. A hanging cmd test sailed through the wave gate and reached final review.
+**Cause:** Pipelines report the LAST command's status; grep exits 1 on no matches.
+**Rule:** Gate on the test command's own exit: run `go test` bare (or `set -o pipefail`),
+capture its status BEFORE any filter, and always give hang-prone suites an explicit
+`-timeout`. Never accept a background task's exit code without reading its output tail.
+
 ## Skill docs
 
 **Problem:** Validating runners-config.md's TOML examples fails with ImportError.
