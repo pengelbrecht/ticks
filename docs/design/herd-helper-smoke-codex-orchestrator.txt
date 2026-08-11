@@ -1,0 +1,158 @@
+
+=== [18:44:07 +0s] 1/5 setup: scratch repo, tk init, toy epic + 3 ticks, runners.toml ===
+[18:44:07 +0s] scratch: /var/folders/2c/jcxdg0j966nbz580fsh8bg9m0000gn/T//tk-herd-smoke-20260811-184407-52209
+status: running
+version: 0.8.0
+protocol: 19
+compatible: yes
+socket: /Users/peterengelbrecht/.config/herdr/herdr.sock
+[18:44:07 +0s] baseline: 5 workspaces, 1 agents, focus on w4A
+[18:44:07 +0s] tk: /tmp/tkherd-dod/tk
+[18:44:08 +1s] epic: 8e1
+[18:44:08 +1s] ticks: A=0mq B=aer C=9qs
+[18:44:08 +1s] integration branch epic/toy at 93d875ba2c742e4edf6ca40a241563fe17e28b9e
+
+=== [18:44:08 +1s] 2/5 fail-closed: tk herd spawn refuses an impossible cell, dialing herdr zero times ===
+[18:44:08 +1s] helper call #1 [diag]: tk herd spawn 9qs --role review --base 93d875ba2c742e4edf6ca40a241563fe17e28b9e
+Error: .tick/runners.toml [roles.review]: kind = "claude" cannot run model = "gpt-x" (claude runs Claude-family models only). Fix the config — either a Claude model (opus, sonnet, haiku, fable, claude-…) for this kind, or a kind that serves this model's vendor
+[18:44:08 +1s]   ok  [1] impossible cell exits 1 (a stop, not a guess) (= 1)
+[18:44:08 +1s]   ok  [2] refusal names the role/tier cell
+[18:44:08 +1s]   ok  [3] refusal names the kind
+[18:44:08 +1s]   ok  [4] refusal names the model
+[18:44:08 +1s]   ok  [5] refusal did not reroute or spawn anything
+[18:44:08 +1s]   ok  [6] zero herdr calls: workspace list unchanged
+[18:44:08 +1s]   ok  [7] zero herdr calls: agent list unchanged
+[18:44:08 +1s]   ok  [8] no branch was created for the refused spawn
+[18:44:08 +1s]   ok  [9] no manifest was written for the refused spawn
+On branch epic/toy
+nothing to commit, working tree clean
+
+=== [18:44:08 +1s] 3/5 wave: spawn x2 -> wait -> collect -> merge -> checks -> close -> cleanup ===
+[18:44:08 +1s] helper call #2 [wave]: tk herd spawn 0mq --base 93d875ba2c742e4edf6ca40a241563fe17e28b9e --json
+[18:44:22 +15s]   ok  [10] manifest written for 0mq
+[18:44:22 +15s]   ok  [11] note line for 0mq: runner-state: substrate=herdr kind=claude branch=tick/0mq worktree=/Users/peterengelbrecht/.herdr/worktrees/repo/tick-0mq workspace=w5M base=93d875ba2c742e4edf6ca40a241563fe17e28b9e agent=tick-0mq pane=w5M:p1 session=408e3d36-4070-43fb-9bc6-7600c7ca7419
+[18:44:22 +15s]   ok  [12] argv carries the full-auto template for 0mq
+[18:44:22 +15s]   ok  [13] argv carries the compiled model flag for 0mq
+[18:44:22 +15s]   ok  [14] argv carries the compiled effort flag for 0mq
+[18:44:22 +15s] helper call #3 [wave]: tk herd spawn aer --base 93d875ba2c742e4edf6ca40a241563fe17e28b9e --json
+[18:44:30 +23s]   ok  [15] manifest written for aer
+[18:44:30 +23s]   ok  [16] note line for aer: runner-state: substrate=herdr kind=claude branch=tick/aer worktree=/Users/peterengelbrecht/.herdr/worktrees/repo/tick-aer workspace=w5N base=93d875ba2c742e4edf6ca40a241563fe17e28b9e agent=tick-aer pane=w5N:p1 session=fbc6f080-cbb2-4c69-aef5-eefab8c14841
+[18:44:30 +23s]   ok  [17] argv carries the full-auto template for aer
+[18:44:30 +23s]   ok  [18] argv carries the compiled model flag for aer
+[18:44:30 +23s]   ok  [19] argv carries the compiled effort flag for aer
+[18:44:30 +23s] wave dispatched in 22s — both workers launched before anything was waited on
+[18:44:30 +23s] helper call #4 [wave]: tk herd wait --agents tick-0mq,tick-aer --timeout 900000 --json
+{
+  "workers": [
+    {
+      "name": "tick-0mq",
+      "state": "done",
+      "pane_id": "w5M:p1",
+      "exited": false,
+      "waited_ms": 35514
+    },
+    {
+      "name": "tick-aer",
+      "state": "done",
+      "pane_id": "w5N:p1",
+      "exited": false,
+      "waited_ms": 36254
+    }
+  ],
+  "summary": {
+    "workers": [
+      {
+        "name": "tick-0mq",
+        "state": "done",
+        "pane_id": "w5M:p1",
+        "exited": false,
+        "waited_ms": 35514
+      },
+      {
+        "name": "tick-aer",
+        "state": "done",
+        "pane_id": "w5N:p1",
+        "exited": false,
+        "waited_ms": 36254
+      }
+    ],
+    "settled": 2,
+    "blocked": 0,
+    "exited": 0,
+    "timed_out": null,
+    "elapsed_ms": 36254,
+    "timeout_fired": false
+  }
+}
+[18:45:07 +60s]   ok  [20] wave fan-in exited 0 (= 0)
+[18:45:07 +60s]   ok  [21] no worker timed out (= 0)
+[18:45:07 +60s]   ok  [22] no worker blocked (= 0)
+[18:45:07 +60s]   ok  [23] both workers settled (= 2)
+[18:45:07 +60s]   ok  [24] the wait reports its own elapsed time (event-driven, not polled)
+[18:45:07 +60s] fan-in returned after 37s (36254ms by the helper's own clock)
+[18:45:07 +60s] helper call #5 [diag]: tk herd cleanup --epic 8e1 --preview --json
+Error: cleanup did not complete (0mq: unmerged-branch; aer: unmerged-branch)
+0mq: refused=true reason=unmerged-branch
+aer: refused=true reason=unmerged-branch
+[18:45:07 +60s]   ok  [25] an early cleanup preview refuses (exit 1) (= 1)
+[18:45:07 +60s]   ok  [26] every tick is refused before the merge (= 2)
+[18:45:07 +60s]   refusal reasons: unmerged-branch, unmerged-branch
+[18:45:07 +60s]   ok  [27] the preview touched nothing
+[18:45:07 +60s] helper call #6 [wave]: tk herd collect --epic 8e1 --json
+0mq  ready-to-merge  DONE  commits=2
+aer  ready-to-merge  DONE  commits=2
+[18:45:07 +60s]   ok  [28] collect exited 0 (every worker ready-to-merge) (= 0)
+[18:45:07 +60s]   ok  [29] verdict for 0mq (= ready-to-merge)
+[18:45:07 +60s]   ok  [30] commits exist on tick/0mq
+[18:45:07 +60s]   ok  [31] no .tick/ boundary violation on tick/0mq
+[18:45:07 +60s]   ok  [32] verdict for aer (= ready-to-merge)
+[18:45:07 +60s]   ok  [33] commits exist on tick/aer
+[18:45:07 +60s]   ok  [34] no .tick/ boundary violation on tick/aer
+[18:45:07 +60s]   ok  [35] merge of tick/0mq committed cleanly
+[18:45:07 +60s]   ok  [36] merge of tick/aer committed cleanly
+[18:45:07 +60s]   ok  [37] alpha check passes on the integrated tree
+[18:45:07 +60s]   ok  [38] beta check passes on the integrated tree
+[18:45:07 +60s]   ok  [39] per-tick report files did not collide
+[18:45:07 +60s]   ok  [40] tick 0mq is closed (= closed)
+[18:45:07 +60s]   ok  [41] tick aer is closed (= closed)
+[18:45:07 +60s] helper call #7 [wave]: tk herd cleanup --epic 8e1 --apply --json
+0mq: applied=true refused=false
+aer: applied=true refused=false
+[18:45:08 +61s]   ok  [42] cleanup --apply exited 0 (= 0)
+[18:45:08 +61s]   ok  [43] both ticks cleaned (= 2)
+[18:45:08 +61s]   ok  [44] workspace + branch + manifest gone for 0mq
+[18:45:08 +61s]   ok  [45] local branch tick/0mq deleted
+[18:45:08 +61s]   ok  [46] workspace + branch + manifest gone for aer
+[18:45:08 +61s]   ok  [47] local branch tick/aer deleted
+[18:45:08 +61s] WAVE HELPER INVOCATIONS: 5 (2 ticks, 60s wall)
+[18:45:08 +61s]   = spawn x2 + wait x1 + collect --epic x1 + cleanup --apply --epic x1
+[18:45:08 +61s]   (the pre-merge cleanup --preview is a read-only dry run and is counted
+[18:45:08 +61s]    separately as a diagnostic: diag calls so far = 2)
+[18:45:08 +61s]   ok  [48] wave loop used 5 helper invocations (budget: 5)
+
+=== [18:45:08 +61s] 4/5 kill -9 recovery drill: SKIPPED (--quick) ===
+
+=== [18:45:08 +61s] 5/5 teardown: zero run-created workspaces, worktrees, branches or manifests remain ===
+[18:45:08 +61s]   ok  [49] no tick/* branches remain
+[18:45:08 +61s]   ok  [50] no manifests remain
+[18:45:08 +61s]   ok  [51] only the scratch checkout remains in git worktree list (= 1)
+[18:45:08 +61s] run-created workspaces still open before the run-end sweep: w5K 
+[18:45:08 +61s] closing run-created workspace w5K
+{"id":"cli:workspace:close","result":{"type":"ok"}}
+[18:45:08 +61s]   ok  [52] zero run-created workspaces remain (= )
+[18:45:08 +61s]   ok  [53] no pre-existing workspace was closed
+[18:45:08 +61s]   ok  [54] zero run-created agents remain (= )
+[18:45:08 +61s]   ok  [55] focus is back on the workspace that had it at run start (= w4A)
+
+================ herd helper smoke: PASS ================
+scratch repo            /var/folders/2c/jcxdg0j966nbz580fsh8bg9m0000gn/T//tk-herd-smoke-20260811-184407-52209/repo
+epic / ticks            8e1 / 0mq aer 9qs
+model / effort          haiku / low (kind claude)
+assertions passed       55
+wave helper calls       5  (budget 5, 2 ticks)
+diagnostic helper calls 2  (refusal demo, early cleanup --preview)
+kill-9 drill calls      0
+total helper calls      7
+wave wall time          60s
+total wall time         61s
+=========================================================
