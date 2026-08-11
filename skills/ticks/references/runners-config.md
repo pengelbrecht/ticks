@@ -12,7 +12,7 @@ The JSON Schema for this file is [`runners-config.schema.json`](runners-config.s
 
 `schemas/` is the codegen source of truth for types shared between the Go server and the TypeScript UI: `make codegen-go` and `make codegen-ts` feed a hard-coded file list (`tick`, `activity`, `api/*`, `websocket/*`) into `go-jsonschema` and the UI's codegen, and any edit there obliges the author to regenerate and commit both outputs. `runners.toml` is neither a wire type nor a tk domain type — nothing in the Go binary or the board UI reads it — so a schema there would add a maintenance obligation and a codegen decision (include it and generate dead Go/TS types, or leave it out and have an unwired file in a directory documented as "single source of truth for shared types") with no benefit. The ticks skill is also distributed standalone, so its config schema must travel with it.
 
-Validate a config by parsing the TOML and checking the resulting object against the schema, for example:
+Validate a config by parsing the TOML and checking the resulting object against the schema, for example. `tomllib` is stdlib on Python 3.11+, but `jsonschema` is not — run this under `uv run --with jsonschema python …` (or any venv that has it) rather than a bare `python3`:
 
 ```bash
 python3 - <<'PY'
@@ -51,7 +51,7 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 |---|---|---|---|
 | `substrate` | `"herdr"` \| `"harness"` \| `"auto"` | `"auto"` | Dispatch substrate. See [Substrate semantics](#substrate-semantics). |
 | `detect` | `"env-or-socket"` \| `"env"` \| `"socket"` | `"env-or-socket"` | Which probes count as "herdr is available". |
-| `socket` | string | `~/.herdr/herdr.sock` | Socket path used by the `socket` probe. |
+| `socket` | string | `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock` | Socket path used by the `socket` probe. |
 | `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. |
 | `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for `herdr worktree create` (branch = `<prefix><tick-id>`). Ignored under harness orchestration — there the harness names branches. |
 | `full_auto` | boolean | `true` | Start workers with their kind's full-auto arg template. When `false`, every approval prompt becomes a human escalation. |
@@ -77,6 +77,20 @@ For a tick with role R and chosen tier T:
 2. Otherwise `roles.R.kind` + `roles.R.args`.
 3. If role R has no entry, resolve against `implement` by the same two steps.
 
+**Within one wave, the tier is the only per-tick routing knob.** Role comes from the tick (`tk create --role`), and the tracker only tags the *process* roles — `review` and `closeout`. Every implementation tick in a wave therefore resolves against `roles.implement`, so two same-wave ticks can only land on different kinds if they are assigned different tiers and those tiers override `kind`. That is supported and it is how the substrate's headline cross-vendor capability is exercised per tick:
+
+```toml
+[roles.implement]
+kind = "codex"
+args = ["--config", "model_reasoning_effort=\"medium\""]
+
+[roles.implement.tiers.economy]     # a tier may override `kind`, not just `args`
+kind = "claude"
+args = ["--model", "haiku"]
+```
+
+Keep the tier's real meaning intact when you do this — the tier is chosen from the tick's difficulty per `agent-runner.md`, and picking a tier to reach a vendor rather than a capability level is how a hard tick ends up on a cheap model. If a repo wants vendor split along an axis that is *not* difficulty, that axis has to become a role the tracker can tag, and today it cannot.
+
 **Args replace, they never merge.** A tier's `args` supersede the role's `args` wholesale; a tier that only wants to change the model must restate the full arg list. This is deliberate — merging two argv lists whose flags may conflict is not well-defined. The kind's full-auto template from `herdr-kinds.md` is prepended by the spawner and is not part of `args`.
 
 Under harness orchestration the `kind` values are inert (the harness spawns its own subagents), but the role/tier structure still applies: the adapter maps tier names to its own model classes or reasoning-effort settings, per `agent-runner.md`.
@@ -90,9 +104,13 @@ Herdr is **available** when either probe below succeeds, subject to `orchestrati
 | Probe | Test | Meaning |
 |---|---|---|
 | `env` | `test "${HERDR_ENV:-}" = 1` | The orchestrator is running inside a herdr-managed pane. |
-| `socket` | the herdr socket (`orchestration.socket`, default `~/.herdr/herdr.sock`) exists and answers a read-only call | A herdr server is running and reachable. |
+| `socket` | the herdr socket (`orchestration.socket`) exists and answers a read-only call | A herdr server is running and reachable. |
 
 `detect = "env-or-socket"` (the default) means either probe suffices. `detect = "env"` and `detect = "socket"` restrict availability to that single probe. Probes are read-only: **never start a herdr server, workspace, or TUI as part of detection.** Bare `herdr` launches or attaches the TUI and must not be used to probe.
+
+**The read-only call is `herdr status server`.** It reports `status: running`, the protocol version, and — usefully — the socket path the client actually resolved, so it doubles as the way to discover that path rather than assume it. `test -S <path>` alone is not the probe: a stale socket file outlives its server.
+
+**Do not hardcode a socket path.** Herdr's own location has moved between releases; on herdr 0.8.0 the live socket is `~/.config/herdr/herdr.sock`, and the process environment inside a herdr pane exports it as `HERDR_SOCKET_PATH`. Resolve in this order: `orchestration.socket` if set → `$HERDR_SOCKET_PATH` → `~/.config/herdr/herdr.sock`. A config that pins the wrong path does not fail loudly; it fails as a *false negative*, degrading a perfectly healthy herdr to harness dispatch — which under `substrate = "auto"` is silent. This was reproduced in the epic-`ias` smoke test: with `detect = "socket"` and a hardcoded stale default, the decision procedure returned `harness` while the same procedure against the resolved path returned `herdr`.
 
 ### Decision table
 
@@ -108,7 +126,7 @@ Herdr is **available** when either probe below succeeds, subject to `orchestrati
 
 `substrate = "herdr"` with herdr unavailable **must not fail the run** and **must not degrade silently**. Before dispatching the first worker, the orchestrator states the degradation to the user in its own output — naming the requested substrate, the probe(s) that failed, and the adapter it is falling back to — and then proceeds under harness orchestration. For example:
 
-> `.tick/runners.toml` requests `substrate = "herdr"`, but herdr is unavailable (`HERDR_ENV` is unset and `~/.herdr/herdr.sock` is not reachable). Falling back to harness orchestration via the Claude Code adapter for this run. Cross-vendor role routing in `[roles]` will not apply — every worker runs on the orchestrating harness.
+> `.tick/runners.toml` requests `substrate = "herdr"`, but herdr is unavailable (`HERDR_ENV` is unset and the resolved socket `<path>` does not answer `herdr status server`). Falling back to harness orchestration via the Claude Code adapter for this run. Cross-vendor role routing in `[roles]` will not apply — every worker runs on the orchestrating harness.
 
 Record the same fact durably where the run is recorded (a `tk note` on the epic, e.g. `runner-state: substrate=harness requested=herdr reason=herdr-unavailable`), so a later reader can tell configured intent from actual execution.
 
@@ -264,6 +282,7 @@ args = ["--config", "model_reasoning_effort=\"high\""]
 
 - **Never invent kinds.** Only kinds the installed herdr reports (`herdr agent`) are valid at run time; the schema's pattern is a shape check, not a catalog.
 - **Args are argv, not shell.** `["--model", "opus"]`, never `["--model opus"]`. Quoting inside a single argv element (as in Codex's `--config 'model_reasoning_effort="high"'`) is part of that element's value.
+- **Omitting the model flag is legal and means "the kind's own default".** The Codex examples above carry a reasoning-effort `--config` and no `-m`, so the spawner passes no model and codex resolves `model` from `~/.codex/config.toml` — verified live. That is a deliberate choice, not an oversight: it keeps the config from pinning a model string that will age. Pin `-m`/`--model` in `args` only when a role must not follow the CLI's local default, and re-read [`herdr-kinds.md`](herdr-kinds.md)'s green-start trap before you do — a model string that the account cannot use starts green and does zero work.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.
 - **Keep `[roles.implement]` present.** It is the fallback for every unlisted role.
 - **A config that fails schema validation is a stop, not a guess** — report the validation error and let the user fix it rather than falling back to defaults silently.
