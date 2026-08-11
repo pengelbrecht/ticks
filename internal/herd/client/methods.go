@@ -379,3 +379,190 @@ func (c *Client) PaneWaitForOutput(ctx context.Context, params PaneWaitForOutput
 	}
 	return &out, nil
 }
+
+// ---------------------------------------------------------------------------
+// Display-only metadata: pane.report_metadata and workspace.report_metadata.
+//
+// These are herdr's DECORATION channel, not a control channel. A source
+// reports a title, state labels and tokens; herdr renders them in its own
+// chrome and forgets them when the TTL elapses. Nothing here changes what a
+// pane IS — it never renames a pane, never moves focus, never touches the
+// agent. That is why a painter may run on every event without asking.
+//
+// Two properties make the paint safe to repeat:
+//
+//	source  every report is namespaced by the reporting source, so one
+//	        source can only ever overwrite its own metadata. `tk herd paint`
+//	        passes SourceHerdPaint and therefore cannot clobber what another
+//	        plugin (or herdr itself) put on the same pane.
+//	ttl_ms  a report expires on its own. A painter that stops running — the
+//	        run ended, the plugin was unlinked, the process died — leaves no
+//	        stale badges behind, which is what makes "paint from a hook"
+//	        correct rather than a leak. Verified live: after the TTL the
+//	        fields are simply gone from pane.get / workspace.get.
+//
+// Both methods answer with a bare `{"type":"ok"}` — no echo of the painted
+// object — so a caller that wants to see the result must read the pane or the
+// snapshot back.
+// ---------------------------------------------------------------------------
+
+// SourceHerdPaint is the metadata source id `tk herd paint` reports under.
+// Keep it stable: herdr keys expiry and overwrite on the source string, so
+// changing it strands whatever the previous id painted until its TTL elapses.
+const SourceHerdPaint = "tk-herd-paint"
+
+// Metadata TTL bounds, as herdr's schema declares them: ttl_ms is 1..86400000
+// (24h). Zero means "no expiry", which a painter should not want.
+const (
+	MinMetadataTTL = 1 * time.Millisecond
+	MaxMetadataTTL = 24 * time.Hour
+)
+
+// tokenFields merges the set-these and clear-these halves of a token update
+// into herdr's single `tokens` object, where a null value clears the name.
+// Returns nil when there is nothing to say, so the field can be omitted.
+func tokenFields(set map[string]string, clear []string) map[string]*string {
+	if len(set) == 0 && len(clear) == 0 {
+		return nil
+	}
+	out := make(map[string]*string, len(set)+len(clear))
+	for k, v := range set {
+		out[k] = Ptr(v)
+	}
+	for _, k := range clear {
+		out[k] = nil
+	}
+	return out
+}
+
+// validateTTL rejects a TTL herdr's schema would refuse, before dialling.
+func validateTTL(method string, ttl time.Duration) error {
+	if ttl == 0 {
+		return nil
+	}
+	if ttl < MinMetadataTTL || ttl > MaxMetadataTTL {
+		return fmt.Errorf(
+			"herd/client: %s TTL %s is out of range: herdr accepts %s..%s (or zero for no expiry)",
+			method, ttl, MinMetadataTTL, MaxMetadataTTL)
+	}
+	return nil
+}
+
+// PaneReportMetadataParams are the parameters of pane.report_metadata.
+//
+// Field names are the wire names verified against `herdr api schema --json`
+// (herdr 0.8.0, protocol 19); only `pane_id` and `source` are required.
+type PaneReportMetadataParams struct {
+	// PaneID is the pane being decorated. Required.
+	PaneID string `json:"pane_id"`
+	// Source namespaces this report. Required — see [SourceHerdPaint].
+	Source string `json:"source"`
+	// Agent is the agent label this report is about, when the source is
+	// speaking for a specific agent rather than for the pane itself.
+	Agent *string `json:"agent,omitempty"`
+	// AppliesToSource scopes the report to metadata another source owns.
+	AppliesToSource *string `json:"applies_to_source,omitempty"`
+	// Title is the pane title herdr shows. Nil leaves it as it is.
+	Title *string `json:"title,omitempty"`
+	// ClearTitle removes this source's title.
+	ClearTitle bool `json:"clear_title,omitempty"`
+	// DisplayAgent overrides the agent name herdr displays.
+	DisplayAgent *string `json:"display_agent,omitempty"`
+	// ClearDisplayAgent removes this source's display agent.
+	ClearDisplayAgent bool `json:"clear_display_agent,omitempty"`
+	// StateLabels maps an agent status ("working", "idle", …) to the text
+	// herdr shows while the pane is in it — the CLI's STATUS=TEXT pairs.
+	StateLabels map[string]string `json:"state_labels,omitempty"`
+	// ClearStateLabels removes this source's state labels.
+	ClearStateLabels bool `json:"clear_state_labels,omitempty"`
+	// Tokens are the badge NAME=VALUE pairs. Names must match
+	// `^[A-Za-z0-9_-]{1,32}$` and there may be at most 16 of them.
+	Tokens map[string]string `json:"-"`
+	// ClearTokens are token names to remove (sent as JSON null).
+	ClearTokens []string `json:"-"`
+	// Seq orders reports from the same source; herdr ignores one that
+	// arrives out of order. Nil means "always apply this one".
+	Seq *uint64 `json:"seq,omitempty"`
+	// TTL is how long the report survives. Zero omits ttl_ms, which means
+	// the metadata never expires — almost never what a painter wants.
+	TTL time.Duration `json:"-"`
+}
+
+// MarshalJSON renders TTL as ttl_ms and merges the token halves.
+func (p PaneReportMetadataParams) MarshalJSON() ([]byte, error) {
+	type wire PaneReportMetadataParams
+	return json.Marshal(struct {
+		wire
+		Tokens map[string]*string `json:"tokens,omitempty"`
+		TTLMs  *uint64            `json:"ttl_ms,omitempty"`
+	}{wire(p), tokenFields(p.Tokens, p.ClearTokens), millis(p.TTL)})
+}
+
+// PaneReportMetadata reports display-only metadata for a pane.
+//
+// It is idempotent: reporting the same fields again is a no-op from the
+// operator's point of view, and re-reporting is exactly how a painter keeps a
+// TTL'd badge alive.
+func (c *Client) PaneReportMetadata(ctx context.Context, params PaneReportMetadataParams) error {
+	if params.PaneID == "" {
+		return fmt.Errorf("herd/client: pane.report_metadata needs a pane id")
+	}
+	if params.Source == "" {
+		return fmt.Errorf("herd/client: pane.report_metadata needs a source")
+	}
+	if err := validateTTL(MethodPaneReportMetadata, params.TTL); err != nil {
+		return err
+	}
+	return c.call(ctx, MethodPaneReportMetadata, resultOK, params, nil)
+}
+
+// WorkspaceReportMetadataParams are the parameters of
+// workspace.report_metadata.
+//
+// A workspace carries TOKENS ONLY — herdr has no workspace title and no
+// workspace state label, verified against the schema, where `tokens` is
+// required alongside `workspace_id` and `source`. Anything title-shaped
+// belongs on a pane inside the workspace.
+type WorkspaceReportMetadataParams struct {
+	// WorkspaceID is the workspace being decorated. Required.
+	WorkspaceID string `json:"workspace_id"`
+	// Source namespaces this report. Required.
+	Source string `json:"source"`
+	// Tokens are the badge NAME=VALUE pairs; see the pane params.
+	Tokens map[string]string `json:"-"`
+	// ClearTokens are token names to remove (sent as JSON null).
+	ClearTokens []string `json:"-"`
+	// Seq orders reports from the same source.
+	Seq *uint64 `json:"seq,omitempty"`
+	// TTL is how long the report survives; zero means no expiry.
+	TTL time.Duration `json:"-"`
+}
+
+// MarshalJSON renders TTL as ttl_ms and merges the token halves. `tokens` is
+// required by the schema, so it is always emitted — as `{}` when empty.
+func (p WorkspaceReportMetadataParams) MarshalJSON() ([]byte, error) {
+	type wire WorkspaceReportMetadataParams
+	tokens := tokenFields(p.Tokens, p.ClearTokens)
+	if tokens == nil {
+		tokens = map[string]*string{}
+	}
+	return json.Marshal(struct {
+		wire
+		Tokens map[string]*string `json:"tokens"`
+		TTLMs  *uint64            `json:"ttl_ms,omitempty"`
+	}{wire(p), tokens, millis(p.TTL)})
+}
+
+// WorkspaceReportMetadata reports display-only tokens for a workspace.
+func (c *Client) WorkspaceReportMetadata(ctx context.Context, params WorkspaceReportMetadataParams) error {
+	if params.WorkspaceID == "" {
+		return fmt.Errorf("herd/client: workspace.report_metadata needs a workspace id")
+	}
+	if params.Source == "" {
+		return fmt.Errorf("herd/client: workspace.report_metadata needs a source")
+	}
+	if err := validateTTL(MethodWorkspaceReportMetadata, params.TTL); err != nil {
+		return err
+	}
+	return c.call(ctx, MethodWorkspaceReportMetadata, resultOK, params, nil)
+}

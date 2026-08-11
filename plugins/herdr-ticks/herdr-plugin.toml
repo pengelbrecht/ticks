@@ -45,19 +45,60 @@ description = "Open the ticks board web UI for the current repository (or show h
 contexts = ["workspace", "pane"]
 command = ["bash", "scripts/open-tick-board.sh"]
 
-# Event hooks.
+# Event hooks — workspace badge painting.
 #
-# This entry is deliberately INERT: it is the shape template for the notification wiring
-# that tick sku owns, kept live (rather than commented out) so `herdr plugin list --json`
-# reports a parsed `events` section and the shape stays honest. `workspace.renamed` is
-# chosen because it does not fire during ordinary use, and the handler is a no-op.
+# Every hook runs the same script, `scripts/paint-hook.sh`, which shells out to
+# `tk herd paint`: display-only, TTL'd metadata naming the tick each herd worker is on.
+# Read-only with respect to .tick, and it never renames a pane or moves focus.
 #
-# Event names herdr is known to emit (copied from a plugin herdr already runs — remember
-# `on` is unvalidated, so never invent one):
+# Event names are COPIED VERBATIM from rjyo.window-title-sync's live manifest
+# (`herdr plugin list --json`), because `events.on` is NOT validated — a typo'd name
+# parses fine, links fine, and then silently never fires. Never invent one.
+#
+# The full set herdr is known to emit:
 #   workspace.focused  workspace.renamed  workspace.updated
 #   tab.focused        tab.renamed
 #   pane.created       pane.closed        pane.focused  pane.moved
 #   pane.agent_detected                   pane.agent_status_changed
+#
+# The five below are the ones that can change what a badge should SAY:
+#   pane.agent_status_changed  a worker started or finished a turn — the state label
+#   pane.agent_detected        herdr recognised the agent CLI in a freshly spawned pane
+#   pane.created               a worktree.create just opened a worker's pane
+#   pane.closed                a worker went away; the survivors get repainted
+#   workspace.focused          the operator looked at a workspace, so refresh the TTL
+#
+# Deliberately NOT hooked: pane.focused, pane.moved, tab.*, workspace.renamed and
+# workspace.updated. They fire on ordinary navigation without changing any painted fact,
+# and the badges already refresh well inside their TTL from the five above. The script
+# also debounces, so a burst of events costs one paint.
+#
+# FEEDBACK BOUNCE — measured live, not theorised. A pane.report_metadata carrying a title
+# or state labels makes herdr emit `pane.agent_status_changed` FOR THAT PANE, carrying the
+# fields just painted. So this hook does re-trigger itself, once:
+#
+#   paint → pane.agent_status_changed → hook → paint → pane.agent_status_changed → hook
+#   → DEBOUNCED (the previous paint stamped the clock <2s ago) → stops
+#
+# The debounce in paint-hook.sh is therefore not a nicety, it is the loop breaker: the
+# bounce arrives within milliseconds, far inside the 2s window. Do NOT remove it, and do
+# not set TICKS_PAINT_DEBOUNCE_SECONDS to 0.
 [[events]]
-on = "workspace.renamed"
-command = ["bash", "scripts/events-noop.sh"]
+on = "pane.agent_status_changed"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "pane.created"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "workspace.focused"
+command = ["bash", "scripts/paint-hook.sh"]

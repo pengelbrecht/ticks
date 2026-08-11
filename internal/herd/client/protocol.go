@@ -25,8 +25,14 @@ const (
 	MethodAgentGet          = "agent.get"
 	MethodPaneRead          = "pane.read"
 	MethodPaneWaitForOutput = "pane.wait_for_output"
-	MethodEventsSubscribe   = "events.subscribe"
-	MethodEventsWait        = "events.wait"
+	// MethodPaneReportMetadata and MethodWorkspaceReportMetadata are the
+	// display-only metadata channels: a source reports title, state labels
+	// and tokens for a pane, or tokens for a workspace. Nothing they write
+	// is authoritative — herdr renders it and expires it.
+	MethodPaneReportMetadata      = "pane.report_metadata"
+	MethodWorkspaceReportMetadata = "workspace.report_metadata"
+	MethodEventsSubscribe         = "events.subscribe"
+	MethodEventsWait              = "events.wait"
 )
 
 // Result discriminators, the `result.type` value each method answers with.
@@ -45,6 +51,10 @@ const (
 	resultOutputMatched       = "output_matched"
 	resultSubscriptionStarted = "subscription_started"
 	resultWaitMatched         = "wait_matched"
+	// resultOK is the bare acknowledgement the report_metadata methods
+	// answer with — verified live against herdr 0.8.0 / protocol 19; they
+	// echo no pane or workspace object back.
+	resultOK = "ok"
 )
 
 // Error codes observed from herdr 0.8.0 / protocol 19. The set is open-ended —

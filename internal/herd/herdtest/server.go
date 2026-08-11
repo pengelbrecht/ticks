@@ -30,6 +30,11 @@ const (
 	MethodPaneRead        = "pane.read"
 	MethodEventsSubscribe = "events.subscribe"
 	MethodEventsWait      = "events.wait"
+	// The display-only metadata channel. Both answer a bare `{"type":"ok"}`
+	// — the live shape, verified against herdr 0.8.0 — and the fake records
+	// every report so a painter's output can be asserted on.
+	MethodPaneReportMetadata      = "pane.report_metadata"
+	MethodWorkspaceReportMetadata = "workspace.report_metadata"
 )
 
 // Error codes this fake produces on its own initiative.
@@ -187,6 +192,9 @@ type Server struct {
 	focusCalls            []string
 	paneTexts             []string
 	paneReads             int
+	paneMeta              []MetadataReport
+	workspaceMeta         []MetadataReport
+	metaErr               string
 	lists                 int
 	subs                  int
 	lastSubs              []Subscription
@@ -551,6 +559,10 @@ func (s *Server) builtin(method string) (Handler, bool) {
 		return s.handlePaneRead, true
 	case MethodEventsSubscribe:
 		return s.handleEventsSubscribe, true
+	case MethodPaneReportMetadata:
+		return s.handlePaneReportMetadata, true
+	case MethodWorkspaceReportMetadata:
+		return s.handleWorkspaceReportMetadata, true
 	}
 	return nil, false
 }

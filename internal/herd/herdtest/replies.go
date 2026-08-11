@@ -324,6 +324,104 @@ func (s *Server) handlePaneRead(_ *testing.T, req Request, w *ConnWriter) error 
 	})
 }
 
+// MetadataReport is one pane.report_metadata or workspace.report_metadata
+// call as the fake received it. Every field is decoded from the wire, so a
+// test asserting on it is asserting on the JSON the client actually sent —
+// including the params it chose to omit.
+//
+// Target is the pane id or the workspace id, whichever the method carried.
+type MetadataReport struct {
+	// Method is [MethodPaneReportMetadata] or [MethodWorkspaceReportMetadata].
+	Method string `json:"-"`
+	// Target is pane_id (pane reports) or workspace_id (workspace reports).
+	Target string `json:"-"`
+
+	PaneID      string `json:"pane_id"`
+	WorkspaceID string `json:"workspace_id"`
+	Source      string `json:"source"`
+
+	Title             *string           `json:"title"`
+	ClearTitle        bool              `json:"clear_title"`
+	DisplayAgent      *string           `json:"display_agent"`
+	ClearDisplayAgent bool              `json:"clear_display_agent"`
+	Agent             *string           `json:"agent"`
+	AppliesToSource   *string           `json:"applies_to_source"`
+	StateLabels       map[string]string `json:"state_labels"`
+	ClearStateLabels  bool              `json:"clear_state_labels"`
+	// Tokens keeps herdr's null-clears-the-name encoding: a present key
+	// with a nil value is a clear, not an empty string.
+	Tokens map[string]*string `json:"tokens"`
+	Seq    *uint64            `json:"seq"`
+	TTLMs  *uint64            `json:"ttl_ms"`
+}
+
+// SetMetadataError makes every report_metadata call fail with the given
+// message — herdr refusing a paint, which must never look like success.
+func (s *Server) SetMetadataError(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.metaErr = msg
+}
+
+// PaneMetadata returns every pane.report_metadata call, in order.
+func (s *Server) PaneMetadata() []MetadataReport {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]MetadataReport(nil), s.paneMeta...)
+}
+
+// WorkspaceMetadata returns every workspace.report_metadata call, in order.
+func (s *Server) WorkspaceMetadata() []MetadataReport {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]MetadataReport(nil), s.workspaceMeta...)
+}
+
+// decodeMetadata parses a report_metadata request into a MetadataReport.
+func decodeMetadata(method string, req Request) MetadataReport {
+	var r MetadataReport
+	_ = json.Unmarshal(req.Params, &r)
+	r.Method = method
+	if r.PaneID != "" {
+		r.Target = r.PaneID
+	} else {
+		r.Target = r.WorkspaceID
+	}
+	return r
+}
+
+func (s *Server) handlePaneReportMetadata(_ *testing.T, req Request, w *ConnWriter) error {
+	r := decodeMetadata(MethodPaneReportMetadata, req)
+
+	s.mu.Lock()
+	metaErr := s.metaErr
+	if metaErr == "" {
+		s.paneMeta = append(s.paneMeta, r)
+	}
+	s.mu.Unlock()
+
+	if metaErr != "" {
+		return RespondErr(w, req.ID, CodePaneNotFound, metaErr)
+	}
+	return RespondJSON(w, req.ID, map[string]any{"type": "ok"})
+}
+
+func (s *Server) handleWorkspaceReportMetadata(_ *testing.T, req Request, w *ConnWriter) error {
+	r := decodeMetadata(MethodWorkspaceReportMetadata, req)
+
+	s.mu.Lock()
+	metaErr := s.metaErr
+	if metaErr == "" {
+		s.workspaceMeta = append(s.workspaceMeta, r)
+	}
+	s.mu.Unlock()
+
+	if metaErr != "" {
+		return RespondErr(w, req.ID, CodeWorkspaceNotFound, metaErr)
+	}
+	return RespondJSON(w, req.ID, map[string]any{"type": "ok"})
+}
+
 // nextPaneText consumes the scripted pane.read output; the last entry repeats.
 func (s *Server) nextPaneText() string {
 	s.mu.Lock()
