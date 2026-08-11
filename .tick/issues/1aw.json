@@ -1,0 +1,18 @@
+{
+  "id": "1aw",
+  "title": "tk herd spawn: worktree + agent start + gated first prompt",
+  "description": "cmd/tk/cmd/herd_spawn.go + internal/herd/state (run-state manifest) + spawn logic in internal/herd. tk herd spawn \u003ctick-id\u003e [--role NAME] [--tier NAME] [--config PATH] [--json]: load tick via the internal tick store (title/description/acceptance/epic), resolve kind+model/effort/args via internal/herd/config (refusals propagate), then per skills/ticks/references/herdr-runner.md: worktree.create (branch \u003cworktree_branch_prefix\u003e\u003ctick-id\u003e, --base current integration HEAD, no-focus), agent.start with compiled argv, the first-round-trip content gate exactly as documented (trivial prompt, read pane content, distinguish silent-drop -\u003e re-send once vs error content -\u003e fail with pane excerpt), then submit the real implementer prompt built from the tick body per the worker template in herdr-runner.md (RESULT-\u003ctick-id\u003e.md contract, no tk / no .tick/ boundary). Write a run-state manifest entry under .tick/logs/herd/\u003cepic\u003e/\u003ctick\u003e.json (internal/herd/state owns the format: tick, branch, worktree path, workspace id, pane id, agent name, kind, model/effort, agent_session when captured post-gate, spawn commit) and print the runner-state note line for the orchestrator to tk note. The command itself never runs tk note (orchestrator owns tracker writes). Cobra + legacy switch registration + ResetFlags as per learnings. Unit tests via fake socket server: happy path, gate silent-drop retry, gate error content, compatibility refusal, manifest written atomically.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "qs1",
+    "9z6"
+  ],
+  "parent": "gyz",
+  "acceptance_criteria": "go test -short -count=1 ./... passes; spawn is a single command producing worktree+gated worker+manifest+note line on the fake server; refusal and gate-failure paths tested",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T12:06:09.48206Z",
+  "updated_at": "2026-08-11T12:06:09.48206Z"
+}

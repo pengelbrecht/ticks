@@ -1,0 +1,17 @@
+{
+  "id": "q3x",
+  "title": "tk herd reconcile: crash recovery from durable state",
+  "description": "cmd/tk/cmd/herd_reconcile.go + internal/herd/reconcile. tk herd reconcile [--epic \u003cid\u003e] [--json]: rebuild run state after orchestrator death per herdr-runner.md reconcile order — tracker in_progress ticks + runner-state notes, manifests under .tick/logs/herd/, git worktree list + branch --list with the configured worktree_branch_prefix, live herdr agent list, api snapshot agent_session ids. Classify each in-flight tick: live-worker (continue via prompt), dead-worker-resumable (emit the exact per-kind resume command from herdr-kinds.md translation), dead-with-work (redispatch from branch), stale-no-work (safe reset), unknown (surface, never auto-reset). Output a structured plan; mutate NOTHING (the orchestrator acts on the plan) except optionally --adopt to refresh manifests for live workers found consistent. Never propose a second branch for a tick with recoverable work. Cobra + legacy switch + ResetFlags. Unit tests: fake server + fixture manifests/repos for each classification incl. the live-worker-must-not-redispatch case.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "1aw"
+  ],
+  "parent": "gyz",
+  "acceptance_criteria": "go test -short -count=1 ./... passes; all five classifications covered by tests; reconcile is read-only apart from --adopt manifest refresh",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T12:06:09.531722Z",
+  "updated_at": "2026-08-11T12:06:09.531722Z"
+}
