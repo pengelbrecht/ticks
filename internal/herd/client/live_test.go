@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -60,5 +61,52 @@ func TestLiveRoundTrip(t *testing.T) {
 	// An unknown target must map to a structured not-found error.
 	if _, err := c.AgentGet(ctx, "tk-herd-live-test-nonexistent"); !IsCode(err, CodeAgentNotFound) {
 		t.Errorf("AgentGet on an unknown target = %v, want %s", err, CodeAgentNotFound)
+	}
+
+	// The two-envelope behaviour is the thing fixtures cannot catch drifting.
+	// Subscribing to a pane's current status must push immediately, in the
+	// dotted subscription_event spelling, and the accessor must decode it.
+	if len(agents) == 0 {
+		t.Skip("no agents in the live session to subscribe to")
+	}
+	target := agents[0]
+
+	subCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	stream, err := c.EventsSubscribe(subCtx, []Subscription{
+		SubscribeAgentStatus(target.PaneID, target.AgentStatus),
+	})
+	if err != nil {
+		t.Fatalf("EventsSubscribe on %s: %v", target.PaneID, err)
+	}
+	defer stream.Close()
+
+	select {
+	case ev, ok := <-stream.Events():
+		if !ok {
+			t.Fatalf("stream closed without an event: %v", stream.Err())
+		}
+		if ev.Kind != EventScopedPaneAgentStatusChanged {
+			t.Errorf("live scoped event kind = %q, want %q — herdr's envelope spelling has drifted",
+				ev.Kind, EventScopedPaneAgentStatusChanged)
+		}
+		changed, err := ev.AgentStatusChanged()
+		if err != nil {
+			t.Fatalf("AgentStatusChanged on a live scoped event: %v", err)
+		}
+		if changed.PaneID != target.PaneID || changed.AgentStatus != target.AgentStatus {
+			t.Errorf("changed = %+v, want pane %s in status %s", changed, target.PaneID, target.AgentStatus)
+		}
+		t.Logf("immediate replay confirmed: %s already %s", changed.PaneID, changed.AgentStatus)
+	case <-subCtx.Done():
+		t.Error("subscribing to a pane's current status did not replay it immediately; " +
+			"the missed-wakeup guarantee EventsSubscribe documents no longer holds")
+	}
+
+	// A session-wide subscription carrying a pane id must be refused
+	// client-side, since herdr would accept it and fire for every pane.
+	if _, err := c.EventsSubscribe(ctx, []Subscription{{Type: SubPaneUpdated, PaneID: target.PaneID}}); err == nil {
+		t.Error("a mis-scoped session-wide subscription was not rejected")
 	}
 }

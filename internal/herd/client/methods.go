@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -25,6 +26,13 @@ func millis(d time.Duration) *uint64 {
 
 // Ping performs the ping handshake and reports the server's version and
 // protocol. [New] calls it; call it again to check liveness.
+//
+// Substrate detection must bound this call. A stale socket file can be
+// connectable yet never answer, and the availability probe of
+// runners-config.md is supposed to degrade to harness orchestration rather
+// than hang. Ping is bounded by the earlier of the caller's deadline and
+// [Options.CallTimeout], so a short CallTimeout is enough — but do not pass a
+// context with no deadline and CallTimeout disabled.
 func (c *Client) Ping(ctx context.Context) (ServerInfo, error) {
 	var info ServerInfo
 	err := c.call(ctx, MethodPing, resultPong, struct{}{}, &info)
@@ -123,8 +131,31 @@ type AgentStartParams struct {
 	// config's escape-hatch args. One element per argv entry.
 	Args []string `json:"args,omitempty"`
 	// StartupTimeout bounds how long herdr waits for the agent to come up.
-	// herdr accepts values above 3s and up to 300s; zero means its default.
+	// herdr accepts values strictly above [MinAgentStartupTimeout] and at
+	// most [MaxAgentStartupTimeout]; zero means its default. Anything else
+	// is rejected client-side by [Client.AgentStart].
 	StartupTimeout time.Duration `json:"-"`
+}
+
+// The range herdr accepts for agent.start's timeout_ms.
+const (
+	// MinAgentStartupTimeout is exclusive: the value must exceed it.
+	MinAgentStartupTimeout = 3 * time.Second
+	// MaxAgentStartupTimeout is inclusive.
+	MaxAgentStartupTimeout = 300 * time.Second
+)
+
+// validate rejects a startup timeout herdr would refuse, before dialling.
+func (p AgentStartParams) validate() error {
+	if p.StartupTimeout == 0 {
+		return nil
+	}
+	if p.StartupTimeout <= MinAgentStartupTimeout || p.StartupTimeout > MaxAgentStartupTimeout {
+		return fmt.Errorf(
+			"herd/client: agent.start StartupTimeout %s is out of range: herdr accepts more than %s and at most %s (or zero for its default)",
+			p.StartupTimeout, MinAgentStartupTimeout, MaxAgentStartupTimeout)
+	}
+	return nil
 }
 
 // MarshalJSON renders StartupTimeout as herdr's timeout_ms.
@@ -140,6 +171,9 @@ func (p AgentStartParams) MarshalJSON() ([]byte, error) {
 // argv herdr actually executed, which is worth recording: it is the ground
 // truth for what the model/effort compilation produced.
 func (c *Client) AgentStart(ctx context.Context, params AgentStartParams) (*AgentStarted, error) {
+	if err := params.validate(); err != nil {
+		return nil, err
+	}
 	var out AgentStarted
 	if err := c.call(ctx, MethodAgentStart, resultAgentStarted, params, &out); err != nil {
 		return nil, err
