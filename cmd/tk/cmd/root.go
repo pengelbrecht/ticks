@@ -427,6 +427,18 @@ func ResetFlags() {
 	herdWaitSocket = ""
 	herdWaitJSON = false
 
+	// Reset herd spawn flags
+	herdSpawnRole = "implement"
+	herdSpawnTier = ""
+	herdSpawnConfig = ""
+	herdSpawnSocket = ""
+	herdSpawnBase = ""
+	herdSpawnJSON = false
+	herdSpawnWait = false
+	herdSpawnStartupTimeout = defaultHerdSpawnStartupTimeoutMs
+	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
+	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
+
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false
