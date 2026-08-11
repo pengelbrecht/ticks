@@ -5,6 +5,7 @@
 - Pi runner: `node --test --no-warnings extensions/ticks-runner/*.test.ts`
 - Go: `go test -short -count=1 ./...`
 - Go note: internal/worktree can fail locally when temporary repositories lack git identity; it passes in CI. Do not chase that environmental baseline.
+- Go note: internal/herd/wait TestWaitTimeout can flake under heavy parallel local load (fake-server dial i/o timeout — machine contention, not logic); it passes in isolation and in CI. Verify with `go test -count=3 -run TestWaitTimeout ./internal/herd/wait/` before treating it as red.
 - UI hint: when UI source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; the full suite has pre-existing failures.
 - Worker hint: when worker source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; full pnpm test has a known workerd boot crash.
 
