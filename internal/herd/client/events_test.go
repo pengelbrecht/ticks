@@ -19,7 +19,7 @@ func streamFixtureHandler(fixture string, release <-chan struct{}) fakeHandler {
 			return err
 		}
 		for _, line := range loadEventLines(t, fixture) {
-			if err := w.writeLine(line); err != nil {
+			if err := w.WriteLine(line); err != nil {
 				return err
 			}
 		}
@@ -408,7 +408,7 @@ func TestEventStreamDisconnectIsDistinguishableFromClose(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
+			if err := w.WriteLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
 				return err
 			}
 			// Returning closes the connection: a mid-stream disconnect.
@@ -454,7 +454,7 @@ func TestEventStreamAppliesBackpressure(t *testing.T) {
 			}
 			for i := range total {
 				line := `{"event":"pane_updated","data":{"type":"pane_updated","seq":` + strconv.Itoa(i) + `}}`
-				if err := w.writeLine(line); err != nil {
+				if err := w.WriteLine(line); err != nil {
 					return err
 				}
 			}
@@ -547,7 +547,7 @@ func TestEventStreamCloseFromConsumerLoop(t *testing.T) {
 					return nil
 				default:
 				}
-				if err := w.writeLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
+				if err := w.WriteLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
 					return nil
 				}
 			}
@@ -596,10 +596,10 @@ func TestEventStreamIgnoresUnrecognisedLine(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(`{"keepalive":true}`); err != nil {
+			if err := w.WriteLine(`{"keepalive":true}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
+			if err := w.WriteLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
 				return err
 			}
 			<-release
@@ -628,7 +628,7 @@ func TestEventStreamNamesMalformedLine(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			return w.writeLine(`{"event":"pane_updated","data":`)
+			return w.WriteLine(`{"event":"pane_updated","data":`)
 		},
 	})
 
@@ -770,7 +770,7 @@ func TestEventStreamMidStreamAPIErrorEndsStream(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
+			if err := w.WriteLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
 				return err
 			}
 			if err := respondErr(w, req.ID, CodePaneNotFound, "pane closed mid-run"); err != nil {

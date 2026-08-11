@@ -170,7 +170,7 @@ func TestApplyRemovesManifestLast(t *testing.T) {
 	workerBranch(t, repo, "tick/nhk", base, true)
 	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
 	srv := newFakeHerd(t)
-	srv.removeErr = "no such workspace"
+	srv.SetRemoveError("no such workspace")
 
 	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
 	if err != nil {

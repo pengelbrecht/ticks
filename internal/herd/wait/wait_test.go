@@ -153,12 +153,12 @@ func TestWaitSubscribesPerTerminalStatus(t *testing.T) {
 // subscription can report it.
 func TestWaitRaceListThenSubscribe(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.afterList = func(n int) {
+	srv.SetAfterList(func(n int) {
 		if n == 1 {
 			// Settle silently: no live stream exists, so nothing is pushed.
 			srv.setStatus("tick-a", client.StatusDone)
 		}
-	}
+	})
 
 	sum, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a"},
@@ -257,14 +257,14 @@ func TestWaitContextCancelled(t *testing.T) {
 // settled while nothing was subscribed, so the reconcile alone answers it.
 func TestWaitStreamDeathReconcileClosesGap(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.killSub = func(n int) bool {
+	srv.SetKillSubscribe(func(n int) bool {
 		if n != 1 {
 			return false
 		}
 		// The worker settles while no stream is watching.
 		srv.setStatus("tick-a", client.StatusIdle)
 		return true
-	}
+	})
 
 	sum, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a"},
@@ -285,7 +285,7 @@ func TestWaitStreamDeathReconcileClosesGap(t *testing.T) {
 // and the wait then completes on a pushed event.
 func TestWaitStreamDeathResubscribes(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.killSub = func(n int) bool { return n == 1 }
+	srv.SetKillSubscribe(func(n int) bool { return n == 1 })
 	go func() {
 		srv.waitForStreams(1) // the second subscribe is the first live stream
 		srv.pushStatus("tick-a", client.StatusDone)
@@ -313,7 +313,7 @@ func TestWaitStreamDeathResubscribes(t *testing.T) {
 // loop.
 func TestWaitStreamDiesTwice(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.killSub = func(n int) bool { return true }
+	srv.SetKillSubscribe(func(n int) bool { return true })
 
 	_, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a"},
@@ -339,7 +339,7 @@ func TestWaitInvalidPaneAttribution(t *testing.T) {
 		&fakeAgent{name: "tick-b", paneID: "w1:p2", status: client.StatusWorking},
 	)
 	// Index 4 is the second worker's second subscription.
-	srv.rejectSub = func(n int) (int, bool) { return 4, true }
+	srv.SetRejectSubscribe(func(n int) (int, bool) { return 4, true })
 
 	_, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a", "tick-b"},
