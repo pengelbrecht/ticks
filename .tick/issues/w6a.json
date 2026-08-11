@@ -1,6 +1,7 @@
 {
   "id": "w6a",
   "title": "Close out mission-control epic: run epic retro; project t63 checkpoint follows",
+  "notes": "2026-08-11 20:52 - Checkpoint package ready: PR #39 CI green (stack: #37 -\u003e #38 -\u003e #39, merge in order). Retro on zz0 note; closeout evidence: offline 19 + live plugin smoke 83 assertions PASS. Awaiting human checkpoint approval to close w6a, zz0, and project t63.",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -13,5 +14,5 @@
   "awaiting": "checkpoint",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:25.592305Z",
-  "updated_at": "2026-08-11T16:53:25.592305Z"
+  "updated_at": "2026-08-11T18:52:08.298241Z"
 }
