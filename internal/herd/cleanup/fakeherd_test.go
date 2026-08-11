@@ -38,6 +38,14 @@ type fakeHerd struct {
 	mu       sync.Mutex
 	requests []fakeReq
 	agents   []map[string]any
+	// agentsAfterFirstList, when non-nil, is what agent.list answers from
+	// the SECOND call on. It is the TOCTOU seam: the planning snapshot sees
+	// one status, the apply-time re-check another.
+	agentsAfterFirstList []map[string]any
+	listCalls            int
+	// listErr, when set, makes every agent.list after the first fail — the
+	// re-check herdr stopped answering.
+	listErrAfterFirstList string
 	// removeErr, when set, makes every worktree.remove fail — the failed
 	// teardown that must leave the manifest on disk.
 	removeErr string
@@ -103,6 +111,23 @@ func (s *fakeHerd) setAgents(agents ...map[string]any) {
 	s.agents = agents
 }
 
+// setAgentsAfterFirstList scripts the TOCTOU seam: the first agent.list (the
+// planning snapshot) answers with setAgents' list, every later one — the
+// apply-time re-checks — answers with this.
+func (s *fakeHerd) setAgentsAfterFirstList(agents ...map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.agentsAfterFirstList = agents
+}
+
+// setListErrorAfterFirstList makes every agent.list after the planning
+// snapshot fail — herdr going quiet mid-teardown.
+func (s *fakeHerd) setListErrorAfterFirstList(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listErrAfterFirstList = msg
+}
+
 func agent(name, status string) map[string]any {
 	return map[string]any{"pane_id": "w1:p1", "name": name, "agent_status": status}
 }
@@ -145,6 +170,16 @@ func (s *fakeHerd) serve(conn net.Conn) {
 	s.requests = append(s.requests, req)
 	agents := s.agents
 	removeErr := s.removeErr
+	listErr := ""
+	if req.Method == client.MethodAgentList {
+		s.listCalls++
+		if s.listCalls > 1 {
+			if s.agentsAfterFirstList != nil {
+				agents = s.agentsAfterFirstList
+			}
+			listErr = s.listErrAfterFirstList
+		}
+	}
 	s.mu.Unlock()
 
 	var body []byte
@@ -152,6 +187,10 @@ func (s *fakeHerd) serve(conn net.Conn) {
 	case client.MethodPing:
 		body = okLine(req.ID, map[string]any{"type": "pong", "version": "0.8.0", "protocol": 19})
 	case client.MethodAgentList:
+		if listErr != "" {
+			body = errLine(req.ID, client.CodeInvalidRequest, listErr)
+			break
+		}
 		if agents == nil {
 			agents = []map[string]any{}
 		}

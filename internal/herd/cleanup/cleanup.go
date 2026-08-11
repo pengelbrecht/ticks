@@ -1,14 +1,13 @@
 package cleanup
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 )
@@ -45,6 +44,9 @@ const (
 	BlockedWorker Reason = "blocked-worker"
 	// UnmergedBranch: `git branch -d` would refuse, so this does too.
 	UnmergedBranch Reason = "unmerged-branch"
+	// RecheckFailed: the apply-time liveness re-check could not be taken, so
+	// this plan's worker cannot be proven safe to tear down. See [recheck].
+	RecheckFailed Reason = "recheck-failed"
 )
 
 // Step is one planned removal.
@@ -126,6 +128,10 @@ type Options struct {
 // An error means the plans could not be built (herdr unreachable). A failure
 // while applying one plan is recorded on its step and does not abort the rest:
 // one wedged workspace must not strand the wave's other manifests.
+//
+// With Apply, every plan's worker liveness is re-checked immediately before
+// its own destructive step — see [recheck] for why the opening snapshot is
+// not enough.
 func Run(ctx context.Context, h Herd, opts Options) ([]Plan, error) {
 	agents, err := h.AgentList(ctx)
 	if err != nil {
@@ -144,7 +150,9 @@ func Run(ctx context.Context, h Herd, opts Options) ([]Plan, error) {
 	focusBefore := focusedWorkspace(ctx, h)
 
 	for i := range plans {
-		apply(ctx, h, &plans[i])
+		if recheck(ctx, h, &plans[i]) {
+			apply(ctx, h, &plans[i])
+		}
 	}
 
 	if note := preserveFocus(ctx, h, focusBefore); note != "" && len(plans) > 0 {
@@ -244,7 +252,7 @@ func planFor(repoRoot string, m state.Manifest, manifestPath string, agents []cl
 	//    What remains are the two states where removal would destroy
 	//    something: blocked, whose pane IS the handoff a human answers, and
 	//    working, which may be mid-turn and about to commit.
-	if a := liveWorker(agents, m); a != nil {
+	if a := liveWorker(agents, m.Tick, m.Agent); a != nil {
 		name := agentName(a)
 		switch a.AgentStatus {
 		case client.StatusBlocked:
@@ -285,6 +293,50 @@ func (p *Plan) refuse(reason Reason, detail string) {
 	p.Steps = []Step{}
 }
 
+// recheck re-reads the worker's live status immediately before this plan's
+// destructive step, and reports whether the plan may proceed.
+//
+// The opening agent.list in [Run] is ONE snapshot shared by every plan, and a
+// wave's teardown walks its plans in sequence: an agent that was idle when the
+// snapshot was taken can be prompted, or wake itself, and be mid-turn by the
+// time its own worktree.remove is issued. That window is the whole plan list
+// wide, and worktree.remove kills the pane and the running agent together —
+// so the check that authorises the removal has to be taken next to the
+// removal, not at the top of the run.
+//
+// A plan whose worker has since gone `working` or `blocked` flips to the same
+// refusal [planFor] would have produced; the wave's other plans are unaffected
+// (their own re-checks decide them). A re-check that cannot be taken at all is
+// also a refusal: "herdr did not answer" is not evidence that tearing an agent
+// down is safe, and the manifest survives to be cleaned on a later run.
+func recheck(ctx context.Context, h Herd, p *Plan) bool {
+	if p.Refused {
+		return false
+	}
+	agents, err := h.AgentList(ctx)
+	if err != nil {
+		p.refuse(RecheckFailed, fmt.Sprintf(
+			"could not re-read herdr's agent list before removing anything: %v — nothing was touched", err))
+		return false
+	}
+	a := liveWorker(agents, p.Tick, p.Agent)
+	if a == nil {
+		return true
+	}
+	name := agentName(a)
+	switch a.AgentStatus {
+	case client.StatusBlocked:
+		p.refuse(BlockedWorker, fmt.Sprintf(
+			"%s became blocked after this plan was built — the pane is the handoff state; attach, answer, then re-run cleanup", name))
+		return false
+	case client.StatusWorking:
+		p.refuse(LiveWorker, fmt.Sprintf(
+			"%s started working after this plan was built — it may be mid-turn and about to commit; wait for it to settle", name))
+		return false
+	}
+	return true
+}
+
 // apply executes one plan in order, stopping at the first failure so the
 // manifest — always last — survives an incomplete teardown.
 func apply(ctx context.Context, h Herd, p *Plan) {
@@ -301,7 +353,7 @@ func apply(ctx context.Context, h Herd, p *Plan) {
 			_, err = h.WorktreeRemove(ctx, client.WorktreeRemoveParams{WorkspaceID: s.Target})
 		case DeleteBranch:
 			// -d, never -D: git itself is the last guard.
-			_, err = git(p.repoRoot, "branch", "-d", s.Target)
+			_, err = gitcmd.Run(p.repoRoot, "branch", "-d", s.Target)
 		case RemoveManifest:
 			err = os.Remove(s.Target)
 		}
@@ -320,10 +372,12 @@ func apply(ctx context.Context, h Herd, p *Plan) {
 // (herdr releases a name only when the process exits), so the second worker
 // for a tick is `tick-<id>-r2`. An exact-name check would read that respawned
 // worker as "gone" and clean a live pane out from under it.
-func liveWorker(agents []client.AgentInfo, m state.Manifest) *client.AgentInfo {
-	prefixes := []string{spawn.AgentName(m.Tick)}
-	if m.Agent != "" && m.Agent != prefixes[0] {
-		prefixes = append(prefixes, m.Agent)
+// tick is the tick id; recorded is the agent name the manifest captured at
+// spawn, if any.
+func liveWorker(agents []client.AgentInfo, tick, recorded string) *client.AgentInfo {
+	prefixes := []string{spawn.AgentName(tick)}
+	if recorded != "" && recorded != prefixes[0] {
+		prefixes = append(prefixes, recorded)
 	}
 	for i := range agents {
 		name := agentName(&agents[i])
@@ -349,7 +403,7 @@ func agentName(a *client.AgentInfo) string {
 
 // branchExists reports whether a local branch ref resolves.
 func branchExists(repoRoot, branch string) bool {
-	_, err := git(repoRoot, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	_, err := gitcmd.Run(repoRoot, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	return err == nil
 }
 
@@ -358,22 +412,6 @@ func branchExists(repoRoot, branch string) bool {
 // on the integration branch: after a later squash-merge the SHAs differ and
 // this correctly says no.
 func branchMerged(repoRoot, branch string) bool {
-	_, err := git(repoRoot, "merge-base", "--is-ancestor", "refs/heads/"+branch, "HEAD")
+	_, err := gitcmd.Run(repoRoot, "merge-base", "--is-ancestor", "refs/heads/"+branch, "HEAD")
 	return err == nil
-}
-
-// git runs one git command in repoRoot and returns its trimmed stdout.
-func git(repoRoot string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
-	}
-	return strings.TrimSpace(stdout.String()), nil
 }

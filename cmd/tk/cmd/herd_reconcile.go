@@ -6,8 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pengelbrecht/ticks/internal/herd/client"
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/reconcile"
 )
 
@@ -100,16 +98,14 @@ func runHerdReconcile(cmd *cobra.Command, args []string) error {
 	// The branch prefix is a config value. Hardcoding "tick/" would silently
 	// find no branches for a run that configured another prefix, and report
 	// every worker as unknown.
-	cfg, err := herdReconcileLoadConfig(root)
+	cfg, err := herdLoadConfig(root, herdReconcileConfig)
 	if err != nil {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
 
-	herd, err := client.New(ctx, client.Options{SocketPath: herdReconcileSocket})
+	herd, err := herdConnect(ctx, herdReconcileSocket)
 	if err != nil {
-		// Explicit exit code: GetExitCode's message heuristics would otherwise
-		// read a dial error such as "connect: invalid argument" as a usage error.
-		return NewExitError(ExitGeneric, "connecting to herdr: %v", err)
+		return err
 	}
 
 	report, err := reconcile.Run(ctx, herd, reconcile.Options{
@@ -130,16 +126,6 @@ func runHerdReconcile(cmd *cobra.Command, args []string) error {
 	}
 	herdReconcilePrint(cmd, report)
 	return nil
-}
-
-// herdReconcileLoadConfig loads the routing config for its branch prefix. A
-// missing file yields a nil config (the documented default prefix applies);
-// an invalid one is a hard stop, never a guess.
-func herdReconcileLoadConfig(root string) (*herdconfig.Config, error) {
-	if herdReconcileConfig != "" {
-		return herdconfig.Load(herdReconcileConfig)
-	}
-	return herdconfig.LoadRepo(root)
 }
 
 // herdReconcilePrint renders the plan for a human. Every line is evidence or a

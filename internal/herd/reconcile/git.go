@@ -2,10 +2,11 @@ package reconcile
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
 )
 
 // gitState is the git half of the evidence: which worker branches exist and
@@ -97,14 +98,11 @@ func commitsAhead(repoRoot, base, branch string) (int, bool) {
 	return n, true
 }
 
-// git runs one git command in repoRoot and returns its stdout.
+// git runs one git command in repoRoot and returns its trimmed stdout. It is
+// the shared runner: an alias kept so this package's call sites read the same
+// as they always did.
 func git(repoRoot string, args ...string) (string, error) {
-	full := append([]string{"-C", repoRoot}, args...)
-	out, err := exec.Command("git", full...).Output()
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
+	return gitcmd.Run(repoRoot, args...)
 }
 
 // resolvePath normalises a path for comparison. Worktree paths come from two

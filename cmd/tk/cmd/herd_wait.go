@@ -86,11 +86,9 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
 
-	herd, err := client.New(ctx, client.Options{SocketPath: herdWaitSocket})
+	herd, err := herdConnect(ctx, herdWaitSocket)
 	if err != nil {
-		// Explicit exit code: GetExitCode's message heuristics would otherwise
-		// read a dial error such as "connect: invalid argument" as a usage error.
-		return NewExitError(ExitGeneric, "connecting to herdr: %v", err)
+		return err
 	}
 
 	opts := wait.Options{
