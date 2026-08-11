@@ -1,0 +1,17 @@
+{
+  "id": "w6a",
+  "title": "Close out mission-control epic: run epic retro; project t63 checkpoint follows",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "jl0"
+  ],
+  "parent": "zz0",
+  "role": "closeout",
+  "awaiting": "checkpoint",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T16:53:25.592305Z",
+  "updated_at": "2026-08-11T16:53:25.592305Z"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "sku",
+  "title": "Notifications: blocked escalation + wave-complete sounds",
+  "description": "Plugin event hook on pane.agent_status_changed: a herd worker entering blocked triggers notification.show with --sound request naming the tick; wave completion (all wave workers settled per manifests+tk state) triggers --sound done. Debounce so one transition = one notification. Implement as a tk herd notify hook command (cobra/legacy/ResetFlags/ExitError) invoked by the plugin events section; unit tests on the decision logic against herdtest; live verify both sounds once.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "o83"
+  ],
+  "parent": "zz0",
+  "acceptance_criteria": "Live: blocked worker raises request-sound notification naming the tick; wave completion raises done-sound; no duplicate notifications for one transition",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T16:53:25.496577Z",
+  "updated_at": "2026-08-11T16:53:25.496577Z"
+}

@@ -960,3 +960,8 @@
 {"ts":"2026-08-11T16:53:04.951548Z","tick":"fkh","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"Replace GetExitCode substring heuristics with typed errors","type":"task"}}
 {"ts":"2026-08-11T16:53:04.976407Z","tick":"o83","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"tk herd paint + event hooks: worker workspace metadata badges","type":"task"}}
 {"ts":"2026-08-11T16:53:05.00048Z","tick":"m05","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"tk herd dashboard: live epic board pane","type":"task"}}
+{"ts":"2026-08-11T16:53:25.496819Z","tick":"sku","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"Notifications: blocked escalation + wave-complete sounds","type":"task"}}
+{"ts":"2026-08-11T16:53:25.521198Z","tick":"5yt","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"Plugin actions + link handlers","type":"task"}}
+{"ts":"2026-08-11T16:53:25.545147Z","tick":"vvw","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"Live plugin demo, install docs, and skill docs cutover","type":"task"}}
+{"ts":"2026-08-11T16:53:25.568856Z","tick":"jl0","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"Final review of mission-control plugin epic diff","type":"task"}}
+{"ts":"2026-08-11T16:53:25.592531Z","tick":"w6a","action":"create","actor":"claude:orchestrator","epic":"zz0","data":{"priority":2,"title":"Close out mission-control epic: run epic retro; project t63 checkpoint follows","type":"task"}}

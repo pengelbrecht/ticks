@@ -1,0 +1,16 @@
+{
+  "id": "jl0",
+  "title": "Final review of mission-control plugin epic diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "vvw"
+  ],
+  "parent": "zz0",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T16:53:25.568648Z",
+  "updated_at": "2026-08-11T16:53:25.568648Z"
+}
