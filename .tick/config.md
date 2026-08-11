@@ -10,6 +10,9 @@
 
 ## Closeout Evidence Commands
 
+- Herd helper live smoke (quick: 2 workers, ~1 min): `bash scripts/verify-herd-helper.sh --quick`
+- Herd helper live smoke (full, incl. kill-9 drill): `bash scripts/verify-herd-helper.sh`
+
 - Package RPC discovery: `node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc`
 - Four-command dry/status smoke: `node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke`
 - Dry-run wave plan: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dry-run-wave-plan`

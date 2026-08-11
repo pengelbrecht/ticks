@@ -2,7 +2,7 @@
   "id": "5rn",
   "title": "Live helper smoke test + docs cutover to tk herd",
   "description": "Two parts. (1) Live smoke, inside herdr: scripted scenario (scripts/verify-herd-helper.sh or Go integration test gated on HERDR_ENV) that runs a 2-tick toy epic in a scratch repo end-to-end using ONLY tk herd spawn/wait/collect/cleanup + git merge + tk closes — assert the wave loop is at most 5 helper invocations per wave, assert no polling (wait returns via events), then kill -9 the driving process mid-wave and prove tk herd reconcile yields a correct plan and the run completes without losing worker output; capture evidence to a field-report file docs/design/herd-helper-smoke-report.md. (2) Docs cutover: update skills/ticks/references/herdr-runner.md to present tk herd as the primary mechanism (interim manual fan-in demoted to fallback), update runners-config.md/herdr-kinds.md cross-references where behavior is now enforced by the helper, and add the helper smoke command to .tick/config.md Closeout Evidence Commands via the ORCHESTRATOR (report the exact line; do not edit .tick/ yourself — flag it in your report for the orchestrator to apply). Fold every real-behavior deviation found back into docs or code within this tick.",
-  "notes": "2026-08-11 15:10 - Dispatch requirement (human-approved): every herd command must return explicit ExitError for its exit codes — never rely on GetExitCode message-substring classification (known to misread \"invalid argument\" dial errors as usage exit 2). Pattern established in herd_wait.go (tick 9z6).",
+  "notes": "2026-08-11 15:10 - Dispatch requirement (human-approved): every herd command must return explicit ExitError for its exit codes — never rely on GetExitCode message-substring classification (known to misread \"invalid argument\" dial errors as usage exit 2). Pattern established in herd_wait.go (tick 9z6).\n2026-08-11 17:51 - runner-state: runner=claude branch=worktree-agent-a6a55535f3bbfaf5c substrate=harness",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -15,6 +15,6 @@
   "acceptance_criteria": "Smoke scenario passes live with kill -9 recovery demonstrated and report committed; herdr-runner.md presents tk herd as primary; wave loop \u003c=5 helper calls asserted; all deviations folded back",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T12:06:09.555568Z",
-  "updated_at": "2026-08-11T13:33:41.977317Z",
+  "updated_at": "2026-08-11T15:51:38.346729Z",
   "started_at": "2026-08-11T13:33:41.977316Z"
 }
