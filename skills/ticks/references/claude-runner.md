@@ -44,6 +44,8 @@ Agent(
 )
 ```
 
+**Isolation worktrees branch from the session-start HEAD, not the orchestrator's current HEAD** (field-observed on epic ias): a worktree created mid-run does not contain the epic branch's commits — not the planning state, not previously merged waves. Every dependent-wave implementer prompt must therefore open with a first step that runs `git merge <integration-branch>` and verifies the prerequisite commit is an ancestor (`git merge-base --is-ancestor <sha> HEAD`) before any editing. The shared template's verify-the-base step is mandatory under this adapter, and "verify" alone is not enough — instruct the merge.
+
 ## Successful-integration cleanup
 
 This is the adapter's resolution of the shared protocol's "run the active adapter's successful-integration cleanup" step (`agent-runner.md`). **Claude isolation worktrees are not self-cleaning once they hold commits.** The harness auto-removes an `isolation: "worktree"` directory only while it is *unchanged*; every tick implementer commits code, so its worktree and `worktree-agent-*` branch persist after the run and accumulate under `.claude/worktrees/` (multi-GB leaks across a few epics). The orchestrator must remove them explicitly — do not assume the harness will.

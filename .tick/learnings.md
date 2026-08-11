@@ -103,18 +103,18 @@ the shared checkout, diff tick state against the activity log before trusting th
 foundation commit; one re-implemented the missing field and caused a merge conflict.
 **Cause:** Harness worktrees can be created from a stale ref rather than the orchestrator's
 current HEAD.
-**Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: verify it is
-an ancestor (`git merge-base --is-ancestor <sha> HEAD`) and cherry-pick it if absent — never
-re-implement a sibling tick's work.
+**Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: run
+`git merge <integration-branch>` first, then verify the SHA is an ancestor
+(`git merge-base --is-ancestor <sha> HEAD`) — never cherry-pick around it or re-implement a
+sibling tick's work. (Claude worktrees branch from session-start HEAD; see claude-runner.md.)
 
-**Problem:** Implementer agents dispatched without a `model=` parameter run at frontier tier
-by default, silently spending frontier budget on balanced/mechanical work.
-**Cause:** The Agent call template in claude-runner.md shows `model: "sonnet"` but it is one
-line in a 10-line block, not a named step. Under orchestration pressure the tier selection
-step gets skipped entirely.
-**Rule:** Before each Agent call, explicitly choose a tier from the claude-runner.md table and
-set `model=` to the matching model. Omitting it is not "defaulting to balanced" — it is
-implicitly choosing frontier. Resolve the tier per-tick, not once for the run.
+## Skill docs
+
+**Problem:** Validating runners-config.md's TOML examples fails with ImportError.
+**Cause:** System python3 has no `jsonschema`; the repo carries no venv for it.
+**Rule:** Validate with `uv run --with jsonschema python …` (tomllib is stdlib). Re-run the
+validation after ANY edit to runners-config.md or runners-config.schema.json — every TOML
+block in the doc must validate against the schema.
 
 **Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
 `--flags` or code) silently corrupted the stored field — the backtick spans were shell
