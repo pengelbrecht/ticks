@@ -3,7 +3,7 @@
   "title": "Replace GetExitCode substring heuristics with typed errors",
   "description": "Human-approved (gyz decision note). cmd/tk/cmd/root.go: GetExitCode classifies by message substrings and err.(ExitError) type assertion. Replace with errors.As-based typed checks; audit every command error path so no caller depends on the substring behavior (exit codes are user-facing contract — document any deliberate change in CHANGELOG.md); remove the four defensive workaround comments in herd commands. Sequenced after the test-debt ticks to avoid churn conflicts.",
   "notes": "2026-08-11 19:47 - runner-state: runner=claude branch=worktree-agent-a271b73c2e70b7072 substrate=harness. Surfaced pre-existing: ExitNoRepo(3)/ExitNotFound(4) inconsistently used across ~15 commands (exit 1 today) — same orchestrator-cannot-branch defect class; carried to retro as follow-up proposal. TestWaitTimeout contention flake recurring — documented as environmental in config.md Testing.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -15,6 +15,7 @@
   "acceptance_criteria": "errors.As throughout; full cmd test suite green; audit note listing every command exit path checked; CHANGELOG entry if any observable code changes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:04.951323Z",
-  "updated_at": "2026-08-11T17:47:20.972276Z",
-  "started_at": "2026-08-11T17:36:49.244601Z"
+  "updated_at": "2026-08-11T18:03:27.507781Z",
+  "closed_at": "2026-08-11T18:03:27.507781Z",
+  "closed_reason": "Completed: typed exit-code classification via errors.As + source-level usage conversion (FlagErrorFunc + tree-wide usageArgs); heuristics removed; 2 CHANGELOG-documented behavior corrections; ExitNoRepo/NotFound inconsistency surfaced for retro"
 }

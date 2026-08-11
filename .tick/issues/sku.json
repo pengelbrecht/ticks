@@ -2,7 +2,8 @@
   "id": "sku",
   "title": "Notifications: blocked escalation + wave-complete sounds",
   "description": "Plugin event hook on pane.agent_status_changed: a herd worker entering blocked triggers notification.show with --sound request naming the tick; wave completion (all wave workers settled per manifests+tk state) triggers --sound done. Debounce so one transition = one notification. Implement as a tk herd notify hook command (cobra/legacy/ResetFlags/ExitError) invoked by the plugin events section; unit tests on the decision logic against herdtest; live verify both sounds once.",
-  "status": "in_progress",
+  "notes": "2026-08-11 20:02 - runner-state: runner=claude branch=worktree-agent-a7f50fff0df745dd2 substrate=harness. Live defect found+fixed: herdr rate-limits back-to-back notifications; transient refusals (rate_limited) now retract for retry, standing refusals stay recorded. Real blocked state driven via full_auto=false approval dialog.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,6 +14,7 @@
   "acceptance_criteria": "Live: blocked worker raises request-sound notification naming the tick; wave completion raises done-sound; no duplicate notifications for one transition",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:25.496577Z",
-  "updated_at": "2026-08-11T17:36:49.19414Z",
-  "started_at": "2026-08-11T17:36:49.194139Z"
+  "updated_at": "2026-08-11T18:03:27.462309Z",
+  "closed_at": "2026-08-11T18:03:27.462309Z",
+  "closed_reason": "Completed: tk herd notify + plugin hook — edge-triggered once-semantics (state under exclusive-create lock), real blocked state driven via approval dialog, rate-limit retraction for transient refusals; 4 hook invocations -\u003e exactly 1+1 chimes live"
 }

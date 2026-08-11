@@ -3,7 +3,7 @@
   "title": "Plugin actions + link handlers",
   "description": "herdr-plugin.toml actions with pane/workspace contexts, backed by tk herd subcommands: \"Retry tick\" (reopen + respawn via reconcile plan semantics — never a second branch), \"Open worktree\" (new pane at the worktree cwd, --no-focus rules), \"Collect tick\" (runs tk herd collect and shows the verdict). Link handler: tick-id pattern in pane text opens the dashboard focused on that tick. Every action must target only run-created resources and respect the focus etiquette. Live-verify each action from the herdr UI.",
   "notes": "2026-08-11 19:54 - runner-state: runner=claude branch=worktree-agent-a754155b1007bc398 substrate=harness. Focus leak was this tick (async pane open + focus drift); fixed at source: dashboard opener pins target or REFUSES — never falls back to focus. Link handlers proven URL-only (Ctrl-click); ticks:// fallback shipped. Hand-ons: TICKS_EPIC forward (orchestrator applied), stale installed tk needs upgrade/pin (user decision).",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "All three actions invokable live from context menus and behave; link handler resolves tick ids; nothing touches non-run resources",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:25.520964Z",
-  "updated_at": "2026-08-11T17:54:47.943293Z",
-  "started_at": "2026-08-11T17:36:49.220615Z"
+  "updated_at": "2026-08-11T18:03:27.486268Z",
+  "closed_at": "2026-08-11T18:03:27.486268Z",
+  "closed_reason": "Completed: 4 plugin actions + ticks:// link handler live-verified; link handlers proven URL-only; focus leak found+fixed at source (pin target or refuse); retry action provably mutates nothing"
 }
