@@ -1,6 +1,8 @@
 # Herdr-Based Agent-Agnostic Orchestrator (exploration, 2026-08-11)
 
-Feasibility exploration for orchestrating ticks epics through Herdr panes/worktrees instead of harness-native subagents. Status: explored, not built. Complement/alternative to the pi-native `extensions/ticks-runner` (which uses headless JSON-mode children).
+Feasibility exploration for orchestrating ticks epics through Herdr panes/worktrees instead of harness-native subagents. Status: layer 1 (docs/conventions) built by epic `ias` on branch `epic/ias` — see `skills/ticks/references/herdr-runner.md`, `herdr-kinds.md`, `runners-config.md` (+schema) and the substrate section in `agent-runner.md`; layers 2 (helper CLI, epic `gyz`) and 3 (mission-control plugin, epic `zz0`) planned under project `t63`. Spec: `docs/design/herdr-orchestrator.md`. Complement/alternative to the pi-native `extensions/ticks-runner` (which uses headless JSON-mode children).
+
+Field learnings from the epic run (also folded into the shipped docs, which are authoritative): Claude isolation worktrees branch from session-start HEAD, not current branch HEAD — dependent-wave implementers must `git merge` the integration branch as their first step; herdr lifecycle `idle` after `agent start` does not prove a working agent (the "green-start trap" — gate on first round-trip content); always pass `--timeout` on herdr waits and never rely on `--until done`; use `pane wait-output` instead of fixed sleeps; codex's `agent_session` id appears only after the first prompt.
 
 ## Verified Herdr capabilities (probed live, protocol 19)
 
