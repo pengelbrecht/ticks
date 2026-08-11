@@ -102,6 +102,7 @@ func printUsage() {
 	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, version, upgrade, migrate, gc, merge")
 	fmt.Println()
 	fmt.Println("Agent Orchestration (herdr):")
+	fmt.Println("  tk herd spawn <id>            Spawn a gated herdr worker: worktree + agent + first prompt")
 	fmt.Println("  tk herd wait --agents a,b     Block until named herdr workers settle (event-driven)")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
