@@ -137,9 +137,7 @@ func runHerdPaint(cmd *cobra.Command, args []string) error {
 		DryRun:    herdPaintDryRun,
 	})
 	if err != nil {
-		// Explicit exit code: GetExitCode's message heuristics would read a
-		// herdr refusal mentioning "invalid" as a usage error, telling the
-		// caller to fix a command line that is already correct.
+		// A herdr refusal is a run failure, not a bad command line.
 		return NewExitError(ExitGeneric, "%v", err)
 	}
 

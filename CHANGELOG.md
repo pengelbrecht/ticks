@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deterministic implementation capability routing** — public graph tasks now include description, acceptance criteria, type, and labels. The Pi runner selects configured economy/balanced/strong tiers from tracker metadata and conservative task shape, records its reason in plans/dashboards/reports, and keeps review/closeout execution reserved.
 - **Recovery status semantics** — tracker active aliases are normalized while awaiting, failed/partial, completed cleanup debt, terminal lane history, and manifest history remain distinct.
+- **Typed exit-code classification** — `tk`'s exit code now comes only from an `ExitError` found in the error's unwrap chain (`errors.As`); the message-substring heuristics that used to infer exit 2 from text like `accepts N arg(s)`, `unknown flag`, or `invalid argument` are gone. Cobra's flag-parse failures and positional-argument validators are converted to `ExitError{Usage}` where they occur, so genuine command-line mistakes still exit 2. Two observable changes follow:
+  - A failure whose message merely *contains* `invalid argument` or `unknown flag` — most importantly a unix-socket dial failure (`connect: invalid argument`) from an unreachable herdr, but equally an `EINVAL` from the filesystem or a git subprocess echoing those words — now exits **1 (generic failure) instead of 2 (usage)**. Rationale: exit 2 tells an orchestrator to fix its command line; the command line was correct and the fault was environmental, so the old code sent every such caller down the wrong recovery path.
+  - A command that takes no positional arguments (`tk list stray`, `tk status extra`, …) now exits **2 instead of 1**. Rationale: `cobra.NoArgs` phrases its rejection as `unknown command …`, which matched none of the old substrings, so an arity mistake that every sibling validator reported as usage was reported as a run failure.
 
 ### Fixed
 
