@@ -130,8 +130,10 @@ half-staged merge leftovers into the tracker commit — corrupting HEAD and caus
 conflicts on the retry.
 **Cause:** `git add .tick/` stages .tick, but `git commit` commits the WHOLE index, including
 anything a prior failed merge left staged.
-**Rule:** Commit orchestrator tracker state with a pathspec — `git commit .tick/ -m "..."` —
-never `git add .tick/ && git commit`. And after any merge, check it actually committed
+**Rule:** Commit orchestrator tracker state as `git add .tick/ && git commit .tick/ -m "..."` —
+the pathspec on commit keeps foreign staged leftovers out, and the explicit add is REQUIRED
+because a bare pathspec commit silently skips untracked files (new tick JSONs from `tk create`
+never land; field-observed twice). And after any merge, check it actually committed
 (`git rev-parse -q --verify MERGE_HEAD` should be empty; `git status` clean) BEFORE committing
 tracker state. To recover a botched merge-commit, `git reset --hard <pre-merge-sha>` and re-merge.
 

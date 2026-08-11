@@ -208,6 +208,8 @@ git -C "$repo_root" branch -d "tick/<tick-id>"       # -d, not -D: refuses an un
 
 `git branch -d` is the guard: it refuses to delete a branch whose commits are not merged, so a mis-derived name or an un-integrated tick cannot silently lose work. Run cleanup while still on the epic integration branch — after a later squash-merge the SHAs differ and `-d` will (correctly) refuse.
 
+**Per-tick cleanup does not cover the checkout's own workspace.** Opening or creating a worktree against a repo can also open a workspace for that repo's source checkout, and nothing above removes it — a run that ends with per-tick cleanup alone leaves it behind (field-observed: the epic-ias smoke test left its scratch repo's workspace open after correctly removing every per-tick worktree). At run end, list workspaces (`herdr workspace list`) and `herdr workspace close <id>` any workspace the run opened for its checkout — closing a workspace never deletes files on disk. "Cleanup complete" means zero run-created workspaces remain in that listing, not just zero per-tick worktrees.
+
 Three prohibitions:
 
 - **Never clean a blocked or incomplete worker's workspace.** It is durable handoff state.

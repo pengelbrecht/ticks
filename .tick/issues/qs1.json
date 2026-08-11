@@ -1,0 +1,17 @@
+{
+  "id": "qs1",
+  "title": "runners.toml loader, validation, and substrate decision (internal/herd/config)",
+  "description": "Go package internal/herd/config: parse .tick/runners.toml into typed structs mirroring skills/ticks/references/runners-config.schema.json (shape: additionalProperties-false equivalents, effort enum, model pattern rejecting colons); implement the documented semantics exactly — resolution order roles.R.tiers.T -\u003e roles.R -\u003e roles.implement with args replacing never merging; spawn-time compatibility fail-closed (kind vs model family per herdr-kinds.md: claude claude-family only, codex OpenAI only, pi provider-qualified cross-provider; unknown kind = error) with refusal messages naming role/tier + kind + model; model/effort -\u003e native argv compilation per the herdr-kinds.md translation table (claude --model/--effort; codex -m + -c model_reasoning_effort=...; pi --model M:E). Implement the substrate decision procedure from runners-config.md: config-first (harness is terminal, no probe), then read-only probes (HERDR_ENV=1; socket ping via internal/herd/client), auto/herdr cells, explicit-degradation result type carrying requested substrate + failed probes + fallback for the caller to announce. This tick owns any new go.mod dependency (TOML parser — prefer an existing dependency already in go.mod if present, check first). Table-driven tests must include: every worked example from runners-config.md parsing + resolving identically to the doc, all schema-negative cases rejected, all four documented spawn-time refusals refusing, and the six substrate decision cells.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "xw7"
+  ],
+  "parent": "gyz",
+  "acceptance_criteria": "go test -short -count=1 ./internal/herd/... passes; doc worked examples round-trip; six-cell decision table verified; refusal messages match the documented fail-closed rule",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T12:06:09.434537Z",
+  "updated_at": "2026-08-11T12:06:09.434537Z"
+}

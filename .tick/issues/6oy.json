@@ -1,0 +1,16 @@
+{
+  "id": "6oy",
+  "title": "Close out herd helper epic: run epic retro, then flesh out the next feasible epic into ticks",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "dv0"
+  ],
+  "parent": "gyz",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T12:06:09.605078Z",
+  "updated_at": "2026-08-11T12:06:09.605078Z"
+}
