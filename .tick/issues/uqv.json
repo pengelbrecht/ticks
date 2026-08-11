@@ -2,6 +2,7 @@
   "id": "uqv",
   "title": "Cleanup apply-time liveness re-check (TOCTOU) + small dedups",
   "description": "gyz review nit ii + iii. cleanup --apply re-checks the worker status per plan immediately before worktree.remove (a worker going idle-\u003eworking between snapshot and removal must refuse, seconds-wide TOCTOU). Dedup: shared git() helper across collect/cleanup/reconcile; unify herdSpawnLoadConfig/herdReconcileLoadConfig; extract the repeated client-connect block in the four cmd files. Also bound spawn paneReadyAttempts by --startup-timeout instead of a fixed 3s cap (nit i).",
+  "notes": "2026-08-11 19:05 - runner-state: runner=claude branch=worktree-agent-a41b3cc12890c7edd substrate=harness",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "New test pins the apply-time re-check refusal; dedup compiles with no behavior change (existing tests green); paneReady bound honors startup-timeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:52:37.063149Z",
-  "updated_at": "2026-08-11T16:54:03.675965Z",
+  "updated_at": "2026-08-11T17:05:37.756773Z",
   "started_at": "2026-08-11T16:54:03.675965Z"
 }
