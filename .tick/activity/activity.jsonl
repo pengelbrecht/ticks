@@ -882,3 +882,5 @@
 {"ts":"2026-08-11T09:45:54.966869Z","tick":"j6k","action":"create","actor":"noreply@anthropic.com","epic":"ias","data":{"priority":2,"title":"Live heterogeneous smoke test and field report","type":"task"}}
 {"ts":"2026-08-11T09:45:54.99166Z","tick":"ro1","action":"create","actor":"noreply@anthropic.com","epic":"ias","data":{"priority":2,"title":"Final review of Herdr runner adapter epic diff","type":"task"}}
 {"ts":"2026-08-11T09:45:55.016411Z","tick":"bkb","action":"create","actor":"noreply@anthropic.com","epic":"ias","data":{"priority":2,"title":"Close out Herdr adapter epic: run epic retro, then flesh out the next feasible epic into ticks","type":"task"}}
+{"ts":"2026-08-11T11:17:08.018169Z","tick":"htg","action":"start","actor":"claude:orchestrator","epic":"ias","data":{"title":"Capability matrix: per-kind spawn and full-auto templates"}}
+{"ts":"2026-08-11T11:17:08.038607Z","tick":"1ji","action":"start","actor":"claude:orchestrator","epic":"ias","data":{"title":"Define .tick/runners.toml: schema and documentation"}}

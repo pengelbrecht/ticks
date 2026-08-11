@@ -2,7 +2,7 @@
   "id": "1ji",
   "title": "Define .tick/runners.toml: schema and documentation",
   "description": "Define the routing config: [orchestrator] (preferred harness/kind), [orchestration] substrate = \"herdr\"|\"harness\"|\"auto\" (default auto) with detection semantics (HERDR_ENV=1 or reachable herdr socket) and explicit graceful fallback to the harness adapter when herdr is requested but unavailable, and [roles.\u003cimplement|review|plan|...\u003e] -\u003e kind + args (+ optional tier variants economy/balanced/strong). Deliver a JSON Schema under schemas/ for the TOML structure plus a documentation section (new file skills/ticks/references/runners-config.md) with worked examples: single-vendor, cross-vendor (codex implement + claude review), forced-harness. Do not edit herdr-runner.md or agent-runner.md (owned by other ticks).\nTest: example configs in the doc validate against the schema (script or manual jq/tomllib check recorded in notes).",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "Schema file + runners-config.md exist; substrate detection/fallback semantics unambiguous; all worked examples validate",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:54.891689Z",
-  "updated_at": "2026-08-11T09:45:54.891689Z"
+  "updated_at": "2026-08-11T11:17:08.038376Z",
+  "started_at": "2026-08-11T11:17:08.038376Z"
 }
