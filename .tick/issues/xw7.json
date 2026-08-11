@@ -2,7 +2,8 @@
   "id": "xw7",
   "title": "Herdr socket client package (internal/herd/client)",
   "description": "Foundation + contract tick. Go package internal/herd/client: a minimal typed client for the herdr unix-socket JSON API (protocol 19; authority: herdr api schema --json). Socket path resolution per skills/ticks/references/runners-config.md: explicit path arg -\u003e $HERDR_SOCKET_PATH -\u003e ~/.config/herdr/herdr.sock. Cover: request/response envelope with ids and error mapping; Ping/status; the request methods the helper needs (worktree.create/list/remove, agent.start/prompt/wait/list/get, pane.read, pane.wait_for_output, session.snapshot aka api snapshot) and, critically, events.subscribe + events.wait — the push-event surface the herdr CLI does NOT expose and the reason this client talks to the socket directly instead of shelling out. Context: the CLI-visible surface is documented in skills/ticks/references/herdr-runner.md; the socket schema is discoverable live. Design for testability: transport injected; unit tests against an in-process fake unix-socket server replaying captured protocol JSON; optional live round-trip test gated behind HERDR_ENV=1 + a guard env var (skip by default in CI). Stdlib only — add NO new go.mod dependencies in this tick (the config tick owns dependency additions to avoid lockfile collisions). Protocol drift guard: on connect, read the protocol version and fail closed with a clear error if it is not the pinned one.",
-  "status": "in_progress",
+  "notes": "2026-08-11 14:21 - runner-state: runner=claude branch=worktree-agent-a7befb909071a5378 substrate=harness\n2026-08-11 14:49 - Foundation review: 1 blocker (dual event-envelope spelling — subscribe stream dead against real server, hidden by hand-written fixture) + 8 should-fix + 4 nits, all fixed by implementer on same branch; re-verify CLEAN apart from 2 nits applied by orchestrator (godoc link, mid-stream error test). Reviewer retracted its unconditional replay claim — replay of current status happens ONLY with a matching agent_status filter; docs + live drift guard now pin this. Contract certified safe for dependents.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,6 +11,7 @@
   "acceptance_criteria": "go test -short -count=1 ./internal/herd/... passes with the fake-server unit tests covering envelope, error mapping, events.subscribe/events.wait streaming, and protocol-version fail-closed; no new go.mod deps; live test compiles but auto-skips outside herdr",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T12:06:09.409551Z",
-  "updated_at": "2026-08-11T12:06:42.658428Z",
-  "started_at": "2026-08-11T12:06:42.658427Z"
+  "updated_at": "2026-08-11T12:49:21.621557Z",
+  "closed_at": "2026-08-11T12:49:21.621557Z",
+  "closed_reason": "Completed: internal/herd/client — typed herdr socket client (protocol 19, fail-closed), events.subscribe/wait with dual-envelope spellings, subscription validation, SubscribeError, bounded event buffer, deadline clamp; 46 tests race-clean + live drift guard; foundation-reviewed and re-verified"
 }
