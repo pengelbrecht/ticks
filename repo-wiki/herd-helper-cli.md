@@ -22,6 +22,10 @@ Layer 2 of the herdr agent-agnostic orchestrator (design: `docs/design/herdr-orc
 - `worktree.create` against a repo with no open workspace opens TWO workspaces (worktree + implicit source checkout; the response names only one) — cleanup must cover the source workspace.
 - Focus: `--no-focus` works on create; workspace remove/close ALWAYS moves focus and never returns it — hence cleanup's focus restore.
 
+## Review outcomes (epic gyz close)
+
+Frontier final review (1 blocker + 7 should-fix, all repaired, RE-VERDICT CLEAN): the gate's expected-answer match is word-boundary (`containsWord`), never bare substring — "BROKEN pipe" must not read as OK; exit codes are a per-command table in `herdr-runner.md` (spawn 0/1/2/3/4/6; reconcile never exits 4 — an empty epic is a plan; corrupt manifest is exit 1, only `os.IsNotExist` is 4); reviewer dispatch is explicitly NOT a helper capability (orchestrator's own duty at the controller checkout). DoD fully evidenced including a codex CLI session as orchestrator driving the quick smoke (run 9, `docs/design/herd-helper-smoke-codex-orchestrator.txt`). Deferred to next-epic cleanup ticks: shared `herdtest` fake (fake-drift caused the blocker), spawn incident-path coverage, wait fan-in test gaps (duplicate terminal events, mid-wave stream death), spawn flag validation (unknown --tier → usage; warn on role fallback), cleanup apply-time liveness re-check (TOCTOU), git()/loadConfig/connect dedup, global GetExitCode typed-errors fix (human-approved).
+
 ## Conventions
 
 Exit codes: every herd command returns explicit `ExitError`; never rely on `GetExitCode` message-substring classification (known misreader; global fix is a decided next-epic tick). Smoke: `bash scripts/verify-herd-helper.sh [--quick]` (also a Closeout Evidence Command in `.tick/config.md`); full mode includes the kill-9 reconcile drill. Field report: `docs/design/herd-helper-smoke-report.md`.
