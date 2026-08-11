@@ -66,14 +66,10 @@ Go types updated but the UI's generated TS stale (or vice versa).
 all regenerated output together. Tick authors: spell these commands out in any tick that
 touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
 
-**Problem:** Adding a date field to schemas/ pulled a new runtime dependency into the generated
-Go (`*types.SerializableDate` from github.com/atombender/go-jsonschema/pkg/types) where the file
-had previously imported only `time`.
-**Cause:** go-jsonschema maps JSON-Schema `format:"date"` to its own SerializableDate type.
-**Rule:** For date-only fields use `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, NOT
-`format:"date"` — generated Go/TS stay plain `string` with zero new deps; parse with a
-hand-written layout const (e.g. `tick.TargetDateLayout`). The regex is shape-only (accepts
-`2026-13-45`); Go `time.Parse` in `Validate()` is the authoritative gate, so validate there too.
+**Problem:** A schema date field pulled go-jsonschema's `SerializableDate` dep into generated Go.
+**Cause:** go-jsonschema maps `format:"date"` to its own type.
+**Rule:** Date-only fields: `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, never
+`format:"date"`; the regex is shape-only, so also validate with `time.Parse` in `Validate()`.
 
 ## Docs & marketing copy
 
