@@ -19,7 +19,7 @@ Herdr already solves the underlying problems: it recognizes 21 agent kinds, mana
 
 - **Substrate selection is a user choice with auto-detection.** `runners.toml` carries `orchestration.substrate = "herdr" | "harness" | "auto"` (default `auto`). Herdr is *available* when the orchestrator runs inside a herdr-managed pane (`HERDR_ENV=1`) or the herdr socket is reachable; `auto` uses herdr when available, otherwise the harness's native subagent adapter. `substrate = "herdr"` with no herdr available degrades explicitly: say so, then fall back to harness orchestration rather than failing the run. The existing four adapters are therefore never replaced — herdr is an optional substrate layered over whichever harness plays orchestrator.
 - Spawn: `herdr worktree create` (one call → worktree + branch + workspace + shell pane) then `herdr agent start --kind <kind> --pane <id> -- <args>`.
-- Results flow only through the durable layer: commits on the tick branch + `RESULT.md` (+ tk state). Never terminal scraping — alternate-screen output is unrecoverable.
+- Results flow only through the durable layer: commits on the tick branch + `RESULT-<tick-id>.md` (+ tk state). Never terminal scraping — alternate-screen output is unrecoverable.
 - Workers start in per-kind full-auto mode (templated args); `blocked` is a human escalation, not something the orchestrator clicks through.
 - Crash tolerance: workers outlive the orchestrator; reconcile from `.tick/` + `herdr agent list` + native session IDs (`herdr api snapshot` → `agent_session`).
 
@@ -28,7 +28,7 @@ Wraps the herdr socket API so the orchestration loop is a handful of determinist
 
 - `spawn <tick>` — worktree + agent start + prompt assembled from the tick body and `runners.toml` routing.
 - `wait-wave` — event-driven fan-in via `events.subscribe`/`events.wait` (`pane.agent_status_changed`); no polling, no N blocking waits.
-- `collect <tick>` — verify branch has commits + RESULT.md, run the `.tick/` boundary check.
+- `collect <tick>` — verify branch has commits + `RESULT-<tick-id>.md`, run the `.tick/` boundary check.
 - `cleanup [--preview]` — preview-then-apply teardown of worktrees/workspaces (stolen from herdr-orchestrate).
 - `reconcile` — rebuild run state after orchestrator death from tracker + live herdr snapshot.
 

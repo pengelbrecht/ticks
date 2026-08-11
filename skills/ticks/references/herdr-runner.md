@@ -160,7 +160,7 @@ Herdr recognizes approval and question UIs and reports `blocked`. The orchestrat
 tk note <tick-id> "runner-state: substrate=herdr kind=<kind> branch=tick/<tick-id> worktree=<path> workspace=<id> base=<integration-commit>"
 ```
 
-Consequently there is no orphan-branch sweep to invent: every branch this substrate creates was noted before the process that would fill it existed. The sweep pattern, if you need one anyway, is `git branch --list 'tick/*'`.
+Consequently there is no orphan-branch sweep to invent: every branch this substrate creates was noted before the process that would fill it existed. The sweep pattern, if you need one anyway, is `git branch --list '<worktree_branch_prefix>*'` (with the default prefix: `git branch --list 'tick/*'`).
 
 Note the deviation from the shared example naming (`tick/<epic-id>/<tick-id>`): this substrate's branch is `<worktree_branch_prefix><tick-id>`, single-segment by default, because that is what `herdr worktree create --branch` is given and what `runners.toml` configures. Tick IDs are unique, so the epic segment is not needed for disambiguation — but if a repo wants the epic in the branch name, set `worktree_branch_prefix = "tick/<epic-id>/"` per run rather than hand-editing branches afterwards.
 
@@ -171,7 +171,7 @@ Workers are independent processes. An orchestrator that dies leaves them **runni
 Reconcile from durable state, in this order:
 
 1. **`.tick/`** — `tk list --status in_progress --all --json`, plus each tick's `runner-state:` note (written at spawn, so it exists). This is the authority on what was dispatched.
-2. **Git** — `git worktree list` and `git branch --list 'tick/*'`. This is the authority on what work exists.
+2. **Git** — `git worktree list` and `git branch --list '<worktree_branch_prefix>*'` (default `tick/*`). This is the authority on what work exists.
 3. **`herdr agent list`** — which workers are still alive, and in what state. An entry named `tick-<tick-id>` is a live worker for that tick.
 4. **`herdr api snapshot`** — native session identity for resuming dead workers:
 

@@ -438,7 +438,7 @@ Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 ### Running the Epic
 
-Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi, `prime-runner.md` for Prime Agent):
+Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi, `prime-runner.md` for Prime Agent).
 
 Then pick the dispatch **substrate** — harness-native subagents, or a herdr fleet of independent per-tick workers (`references/herdr-runner.md`, additional to the harness adapter). It comes from `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto`, default `auto` = herdr when a read-only probe finds it, harness otherwise); `references/runners-config.md` has the decision table and the explicit-degradation rule.
 
