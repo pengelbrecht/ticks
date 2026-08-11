@@ -2,7 +2,7 @@
   "id": "fkh",
   "title": "Replace GetExitCode substring heuristics with typed errors",
   "description": "Human-approved (gyz decision note). cmd/tk/cmd/root.go: GetExitCode classifies by message substrings and err.(ExitError) type assertion. Replace with errors.As-based typed checks; audit every command error path so no caller depends on the substring behavior (exit codes are user-facing contract — document any deliberate change in CHANGELOG.md); remove the four defensive workaround comments in herd commands. Sequenced after the test-debt ticks to avoid churn conflicts.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +14,6 @@
   "acceptance_criteria": "errors.As throughout; full cmd test suite green; audit note listing every command exit path checked; CHANGELOG entry if any observable code changes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:04.951323Z",
-  "updated_at": "2026-08-11T16:53:04.951323Z"
+  "updated_at": "2026-08-11T17:36:49.244601Z",
+  "started_at": "2026-08-11T17:36:49.244601Z"
 }
