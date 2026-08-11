@@ -132,7 +132,7 @@ func (s *spawnFakeHerd) serve(conn net.Conn) {
 	case "agent.get":
 		result = map[string]any{
 			"type":  "agent_info",
-			"agent": map[string]any{"pane_id": "w7:p1", "agent_status": "idle"},
+			"agent": map[string]any{"pane_id": "w7:p1", "agent_status": "idle", "interactive_ready": true},
 		}
 	case "agent.prompt":
 		result = map[string]any{
