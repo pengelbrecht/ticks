@@ -21,6 +21,7 @@ Layer 2 of the herdr agent-agnostic orchestrator (design: `docs/design/herdr-orc
 - Fire-and-forget dispatch races the fan-in — spawn confirms dispatch by waiting bounded for `working` (non-fatal `DispatchUnconfirmed` warning).
 - `worktree.create` against a repo with no open workspace opens TWO workspaces (worktree + implicit source checkout; the response names only one) — cleanup must cover the source workspace.
 - Focus: `--no-focus` works on create; workspace remove/close ALWAYS moves focus and never returns it — hence cleanup's focus restore.
+- **Explicit targets always**: herdr commands that default to the UI-focused workspace/pane when no target is given (`plugin pane open`, `pane split`, …) must ALWAYS carry an explicit target pinned to run-created resources. The user jumps between sessions — focus is never a safe implicit target (field-observed: a verification pane opened in the user's unrelated focused workspace).
 
 ## Review outcomes (epic gyz close)
 
