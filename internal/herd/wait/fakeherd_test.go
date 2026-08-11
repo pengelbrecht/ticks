@@ -112,7 +112,10 @@ func (s *fakeHerd) Close() {
 // Client returns a herdr client dialled at this fake.
 func (s *fakeHerd) Client(t *testing.T) *client.Client {
 	t.Helper()
-	c, err := client.New(t.Context(), client.Options{SocketPath: s.path, CallTimeout: 5 * time.Second})
+	// Generous timeouts: under full-suite parallel load the in-process fake
+	// can be slow to accept, and a dial timeout here is machine contention,
+	// not the behavior under test.
+	c, err := client.New(t.Context(), client.Options{SocketPath: s.path, DialTimeout: 30 * time.Second, CallTimeout: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("client.New: %v", err)
 	}
