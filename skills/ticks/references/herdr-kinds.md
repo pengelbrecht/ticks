@@ -34,11 +34,13 @@ Three properties of this contract matter for orchestration:
 
 Cleanup is symmetric and mandatory: exit the agent, then `herdr pane close <pane-id>` for every pane you created. Never `herdr server stop`; never touch a pane, workspace, or agent you did not create.
 
+That two-step is for panes you made yourself with `herdr pane split` — a scratch pane for verifying a kind, say. A worker spawned through `herdr worktree create` is cleaned up in **one** call instead: `herdr worktree remove --workspace <id>` tears down the worktree, the workspace, its pane, and the running agent together, with no prior exit needed (verified live). Do not do both; see `herdr-runner.md` → *Cleanup* for the ordering rule that governs when either is allowed to run at all.
+
 ## Capability matrix
 
 | Kind | Model flag | Full-auto / skip-permissions | Integration (this machine) | `agent_session` kind | Native resume |
 |---|---|---|---|---|---|
-| `claude` | `--model <alias\|full-name>` | `--permission-mode bypassPermissions` (or `--dangerously-skip-permissions`) | **current (v7)** — `~/.claude/hooks/herdr-agent-state.sh` | `id` (UUID), present **at start** | `claude --resume <id>` |
+| `claude` | `--model <alias\|full-name>` | `--permission-mode bypassPermissions` (or `--dangerously-skip-permissions`) | **current (v7)** — `~/.claude/hooks/herdr-agent-state.sh` | `id` (UUID), **not dependable at start** — see below | `claude --resume <id>` |
 | `codex` | `-m, --model <MODEL>` | `-a never -s workspace-write` (or `--dangerously-bypass-approvals-and-sandbox`) | **outdated (v6 < v7)** — `~/.codex/herdr-agent-state.sh` | `id` (UUID), appears **after the first prompt** | `codex resume <id>` |
 
 Everything in that table was read from the CLIs' own `--help` and then round-tripped live; flag names drift between releases, so re-verify with `--help` rather than copying this table into a new environment unchecked.
@@ -76,6 +78,8 @@ $ herdr agent read htg-claude   # tail
 ```
 
 The pane banner confirmed `Sonnet 5 with medium effort` and the worktree cwd, so both halves of the template took effect.
+
+**`agent_session` on the start response is not dependable.** The run above got one; a later run on the same machine (herdr 0.8.0, `--model haiku`) got an `agent_started` response with no `agent_session` key at all, and the id first appeared on the `agent prompt` response. Whether it is present at start appears to depend on how quickly the integration hook reports in, which is a race you do not control. **Capture `agent_session` after the first round-trip for every kind, not just codex** — an orchestrator that reads it only from `agent_started` will intermittently record nothing and lose the cheap resume path.
 
 ## codex
 
@@ -183,6 +187,8 @@ $ herdr pane read <pane-id>
 An invalid model name produced a clean start, a clean prompt, and a settled `idle` state — with zero work done. Lifecycle state describes the *terminal*, not the *turn*.
 
 **Rule: gate a worker on the content of its first round-trip, not on its lifecycle status.** Send a trivial prompt whose answer you can pattern-match (`Reply with the single word OK`) and read the pane for the answer before handing it a tick. This is cheap and it catches the whole class of model-name, auth, and quota failures that otherwise surface as a silently empty implementer report an hour later.
+
+**A second, unrelated failure hides behind the same green response: the first prompt can simply not land.** Observed on both verified kinds in one wave — `herdr agent prompt … --wait --timeout 120000` returned a normal `agent_prompted` with a settled status while the pane still showed an untouched composer (claude's empty `❯`, codex's `› Improve documentation in @filename` placeholder) and no echo of the prompt text. The CLI was still painting its startup UI when herdr, having already seen `interactive_ready: true`, submitted. Re-sending the identical prompt worked immediately for both. Tell the two apart by reading the pane: **no echo of your prompt → re-send it; your prompt echoed with an error or no answer → the green-start trap, kill and fix the routing.** `herdr-runner.md`'s first-round-trip gate carries the same split.
 
 ## Adding a kind
 

@@ -67,12 +67,12 @@
           "type": "string",
           "enum": ["env-or-socket", "env", "socket"],
           "default": "env-or-socket",
-          "description": "Which availability probes count as \"herdr is available\". `env`: the orchestrator runs inside a herdr-managed pane (HERDR_ENV=1). `socket`: the herdr socket is reachable (orchestration.socket, default ~/.herdr/herdr.sock). `env-or-socket` (default): either probe succeeding is enough. Probes are read-only and must never start a herdr server."
+          "description": "Which availability probes count as \"herdr is available\". `env`: the orchestrator runs inside a herdr-managed pane (HERDR_ENV=1). `socket`: the herdr socket answers a read-only call (`herdr status server`) at orchestration.socket, else $HERDR_SOCKET_PATH, else ~/.config/herdr/herdr.sock. `env-or-socket` (default): either probe succeeding is enough. Probes are read-only and must never start a herdr server."
         },
         "socket": {
           "type": "string",
           "minLength": 1,
-          "description": "Path to the herdr socket used by the `socket` probe. Defaults to ~/.herdr/herdr.sock. A leading ~ is expanded."
+          "description": "Path to the herdr socket used by the `socket` probe. When unset, resolve $HERDR_SOCKET_PATH, then ~/.config/herdr/herdr.sock. A leading ~ is expanded. Prefer leaving this unset: a pinned path that no longer matches the installed herdr degrades a healthy herdr to harness dispatch."
         },
         "max_parallel": {
           "type": "integer",
