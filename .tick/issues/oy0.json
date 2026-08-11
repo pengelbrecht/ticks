@@ -1,0 +1,14 @@
+{
+  "id": "oy0",
+  "title": "Shared herdtest fake package; migrate the six hand-rolled fakes",
+  "description": "gyz review finding 6 (fake drift caused the gyz blocker). Create internal/herd/herdtest: one canonical fake herdr server (real unix listener, one request per connection, canonical reply builders sourced from the captured fixtures, events stream support incl. the conditional filtered-replay property, route overrides per test). Migrate the six existing fakes (client fakeserver, wait, spawn, reconcile, cleanup, cmd spawn) to it, keeping every existing behavioral pin green. Reply shapes must include interactive_ready on agent.start AND agent.get.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "zz0",
+  "acceptance_criteria": "go test -short ./internal/herd/... ./cmd/... green; all six packages consume herdtest; no per-package protocol reply literals remain except explicit route overrides",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T16:52:37.038827Z",
+  "updated_at": "2026-08-11T16:52:37.038827Z"
+}
