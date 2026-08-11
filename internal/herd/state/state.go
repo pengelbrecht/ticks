@@ -42,9 +42,17 @@ type Manifest struct {
 	Tick string `json:"tick"`
 	// Epic is the parent epic id, or "" when the tick has no parent.
 	Epic string `json:"epic,omitempty"`
-	// Role and Tier are the routing that selected the worker.
+	// Role and Tier are the routing that selected the worker, as REQUESTED —
+	// the values the spawn was invoked with, not what they resolved to.
 	Role string `json:"role,omitempty"`
 	Tier string `json:"tier,omitempty"`
+	// ResolvedRole is the role the routing values actually came from, and is
+	// recorded ONLY when it differs from Role — i.e. the requested role had no
+	// table in runners.toml and fell back to `implement`. Recording both is
+	// what lets a reader tell a deliberate fallback from a typo (`--role
+	// reveiw` routing a reviewer as an implementer) without re-resolving the
+	// config, which may have changed since.
+	ResolvedRole string `json:"resolved_role,omitempty"`
 	// Branch is the worker's branch, `<worktree_branch_prefix><tick-id>`.
 	Branch string `json:"branch"`
 	// Worktree is the absolute path herdr chose for the worktree. Never
