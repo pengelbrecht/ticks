@@ -48,6 +48,86 @@ description = "Open the ticks board web UI for the current repository (or show h
 contexts = ["workspace", "pane"]
 command = ["bash", "scripts/open-tick-board.sh"]
 
+# ---------------------------------------------------------------------------
+# Herd-worker actions.
+#
+# All three answer the same question first: WHICH worker was right-clicked.
+# `HERDR_PLUGIN_CONTEXT_JSON` names the invocation target (workspace_id,
+# focused_pane_id, worktree.repo_root); the run-state manifests `tk herd spawn`
+# writes to `.tick/logs/herd/<epic>/<tick>.json` record `pane_id` and
+# `workspace_id`. Matching one against the other maps the click onto a tick.
+# The manifests live in the CONTROLLER checkout, which is what herdr reports as
+# `worktree.repo_root` even for a worker's linked worktree.
+#
+# On a workspace or pane with no matching manifest, every one of them prints why
+# and exits 0 — a context menu entry that shouts at an ordinary pane is worse
+# than one that quietly says "not a herd worker".
+# ---------------------------------------------------------------------------
+
+# Open a plain shell at the worker's worktree, split into the worker's OWN
+# workspace and without stealing focus. Nothing is sent to the agent.
+[[actions]]
+id = "open-worktree"
+title = "Open worktree"
+description = "Open a shell pane at this herd worker's worktree, in its own workspace, without taking focus."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/action-open-worktree.sh"]
+
+# `tk herd collect` for the targeted worker, verdict raised as a notification.
+# Read-only: collect never merges and never mutates .tick.
+[[actions]]
+id = "collect-tick"
+title = "Collect tick"
+description = "Run 'tk herd collect' for this worker and show the verdict (ready-to-merge / no-commits / missing-result / boundary-violation). Never merges."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/action-collect-tick.sh"]
+
+# ADVISORY ONLY, and the description says so where the operator reads it.
+# Reconcile's contract is that ONE actor decides: a right-click that could
+# redispatch would race the orchestrator that owns dispatch, and the one
+# unforgivable move is starting a second worker for a tick that still has a live
+# one. So this reports the classification and stops.
+[[actions]]
+id = "retry-tick"
+title = "Retry tick"
+description = "Advisory: classify this worker with 'tk herd reconcile' and report what the orchestrator should do. Starts and kills nothing — dispatch stays with the orchestrator."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/action-retry-tick.sh"]
+
+# The [[link_handlers]] target. Also exposed on the pane menu, where it opens
+# the dashboard for the right-clicked worker's epic.
+[[actions]]
+id = "open-tick-dashboard"
+title = "Open tick dashboard"
+description = "Open the ticks mission-control dashboard scoped to this tick's epic."
+contexts = ["pane"]
+command = ["bash", "scripts/action-open-tick-dashboard.sh"]
+
+# Link handling — URL-ONLY, verified against herdr 0.8.0, not assumed.
+#
+# herdr hands a link handler a CLICKED URL: the context field is `clicked_url`,
+# the env var is `HERDR_PLUGIN_CLICKED_URL`, and a handler fires on Ctrl-click of
+# a link herdr's terminal already recognises (plain left-click is not routed to
+# plugins — see ghzinga's README, the only shipped example). Two consequences:
+#
+#   * A bare tick id (`5yt`) printed into a pane is NOT a link. No `pattern`,
+#     however permissive, can make herdr offer a handler for it — the pattern is
+#     matched against a clicked URL that a bare word never becomes.
+#   * There is no socket method to invoke a link handler (`herdr api schema
+#     --json` lists only plugin.link/unlink/enable/disable/list), so nothing
+#     outside the UI can simulate a click either.
+#
+# The graceful fallback is therefore a URL form ticks can actually print:
+# `ticks://<tick>` or `ticks://<epic>/<tick>`. Anything that writes tick
+# references into a pane can emit those and they become Ctrl-clickable.
+# scripts/action-open-tick-dashboard.sh already parses a bare id too, so if
+# herdr later supports non-URL patterns only this `pattern` needs to change.
+[[link_handlers]]
+id = "ticks-tick-ref"
+title = "Open tick in the ticks dashboard"
+pattern = "^ticks://[A-Za-z0-9][A-Za-z0-9_-]*(/[A-Za-z0-9][A-Za-z0-9_-]*)?/?$"
+action = "open-tick-dashboard"
+
 # Event hooks — workspace badge painting.
 #
 # Every hook runs the same script, `scripts/paint-hook.sh`, which shells out to
