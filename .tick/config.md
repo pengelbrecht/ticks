@@ -13,6 +13,8 @@
 
 - Herd helper live smoke (quick: 2 workers, ~1 min): `bash scripts/verify-herd-helper.sh --quick`
 - Herd helper live smoke (full, incl. kill-9 drill): `bash scripts/verify-herd-helper.sh`
+- Herd plugin offline checks (zero herdr calls): `bash scripts/verify-herd-plugin.sh --offline-only`
+- Herd plugin live smoke (2 workers, one blocked, ~90s; relinks the plugin, restores it): `bash scripts/verify-herd-plugin.sh`
 
 - Package RPC discovery: `node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc`
 - Four-command dry/status smoke: `node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke`
