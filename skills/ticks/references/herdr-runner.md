@@ -35,7 +35,20 @@ Everything below applies only once herdr is the selected and available substrate
 | `tk herd cleanup [tick-id]` \| `--epic <id>` | workspace, then branch (`-d`), then the manifest LAST, then focus is put back where it was; `--preview` is the default and `--apply` performs exactly that plan | the four refusals: unmerged branch, blocked worker, working worker, missing manifest |
 | `tk herd reconcile [--epic <id>]` | manifests → git → `agent.list` → `session.snapshot`, producing a PLAN and mutating nothing (except `--adopt`) | a live worker is never redispatched; contradictory evidence is `unknown` and proposes nothing |
 
-Exit codes are uniform: `0` success, `1` the operation's own failure (refusal, gate failure, herdr error), `2` invalid flags, `4` no manifest for that tick or epic. `--json` on every command gives one document to branch on.
+Exit codes share a spine but are **not** uniform — branch on each command's own table (`tk herd <cmd> --help` is authoritative):
+
+| Code | Meaning | Which commands emit it |
+|---|---|---|
+| `0` | success | all |
+| `1` | the operation's own failure (refusal, gate failure, herdr error, unparseable manifest) | all |
+| `2` | invalid flags or arguments | all |
+| `3` | not inside a git repository | `spawn`, `collect`, `cleanup`, `reconcile` |
+| `4` | not found — **no such tick** for `spawn`, **no manifest file** for `collect`/`cleanup` | `spawn`, `collect`, `cleanup` |
+| `6` | the manifest could not be written | `spawn` |
+
+Two traps in that table. `reconcile` **never** exits `4`: an epic with no manifests is a plan, so it reports an empty plan and exits `0`. And for `collect`/`cleanup`, `4` means the manifest *file is absent* — a manifest that exists but does not parse is `1`, precisely so a caller that reads `4` as "nothing was spawned" cannot spawn a duplicate on top of a live worker.
+
+`--json` on every command gives one document to branch on.
 
 **What the helper does NOT do, on purpose:**
 
@@ -84,7 +97,7 @@ The rest of this document is the *why* behind those commands, plus the two thing
 | Parallel dispatch | One `tk herd spawn` per ready tick, all launched before any wait; capped by `orchestration.max_parallel` |
 | Completion | The durable layer, checked by `tk herd collect`: commits on `<prefix><tick-id>` plus a `RESULT-<tick-id>.md` in the worktree. Lifecycle states are *scheduling* signals, never the completion authority — see [Result contract](#result-contract) |
 | Continuation | Live worker → `herdr agent prompt <name>`; dead worker → the kind's native resume form, which `tk herd reconcile` renders as ready-to-run argv ([`herdr-kinds.md`](herdr-kinds.md)); otherwise redispatch from the existing branch |
-| Review | A reviewer worker of the kind routed by `[roles.review]` (`tk herd spawn <tick> --role review`), started at the controller checkout — **not** in an implementation worktree, per the shared rule |
+| Review | **Not a helper capability.** `tk herd spawn` always creates a worktree on `<prefix><tick-id>` and launches the implementer template, so it cannot start a reviewer at the controller checkout — and pointing it at an already-implemented tick would collide with that tick's branch and agent name. Reviewer dispatch stays the orchestrator's own doing, at the controller checkout, through its harness adapter; `[roles.review]` in `runners.toml` routes that choice, it does not route a spawn |
 | Blocked escalation | `blocked` lifecycle state → human escalation with the pane left intact; `wait` reports it and `cleanup` refuses to touch it (see [Blocked handling](#blocked-handling)) |
 | Boundary hardening | **Partial.** Herdr has no policy layer of its own; `tk herd collect` enforces the `.tick/` diff, which is the layer that actually carries the invariant — see [Boundary](#boundary) |
 | Capability tiers | `tk herd spawn --tier <tier>` resolves `runners.toml`; the orchestrator's own harness adapter still governs any role it runs in-process |
@@ -117,13 +130,13 @@ Everything below is why those steps are what they are, and what you still have t
 - **The prompt never landed.** The pane shows the CLI's banner and an *empty composer* — no echo of your text anywhere. This is common on the very first prompt after `agent start`: herdr reports `interactive_ready: true` as soon as it recognizes the agent, but the CLI may still be painting its startup UI and drops the submission. Observed live on *both* verified kinds in the same wave. **The helper re-sends once**, which recovers immediately; killing and respawning here costs a full startup and lands you in exactly the same race.
 - **The prompt landed and the answer is wrong or absent.** The pane echoes the probe and then shows an error, or nothing. This is the green-start trap proper — a stale model string in `runners.toml`, an auth or quota failure. **The helper fails the spawn and prints a pane excerpt.** Fix the routing and respawn; the pane is left intact because it is the only place the real reason is visible.
 
-A second dropped probe is treated as the second case, per the split above.
+A second dropped probe is **not** folded into the second case: it fails as its own `silent-drop` outcome, with its own message ("the probe never reached the composer in 2 attempts (no echo in the pane)") and a pane excerpt. The distinction is worth reading — a silent drop after a re-send points at herdr or the CLI's startup, not at a stale model string.
 
 The gate round-trip is also where `agent_session` is captured: it is reliably present only **after** the first prompt — for `codex` always, and for `claude` too (the `agent_started` response carried no `agent_session` at all in the epic-`ias` smoke test). The manifest records it there for every kind (see [Crash recovery](#crash-recovery-and-continuation)).
 
 ### Startup races between `worktree.create` and a usable agent
 
-Live measurement against herdr 0.8.0 / protocol 19. All three are handled inside `tk herd spawn`; they are documented because they are what a hand-rolled spawn sequence gets wrong, and because their error codes will show up in a pane or a log.
+Live measurement against herdr 0.8.0 / protocol 19, 2026-08 — a dated example, not a guarantee; re-measure against your own build. All three are handled inside `tk herd spawn`; they are documented because they are what a hand-rolled spawn sequence gets wrong, and because their error codes will show up in a pane or a log.
 
 | Symptom | What it means | Handling |
 |---|---|---|

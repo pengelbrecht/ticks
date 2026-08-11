@@ -75,8 +75,11 @@ on the branch plus RESULT-<tick-id>.md in the worktree.
 
 Exit codes
   0  worker spawned, gated and prompted; manifest written
-  1  routing refusal, gate failure, herdr error, or a failed manifest write
+  1  routing refusal, gate failure, or herdr error
   2  invalid flags or arguments
+  3  not inside a git repository
+  4  no such tick
+  6  the manifest could not be written
 
 Examples
   tk herd spawn 1aw

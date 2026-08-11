@@ -94,7 +94,7 @@ Do not treat any model string here as durable. These are dated observations; `pi
 
 **Rule: before spawning, check the model against the kind's accepted family. On a mismatch, refuse the spawn with a clear message naming the role/tier, the kind, and the model — and never silently reroute** to a kind that would accept the model, never drop the model and fall back to the CLI's default. Both of those turn a config bug into a run that quietly did the wrong work on the wrong vendor.
 
-`tk herd spawn` enforces this, and enforces it **before it dials herdr** — verified live: the refusal below exits 1 having made zero herdr calls, so no workspace, worktree, branch or manifest exists to clean up afterwards.
+`tk herd spawn` enforces this, and enforces it **before it dials herdr** — verified live against herdr 0.8.0, 2026-08: the refusal below exits 1 having made zero herdr calls, so no workspace, worktree, branch or manifest exists to clean up afterwards. Dated example; re-verify against your own build.
 
 ```text
 .tick/runners.toml [roles.implement.tiers.strong]: kind = "claude" cannot run

@@ -121,9 +121,18 @@ func (s *spawnFakeHerd) serve(conn net.Conn) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		result = map[string]any{
-			"type":  "agent_started",
+			"type": "agent_started",
+			"agent": map[string]any{
+				"pane_id":           "w7:p1",
+				"agent_status":      "idle",
+				"interactive_ready": true,
+			},
+			"argv": append([]string{p.Kind}, p.Args...),
+		}
+	case "agent.get":
+		result = map[string]any{
+			"type":  "agent_info",
 			"agent": map[string]any{"pane_id": "w7:p1", "agent_status": "idle"},
-			"argv":  append([]string{p.Kind}, p.Args...),
 		}
 	case "agent.prompt":
 		result = map[string]any{

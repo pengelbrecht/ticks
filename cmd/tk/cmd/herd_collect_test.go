@@ -312,6 +312,33 @@ func TestHerdCollectMissingManifestIsNotFound(t *testing.T) {
 	}
 }
 
+// TestHerdCollectCorruptManifestIsGeneric pins that a manifest which exists but
+// cannot be parsed is never reported as "not found" (exit 4), in either lookup
+// branch. Exit 4 means nothing was spawned; a caller acting on it after a
+// truncated write would spawn a second worker on top of a live one.
+func TestHerdCollectCorruptManifestIsGeneric(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"direct epic lookup", []string{"herd", "collect", "--epic", "gyz", "nhk"}},
+		{"scan without epic", []string{"herd", "collect", "nhk"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, _ := setupHerdRepo(t)
+			writeHerdFile(t, state.Path(repo, "gyz", "nhk"), "{not json")
+
+			err := ExecuteArgs(tc.args)
+			if err == nil {
+				t.Fatal("collect over a corrupt manifest returned nil error")
+			}
+			if code := GetExitCode(err); code != ExitGeneric {
+				t.Errorf("exit code = %d, want %d (generic): %v", code, ExitGeneric, err)
+			}
+		})
+	}
+}
+
 func TestHerdCollectNoArgsWithoutEpicIsUsage(t *testing.T) {
 	setupHerdRepo(t)
 	err := ExecuteArgs([]string{"herd", "collect"})

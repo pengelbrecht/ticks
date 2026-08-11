@@ -57,9 +57,11 @@ manifest of that epic is collected — the whole wave in one call.
 
 Exit codes
   0  every collected worker is ready-to-merge
-  1  any other verdict, or the check could not be performed
+  1  any other verdict, or the check could not be performed (including a
+     manifest that exists but cannot be parsed)
   2  invalid flags or arguments
-  4  no manifest for that tick or epic
+  3  not inside a git repository
+  4  no manifest file for that tick or epic
 
 Examples
   tk herd collect nhk
@@ -253,7 +255,16 @@ func herdManifests(root, tickID, epicID string) ([]foundManifest, error) {
 		path := state.Path(root, epicID, tickID)
 		m, err := state.Read(path)
 		if err != nil {
-			return nil, NewExitError(ExitNotFound, "no herd manifest at %s: %v",
+			// Only an absent file is "not found". A manifest that exists but
+			// cannot be parsed must not report 4: a caller that treats 4 as
+			// "nothing was spawned" would spawn a duplicate worker on top of a
+			// live one. The scan branch below already reports 1 for the same
+			// file, so both lookups agree.
+			if os.IsNotExist(err) {
+				return nil, NewExitError(ExitNotFound, "no herd manifest at %s: %v",
+					state.RelPath(epicID, tickID), err)
+			}
+			return nil, NewExitError(ExitGeneric, "reading %s: %v",
 				state.RelPath(epicID, tickID), err)
 		}
 		return []foundManifest{{m, path}}, nil

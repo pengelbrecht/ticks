@@ -503,10 +503,39 @@ func Classify(paneText, probe, expect string) GateOutcome {
 		return GateSilentDrop
 	}
 	tail := text[idx+len(needle):]
-	if strings.Contains(tail, normalizeWS(expect)) {
+	if containsWord(tail, normalizeWS(expect)) {
 		return GateAnswered
 	}
 	return GateErrorContent
+}
+
+// containsWord reports whether want occurs in text as a whole token rather than
+// as a substring of a longer word. A bare substring test passes "BROKEN pipe",
+// "TOKEN limit" and "OKTA login required" for the default "OK" expectation,
+// which classifies a dead worker as answered. Word boundaries are only applied
+// on an end that is itself a word character, so a punctuation-delimited
+// expectation still matches.
+func containsWord(text, want string) bool {
+	if want == "" {
+		return false
+	}
+	pattern := regexp.QuoteMeta(want)
+	if isWordByte(want[0]) {
+		pattern = `\b` + pattern
+	}
+	if isWordByte(want[len(want)-1]) {
+		pattern += `\b`
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		// Unreachable: the pattern is quoted literal text.
+		return strings.Contains(text, want)
+	}
+	return re.MatchString(text)
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // Excerpt is the tail of a pane read, for a failure message.

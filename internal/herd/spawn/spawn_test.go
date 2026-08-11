@@ -200,6 +200,23 @@ func TestClassify(t *testing.T) {
 		{"empty pane", "", GateSilentDrop},
 		{"echo re-flowed across lines", "> Reply with the\n  single word OK\n\n⏺ OK\n", GateAnswered},
 		{"answer only before the echo", "OK\n> " + probe + "\n", GateErrorContent},
+		// Substring traps: a bare Contains("OK") calls each of these answered,
+		// which reports a dead worker as a working round-trip.
+		{"BROKEN is not OK", "> " + probe + "\n\n■ BROKEN pipe\n", GateErrorContent},
+		{"TOKEN is not OK", "> " + probe + "\n\n■ TOKEN limit exceeded\n", GateErrorContent},
+		{"OKTA is not OK", "> " + probe + "\n\n■ OKTA login required\n", GateErrorContent},
+		// LastIndex means the last echo wins: a re-sent probe that was answered
+		// the first time and dropped the second is not answered.
+		{
+			"answer before the last echo only",
+			"> " + probe + "\n\n⏺ OK\n\n> " + probe + "\n\n❯ \n",
+			GateErrorContent,
+		},
+		{
+			"answer after the last echo",
+			"> " + probe + "\n\n❯ \n\n> " + probe + "\n\n⏺ OK\n",
+			GateAnswered,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

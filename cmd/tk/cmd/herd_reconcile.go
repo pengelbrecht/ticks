@@ -60,6 +60,10 @@ Exit codes
   0  a plan was produced (including one containing unknowns)
   1  the reconcile itself failed: herdr unreachable, git unreadable, adopt write
   2  invalid flags or arguments
+  3  not inside a git repository
+
+An epic with no manifests is a plan, not an error: reconcile reports an empty
+plan and exits 0. It never exits 4.
 
 Examples
   tk herd reconcile --epic gyz

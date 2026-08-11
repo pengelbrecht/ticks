@@ -62,9 +62,11 @@ that listing, not just zero per-tick worktrees.
 
 Exit codes
   0  every tick was cleaned (--apply), or previewed with no refusal
-  1  a refusal, a failed removal, or herdr was unreachable
+  1  a refusal, a failed removal, herdr was unreachable, or a manifest that
+     exists but cannot be parsed
   2  invalid flags or arguments
-  4  no manifest for that tick or epic
+  3  not inside a git repository
+  4  no manifest file for that tick or epic
 
 Examples
   tk herd cleanup nhk
