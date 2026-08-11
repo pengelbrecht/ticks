@@ -2,8 +2,8 @@
   "id": "nhk",
   "title": "tk herd collect + cleanup --preview",
   "description": "cmd/tk/cmd/herd_collect.go + herd_cleanup.go. tk herd collect \u003ctick-id\u003e [--json]: from the manifest (internal/herd/state), verify durable results per herdr-runner.md — branch exists and has commits beyond spawn base, RESULT-\u003ctick-id\u003e.md present in the worktree with a final STATUS line, boundary check (git diff --name-only base...branch -- .tick/ must be empty); print a structured verdict (ready-to-merge | no-commits | missing-result | boundary-violation) with evidence paths; never merges (orchestrator merges). tk herd cleanup [\u003ctick-id\u003e|--epic \u003cid\u003e] --preview|--apply: from manifests, list exactly what would be removed (herdr workspace/worktree via worktree.remove, local branch via git branch -d semantics — refuse unmerged), refuse to touch blocked/incomplete workers (manifest + live agent state check), --preview default and --apply explicit. Cobra + legacy switch + ResetFlags per learnings. Unit tests: fake server + temp git repos covering all four collect verdicts and preview-vs-apply, unmerged-branch refusal, blocked-worker refusal.",
-  "notes": "2026-08-11 15:10 - Dispatch requirement (human-approved): every herd command must return explicit ExitError for its exit codes — never rely on GetExitCode message-substring classification (known to misread \"invalid argument\" dial errors as usage exit 2). Pattern established in herd_wait.go (tick 9z6).",
-  "status": "in_progress",
+  "notes": "2026-08-11 15:10 - Dispatch requirement (human-approved): every herd command must return explicit ExitError for its exit codes — never rely on GetExitCode message-substring classification (known to misread \"invalid argument\" dial errors as usage exit 2). Pattern established in herd_wait.go (tick 9z6).\n2026-08-11 15:31 - runner-state: runner=claude branch=worktree-agent-acd3091631e73e57e substrate=harness. Design call accepted: collect verdicts are artifact-presence only, independent of parsed STATUS (BLOCKED-with-commits = ready-to-merge exit 0 + escalate line); orchestrator must read status.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "go test -short -count=1 ./... passes; collect verdicts and cleanup preview/apply/refusal paths covered; cleanup never removes unmerged or blocked state",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T12:06:09.507045Z",
-  "updated_at": "2026-08-11T13:14:12.950645Z",
-  "started_at": "2026-08-11T13:14:12.950645Z"
+  "updated_at": "2026-08-11T13:33:41.935267Z",
+  "closed_at": "2026-08-11T13:33:41.935267Z",
+  "closed_reason": "Completed: tk herd collect (four artifact-presence verdicts, status parsed independently with escalate line, never merges) + cleanup (preview-is-the-plan, manifest-removed-last, live/blocked/unmerged refusals per-tick); ExitError throughout; two sibling test flakes surfaced and deflaked at gate"
 }
