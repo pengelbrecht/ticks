@@ -421,6 +421,12 @@ func ResetFlags() {
 	mergeDryRun = false
 	mergeYes = false
 
+	// Reset herd wait flags
+	herdWaitAgents = nil
+	herdWaitTimeout = defaultHerdWaitTimeoutMs
+	herdWaitSocket = ""
+	herdWaitJSON = false
+
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false
