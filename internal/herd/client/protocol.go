@@ -33,6 +33,13 @@ const (
 	MethodWorkspaceReportMetadata = "workspace.report_metadata"
 	MethodEventsSubscribe         = "events.subscribe"
 	MethodEventsWait              = "events.wait"
+	// MethodNotificationShow raises a desktop/toast notification on the
+	// operator's foreground herdr client. Like the metadata channel it is
+	// display-only — it changes nothing about a pane or an agent — but
+	// unlike the metadata channel it is EPHEMERAL and INTERRUPTIVE: there
+	// is no TTL and no idempotence, so every call the operator can hear is
+	// a separate interruption. Callers must decide not to call it twice.
+	MethodNotificationShow = "notification.show"
 )
 
 // Result discriminators, the `result.type` value each method answers with.
@@ -51,6 +58,7 @@ const (
 	resultOutputMatched       = "output_matched"
 	resultSubscriptionStarted = "subscription_started"
 	resultWaitMatched         = "wait_matched"
+	resultNotificationShow    = "notification_show"
 	// resultOK is the bare acknowledgement the report_metadata methods
 	// answer with — verified live against herdr 0.8.0 / protocol 19; they
 	// echo no pane or workspace object back.

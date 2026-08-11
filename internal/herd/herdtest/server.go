@@ -35,6 +35,10 @@ const (
 	// every report so a painter's output can be asserted on.
 	MethodPaneReportMetadata      = "pane.report_metadata"
 	MethodWorkspaceReportMetadata = "workspace.report_metadata"
+	// MethodNotificationShow is the operator attention channel. The fake
+	// records every call so a notifier's once-semantics can be asserted by
+	// COUNT, which is the whole property that matters.
+	MethodNotificationShow = "notification.show"
 )
 
 // Error codes this fake produces on its own initiative.
@@ -202,6 +206,10 @@ type Server struct {
 	paneMeta              []MetadataReport
 	workspaceMeta         []MetadataReport
 	metaErr               string
+	notifications         []Notification
+	notifyErr             string
+	notifyReason          string
+	notifyShown           *bool
 	lists                 int
 	subs                  int
 	lastSubs              []Subscription
@@ -572,6 +580,8 @@ func (s *Server) builtin(method string) (Handler, bool) {
 		return s.handlePaneReportMetadata, true
 	case MethodWorkspaceReportMetadata:
 		return s.handleWorkspaceReportMetadata, true
+	case MethodNotificationShow:
+		return s.handleNotificationShow, true
 	}
 	return nil, false
 }

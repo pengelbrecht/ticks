@@ -455,6 +455,70 @@ func (s *Server) handleWorkspaceReportMetadata(_ *testing.T, req Request, w *Con
 	return RespondJSON(w, req.ID, map[string]any{"type": "ok"})
 }
 
+// Notification is one notification.show call as the fake received it, decoded
+// from the wire — so a test asserting on Sound is asserting on the JSON the
+// client actually sent, including whether it chose to omit the field.
+type Notification struct {
+	Title    string  `json:"title"`
+	Body     *string `json:"body"`
+	Sound    string  `json:"sound"`
+	Position *string `json:"position"`
+}
+
+// SetNotificationError makes every notification.show call fail with the given
+// message — herdr refusing to notify, which must never look like success.
+func (s *Server) SetNotificationError(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifyErr = msg
+}
+
+// SetNotificationResult scripts the `shown`/`reason` pair the fake answers
+// with. It is how a test drives the outcomes that are NOT errors — herdr
+// declining with "disabled", "rate_limited" or "no_foreground_client" — which
+// a caller must report rather than treat as a delivered notification.
+func (s *Server) SetNotificationResult(shown bool, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifyShown = &shown
+	s.notifyReason = reason
+}
+
+// Notifications returns every notification.show call, in order. Its LENGTH is
+// the assertion that matters most: a notifier with working once-semantics
+// produces exactly one entry per transition, however many times it runs.
+func (s *Server) Notifications() []Notification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Notification(nil), s.notifications...)
+}
+
+func (s *Server) handleNotificationShow(_ *testing.T, req Request, w *ConnWriter) error {
+	var n Notification
+	_ = json.Unmarshal(req.Params, &n)
+
+	s.mu.Lock()
+	notifyErr := s.notifyErr
+	shown, reason := true, "shown"
+	if s.notifyShown != nil {
+		shown = *s.notifyShown
+		reason = s.notifyReason
+	}
+	if notifyErr == "" {
+		s.notifications = append(s.notifications, n)
+	}
+	s.mu.Unlock()
+
+	if notifyErr != "" {
+		return RespondErr(w, req.ID, CodeInvalidRequest, notifyErr)
+	}
+	return RespondJSON(w, req.ID, map[string]any{
+		"type":   "notification_show",
+		"shown":  shown,
+		"reason": reason,
+	})
+}
+
 // nextPaneText consumes the scripted pane.read output; the last entry repeats.
 func (s *Server) nextPaneText() string {
 	s.mu.Lock()
