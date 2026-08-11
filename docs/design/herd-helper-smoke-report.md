@@ -318,3 +318,8 @@ Confirmed live, no change needed:
 | `skills/ticks/references/herdr-runner.md` | `tk herd` presented as the primary mechanism; raw herdr CLI demoted to an appendix; startup races documented |
 | `skills/ticks/references/runners-config.md`, `herdr-kinds.md` | cross-references to what the helper now enforces |
 | `docs/design/herd-helper-smoke-report.md` | this report |
+
+
+## Second-harness orchestrator evidence (DoD item 5)
+
+Run 9 (2026-08-11, herdr 0.8.0): a **Codex CLI session** (`gpt-5.6-luna`, started via `herdr agent start --kind codex -- -m gpt-5.6-luna -a never -s danger-full-access`) played the orchestrator and drove `bash scripts/verify-herd-helper.sh --quick --tk <prebuilt tk>` end to end: **PASS — 55 assertions, 5 wave helper calls (budget 5, 2 ticks), 2 live claude/haiku workers, 61 s total**, teardown clean including the run-created workspace sweep and focus restored to the workspace that held it at run start. Full log: `herd-helper-smoke-codex-orchestrator.log`. With the Claude-orchestrated runs 1-8 above, the helper is now evidenced from two orchestrator harnesses (claude, codex).
