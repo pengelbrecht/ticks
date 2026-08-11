@@ -2,7 +2,8 @@
   "id": "j6k",
   "title": "Live heterogeneous smoke test and field report",
   "description": "Following ONLY herdr-runner.md + runners-config.md (fresh session, no extra context), run a 2-tick toy epic in a scratch repo from an orchestrator inside herdr: one claude worker + one codex worker, each in its own herdr worktree, results collected via commits + RESULT.md, wave merged, post-wave gate run. Also demonstrate fallback: same config outside a herdr session (or HERDR_ENV unset) routes to harness orchestration with an explicit message. Record a field report (like the existing prime-runner field reports) and fold every doc gap found back into the A1-A4 files as fixes within this tick.",
-  "status": "in_progress",
+  "notes": "2026-08-11 13:48 - runner-state: runner=claude branch=worktree-agent-a2248915a6a7b0277 substrate=harness\n2026-08-11 13:48 - Concern routing: finding 7 (vendor routing only via tier) → tick hy5 addresses role/tier structure; a per-tick routing key in tk is a design proposal for the retro (human decision). Finding 1 socket-path env contract: verified live, flagged for final review. Findings 12 (tk init needs remote) + 13 (runner-state note dedup) → retro proposals.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,6 +14,7 @@
   "acceptance_criteria": "Toy epic completes with two different agent kinds; fallback demonstration recorded; field report committed; all discovered doc gaps fixed",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:54.966635Z",
-  "updated_at": "2026-08-11T11:33:15.906462Z",
-  "started_at": "2026-08-11T11:33:15.906462Z"
+  "updated_at": "2026-08-11T11:48:53.777907Z",
+  "closed_at": "2026-08-11T11:48:53.755795Z",
+  "closed_reason": "Completed: live heterogeneous smoke test — claude/haiku + codex/luna toy epic end-to-end via docs only; both fallback cells demonstrated; 13 findings (11 doc fixes applied: socket path, RESULT-\u003ctick-id\u003e.md, prompt-drop race, probe command, session-id timing…); findings 7 (per-tick vendor routing) + 12/13 routed to review/retro"
 }
