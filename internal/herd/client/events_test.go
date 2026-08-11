@@ -757,3 +757,47 @@ func TestEventDecodeWrongKind(t *testing.T) {
 		t.Error("OutputMatched on a pane_updated event succeeded, want error")
 	}
 }
+
+// TestEventStreamMidStreamAPIErrorEndsStream pins that an out-of-band error
+// envelope arriving after subscription_started terminates the stream with the
+// mapped APIError rather than being skipped like an unrecognised line. A
+// future refactor that turned this branch into a continue would make a waiter
+// hang forever on a dead subscription.
+func TestEventStreamMidStreamAPIErrorEndsStream(t *testing.T) {
+	c, _ := newTestClient(t, map[string]fakeHandler{
+		MethodEventsSubscribe: func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
+			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
+				return err
+			}
+			if err := w.writeLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
+				return err
+			}
+			if err := respondErr(w, req.ID, CodePaneNotFound, "pane closed mid-run"); err != nil {
+				return err
+			}
+			// Keep the connection open until the test ends: the error
+			// alone must end the stream.
+			<-t.Context().Done()
+			return nil
+		},
+	})
+
+	stream, err := c.EventsSubscribe(t.Context(), []Subscription{{Type: SubPaneUpdated}})
+	if err != nil {
+		t.Fatalf("EventsSubscribe: %v", err)
+	}
+	defer stream.Close()
+
+	if ev := nextEvent(t, stream); ev.Kind != EventPaneUpdated {
+		t.Fatalf("first event = %q", ev.Kind)
+	}
+	waitStreamClosed(t, stream)
+
+	streamErr := stream.Err()
+	if streamErr == nil {
+		t.Fatal("Err after a mid-stream API error = nil, want the mapped APIError")
+	}
+	if !IsCode(streamErr, CodePaneNotFound) {
+		t.Errorf("Err = %v, want an APIError with code %q", streamErr, CodePaneNotFound)
+	}
+}

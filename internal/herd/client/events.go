@@ -256,7 +256,7 @@ func (e Event) AgentStatusChanged() (*PaneAgentStatusChanged, error) {
 	return &out, nil
 }
 
-// PaneOutputMatched is the payload of an [EventPaneOutputMatched] event.
+// PaneOutputMatched is the payload of an [EventScopedPaneOutputMatched] event.
 type PaneOutputMatched struct {
 	PaneID      string         `json:"pane_id"`
 	MatchedLine string         `json:"matched_line"`
