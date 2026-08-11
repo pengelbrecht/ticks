@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -456,6 +457,139 @@ func TestCallEscapeHatch(t *testing.T) {
 	}
 	if out.Type != "pane_list" {
 		t.Errorf("type = %q", out.Type)
+	}
+}
+
+// TestCallTimeoutClampsGenerousCallerDeadline pins that CallTimeout is a real
+// bound, not a fallback. A substrate probe with a long caller deadline must
+// still fail on the client's own budget when the socket accepts but never
+// answers — otherwise availability detection hangs instead of degrading.
+func TestCallTimeoutClampsGenerousCallerDeadline(t *testing.T) {
+	blocked := make(chan struct{})
+	defer close(blocked)
+
+	srv := newFakeServer(t, func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
+		if req.Method == MethodPing && req.ID == "tk-1" {
+			return respond(w, req.ID, pongResult) // let New's handshake through
+		}
+		<-blocked // accept, never reply
+		return nil
+	})
+
+	c, err := New(t.Context(), Options{SocketPath: srv.Path(), CallTimeout: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, err = c.AgentList(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("AgentList against a never-replying server succeeded")
+	}
+	if elapsed > time.Second {
+		t.Errorf("call took %s; the caller's 5s deadline overrode the 100ms CallTimeout", elapsed)
+	}
+	if ctx.Err() != nil {
+		t.Errorf("the caller's context was consumed: %v", ctx.Err())
+	}
+}
+
+func TestCallerDeadlineWinsWhenShorter(t *testing.T) {
+	blocked := make(chan struct{})
+	defer close(blocked)
+
+	srv := newFakeServer(t, func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
+		if req.Method == MethodPing && req.ID == "tk-1" {
+			return respond(w, req.ID, pongResult)
+		}
+		<-blocked
+		return nil
+	})
+
+	c, err := New(t.Context(), Options{SocketPath: srv.Path(), CallTimeout: 10 * time.Second})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if _, err := c.AgentList(ctx); err == nil {
+		t.Fatal("AgentList succeeded, want a deadline error")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("call took %s; the shorter caller deadline was ignored", elapsed)
+	}
+}
+
+func TestEventBufferDefaults(t *testing.T) {
+	tests := []struct {
+		name string
+		opt  int
+		want int
+	}{
+		{name: "zero means the default", opt: 0, want: DefaultEventBuffer},
+		{name: "negative means unbuffered", opt: -1, want: 0},
+		{name: "explicit size is honoured", opt: 8, want: 8},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := newTestClientOpts(t, nil, Options{EventBuffer: tc.opt})
+			if c.eventBuffer != tc.want {
+				t.Errorf("eventBuffer = %d, want %d", c.eventBuffer, tc.want)
+			}
+		})
+	}
+}
+
+func TestAgentStartRejectsOutOfRangeStartupTimeout(t *testing.T) {
+	c, srv := newTestClient(t, nil)
+
+	for _, timeout := range []time.Duration{time.Second, MinAgentStartupTimeout, MaxAgentStartupTimeout + time.Second} {
+		_, err := c.AgentStart(t.Context(), AgentStartParams{
+			Name: "w", Kind: "claude", PaneID: "w9:p1", StartupTimeout: timeout,
+		})
+		if err == nil {
+			t.Errorf("StartupTimeout %s was accepted, want a range error", timeout)
+		} else if !strings.Contains(err.Error(), "out of range") {
+			t.Errorf("StartupTimeout %s: err = %v", timeout, err)
+		}
+	}
+	for _, req := range srv.Requests() {
+		if req.Method == MethodAgentStart {
+			t.Fatal("an out-of-range startup timeout reached the server")
+		}
+	}
+}
+
+func TestEventsWaitValidatesAgentStatusMatch(t *testing.T) {
+	c, srv := newTestClient(t, nil)
+
+	// The schema requires agent_status on this match; there is no wildcard.
+	_, err := c.EventsWait(t.Context(), EventsWaitParams{
+		Match: EventMatch{Event: EventPaneAgentStatusChanged, PaneID: "w3S:p1"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "needs an AgentStatus") {
+		t.Errorf("err = %v, want a missing-AgentStatus error", err)
+	}
+
+	_, err = c.EventsWait(t.Context(), EventsWaitParams{
+		Match: EventMatch{Event: EventPaneAgentStatusChanged, AgentStatus: StatusIdle},
+	})
+	if err == nil || !strings.Contains(err.Error(), "needs a PaneID") {
+		t.Errorf("err = %v, want a missing-PaneID error", err)
+	}
+
+	for _, req := range srv.Requests() {
+		if req.Method == MethodEventsWait {
+			t.Fatal("an invalid match reached the server")
+		}
 	}
 }
 

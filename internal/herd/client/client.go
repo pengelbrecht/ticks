@@ -15,6 +15,10 @@ import (
 // own budget and are exempt — see [Options.CallTimeout].
 const DefaultCallTimeout = 30 * time.Second
 
+// DefaultEventBuffer is the [EventStream] channel capacity when
+// [Options.EventBuffer] is zero.
+const DefaultEventBuffer = 64
+
 // Options configures [New].
 type Options struct {
 	// SocketPath is the explicit socket to dial. Empty means resolve per
@@ -26,10 +30,16 @@ type Options struct {
 	// DialTimeout bounds a connection attempt. Zero means
 	// [DefaultDialTimeout]. Ignored when Transport is set.
 	DialTimeout time.Duration
-	// CallTimeout bounds a non-waiting call that the caller's context does
-	// not already bound. Zero means [DefaultCallTimeout]; negative means no
-	// client-imposed timeout.
+	// CallTimeout bounds a non-waiting call. When the caller's context also
+	// has a deadline, the earlier of the two wins — a generous caller
+	// deadline never lengthens the client's own bound. Zero means
+	// [DefaultCallTimeout]; negative means no client-imposed timeout.
 	CallTimeout time.Duration
+	// EventBuffer sizes the channel of an [EventStream]. Zero means
+	// [DefaultEventBuffer]; negative means unbuffered. The buffer absorbs
+	// bursts; past it the stream applies backpressure to the socket and
+	// never drops events.
+	EventBuffer int
 }
 
 // Client is a typed herdr API client. It is safe for concurrent use: each call
@@ -38,6 +48,7 @@ type Client struct {
 	transport   Transport
 	socketPath  string
 	callTimeout time.Duration
+	eventBuffer int
 	server      ServerInfo
 	seq         atomic.Uint64
 }
@@ -64,7 +75,20 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		callTimeout = DefaultCallTimeout
 	}
 
-	c := &Client{transport: transport, socketPath: socketPath, callTimeout: callTimeout}
+	eventBuffer := opts.EventBuffer
+	switch {
+	case eventBuffer == 0:
+		eventBuffer = DefaultEventBuffer
+	case eventBuffer < 0:
+		eventBuffer = 0
+	}
+
+	c := &Client{
+		transport:   transport,
+		socketPath:  socketPath,
+		callTimeout: callTimeout,
+		eventBuffer: eventBuffer,
+	}
 
 	info, err := c.Ping(ctx)
 	if err != nil {
@@ -94,16 +118,19 @@ func (c *Client) nextID() string {
 	return "tk-" + strconv.FormatUint(c.seq.Add(1), 10)
 }
 
-// callTimeoutCtx applies the client's default call timeout unless the caller
-// already set a deadline or the client opted out.
+// callTimeoutCtx bounds a call by the earlier of the caller's deadline and the
+// client's CallTimeout. A caller deadline that is longer than CallTimeout must
+// not lengthen the bound: a probe against a socket that accepts but never
+// replies has to fail on the client's own budget.
 func (c *Client) callTimeoutCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	if c.callTimeout <= 0 {
 		return ctx, func() {}
 	}
-	if _, ok := ctx.Deadline(); ok {
+	own := time.Now().Add(c.callTimeout)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(own) {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, c.callTimeout)
+	return context.WithDeadline(ctx, own)
 }
 
 // Call sends one request and decodes its result into out, which may be nil to

@@ -181,8 +181,16 @@ func routeHandler(routes map[string]fakeHandler) fakeHandler {
 // client connected to it through the production unix transport.
 func newTestClient(t *testing.T, routes map[string]fakeHandler) (*Client, *fakeServer) {
 	t.Helper()
+	return newTestClientOpts(t, routes, Options{})
+}
+
+// newTestClientOpts is newTestClient with caller-supplied options; SocketPath
+// is always overridden to point at the fake server.
+func newTestClientOpts(t *testing.T, routes map[string]fakeHandler, opts Options) (*Client, *fakeServer) {
+	t.Helper()
 	srv := newFakeServer(t, routeHandler(routes))
-	c, err := New(t.Context(), Options{SocketPath: srv.Path()})
+	opts.SocketPath = srv.Path()
+	c, err := New(t.Context(), opts)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -199,4 +207,23 @@ func loadFixture(t *testing.T, name string) string {
 	// Fixtures are stored one JSON document per file with a trailing
 	// newline; the wire format is newline-framed, so trim it.
 	return strings.TrimSpace(string(data))
+}
+
+// loadEventLines reads a captured NDJSON event fixture, dropping the leading
+// "#" provenance comments that record which herdr version and which
+// subscription list produced it.
+func loadEventLines(t *testing.T, name string) []string {
+	t.Helper()
+	var lines []string
+	for _, line := range strings.Split(loadFixture(t, name), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		t.Fatalf("fixture %s has no event lines", name)
+	}
+	return lines
 }
