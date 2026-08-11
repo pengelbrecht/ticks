@@ -77,16 +77,11 @@ hand-written layout const (e.g. `tick.TargetDateLayout`). The regex is shape-onl
 
 ## Docs & marketing copy
 
-**Problem:** A user-facing page (docs/quickstart, landing) shipped copy-pasteable `tk` commands
-that don't exist — `tk done`, a `--title` flag, bare `tk create`, `tk ready <id>` — caught only
-at epic final review. This is the exact "unknown command/flag" failure a promo refresh existed
-to eliminate, reintroduced by the refresh itself.
+**Problem:** A user-facing page shipped copy-pasteable `tk` commands that don't exist
+(`tk done`, `--title`, `tk ready <id>`) — caught only at epic final review.
 **Cause:** Agents writing examples guess CLI syntax from memory instead of the real cobra defs.
-**Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each against
-`cmd/tk/cmd/*.go` (`Use:`/`Args:`). Known traps: closing is `tk close <id>` (there is no
-`tk done`); `tk create` needs a positional title and has no `--title` flag; `tk ready` takes no
-args (it lists); `tk block <id> <blocker-id>` needs the blocker id. There is no `tk run`.
-Spell this verification step out in the tick.
+**Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each
+against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in the tick.
 
 ## Orchestration
 
