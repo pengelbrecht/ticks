@@ -45,6 +45,59 @@ That two-step is for panes you made yourself with `herdr pane split` — a scrat
 
 Everything in that table was read from the CLIs' own `--help` and then round-tripped live; flag names drift between releases, so re-verify with `--help` rather than copying this table into a new environment unchecked.
 
+## Model and effort translation
+
+`.tick/runners.toml` specifies a worker along **two dimensions**: `kind` (the harness — this file's subject) and `model` + optional `effort` (the capability). Those two fields are kind-neutral in the config and are **compiled by the spawner** into the kind's native argv. This section is the translation table; the config-side rules live in [`runners-config.md`](runners-config.md).
+
+Compiled argv order is fixed: **full-auto template → compiled `model`/`effort` flags → `args` verbatim.**
+
+| Kind | `model = "M"` compiles to | `effort = "E"` compiles to | Verified against |
+|---|---|---|---|
+| `claude` | `--model M` | `--effort E` | `claude --help`: `--effort <level>` — `(low, medium, high, xhigh, max)` |
+| `codex` | `-m M` | `-c model_reasoning_effort="E"` | `codex --help`: no reasoning-effort flag exists; effort is a config override via `-c <key=value>` |
+| `pi` | `--model M` (M is a full `<provider>/<model>` id) | appended as `:E` on the model id → `--model M:E` (equivalently `--thinking E`) | `pi --help`: `--model <pattern>` "supports `provider/id` and optional `:<thinking>`"; `--thinking <level>` — `off, minimal, low, medium, high, xhigh, max` |
+
+The `claude` and `codex` rows are round-tripped live (see their sections below). The `pi` row is **read from `pi --help` only** — pi is not yet verified as a tick implementer, so run [Adding a kind](#adding-a-kind) before routing a role to it.
+
+Worked examples of the compilation:
+
+```text
+kind="claude" model="opus"          effort="high"   ->  --model opus --effort high
+kind="codex"  model="gpt-5.6-luna"  effort="max"    ->  -m gpt-5.6-luna -c model_reasoning_effort="max"
+kind="pi"     model="openai-codex/gpt-5.6-sol" effort="xhigh"
+                                                    ->  --model openai-codex/gpt-5.6-sol:xhigh
+```
+
+`effort` is optional everywhere. Omitting it means "the kind's own default" — the same reasoning as omitting `model` (see the [green-start trap](#the-green-start-trap) and `runners-config.md`'s authoring rules): codex reads `model_reasoning_effort` from `~/.codex/config.toml`, claude uses its session default, pi uses the model's default thinking level.
+
+### Which models each kind accepts
+
+The matrix is **sparse**. A kind is a specific vendor CLI authenticated against a specific account, and it can only run models from the family that CLI serves:
+
+| Kind | Accepts | Examples | Rejects |
+|---|---|---|---|
+| `claude` | Claude-family only — aliases for the latest model in a family, or full names | `opus`, `sonnet`, `haiku`, `fable`, `claude-fable-5` | any `gpt-*`, `gemini-*`, or `<provider>/<model>` id |
+| `codex` | OpenAI models the authenticated Codex account may use | `gpt-5.6-luna`, `gpt-5.6-sol` | Claude/Gemini names; also *plausible-looking* OpenAI names the account is not entitled to |
+| `pi` | Cross-provider, so a **provider-qualified** id is the norm | `openai-codex/gpt-5.6-sol`, `openai/gpt-4o`, `anthropic/claude-sonnet-…` | ids for providers the local pi has no credentials for |
+
+Effort levels are sparse too: `claude --effort` accepts `low, medium, high, xhigh, max` (no `off`/`minimal`); `pi --thinking` accepts `off, minimal, low, medium, high, xhigh, max`; codex's `model_reasoning_effort` is a config string whose accepted set is the model's, not the CLI's (`max` is live on this machine's `~/.codex/config.toml`).
+
+Do not treat any model string here as durable. These are dated observations; `pi --list-models` and the vendor CLIs are the authority, and `.tick/config.md`'s *Pi Orchestrator* section carries the ids a given repo actually runs.
+
+### Fail closed on an impossible cell
+
+**The schema validates shape; the spawner enforces compatibility.** `runners-config.schema.json` cannot enumerate model families — they are open-ended and change between releases — so `kind = "claude"` with `model = "gpt-5.6-luna"` is a perfectly *valid* config document. It is still an impossible cell.
+
+**Rule: before spawning, check the model against the kind's accepted family. On a mismatch, refuse the spawn with a clear message naming the role/tier, the kind, and the model — and never silently reroute** to a kind that would accept the model, never drop the model and fall back to the CLI's default. Both of those turn a config bug into a run that quietly did the wrong work on the wrong vendor.
+
+```text
+.tick/runners.toml [roles.implement.tiers.strong]: kind = "claude" cannot run
+model = "gpt-5.6-luna" (claude runs Claude-family models only). Fix the config —
+either kind = "codex" for that model, or a Claude model for that kind.
+```
+
+This is a stop, matching `runners-config.md`'s rule that a config the orchestrator cannot honour halts the run rather than being guessed around. The cost of *not* stopping is documented right below: an unusable model name starts green, prompts green, and does zero work.
+
 ## claude
 
 **Verified template.**

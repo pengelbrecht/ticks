@@ -1,8 +1,13 @@
 # `.tick/runners.toml` — runner routing configuration
 
-Read [`agent-runner.md`](agent-runner.md) first for the runner-neutral contract and the capability-tier vocabulary. This file defines `.tick/runners.toml`: the per-repo configuration that decides **which substrate orchestrates a run** (herdr panes versus the harness's own subagent primitive) and **which agent kind + model arguments serve each task role and tier**.
+Read [`agent-runner.md`](agent-runner.md) first for the runner-neutral contract and the capability-tier vocabulary. This file defines `.tick/runners.toml`: the per-repo configuration that decides **which substrate orchestrates a run** (herdr panes versus the harness's own subagent primitive) and **which worker serves each task role and tier**.
 
-"Kind" throughout this document means herdr's `--kind` value (`claude`, `codex`, `gemini`, `pi`, …) — the installed herdr binary is the authority on the valid list (`herdr agent`). Per-kind spawn and full-auto argument templates live in [`herdr-kinds.md`](herdr-kinds.md); this document never restates them.
+A worker is specified along **two explicit dimensions**, never as raw argv:
+
+- **`kind`** — the harness dimension, herdr's `--kind` value (`claude`, `codex`, `gemini`, `pi`, …). The installed herdr binary is the authority on the valid list (`herdr agent`).
+- **`model`** + optional **`effort`** — the capability dimension, in the kind's own model namespace plus a kind-neutral effort level.
+
+The spawner compiles `model`/`effort` into that kind's native argv (`claude --model … --effort …`, `codex -m … -c model_reasoning_effort="…"`, `pi --model <provider>/<model>:<effort>`). The translation table, the model families each kind accepts, and the fail-closed rule for impossible combinations live in [`herdr-kinds.md`](herdr-kinds.md) → *[Model and effort translation](herdr-kinds.md#model-and-effort-translation)*; this document never restates them, nor the per-kind spawn and full-auto templates.
 
 The file is optional. Without it, the active runner adapter behaves exactly as it does today: harness-native subagents, adapter-default tier mapping. `runners.toml` only ever *adds* routing choices.
 
@@ -43,7 +48,9 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 |---|---|---|
 | `harness` | string | Runner adapter that plays orchestrator: `claude`, `codex`, `pi`, `prime` (see the matching `<harness>-runner.md`). |
 | `kind` | string | herdr kind to use if the orchestrator itself is ever spawned into a pane. |
-| `args` | array of strings | Native args for that kind, e.g. reasoning effort for the orchestrating model. |
+| `model` | string | Model id in that kind's namespace, e.g. `opus`. |
+| `effort` | enum | Reasoning effort for the orchestrating model, e.g. `high`. |
+| `args` | array of strings | Escape-hatch native args for that kind, appended after the compiled model/effort flags. |
 
 ### `[orchestration]`
 
@@ -62,38 +69,55 @@ Keys are role names matching `^[a-z][a-z0-9_-]*$`. Well-known roles: `plan`, `sc
 
 | Key | Type | Meaning |
 |---|---|---|
-| `kind` | string, required | herdr kind to spawn for this role. |
-| `args` | array of strings | Native agent args, passed verbatim after `--` in `herdr agent start`. One argv element per entry — never a pre-joined shell string. |
+| `kind` | string, required | herdr kind to spawn for this role — the harness dimension. |
+| `model` | string | Model id **in that kind's namespace** (`opus`; `gpt-5.6-luna`; `openai-codex/gpt-5.6-sol`). Omitted means the kind's own default. Compiled into the kind's native model flag. |
+| `effort` | `off` \| `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | Reasoning/thinking effort, kind-neutral. Omitted means the kind's own default. Compiled into the kind's native mechanism. |
+| `args` | array of strings | Escape hatch for anything the two dimensions do not express. Passed verbatim after `--` in `herdr agent start`, **appended after the compiled model/effort flags**. One argv element per entry — never a pre-joined shell string. |
 | `harness` | string | Documentary note of the corresponding runner adapter. Routing uses `kind`. |
-| `tiers.<economy\|balanced\|strong\|frontier>` | table | Per-tier overrides; each entry may set `kind`, `args`, or both. |
+| `tiers.<economy\|balanced\|strong\|frontier>` | table | Per-tier overrides; each entry may set any of `kind`, `model`, `effort`, `args` (at least one). |
 
 The tier names are the shared capability tiers from `agent-runner.md` — the contract is the tier name, not any model string.
+
+Composed argv for a spawned worker is always, in order: the kind's full-auto template (from `herdr-kinds.md`, subject to `orchestration.full_auto`) → the flags compiled from `model`/`effort` → `args`.
+
+**The effort enum is a union across kinds, not a per-kind guarantee.** `off` and `minimal` exist for pi but not for `claude --effort`; codex's accepted set belongs to the model, not the CLI. The schema checks the value's *shape*; the spawner checks whether this *kind* accepts it.
 
 ### Resolution order
 
 For a tick with role R and chosen tier T:
 
-1. `roles.R.tiers.T` if present → its `kind` (else `roles.R.kind`) and its `args` (else `roles.R.args`).
-2. Otherwise `roles.R.kind` + `roles.R.args`.
+1. `roles.R.tiers.T` if present → for **each** of `kind`, `model`, `effort`, `args` independently: the tier's value if it sets one, else the role's.
+2. Otherwise `roles.R.kind` + `roles.R.model` + `roles.R.effort` + `roles.R.args`.
 3. If role R has no entry, resolve against `implement` by the same two steps.
+
+`kind`, `model` and `effort` are scalars, so field-wise override is well-defined: a tier that sets only `effort = "high"` keeps the role's kind and model. That is the point of splitting the dimensions out of `args` — the common case (same vendor, same model, different effort) stops requiring a restated argv list.
 
 **Within one wave, the tier is the only per-tick routing knob.** Role comes from the tick (`tk create --role`), and the tracker only tags the *process* roles — `review` and `closeout`. Every implementation tick in a wave therefore resolves against `roles.implement`, so two same-wave ticks can only land on different kinds if they are assigned different tiers and those tiers override `kind`. That is supported and it is how the substrate's headline cross-vendor capability is exercised per tick:
 
 ```toml
 [roles.implement]
 kind = "codex"
-args = ["--config", "model_reasoning_effort=\"medium\""]
+model = "gpt-5.6-luna"
+effort = "medium"
 
-[roles.implement.tiers.economy]     # a tier may override `kind`, not just `args`
+[roles.implement.tiers.economy]     # a tier may override the harness dimension too
 kind = "claude"
-args = ["--model", "haiku"]
+model = "haiku"
 ```
+
+Note that the economy tier had to restate `model`: crossing the `kind` boundary invalidates the inherited model, because model namespaces are per-kind. **A tier that changes `kind` and inherits a `model` from a different kind's family is the classic impossible cell** — see below.
 
 Keep the tier's real meaning intact when you do this — the tier is chosen from the tick's difficulty per `agent-runner.md`, and picking a tier to reach a vendor rather than a capability level is how a hard tick ends up on a cheap model. If a repo wants vendor split along an axis that is *not* difficulty, that axis has to become a role the tracker can tag, and today it cannot.
 
-**Args replace, they never merge.** A tier's `args` supersede the role's `args` wholesale; a tier that only wants to change the model must restate the full arg list. This is deliberate — merging two argv lists whose flags may conflict is not well-defined. The kind's full-auto template from `herdr-kinds.md` is prepended by the spawner and is not part of `args`.
+**Args replace, they never merge.** A tier's `args` supersede the role's `args` wholesale. This is deliberate — merging two argv lists whose flags may conflict is not well-defined. It applies to `args` only: `model` and `effort` are scalars and override field-wise (above). The kind's full-auto template from `herdr-kinds.md` is prepended by the spawner and is not part of `args`.
 
-Under harness orchestration the `kind` values are inert (the harness spawns its own subagents), but the role/tier structure still applies: the adapter maps tier names to its own model classes or reasoning-effort settings, per `agent-runner.md`.
+### Shape versus compatibility
+
+`runners-config.schema.json` validates the **shape** of a config: that `kind`/`model` look like identifiers, that `effort` is one of the known levels, that no unknown keys are present. It cannot validate **compatibility** — whether *this* kind can run *that* model — because model families are open-ended and change with every vendor release, so enumerating them in a schema would guarantee a schema that is wrong within weeks.
+
+Compatibility is therefore enforced by the **spawner, at spawn time**, and it fails closed: an impossible cell (`kind = "claude"` with `model = "gpt-5.6-luna"`) is a config error the orchestrator must refuse with a message naming the role/tier, kind and model. It must **never** silently reroute to a kind that would accept the model, and never drop the model to fall back on the CLI's default. `herdr-kinds.md` → *[Fail closed on an impossible cell](herdr-kinds.md#fail-closed-on-an-impossible-cell)* carries the rule, the per-kind accepted families, and the message form. A config that passes the schema is not thereby routable.
+
+Under harness orchestration the `kind` values are inert (the harness spawns its own subagents), but the role/tier structure still applies: the adapter maps tier names to its own model classes or reasoning-effort settings, per `agent-runner.md`. `model`/`effort` are hints there, not commands — a harness cannot spawn another vendor's model.
 
 ## Substrate semantics
 
@@ -159,36 +183,44 @@ max_parallel = 4
 
 [roles.plan]
 kind = "claude"
-args = ["--model", "opus"]
+model = "opus"
+effort = "high"
 
 [roles.scout]
 kind = "claude"
-args = ["--model", "haiku"]
+model = "haiku"
+effort = "low"
 
 [roles.implement]
 kind = "claude"
-args = ["--model", "sonnet"]
+model = "sonnet"
+effort = "medium"
 
 [roles.implement.tiers.economy]
-args = ["--model", "haiku"]
+model = "haiku"
+effort = "low"
 
 [roles.implement.tiers.balanced]
-args = ["--model", "sonnet"]
+effort = "medium"          # inherits model = "sonnet" from the role
 
 [roles.implement.tiers.strong]
-args = ["--model", "opus"]
+model = "opus"
+effort = "high"
 
 [roles.review]
 kind = "claude"
-args = ["--model", "opus"]
+model = "opus"
+effort = "high"
 
 [roles.review.tiers.frontier]
-args = ["--model", "opus"]
+effort = "max"             # same model, more effort
 
 [roles.closeout]
 kind = "claude"
-args = ["--model", "sonnet"]
+model = "sonnet"
 ```
+
+Compiled argv for the `strong` tier of `implement`, per `herdr-kinds.md`: `--permission-mode bypassPermissions --model opus --effort high`.
 
 ### 2. Cross-vendor (Codex implements, Claude reviews)
 
@@ -211,41 +243,50 @@ full_auto = true
 [roles.plan]
 kind = "claude"
 harness = "claude"
-args = ["--model", "opus"]
+model = "opus"
+effort = "high"
 
 [roles.scout]
 kind = "codex"
 harness = "codex"
-args = ["--config", "model_reasoning_effort=\"low\""]
+model = "gpt-5.6-luna"
+effort = "low"
 
 [roles.implement]
 kind = "codex"
 harness = "codex"
-args = ["--config", "model_reasoning_effort=\"medium\""]
+model = "gpt-5.6-luna"
+effort = "medium"
 
 [roles.implement.tiers.economy]
-args = ["--config", "model_reasoning_effort=\"low\""]
+effort = "low"
 
 [roles.implement.tiers.balanced]
-args = ["--config", "model_reasoning_effort=\"medium\""]
+effort = "medium"
 
 [roles.implement.tiers.strong]
-args = ["--config", "model_reasoning_effort=\"high\""]
+effort = "high"
 
 [roles.review]
 kind = "claude"
 harness = "claude"
-args = ["--model", "opus"]
+model = "opus"
+effort = "high"
 
 [roles.review.tiers.frontier]
 kind = "claude"
-args = ["--model", "opus"]
+model = "opus"
+effort = "max"
 
 [roles.closeout]
 kind = "claude"
 harness = "claude"
-args = ["--model", "sonnet"]
+model = "sonnet"
 ```
+
+The codex tiers now vary a single scalar instead of restating a `--config` argv element — and the awkward embedded quoting (`model_reasoning_effort=\"high\"`) is the spawner's problem, not the config author's. Compiled argv for `implement` at `strong`: `-a never -s workspace-write -m gpt-5.6-luna -c model_reasoning_effort="high"`.
+
+Note this example now **pins** codex's model, which the authoring rules below warn ages badly. That is the honest trade of the model dimension: when you name a model you own keeping it current. Omit `model` entirely (keeping `effort`) to keep codex resolving `model` from `~/.codex/config.toml` — example 3 does exactly that.
 
 ### 3. Forced harness (herdr installed but deliberately unused)
 
@@ -264,25 +305,110 @@ max_parallel = 2
 [roles.implement]
 kind = "codex"
 harness = "codex"
-args = ["--config", "model_reasoning_effort=\"medium\""]
+effort = "medium"          # no `model` — codex resolves it from ~/.codex/config.toml
 
 [roles.implement.tiers.economy]
-args = ["--config", "model_reasoning_effort=\"low\""]
+effort = "low"
 
 [roles.implement.tiers.strong]
-args = ["--config", "model_reasoning_effort=\"high\""]
+effort = "high"
 
 [roles.review]
 kind = "codex"
 harness = "codex"
-args = ["--config", "model_reasoning_effort=\"high\""]
+effort = "high"
 ```
+
+### 4. Cross-provider through pi
+
+A single `pi` kind covering every role, routing across providers by model id rather than by kind. Pi takes a provider-qualified id and carries effort as a `:<thinking>` suffix, so one kind spans vendors that `claude` and `codex` cannot reach individually — but the model ids must exist in the local pi's provider set (`pi --list-models`), and pi is not yet round-tripped as a tick implementer (see `herdr-kinds.md` → *Adding a kind*).
+
+```toml
+version = 1
+
+[orchestrator]
+harness = "pi"
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[orchestration]
+substrate = "herdr"
+max_parallel = 4
+
+[roles.plan]
+kind = "pi"
+harness = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[roles.scout]
+kind = "pi"
+harness = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "low"
+
+[roles.implement]
+kind = "pi"
+harness = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "medium"
+
+[roles.implement.tiers.economy]
+effort = "low"
+
+[roles.implement.tiers.strong]
+effort = "high"
+
+[roles.implement.tiers.frontier]
+model = "anthropic/claude-opus-4-6"   # cross-provider within one kind
+effort = "max"
+
+[roles.review]
+kind = "pi"
+harness = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+```
+
+Compiled argv for `implement` at `frontier`: `--model anthropic/claude-opus-4-6:max`. The same pair under `kind = "claude"` would be an impossible cell (`anthropic/claude-opus-4-6` is not a name `claude --model` takes) — the cell's validity is a property of the *kind*, which is exactly why compatibility cannot live in the schema.
+
+## Negative cases
+
+These are the failures a config author should expect, and where each one is caught.
+
+### Caught by the schema (a stop before anything spawns)
+
+| Config | Why it fails |
+|---|---|
+| `effort = "ultra"` | Not in the effort enum. |
+| `effort = "High"` | Enum values are lowercase; no case folding. |
+| `effort = 3` | Effort is a string, not an integer. |
+| `model = "sonnet:high"` | `:` is rejected in `model`. Pi's `model:thinking` shorthand is what the spawner *emits*, not what the config carries — put the level in `effort`. |
+| `model = ""` | Empty model. Omit the key to mean "the kind's default". |
+| `[roles.implement.tiers.strong]` with no keys | A tier must set at least one of `kind`/`model`/`effort`/`args`. |
+| `[roles.implement] models = "opus"` | `additionalProperties: false` — a typo'd key is an error, never a silently ignored one. |
+| `[roles.implement.tiers.turbo]` | Not one of the four tier names. |
+
+### Caught by the spawner (shape-valid, still unroutable)
+
+| Config | Why it fails |
+|---|---|
+| `kind = "claude"`, `model = "gpt-5.6-luna"` | **Impossible cell.** Valid shape, incompatible pair. Refuse the spawn naming role/tier, kind and model; never reroute to codex, never drop the model. |
+| `kind = "claude"`, `effort = "minimal"` | `claude --effort` accepts `low…max` only. The enum is a union across kinds. |
+| `kind = "codex"`, `model = "gpt-9-imaginary"` | Well-formed, non-existent. This is the [green-start trap](herdr-kinds.md#the-green-start-trap): the pane starts green and does zero work. |
+| `model = "opus"` **and** `args = ["--model", "sonnet"]` | `args` restates a compiled flag. Duplicate/conflicting argv — a config error, not a precedence puzzle. |
+| `kind = "frobnicator"` | Shape-valid kind name the installed herdr does not know (`herdr agent`). |
+
+The dividing line is the same one stated under [Shape versus compatibility](#shape-versus-compatibility): the schema knows the file format, only the spawner knows the vendor.
 
 ## Authoring rules
 
 - **Never invent kinds.** Only kinds the installed herdr reports (`herdr agent`) are valid at run time; the schema's pattern is a shape check, not a catalog.
-- **Args are argv, not shell.** `["--model", "opus"]`, never `["--model opus"]`. Quoting inside a single argv element (as in Codex's `--config 'model_reasoning_effort="high"'`) is part of that element's value.
-- **Omitting the model flag is legal and means "the kind's own default".** The Codex examples above carry a reasoning-effort `--config` and no `-m`, so the spawner passes no model and codex resolves `model` from `~/.codex/config.toml` — verified live. That is a deliberate choice, not an oversight: it keeps the config from pinning a model string that will age. Pin `-m`/`--model` in `args` only when a role must not follow the CLI's local default, and re-read [`herdr-kinds.md`](herdr-kinds.md)'s green-start trap before you do — a model string that the account cannot use starts green and does zero work.
+- **Use `model`/`effort`, not `args`, for model and effort.** They are the two dimensions the spawner understands; `args` is the escape hatch for everything else (`--add-dir`, `--search`, a `-c` override with no field of its own). A config that reaches for `args` to set a model gets no compatibility checking and risks duplicating a compiled flag.
+- **Args are argv, not shell.** `["--add-dir", "/x"]`, never `["--add-dir /x"]`. Quoting inside a single argv element (as in Codex's `--config 'foo="bar"'`) is part of that element's value.
+- **Omitting `model` is legal and means "the kind's own default".** Example 3 above carries `effort` and no `model`, so the spawner passes no model flag and codex resolves `model` from `~/.codex/config.toml` — verified live. That is a deliberate choice, not an oversight: it keeps the config from pinning a model string that will age. Set `model` only when a role must not follow the CLI's local default, and re-read [`herdr-kinds.md`](herdr-kinds.md)'s green-start trap before you do — a model string that the account cannot use starts green and does zero work.
+- **Model strings live in the kind's namespace.** `opus` means something to `claude` and nothing to `codex`; `openai-codex/gpt-5.6-sol` means something to `pi` and nothing to either. Changing a tier's `kind` obliges you to restate its `model`.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.
 - **Keep `[roles.implement]` present.** It is the fallback for every unlisted role.
-- **A config that fails schema validation is a stop, not a guess** — report the validation error and let the user fix it rather than falling back to defaults silently.
+- **A config that fails schema validation is a stop, not a guess** — report the validation error and let the user fix it rather than falling back to defaults silently. **A config that passes the schema but hits an impossible cell at spawn time is equally a stop** — see [Shape versus compatibility](#shape-versus-compatibility).

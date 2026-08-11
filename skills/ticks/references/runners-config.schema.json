@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ticks.sh/schemas/runners-config.schema.json",
   "title": "Ticks runners configuration (.tick/runners.toml)",
-  "description": "Routing configuration for the ticks agent runner: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which agent kind + model args serve each task role and capability tier. Parse the TOML file, then validate the resulting object against this schema. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
+  "description": "Routing configuration for the ticks agent runner: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which worker serves each task role and capability tier. A worker is specified along two dimensions — `kind` (the herdr harness dimension) and `model` + optional `effort` (the capability dimension) — which the spawner compiles into that kind's native argv; `args` remains an escape hatch appended after the compiled flags. Parse the TOML file, then validate the resulting object against this schema. This schema validates SHAPE only: whether a given model is usable by a given kind is a spawn-time compatibility check (see herdr-kinds.md), because model families are open-ended and cannot be enumerated here. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -28,10 +28,21 @@
       "pattern": "^[a-z][a-z0-9_-]*$",
       "description": "A herdr agent kind, i.e. the value passed to `herdr agent start --kind` (claude, codex, gemini, pi, cursor, amp, opencode, droid, grok, ...). The installed herdr binary is the authority on the valid list; run `herdr agent` to see it. Per-kind spawn and full-auto argument templates live in herdr-kinds.md."
     },
+    "Model": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$",
+      "description": "Model identifier in the *kind's own* namespace: a claude alias or full name (`opus`, `claude-fable-5`) for kind claude, an OpenAI model id (`gpt-5.6-luna`) for kind codex, a cross-provider `<provider>/<model>` id (`openai-codex/gpt-5.6-sol`) for kind pi. The spawner compiles this into the kind's native model flag (see herdr-kinds.md, 'Model and effort translation'). Shape only: model families are open-ended, so this schema cannot enumerate them and does NOT check that the model belongs to the kind — that is a spawn-time compatibility check the orchestrator must fail closed on. A `:` is deliberately rejected: effort belongs in `effort`, not smuggled into pi's `model:thinking` shorthand."
+    },
+    "Effort": {
+      "type": "string",
+      "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+      "description": "Reasoning/thinking effort, in a kind-neutral vocabulary that the spawner compiles into each kind's native mechanism (claude `--effort`, codex `-c model_reasoning_effort=\"...\"`, pi `:<thinking>` on the model id / `--thinking`). This enum is the union across kinds; not every kind accepts every level (claude has no `off`/`minimal`), so an accepted value here can still be an impossible cell the spawner must refuse — see herdr-kinds.md."
+    },
     "Args": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Native agent arguments, passed through verbatim after the `--` separator of `herdr agent start`. One argv element per array entry; never a single pre-joined shell string. See herdr-kinds.md for the per-kind spawn and full-auto templates these extend."
+      "description": "Escape hatch for native agent arguments the model/effort fields do not cover, passed through verbatim after the `--` separator of `herdr agent start` and appended AFTER the flags compiled from `model`/`effort`. One argv element per array entry; never a single pre-joined shell string. Must not restate a flag the spawner already compiles (`--model`/`-m`, `--effort`, `-c model_reasoning_effort=...`) — that is a spawn-time config error, not a schema error. See herdr-kinds.md for the per-kind spawn and full-auto templates these extend."
     },
     "Harness": {
       "type": "string",
@@ -45,6 +56,8 @@
       "properties": {
         "harness": { "$ref": "#/$defs/Harness" },
         "kind": { "$ref": "#/$defs/Kind" },
+        "model": { "$ref": "#/$defs/Model" },
+        "effort": { "$ref": "#/$defs/Effort" },
         "args": { "$ref": "#/$defs/Args" }
       },
       "anyOf": [
@@ -104,9 +117,11 @@
     "Role": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Routing for one task role: the agent kind to spawn and its native model/effort arguments, optionally varied per capability tier.",
+      "description": "Routing for one task role along two dimensions: the harness dimension (`kind`) and the capability dimension (`model` + optional `effort`), optionally varied per capability tier. `args` is the escape hatch for anything those two dimensions do not express.",
       "properties": {
         "kind": { "$ref": "#/$defs/Kind" },
+        "model": { "$ref": "#/$defs/Model" },
+        "effort": { "$ref": "#/$defs/Effort" },
         "args": { "$ref": "#/$defs/Args" },
         "harness": {
           "$ref": "#/$defs/Harness",
@@ -119,7 +134,7 @@
     "Tiers": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Capability-tier variants for a role, using the shared tier vocabulary from agent-runner.md. A tier that is absent resolves to the role's own kind + args. A tier entry omitting `kind` inherits the role's kind; a tier entry with `args` replaces the role's args wholesale (arguments are never merged).",
+      "description": "Capability-tier variants for a role, using the shared tier vocabulary from agent-runner.md. A tier that is absent resolves to the role's own kind + model/effort + args. Each of `kind`, `model`, `effort` is overridden field-wise (a tier setting only `effort` keeps the role's model); `args` alone replaces the role's args wholesale, because argv lists are never merged.",
       "properties": {
         "economy": { "$ref": "#/$defs/TierVariant" },
         "balanced": { "$ref": "#/$defs/TierVariant" },
@@ -130,13 +145,17 @@
     "TierVariant": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One tier's overrides for a role.",
+      "description": "One tier's overrides for a role. At least one of kind/model/effort/args must be present — an empty tier table is meaningless and is rejected.",
       "properties": {
         "kind": { "$ref": "#/$defs/Kind" },
+        "model": { "$ref": "#/$defs/Model" },
+        "effort": { "$ref": "#/$defs/Effort" },
         "args": { "$ref": "#/$defs/Args" }
       },
       "anyOf": [
         { "required": ["kind"] },
+        { "required": ["model"] },
+        { "required": ["effort"] },
         { "required": ["args"] }
       ]
     }
