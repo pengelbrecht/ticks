@@ -1,0 +1,17 @@
+{
+  "id": "gjj",
+  "title": "Wire substrate selection into agent-runner.md and SKILL.md",
+  "description": "Edit skills/ticks/references/agent-runner.md and skills/ticks/SKILL.md: introduce the substrate concept (harness adapter chooses WHO orchestrates; substrate chooses HOW workers are dispatched), add the herdr detection probe (HERDR_ENV=1 / socket) alongside harness detection, document the runners.toml substrate setting and the auto/fallback rule (herdr when available unless configured otherwise; explicit degradation message when herdr requested but absent), and link herdr-runner.md from the adapter table. Keep the four harness adapters authoritative for harness-native dispatch - this is additive routing, not replacement.\nTest: a fresh-session read of SKILL.md + agent-runner.md yields an unambiguous decision procedure for (harness, substrate) in all four combinations of in/out of herdr x configured herdr/harness/auto.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "2ki"
+  ],
+  "parent": "ias",
+  "acceptance_criteria": "Adapter table lists herdr substrate; detection order and fallback documented; no contradiction with existing adapter selection text",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T09:45:54.942147Z",
+  "updated_at": "2026-08-11T09:45:54.942147Z"
+}

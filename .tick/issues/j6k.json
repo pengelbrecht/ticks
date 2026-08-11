@@ -1,0 +1,17 @@
+{
+  "id": "j6k",
+  "title": "Live heterogeneous smoke test and field report",
+  "description": "Following ONLY herdr-runner.md + runners-config.md (fresh session, no extra context), run a 2-tick toy epic in a scratch repo from an orchestrator inside herdr: one claude worker + one codex worker, each in its own herdr worktree, results collected via commits + RESULT.md, wave merged, post-wave gate run. Also demonstrate fallback: same config outside a herdr session (or HERDR_ENV unset) routes to harness orchestration with an explicit message. Record a field report (like the existing prime-runner field reports) and fold every doc gap found back into the A1-A4 files as fixes within this tick.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "gjj"
+  ],
+  "parent": "ias",
+  "acceptance_criteria": "Toy epic completes with two different agent kinds; fallback demonstration recorded; field report committed; all discovered doc gaps fixed",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T09:45:54.966635Z",
+  "updated_at": "2026-08-11T09:45:54.966635Z"
+}
