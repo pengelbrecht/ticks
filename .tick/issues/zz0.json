@@ -2,6 +2,7 @@
   "id": "zz0",
   "title": "herdr-ticks mission-control plugin",
   "description": "Layer 3. A herdr plugin (herdr-plugin.toml) making runs visible and steerable: board pane (live epic dashboard - waves, tick status, worker states - driven by plugin event hooks + tk state), metadata painting via workspace/pane report_metadata (titles like '42i - implement - wave 2/3', TTL token badges for tests/diff size), notification.show with distinct sounds for wave-complete vs worker-blocked, plugin actions (retry tick, open worktree, merge wave, escalate model), link handlers making tick IDs clickable. Distribution: herdr plugin install pengelbrecht/ticks/\u003csubdir\u003e. Rough deliverables: plugin manifest + board TUI + hook scripts + actions + install docs.",
+  "notes": "2026-08-11 18:54 - Branch strategy: epic/zz0 stacked on epic/gyz (PR #38) which stacks on epic/ias (PR #37). Base recorded main.",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -11,7 +12,8 @@
   ],
   "parent": "t63",
   "acceptance_criteria": "During a live epic run: board pane updates in real time from events (not polling); worker workspaces carry tick metadata badges; a blocked worker raises a request-sound notification; retry/open-worktree/merge actions work from the herdr UI; plugin installs cleanly via herdr plugin install on a machine that has tk.",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:19.830486Z",
-  "updated_at": "2026-08-11T09:45:19.830486Z"
+  "updated_at": "2026-08-11T16:54:03.618869Z"
 }
