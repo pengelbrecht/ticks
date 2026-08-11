@@ -439,6 +439,9 @@ func ResetFlags() {
 	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
 	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
 
+	// Reset herd reconcile flags
+	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
+
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false
