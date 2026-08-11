@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ticks.sh/schemas/runners-config.schema.json",
+  "title": "Ticks runners configuration (.tick/runners.toml)",
+  "description": "Routing configuration for the ticks agent runner: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which agent kind + model args serve each task role and capability tier. Parse the TOML file, then validate the resulting object against this schema. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Config format version. Omitted means 1. A reader that does not recognise the value must stop rather than guess."
+    },
+    "orchestrator": {
+      "$ref": "#/$defs/Orchestrator"
+    },
+    "orchestration": {
+      "$ref": "#/$defs/Orchestration"
+    },
+    "roles": {
+      "$ref": "#/$defs/Roles"
+    }
+  },
+  "required": ["roles"],
+  "$defs": {
+    "Kind": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "A herdr agent kind, i.e. the value passed to `herdr agent start --kind` (claude, codex, gemini, pi, cursor, amp, opencode, droid, grok, ...). The installed herdr binary is the authority on the valid list; run `herdr agent` to see it. Per-kind spawn and full-auto argument templates live in herdr-kinds.md."
+    },
+    "Args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Native agent arguments, passed through verbatim after the `--` separator of `herdr agent start`. One argv element per array entry; never a single pre-joined shell string. See herdr-kinds.md for the per-kind spawn and full-auto templates these extend."
+    },
+    "Harness": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Name of the runner adapter that plays the orchestrator role when orchestration happens through the harness's native subagent primitive: claude, codex, pi, or prime (see the matching <harness>-runner.md). Used for the harness fallback path and for documentation; the orchestrator's actually running harness always wins over this value if they disagree."
+    },
+    "Orchestrator": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Preferred home for the orchestrator role. Advisory: whatever agent is executing the run is the orchestrator. These values say which harness/kind the run is intended for, so a mismatch can be reported instead of silently changing routing.",
+      "properties": {
+        "harness": { "$ref": "#/$defs/Harness" },
+        "kind": { "$ref": "#/$defs/Kind" },
+        "args": { "$ref": "#/$defs/Args" }
+      },
+      "anyOf": [
+        { "required": ["harness"] },
+        { "required": ["kind"] }
+      ]
+    },
+    "Orchestration": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How workers are dispatched for this repo.",
+      "properties": {
+        "substrate": {
+          "type": "string",
+          "enum": ["herdr", "harness", "auto"],
+          "default": "auto",
+          "description": "Which dispatch substrate to use. `herdr`: spawn workers as herdr panes/worktrees; if herdr is unavailable, state the degradation to the user and fall back to harness orchestration rather than failing the run. `harness`: always use the harness's native subagent adapter, even inside a herdr pane. `auto` (default): use herdr when available, otherwise the harness adapter, without prompting. Availability is defined by orchestration.detect."
+        },
+        "detect": {
+          "type": "string",
+          "enum": ["env-or-socket", "env", "socket"],
+          "default": "env-or-socket",
+          "description": "Which availability probes count as \"herdr is available\". `env`: the orchestrator runs inside a herdr-managed pane (HERDR_ENV=1). `socket`: the herdr socket is reachable (orchestration.socket, default ~/.herdr/herdr.sock). `env-or-socket` (default): either probe succeeding is enough. Probes are read-only and must never start a herdr server."
+        },
+        "socket": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the herdr socket used by the `socket` probe. Defaults to ~/.herdr/herdr.sock. A leading ~ is expanded."
+        },
+        "max_parallel": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of workers dispatched concurrently in one wave. Omitted means the adapter's own default."
+        },
+        "worktree_branch_prefix": {
+          "type": "string",
+          "minLength": 1,
+          "default": "tick/",
+          "description": "Branch prefix for worker worktrees created by `herdr worktree create` (branch = <prefix><tick-id>). Ignored under harness orchestration, where the harness names branches."
+        },
+        "full_auto": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether workers start with their kind's full-auto argument template (herdr-kinds.md). When false, workers start interactive and every approval becomes a human escalation."
+        }
+      }
+    },
+    "Roles": {
+      "type": "object",
+      "description": "Task role -> agent routing. Keys are role names. Well-known roles: plan, scout, implement, review, closeout. Custom role names are allowed; a role the orchestrator does not have an entry for falls back to `implement`.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/Role" },
+      "required": ["implement"]
+    },
+    "Role": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Routing for one task role: the agent kind to spawn and its native model/effort arguments, optionally varied per capability tier.",
+      "properties": {
+        "kind": { "$ref": "#/$defs/Kind" },
+        "args": { "$ref": "#/$defs/Args" },
+        "harness": {
+          "$ref": "#/$defs/Harness",
+          "description": "Optional note of which runner adapter this role's kind corresponds to. Purely documentary; routing uses `kind`."
+        },
+        "tiers": { "$ref": "#/$defs/Tiers" }
+      },
+      "required": ["kind"]
+    },
+    "Tiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Capability-tier variants for a role, using the shared tier vocabulary from agent-runner.md. A tier that is absent resolves to the role's own kind + args. A tier entry omitting `kind` inherits the role's kind; a tier entry with `args` replaces the role's args wholesale (arguments are never merged).",
+      "properties": {
+        "economy": { "$ref": "#/$defs/TierVariant" },
+        "balanced": { "$ref": "#/$defs/TierVariant" },
+        "strong": { "$ref": "#/$defs/TierVariant" },
+        "frontier": { "$ref": "#/$defs/TierVariant" }
+      }
+    },
+    "TierVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One tier's overrides for a role.",
+      "properties": {
+        "kind": { "$ref": "#/$defs/Kind" },
+        "args": { "$ref": "#/$defs/Args" }
+      },
+      "anyOf": [
+        { "required": ["kind"] },
+        { "required": ["args"] }
+      ]
+    }
+  }
+}
