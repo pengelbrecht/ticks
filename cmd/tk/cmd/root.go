@@ -451,6 +451,9 @@ func ResetFlags() {
 	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
 	herdCleanupPreview, herdCleanupApply = false, false
 
+	// Reset herd paint flags
+	herdPaintEpic, herdPaintTick, herdPaintSocket, herdPaintTTLMs, herdPaintSeq, herdPaintDryRun, herdPaintJSON = "", "", "", defaultHerdPaintTTLMs, 0, false, false
+
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false

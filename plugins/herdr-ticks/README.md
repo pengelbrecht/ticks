@@ -14,7 +14,7 @@ Scaffold. What ships today:
 | --- | --- | --- |
 | `[[panes]]` | `dashboard` | **Working** — launches `tk herd dashboard`, the live read-only run board |
 | `[[actions]]` | `open-tick-board` | **Working** — finds/opens the `tk board` web UI |
-| `[[events]]` | `workspace.renamed` | Inert no-op — shape template for tick `sku` |
+| `[[events]]` | 5 hooks → `paint-hook.sh` | **Working** — badges herd workspaces with tick id, role and status |
 
 ## Install
 
@@ -101,4 +101,48 @@ plugins/herdr-ticks/
     dashboard.sh                 [[panes]] dashboard — launches `tk herd dashboard`
     open-tick-board.sh           [[actions]] open-tick-board
     events-noop.sh               [[events]] inert template for tick sku
+    paint-hook.sh                [[events]] runs `tk herd paint` on the badge-relevant events
 ```
+
+## Workspace badges
+
+The event hooks run `tk herd paint`, which reports **display-only** metadata for every
+herdr workspace the invoking repo's herd run owns:
+
+| Target | What is painted | herdr method |
+| --- | --- | --- |
+| the worker's agent pane | title `<tick-id> · <role> · <status>`, a state label for the live agent status, token badges | `pane.report_metadata` |
+| the worker's workspace | the same facts as tokens (`TICK`, `ROLE`, `EPIC`, `STATUS`) | `workspace.report_metadata` |
+
+The split is herdr's: a **pane** carries a title, state labels and tokens; a **workspace**
+carries **tokens only**. Both are painted from one badge so they cannot disagree.
+
+Three properties make this safe to run on every event:
+
+- **Display-only.** Nothing renames a pane, moves focus, or touches an agent.
+- **Sourced.** Every report is namespaced (`tk-herd-paint`), so a paint can only ever
+  overwrite this run's own previous paint — never another plugin's.
+- **TTL'd** (90s default). Stop painting and herdr drops the badges by itself. There is
+  no unpaint step to forget, and a dead run leaves no stale tick ids on the session.
+
+Only workspaces named by the run's own manifests (`.tick/logs/herd/`) are ever painted.
+`tk herd paint` reads `.tick/` read-only and never shells out to another `tk`.
+
+`paint-hook.sh` resolves `tk` from `$TK_BIN_PATH`, then
+`$HERDR_PLUGIN_CONFIG_DIR/tk-bin-path`, then `PATH`. The middle step matters: **herdr's
+server does not inherit your interactive shell's `PATH`**, so a `tk` in `~/.local/bin`
+can be installed and still invisible to a hook. Point at it once with
+
+```sh
+echo "$(command -v tk)" > "$(herdr plugin config-dir pengelbrecht.herdr-ticks)/tk-bin-path"
+```
+
+**The debounce is load-bearing.** Measured live: a `pane.report_metadata` carrying a title
+or state labels makes herdr emit `pane.agent_status_changed` for that pane — one of the
+hooked events. A paint therefore re-triggers the hook once; the bounce lands within
+milliseconds, inside the debounce window, and the loop stops. Do not set
+`TICKS_PAINT_DEBOUNCE_SECONDS=0`.
+
+The hook exits 0 and prints why
+in any repo with no `.tick/` or no run in flight, and debounces bursts
+(`$TICKS_PAINT_DEBOUNCE_SECONDS`, default 2s).

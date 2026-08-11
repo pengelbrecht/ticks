@@ -108,6 +108,7 @@ func printUsage() {
 	fmt.Println("  tk herd collect <id>          Verify a worker's durable result: commits, RESULT, boundary")
 	fmt.Println("  tk herd cleanup <id>          Preview (or --apply) teardown: workspace, branch, manifest")
 	fmt.Println("  tk herd dashboard             Live read-only board of a run: waves, ticks, worker states")
+	fmt.Println("  tk herd paint --epic <id>     Badge the run's herdr workspaces with tick id, role and status")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")
