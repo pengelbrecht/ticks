@@ -2,7 +2,7 @@
   "id": "9je",
   "title": "Wait fan-in test gaps",
   "description": "gyz review finding 8, on top of herdtest: duplicate terminal events for one pane (three-subscription design guarantees them — pin settle dedupe + OnSettle-once), stream death after partial delivery (mid-wave), stray non-status events reaching consume ignore paths. Also add a local deadline to the client idempotent-close drain loop (review nit v) so a regression fails by name, not package timeout.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +13,6 @@
   "acceptance_criteria": "All three gap scenarios pinned; drain loop failure is a named assertion",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:04.925334Z",
-  "updated_at": "2026-08-11T16:53:04.925334Z"
+  "updated_at": "2026-08-11T17:11:47.165589Z",
+  "started_at": "2026-08-11T17:11:47.165588Z"
 }
