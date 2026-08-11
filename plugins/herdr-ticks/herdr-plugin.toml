@@ -25,15 +25,18 @@ min_herdr_version = "0.8.0"
 description = "Ticks issue tracking inside herdr: a mission-control dashboard pane and tick board actions."
 platforms = ["macos", "linux"]
 
-# The mission-control dashboard pane.
+# The mission-control dashboard pane: `tk herd dashboard`, a read-only bubbletea
+# board of the run — the epic's waves and ticks beside the workers herdr is running,
+# updated by pushed pane.agent_status_changed events rather than polling.
 #
-# PLACEHOLDER: the real dashboard lands in tick m05. Until then this pane prints a
-# banner and stays open, so the pane wiring (id/title/placement) is exercisable today.
+# The command is argv-only and runs with cwd = this directory, so the script (not the
+# manifest) resolves the user's repo from HERDR_PLUGIN_CONTEXT_JSON and locates the
+# `tk` binary. See scripts/dashboard.sh and README.md.
 [[panes]]
 id = "dashboard"
 title = "Ticks"
 placement = "split"
-command = ["bash", "scripts/dashboard-placeholder.sh"]
+command = ["bash", "scripts/dashboard.sh"]
 
 # Open the ticks board (the local web UI served by `tk board`) for the invoking repo.
 # Works today: reports the board URL, opens it when a board is already listening, and

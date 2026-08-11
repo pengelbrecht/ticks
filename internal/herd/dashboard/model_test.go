@@ -1,0 +1,338 @@
+package dashboard
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/muesli/termenv"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/tick"
+)
+
+// The model is driven entirely by synthetic messages here: no socket, no
+// goroutine, no clock. That is deliberate — teatest goldens over this view
+// would have to stand up a herdtest socket and a temp repo per frame, and the
+// frame's content is dominated by ids and timings a golden would have to
+// normalise away. The model tests below assert the behaviour a golden would
+// only imply (that a pushed event, and nothing else, moves a status), so the
+// goldens are not carried. See the report notes on this choice.
+
+// pinProfile fixes the color profile so View() output carries no escape
+// sequences and substring assertions are legible.
+func pinProfile(t *testing.T) {
+	t.Helper()
+	before := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(before) })
+}
+
+// testModel builds a model with no herd client (so nothing starts a goroutine)
+// and a frozen clock.
+func testModel(t *testing.T) *Model {
+	t.Helper()
+	m := New(t.Context(), Config{
+		RepoRoot:        t.TempDir(),
+		Epic:            "zz0",
+		RefreshInterval: -1,
+		Now:             func() time.Time { return fixedTime },
+	})
+	t.Cleanup(m.Close)
+	m.width, m.height = 120, 40
+	return m
+}
+
+// boardSnapshot is a two-worker board at the frozen clock.
+func boardSnapshot() Snapshot {
+	return Snapshot{
+		RepoRoot: "/repo",
+		Epic:     "zz0",
+		LoadedAt: fixedTime,
+		Epics: []EpicBoard{{
+			Epic:  "zz0",
+			Title: "mission control",
+			Waves: []WaveRow{
+				{Number: 1, Ticks: []TickRow{
+					{ID: "m05", Title: "dashboard pane", Status: tick.StatusInProgress, PaneID: "w1:p1", Agent: "tick-m05"},
+				}},
+				{Number: 2, Ticks: []TickRow{
+					{ID: "o83", Title: "paint hook", Status: tick.StatusOpen, Blocked: true, PaneID: "w1:p2", Agent: "tick-o83"},
+				}},
+			},
+			Workers: []WorkerRow{
+				{Tick: "m05", Agent: "tick-m05", PaneID: "w1:p1", Kind: "claude", Branch: "tick/m05", Status: client.StatusWorking},
+				{Tick: "o83", Agent: "tick-o83", PaneID: "w1:p2", Kind: "claude", Branch: "tick/o83", Status: client.StatusIdle},
+			},
+		}},
+	}
+}
+
+func apply(m *Model, msg tea.Msg) tea.Cmd {
+	_, cmd := m.Update(msg)
+	return cmd
+}
+
+func TestSnapshotRendersWavesTicksAndWorkers(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	view := m.View()
+	for _, want := range []string{
+		"Ticks mission control", "epic zz0", "mission control",
+		"wave 1", "wave 2", "m05", "dashboard pane", "o83", "paint hook",
+		"workers", "tick/m05", "claude", "2 workers",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// The load-bearing behaviour: a pushed status event alone changes what the
+// board shows. No re-list happens in this test — the ticker is disabled and
+// there is no herd client — so nothing but the event could have moved it.
+func TestPushedEventUpdatesStatusWithoutReload(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	if got := m.Status("w1:p1", client.StatusUnknown); got != client.StatusUnknown {
+		t.Fatalf("overlay pre-seeded with %q, want nothing before any event", got)
+	}
+	before := m.View()
+	if !strings.Contains(before, "working") {
+		t.Fatalf("snapshot status not rendered:\n%s", before)
+	}
+
+	apply(m, StatusMsg{PaneID: "w1:p1", Status: client.StatusBlocked, At: fixedTime.Add(time.Second)})
+
+	if got := m.Status("w1:p1", client.StatusWorking); got != client.StatusBlocked {
+		t.Errorf("status after event = %q, want blocked", got)
+	}
+	if m.Events() != 1 {
+		t.Errorf("Events() = %d, want 1", m.Events())
+	}
+	after := m.View()
+	if !strings.Contains(after, "blocked") {
+		t.Errorf("view did not pick up the pushed status:\n%s", after)
+	}
+	if !strings.Contains(after, "1 blocked") {
+		t.Errorf("header counts did not follow the event:\n%s", after)
+	}
+}
+
+// Every event message must re-arm the channel read, or the board goes deaf
+// after one event.
+func TestEventMessagesReArmTheWatcher(t *testing.T) {
+	m := testModel(t)
+	for _, msg := range []tea.Msg{
+		StatusMsg{PaneID: "w1:p1", Status: client.StatusDone},
+		StreamMsg{Up: true, Panes: 2},
+		ReloadMsg{},
+	} {
+		if cmd := apply(m, msg); cmd == nil {
+			t.Errorf("%T produced no follow-up command; the watcher read is not re-armed", msg)
+		}
+	}
+}
+
+// A newer listing supersedes an older event; an event that arrived DURING the
+// load does not get thrown away.
+func TestSnapshotSupersedesOlderEventsOnly(t *testing.T) {
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	stale := StatusMsg{PaneID: "w1:p1", Status: client.StatusBlocked, At: fixedTime.Add(-time.Minute)}
+	fresh := StatusMsg{PaneID: "w1:p2", Status: client.StatusDone, At: fixedTime.Add(time.Minute)}
+	apply(m, stale)
+	apply(m, fresh)
+
+	newer := boardSnapshot()
+	newer.LoadedAt = fixedTime
+	apply(m, SnapshotMsg{Snapshot: newer})
+
+	if got := m.Status("w1:p1", client.StatusWorking); got != client.StatusWorking {
+		t.Errorf("stale event survived the re-list: status = %q, want working", got)
+	}
+	if got := m.Status("w1:p2", client.StatusIdle); got != client.StatusDone {
+		t.Errorf("in-flight event was dropped by the re-list: status = %q, want done", got)
+	}
+}
+
+// A worker leaving the board must not leave its status behind.
+func TestOverlayDropsVanishedPanes(t *testing.T) {
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+	apply(m, StatusMsg{PaneID: "w1:p2", Status: client.StatusDone, At: fixedTime.Add(time.Minute)})
+
+	shrunk := boardSnapshot()
+	shrunk.Epics[0].Workers = shrunk.Epics[0].Workers[:1]
+	apply(m, SnapshotMsg{Snapshot: shrunk})
+
+	if got := m.Status("w1:p2", client.StatusUnknown); got != client.StatusUnknown {
+		t.Errorf("status kept for a pane no longer on the board: %q", got)
+	}
+}
+
+func TestFailedLoadKeepsPreviousBoard(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+	apply(m, SnapshotMsg{Err: errTest})
+
+	view := m.View()
+	if !strings.Contains(view, "dashboard pane") {
+		t.Errorf("board blanked on a failed reload:\n%s", view)
+	}
+	if !strings.Contains(view, "load: boom") {
+		t.Errorf("load error not surfaced:\n%s", view)
+	}
+}
+
+func TestStreamHealthIsRendered(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	apply(m, StreamMsg{Up: true, Panes: 2})
+	if v := m.View(); !strings.Contains(v, "events live (2 panes)") {
+		t.Errorf("live stream not reported:\n%s", v)
+	}
+	apply(m, StreamMsg{Up: false, Panes: 2, Err: errTest})
+	if v := m.View(); !strings.Contains(v, "events down") {
+		t.Errorf("stream outage not reported:\n%s", v)
+	}
+}
+
+func TestCursorNavigationAndSelection(t *testing.T) {
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	sel, ok := m.Selected()
+	if !ok || sel.ID != "m05" {
+		t.Fatalf("initial selection = %q (%v), want m05", sel.ID, ok)
+	}
+	apply(m, key("j"))
+	if sel, _ = m.Selected(); sel.ID != "o83" {
+		t.Errorf("after j selection = %q, want o83", sel.ID)
+	}
+	// Clamped at the end, not wrapped: a board is a list, not a carousel.
+	apply(m, key("j"))
+	if sel, _ = m.Selected(); sel.ID != "o83" {
+		t.Errorf("selection ran past the end: %q", sel.ID)
+	}
+	apply(m, key("k"))
+	apply(m, key("k"))
+	if sel, _ = m.Selected(); sel.ID != "m05" {
+		t.Errorf("selection ran past the start: %q", sel.ID)
+	}
+
+	// The seam tick 5yt hangs actions off.
+	w, ok := m.Worker("m05")
+	if !ok || w.PaneID != "w1:p1" {
+		t.Errorf("Worker(m05) = %+v, %v; want the manifest's pane", w, ok)
+	}
+	if _, ok := m.Worker("nope"); ok {
+		t.Error("Worker returned a row for an unspawned tick")
+	}
+}
+
+// The cursor must survive a board that shrank under it.
+func TestCursorClampsOnSmallerSnapshot(t *testing.T) {
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+	apply(m, key("G"))
+
+	shrunk := boardSnapshot()
+	shrunk.Epics[0].Waves = shrunk.Epics[0].Waves[:1]
+	apply(m, SnapshotMsg{Snapshot: shrunk})
+
+	sel, ok := m.Selected()
+	if !ok || sel.ID != "m05" {
+		t.Errorf("selection = %q (%v) after the board shrank, want m05", sel.ID, ok)
+	}
+}
+
+func TestQuitKeys(t *testing.T) {
+	for _, k := range []string{"q", "esc", "ctrl+c"} {
+		m := testModel(t)
+		cmd := apply(m, key(k))
+		if cmd == nil {
+			t.Fatalf("%q produced no command, want tea.Quit", k)
+		}
+		if msg := cmd(); msg == nil {
+			t.Fatalf("%q command produced no message", k)
+		} else if _, ok := msg.(tea.QuitMsg); !ok {
+			t.Errorf("%q produced %T, want tea.QuitMsg", k, msg)
+		}
+		if !m.Quitting() {
+			t.Errorf("%q did not mark the model quitting", k)
+		}
+		if m.View() != "" {
+			t.Errorf("%q left a frame behind after quitting", k)
+		}
+		m.Close()
+	}
+}
+
+func TestReloadKeyRequestsASnapshot(t *testing.T) {
+	m := testModel(t)
+	if apply(m, key("r")) == nil {
+		t.Error("r produced no reload command")
+	}
+}
+
+func TestEmptyBoardExplainsItself(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: Snapshot{RepoRoot: "/repo", LoadedAt: fixedTime}})
+	if v := m.View(); !strings.Contains(v, "no epics with run state") {
+		t.Errorf("empty board did not explain itself:\n%s", v)
+	}
+}
+
+// A narrow pane must not produce lines wider than the terminal, or herdr's
+// split wraps the board into unreadable noise.
+func TestViewRespectsTerminalSize(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	m.width, m.height = 40, 12
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	view := m.View()
+	for _, line := range strings.Split(view, "\n") {
+		if w := lipgloss.Width(line); w > 40 {
+			t.Errorf("line %d cells wide in a 40-cell terminal: %q", w, line)
+		}
+	}
+	if n := len(strings.Split(view, "\n")); n > 12 {
+		t.Errorf("view is %d lines in a 12-line terminal", n)
+	}
+}
+
+func key(s string) tea.KeyMsg {
+	switch s {
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "ctrl+c":
+		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+}
+
+// errTest is the stand-in failure the error-path tests assert on.
+var errTest = testErr("boom")
+
+type testErr string
+
+func (e testErr) Error() string { return string(e) }
