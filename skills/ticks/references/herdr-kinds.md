@@ -13,6 +13,8 @@ Two of those — **claude** and **codex** — are verified below as tick impleme
 
 ## The spawn contract
 
+**In a tick run you do not type these calls: `tk herd spawn` does, and it also handles the startup races and the content gate that the raw sequence leaves to you ([`herdr-runner.md`](herdr-runner.md#the-helper-tk-herd)).** The contract below is what the helper implements and what you need when *verifying a new kind* — the loop in [Adding a kind](#adding-a-kind) is exactly this, run by hand in a scratch pane.
+
 Herdr does not launch processes out of nowhere. A worker is a **pane running the agent's own CLI**, and Herdr attaches lifecycle tracking to it:
 
 ```bash
@@ -48,6 +50,8 @@ Everything in that table was read from the CLIs' own `--help` and then round-tri
 ## Model and effort translation
 
 `.tick/runners.toml` specifies a worker along **two dimensions**: `kind` (the harness — this file's subject) and `model` + optional `effort` (the capability). Those two fields are kind-neutral in the config and are **compiled by the spawner** into the kind's native argv. This section is the translation table; the config-side rules live in [`runners-config.md`](runners-config.md).
+
+The spawner under this substrate is `tk herd spawn`: the compilation below, its fixed argv order, and the fail-closed refusal further down are implemented there, and the argv herdr echoed on `agent_started` is recorded in the run-state manifest as the ground truth for what actually landed.
 
 Compiled argv order is fixed: **full-auto template → compiled `model`/`effort` flags → `args` verbatim.**
 
@@ -89,6 +93,8 @@ Do not treat any model string here as durable. These are dated observations; `pi
 **The schema validates shape; the spawner enforces compatibility.** `runners-config.schema.json` cannot enumerate model families — they are open-ended and change between releases — so `kind = "claude"` with `model = "gpt-5.6-luna"` is a perfectly *valid* config document. It is still an impossible cell.
 
 **Rule: before spawning, check the model against the kind's accepted family. On a mismatch, refuse the spawn with a clear message naming the role/tier, the kind, and the model — and never silently reroute** to a kind that would accept the model, never drop the model and fall back to the CLI's default. Both of those turn a config bug into a run that quietly did the wrong work on the wrong vendor.
+
+`tk herd spawn` enforces this, and enforces it **before it dials herdr** — verified live: the refusal below exits 1 having made zero herdr calls, so no workspace, worktree, branch or manifest exists to clean up afterwards.
 
 ```text
 .tick/runners.toml [roles.implement.tiers.strong]: kind = "claude" cannot run
@@ -239,7 +245,7 @@ $ herdr pane read <pane-id>
 
 An invalid model name produced a clean start, a clean prompt, and a settled `idle` state — with zero work done. Lifecycle state describes the *terminal*, not the *turn*.
 
-**Rule: gate a worker on the content of its first round-trip, not on its lifecycle status.** Send a trivial prompt whose answer you can pattern-match (`Reply with the single word OK`) and read the pane for the answer before handing it a tick. This is cheap and it catches the whole class of model-name, auth, and quota failures that otherwise surface as a silently empty implementer report an hour later.
+**Rule: gate a worker on the content of its first round-trip, not on its lifecycle status.** Send a trivial prompt whose answer you can pattern-match (`Reply with the single word OK`) and read the pane for the answer before handing it a tick. This is cheap and it catches the whole class of model-name, auth, and quota failures that otherwise surface as a silently empty implementer report an hour later. `tk herd spawn` performs this gate on every worker and fails the spawn with a pane excerpt when it does not pass — so under the helper the trap is closed by construction; the rule still matters when you are verifying a kind by hand.
 
 **A second, unrelated failure hides behind the same green response: the first prompt can simply not land.** Observed on both verified kinds in one wave — `herdr agent prompt … --wait --timeout 120000` returned a normal `agent_prompted` with a settled status while the pane still showed an untouched composer (claude's empty `❯`, codex's `› Improve documentation in @filename` placeholder) and no echo of the prompt text. The CLI was still painting its startup UI when herdr, having already seen `interactive_ready: true`, submitted. Re-sending the identical prompt worked immediately for both. Tell the two apart by reading the pane: **no echo of your prompt → re-send it; your prompt echoed with an error or no answer → the green-start trap, kill and fix the routing.** `herdr-runner.md`'s first-round-trip gate carries the same split.
 

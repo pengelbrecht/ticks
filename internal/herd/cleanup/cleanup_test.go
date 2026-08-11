@@ -245,7 +245,9 @@ func TestRefusesUnmergedBranch(t *testing.T) {
 	}
 }
 
-func TestRefusesLiveWorker(t *testing.T) {
+// TestRefusesWorkingWorker pins the surviving half of the liveness rule: an
+// agent that is mid-turn may be about to commit, so nothing is removed.
+func TestRefusesWorkingWorker(t *testing.T) {
 	repo, base := newRepo(t)
 	workerBranch(t, repo, "tick/nhk", base, true)
 	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
@@ -276,7 +278,7 @@ func TestRefusesRespawnedWorkerByPrefix(t *testing.T) {
 	workerBranch(t, repo, "tick/nhk", base, true)
 	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
 	srv := newFakeHerd(t)
-	srv.setAgents(agent("tick-nhk-r2", "idle"))
+	srv.setAgents(agent("tick-nhk-r2", "working"))
 
 	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
 	if err != nil {
@@ -288,6 +290,146 @@ func TestRefusesRespawnedWorkerByPrefix(t *testing.T) {
 	}
 	if !strings.Contains(p.Detail, "tick-nhk-r2") {
 		t.Errorf("detail = %q, want it to name the live agent", p.Detail)
+	}
+}
+
+// TestSettledLiveWorkerOnMergedBranchIsCleaned pins the end-of-wave case that
+// a liveness-only refusal broke: an interactive agent CLI does not exit when
+// it finishes, so at cleanup time herdr still lists it. On a merged branch
+// that is the NORMAL state, and worktree.remove tears the agent down with the
+// workspace. Refusing here made the command unusable in its own happy path —
+// every tick of a live smoke run refused with live-worker after a clean merge.
+func TestSettledLiveWorkerOnMergedBranchIsCleaned(t *testing.T) {
+	for _, status := range []string{"idle", "done", "unknown"} {
+		t.Run(status, func(t *testing.T) {
+			repo, base := newRepo(t)
+			workerBranch(t, repo, "tick/nhk", base, true)
+			m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+			srv := newFakeHerd(t)
+			srv.setAgents(agent("tick-nhk", status))
+
+			plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			p := plans[0]
+			if p.Refused {
+				t.Fatalf("plan = %+v, want no refusal for a settled worker on a merged branch", p)
+			}
+			if !p.Applied {
+				t.Fatalf("plan was not applied: %+v", p)
+			}
+			if branchExists(repo, "tick/nhk") {
+				t.Error("the merged branch was not deleted")
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("the manifest survived a clean teardown: %v", err)
+			}
+			if len(srv.Removed()) != 1 {
+				t.Errorf("workspaces removed = %d, want 1", len(srv.Removed()))
+			}
+			var noted bool
+			for _, n := range p.Notes {
+				if strings.Contains(n, "still live") {
+					noted = true
+				}
+			}
+			if !noted {
+				t.Errorf("notes = %v, want the live-but-settled agent recorded", p.Notes)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Focus
+// ---------------------------------------------------------------------------
+
+// TestApplyRestoresStolenFocus pins the user-visible side effect: herdr moves
+// focus to a NEIGHBOURING workspace when one is removed, regardless of the
+// focus:false this run passed on the way in. Measured live — a teardown moved
+// the user's view off their own workspace and onto one the run had created.
+// The run that caused it is the only thing that knows where they were.
+func TestApplyRestoresStolenFocus(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	// The user is on w-user; removing the worker's workspace steals focus
+	// onto the run's own source-checkout workspace, w-src.
+	srv.setSession("w-user", "w-src", "w-user", "w-src")
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !plans[0].Applied {
+		t.Fatalf("plan was not applied: %+v", plans[0])
+	}
+	if got := srv.FocusCalls(); len(got) != 1 || got[0] != "w-user" {
+		t.Fatalf("workspace.focus calls = %v, want exactly [w-user]", got)
+	}
+	var noted bool
+	for _, n := range plans[0].Notes {
+		if strings.Contains(n, "restored focus to workspace w-user") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("notes = %v, want the focus restoration recorded", plans[0].Notes)
+	}
+}
+
+// TestApplyDoesNotTouchFocusWhenItDidNotMove pins that the restoration is a
+// repair, not a policy: a teardown that left focus alone calls nothing.
+func TestApplyDoesNotTouchFocusWhenItDidNotMove(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	srv.setSession("w-user", "", "w-user", "w-src")
+
+	if _, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := srv.FocusCalls(); len(got) != 0 {
+		t.Errorf("workspace.focus calls = %v, want none — focus never moved", got)
+	}
+}
+
+// TestApplyLeavesFocusAloneWhenTheFocusedWorkspaceIsGone pins that the run
+// never re-focuses a workspace it just removed: herdr's own choice stands.
+func TestApplyLeavesFocusAloneWhenTheFocusedWorkspaceIsGone(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	// The focused workspace before teardown is the worker's own, and it is
+	// not in the post-teardown workspace list.
+	srv.setSession("w-nhk", "w-src", "w-user", "w-src")
+
+	if _, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if got := srv.FocusCalls(); len(got) != 0 {
+		t.Errorf("workspace.focus calls = %v, want none — the focused workspace was removed", got)
+	}
+}
+
+// TestPreviewNeverTouchesFocus pins that a dry run stays a dry run.
+func TestPreviewNeverTouchesFocus(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	srv.setSession("w-user", "w-src", "w-user", "w-src")
+
+	if _, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, false)); err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	joined := strings.Join(srv.Methods(), ",")
+	if strings.Contains(joined, "workspace.focus") || strings.Contains(joined, "session.snapshot") {
+		t.Errorf("a preview called %s — it must only list agents", joined)
 	}
 }
 
@@ -338,7 +480,7 @@ func TestRefusalIsPerTick(t *testing.T) {
 	a, aPath := manifestOnDisk(t, repo, newManifest("aaa", "tick/aaa"))
 	b, bPath := manifestOnDisk(t, repo, newManifest("bbb", "tick/bbb"))
 	srv := newFakeHerd(t)
-	srv.setAgents(agent("tick-aaa", "idle"))
+	srv.setAgents(agent("tick-aaa", "working"))
 
 	plans, err := Run(t.Context(), srv.Client(t), Options{
 		RepoRoot:      repo,

@@ -26,6 +26,50 @@ const (
 	excerptLines = 20
 )
 
+// The startup races between `worktree.create` and a usable agent, measured
+// live against herdr 0.8.0 / protocol 19 (see
+// docs/design/herd-helper-smoke-report.md):
+//
+//  1. The pane is not a shell yet. `worktree.create` returns a root pane id
+//     within ~35ms, and `agent.start` against that pane fails outright with
+//     agent_pane_busy ("… is not an available shell") for the first few
+//     hundred milliseconds. Retried on that code alone.
+//
+//  2. The launch is accepted but PENDING. The same call can instead succeed
+//     immediately with `launch_pending: true`, `interactive_ready: false` and
+//     `agent_status: unknown` — herdr typed the command into the pane but has
+//     not detected the agent yet. `agent.prompt` against that agent fails with
+//     agent_not_ready ("… is not an active named agent"), and `agent.wait`
+//     does not help: the status reaches idle ~1s before readiness does.
+//     Measured convergence: interactive_ready at ~3.0s after the start.
+//
+// Both are startup races, not rejections, and both are bounded so a wedged
+// pane cannot hang a wave. Readiness has no push event, so it is the one place
+// this package samples rather than blocks — herdr's own CLI does the same
+// thing behind its blocking `herdr agent start`.
+const (
+	// paneReadyAttempts bounds agent.start retries on agent_pane_busy.
+	paneReadyAttempts = 12
+	// paneReadyBackoff is the delay between those retries, and between
+	// interactive-readiness samples.
+	paneReadyBackoff = 250 * time.Millisecond
+	// maxDispatchConfirm caps the wait for a dispatched implementer prompt
+	// to be observed as `working`. It is a confirmation, not the work: a
+	// worker that has not started a minute after the prompt landed is
+	// better reported than waited on.
+	maxDispatchConfirm = 60 * time.Second
+)
+
+// dispatchConfirmTimeout bounds the "did the prompt actually start the
+// worker" wait by the smaller of the caller's prompt timeout and
+// [maxDispatchConfirm].
+func dispatchConfirmTimeout(promptTimeout time.Duration) time.Duration {
+	if promptTimeout > 0 && promptTimeout < maxDispatchConfirm {
+		return promptTimeout
+	}
+	return maxDispatchConfirm
+}
+
 // Timeout defaults, in the shape herdr-runner.md's examples use.
 const (
 	DefaultStartupTimeout = 120 * time.Second
@@ -105,6 +149,12 @@ type Result struct {
 	// PromptWaited reports whether the implementer prompt blocked on the
 	// worker settling.
 	PromptWaited bool
+	// DispatchUnconfirmed reports that the implementer prompt was submitted
+	// but herdr never observed the worker start. The spawn is not failed on
+	// it — a trivial tick can finish before `working` is ever rendered — but
+	// a caller should say so, because it is also what a lost prompt looks
+	// like, and the durable layer is what settles the question.
+	DispatchUnconfirmed bool
 	// FinalStatus is the status of the last response seen.
 	FinalStatus client.AgentStatus
 }
@@ -184,8 +234,9 @@ func Run(ctx context.Context, c *client.Client, opts Options) (*Result, error) {
 		Kind:         opts.Kind,
 	}
 
-	// 2. Start the worker in that pane with the pre-ordered argv.
-	started, err := c.AgentStart(ctx, client.AgentStartParams{
+	// 2. Start the worker in that pane with the pre-ordered argv, retrying
+	//    only while the freshly created pane has not become a usable shell.
+	started, err := startWhenPaneReady(ctx, c, client.AgentStartParams{
 		Name:           opts.AgentName,
 		Kind:           opts.Kind,
 		PaneID:         res.PaneID,
@@ -198,6 +249,18 @@ func Run(ctx context.Context, c *client.Client, opts Options) (*Result, error) {
 	}
 	res.Argv = started.Argv
 	res.FinalStatus = started.Agent.AgentStatus
+
+	// 2b. A pending launch is not a started agent. Prompting one fails with
+	//     agent_not_ready, which the gate would report as a spawn failure for
+	//     a worker that was merely still coming up.
+	if !started.Agent.InteractiveReady {
+		ready, err := waitInteractiveReady(ctx, c, opts.AgentName, opts.StartupTimeout)
+		if err != nil {
+			return res, fmt.Errorf("herd/spawn: waiting for agent %q to become interactive in pane %s: %w",
+				opts.AgentName, res.PaneID, err)
+		}
+		res.FinalStatus = ready.AgentStatus
+	}
 
 	// 3. The gate. Lifecycle state proved nothing above; pane content does.
 	gated, attempts, err := runGate(ctx, c, opts, res.PaneID)
@@ -220,22 +283,46 @@ func Run(ctx context.Context, c *client.Client, opts Options) (*Result, error) {
 	// 4. The real implementer prompt.
 	if opts.Prompt != "" {
 		params := client.AgentPromptParams{Target: opts.AgentName, Text: opts.Prompt}
-		promptCtx := ctx
 		if opts.WaitForPrompt {
 			params.Wait = &client.AgentWaitOptions{
 				Until:   client.TerminalStatuses,
 				Timeout: opts.PromptTimeout,
 			}
 		} else {
-			// Fire-and-forget dispatch still needs a bound: a submission
-			// that hangs must not hang the wave.
-			var cancel context.CancelFunc
-			promptCtx, cancel = context.WithTimeout(ctx, opts.PromptTimeout)
-			defer cancel()
+			// Not fire-and-forget: dispatch is confirmed by waiting for the
+			// worker to START WORKING, which is cheap (about a second) and
+			// does not serialize the wave.
+			//
+			// Returning the instant the submission is accepted looks free
+			// and is not. The worker is still sitting in the settled state
+			// the gate left it in, so a `tk herd wait` issued moments later
+			// resolves it from its opening agent.list as ALREADY SETTLED and
+			// returns waited_ms: 0 — a wave that fans in before any of the
+			// work starts. Reproduced live: one worker of a two-worker wave
+			// came back `done` with waited_ms 0 and collected as
+			// missing-result while its agent was still reading the prompt.
+			params.Wait = &client.AgentWaitOptions{
+				Until:   []client.AgentStatus{client.StatusWorking},
+				Timeout: dispatchConfirmTimeout(opts.PromptTimeout),
+			}
 		}
-		info, err := c.AgentPrompt(promptCtx, params)
+		info, err := c.AgentPrompt(ctx, params)
 		if err != nil {
-			return res, fmt.Errorf("herd/spawn: submitting the implementer prompt to %q: %w", opts.AgentName, err)
+			// A dispatch-confirm wait that elapses, or a stall report, is
+			// not proof the prompt was lost — a worker can finish a trivial
+			// tick before herdr ever renders it `working`. Fall back to what
+			// herdr says the agent is now; the durable layer, not this call,
+			// is the completion authority.
+			if opts.WaitForPrompt || !(client.IsTimeout(err) || client.IsCode(err, client.CodeAgentPromptStalled)) {
+				return res, fmt.Errorf("herd/spawn: submitting the implementer prompt to %q: %w", opts.AgentName, err)
+			}
+			after, getErr := c.AgentGet(ctx, opts.AgentName)
+			if getErr != nil {
+				return res, fmt.Errorf("herd/spawn: submitting the implementer prompt to %q: %w", opts.AgentName, err)
+			}
+			res.DispatchUnconfirmed = true
+			res.FinalStatus = after.AgentStatus
+			return res, nil
 		}
 		res.PromptWaited = opts.WaitForPrompt
 		res.FinalStatus = info.AgentStatus
@@ -245,6 +332,70 @@ func Run(ctx context.Context, c *client.Client, opts Options) (*Result, error) {
 	}
 
 	return res, nil
+}
+
+// startWhenPaneReady calls agent.start, retrying ONLY while herdr reports
+// [client.CodeAgentPaneBusy] — the freshly created worktree pane has not
+// finished bringing its shell up yet.
+//
+// This is deliberately not a general retry. Every other failure (a bad kind, a
+// name collision, a missing pane) is returned on the first attempt, because
+// retrying those only delays a stop the operator has to act on anyway. The
+// last error is returned unchanged when the pane never becomes usable, so the
+// message an operator sees is still herdr's own.
+func startWhenPaneReady(ctx context.Context, c *client.Client, params client.AgentStartParams) (*client.AgentStarted, error) {
+	var err error
+	for attempt := 1; ; attempt++ {
+		var started *client.AgentStarted
+		started, err = c.AgentStart(ctx, params)
+		if err == nil {
+			return started, nil
+		}
+		if !client.IsCode(err, client.CodeAgentPaneBusy) || attempt >= paneReadyAttempts {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(paneReadyBackoff):
+		}
+	}
+}
+
+// waitInteractiveReady blocks until herdr reports the agent as interactive, or
+// until the deadline. It samples `agent.get` because readiness is not a
+// lifecycle status and therefore has no push event: an agent reaches
+// `agent_status: idle` about a second before `interactive_ready` flips, so
+// waiting on the status is a wait that returns too early.
+//
+// A deadline that elapses is an error carrying the last state seen, never a
+// silent continue: prompting a not-yet-interactive agent fails with
+// agent_not_ready, and reporting that as a gate failure would blame the model
+// routing for a startup race.
+func waitInteractiveReady(ctx context.Context, c *client.Client, name string, timeout time.Duration) (*client.AgentInfo, error) {
+	deadline := time.Now().Add(timeout)
+	var last *client.AgentInfo
+	for {
+		info, err := c.AgentGet(ctx, name)
+		if err == nil {
+			last = info
+			if info.InteractiveReady {
+				return info, nil
+			}
+		}
+		if time.Now().After(deadline) {
+			status := "no agent.get response"
+			if last != nil {
+				status = fmt.Sprintf("last status %s, launch_pending %v", last.AgentStatus, last.LaunchPending)
+			}
+			return nil, fmt.Errorf("herdr never reported interactive_ready within %s (%s)", timeout, status)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(paneReadyBackoff):
+		}
+	}
 }
 
 // runGate performs the first-round-trip content gate, re-sending once when the
@@ -262,9 +413,31 @@ func runGate(ctx context.Context, c *client.Client, opts Options, paneID string)
 			},
 		})
 		if err != nil {
-			return nil, attempt, fmt.Errorf("herd/spawn: gate prompt %d to %q: %w", attempt, opts.AgentName, err)
+			// agent_prompt_stalled is herdr saying "I saw no state change
+			// after submitting". It is NOT proof the prompt was dropped:
+			// live, a claude worker that answered the probe in under a
+			// second produced this error too, having settled before herdr's
+			// stall window closed — and a re-send on that evidence stalls
+			// again for the same reason. So this error decides nothing.
+			// Fall through to the pane, which is the documented arbiter of
+			// dropped-versus-answered, and let Classify rule.
+			if !client.IsCode(err, client.CodeAgentPromptStalled) {
+				return nil, attempt, fmt.Errorf("herd/spawn: gate prompt %d to %q: %w", attempt, opts.AgentName, err)
+			}
+			// The stalled call did not wait, so give the worker the settle
+			// the successful path gets before the pane is judged. A worker
+			// that never received anything is already settled and this
+			// returns at once.
+			if settled, werr := c.AgentWait(ctx, client.AgentWaitParams{
+				Target:  opts.AgentName,
+				Until:   client.TerminalStatuses,
+				Timeout: opts.GateTimeout,
+			}); werr == nil {
+				last = settled
+			}
+		} else {
+			last = info
 		}
-		last = info
 
 		read, err := c.PaneRead(ctx, client.PaneReadParams{
 			PaneID: paneID,

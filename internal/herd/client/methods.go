@@ -117,6 +117,29 @@ func (c *Client) WorktreeRemove(ctx context.Context, params WorktreeRemoveParams
 	return &out, nil
 }
 
+// WorkspaceFocus focuses a workspace.
+//
+// It exists for ONE purpose: putting focus back where it was. Closing or
+// removing a workspace moves herdr's focus to a neighbouring workspace, and it
+// does so whatever `focus: false` was passed on the way in — so a wave's
+// teardown silently drags the user's view onto a pane the run created and, on
+// the last close, onto whatever happens to be adjacent. Measured live; see
+// docs/design/herd-helper-smoke-report.md. Restoring focus is undoing the
+// run's own side effect, which is why the helper does it and why nothing else
+// here ever calls this.
+func (c *Client) WorkspaceFocus(ctx context.Context, workspaceID string) (*WorkspaceInfo, error) {
+	var out struct {
+		Workspace WorkspaceInfo `json:"workspace"`
+	}
+	params := struct {
+		WorkspaceID string `json:"workspace_id"`
+	}{workspaceID}
+	if err := c.call(ctx, MethodWorkspaceFocus, resultWorkspaceInfo, params, &out); err != nil {
+		return nil, err
+	}
+	return &out.Workspace, nil
+}
+
 // AgentStartParams are the parameters of agent.start.
 type AgentStartParams struct {
 	// Name is the herdr agent name for the pane. Required.

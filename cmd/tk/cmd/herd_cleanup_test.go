@@ -316,8 +316,8 @@ func TestHerdCleanupRefusals(t *testing.T) {
 		reason cleanup.Reason
 	}{
 		{"unmerged branch", false, nil, cleanup.UnmergedBranch},
-		{"live worker", true, []map[string]any{cleanupAgent("tick-nhk", "working")}, cleanup.LiveWorker},
-		{"respawned worker", true, []map[string]any{cleanupAgent("tick-nhk-r2", "idle")}, cleanup.LiveWorker},
+		{"working worker", true, []map[string]any{cleanupAgent("tick-nhk", "working")}, cleanup.LiveWorker},
+		{"respawned worker still working", true, []map[string]any{cleanupAgent("tick-nhk-r2", "working")}, cleanup.LiveWorker},
 		{"blocked worker", true, []map[string]any{cleanupAgent("tick-nhk", "blocked")}, cleanup.BlockedWorker},
 	}
 	for _, c := range cases {
@@ -392,7 +392,7 @@ func TestHerdCleanupWholeEpicRefusalIsPerTick(t *testing.T) {
 			herdWorktree(t, id, "STATUS: DONE\n")))
 	}
 	srv := newCleanupFakeHerd(t)
-	srv.setAgents(cleanupAgent("tick-aaa", "idle"))
+	srv.setAgents(cleanupAgent("tick-aaa", "working"))
 	buf, _ := captureHerdOutput(t)
 
 	err := ExecuteArgs([]string{"herd", "cleanup", "--epic", "gyz", "--socket", srv.path, "--apply", "--json"})

@@ -43,7 +43,32 @@ type fakeHerd struct {
 	removeErr string
 	removed   []string
 
+	// focus models herdr's real behaviour: removing a workspace moves focus
+	// to a neighbour. focused is the current focus, workspaces is what
+	// session.snapshot lists, and focusCalls records every workspace.focus.
+	focused    string
+	workspaces []string
+	focusSteal string
+	focusCalls []string
+
 	wg sync.WaitGroup
+}
+
+// setSession scripts the focus model. focused is what session.snapshot
+// reports; workspaces is the id list it carries; steal is where focus moves
+// the first time a workspace is removed (empty means focus does not move).
+func (s *fakeHerd) setSession(focused, steal string, workspaces ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.focused = focused
+	s.focusSteal = steal
+	s.workspaces = workspaces
+}
+
+func (s *fakeHerd) FocusCalls() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.focusCalls...)
 }
 
 func newFakeHerd(t *testing.T) *fakeHerd {
@@ -142,11 +167,46 @@ func (s *fakeHerd) serve(conn net.Conn) {
 		}
 		s.mu.Lock()
 		s.removed = append(s.removed, p.WorkspaceID)
+		// herdr moves focus to a neighbour when a workspace goes away.
+		if s.focusSteal != "" {
+			s.focused = s.focusSteal
+		}
 		s.mu.Unlock()
 		body = okLine(req.ID, map[string]any{
 			"type": "worktree_removed", "workspace_id": p.WorkspaceID,
 			"path": "/herdr/worktrees/repo/x", "forced": false,
 		})
+	case client.MethodSessionSnapshot:
+		s.mu.Lock()
+		ws := make([]map[string]any, 0, len(s.workspaces))
+		for _, id := range s.workspaces {
+			ws = append(ws, map[string]any{"workspace_id": id, "label": id,
+				"number": 1, "focused": id == s.focused, "pane_count": 1,
+				"tab_count": 1, "active_tab_id": id + ":t1", "agent_status": "idle"})
+		}
+		snap := map[string]any{"type": "session_snapshot", "snapshot": map[string]any{
+			"version": "0.8.0", "protocol": 19, "workspaces": ws,
+			"tabs": []any{}, "panes": []any{}, "agents": []any{}, "layouts": []any{},
+			"focused_workspace_id": s.focused,
+		}}
+		if s.focused == "" {
+			delete(snap["snapshot"].(map[string]any), "focused_workspace_id")
+		}
+		s.mu.Unlock()
+		body = okLine(req.ID, snap)
+	case client.MethodWorkspaceFocus:
+		var p struct {
+			WorkspaceID string `json:"workspace_id"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		s.mu.Lock()
+		s.focusCalls = append(s.focusCalls, p.WorkspaceID)
+		s.focused = p.WorkspaceID
+		s.mu.Unlock()
+		body = okLine(req.ID, map[string]any{"type": "workspace_info", "workspace": map[string]any{
+			"workspace_id": p.WorkspaceID, "label": p.WorkspaceID, "number": 1,
+			"focused": true, "pane_count": 1, "tab_count": 1,
+			"active_tab_id": p.WorkspaceID + ":t1", "agent_status": "idle"}})
 	default:
 		body = errLine(req.ID, client.CodeInvalidRequest, "unexpected method "+req.Method)
 	}

@@ -242,6 +242,13 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitIO, "%v", err)
 	}
 
+	if res.DispatchUnconfirmed {
+		fmt.Fprintf(errOut, "warning: the implementer prompt was submitted to %s but herdr never observed it start working "+
+			"(status %s). That is what a fast trivial tick looks like AND what a lost prompt looks like — "+
+			"let 'tk herd collect' settle it, and read the pane if the branch stays empty.\n",
+			res.AgentName, res.FinalStatus)
+	}
+
 	note := state.NoteLine(m)
 	if herdSpawnJSON {
 		writeJSONLine(out, struct {

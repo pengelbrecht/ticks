@@ -26,6 +26,38 @@
 //
 // A second dropped probe is treated as the second case, per the adapter.
 //
+// # Three startup races, all measured live
+//
+// A worker is not usable the moment `worktree.create` returns, and herdr does
+// not report that in one consistent way. [Run] absorbs all three so that the
+// gate's verdict is about routing rather than about timing; the measurements
+// are in docs/design/herd-helper-smoke-report.md.
+//
+//   - `agent.start` → `agent_pane_busy`. The root pane is not an interactive
+//     shell yet. Retried on that code alone, bounded.
+//   - `agent.start` succeeds with `launch_pending: true`. herdr typed the
+//     command but has not detected the agent; prompting fails with
+//     `agent_not_ready`, and waiting on lifecycle status does not help because
+//     the status reaches idle about a second before readiness. [Run] waits for
+//     `interactive_ready`.
+//   - `agent.prompt` → `agent_prompt_stalled`. herdr saw no state change after
+//     submitting. This does NOT mean the prompt was dropped: a worker that
+//     answered in under a second produced it too. The error decides nothing;
+//     the pane does.
+//
+// # Dispatch is confirmed, not fire-and-forget
+//
+// Without [Options.WaitForPrompt], the implementer prompt still waits for the
+// worker to reach `working`. Returning the instant the submission is accepted
+// leaves the worker in the settled state the gate left it in, and a
+// `tk herd wait` moments later resolves it from its opening agent.list as
+// already settled — a wave that fans in before any work starts. That was
+// reproduced live (one worker returned `waited_ms: 0` and collected as
+// missing-result). The confirmation costs about a second and does not
+// serialize the wave. A confirmation that times out is reported through
+// [Result.DispatchUnconfirmed] rather than failing the spawn: a trivial tick
+// can finish before `working` is ever rendered.
+//
 // # agent_session
 //
 // The native session id is captured after the gate, never at start: for codex

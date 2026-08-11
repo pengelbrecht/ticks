@@ -9,6 +9,8 @@ A worker is specified along **two explicit dimensions**, never as raw argv:
 
 The spawner compiles `model`/`effort` into that kind's native argv (`claude --model … --effort …`, `codex -m … -c model_reasoning_effort="…"`, `pi --model <provider>/<model>:<effort>`). The translation table, the model families each kind accepts, and the fail-closed rule for impossible combinations live in [`herdr-kinds.md`](herdr-kinds.md) → *[Model and effort translation](herdr-kinds.md#model-and-effort-translation)*; this document never restates them, nor the per-kind spawn and full-auto templates.
 
+**Under the herdr substrate, "the spawner" is `tk herd spawn`.** It loads this file, resolves the role/tier cell, compiles the argv, refuses an impossible cell *before dialling herdr*, and passes the result through verbatim — so everything this document specifies about resolution order, argv order and fail-closed behaviour is enforced code, not a convention an orchestrator has to remember. `tk herd spawn --role <role> --tier <tier>` is where a config choice actually takes effect; see [`herdr-runner.md`](herdr-runner.md#the-helper-tk-herd). Under harness orchestration the same structure is read by the active adapter, which cannot enforce it the same way.
+
 The file is optional. Without it, the active runner adapter behaves exactly as it does today: harness-native subagents, adapter-default tier mapping. `runners.toml` only ever *adds* routing choices.
 
 ## Where the schema lives
@@ -60,7 +62,7 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 | `detect` | `"env-or-socket"` \| `"env"` \| `"socket"` | `"env-or-socket"` | Which probes count as "herdr is available". |
 | `socket` | string | `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock` | Socket path used by the `socket` probe. |
 | `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. |
-| `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for `herdr worktree create` (branch = `<prefix><tick-id>`). Ignored under harness orchestration — there the harness names branches. |
+| `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for the worker branch (branch = `<prefix><tick-id>`). Read by `tk herd spawn`, `cleanup` and `reconcile`, so nothing downstream hardcodes `tick/`. Ignored under harness orchestration — there the harness names branches. |
 | `full_auto` | boolean | `true` | Start workers with their kind's full-auto arg template. When `false`, every approval prompt becomes a human escalation. |
 
 ### `[roles.<name>]`
@@ -116,6 +118,8 @@ Keep the tier's real meaning intact when you do this — the tier is chosen from
 `runners-config.schema.json` validates the **shape** of a config: that `kind`/`model` look like identifiers, that `effort` is one of the known levels, that no unknown keys are present. It cannot validate **compatibility** — whether *this* kind can run *that* model — because model families are open-ended and change with every vendor release, so enumerating them in a schema would guarantee a schema that is wrong within weeks.
 
 Compatibility is therefore enforced by the **spawner, at spawn time**, and it fails closed: an impossible cell (`kind = "claude"` with `model = "gpt-5.6-luna"`) is a config error the orchestrator must refuse with a message naming the role/tier, kind and model. It must **never** silently reroute to a kind that would accept the model, and never drop the model to fall back on the CLI's default. `herdr-kinds.md` → *[Fail closed on an impossible cell](herdr-kinds.md#fail-closed-on-an-impossible-cell)* carries the rule, the per-kind accepted families, and the message form. A config that passes the schema is not thereby routable.
+
+Under herdr, `tk herd spawn` performs that check and it is verified live: a `[roles.review]` of `kind = "claude"` with `model = "gpt-x"` exits 1 with the documented message, writes no plan to stdout, creates no branch and no manifest, and makes **zero herdr calls** — the routing is compiled before the socket is dialled, so a refusal cannot leave a half-made workspace behind.
 
 Under harness orchestration the `kind` values are inert (the harness spawns its own subagents), but the role/tier structure still applies: the adapter maps tier names to its own model classes or reasoning-effort settings, per `agent-runner.md`. `model`/`effort` are hints there, not commands — a harness cannot spawn another vendor's model.
 

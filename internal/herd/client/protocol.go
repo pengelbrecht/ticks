@@ -17,6 +17,7 @@ const (
 	MethodWorktreeCreate    = "worktree.create"
 	MethodWorktreeList      = "worktree.list"
 	MethodWorktreeRemove    = "worktree.remove"
+	MethodWorkspaceFocus    = "workspace.focus"
 	MethodAgentStart        = "agent.start"
 	MethodAgentPrompt       = "agent.prompt"
 	MethodAgentWait         = "agent.wait"
@@ -35,6 +36,7 @@ const (
 	resultWorktreeCreated     = "worktree_created"
 	resultWorktreeList        = "worktree_list"
 	resultWorktreeRemoved     = "worktree_removed"
+	resultWorkspaceInfo       = "workspace_info"
 	resultAgentStarted        = "agent_started"
 	resultAgentPrompted       = "agent_prompted"
 	resultAgentInfo           = "agent_info"
@@ -59,6 +61,20 @@ const (
 	CodePaneNotFound = "pane_not_found"
 	// CodeWorkspaceNotFound means the workspace id does not resolve.
 	CodeWorkspaceNotFound = "workspace_not_found"
+	// CodeAgentPaneBusy means agent.start's target pane is not sitting at an
+	// available shell prompt. Observed live as a STARTUP RACE: the pane
+	// worktree.create hands back is not a usable shell for the first few
+	// hundred milliseconds of its life, so an agent.start issued immediately
+	// after the create fails with this code and succeeds on a retry. It is
+	// therefore transient, not a rejection — see internal/herd/spawn.
+	CodeAgentPaneBusy = "agent_pane_busy"
+	// CodeAgentPromptStalled means agent.prompt observed no state change
+	// after submitting. It is herdr's own detection of the DROPPED FIRST
+	// PROMPT documented in skills/ticks/references/herdr-kinds.md: the CLI
+	// was still painting its startup UI and never received the text. The
+	// documented recovery is to send it again, so this code is transient on
+	// a first prompt — see internal/herd/spawn's gate.
+	CodeAgentPromptStalled = "agent_prompt_stalled"
 )
 
 // request is the wire request envelope.

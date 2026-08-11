@@ -18,6 +18,10 @@ import (
 type Herd interface {
 	AgentList(ctx context.Context) ([]client.AgentInfo, error)
 	WorktreeRemove(ctx context.Context, params client.WorktreeRemoveParams) (*client.WorktreeRemoved, error)
+	// SessionSnapshot and WorkspaceFocus exist only to preserve focus across
+	// the teardown — see [preserveFocus].
+	SessionSnapshot(ctx context.Context) (*client.SessionSnapshot, error)
+	WorkspaceFocus(ctx context.Context, workspaceID string) (*client.WorkspaceInfo, error)
 }
 
 // Action names one removable thing.
@@ -135,10 +139,69 @@ func Run(ctx context.Context, h Herd, opts Options) ([]Plan, error) {
 	if !opts.Apply {
 		return plans, nil
 	}
+
+	// Whose pane the user is looking at, before this teardown moves it.
+	focusBefore := focusedWorkspace(ctx, h)
+
 	for i := range plans {
 		apply(ctx, h, &plans[i])
 	}
+
+	if note := preserveFocus(ctx, h, focusBefore); note != "" && len(plans) > 0 {
+		plans[len(plans)-1].Notes = append(plans[len(plans)-1].Notes, note)
+	}
 	return plans, nil
+}
+
+// focusedWorkspace reads the currently focused workspace id, or "" if it
+// cannot be determined. A failure here is never fatal: focus is a courtesy,
+// and a teardown must not stop because the session snapshot was unreadable.
+func focusedWorkspace(ctx context.Context, h Herd) string {
+	snap, err := h.SessionSnapshot(ctx)
+	if err != nil || snap == nil || snap.FocusedWorkspaceID == nil {
+		return ""
+	}
+	return *snap.FocusedWorkspaceID
+}
+
+// preserveFocus puts the user's view back where it was.
+//
+// Removing a workspace moves herdr's focus to a NEIGHBOURING workspace, and it
+// does so regardless of the `focus: false` this run passed on the way in.
+// Measured live: with focus on the user's own workspace, removing one worker's
+// workspace moved focus onto the run's implicitly-opened source-checkout
+// workspace; closing that one in turn moved focus onto an unrelated workspace.
+// So a wave's teardown silently drags the user somewhere else, and the run
+// that caused it is the only thing that knows where they were.
+//
+// It restores only a workspace that (a) was focused before this call ran and
+// (b) still exists — never one this run removed, and never a workspace chosen
+// by any other rule. If focus did not move, nothing is called.
+func preserveFocus(ctx context.Context, h Herd, before string) string {
+	if before == "" {
+		return ""
+	}
+	snap, err := h.SessionSnapshot(ctx)
+	if err != nil || snap == nil {
+		return ""
+	}
+	if snap.FocusedWorkspaceID != nil && *snap.FocusedWorkspaceID == before {
+		return "" // focus never moved
+	}
+	var stillThere bool
+	for _, w := range snap.Workspaces {
+		if w.WorkspaceID == before {
+			stillThere = true
+			break
+		}
+	}
+	if !stillThere {
+		return "" // the focused workspace was one of ours; leave herdr's choice alone
+	}
+	if _, err := h.WorkspaceFocus(ctx, before); err != nil {
+		return "focus moved to another workspace during teardown and could not be restored: " + err.Error()
+	}
+	return "restored focus to workspace " + before + " — removing a workspace moves herdr's focus to a neighbour"
 }
 
 // planFor builds one tick's plan, refusals first.
@@ -155,26 +218,48 @@ func planFor(repoRoot string, m state.Manifest, manifestPath string, agents []cl
 		repoRoot:     repoRoot,
 	}
 
-	// 1. A worker herdr still knows is never cleaned. Blocked is called out
-	//    separately because the response differs: it is a human handoff,
-	//    not "come back later".
-	if a := liveWorker(agents, m); a != nil {
-		name := agentName(a)
-		if a.AgentStatus == client.StatusBlocked {
-			p.refuse(BlockedWorker, fmt.Sprintf(
-				"%s is blocked — the pane is the handoff state; attach, answer, then re-run cleanup", name))
-		} else {
-			p.refuse(LiveWorker, fmt.Sprintf("%s is still live (status %s)", name, a.AgentStatus))
-		}
-		return p
-	}
-
-	// 2. An unmerged branch would lose work. Checked, not attempted.
+	// 1. An unmerged branch would lose work. This is the "incomplete worker"
+	//    test with teeth, and it runs FIRST: its answer decides whether
+	//    anything here is safe to remove at all.
 	branchPresent := m.Branch != "" && branchExists(repoRoot, m.Branch)
 	if branchPresent && !branchMerged(repoRoot, m.Branch) {
 		p.refuse(UnmergedBranch, fmt.Sprintf(
 			"%s is not merged into HEAD — git branch -d would refuse, and so does this", m.Branch))
 		return p
+	}
+
+	// 2. A worker that is BLOCKED or WORKING is never torn down.
+	//
+	//    Liveness alone is not a refusal. Treating it as one made this
+	//    command unusable in its own happy path: an interactive agent CLI
+	//    does not exit when it finishes a turn, so a wave's workers are
+	//    still listed by herdr at exactly the moment cleanup is meant to
+	//    run — every tick of a live smoke run refused with live-worker on a
+	//    merged, closed, collected branch. herdr-runner.md's rule is "never
+	//    clean a BLOCKED or INCOMPLETE worker", incompleteness is the merged
+	//    check above, and worktree.remove is documented to tear down the
+	//    worktree, workspace, pane and running agent together with no prior
+	//    exit needed.
+	//
+	//    What remains are the two states where removal would destroy
+	//    something: blocked, whose pane IS the handoff a human answers, and
+	//    working, which may be mid-turn and about to commit.
+	if a := liveWorker(agents, m); a != nil {
+		name := agentName(a)
+		switch a.AgentStatus {
+		case client.StatusBlocked:
+			p.refuse(BlockedWorker, fmt.Sprintf(
+				"%s is blocked — the pane is the handoff state; attach, answer, then re-run cleanup", name))
+			return p
+		case client.StatusWorking:
+			p.refuse(LiveWorker, fmt.Sprintf(
+				"%s is still working — it may be mid-turn and about to commit; wait for it to settle", name))
+			return p
+		default:
+			p.Notes = append(p.Notes, fmt.Sprintf(
+				"agent %s is still live (status %s) on a merged branch — worktree.remove tears it down with the workspace",
+				name, a.AgentStatus))
+		}
 	}
 
 	if m.WorkspaceID != "" {

@@ -34,16 +34,21 @@ var herdCleanupCmd = &cobra.Command{
 preview is a promise rather than a description.
 
 Refusals — never touched, per skills/ticks/references/herdr-runner.md
-  live-worker      herdr still lists an agent for this tick. A respawned
-                   worker carries a fresh name (tick-<id>-r2), so the match is
-                   a prefix match on tick-<id>.
+  unmerged-branch  git branch -d would refuse, so this refuses first — it is
+                   also the real test of "incomplete". Run cleanup while still
+                   on the integration branch: after a later squash-merge the
+                   SHAs differ and this correctly says no.
   blocked-worker   the pane IS the handoff state: a human attaches, answers,
                    and hands the worker back. Never clean it.
-  unmerged-branch  git branch -d would refuse, so this refuses first. Run
-                   cleanup while still on the integration branch — after a
-                   later squash-merge the SHAs differ and this correctly says
-                   no.
+  live-worker      the agent is WORKING: mid-turn and possibly about to
+                   commit. A respawned worker carries a fresh name
+                   (tick-<id>-r2), so the match is a prefix match on tick-<id>.
   missing manifest with no recorded state there is nothing safe to remove.
+
+A settled live agent on a merged branch is NOT a refusal. Interactive agent
+CLIs do not exit when they finish a turn, so a wave's workers are still listed
+at exactly the moment cleanup is meant to run; worktree.remove tears the agent
+down together with the worktree, workspace and pane, in one call.
 
 One tick is cleaned by id; --epic with no id cleans a whole wave, and one
 refused tick never strands the others.

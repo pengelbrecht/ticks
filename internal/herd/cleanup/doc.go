@@ -18,14 +18,21 @@
 // Four conditions mean "never touch this", and the adapter is categorical
 // about all of them:
 //
-//   - a live worker — herdr still lists an agent for this tick. A respawn
-//     carries a fresh name (`tick-<id>-r2`), so the match is by prefix.
-//   - a blocked worker — the pane IS the handoff state a human answers.
 //   - an unmerged branch — `git branch -d` is the guard, and this package
 //     never passes -D. It checks first so a refusal is a plan, not a failed
-//     command.
+//     command. This is also the real test of "incomplete", so it runs first.
+//   - a blocked worker — the pane IS the handoff state a human answers.
+//   - a working worker — it may be mid-turn and about to commit. A respawn
+//     carries a fresh name (`tick-<id>-r2`), so the match is by prefix.
 //   - a missing manifest — with no recorded state there is nothing safe to
 //     remove; the caller reports it rather than guessing.
+//
+// Liveness by itself is deliberately NOT one of them. An interactive agent
+// CLI does not exit when it finishes a turn, so a wave's workers are still
+// listed at exactly the moment cleanup is supposed to run; refusing on that
+// made the command unusable in its own happy path. On a merged branch, a
+// settled live worker is the normal end-of-wave state, and worktree.remove
+// tears the agent down with the workspace in one call.
 //
 // # Order
 //
