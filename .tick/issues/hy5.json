@@ -2,7 +2,8 @@
   "id": "hy5",
   "title": "Two-dimensional worker spec: harness × model/effort in runners.toml",
   "description": "Extend the routing config so each role/tier is specified along two explicit dimensions instead of raw args: kind (the harness dimension herdr already names: claude, codex, pi, ...) plus structured 'model' and optional 'effort' fields (e.g. model=\"opus\" effort=\"high\"; model=\"gpt-5.6-luna\" effort=\"max\"). The spawner compiles model/effort to the kind's native argv (claude: --model + its effort mechanism; codex: -m + reasoning-effort flag; pi: its \u003cprovider\u003e/\u003cmodel\u003e:\u003ceffort\u003e syntax which is cross-provider — see .tick/config.md 'Pi Orchestrator' for real examples). 'args' stays as an escape hatch appended after compiled flags.\n\nThe matrix is sparse: claude kind accepts only claude-family models, codex only its OpenAI models, pi accepts cross-provider IDs. Document the compatibility rule per kind in herdr-kinds.md (new translation-table section: model/effort spec -\u003e native argv, plus which model families the kind accepts) and state the fail-closed rule: an impossible cell (e.g. kind=claude model=gpt-*) is a config error the orchestrator must refuse at spawn time with a clear message, never silently reroute.\n\nUpdate skills/ticks/references/runners-config.md + runners-config.schema.json: add model/effort to role and tier tables (tiers become model/effort pairs in examples), keep additionalProperties:false, keep all worked examples valid, add a pi cross-provider example cell, and add negative tests: impossible cell documented as spawn-time (not schema-time) failure, plus schema rejection of malformed effort values. Re-validate all examples against the schema and record evidence.\n\nFiles owned: runners-config.md, runners-config.schema.json, herdr-kinds.md. Do not edit herdr-runner.md except, if strictly needed, one sentence pointing at the new translation section.",
-  "status": "in_progress",
+  "notes": "2026-08-11 13:55 - runner-state: runner=claude branch=worktree-agent-a18e1bbb3059c4620 substrate=harness",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,6 +14,7 @@
   "acceptance_criteria": "Schema validates model/effort on roles and tiers; all worked examples (incl. a pi cross-provider one) validate; herdr-kinds.md carries the per-kind translation + compatibility table and the fail-closed rule; validation evidence recorded",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T11:44:44.324524Z",
-  "updated_at": "2026-08-11T11:48:53.799091Z",
-  "started_at": "2026-08-11T11:48:53.79909Z"
+  "updated_at": "2026-08-11T11:55:44.008456Z",
+  "closed_at": "2026-08-11T11:55:44.008456Z",
+  "closed_reason": "Completed: two-dimensional worker spec — model/effort fields on orchestrator/roles/tiers, per-kind translation+compatibility table (flags verified against real CLIs; codex effort via -c model_reasoning_effort), fail-closed spawn rule, pi cross-provider example; 5/5 examples + 9 negative cases validated"
 }
