@@ -11,10 +11,8 @@ import (
 
 // herdConnect dials herdr for a subcommand's --socket flag.
 //
-// The exit code is set EXPLICITLY. GetExitCode's message heuristics otherwise
-// read a dial failure such as "connect: invalid argument" as a usage error,
-// which tells an orchestrator to fix its command line when what it actually
-// has to fix is a herdr that is not running.
+// A dial failure is ExitGeneric: what the caller has to fix is a herdr that is
+// not running, not its command line.
 func herdConnect(ctx context.Context, socket string) (*client.Client, error) {
 	c, err := client.New(ctx, client.Options{SocketPath: socket})
 	if err != nil {

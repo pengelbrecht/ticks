@@ -102,9 +102,7 @@ func runHerdCollect(cmd *cobra.Command, args []string) error {
 	for _, f := range found {
 		r, err := collect.Collect(root, f.manifest, f.path)
 		if err != nil {
-			// Explicit exit code: GetExitCode's message heuristics would
-			// otherwise misread a git error mentioning "invalid" or
-			// "unknown" as a usage error.
+			// A failed collect is a run failure, not a bad command line.
 			return NewExitError(ExitGeneric, "%v", err)
 		}
 		if r.OK() {
