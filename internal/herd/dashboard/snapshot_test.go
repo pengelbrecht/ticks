@@ -40,9 +40,9 @@ func epicFixture() ([]tick.Tick, []state.Manifest) {
 	done.Parent = "zz0"
 
 	return []tick.Tick{epic, a, b, done}, []state.Manifest{
-			fixtureManifest("zz0", "m05", "tick-m05", "w1:p1"),
-			fixtureManifest("zz0", "o83", "tick-o83", "w1:p2"),
-		}
+		fixtureManifest("zz0", "m05", "tick-m05", "w1:p1"),
+		fixtureManifest("zz0", "o83", "tick-o83", "w1:p2"),
+	}
 }
 
 func TestLoadJoinsTicksManifestsAndLiveStatus(t *testing.T) {
