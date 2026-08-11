@@ -102,5 +102,10 @@ fi
 
 cd "$repo" || { echo "Cannot enter $repo"; hold; }
 
+# TICKS_EPIC (set by e.g. the link-handler action) scopes the board to one epic.
+if [ -n "${TICKS_EPIC:-}" ]; then
+  set -- --epic "$TICKS_EPIC" "$@"
+fi
+
 # exec so the TUI owns the pane's terminal directly and Ctrl-C reaches it.
 exec "$tk" herd dashboard "$@"
