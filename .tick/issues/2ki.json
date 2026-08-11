@@ -2,7 +2,8 @@
   "id": "2ki",
   "title": "Write herdr-runner.md substrate adapter",
   "description": "New file skills/ticks/references/herdr-runner.md mapping the runner-neutral contract (agent-runner.md) onto herdr primitives, referencing herdr-kinds.md and runners-config.md rather than duplicating them. Must cover: spawn (worktree create -\u003e root_pane.pane_id -\u003e agent start -\u003e prompt --wait), the result contract (branch commits + RESULT.md + tk state only; terminal scraping forbidden and why - alternate screen), wave fan-in without the helper CLI (backgrounded agent wait per worker OR bounded polling of agent list, stated as interim until layer 2), blocked-state handling (escalate to human, never send-keys through approval UIs), integration/merge/post-wave gate exactly per agent-runner.md, crash reconcile (workers survive; .tick/ + herdr agent list + agent_session), and cleanup (worktree remove per workspace). Follow the structure/tone of the existing four adapters.",
-  "status": "in_progress",
+  "notes": "2026-08-11 13:30 - runner-state: runner=claude branch=worktree-agent-a695c7c4adc70b3f5 substrate=harness",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +15,7 @@
   "acceptance_criteria": "herdr-runner.md reads as a drop-in fifth adapter; every capability in agent-runner.md's contract has a herdr mapping or an explicit gap note; no duplicated content from A1/A2 files",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:54.917329Z",
-  "updated_at": "2026-08-11T11:25:20.546838Z",
-  "started_at": "2026-08-11T11:25:20.546837Z"
+  "updated_at": "2026-08-11T11:30:08.19755Z",
+  "closed_at": "2026-08-11T11:30:08.19755Z",
+  "closed_reason": "Completed: herdr-runner.md substrate adapter — full capability mapping incl. explicit boundary-hardening gap, green-start gate, wait discipline, durable result contract, crash recovery, cleanup; 21 links verified"
 }
