@@ -211,7 +211,11 @@ func TestWaitTimeout(t *testing.T) {
 	start := time.Now()
 	sum, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a", "tick-b"},
-		Timeout: 150 * time.Millisecond,
+		// 2s, not 150ms: the opening AgentList round-trip runs inside this
+		// budget, and under full-suite machine load a slow accept alone can
+		// eat 150ms — flaking the test for contention, not behavior. tick-b
+		// never settles, so any bounded timeout exercises the same path.
+		Timeout: 2 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("Wait: %v (a timeout is an outcome, not an error)", err)
