@@ -105,6 +105,8 @@ func printUsage() {
 	fmt.Println("  tk herd spawn <id>            Spawn a gated herdr worker: worktree + agent + first prompt")
 	fmt.Println("  tk herd wait --agents a,b     Block until named herdr workers settle (event-driven)")
 	fmt.Println("  tk herd reconcile             Rebuild run state after an orchestrator crash (read-only plan)")
+	fmt.Println("  tk herd collect <id>          Verify a worker's durable result: commits, RESULT, boundary")
+	fmt.Println("  tk herd cleanup <id>          Preview (or --apply) teardown: workspace, branch, manifest")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")

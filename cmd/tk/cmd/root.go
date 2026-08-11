@@ -441,6 +441,12 @@ func ResetFlags() {
 
 	// Reset herd reconcile flags
 	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
+	// Reset herd collect flags
+	herdCollectEpic, herdCollectJSON = "", false
+
+	// Reset herd cleanup flags
+	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
+	herdCleanupPreview, herdCleanupApply = false, false
 
 	// Reset board flags
 	boardPort = 3000
