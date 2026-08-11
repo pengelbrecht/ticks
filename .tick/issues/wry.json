@@ -3,7 +3,7 @@
   "title": "Spawn incident-path tests + flag validation",
   "description": "gyz review findings 5+7, on top of herdtest. Route-override tests for the three live-incident paths: agent_prompt_stalled gate fall-through, startWhenPaneReady busy-only bounded retry, waitInteractiveReady sampling (incl. a pending-start route — the class that caused the gyz blocker). Flag validation: unknown --tier exits 2 (usage) pre-resolve; when Worker.ResolvedRole != requested role, stderr-warn and record the requested role in the manifest.",
   "notes": "2026-08-11 19:19 - runner-state: runner=claude branch=worktree-agent-a8b6edd19a1f1f738 substrate=harness. Naming deviation accepted: manifest field is resolved_role (role already records requested) — flag for final review.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "Three incident paths covered; unknown --tier = exit 2; role-fallback warning pinned by test",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:04.900373Z",
-  "updated_at": "2026-08-11T17:19:40.499741Z",
-  "started_at": "2026-08-11T17:11:47.142513Z"
+  "updated_at": "2026-08-11T17:36:48.229513Z",
+  "closed_at": "2026-08-11T17:36:48.229513Z",
+  "closed_reason": "Completed: three spawn incident paths pinned with sequence assertions, tier usage-exit + role-fallback warning + resolved_role manifest field; fixed latent herdtest agent.get target bug that made not-ready states untestable"
 }
