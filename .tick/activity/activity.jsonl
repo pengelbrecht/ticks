@@ -1018,3 +1018,4 @@
 {"ts":"2026-08-12T08:31:44.168834Z","tick":"8ct","action":"create","actor":"claude:orchestrator","epic":"uvv","data":{"priority":2,"title":"Docs cutover + snippet relationship + surface checklist","type":"task"}}
 {"ts":"2026-08-12T08:31:44.197708Z","tick":"74k","action":"create","actor":"claude:orchestrator","epic":"uvv","data":{"priority":2,"title":"Final review of tk-skills epic diff","type":"task"}}
 {"ts":"2026-08-12T08:31:44.226936Z","tick":"ss5","action":"create","actor":"claude:orchestrator","epic":"uvv","data":{"priority":2,"title":"Close out tk-skills epic: run epic retro","type":"task"}}
+{"ts":"2026-08-12T08:31:59.820776Z","tick":"v69","action":"start","actor":"claude:orchestrator","epic":"uvv","data":{"title":"Embedded skills bundle: root embed package + internal/skills"}}
