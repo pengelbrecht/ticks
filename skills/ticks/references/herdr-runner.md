@@ -27,6 +27,8 @@ Everything below applies only once herdr is the selected and available substrate
 
 **`tk herd` is how this substrate is driven. It is the primary mechanism, not a convenience wrapper.** Five commands cover the whole worker lifecycle, and each one implements the rules the rest of this document explains:
 
+**Run-start ritual:** before wave 1, open the mission-control dashboard pane for the epic if one is not already open (`herdr plugin pane open --plugin pengelbrecht.herdr-ticks --entrypoint dashboard --placement split --target-pane <your pane> --no-focus --env TICKS_EPIC=<epic>`). The board is part of the run, not furniture — a user watching the run should never have to ask for it, and a pane closed between epics does not carry over.
+
 | Command | What it does | The rule it enforces |
 |---|---|---|
 | `tk herd spawn <tick-id>` | worktree + branch + workspace + pane, `agent.start` with the compiled argv, the first-round-trip **content gate**, then the implementer prompt; writes the run-state manifest and prints the `runner-state:` note | fail-closed routing, gated launch, no predicted identifiers |
