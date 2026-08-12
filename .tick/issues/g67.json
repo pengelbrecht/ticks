@@ -2,6 +2,7 @@
   "id": "g67",
   "title": "tk skills install + diff",
   "description": "Add install/diff to the tk skills group (files: cmd/tk/cmd/skills_install.go or extend skills.go - follow the pattern the previous tick established; read its code first).\n\n- `tk skills install \u003cname\u003e [--dir PATH]`: writes the skill tree to PATH (default: detect ~/.claude/skills/\u003cname\u003e; --dir for other harnesses). Writes a version stamp file (e.g. .tk-skills-version containing the tk version + install timestamp). REFUSES to overwrite a directory that has no stamp (unmanaged/hand-edited - tell the user to remove it or pass --force); with a stamp, overwrite is the normal upgrade path. --force overrides the unmanaged refusal. Atomic-ish: write to a temp sibling dir then rename over (document the swap semantics; preserve nothing from the old tree).\n- `tk skills diff \u003cname\u003e [--dir PATH]`: compares installed tree vs embedded bundle: lists added/removed/changed files and the stamp version vs binary version; exit 0 identical, exit 1 drift (documented in help; explicit ExitError).\n\nRegistration/ResetFlags/legacy-switch/testing discipline per .tick/learnings.md (same as the sibling list/get tick). Tests use temp dirs only - NEVER touch the real ~/.claude. Cover: fresh install + stamp, upgrade over stamped dir, refusal on unmanaged dir, --force, diff identical, diff after editing a file, diff version mismatch. Full suite green; gofmt/vet clean. Commit in your worktree with message prefix \"tick \u003cthis-tick-id\u003e: \".",
+  "notes": "2026-08-12 10:59 - runner-state: substrate=herdr kind=claude branch=tick/g67 workspace=w72 agent=tick-g67 pane=w72:p1 session=70d2f573-54fc-44a4-824b-8ccaec24fb0e",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -13,6 +14,6 @@
   "acceptance_criteria": "install writes a loadable skill dir + stamp and refuses unmanaged targets without --force; diff reports drift with exit 1 and identical with 0; all paths tested against temp dirs; legacy dispatch green",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T08:31:44.140757Z",
-  "updated_at": "2026-08-12T08:58:49.947114Z",
+  "updated_at": "2026-08-12T08:59:07.385983Z",
   "started_at": "2026-08-12T08:58:49.947114Z"
 }
