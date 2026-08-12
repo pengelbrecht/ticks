@@ -537,6 +537,9 @@ func ResetFlags() {
 	skillsListJSON = false
 	skillsGetFull = false
 	skillsGetJSON = false
+	skillsInstallDir = ""
+	skillsInstallForce = false
+	skillsDiffDir = ""
 }
 
 // SetVersion allows main.go to set the version at initialization
