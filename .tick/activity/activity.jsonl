@@ -1051,3 +1051,5 @@
 {"ts":"2026-08-12T09:56:14.468758Z","tick":"s8u","action":"create","actor":"claude:orchestrator","epic":"fit","data":{"priority":2,"title":"fswatch: watch late-created herd dir, clear header error on recovery","type":"task"}}
 {"ts":"2026-08-12T09:56:14.493066Z","tick":"4wr","action":"create","actor":"claude:orchestrator","epic":"fit","data":{"priority":2,"title":"Final review of mop-up epic diff","type":"task"}}
 {"ts":"2026-08-12T09:56:14.5169Z","tick":"sm7","action":"create","actor":"claude:orchestrator","epic":"fit","data":{"priority":2,"title":"Close out mop-up epic: retro","type":"task"}}
+{"ts":"2026-08-12T09:56:31.86796Z","tick":"jg5","action":"start","actor":"claude:orchestrator","epic":"fit","data":{"title":"Normalize ExitNoRepo/ExitNotFound across all commands"}}
+{"ts":"2026-08-12T09:56:31.888923Z","tick":"s8u","action":"start","actor":"claude:orchestrator","epic":"fit","data":{"title":"fswatch: watch late-created herd dir, clear header error on recovery"}}
