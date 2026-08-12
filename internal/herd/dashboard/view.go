@@ -132,6 +132,9 @@ func (m *Model) header() string {
 	if m.snap.HerdErr != nil {
 		problems = append(problems, "herdr: "+m.snap.HerdErr.Error())
 	}
+	if m.fsWatchErr != nil {
+		problems = append(problems, "fswatch: "+m.fsWatchErr.Error())
+	}
 	out := truncate(title, m.width) + "\n" + truncate(line, m.width)
 	if len(problems) > 0 {
 		out += "\n" + truncate(errStyle.Render(strings.Join(problems, " · ")), m.width)

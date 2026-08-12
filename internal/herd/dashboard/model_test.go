@@ -133,6 +133,7 @@ func TestEventMessagesReArmTheWatcher(t *testing.T) {
 	for _, msg := range []tea.Msg{
 		StatusMsg{PaneID: "w1:p1", Status: client.StatusDone},
 		StreamMsg{Up: true, Panes: 2},
+		FSWatchMsg{Up: true},
 		ReloadMsg{},
 	} {
 		if cmd := apply(m, msg); cmd == nil {
@@ -206,6 +207,31 @@ func TestStreamHealthIsRendered(t *testing.T) {
 	apply(m, StreamMsg{Up: false, Panes: 2, Err: errTest})
 	if v := m.View(); !strings.Contains(v, "events down") {
 		t.Errorf("stream outage not reported:\n%s", v)
+	}
+}
+
+// A filesystem watcher failure must show up in the header, exactly like a
+// dead herdr event stream, and must not stop the safety ticker from asking
+// for a reload — this is the degrade-gracefully path fswatch.go promises.
+func TestFSWatchErrorIsRenderedAndTickerStillReloads(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	apply(m, FSWatchMsg{Up: false, Err: errTest})
+	v := m.View()
+	if !strings.Contains(v, "fswatch: boom") {
+		t.Errorf("fs watch error not rendered:\n%s", v)
+	}
+
+	if cmd := apply(m, refreshTickMsg(time.Time{})); cmd == nil {
+		t.Error("safety ticker produced no reload command while fswatch is degraded")
+	}
+
+	// A subsequent Up:true recovers the header.
+	apply(m, FSWatchMsg{Up: true})
+	if v := m.View(); strings.Contains(v, "fswatch:") {
+		t.Errorf("fs watch error still rendered after recovery:\n%s", v)
 	}
 }
 

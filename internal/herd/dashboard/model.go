@@ -51,6 +51,7 @@ type Config struct {
 type Model struct {
 	loader   Loader
 	watcher  *Watcher
+	fswatch  *FSWatcher
 	herd     Herd
 	interval time.Duration
 	now      func() time.Time
@@ -68,6 +69,7 @@ type Model struct {
 	streamUp   bool
 	streamErr  error
 	panesWatch int
+	fsWatchErr error
 
 	events    int
 	lastEvent time.Time
@@ -92,9 +94,11 @@ func New(ctx context.Context, cfg Config) *Model {
 	if interval == 0 {
 		interval = DefaultRefreshInterval
 	}
+	watcher := NewWatcher(cfg.Herd)
 	return &Model{
 		loader:   Loader{RepoRoot: cfg.RepoRoot, Epic: cfg.Epic, Now: now},
-		watcher:  NewWatcher(cfg.Herd),
+		watcher:  watcher,
+		fswatch:  NewFSWatcher(cfg.RepoRoot, watcher.emit),
 		herd:     cfg.Herd,
 		interval: interval,
 		now:      now,
@@ -105,17 +109,21 @@ func New(ctx context.Context, cfg Config) *Model {
 	}
 }
 
-// Close stops the watcher goroutine.
+// Close stops the watcher goroutines.
 func (m *Model) Close() {
 	if m.watcher != nil {
 		m.watcher.Stop()
 	}
+	if m.fswatch != nil {
+		m.fswatch.Stop()
+	}
 }
 
-// Init loads the first snapshot, starts the event watcher and arms the safety
-// ticker.
+// Init loads the first snapshot, starts the event watcher and the filesystem
+// watcher, and arms the safety ticker.
 func (m *Model) Init() tea.Cmd {
 	m.watcher.Start(m.ctx)
+	m.fswatch.Start(m.ctx)
 	cmds := []tea.Cmd{m.load(), m.watcher.Next()}
 	if m.interval > 0 {
 		cmds = append(cmds, m.tick())
@@ -177,6 +185,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StreamMsg:
 		m.streamUp, m.streamErr, m.panesWatch = msg.Up, msg.Err, msg.Panes
+		return m, m.watcher.Next()
+
+	case FSWatchMsg:
+		if msg.Up {
+			m.fsWatchErr = nil
+		} else {
+			m.fsWatchErr = msg.Err
+		}
 		return m, m.watcher.Next()
 
 	case ReloadMsg:
