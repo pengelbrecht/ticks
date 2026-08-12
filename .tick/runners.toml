@@ -21,3 +21,9 @@ effort = "low"
 [roles.implement.tiers.strong]
 model = "opus"
 effort = "high"
+
+# Cross-vendor tier (production experiment, human-approved): codex implementer.
+[roles.implement.tiers.codex]
+kind = "codex"
+model = "gpt-5.6-luna"
+effort = "high"

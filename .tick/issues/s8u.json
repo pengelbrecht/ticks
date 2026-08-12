@@ -1,0 +1,14 @@
+{
+  "id": "s8u",
+  "title": "fswatch: watch late-created herd dir, clear header error on recovery",
+  "description": "Reviewer nit 4 from epic zz0, human-approved fix. internal/herd/dashboard/fswatch.go has two degrade-only gaps: (a) if .tick/logs/herd does not exist when the dashboard starts, addWatches fails for it and the directory is NEVER watched afterwards - a tk herd spawn that creates it after dashboard start gets no fast-path manifest reloads (only the 30s ticker); (b) after any fsw.Errors emission the dashboard header shows the fswatch error forever - nothing re-emits an Up/healthy signal even though the watcher keeps delivering events and reloads keep flowing.\n\nFix: (a) when the herd logs dir is missing at start, watch its nearest existing ancestor (.tick/logs or .tick) for the create event and add the real watch (and epic-subdir watches) when it appears - or re-attempt on the debounced reload path; pick the approach that fits the existing structure (read fswatch.go + its tests + doc.go first) and say why. (b) after a successful event delivery or reload following an error, emit the healthy state so the header clears - mirror however the events-down/reconnecting indicator clears in the watch.go stream path (read it; be consistent with that pattern).\n\nTests (extend the existing real-fsnotify test style): start without the herd dir, create it + a manifest -\u003e fast-path reload fires (not just ticker); error then recovery -\u003e header state transitions error -\u003e healthy. Boundaries: internal/herd/dashboard only. Full-suite gate on real exits; gofmt/vet clean. Do NOT commit your RESULT file.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "fit",
+  "acceptance_criteria": "Late-created herd dir gains fast-path watching, pinned by test; header error clears on recovery, pinned by test; no changes outside internal/herd/dashboard; full suite green",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T09:56:14.46834Z",
+  "updated_at": "2026-08-12T09:56:14.46834Z"
+}

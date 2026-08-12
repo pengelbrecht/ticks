@@ -1,0 +1,14 @@
+{
+  "id": "fit",
+  "title": "Herd mop-up: exit-code normalization + fswatch fixes",
+  "description": "Human-approved fixes from the uvv/zz0 retro debt (2026-08-12). Two implementation ticks, run on the herd substrate; the fswatch tick is deliberately routed to a CODEX worker via runners.toml tier — doubling as the production cross-vendor experiment the user asked for.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "ExitNoRepo(3)/ExitNotFound(4) used consistently by every command that can hit those conditions (audit table in the review); fswatch watches a late-created .tick/logs/herd and clears its header error after recovery, both pinned by tests; full suite green; CHANGELOG entries for observable exit-code changes.",
+  "base_branch": "main",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T09:56:14.418629Z",
+  "updated_at": "2026-08-12T09:56:14.542481Z"
+}
