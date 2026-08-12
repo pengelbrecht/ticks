@@ -324,6 +324,10 @@ replace it. `sku` did; nothing has referenced it since. Removed.
   offline explicit-target lint only; neither the click routing nor a direct
   scripted invocation of that action is exercised by the smoke.
 - Total live cost of a run: ~90 s, two haiku workers.
+- **Residual resolved post-merge (2026-08-12):** the GitHub install path is now
+  verified live — `herdr plugin install pengelbrecht/ticks/plugins/herdr-ticks --yes`
+  installed, listed all five actions, invoked `open-tick-board` (exit 0, correct
+  repo resolution), and its event hooks fire.
 - The settle re-check (finding 7) makes each hook invocation linger 4 s while a
   wave is incomplete — 8 re-checks in the reported run. That is cheap and
   bounded, but if a future wave is much wider it is the knob to look at

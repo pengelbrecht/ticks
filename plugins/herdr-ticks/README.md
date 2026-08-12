@@ -32,10 +32,10 @@ Two steps. **Both** are required — the plugin is inert without the second.
 ### 1. Install the plugin
 
 ```sh
-herdr plugin install pengelbrecht/ticks/plugins/herdr-ticks
-# ^ expected form — unverifiable until this plugin is on the repo's default
-#   branch on GitHub. The verified install path today is `herdr plugin link`
-#   (below), which the live smoke exercises end to end.
+herdr plugin install pengelbrecht/ticks/plugins/herdr-ticks --yes
+# ^ verified live (herdr 0.8.0, 2026-08-12): installs from GitHub, actions and
+#   event hooks functional. --yes is required when stdin is non-interactive.
+#   `herdr plugin link` (below) remains the dev flow for working on the plugin.
 ```
 
 The plugin lives in a subdirectory of the `ticks` repo, hence the
