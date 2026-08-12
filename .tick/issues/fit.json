@@ -3,7 +3,7 @@
   "title": "Herd mop-up: exit-code normalization + fswatch fixes",
   "description": "Human-approved fixes from the uvv/zz0 retro debt (2026-08-12). Two implementation ticks, run on the herd substrate; the fswatch tick is deliberately routed to a CODEX worker via runners.toml tier — doubling as the production cross-vendor experiment the user asked for.",
   "notes": "2026-08-12 13:02 - RETRO (mop-up epic). All 7 ticks herd-orchestrated (6 claude, 1 codex). Findings-\u003efixes this epic: codex startup gates (one-time machine approvals, documented), codex sandbox worktree-commit limit (fixed properly via --add-dir computed extras after the queued danger-full-access idea was refuted by our own docs), RESULT/cleanup collision (consume+archive), fswatch promotion blocker (caught at review; test lied via fixture gap — fail-on-old-code proof now standard for repairs). User-driven: timers, run-start dashboard ritual. Learnings: repair ticks should mandate fail-on-old-code proof for new tests (promoted to this note; consider skill text later). Accepted debt: archive overwrite on respawned-tick second cleanup (cosmetic); codex-runner.md harness-substrate path lacks --add-dir (out of scope, noted in wiki). Integration: PR to follow, CI gate, then release.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "noreply@anthropic.com",
@@ -11,5 +11,7 @@
   "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T09:56:14.418629Z",
-  "updated_at": "2026-08-12T11:02:21.612627Z"
+  "updated_at": "2026-08-12T11:03:42.552749Z",
+  "closed_at": "2026-08-12T11:03:42.552749Z",
+  "closed_reason": "Completed: mop-up epic — typed exit codes repo-wide, fswatch hardened (promotion blocker caught+proven-fixed), worker timers, cleanup RESULT consumption, codex --add-dir; first production cross-vendor wave; PR #42 CI green"
 }
