@@ -15,8 +15,9 @@ const skillsConventionsDesc = ".claude/skills/ or .agents/skills/ (or both)"
 // before), or one target per convention directory skills.DetectConventionDirs
 // finds at the repo root, each joined with name. It never creates a
 // convention directory the repo has not already opted into; a repo with
-// neither convention (or a working directory outside any git repo) is a
-// usage error naming both conventions and the --dir escape.
+// neither convention is an error (exit 1) naming both conventions and the
+// --dir escape, and a working directory outside any git repo is ExitNoRepo
+// (3) like every other command's no-repo failure.
 func resolveSkillsTargets(name, dirFlag string) ([]string, error) {
 	if dirFlag != "" {
 		return []string{dirFlag}, nil
@@ -24,7 +25,11 @@ func resolveSkillsTargets(name, dirFlag string) ([]string, error) {
 
 	root, err := repoRoot()
 	if err != nil {
-		return nil, NewExitError(ExitGeneric,
+		// Exit 3, not 1: "no repo" is the same condition every other command
+		// reports as ExitNoRepo, and it is the one an orchestrator can fix
+		// (chdir, or pass --dir). A missing convention directory below is a
+		// different failure and keeps its own code.
+		return nil, NewExitError(ExitNoRepo,
 			"not inside a git repository; run this command inside a repo with %s at its root, or pass --dir",
 			skillsConventionsDesc)
 	}

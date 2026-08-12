@@ -107,6 +107,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 // repoRoot returns the root directory of the git repository.
+//
+// "Not in a git repository" is returned as ExitError{ExitNoRepo} — the single
+// place that classification is made. Every command resolves its repo root
+// through here and adds context with fmt.Errorf("...: %w", err), so the code
+// survives the wrap (GetExitCode uses errors.As) and a command added later
+// gets exit 3 by construction rather than by remembering to opt in. Only the
+// Getwd failure stays generic: that is an environment fault, not a missing
+// repository, and an orchestrator branching on 3 must not retry it as one.
 func repoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -119,7 +127,7 @@ func repoRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("not in a git repository")
+			return "", NewExitError(ExitNoRepo, "not in a git repository")
 		}
 		dir = parent
 	}

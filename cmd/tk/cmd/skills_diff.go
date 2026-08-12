@@ -34,6 +34,7 @@ Exit codes
      this binary, or (with no --dir) neither convention directory exists at
      the repo root
   2  usage error
+  3  no --dir and the working directory isn't inside a git repository
   4  no such skill is embedded in this binary`,
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,

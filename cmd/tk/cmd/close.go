@@ -64,7 +64,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
+		return notFoundIfMissing("failed to read tick", err)
 	}
 
 	now := time.Now().UTC()
