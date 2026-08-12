@@ -3,7 +3,7 @@
   "title": "skills install/diff: .claude/skills + .agent/skills targets, user and project scope",
   "description": "Human decision (2026-08-12, refined twice): DETECTION-FIRST installer over the two conventions .claude/skills and .agents/skills (PLURAL — verified live: ~/.agents/skills is populated and multiple repos carry .agents/skills). `tk skills install \u003cname\u003e` run inside a repo checks the repo root for `.claude/skills/` and `.agents/skills/` and installs into EVERY one that exists — both when both exist, each getting the full tree + stamp via the existing atomic-swap path with existing unmanaged-refusal/--force semantics per target. Neither exists -\u003e exit 1 with guidance naming both conventions and --dir; never silently create a convention dir. --dir bypasses detection (single target). diff mirrors detection: one report per detected target, aggregate exit 1 on any drift. Outside a repo without --dir -\u003e same guidance error. Tests in temp repos: claude-only / agents-only / both (independently stamped+diffable) / neither / mixed managed+unmanaged per-target refusal / --dir bypass. Minimal README row updates where behavior changed. Full-suite gate on real exits; gofmt/vet clean. Also: do NOT commit RESULT-hzd.md (write it after your commit).",
   "notes": "2026-08-12 11:15 - runner-state: substrate=herdr kind=claude branch=tick/hzd workspace=w75 agent=tick-hzd pane=w75:p1 session=95c281f2. Note: spawned before the RESULT-uncommitted template fix — check its branch for a committed RESULT at collect.\n2026-08-12 11:23 - Spec correction delivered mid-flight: .agents/skills (plural), verified against ~/.agents/skills + three repos before sending.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "Detection-first: claude-only/agent-only/both/neither cells pinned by tests incl. per-target refusal and aggregate diff exit; --dir bypass unchanged; README updated minimally; full suite green",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T09:12:54.19517Z",
-  "updated_at": "2026-08-12T09:23:20.455726Z",
-  "started_at": "2026-08-12T09:15:31.066446Z"
+  "updated_at": "2026-08-12T09:26:32.657771Z",
+  "closed_at": "2026-08-12T09:26:32.657771Z",
+  "closed_reason": "Completed: detection-first install/diff over .claude/skills + .agents/skills (plural, live-verified mid-flight correction applied), per-target stamp/refusal, aggregate diff exit; live-smoked both-conventions round trip"
 }
