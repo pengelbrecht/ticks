@@ -1,0 +1,13 @@
+{
+  "id": "uvv",
+  "title": "tk serves its own skills (version-matched skill distribution)",
+  "description": "User-proposed (2026-08-12). Make the tk binary the distribution channel for the ticks skill, the way agent-browser serves version-matched skills (`agent-browser skills get core --full`) and canonify serves its own. Rough scope: embed skills/ticks/** (SKILL.md + references incl. herdr-runner.md, runners-config.md + schema, herdr-kinds.md) into the binary via go:embed at build time; new `tk skills` command group: `list` (available skills + the binary version they match), `get \u003cname\u003e [--full]` (print SKILL.md or the whole bundle), `install [--dir PATH]` (write the skill tree into a harness skill dir, e.g. ~/.claude/skills/ticks, with a version stamp and drift warning), maybe `diff` (installed vs embedded). Rationale: solves the version-skew class this project just hit twice — a stale installed tk next to newer skill docs, and vice versa; the skill that documents tk herd should always be the one matching the installed binary. Design questions for planning: single source of truth stays skills/ticks/ in-repo (embed at release build); how `tk snippet` folds in (likely becomes `tk skills get agent-snippet` alias or stays); whether the Pi package + plugin README point at `tk skills install` as the canonical install path; CI check that embedded bundle == committed skills tree.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "tk skills list/get/install work from the released binary with content byte-identical to the tagged repo skills/ticks tree; install writes a working skill dir a fresh Claude Code session can load; version stamp + drift warning present; README + skill docs document the new canonical install path; CI guards embed freshness.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T08:26:48.911139Z",
+  "updated_at": "2026-08-12T08:26:48.911139Z"
+}
