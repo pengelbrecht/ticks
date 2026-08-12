@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,5 +164,66 @@ func TestCorruptTickIsNotNotFound(t *testing.T) {
 	}
 	if code := GetExitCode(err); code != ExitGeneric {
 		t.Errorf("exit code = %d, want %d (generic): %v", code, ExitGeneric, err)
+	}
+}
+
+// TestHerdSpawnTickLookupClassification pins the same boundary on the one
+// lookup that sat outside it: `herd spawn` mapped EVERY store.Read failure to
+// 4, so a corrupt tick file told the orchestrator the id had never been
+// created — and its recovery for that is to create the tick and spawn again,
+// on top of the damaged file. The lookup runs before the config is read or
+// herdr is dialled, so both cases are reachable without a fake server.
+func TestHerdSpawnTickLookupClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		id      string
+		corrupt bool
+		want    int
+	}{
+		{"missing tick is not found", "zzz", false, ExitNotFound},
+		{"corrupt tick is a real failure", "bbb", true, ExitGeneric},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoDir := seedTickRepo(t)
+			if tc.corrupt {
+				corrupt := filepath.Join(repoDir, ".tick", "issues", tc.id+".json")
+				if err := os.WriteFile(corrupt, []byte("{not json"), 0o644); err != nil {
+					t.Fatalf("write corrupt tick: %v", err)
+				}
+			}
+			captureCmdOutput(t)
+			_, err := captureStdoutStr(t, func() error { return ExecuteArgs([]string{"herd", "spawn", tc.id}) })
+			if err == nil {
+				t.Fatalf("tk herd spawn %s returned nil error", tc.id)
+			}
+			if code := GetExitCode(err); code != tc.want {
+				t.Errorf("exit code = %d, want %d: %v", code, tc.want, err)
+			}
+		})
+	}
+}
+
+// TestSkillsRepoRootErrorClassification pins the two repoRoot outcomes these
+// commands restate. The typed no-repo failure becomes their own ExitNoRepo
+// message; a Getwd fault — a deleted or unreadable working directory — must
+// NOT be relabelled as "not inside a git repository", which sends an operator
+// to chdir into a repo they are probably already in.
+func TestSkillsRepoRootErrorClassification(t *testing.T) {
+	noRepo := skillsRepoRootError(NewExitError(ExitNoRepo, "not in a git repository"))
+	if code := GetExitCode(noRepo); code != ExitNoRepo {
+		t.Errorf("exit code = %d, want %d (no repo): %v", code, ExitNoRepo, noRepo)
+	}
+	if !strings.Contains(noRepo.Error(), "not inside a git repository") {
+		t.Errorf("no-repo message lost its own escapes: %v", noRepo)
+	}
+
+	getwd := skillsRepoRootError(errors.New("getwd: no such file or directory"))
+	if code := GetExitCode(getwd); code != ExitGeneric {
+		t.Errorf("exit code = %d, want %d (generic): %v", code, ExitGeneric, getwd)
+	}
+	if msg := getwd.Error(); strings.Contains(msg, "not inside a git repository") {
+		t.Errorf("a Getwd fault is reported as a missing repository: %v", getwd)
+	} else if !strings.Contains(msg, "no such file or directory") {
+		t.Errorf("message drops the underlying reason: %v", getwd)
 	}
 }

@@ -22,6 +22,15 @@ import (
 // the herdr watcher's own channel) is covered separately in model_test.go.
 func spawnFSWatcher(t *testing.T, root string) chan tea.Msg {
 	t.Helper()
+	_, msgs := spawnFSWatcherWith(t, root)
+	return msgs
+}
+
+// spawnFSWatcherWith is spawnFSWatcher for the tests that also need the
+// watcher itself — the health-transition tests drive it down the way the
+// fsnotify Errors channel does.
+func spawnFSWatcherWith(t *testing.T, root string) (*FSWatcher, chan tea.Msg) {
+	t.Helper()
 	msgs := make(chan tea.Msg, 128)
 	w := NewFSWatcher(root, func(msg tea.Msg) {
 		select {
@@ -32,7 +41,7 @@ func spawnFSWatcher(t *testing.T, root string) chan tea.Msg {
 	w.debounce = 150 * time.Millisecond
 	w.Start(testContext(t))
 	t.Cleanup(w.Stop)
-	return msgs
+	return w, msgs
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -86,6 +95,43 @@ func assertNoReloadWithin(t *testing.T, msgs chan tea.Msg, d time.Duration) {
 		case msg := <-msgs:
 			if _, ok := msg.(ReloadMsg); ok {
 				t.Fatalf("unexpected ReloadMsg within %s", d)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+// waitForReloadWithoutHealthMsg drains until a ReloadMsg arrives and fails if
+// any FSWatchMsg is seen on the way: an already-healthy watcher must not spend
+// the bounded channel re-reporting health it has already reported.
+func waitForReloadWithoutHealthMsg(t *testing.T, msgs chan tea.Msg) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case msg := <-msgs:
+			switch m := msg.(type) {
+			case ReloadMsg:
+				return
+			case FSWatchMsg:
+				t.Fatalf("FSWatchMsg %+v emitted without a health transition", m)
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a debounced ReloadMsg")
+		}
+	}
+}
+
+// assertNoFSWatchMsgWithin fails if any health message arrives before d.
+func assertNoFSWatchMsgWithin(t *testing.T, msgs chan tea.Msg, d time.Duration) {
+	t.Helper()
+	deadline := time.After(d)
+	for {
+		select {
+		case msg := <-msgs:
+			if m, ok := msg.(FSWatchMsg); ok {
+				t.Fatalf("unexpected FSWatchMsg %+v within %s", m, d)
 			}
 		case <-deadline:
 			return
@@ -205,9 +251,6 @@ func TestFSWatcherPicksUpLateCreatedHerdDir(t *testing.T) {
 	if err := os.MkdirAll(herdDir, 0o755); err != nil {
 		t.Fatalf("mkdir herd dir: %v", err)
 	}
-	if msg := waitForFSWatchMsg(t, msgs); !msg.Up {
-		t.Fatalf("late herd directory event reported unhealthy: %+v", msg)
-	}
 	// The debounced reload is emitted after the event loop has promoted the
 	// ancestor watch to herd, so the next directory can be created safely.
 	waitForReload(t, msgs)
@@ -226,18 +269,113 @@ func TestFSWatcherPicksUpLateCreatedHerdDir(t *testing.T) {
 	waitForReload(t, msgs)
 }
 
+// The herd log directory is absent, but .tick/logs — where every other herd
+// log already lives — is not: that is the state of any repo that has run a
+// herd before, and it is the ONLY ancestor that can see `herd` being created.
+// The first spawn there must still promote the watch, or the dashboard sits
+// on its 30-second safety re-list behind a header that reads healthy.
+func TestFSWatcherPromotesWhenLogsDirAlreadyExists(t *testing.T) {
+	root := seedRepo(t, nil, nil)
+	herdDir := filepath.Join(root, filepath.FromSlash(state.RelDir))
+	logsDir := filepath.Dir(herdDir)
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		t.Fatalf("mkdir logs dir: %v", err)
+	}
+
+	msgs := spawnFSWatcher(t, root)
+	waitForFSWatchMsg(t, msgs)
+
+	// The first spawn: herd, then the epic directory, then the manifest.
+	if err := os.MkdirAll(herdDir, 0o755); err != nil {
+		t.Fatalf("mkdir herd dir: %v", err)
+	}
+	waitForReload(t, msgs)
+	drainPending(msgs)
+
+	epicDir := filepath.Join(herdDir, "other")
+	if err := os.MkdirAll(epicDir, 0o755); err != nil {
+		t.Fatalf("mkdir epic dir: %v", err)
+	}
+	waitForReload(t, msgs)
+	drainPending(msgs)
+
+	if _, err := state.Write(root, fixtureManifest("other", "zzz", "agent", "w1:p1")); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	waitForReload(t, msgs)
+}
+
+// Once the real herd directory is watched, the temporary ancestor watch is
+// released: .tick holds config.json and everything else the tracker writes,
+// and none of it is a reason to rebuild the board.
+func TestFSWatcherDropsAncestorWatchAfterPromotion(t *testing.T) {
+	root := seedRepo(t, nil, nil)
+	herdDir := filepath.Join(root, filepath.FromSlash(state.RelDir))
+	msgs := spawnFSWatcher(t, root)
+	waitForFSWatchMsg(t, msgs)
+
+	if err := os.MkdirAll(herdDir, 0o755); err != nil {
+		t.Fatalf("mkdir herd dir: %v", err)
+	}
+	// The promotion happens while the creation event is processed, so the
+	// reload it debounces into proves the ancestor watch has been dropped.
+	waitForReload(t, msgs)
+	drainPending(msgs)
+
+	writeFile(t, filepath.Join(root, ".tick", "config.json"), `{}`)
+	assertNoReloadWithin(t, msgs, 400*time.Millisecond)
+}
+
+// Health is reported on transitions only. Every raw event used to emit an
+// FSWatchMsg{Up:true} into the model's bounded, drop-on-full channel, so a
+// burst of writes could evict the very ReloadMsg they were debounced into.
+func TestFSWatcherReportsHealthOnlyOnTransition(t *testing.T) {
+	root := seedRepo(t, nil, nil)
+	issuesDir := filepath.Join(root, ".tick", "issues")
+	w, msgs := spawnFSWatcherWith(t, root)
+	if msg := waitForFSWatchMsg(t, msgs); !msg.Up {
+		t.Fatalf("watcher started unhealthy: %+v", msg)
+	}
+
+	for i := 0; i < 5; i++ {
+		writeFile(t, filepath.Join(issuesDir, "t"+string(rune('a'+i))+".json"), `{}`)
+	}
+	waitForReloadWithoutHealthMsg(t, msgs)
+
+	// After a real watcher error, the next event is a recovery — reported
+	// once, not once per event in the burst that followed it.
+	w.emitDown(errTest)
+	if msg := waitForFSWatchMsg(t, msgs); msg.Up {
+		t.Fatalf("emitDown reported healthy: %+v", msg)
+	}
+	for i := 0; i < 5; i++ {
+		writeFile(t, filepath.Join(issuesDir, "r"+string(rune('a'+i))+".json"), `{}`)
+	}
+	if msg := waitForFSWatchMsg(t, msgs); !msg.Up {
+		t.Fatalf("recovery event reported unhealthy: %+v", msg)
+	}
+	assertNoFSWatchMsgWithin(t, msgs, 400*time.Millisecond)
+}
+
 // A real filesystem event after an fsnotify error reports the watcher healthy
 // again, which clears the error from the dashboard header.
 func TestFSWatcherHealthyEventClearsHeaderError(t *testing.T) {
 	root := seedRepo(t, nil, nil)
 	issuesDir := filepath.Join(root, ".tick", "issues")
-	msgs := spawnFSWatcher(t, root)
+	w, msgs := spawnFSWatcherWith(t, root)
 	waitForFSWatchMsg(t, msgs)
 
 	pinProfile(t)
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
-	apply(m, FSWatchMsg{Up: false, Err: errTest})
+	// The watcher's own degraded report, not a hand-built one: the recovery
+	// below is a transition out of exactly this state.
+	w.emitDown(errTest)
+	down := waitForFSWatchMsg(t, msgs)
+	if down.Up {
+		t.Fatalf("emitDown reported healthy: %+v", down)
+	}
+	apply(m, down)
 	if v := m.View(); !strings.Contains(v, "fswatch: boom") {
 		t.Fatalf("fswatch error not rendered before recovery:\n%s", v)
 	}

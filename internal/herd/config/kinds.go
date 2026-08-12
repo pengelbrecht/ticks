@@ -105,11 +105,17 @@ type spawnExtra struct {
 var gitMetadataAddDir = spawnExtra{
 	name: "git metadata (`--add-dir <git-common-dir>`)",
 	render: func(env SpawnContext) ([]string, error) {
-		if env.GitCommonDir == "" {
+		dir, err := env.gitCommonDir()
+		if err != nil {
+			return nil, fmt.Errorf("the spawn context could not resolve the git common dir, so a codex worker in a "+
+				"linked worktree would start inside a workspace-write sandbox that cannot reach its own git "+
+				"metadata and cannot commit: %w", err)
+		}
+		if dir == "" {
 			return nil, fmt.Errorf("the spawn context carries no git common dir, so a codex worker in a linked worktree " +
 				"would start inside a workspace-write sandbox that cannot reach its own git metadata and cannot commit")
 		}
-		return []string{"--add-dir", env.GitCommonDir}, nil
+		return []string{"--add-dir", dir}, nil
 	},
 }
 

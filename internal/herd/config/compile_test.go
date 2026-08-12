@@ -550,6 +550,90 @@ func TestMissingGitCommonDirFailsClosed(t *testing.T) {
 	}
 }
 
+// claudeImplement is the same role table on a kind that declares no computed
+// extras — the control case for the lazy git-metadata resolution below.
+const claudeImplement = "[roles.implement]\nkind = \"claude\"\nmodel = \"opus\"\neffort = \"high\"\n"
+
+// TestGitCommonDirIsResolvedOnlyByKindsThatNeedIt: the resolver is the
+// spawner's `git rev-parse` in the repository, and it belongs to codex's
+// sandbox grant alone. A claude spawn must never pay for it — resolving it
+// unconditionally meant a `git rev-parse` failure blocked a spawn whose argv
+// would not have contained the answer.
+func TestGitCommonDirIsResolvedOnlyByKindsThatNeedIt(t *testing.T) {
+	cfg, err := Parse([]byte(claudeImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	calls := 0
+	sp, err := cfg.SpawnFor(RoleImplement, "", SpawnContext{
+		ResolveGitCommonDir: func() (string, error) {
+			calls++
+			return "", errors.New("git rev-parse --git-common-dir: exit status 128")
+		},
+	})
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	if calls != 0 {
+		t.Errorf("the git common dir was resolved %d time(s) for kind claude, which declares no fragment needing it", calls)
+	}
+	for _, arg := range sp.Argv {
+		if arg == "--add-dir" {
+			t.Errorf("Argv = %q, want no --add-dir for kind claude", sp.Argv)
+		}
+	}
+}
+
+// TestGitCommonDirResolverIsUsedAndFailsClosed: a kind that DOES declare the
+// fragment resolves through the same seam — and a resolver that fails refuses
+// the spawn, exactly as an empty GitCommonDir does. Laziness never widens to
+// "compile without the grant".
+func TestGitCommonDirResolverIsUsedAndFailsClosed(t *testing.T) {
+	cfg, err := Parse([]byte(codexImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	calls := 0
+	sp, err := cfg.SpawnFor(RoleImplement, "", SpawnContext{
+		ResolveGitCommonDir: func() (string, error) {
+			calls++
+			return docGitCommonDir, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("the git common dir was resolved %d time(s), want exactly 1", calls)
+	}
+	if got, want := strings.Join(sp.Argv, " "), "--add-dir "+docGitCommonDir; !strings.Contains(got, want) {
+		t.Errorf("Argv = %q, want it to contain %q", sp.Argv, want)
+	}
+
+	sp, err = cfg.SpawnFor(RoleImplement, "", SpawnContext{
+		ResolveGitCommonDir: func() (string, error) {
+			return "", errors.New("git rev-parse --git-common-dir: exit status 128")
+		},
+	})
+	if err == nil {
+		t.Fatalf("SpawnFor succeeded with argv %q, want a refusal", sp.Argv)
+	}
+	if sp != nil {
+		t.Error("a refusal must return no spawn — never a sandbox that cannot commit")
+	}
+	var ref *RefusalError
+	if !errors.As(err, &ref) {
+		t.Fatalf("error is %T, want *RefusalError", err)
+	}
+	if ref.Reason != RefusalSpawnContext {
+		t.Errorf("Reason = %q, want %q", ref.Reason, RefusalSpawnContext)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "exit status 128") {
+		t.Errorf("message drops the resolver's own reason:\n  %s", msg)
+	}
+}
+
 // TestGreenStartTrapIsNotStaticallyDecidable documents the one row of the
 // doc's spawner table this package deliberately does not refuse: a
 // well-formed but non-existent OpenAI model id. No static check can tell it
