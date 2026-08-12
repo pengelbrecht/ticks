@@ -2,6 +2,7 @@
   "id": "jg5",
   "title": "Normalize ExitNoRepo/ExitNotFound across all commands",
   "description": "gyz-era audit finding, human-approved fix. ~15 commands (create, close, list, deps, graph, label, labels, gc, import, blocked, note, notes, show, update, reopen - audit ALL of cmd/tk/cmd/) wrap the identical repoRoot() failure as fmt.Errorf exit 1 instead of ExitError{ExitNoRepo}(3), and missing-tick lookups as 1 instead of ExitNotFound(4), while approve/reject/merge and the herd family already use the typed codes. An orchestrator cannot branch on \"no repo\"/\"no such tick\" reliably.\n\nFix: centralize — a helper that wraps repoRoot() failures in ExitNoRepo once (find where each command calls it; prefer fixing the shared entry point over 15 call sites), and audit every tick-lookup error path for ExitNotFound. Do NOT change which conditions are errors — only their exit classification. Every observable code change (1 -\u003e 3 or 1 -\u003e 4) gets a CHANGELOG.md Unreleased entry with a one-line rationale, mirroring the 0.20.0 typed-exit-codes entry style. Tests: table over all affected commands pinning the new codes (in-process via ExecuteArgs; temp dirs, no real .tick); confirm approve/reject/merge/herd are untouched. Audit table (command -\u003e paths -\u003e old/new code) in your RESULT report. Full-suite gate on real exit codes per .tick/config.md Testing; gofmt/vet clean. Do NOT commit your RESULT file.",
+  "notes": "2026-08-12 11:59 - runner-state: substrate=herdr kind=claude branch=tick/jg5 workspace=w77 agent=tick-jg5 session=7d0a61ff",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "Every command hitting no-repo exits 3 and missing-tick exits 4, pinned by a table-driven test; zero behavior changes beyond exit classification; CHANGELOG entries present; full suite green",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T09:56:14.443795Z",
-  "updated_at": "2026-08-12T09:56:31.867712Z",
+  "updated_at": "2026-08-12T09:59:57.486116Z",
   "started_at": "2026-08-12T09:56:31.867712Z"
 }
