@@ -34,6 +34,17 @@
 // long-lived, so it keeps retrying and reports the outage in its header instead
 // of exiting.
 //
+// # Tracker changes have no herdr event
+//
+// herdr's events cover worker status only. A tick claim, close or merge, and
+// a new run manifest, are filesystem writes under .tick/issues and
+// .tick/logs/herd with no event source of their own. [FSWatcher] watches
+// those directories with fsnotify (the same package internal/tickboard/server
+// uses for the web board) and, after a trailing debounce coalesces a burst of
+// writes into one, asks for a reload the same way stream-death recovery does:
+// by emitting [ReloadMsg] onto the herdr watcher's own channel. There is one
+// reload mechanism in this package, fed by two sources.
+//
 // # The safety re-list
 //
 // A slow ticker ([DefaultRefreshInterval]) reloads the snapshot regardless.

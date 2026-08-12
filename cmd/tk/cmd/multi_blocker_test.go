@@ -10,6 +10,10 @@ import (
 
 // captureStdoutArgs runs ExecuteArgs while capturing stdout, returning the
 // captured output and the command error.
+//
+// The pipe is drained by a goroutine WHILE the command runs, not after: a
+// command that writes more than the OS pipe buffer (64KB-ish) would
+// otherwise deadlock writing to a pipe nobody is reading yet.
 func captureStdoutArgs(t *testing.T, args []string) (string, error) {
 	t.Helper()
 
@@ -20,16 +24,22 @@ func captureStdoutArgs(t *testing.T, args []string) (string, error) {
 	}
 	os.Stdout = w
 
+	outCh := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		outCh <- buf.String()
+	}()
+
 	runErr := ExecuteArgs(args)
 
 	_ = w.Close()
 	os.Stdout = origStdout
 
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	out := <-outCh
 	_ = r.Close()
 
-	return buf.String(), runErr
+	return out, runErr
 }
 
 // TestBlockMultipleBlockers verifies tk block accepts several blocker ids in

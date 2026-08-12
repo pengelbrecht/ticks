@@ -157,6 +157,14 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// expired reports that the wait's budget is spent. The wall-clock half
+	// closes a timer race ctx.Err() alone cannot: an operation cut off by the
+	// deadline surfaces its own timeout error at the same instant the context
+	// timer fires, and can arrive first. Any deadline-induced failure can only
+	// exist at or after the deadline, so comparing against it is race-free.
+	dl, _ := ctx.Deadline()
+	expired := func() bool { return ctx.Err() != nil || !time.Now().Before(dl) }
+
 	w := &waiter{
 		herd:      herd,
 		start:     time.Now(),
@@ -182,7 +190,7 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 	for len(w.unsettled) > 0 && ctx.Err() == nil {
 		stream, err := w.subscribe(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
+			if expired() {
 				break
 			}
 			return nil, err
@@ -194,18 +202,18 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 		}
 		deaths++
 		if deaths > 1 {
-			if ctx.Err() != nil {
+			if expired() {
 				break
 			}
 			return nil, fmt.Errorf("herd/wait: event stream failed again after resubscribing: %w", streamErr)
 		}
-		if ctx.Err() != nil {
+		if expired() {
 			break
 		}
 		// Close the gap the dead stream left before opening a new one. The
 		// replaying subscriptions make this order safe; see the package doc.
 		if err := w.reconcile(ctx); err != nil {
-			if ctx.Err() != nil {
+			if expired() {
 				// The deadline expired while recovery was in flight: the
 				// recovery failure (a dial or call cut off mid-attempt) is a
 				// symptom of the deadline, not a distinct fault. A timeout is

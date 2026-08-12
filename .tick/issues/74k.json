@@ -1,0 +1,19 @@
+{
+  "id": "74k",
+  "title": "Final review of tk-skills epic diff",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8ct",
+    "hzd"
+  ],
+  "parent": "uvv",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T08:31:44.197463Z",
+  "updated_at": "2026-08-12T09:37:36.39276Z",
+  "closed_at": "2026-08-12T09:37:36.39276Z",
+  "closed_reason": "Completed: frontier review — 1 blocker (template self-contradiction) + 2 should-fix + 5 nits; all applied incl. a second round after the reviewer caught two unapplied wording fixes reported as done (unasserted edits — process lesson recorded); RE-VERDICT CLEAN; fswatch degrade nits accepted as retro debt with reviewer concurrence"
+}

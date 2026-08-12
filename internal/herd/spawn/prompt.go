@@ -84,14 +84,20 @@ func BuildPrompt(in PromptInput) string {
    and any nested instruction files that apply.
 4. Read the relevant existing code before changing anything.
 5. Implement the task test-first: write the failing test, then make it pass.
-6. Run the tests named in the acceptance criteria and confirm they pass.
+6. Run the tests named in the acceptance criteria and confirm they pass. Run
+   them in the FOREGROUND and read the results before your message ends — never
+   park test runs (or any final-step work) in your harness's background tasks
+   and end your turn to wait for them: the moment your turn ends, the substrate
+   reads you as finished, and your commit and report will not exist yet.
 7. Commit your changes in this worktree: `+"`git add -A && git commit -m \"tick %s: <short summary>\"`"+`.
-8. Write your report to %s at the root of this worktree (see below) and commit it too.
+8. Write your report to %s at the root of this worktree (see below) — do NOT commit it.
 
 ## Boundaries (important)
 - Do NOT run any `+"`tk`"+` command and do NOT touch the `+"`.tick/`"+` directory — the orchestrator owns all tick state.
 - Work only inside this worktree. Do not touch sibling worktrees, other branches, or the main checkout.
 - Stay in scope: implement this tick only. Don't add features it didn't ask for.
+- Your `+"`RESULT-<tick-id>.md`"+` report stays UNCOMMITTED in the worktree root — write it
+  after your commit (or exclude it): it is run state the orchestrator collects, not repo content.
 - Commit source and tests only — never build/run artifacts (`+"`__pycache__`, `*.pyc`"+`, coverage files,
   caches). If `+"`.gitignore`"+` doesn't cover what your test run produces, extend it as part of your change.
 - If the task is ambiguous or you're missing something, stop and report it in %s — don't guess.

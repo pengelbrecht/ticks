@@ -1,0 +1,18 @@
+{
+  "id": "ss5",
+  "title": "Close out tk-skills epic: run epic retro",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "74k"
+  ],
+  "parent": "uvv",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T08:31:44.226626Z",
+  "updated_at": "2026-08-12T09:38:31.089261Z",
+  "closed_at": "2026-08-12T09:38:31.089261Z",
+  "closed_reason": "Completed: retro recorded on epic (run stats, accepted debt, process lesson), PR #41 opened with CI green"
+}

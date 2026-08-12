@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pengelbrecht/ticks/internal/github"
+	"github.com/pengelbrecht/ticks/internal/skills"
 )
 
 // resolveActor determines the actor for an activity entry using the precedence:
@@ -531,12 +532,24 @@ func ResetFlags() {
 	boardCloud = false
 	boardDev = false
 	boardHost = "127.0.0.1"
+
+	// Reset skills flags
+	skillsListJSON = false
+	skillsGetFull = false
+	skillsGetJSON = false
+	skillsInstallDir = ""
+	skillsInstallForce = false
+	skillsDiffDir = ""
 }
 
 // SetVersion allows main.go to set the version at initialization
 func SetVersion(v string) {
 	Version = v
 	rootCmd.Version = v
+	// Propagate to internal/skills so 'tk skills list' reports the same
+	// version this build's other version surfaces report — see that
+	// package's doc.go for why it cannot read main.Version itself.
+	skills.SetVersion(v)
 }
 
 func init() {

@@ -1,0 +1,16 @@
+{
+  "id": "4dm",
+  "title": "Dashboard auto-refresh on tracker changes (fsnotify)",
+  "description": "User report: the mission-control dashboard only reflects tracker-side changes (tick claims/closes, merges, new manifests) at the 30s safety re-list or manual r — herdr events cover worker status only, and tracker mutations are filesystem writes with no herdr event source.\n\nFix in internal/herd/dashboard: add an fsnotify watcher (github.com/fsnotify/fsnotify is ALREADY a go.mod dependency — reuse the patterns in internal/tickboard/server/server.go, which watches .tick for the web board) on the repo .tick/issues/ directory and .tick/logs/herd/ (recursive: watch the epic subdirs that exist and add new ones on create events). On any relevant event, DEBOUNCE (~500ms trailing) and feed the EXISTING ReloadMsg path (the same one stream-death recovery uses) — do not invent a second reload mechanism. Keep the 30s ticker as the safety net (its doc already says it is not the mechanism). Ignore dot-prefixed files (e.g. .notify-state.json) and temp/rename artifacts (atomic writes are temp+rename — coalesce via the debounce). Watcher failure must degrade gracefully: log to the model (a header note like the events-down indicator), keep ticker+events working, never crash the TUI.\n\nTests (model-level, per the package convention — read internal/herd/dashboard/doc.go + existing tests first): fs event -\u003e single debounced reload; burst of writes -\u003e one reload; dot-file writes ignored; watcher error -\u003e degraded header + ticker still reloads; new epic manifest dir picked up. Follow gofmt/vet/full-suite discipline per .tick/config.md Testing (gate on real exit codes).\n\nBoundaries: internal/herd/dashboard only (plus its tests). Do NOT touch cmd/ (a sibling worker is editing cmd/tk/cmd concurrently), plugins/, or other herd packages.",
+  "notes": "2026-08-12 10:57 - runner-state: substrate=herdr merged provisionally; waited_ms=16 (settled pre-wait — filtered replay)",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Tracker file changes reflect on the open dashboard within ~1s without keypress; burst-coalescing and dot-file/temp filtering pinned by tests; watcher failure degrades to ticker with a visible header note; full suite green",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T08:43:55.568448Z",
+  "updated_at": "2026-08-12T08:58:47.983768Z",
+  "closed_at": "2026-08-12T08:58:47.983768Z",
+  "closed_reason": "Completed: dashboard auto-refresh via fsnotify on .tick/issues + herd manifests, debounced into the existing reload path; ticker demoted to safety net; degrades visibly on watcher failure"
+}
