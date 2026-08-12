@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/herd/state"
 	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -216,15 +217,35 @@ func (m *Model) tickLine(t TickRow, selected bool) string {
 	return line
 }
 
-// workerLine renders one manifest, joined with its live status.
+// workerLine renders one manifest, joined with its live status and elapsed
+// timers.
 func (m *Model) workerLine(w WorkerRow) string {
 	st := m.Status(w.PaneID, w.Status)
-	return fmt.Sprintf("    %s %s %s %s %s",
+	line := fmt.Sprintf("    %s %s %s %s %s",
 		idStyle.Render(pad(w.Tick, 5)),
 		statusStyle(st).Render(pad(string(st), 9)),
 		pad(w.Kind, 8),
 		pad(w.PaneID, 10),
 		metaStyle.Render(w.Branch))
+	if timer := m.workerTimer(w, st); timer != "" {
+		line += "  " + metaStyle.Render(timer)
+	}
+	return line
+}
+
+// workerTimer renders the compact elapsed-time summary for a worker row,
+// e.g. "working 4m12s · age 9m01s": time in the current status (anchored at
+// [Model.statusSince], which starts at first observation — see
+// [Model.observeStatus]), then total age since the manifest's spawn.
+func (m *Model) workerTimer(w WorkerRow, status client.AgentStatus) string {
+	var parts []string
+	if obs, ok := m.statusSince[w.PaneID]; ok {
+		parts = append(parts, fmt.Sprintf("%s %s", status, formatDuration(m.now().Sub(obs.Since))))
+	}
+	if createdAt, err := time.Parse(state.TimeLayout, w.CreatedAt); err == nil {
+		parts = append(parts, "age "+formatDuration(m.now().Sub(createdAt)))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // since renders a coarse age; the board never shows sub-second churn.
@@ -243,6 +264,28 @@ func since(now, then time.Time) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	default:
 		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+}
+
+// formatDuration renders an elapsed worker-row timer compactly: seconds
+// alone under a minute, minutes+seconds under an hour, hours+minutes beyond
+// that. Unlike [since], which deliberately drops precision for the header,
+// this is the fine-grained rendering the row timers need.
+func formatDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		mins := int(d.Minutes())
+		secs := int(d.Seconds()) - mins*60
+		return fmt.Sprintf("%dm%02ds", mins, secs)
+	default:
+		hours := int(d.Hours())
+		mins := int(d.Minutes()) - hours*60
+		return fmt.Sprintf("%dh%02dm", hours, mins)
 	}
 }
 

@@ -25,6 +25,18 @@ type SnapshotMsg struct {
 // refreshTickMsg is the safety ticker firing.
 type refreshTickMsg time.Time
 
+// displayTickInterval is how often worker-row elapsed timers redraw. Unlike
+// [DefaultRefreshInterval] it is not configurable: it never reads anything
+// off disk or the network, it only asks bubbletea to repaint what [Model]
+// already knows, so there is no cost to tune away.
+const displayTickInterval = time.Second
+
+// displayTickMsg is the once-a-second timer-display tick. It is armed only
+// while at least one worker is unsettled (see [Model.anyUnsettled]) and stops
+// rescheduling itself the moment the board settles, so an idle board never
+// wakes on its own. See the package doc's "why events and not a poll loop".
+type displayTickMsg time.Time
+
 // Config builds a [Model].
 type Config struct {
 	// RepoRoot is the repository whose run is displayed. Required.
@@ -65,6 +77,18 @@ type Model struct {
 	// a status nothing was subscribed to observe changing.
 	live map[string]liveStatus
 
+	// statusSince is when each pane's CURRENT status was first observed —
+	// through a snapshot listing delta or a pushed event, whichever noticed
+	// it first. History before the dashboard was watching is unknowable, so
+	// the very first observation of a pane starts its timer at zero rather
+	// than guessing when the status actually began.
+	statusSince map[string]statusObservation
+	// displayTicking reports whether the once-a-second display tick is
+	// currently scheduled. It exists so a settled board (and a board with no
+	// workers at all) never arms a redundant tick, and so a tick already in
+	// flight when the board settles does not reschedule itself again.
+	displayTicking bool
+
 	loadErr    error
 	streamUp   bool
 	streamErr  error
@@ -79,6 +103,14 @@ type Model struct {
 	height int
 
 	quitting bool
+}
+
+// statusObservation is the status a pane was last seen in, and when the
+// dashboard first observed it — the anchor for the "time in current status"
+// timer on a worker row.
+type statusObservation struct {
+	Status client.AgentStatus
+	Since  time.Time
 }
 
 // New builds the board. Call [Model.Close] when the program exits.
@@ -96,16 +128,17 @@ func New(ctx context.Context, cfg Config) *Model {
 	}
 	watcher := NewWatcher(cfg.Herd)
 	return &Model{
-		loader:   Loader{RepoRoot: cfg.RepoRoot, Epic: cfg.Epic, Now: now},
-		watcher:  watcher,
-		fswatch:  NewFSWatcher(cfg.RepoRoot, watcher.emit),
-		herd:     cfg.Herd,
-		interval: interval,
-		now:      now,
-		ctx:      ctx,
-		live:     map[string]liveStatus{},
-		width:    100,
-		height:   30,
+		loader:      Loader{RepoRoot: cfg.RepoRoot, Epic: cfg.Epic, Now: now},
+		watcher:     watcher,
+		fswatch:     NewFSWatcher(cfg.RepoRoot, watcher.emit),
+		herd:        cfg.Herd,
+		interval:    interval,
+		now:         now,
+		ctx:         ctx,
+		live:        map[string]liveStatus{},
+		statusSince: map[string]statusObservation{},
+		width:       100,
+		height:      30,
 	}
 }
 
@@ -145,6 +178,13 @@ func (m *Model) tick() tea.Cmd {
 	return tea.Tick(m.interval, func(t time.Time) tea.Msg { return refreshTickMsg(t) })
 }
 
+// displayTick arms the once-a-second worker-row timer redraw. Structured
+// exactly like [Model.tick]: a tea.Tick producing one typed message, rearmed
+// by its own Update case rather than by a separate ticker goroutine.
+func (m *Model) displayTick() tea.Cmd {
+	return tea.Tick(displayTickInterval, func(t time.Time) tea.Msg { return displayTickMsg(t) })
+}
+
 // Update is the whole input surface. It is pure with respect to the messages
 // it receives, which is what makes the board testable without a socket.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -171,6 +211,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This is the one place the safety re-list feeds the event
 		// mechanism: a newly spawned worker's pane becomes watched here.
 		m.watcher.Track(m.panes())
+		// A re-list is a listing delta: it is how the board observes a
+		// status transition nothing subscribed to (or the very first
+		// status of a pane it has never seen before).
+		m.updateStatusSince(msg.Snapshot.LoadedAt)
+		m.pruneStatusSince()
+		if cmd := m.maybeStartDisplayTick(); cmd != nil {
+			return m, cmd
+		}
 		return m, nil
 
 	case StatusMsg:
@@ -181,7 +229,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.live[msg.PaneID] = liveStatus{Status: msg.Status, At: at}
 		m.events++
 		m.lastEvent = at
-		return m, m.watcher.Next()
+		m.observeStatus(msg.PaneID, msg.Status, at)
+		cmds := []tea.Cmd{m.watcher.Next()}
+		if cmd := m.maybeStartDisplayTick(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+
+	case displayTickMsg:
+		if !m.anyUnsettled() {
+			m.displayTicking = false
+			return m, nil
+		}
+		return m, m.displayTick()
 
 	case StreamMsg:
 		m.streamUp, m.streamErr, m.panesWatch = msg.Up, msg.Err, msg.Panes
@@ -360,4 +420,81 @@ func (m *Model) pruneLive() {
 			delete(m.live, pane)
 		}
 	}
+}
+
+// updateStatusSince reconciles [Model.statusSince] against the freshly loaded
+// snapshot: a listing delta. observedAt is when the listing was taken (the
+// snapshot's LoadedAt), not [Model.now] — a re-list that happened a moment
+// ago must not appear to have observed the transition just now.
+func (m *Model) updateStatusSince(observedAt time.Time) {
+	if observedAt.IsZero() {
+		observedAt = m.now()
+	}
+	for _, w := range m.snap.Workers() {
+		if w.PaneID == "" {
+			continue
+		}
+		m.observeStatus(w.PaneID, m.Status(w.PaneID, w.Status), observedAt)
+	}
+}
+
+// observeStatus records paneID's status as of at, starting or resetting the
+// "time in current status" timer whenever this is the first time the pane has
+// been seen, or the status differs from what was last observed. History
+// before the dashboard was watching is unknowable, so the first observation
+// of a pane always starts its timer at zero rather than inventing a start
+// time — this is deliberate, not a gap to fill in later.
+func (m *Model) observeStatus(paneID string, status client.AgentStatus, at time.Time) {
+	if prev, ok := m.statusSince[paneID]; ok && prev.Status == status {
+		return
+	}
+	m.statusSince[paneID] = statusObservation{Status: status, Since: at}
+}
+
+// pruneStatusSince drops timer state for panes that left the board — the
+// same cleanup [Model.pruneLive] does for the event overlay.
+func (m *Model) pruneStatusSince() {
+	if len(m.statusSince) == 0 {
+		return
+	}
+	keep := make(map[string]bool, len(m.statusSince))
+	for _, p := range m.panes() {
+		keep[p] = true
+	}
+	for pane := range m.statusSince {
+		if !keep[pane] {
+			delete(m.statusSince, pane)
+		}
+	}
+}
+
+// unsettled reports whether a worker in this status still warrants a
+// per-second timer redraw. Done and [StatusGone] are the board's terminal
+// states — idle is not: an idle worker is mid-run, awaiting its next turn
+// (see the package doc), and its elapsed timers keep moving.
+func unsettled(s client.AgentStatus) bool {
+	return s != client.StatusDone && s != StatusGone
+}
+
+// anyUnsettled reports whether the display tick has any reason to keep
+// running: at least one worker not yet done or gone.
+func (m *Model) anyUnsettled() bool {
+	for _, w := range m.snap.Workers() {
+		if unsettled(m.Status(w.PaneID, w.Status)) {
+			return true
+		}
+	}
+	return false
+}
+
+// maybeStartDisplayTick arms the once-a-second display tick when the board
+// has unsettled workers and nothing is ticking yet. It is idempotent: a tick
+// already in flight, or a fully settled board, produce no command — an idle
+// board is never woken on its own (see the package doc).
+func (m *Model) maybeStartDisplayTick() tea.Cmd {
+	if m.displayTicking || !m.anyUnsettled() {
+		return nil
+	}
+	m.displayTicking = true
+	return m.displayTick()
 }
