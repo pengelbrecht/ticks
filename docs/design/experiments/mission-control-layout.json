@@ -1,0 +1,24 @@
+{
+  "type": "layout_export",
+  "layout": {
+    "workspace_id": "w1",
+    "tab_id": "w1:t1",
+    "zoomed": false,
+    "focused_pane_id": "w1:p1",
+    "root": {
+      "type": "split",
+      "direction": "right",
+      "ratio": 0.5,
+      "first": {
+        "type": "pane",
+        "pane_id": "w1:p1",
+        "cwd": "/Users/peterengelbrecht"
+      },
+      "second": {
+        "type": "pane",
+        "pane_id": "w1:p2",
+        "cwd": "/Users/peterengelbrecht"
+      }
+    }
+  }
+}
