@@ -1,0 +1,23 @@
+# Worker routing for herd-substrate epic runs. Schema:
+# skills/ticks/references/runners-config.schema.json; semantics: runners-config.md.
+version = 1
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "herdr"
+max_parallel = 3
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[roles.implement.tiers.economy]
+model = "haiku"
+effort = "low"
+
+[roles.implement.tiers.strong]
+model = "opus"
+effort = "high"

@@ -7,7 +7,8 @@
   "type": "epic",
   "owner": "noreply@anthropic.com",
   "acceptance_criteria": "tk skills list/get/install work from the released binary with content byte-identical to the tagged repo skills/ticks tree; install writes a working skill dir a fresh Claude Code session can load; version stamp + drift warning present; README + skill docs document the new canonical install path; CI guards embed freshness.",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T08:26:48.911139Z",
-  "updated_at": "2026-08-12T08:26:48.911139Z"
+  "updated_at": "2026-08-12T08:30:55.153742Z"
 }
