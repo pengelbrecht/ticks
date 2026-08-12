@@ -3,7 +3,7 @@
   "title": "Dashboard: elapsed timers on worker rows",
   "description": "User request (2026-08-12). Worker rows on tk herd dashboard show live elapsed timers: (a) total age since spawn (manifest created_at — read internal/herd/state for the field), and (b) time in current status (tracked from the moment the dashboard observed the latest status change: event arrival or listing delta; document that pre-observation history is unknowable and the timer starts at first observation — do not fake it). Render compactly on each worker row, e.g. \"working 4m12s · age 9m01s\"; sub-minute as Ns, then NmSSs, then HhMMm. Tick the display once per second ONLY while at least one worker is unsettled (a bubbletea tick command that stops when idle — do not wake an idle board every second; read model.go for how the safety re-list ticker is structured and be consistent). Timers must not disturb the event pipeline or trigger reloads. Read internal/herd/dashboard/doc.go + model/view/watch first; note the fswatch changes a sibling tick just landed and rebase your understanding on the CURRENT files after merging the integration branch (IMPORTANT FIRST STEP applies as usual). Model tests: age from a fixed created_at; status timer resets on observed transition; per-second tick present only while unsettled; rendering caps. Boundaries: internal/herd/dashboard only. Full-suite gate on real exits; gofmt/vet clean; do NOT commit RESULT.",
   "notes": "2026-08-12 12:10 - Field guidance (human question answered): tick JSON already carries started_at (claim time) alongside the manifest created_at (spawn time) — use started_at for tick age when present (tracker truth), manifest created_at for worker age; no new fields needed.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +14,6 @@
   "acceptance_criteria": "Worker rows show age + time-in-status, updating each second only while workers are active; timer starts at first observation (documented); tests pin reset-on-transition and idle-quiescence; suite green",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T10:05:48.673132Z",
-  "updated_at": "2026-08-12T10:10:07.945845Z"
+  "updated_at": "2026-08-12T10:10:08.288354Z",
+  "started_at": "2026-08-12T10:10:08.288354Z"
 }
