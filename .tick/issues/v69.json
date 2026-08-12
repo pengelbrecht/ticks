@@ -3,7 +3,7 @@
   "title": "Embedded skills bundle: root embed package + internal/skills",
   "description": "Foundation. Create the embedded skills bundle and its accessor package.\n\nCONSTRAINT (Go embed): a go:embed directive can only reference paths in or below its own package directory, and never through symlinks. skills/ticks/** lives at the repo root, so the embed .go file must live in a package whose directory is the repo root or an ancestor of skills/. The accepted approach: a new root-level file (e.g. embedded.go, package name distinct from main packages, module root has no package today - verify) OR a tiny package at the root like ticksskills/ CANNOT reach ../skills - so root-level file it is. Verify with go build before building on it.\n\nDeliverables:\n1. Root-level embed file exposing an embed.FS of skills/ticks/** (ALL of it: SKILL.md + references/ incl. runners-config.schema.json). Exclude nothing; the bundle must be byte-identical to the committed tree.\n2. Package internal/skills: List() (skill names - today just \"ticks\"), Files(name) (fs.FS of that skill), Read(name, path), Version() (the tk build version via the existing version mechanism - find how cmd/tk surfaces its version and reuse it, do not invent a second source), and Verify(root string) which compares the embedded bundle byte-for-byte against an on-disk skills/ tree and reports any drift (path lists + differing files).\n3. Tests: bundle contains SKILL.md and every references/*.md + the schema json; Verify() against the repo tree passes (this test IS the CI embed-freshness guard - it runs in normal go test and fails if someone edits skills/ without... wait, embed happens at build time so the test recompiles with the current tree and always passes - therefore ALSO add a test asserting specific load-bearing files exist and are non-trivial (size floor), and document in the package doc why embed-freshness is structurally guaranteed at build time (the embed IS the tree) while RELEASED binaries are guaranteed by the tag build. Reason about this honestly in doc.go rather than shipping a tautological guard.\n\nBoundaries: no cmd/ changes (later ticks own the CLI); no changes under skills/ itself. Run gofmt, go vet, and the full test suite per .tick/config.md Testing. Commit all work in your worktree with message prefix \"tick \u003cthis-tick-id\u003e: \".",
   "notes": "2026-08-12 10:32 - runner-state: substrate=herdr kind=claude branch=tick/v69 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-v69 workspace=w6Z base=8baf8a29 agent=tick-v69 pane=w6Z:p1 session=5cb30bf7-e62d-4d6b-a396-dac46e9b0364",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,6 +11,7 @@
   "acceptance_criteria": "go test -short ./... green incl. new internal/skills tests; embedded bundle enumerates the full skills/ticks tree; Verify() detects an injected drift in a temp copy (test proves it fires); version comes from the existing single source",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T08:31:44.078348Z",
-  "updated_at": "2026-08-12T08:32:15.305245Z",
-  "started_at": "2026-08-12T08:31:59.820491Z"
+  "updated_at": "2026-08-12T08:42:03.678718Z",
+  "closed_at": "2026-08-12T08:42:03.678718Z",
+  "closed_reason": "Completed: root embed package (all:skills, future skills auto-included) + internal/skills (List/Files/Read/Paths/Version/Verify with honest embed-freshness reasoning); ready-to-merge on first herd-substrate production run; wait deadline race fixed at gate (race-free wall-clock guards)"
 }
