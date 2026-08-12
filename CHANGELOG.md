@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-08-12
+
+### Added
+
+- **`tk skills` command group** — the tk binary now serves its own skills, version-matched by construction (`go:embed` of the skills tree at build time): `tk skills list`, `tk skills get <name> [--full]`, detection-first `tk skills install <name>` (installs into every convention directory present at the repo root — `.claude/skills/`, `.agents/skills/` — with a version stamp, unmanaged-directory refusal, atomic swap, and stale-temp sweep; `--dir` for explicit targets), and `tk skills diff <name>` (per-target drift report, aggregate exit).
+- **Mission-control dashboard auto-refresh** — `tk herd dashboard` now watches `.tick/issues` and the herd run manifests with fsnotify, so tracker changes (claims, closes, new workers) appear within ~1s without a keypress; the 30-second re-list is demoted to a safety net.
+
+### Fixed
+
+- **`tk herd wait` deadline classification (final form)** — the 0.20.1 fix left a timer race between the context's deadline and deadline-induced dial errors; guards now compare wall-clock against the context deadline, which cannot race. Reproduced and fixed during this release's own herd-orchestrated development run.
+- **Herd worker prompt template** — two hardening rules from production worker behavior: the final test gate must run in the foreground (harness-internal background tasks are invisible to herdr's lifecycle and read as a settled worker), and the worker's RESULT report stays uncommitted (run state, not repo content).
+
+
 ## [0.20.1] - 2026-08-12
 
 ### Fixed
