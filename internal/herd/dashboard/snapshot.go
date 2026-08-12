@@ -23,10 +23,21 @@ type Herd interface {
 
 // TickRow is one tick on the board.
 type TickRow struct {
-	ID     string
-	Title  string
-	Status string
-	Type   string
+	ID       string
+	Title    string
+	Status   string
+	Type     string
+	Priority int
+	// Description, AcceptanceCriteria and Notes feed the detail view (tick
+	// 7hm); the board's list rows never render them.
+	Description        string
+	AcceptanceCriteria string
+	Notes              string
+	// BlockedBy is every blocker this tick names, resolved against the
+	// tracker so the detail view can show more than a bare id — including
+	// blockers already closed, which is why [TickRow.Blocked] (open blockers
+	// only) is tracked separately.
+	BlockedBy []BlockerRow
 	// Blocked reports that the tick still has open blockers.
 	Blocked bool
 	// PaneID is the pane of the worker implementing this tick, empty when
@@ -34,6 +45,15 @@ type TickRow struct {
 	PaneID string
 	// Agent is the herdr agent name from the manifest, empty when unspawned.
 	Agent string
+}
+
+// BlockerRow is one entry in a tick's blocked-by list, resolved against the
+// tracker. Title and Status are empty when the blocker id does not resolve
+// to a known tick.
+type BlockerRow struct {
+	ID     string
+	Title  string
+	Status string
 }
 
 // WaveRow is one parallel execution wave of an epic. Wave 0 is this package's
@@ -54,6 +74,11 @@ type WorkerRow struct {
 	Kind     string
 	Branch   string
 	Worktree string
+	// WorkspaceID is what `herdr worktree remove` takes at cleanup.
+	WorkspaceID string
+	// Model is the resolved capability dimension; empty means the kind's own
+	// default, never a substituted value.
+	Model string
 	// Status is herdr's live agent status. [StatusGone] means the manifest
 	// exists but herdr does not know the pane.
 	Status client.AgentStatus
@@ -170,15 +195,17 @@ func (l Loader) Load(ctx context.Context, herd Herd) (Snapshot, error) {
 				status = client.StatusUnknown
 			}
 			board.Workers = append(board.Workers, WorkerRow{
-				Tick:      m.Tick,
-				Epic:      m.Epic,
-				Agent:     m.Agent,
-				PaneID:    m.PaneID,
-				Kind:      m.Kind,
-				Branch:    m.Branch,
-				Worktree:  m.Worktree,
-				Status:    status,
-				CreatedAt: m.CreatedAt,
+				Tick:        m.Tick,
+				Epic:        m.Epic,
+				Agent:       m.Agent,
+				PaneID:      m.PaneID,
+				Kind:        m.Kind,
+				Model:       m.Model,
+				Branch:      m.Branch,
+				Worktree:    m.Worktree,
+				WorkspaceID: m.WorkspaceID,
+				Status:      status,
+				CreatedAt:   m.CreatedAt,
 			})
 		}
 		board.Waves = computeWaves(ticks, byID, epicID, paneByTick)
@@ -267,14 +294,26 @@ func computeWaves(all []tick.Tick, byID map[string]tick.Tick, epicID string, man
 
 // tickRow builds one board row, joining the manifest that names the tick.
 func tickRow(t tick.Tick, byID map[string]tick.Tick, manifests map[string]state.Manifest) TickRow {
-	row := TickRow{ID: t.ID, Title: t.Title, Status: t.Status, Type: t.Type}
+	row := TickRow{
+		ID:                 t.ID,
+		Title:              t.Title,
+		Status:             t.Status,
+		Type:               t.Type,
+		Priority:           t.Priority,
+		Description:        t.Description,
+		AcceptanceCriteria: t.AcceptanceCriteria,
+		Notes:              t.Notes,
+	}
 	for _, b := range t.BlockedBy {
 		blocker, ok := byID[b]
-		if !ok || blocker.Status == tick.StatusClosed {
-			continue
+		blockerRow := BlockerRow{ID: b}
+		if ok {
+			blockerRow.Title, blockerRow.Status = blocker.Title, blocker.Status
+			if blocker.Status != tick.StatusClosed {
+				row.Blocked = true
+			}
 		}
-		row.Blocked = true
-		break
+		row.BlockedBy = append(row.BlockedBy, blockerRow)
 	}
 	if m, ok := manifests[t.ID]; ok {
 		row.PaneID = m.PaneID

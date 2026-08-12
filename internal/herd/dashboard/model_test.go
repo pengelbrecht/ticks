@@ -483,6 +483,8 @@ func key(s string) tea.KeyMsg {
 	switch s {
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
 	case "up":
