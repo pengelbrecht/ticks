@@ -8,8 +8,12 @@
 - **Gated**: requires `experimental.kitty_graphics = true` in herdr config — otherwise every call returns `feature_disabled`. Probed by starting the isolated server with a scratch `HERDR_CONFIG_PATH`.
 - **Set succeeds server-side** with a generated 480×160 PNG (`scripts/experiments/waves-chart.go`, a wave-progress chart in the board palette). `info` then reports `cell_size_unavailable` in a headless session: placement math needs the attached client's cell metrics, and rendering needs a kitty-graphics-capable terminal (Ghostty/kitty/WezTerm; not Terminal.app).
 
+## Live confirmation (same day)
+
+Rendered for real on the main session: flag enabled in the existing `[experimental]` section (a duplicate-table append is rejected cleanly by `reload-config` — good fail-closed), fresh pane `w4C:pA`, `pane.graphics.set` → **user confirms the bars render** in their terminal. Quirk: `pane.graphics.info` reported `cell_size_unavailable` even while rendering succeeded — the info endpoint's cell-metrics view lags the actual client capability; don't gate on it.
+
 ## Verdict
 
-Plausible but double-gated: a graphical board mode (chart panes beside the TUI dashboard) would work only where (a) the user opts into `experimental.kitty_graphics` and (b) the outer terminal speaks kitty graphics. That's a fine *optional* enhancement — e.g. `tk herd dashboard --chart` rendering wave progress as an image — but it can never be the default, and the TUI board must stay fully capable without it. Not worth a tick until someone actually runs with the flag on.
+Plausible but double-gated: a graphical board mode (chart panes beside the TUI dashboard) would work only where (a) the user opts into `experimental.kitty_graphics` and (b) the outer terminal speaks kitty graphics. That's a fine *optional* enhancement — e.g. `tk herd dashboard --chart` rendering wave progress as an image — but it can never be the default, and the TUI board must stay fully capable without it. Now that this machine runs with the flag on and renders, a `tk herd dashboard` chart element is a legitimate candidate tick — parked as a proposal for the human.
 
 **To see the demo live** (user action, machine-global): add `[experimental] kitty_graphics = true` to `~/.config/herdr/config.toml`, reload (`herdr server reload-config`), then `go run scripts/experiments/waves-chart.go` and a `pane.graphics.set` at any pane — the spike's raw-socket call is in this file's history.
