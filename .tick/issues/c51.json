@@ -1,0 +1,13 @@
+{
+  "id": "c51",
+  "title": "Spike: remote herdr fleet recipe",
+  "description": "Document-first probe of herdr --remote for worker fleets on another machine: what --remote actually attaches (client vs server), what a remote herd run needs (remote herdr server + repo checkout + tk + agent CLIs + auth), how tk herd would target it (HERDR_SOCKET_PATH over SSH forward?), and the moshi-host fit. Deliverable: docs/design/experiments/remote-fleet.md with an exact step-by-step recipe ready to execute live the moment a host is named. No live remote work in this spike unless a host is provided.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "nmn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T12:43:10.95592Z",
+  "updated_at": "2026-08-12T12:43:10.95592Z"
+}

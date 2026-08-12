@@ -1,0 +1,12 @@
+{
+  "id": "nmn",
+  "title": "Herdr experiments (fun, reviewable spikes)",
+  "description": "User-requested exploration bucket (2026-08-12): three spikes, each producing a short report under docs/design/experiments/ plus a runnable artifact the user can review. Not an epic — passive grouping; spikes run individually. Live probes happen in an ISOLATED named herdr session so the main session layout/panes are never touched.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T12:43:10.883331Z",
+  "updated_at": "2026-08-12T12:43:10.883331Z"
+}

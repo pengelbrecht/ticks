@@ -1,0 +1,13 @@
+{
+  "id": "g0k",
+  "title": "Spike: mission-control layout export/apply restore",
+  "description": "Prove one-command layout restore: in an isolated named herdr session, build the mission-control shape (orchestrator pane + dashboard split + worker workspaces), layout.export -\u003e committed JSON artifact, scramble the layout, layout.apply -\u003e verify restoration. Deliverables: docs/design/experiments/layout-restore.md (what works, quirks, whether a \"tk herd layout\" command is warranted) + scripts/experiments/mission-control-layout.sh + the exported layout JSON.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "nmn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T12:43:10.908295Z",
+  "updated_at": "2026-08-12T12:43:10.908295Z"
+}
