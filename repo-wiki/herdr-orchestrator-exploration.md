@@ -22,6 +22,10 @@ Field learnings from the epic run (also folded into the shipped docs, which are 
 - Approvals: start workers in per-kind full-auto mode (config-templated args); treat `blocked` as human escalation, not something to click through.
 - Recommended shape: a `herdr-runner.md` ticks adapter + `.tick/runners.toml` (task role → kind/model/args) + optional `tkherd` helper / herdr plugin for board pane, actions, and event fan-in.
 
+## Shipped through v0.21.0 (2026-08-12)
+
+Epic `uvv` ("tk serves its own skills") was the herd substrate's first production workload and shipped in v0.21.0: `tk skills list/get/install/diff` (detection-first over `.claude/skills` + `.agents/skills`, both live-verified conventions), dashboard fsnotify auto-refresh, and the herd fixes the run itself surfaced (race-free wait deadline guards; twice-hardened worker template). Verified full-circle: the released binary installed its own version-matched skill over the previously hand-managed `~/.claude/skills/ticks` (stamp 0.21.0, zero drift). `tk skills install` is now the canonical skill install path.
+
 ## Post-release follow-ups (2026-08-12)
 
 Released as tk 0.20.0/0.20.1 (herd + plugin; 0.20.1 fixes the wait deadline-during-recovery misclassification the "CI flake" was actually pointing at). README gained a herd section post-release (the epic's docs ticks covered skill refs + plugin README only — learnings now require a user-facing surface checklist). New user-proposed roadmap epic `uvv`: tk serves its own version-matched skills (`tk skills list/get/install`, go:embed of skills/ticks/**, agent-browser-style) — solves the binary/skill version-skew class hit twice this project.
