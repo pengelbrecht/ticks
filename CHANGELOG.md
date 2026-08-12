@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Normalized `ExitNoRepo` / `ExitNotFound` across every command** — `approve`, `reject`, `merge` and the `tk herd` family already returned typed exit codes for "not in a git repository" (3) and "no such tick" (4); the ~25 other commands wrapped the identical failures with a bare `fmt.Errorf` and exited 1, so an orchestrator could not branch on either condition without parsing message text. Classification is now central: `repoRoot()` itself returns `ExitError{ExitNoRepo}`, and every tick lookup goes through `notFoundIfMissing`, so a command added later inherits the codes instead of opting in. No condition changed from success to failure or vice versa — only the code each failure reports. Observable changes:
+  - `tk init`, `create`, `show`, `update`, `close`, `reopen`, `delete`, `block`, `unblock`, `note`, `notes`, `list`, `ready`, `next`, `blocked`, `label add|rm|list`, `labels`, `deps`, `graph`, `roadmap`, `status`, `stats`, `rebuild`, `migrate`, `gc`, `import` and `tui` run outside a git repository now exit **3 (no repo) instead of 1**. Rationale: exit 1 is "the command ran and failed"; an orchestrator that sees 3 knows to fix the working directory rather than retry or escalate.
+  - `tk skills install` / `tk skills diff` with no `--dir` and no enclosing git repository now exit **3 instead of 1**, matching every other command's no-repo failure. Rationale: the two commands' own `--help` used to fold "not inside a repo" together with "neither convention directory exists", which are different faults with different fixes (chdir/`--dir` vs. create a skills directory); the latter still exits 1.
+  - `tk show`, `update`, `close`, `reopen`, `delete`, `note`, `notes`, `deps`, `graph`, `label add|rm|list`, `block` (target or any blocker) and `unblock` given an id that names no tick now exit **4 (not found) instead of 1**. Rationale: "this id does not exist" is a recoverable, distinguishable outcome — an orchestrator can create the tick or correct the id — and reporting it as a generic failure sent every such caller down the retry path.
+  - `tk roadmap <epic>` for an epic absent from the roadmap now exits **4 instead of 1**, for the same reason.
+  - Unchanged on purpose: a tick file that exists but cannot be read or parsed still exits 1, never 4 — this is the boundary `tk herd collect` already draws for run manifests, because a caller reading 4 as "never created" would act on damaged state instead of stopping.
+
 ## [0.21.0] - 2026-08-12
 
 ### Added

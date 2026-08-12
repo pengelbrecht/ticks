@@ -58,13 +58,13 @@ func runBlock(cmd *cobra.Command, args []string) error {
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
+		return notFoundIfMissing("failed to read tick", err)
 	}
 
 	// Validate every blocker before mutating so a bad id leaves the tick untouched.
 	for _, blockerID := range blockerIDs {
 		if _, err := store.Read(blockerID); err != nil {
-			return fmt.Errorf("failed to read blocker tick %s: %w", blockerID, err)
+			return notFoundIfMissing(fmt.Sprintf("failed to read blocker tick %s", blockerID), err)
 		}
 	}
 

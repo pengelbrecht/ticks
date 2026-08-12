@@ -42,10 +42,10 @@ carries over.
 Exit codes
   0  installed into every target
   1  no --dir and neither .claude/skills/ nor .agents/skills/ exists at the
-     repo root (or the working directory isn't inside a repo); or a target
-     failed for a reason other than being unmanaged
+     repo root; or a target failed for a reason other than being unmanaged
   2  usage error, or a target exists and is not tk-managed (pass --force or
      remove it first)
+  3  no --dir and the working directory isn't inside a git repository
   4  no such skill is embedded in this binary`,
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,

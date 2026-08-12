@@ -173,7 +173,7 @@ func runRoadmap(cmd *cobra.Command, args []string) error {
 		chainEpicID = strings.TrimSpace(args[0])
 		roadmap = filterRoadmapChain(roadmap, chainEpicID)
 		if len(roadmap.Waves) == 0 {
-			return fmt.Errorf("epic %q not found in roadmap", chainEpicID)
+			return NewExitError(ExitNotFound, "epic %q not found in roadmap", chainEpicID)
 		}
 	}
 
