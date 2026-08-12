@@ -92,7 +92,34 @@ type SpawnContext struct {
 	// Required for any kind whose row declares a fragment that needs it
 	// (codex). Empty is a refusal, not a silent omission: see
 	// [RefusalSpawnContext].
+	//
+	// A caller that cannot answer this cheaply sets ResolveGitCommonDir
+	// instead and leaves this empty.
 	GitCommonDir string
+
+	// ResolveGitCommonDir supplies GitCommonDir on demand, and is consulted
+	// ONLY by a kind whose row declares a fragment that needs it.
+	//
+	// The path costs a `git rev-parse` in the spawner's repository. Paying it
+	// up front made every spawn depend on it, so a claude worker — a kind
+	// that never sees the value — could not start in a repository where that
+	// subprocess failed. Fail-closed is unchanged for the kinds that DO need
+	// it: a resolver that errors refuses the spawn, exactly as an empty
+	// GitCommonDir does.
+	ResolveGitCommonDir func() (string, error)
+}
+
+// gitCommonDir answers the fragments that need the git common dir: the
+// literal value when the caller had it, otherwise the caller's resolver, run
+// here — at the one point a kind has proven it needs the answer.
+func (c SpawnContext) gitCommonDir() (string, error) {
+	if c.GitCommonDir != "" {
+		return c.GitCommonDir, nil
+	}
+	if c.ResolveGitCommonDir == nil {
+		return "", nil
+	}
+	return c.ResolveGitCommonDir()
 }
 
 // Spawn is a compiled worker: the resolved routing plus the exact argv to
