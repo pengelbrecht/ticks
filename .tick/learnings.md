@@ -36,11 +36,8 @@ source changes need a production build.
 **Rule:** After UI source changes, run `scripts/build-ui.sh` and commit the regenerated
 `static/` (and `ui/dist/`) so the embed is current.
 
-**Problem:** CI pnpm setup fails ("No pnpm version specified") despite a packageManager pin,
-or pnpm install fails with ERR_PNPM_IGNORED_BUILDS.
-**Cause:** The repo's only package.json is nested at internal/tickboard/ui/, but
-pnpm/action-setup reads the repo root by default; and pnpm 11 gates build scripts behind
-approval in pnpm-workspace.yaml (esbuild).
+**Problem:** CI pnpm setup fails ("No pnpm version specified") or ERR_PNPM_IGNORED_BUILDS.
+**Cause:** package.json is nested at internal/tickboard/ui/; pnpm 11 gates build scripts.
 **Rule:** Keep `package_json_file: internal/tickboard/ui/package.json` on the pnpm action and
 keep internal/tickboard/ui/pnpm-workspace.yaml committed. Workflow changes are only proven by
 an actual CI run, never by local tests.
