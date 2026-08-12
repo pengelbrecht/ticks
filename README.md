@@ -221,8 +221,33 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
 | `tk snippet` | Output runner-neutral agent instructions |
+| `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
 
 All commands support `--help` for options and `--json` for machine-readable output.
+
+### Herd: agent orchestration on herdr
+
+When an epic runs inside a [herdr](https://herdr.dev) session, the `tk herd` command
+group dispatches implementers as independent, visible herdr agents — any herdr kind,
+cross-vendor (e.g. codex implementers under a claude orchestrator) — instead of the
+orchestrating harness's own subagents. Configure routing in `.tick/runners.toml`
+(`substrate = "herdr" | "harness" | "auto"`, plus per-role kind × model/effort).
+
+| Command | Description |
+|---------|-------------|
+| `tk herd spawn <id>` | Worktree + agent + content-gated first prompt + run manifest |
+| `tk herd wait --agents a,b` | Event-driven wave fan-in (no polling) |
+| `tk herd collect <id>` | Verify durable results: commits, RESULT file, boundary |
+| `tk herd cleanup [<id>]` | Preview-first teardown; refuses live/blocked/unmerged |
+| `tk herd reconcile` | Read-only crash-recovery plan after orchestrator death |
+| `tk herd dashboard` | Live event-driven board TUI of the run |
+| `tk herd paint` | Badge worker workspaces with tick id, role, status |
+| `tk herd notify` | Blocked/wave-complete notifications with once-semantics |
+
+The optional **mission-control herdr plugin** ([`plugins/herdr-ticks`](plugins/herdr-ticks))
+adds a board pane, workspace badges via event hooks, notification chimes, and
+context-menu actions. Full conventions live in the ticks skill:
+[`skills/ticks/references/herdr-runner.md`](skills/ticks/references/herdr-runner.md).
 
 ## TUI
 
