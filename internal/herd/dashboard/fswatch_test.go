@@ -3,6 +3,7 @@ package dashboard
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,6 +191,66 @@ func TestFSWatcherPicksUpNewEpicManifestDir(t *testing.T) {
 
 	writeFile(t, filepath.Join(epicDir, "zzz.json"), `{"tick":"zzz"}`)
 	waitForReload(t, msgs)
+}
+
+// The herd log directory is absent before the first spawn, so the watcher
+// must notice it being created and then watch the manifest written below it.
+// This must arrive before the safety re-list would fire.
+func TestFSWatcherPicksUpLateCreatedHerdDir(t *testing.T) {
+	root := seedRepo(t, nil, nil)
+	herdDir := filepath.Join(root, filepath.FromSlash(state.RelDir))
+	msgs := spawnFSWatcher(t, root)
+	waitForFSWatchMsg(t, msgs)
+
+	if err := os.MkdirAll(herdDir, 0o755); err != nil {
+		t.Fatalf("mkdir herd dir: %v", err)
+	}
+	if msg := waitForFSWatchMsg(t, msgs); !msg.Up {
+		t.Fatalf("late herd directory event reported unhealthy: %+v", msg)
+	}
+	// The debounced reload is emitted after the event loop has promoted the
+	// ancestor watch to herd, so the next directory can be created safely.
+	waitForReload(t, msgs)
+	drainPending(msgs)
+
+	epicDir := filepath.Join(herdDir, "other")
+	if err := os.MkdirAll(epicDir, 0o755); err != nil {
+		t.Fatalf("mkdir epic dir: %v", err)
+	}
+	waitForReload(t, msgs)
+	drainPending(msgs)
+
+	if _, err := state.Write(root, fixtureManifest("other", "zzz", "agent", "w1:p1")); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	waitForReload(t, msgs)
+}
+
+// A real filesystem event after an fsnotify error reports the watcher healthy
+// again, which clears the error from the dashboard header.
+func TestFSWatcherHealthyEventClearsHeaderError(t *testing.T) {
+	root := seedRepo(t, nil, nil)
+	issuesDir := filepath.Join(root, ".tick", "issues")
+	msgs := spawnFSWatcher(t, root)
+	waitForFSWatchMsg(t, msgs)
+
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+	apply(m, FSWatchMsg{Up: false, Err: errTest})
+	if v := m.View(); !strings.Contains(v, "fswatch: boom") {
+		t.Fatalf("fswatch error not rendered before recovery:\n%s", v)
+	}
+
+	writeFile(t, filepath.Join(issuesDir, "recovered.json"), `{}`)
+	health := waitForFSWatchMsg(t, msgs)
+	if !health.Up {
+		t.Fatalf("recovery event reported unhealthy: %+v", health)
+	}
+	apply(m, health)
+	if v := m.View(); strings.Contains(v, "fswatch:") {
+		t.Fatalf("fswatch error still rendered after recovery:\n%s", v)
+	}
 }
 
 // A repo with no tracker directories at all (nothing under .tick) must

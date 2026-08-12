@@ -125,6 +125,8 @@ func (f *FSWatcher) Stop() {
 
 // addWatches adds every tracker directory that currently exists, recursing
 // one level into .tick/logs/herd for the epic subdirectories already there.
+// When the herd directory is absent, it watches the nearest existing parent
+// so a later spawn can promote that watch to the real herd directory.
 // It returns how many directories are now watched — 0 means the caller
 // should report the watcher as down.
 func (f *FSWatcher) addWatches() int {
@@ -132,23 +134,54 @@ func (f *FSWatcher) addWatches() int {
 	if err := f.fsw.Add(f.issuesDir); err == nil {
 		n++
 	}
-	if err := f.fsw.Add(f.herdDir); err != nil {
-		return n
-	}
-	n++
-	entries, err := os.ReadDir(f.herdDir)
-	if err != nil {
-		return n
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if err := f.fsw.Add(filepath.Join(f.herdDir, e.Name())); err == nil {
+	return n + f.addHerdWatches()
+}
+
+// addHerdWatches watches herd and its existing epic directories, or the
+// nearest existing ancestor when herd has not been created yet. Repeated
+// calls are safe: fsnotify keeps one watch for an already-watched path.
+func (f *FSWatcher) addHerdWatches() int {
+	if info, err := os.Stat(f.herdDir); err == nil && info.IsDir() {
+		n := 0
+		if err := f.fsw.Add(f.herdDir); err == nil {
 			n++
 		}
+		entries, err := os.ReadDir(f.herdDir)
+		if err != nil {
+			return n
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if err := f.fsw.Add(filepath.Join(f.herdDir, e.Name())); err == nil {
+				n++
+			}
+		}
+		return n
 	}
-	return n
+
+	ancestor := f.nearestExistingHerdAncestor()
+	if ancestor == "" {
+		return 0
+	}
+	if err := f.fsw.Add(ancestor); err != nil {
+		return 0
+	}
+	return 1
+}
+
+// nearestExistingHerdAncestor returns .tick/logs when it exists, otherwise
+// .tick. The repository root is intentionally not watched: a repository with
+// no tracker state should remain in the existing degraded state.
+func (f *FSWatcher) nearestExistingHerdAncestor() string {
+	root := filepath.Clean(f.repoRoot)
+	for dir := filepath.Dir(f.herdDir); dir != root && dir != "."; dir = filepath.Dir(dir) {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	return ""
 }
 
 // run is the event loop: forward relevant events into the trailing debounce,
@@ -174,6 +207,10 @@ func (f *FSWatcher) run(ctx context.Context) {
 			if !ok {
 				return
 			}
+			// A delivered event proves the watcher is functioning again after
+			// any prior error; the model uses this to clear its header error.
+			f.emit(FSWatchMsg{Up: true})
+			f.trackHerdDir(ev)
 			f.trackNewEpicDir(ev)
 			if !relevantFSEvent(ev) {
 				continue
@@ -181,13 +218,32 @@ func (f *FSWatcher) run(ctx context.Context) {
 			if timer != nil {
 				timer.Stop()
 			}
-			timer = time.AfterFunc(f.debounce, func() { f.emit(ReloadMsg{}) })
+			timer = time.AfterFunc(f.debounce, func() {
+				// Keep the health transition coupled to the reload path too:
+				// a reload may be the first useful signal after an error.
+				f.emit(FSWatchMsg{Up: true})
+				f.emit(ReloadMsg{})
+			})
 
 		case err, ok := <-f.fsw.Errors:
 			if !ok {
 				return
 			}
 			f.emit(FSWatchMsg{Up: false, Err: fmt.Errorf("herd/dashboard: file watcher: %w", err)})
+		}
+	}
+}
+
+// trackHerdDir promotes the temporary ancestor watch as .tick/logs/herd is
+// created. It also promotes .tick when .tick/logs is created in a fresh repo.
+func (f *FSWatcher) trackHerdDir(ev fsnotify.Event) {
+	if ev.Op&fsnotify.Create == 0 {
+		return
+	}
+	for dir := filepath.Dir(f.herdDir); dir != filepath.Clean(f.repoRoot) && dir != "."; dir = filepath.Dir(dir) {
+		if filepath.Clean(ev.Name) == dir {
+			f.addHerdWatches()
+			return
 		}
 	}
 }
