@@ -1,0 +1,17 @@
+{
+  "id": "hzd",
+  "title": "skills install/diff: .claude/skills + .agent/skills targets, user and project scope",
+  "description": "Human decision (2026-08-12): the two location conventions .claude/skills and .agent/skills cover ~99% of harnesses — support both as first-class install targets instead of a per-harness registry.\n\nExtend tk skills install/diff (read the existing implementation in cmd/tk/cmd/skills*.go + internal/skills first; preserve every existing behavior: stamp, unmanaged refusal, --force, atomic swap, --dir escape hatch):\n\n1. New flag `--to claude|agent` (default claude): claude -\u003e \u003cscope\u003e/.claude/skills/\u003cname\u003e; agent -\u003e \u003cscope\u003e/.agent/skills/\u003cname\u003e.\n2. New scope flag `--project` (default is user scope): user scope roots at $HOME (~/.claude/skills, ~/.agent/skills); --project roots at the current repo root (detect the way other commands do) giving ./.claude/skills/\u003cname\u003e or ./.agent/skills/\u003cname\u003e.\n3. `--dir` still overrides everything (mutually exclusive with --to/--project: usage error exit 2 via ExitError if combined).\n4. diff gains the same flags with identical resolution, so install/diff always pair.\n5. Help text documents the resolution table compactly. Registration/ResetFlags/legacy-usage per .tick/learnings.md if any new file is added (extending existing files needs only ResetFlags additions for new flag vars).\n6. Tests (temp dirs only, never real $HOME: set HOME to a temp dir the way existing install tests do — read them): all four target×scope cells resolve correctly; --dir + --to = usage error; diff pairs with each cell.\n7. Update the README Skills section lines the docs tick just wrote ONLY where the flag surface changed (keep the edit minimal — the docs tick owns the section; you own the flag rows).\n\nFull-suite gate on real exit codes per .tick/config.md Testing; gofmt/vet clean. Commit with message prefix \"tick \u003cthis-tick-id\u003e: \".",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8ct"
+  ],
+  "parent": "uvv",
+  "acceptance_criteria": "All four --to×scope cells + --dir exclusivity pinned by tests; diff pairs with install on every cell; README flag rows updated; full suite green",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T09:12:54.19517Z",
+  "updated_at": "2026-08-12T09:12:54.19517Z"
+}
