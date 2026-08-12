@@ -1,0 +1,18 @@
+{
+  "id": "sm7",
+  "title": "Close out mop-up epic: retro",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "4wr"
+  ],
+  "parent": "fit",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T09:56:14.516663Z",
+  "updated_at": "2026-08-12T11:03:42.516261Z",
+  "closed_at": "2026-08-12T11:03:42.516261Z",
+  "closed_reason": "Completed: retro recorded, PR #42 CI green"
+}

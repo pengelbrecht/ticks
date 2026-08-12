@@ -167,8 +167,10 @@ func TestSkillsInstallOutsideRepoErrorsMentionsRepo(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when run outside a git repository")
 	}
-	if code := GetExitCode(err); code != ExitGeneric {
-		t.Errorf("exit code = %d, want %d (generic): %v", code, ExitGeneric, err)
+	// Exit 3, not 1: "outside a git repository" is the same condition every
+	// other command reports as ExitNoRepo (see TestNoRepoExitsNoRepo).
+	if code := GetExitCode(err); code != ExitNoRepo {
+		t.Errorf("exit code = %d, want %d (no repo): %v", code, ExitNoRepo, err)
 	}
 	if !strings.Contains(err.Error(), "repository") {
 		t.Errorf("expected error to mention running inside a repo, got %q", err)

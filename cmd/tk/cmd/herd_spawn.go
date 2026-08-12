@@ -158,7 +158,18 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
-	compiled, err := cfg.SpawnFor(herdSpawnRole, herdconfig.Tier(herdSpawnTier))
+	// The spawn environment. A worker runs in a LINKED worktree, whose git
+	// metadata lives under the main repo's git common dir — outside the
+	// worktree, and so outside a sandboxed kind's writable area unless it is
+	// granted. Resolved from git rather than assumed to be `<root>/.git`.
+	//
+	// Passed as a resolver, not a value: only a kind whose row declares a
+	// fragment needing this path ever asks for it (codex today), so a claude
+	// spawn no longer fails on a `git rev-parse` it would never have used.
+	// The kinds that do need it still fail closed — a resolver error is a
+	// compile refusal, before herdr is dialled.
+	compiled, err := cfg.SpawnFor(herdSpawnRole, herdconfig.Tier(herdSpawnTier),
+		herdconfig.SpawnContext{ResolveGitCommonDir: func() (string, error) { return spawn.GitCommonDir(root) }})
 	if err != nil {
 		if errors.Is(err, herdconfig.ErrNoConfig) {
 			return NewExitError(ExitGeneric,
@@ -344,7 +355,11 @@ func herdSpawnLoadTick(root, rawID string) (tick.Tick, tick.Tick, error) {
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err = store.Read(id)
 	if err != nil {
-		return t, epic, NewExitError(ExitNotFound, "failed to read tick %s: %v", id, err)
+		// The same boundary every other lookup draws (see lookup.go): only an
+		// ABSENT tick is 4. A tick file that exists but cannot be parsed is a
+		// real failure (1) — an orchestrator reading 4 as "never created"
+		// would spawn a worker on top of damaged state.
+		return t, epic, notFoundIfMissing(fmt.Sprintf("failed to read tick %s", id), err)
 	}
 	if t.Parent != "" {
 		// A missing parent is not fatal: the manifest simply lands under the

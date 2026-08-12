@@ -55,7 +55,7 @@ func runDeps(cmd *cobra.Command, args []string) error {
 
 	target, err := store.Read(id)
 	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
+		return notFoundIfMissing("failed to read tick", err)
 	}
 
 	var dependents []tick.Tick

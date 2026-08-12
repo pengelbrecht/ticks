@@ -143,7 +143,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	// Read the epic
 	epic, err := store.Read(epicID)
 	if err != nil {
-		return fmt.Errorf("failed to read epic: %w", err)
+		return notFoundIfMissing("failed to read epic", err)
 	}
 
 	if epic.Type != tick.TypeEpic {

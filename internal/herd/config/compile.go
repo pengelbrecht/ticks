@@ -24,6 +24,12 @@ const (
 	// RefusalArgsConflict: `args` restates a flag the spawner already
 	// compiles. A config error, not a precedence puzzle.
 	RefusalArgsConflict RefusalReason = "args-conflict"
+	// RefusalSpawnContext: the kind declares a computed per-spawn argv
+	// fragment and the [SpawnContext] does not carry what it needs — a codex
+	// worker with no resolved git common dir. Not a config error: the
+	// caller's environment could not be read. Refused all the same, because
+	// the alternative is a worker that starts green and cannot commit.
+	RefusalSpawnContext RefusalReason = "spawn-context"
 )
 
 // RefusalError is a fail-closed spawn refusal. Per herdr-kinds.md the
@@ -71,12 +77,58 @@ func (e *RefusalError) Error() string {
 	return b.String()
 }
 
+// SpawnContext is the spawn-time environment a kind's argv may depend on:
+// facts about the repository this worker is started in that the config file
+// cannot state and only the spawner can discover. It is an input to
+// compilation, never config — nothing here is ever read from
+// `.tick/runners.toml`.
+type SpawnContext struct {
+	// GitCommonDir is the absolute path of the repository's git common
+	// directory — `git rev-parse --git-common-dir` resolved from the repo
+	// root, never a hardcoded `.git`. It holds the refs, the objects and the
+	// `worktrees/<name>/` metadata of every LINKED worktree, so it is the
+	// path a worker writes to when it commits from one.
+	//
+	// Required for any kind whose row declares a fragment that needs it
+	// (codex). Empty is a refusal, not a silent omission: see
+	// [RefusalSpawnContext].
+	//
+	// A caller that cannot answer this cheaply sets ResolveGitCommonDir
+	// instead and leaves this empty.
+	GitCommonDir string
+
+	// ResolveGitCommonDir supplies GitCommonDir on demand, and is consulted
+	// ONLY by a kind whose row declares a fragment that needs it.
+	//
+	// The path costs a `git rev-parse` in the spawner's repository. Paying it
+	// up front made every spawn depend on it, so a claude worker — a kind
+	// that never sees the value — could not start in a repository where that
+	// subprocess failed. Fail-closed is unchanged for the kinds that DO need
+	// it: a resolver that errors refuses the spawn, exactly as an empty
+	// GitCommonDir does.
+	ResolveGitCommonDir func() (string, error)
+}
+
+// gitCommonDir answers the fragments that need the git common dir: the
+// literal value when the caller had it, otherwise the caller's resolver, run
+// here — at the one point a kind has proven it needs the answer.
+func (c SpawnContext) gitCommonDir() (string, error) {
+	if c.GitCommonDir != "" {
+		return c.GitCommonDir, nil
+	}
+	if c.ResolveGitCommonDir == nil {
+		return "", nil
+	}
+	return c.ResolveGitCommonDir()
+}
+
 // Spawn is a compiled worker: the resolved routing plus the exact argv to
 // pass after `--` in `herdr agent start`.
 type Spawn struct {
 	Worker
 	// Argv is, in the fixed order herdr-kinds.md states: the kind's full-auto
-	// template → the flags compiled from model/effort → args verbatim.
+	// template → the kind's computed per-spawn extras → the flags compiled
+	// from model/effort → args verbatim.
 	Argv []string
 	// FullAuto reports whether the full-auto template was requested.
 	FullAuto bool
@@ -93,7 +145,12 @@ type Spawn struct {
 //
 // fullAuto mirrors orchestration.full_auto: when false the kind's full-auto
 // template is omitted and every approval prompt becomes a human escalation.
-func Compile(w Worker, fullAuto bool) (*Spawn, error) {
+//
+// env carries the repository facts a kind row may compute argv from — today
+// the git common dir codex's sandbox has to be told about. A kind that
+// declares such a fragment and gets nothing to render it from is refused,
+// never compiled without it.
+func Compile(w Worker, fullAuto bool, env SpawnContext) (*Spawn, error) {
 	label := w.Label()
 
 	spec, ok := kindSpecs[w.Kind]
@@ -135,6 +192,18 @@ func Compile(w Worker, fullAuto bool) (*Spawn, error) {
 		}
 	}
 
+	// Rendered before anything is built, so an unrenderable fragment returns
+	// a refusal and no spawn — like every other check above.
+	extras, exErr := compileExtras(spec, env)
+	if exErr != nil {
+		return nil, &RefusalError{
+			Label: label, Kind: w.Kind, Model: w.Model, Effort: w.Effort,
+			Reason: RefusalSpawnContext,
+			Detail: fmt.Sprintf("kind = %q needs %s at spawn time: %v", w.Kind, exErr.extra, exErr.reason),
+			Fix:    "resolve it from the repo (`git rev-parse --git-common-dir` at the repo root) and pass it in the spawn context",
+		}
+	}
+
 	sp := &Spawn{Worker: w, FullAuto: fullAuto}
 	if fullAuto {
 		if len(spec.fullAuto) > 0 {
@@ -146,9 +215,34 @@ func Compile(w Worker, fullAuto bool) (*Spawn, error) {
 				FileName, label, w.Kind))
 		}
 	}
+	sp.Argv = append(sp.Argv, extras...)
 	sp.Argv = append(sp.Argv, compileCapability(spec, w.Model, w.Effort)...)
 	sp.Argv = append(sp.Argv, w.Args...)
 	return sp, nil
+}
+
+// extraError names which fragment failed and why, so the refusal can say both.
+type extraError struct {
+	extra  string
+	reason error
+}
+
+// compileExtras renders the kind's computed per-spawn fragments in declaration
+// order. They sit immediately after the full-auto template because they belong
+// to the same story — what this worker is allowed to touch — and they are NOT
+// gated on fullAuto: the sandbox a codex worker runs under still bounds it
+// when approvals are on, so a worker that cannot reach its git metadata is
+// blocked either way, loudly instead of silently.
+func compileExtras(spec *kindSpec, env SpawnContext) ([]string, *extraError) {
+	var out []string
+	for _, ex := range spec.extras {
+		args, err := ex.render(env)
+		if err != nil {
+			return nil, &extraError{extra: ex.name, reason: err}
+		}
+		out = append(out, args...)
+	}
+	return out, nil
 }
 
 // compileCapability renders the model/effort dimension into the kind's native
@@ -218,11 +312,12 @@ func reservedArg(spec *kindSpec, args []string) (string, bool) {
 }
 
 // SpawnFor resolves role/tier and compiles the result in one step, honouring
-// orchestration.full_auto. It is the entry point a spawner should use.
-func (c *Config) SpawnFor(role string, tier Tier) (*Spawn, error) {
+// orchestration.full_auto. It is the entry point a spawner should use; env is
+// the repository environment described on [SpawnContext].
+func (c *Config) SpawnFor(role string, tier Tier, env SpawnContext) (*Spawn, error) {
 	w, err := c.Resolve(role, tier)
 	if err != nil {
 		return nil, err
 	}
-	return Compile(w, c.FullAuto())
+	return Compile(w, c.FullAuto(), env)
 }

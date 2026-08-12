@@ -1,0 +1,23 @@
+{
+  "id": "4wr",
+  "title": "Final review of mop-up epic diff",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "jg5",
+    "s8u",
+    "qh6",
+    "esq",
+    "ipo",
+    "7fa"
+  ],
+  "parent": "fit",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T09:56:14.492733Z",
+  "updated_at": "2026-08-12T11:02:19.019284Z",
+  "closed_at": "2026-08-12T11:02:19.019284Z",
+  "closed_reason": "Completed: frontier review (1 blocker + 1 should-fix + 5 nits, all repaired) + re-verify RE-VERDICT CLEAN with fail-on-old-code proofs for the new tests"
+}

@@ -63,7 +63,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	if err := store.Delete(id); err != nil {
-		return fmt.Errorf("failed to delete tick: %w", err)
+		return notFoundIfMissing("failed to delete tick", err)
 	}
 
 	// Cleanup references in other ticks

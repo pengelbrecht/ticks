@@ -27,6 +27,8 @@ Everything below applies only once herdr is the selected and available substrate
 
 **`tk herd` is how this substrate is driven. It is the primary mechanism, not a convenience wrapper.** Five commands cover the whole worker lifecycle, and each one implements the rules the rest of this document explains:
 
+**Run-start ritual:** before wave 1, open the mission-control dashboard pane for the epic if one is not already open (`herdr plugin pane open --plugin pengelbrecht.herdr-ticks --entrypoint dashboard --placement split --target-pane <your pane> --no-focus --env TICKS_EPIC=<epic>`). The board is part of the run, not furniture — a user watching the run should never have to ask for it, and a pane closed between epics does not carry over.
+
 | Command | What it does | The rule it enforces |
 |---|---|---|
 | `tk herd spawn <tick-id>` | worktree + branch + workspace + pane, `agent.start` with the compiled argv, the first-round-trip **content gate**, then the implementer prompt; writes the run-state manifest and prints the `runner-state:` note | fail-closed routing, gated launch, no predicted identifiers |
@@ -262,6 +264,8 @@ tk herd cleanup --epic "$epic" --apply    # perform exactly that plan
 ```
 
 Three removals, in this order: the herdr **workspace** (`worktree.remove` on the recorded workspace id, which tears down worktree + workspace + pane + running agent in one call), then the local **branch** (`git branch -d`, never `-D`), then the **manifest LAST** — so a failed workspace removal leaves the manifest on disk and a half-cleaned tick stays visible to the next reconcile.
+
+Before that first removal, cleanup consumes the tick's own uncommitted `RESULT-<tick-id>.md` (archiving it beside the manifest, then deleting it) when it is the *sole* dirt in the worktree — any other uncommitted change still refuses exactly as before.
 
 `--preview` is the default and is built by the same code as `--apply`, so a preview is a promise rather than a description. One refused tick never strands the others.
 

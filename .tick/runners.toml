@@ -21,3 +21,11 @@ effort = "low"
 [roles.implement.tiers.strong]
 model = "opus"
 effort = "high"
+
+# Cross-vendor variant (production experiment, human-approved): the balanced
+# tier routes to a codex implementer. Tier names are the closed schema enum,
+# so the vendor switch rides an existing tier name.
+[roles.implement.tiers.balanced]
+kind = "codex"
+model = "gpt-5.6-luna"
+effort = "high"

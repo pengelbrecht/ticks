@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -50,6 +51,14 @@ type kindSpec struct {
 	// familyHint suggests a fix.
 	familyHint string
 
+	// extras are this kind's computed per-spawn argv fragments: elements it
+	// needs that depend on the spawn ENVIRONMENT — the repository — rather
+	// than on anything in the config file. They are rendered from a
+	// [SpawnContext] at compile time and appended to Spawn.Argv like every
+	// other fragment, so Spawn.Argv remains the whole argv and is still
+	// passed verbatim to `herdr agent start`.
+	extras []spawnExtra
+
 	// reservedArgs are argv tokens the spawner itself compiles. `args` must
 	// not restate them — that is a duplicate/conflicting argv, a config
 	// error rather than a precedence puzzle.
@@ -57,6 +66,57 @@ type kindSpec struct {
 	// reservedSubstrings catch a reserved setting that travels inside an
 	// argv element's value, such as codex's model_reasoning_effort="high".
 	reservedSubstrings []string
+}
+
+// spawnExtra is one computed per-spawn argv fragment declared by a kind row.
+//
+// It exists because a kind's argv is not a pure function of the config file:
+// codex's sandbox has to be told about a path that only the repository can
+// name. Keeping it as data on the kind row — rather than an `if kind ==
+// "codex"` in the spawner — is what keeps every argv decision in kinds.go and
+// leaves Spawn.Argv the single verbatim thing the spawner passes on.
+type spawnExtra struct {
+	// name identifies the mechanism in a refusal message.
+	name string
+	// render builds the argv elements from the spawn context. A render that
+	// cannot resolve its input FAILS the compile: emitting the argv without
+	// it produces exactly the broken worker the fragment exists to prevent,
+	// which is the fail-closed rule this package applies everywhere else.
+	render func(env SpawnContext) ([]string, error)
+}
+
+// gitMetadataAddDir grants a codex worker write access to the repository's git
+// common directory.
+//
+// Observed live 2026-08-12 (tick s8u): a codex worker started with the
+// verified full-auto pair `-a never -s workspace-write` in a LINKED WORKTREE
+// did its work and then could not commit it. A linked worktree's `.git` is a
+// file pointing at `<git-common-dir>/worktrees/<name>/`, so every ref update,
+// index write and object write lands OUTSIDE the worktree the workspace-write
+// sandbox bounds. The worker could not complete its durable contract and the
+// orchestrator had to commit on its behalf.
+//
+// The fix is the mechanism herdr-kinds.md already names for legitimate
+// out-of-worktree writes: `--add-dir`. Dropping the sandbox instead
+// (`--dangerously-bypass-approvals-and-sandbox`) would also let the commit
+// through and is wrong by that same doc's own argument — it removes the
+// sandbox entirely, which is only appropriate when the surrounding environment
+// is itself sandboxed.
+var gitMetadataAddDir = spawnExtra{
+	name: "git metadata (`--add-dir <git-common-dir>`)",
+	render: func(env SpawnContext) ([]string, error) {
+		dir, err := env.gitCommonDir()
+		if err != nil {
+			return nil, fmt.Errorf("the spawn context could not resolve the git common dir, so a codex worker in a "+
+				"linked worktree would start inside a workspace-write sandbox that cannot reach its own git "+
+				"metadata and cannot commit: %w", err)
+		}
+		if dir == "" {
+			return nil, fmt.Errorf("the spawn context carries no git common dir, so a codex worker in a linked worktree " +
+				"would start inside a workspace-write sandbox that cannot reach its own git metadata and cannot commit")
+		}
+		return []string{"--add-dir", dir}, nil
+	},
 }
 
 // kindSpecs is the capability matrix. Keys are herdr kinds.
@@ -97,7 +157,11 @@ var kindSpecs = map[string]*kindSpec{
 		effortConfigKey:  "model_reasoning_effort",
 		// codex's accepted set belongs to the model, not the CLI, so no level
 		// is refused here.
-		efforts:    nil,
+		efforts: nil,
+		// The sandbox above bounds writes to the worktree; a worker in a
+		// linked worktree still has to write its git metadata, which lives
+		// outside it. See [gitMetadataAddDir].
+		extras:     []spawnExtra{gitMetadataAddDir},
 		modelOK:    openAIFamily,
 		familyNote: "codex runs OpenAI models the authenticated Codex account may use",
 		familyHint: "either an OpenAI model id (gpt-…) for this kind, or a kind that serves this model's vendor",

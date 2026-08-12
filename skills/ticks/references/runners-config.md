@@ -74,13 +74,15 @@ Keys are role names matching `^[a-z][a-z0-9_-]*$`. Well-known roles: `plan`, `sc
 | `kind` | string, required | herdr kind to spawn for this role — the harness dimension. |
 | `model` | string | Model id **in that kind's namespace** (`opus`; `gpt-5.6-luna`; `openai-codex/gpt-5.6-sol`). Omitted means the kind's own default. Compiled into the kind's native model flag. |
 | `effort` | `off` \| `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | Reasoning/thinking effort, kind-neutral. Omitted means the kind's own default. Compiled into the kind's native mechanism. |
-| `args` | array of strings | Escape hatch for anything the two dimensions do not express. Passed verbatim after `--` in `herdr agent start`, **appended after the compiled model/effort flags**. One argv element per entry — never a pre-joined shell string. |
+| `args` | array of strings | Escape hatch for anything the two dimensions do not express. Passed verbatim after `--` in `herdr agent start`, **appended last — after the kind's computed per-spawn extras and the compiled model/effort flags**. One argv element per entry — never a pre-joined shell string. |
 | `harness` | string | Documentary note of the corresponding runner adapter. Routing uses `kind`. |
 | `tiers.<economy\|balanced\|strong\|frontier>` | table | Per-tier overrides; each entry may set any of `kind`, `model`, `effort`, `args` (at least one). |
 
 The tier names are the shared capability tiers from `agent-runner.md` — the contract is the tier name, not any model string.
 
-Composed argv for a spawned worker is always, in order: the kind's full-auto template (from `herdr-kinds.md`, subject to `orchestration.full_auto`) → the flags compiled from `model`/`effort` → `args`.
+**Args order matters.** Composed argv for a spawned worker is always, in order: the kind's full-auto template (from `herdr-kinds.md`, subject to `orchestration.full_auto`) → the kind's **computed per-spawn extras** → the flags compiled from `model`/`effort` → `args`.
+
+The computed extras are the one position that comes from neither the config file nor the kind's static template: they are argv a kind needs that only the *repository* can name, rendered at spawn time. Today there is exactly one — codex's `--add-dir <git-common-dir>`, which keeps a sandboxed worker able to write the git metadata of its own linked worktree (see [`herdr-kinds.md`](herdr-kinds.md#codex)). They sit next to the full-auto template because they belong to the same question, *what may this worker touch*, and they are **not** gated on `full_auto`. A kind that declares an extra and cannot render it is a spawn-time refusal, not an argv silently missing an element.
 
 **The effort enum is a union across kinds, not a per-kind guarantee.** `off` and `minimal` exist for pi but not for `claude --effort`; codex's accepted set belongs to the model, not the CLI. The schema checks the value's *shape*; the spawner checks whether this *kind* accepts it.
 
@@ -288,7 +290,9 @@ harness = "claude"
 model = "sonnet"
 ```
 
-The codex tiers now vary a single scalar instead of restating a `--config` argv element — and the awkward embedded quoting (`model_reasoning_effort=\"high\"`) is the spawner's problem, not the config author's. Compiled argv for `implement` at `strong`: `-a never -s workspace-write -m gpt-5.6-luna -c model_reasoning_effort="high"`.
+The codex tiers now vary a single scalar instead of restating a `--config` argv element — and the awkward embedded quoting (`model_reasoning_effort=\"high\"`) is the spawner's problem, not the config author's. Compiled argv for `implement` at `strong`, in a repo whose git common dir resolved to `/repo/.git`: `-a never -s workspace-write --add-dir /repo/.git -m gpt-5.6-luna -c model_reasoning_effort="high"`.
+
+The `--add-dir` element is not in the config and is not `args`: it is a **computed per-spawn extra** the `codex` kind declares, rendered from the repository the worker is started in (see [`herdr-kinds.md`](herdr-kinds.md#codex)). A codex worker runs in a linked worktree, whose git metadata lives outside it, and `-s workspace-write` would otherwise sandbox the worker out of committing its own work. The path is whatever `git rev-parse --git-common-dir` reports for that repo — never a hardcoded `.git`.
 
 Note this example now **pins** codex's model, which the authoring rules below warn ages badly. That is the honest trade of the model dimension: when you name a model you own keeping it current. Omit `model` entirely (keeping `effort`) to keep codex resolving `model` from `~/.codex/config.toml` — example 3 does exactly that.
 
@@ -403,14 +407,16 @@ These are the failures a config author should expect, and where each one is caug
 | `kind = "codex"`, `model = "gpt-9-imaginary"` | Well-formed, non-existent. This is the [green-start trap](herdr-kinds.md#the-green-start-trap): the pane starts green and does zero work. |
 | `model = "opus"` **and** `args = ["--model", "sonnet"]` | `args` restates a compiled flag. Duplicate/conflicting argv — a config error, not a precedence puzzle. |
 | `kind = "frobnicator"` | Shape-valid kind name the installed herdr does not know (`herdr agent`). |
+| `kind = "codex"` where the repo's git common dir could not be resolved | The kind's computed `--add-dir <git-common-dir>` extra has nothing to render from. The config is fine; the *environment* is. Refused anyway — compiling the sandbox without the grant produces a worker that starts green, does the work and cannot commit it. |
 
-The dividing line is the same one stated under [Shape versus compatibility](#shape-versus-compatibility): the schema knows the file format, only the spawner knows the vendor.
+The dividing line is the same one stated under [Shape versus compatibility](#shape-versus-compatibility): the schema knows the file format, only the spawner knows the vendor. The last row is a third thing again — neither shape nor vendor but the repository — and it fails closed for the same reason as the rest.
 
 ## Authoring rules
 
 - **Never invent kinds.** Only kinds the installed herdr reports (`herdr agent`) are valid at run time; the schema's pattern is a shape check, not a catalog.
 - **Use `model`/`effort`, not `args`, for model and effort.** They are the two dimensions the spawner understands; `args` is the escape hatch for everything else (`--add-dir`, `--search`, a `-c` override with no field of its own). A config that reaches for `args` to set a model gets no compatibility checking and risks duplicating a compiled flag.
 - **Args are argv, not shell.** `["--add-dir", "/x"]`, never `["--add-dir /x"]`. Quoting inside a single argv element (as in Codex's `--config 'foo="bar"'`) is part of that element's value.
+- **`--add-dir` in `args` is additive, not a conflict.** The spawner already compiles one for codex (the git common dir); repeated `--add-dir` elements widen the sandbox further rather than overriding each other, so it is not a reserved flag. Name the *extra* directory a tick needs — never restate the git one.
 - **Omitting `model` is legal and means "the kind's own default".** Example 3 above carries `effort` and no `model`, so the spawner passes no model flag and codex resolves `model` from `~/.codex/config.toml` — verified live. That is a deliberate choice, not an oversight: it keeps the config from pinning a model string that will age. Set `model` only when a role must not follow the CLI's local default, and re-read [`herdr-kinds.md`](herdr-kinds.md)'s green-start trap before you do — a model string that the account cannot use starts green and does zero work.
 - **Model strings live in the kind's namespace.** `opus` means something to `claude` and nothing to `codex`; `openai-codex/gpt-5.6-sol` means something to `pi` and nothing to either. Changing a tier's `kind` obliges you to restate its `model`.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.

@@ -69,7 +69,7 @@ func runLabelAdd(cmd *cobra.Command, args []string) error {
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
+		return notFoundIfMissing("failed to read tick", err)
 	}
 
 	t.Labels = appendUnique(t.Labels, args[1])
@@ -101,7 +101,7 @@ func runLabelRm(cmd *cobra.Command, args []string) error {
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
+		return notFoundIfMissing("failed to read tick", err)
 	}
 
 	t.Labels = removeString(t.Labels, args[1])
@@ -133,7 +133,7 @@ func runLabelList(cmd *cobra.Command, args []string) error {
 	store := tick.NewStore(filepath.Join(root, ".tick"))
 	t, err := store.Read(id)
 	if err != nil {
-		return fmt.Errorf("failed to read tick: %w", err)
+		return notFoundIfMissing("failed to read tick", err)
 	}
 
 	for _, label := range t.Labels {
