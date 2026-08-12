@@ -1,0 +1,14 @@
+{
+  "id": "z2n",
+  "title": "herdr-ticks plugin scaffold: manifest, dev install, first action",
+  "description": "Layer 3 foundation. Create plugins/herdr-ticks/ with herdr-plugin.toml (name, min_herdr_version 0.8.0, platforms) wired for: one pane entry (placeholder command for now), one working action (\"Open tick board\" running tk board or printing a URL), and the event-hook declaration shape (commands added by later ticks). Dev flow: herdr plugin link \u003cpath\u003e; document install (herdr plugin install pengelbrecht/ticks/plugins/herdr-ticks once merged). Verify live: plugin link, plugin list shows it, action invokable. Study the installed example manifests via herdr plugin list --json for the real schema; do not guess fields.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "zz0",
+  "acceptance_criteria": "herdr plugin link succeeds live; plugin list --json shows manifest with pane+action+events sections; the action runs; unlink clean",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T16:52:37.087279Z",
+  "updated_at": "2026-08-11T16:52:37.087279Z"
+}

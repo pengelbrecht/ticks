@@ -1,0 +1,17 @@
+{
+  "id": "m05",
+  "title": "tk herd dashboard: live epic board pane",
+  "description": "The plugin board pane. tk herd dashboard --epic \u003cid\u003e: TUI (bubbletea, reuse internal/tui idioms) showing waves/ticks/status/worker states, driven by events.subscribe + manifests + tk state — no polling loops (event-driven refresh with a slow safety re-list). Registered as the plugin pane command. Keep it read-only in v1 (actions are P5). Legacy switch + ResetFlags + ExitError as usual; teatest goldens per internal/tui conventions (mind .tick/learnings.md TUI entry).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "z2n"
+  ],
+  "parent": "zz0",
+  "acceptance_criteria": "Pane opens via plugin, renders a live run, updates on worker state change without polling; goldens green",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T16:53:05.000237Z",
+  "updated_at": "2026-08-11T16:53:05.000237Z"
+}

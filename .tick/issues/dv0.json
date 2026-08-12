@@ -1,7 +1,8 @@
 {
   "id": "dv0",
   "title": "Final review of herd helper CLI epic diff",
-  "status": "open",
+  "notes": "2026-08-11 18:35 - Frontier review verdict: 1 blocker (cmd spawn-test fake drifted from 5rn interactive-ready fix — package hangs; orchestrator gate missed it due to pipeline-grep exit masking), 7 should-fix, 6 nits. All 5 high-judgment smoke changes adjudicated ACCEPTED. DoD: 4/5 evidenced; \"works from \u003e=2 orchestrator harnesses\" unverified — plan: run quick smoke driven by a codex orchestrator pane for evidence. Repair: blocker + findings 2-4 + cheap doc nits now; findings 5-8 + TOCTOU/shared-fake/dedup nits queued as next-epic cleanup ticks.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -12,5 +13,7 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T12:06:09.580529Z",
-  "updated_at": "2026-08-11T12:06:09.580529Z"
+  "updated_at": "2026-08-11T16:49:38.160224Z",
+  "closed_at": "2026-08-11T16:49:38.160224Z",
+  "closed_reason": "Completed: frontier final review — 1 blocker (cmd fake drift) + 7 should-fix + 6 nits; blocker + findings 2-4 + doc nits + residual flake window repaired and RE-VERDICT: CLEAN; all 5 high-judgment smoke changes adjudicated accepted; DoD 5/5 evidenced incl. codex-orchestrator run 9; follow-ups queued for next-epic cleanup ticks"
 }

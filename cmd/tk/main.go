@@ -47,7 +47,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board":
+	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board", "herd":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		// Handle aliases
 		cmdArgs := args[1:]
@@ -99,7 +99,14 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, version, upgrade, migrate, gc, merge")
+	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, version, upgrade, migrate, gc, merge")
+	fmt.Println()
+	fmt.Println("Agent Orchestration (herdr):")
+	fmt.Println("  tk herd spawn <id>            Spawn a gated herdr worker: worktree + agent + first prompt")
+	fmt.Println("  tk herd wait --agents a,b     Block until named herdr workers settle (event-driven)")
+	fmt.Println("  tk herd reconcile             Rebuild run state after an orchestrator crash (read-only plan)")
+	fmt.Println("  tk herd collect <id>          Verify a worker's durable result: commits, RESULT, boundary")
+	fmt.Println("  tk herd cleanup <id>          Preview (or --apply) teardown: workspace, branch, manifest")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")

@@ -421,6 +421,33 @@ func ResetFlags() {
 	mergeDryRun = false
 	mergeYes = false
 
+	// Reset herd wait flags
+	herdWaitAgents = nil
+	herdWaitTimeout = defaultHerdWaitTimeoutMs
+	herdWaitSocket = ""
+	herdWaitJSON = false
+
+	// Reset herd spawn flags
+	herdSpawnRole = "implement"
+	herdSpawnTier = ""
+	herdSpawnConfig = ""
+	herdSpawnSocket = ""
+	herdSpawnBase = ""
+	herdSpawnJSON = false
+	herdSpawnWait = false
+	herdSpawnStartupTimeout = defaultHerdSpawnStartupTimeoutMs
+	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
+	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
+
+	// Reset herd reconcile flags
+	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
+	// Reset herd collect flags
+	herdCollectEpic, herdCollectJSON = "", false
+
+	// Reset herd cleanup flags
+	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
+	herdCleanupPreview, herdCleanupApply = false, false
+
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false

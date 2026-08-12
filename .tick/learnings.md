@@ -1,9 +1,8 @@
 # Learnings
 
-Repo-specific operational gotchas for implementer agents and the orchestrator.
-Format: Problem → Cause → Rule under category headers. Hard cap 150 lines — compact at every
-epic retro. Process-level (cross-repo) learnings belong in the ticks skill, not here — see
-`skills/ticks/references/claude-runner.md` (Epic-close retro, promotion table).
+Repo-specific gotchas for implementers and the orchestrator. Problem → Cause → Rule under
+category headers. Hard cap 150 lines — compact at every retro. Cross-repo learnings go in the
+ticks skill (`claude-runner.md`, Epic-close retro promotion table), not here.
 
 ## Tick authoring
 
@@ -66,27 +65,18 @@ Go types updated but the UI's generated TS stale (or vice versa).
 all regenerated output together. Tick authors: spell these commands out in any tick that
 touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
 
-**Problem:** Adding a date field to schemas/ pulled a new runtime dependency into the generated
-Go (`*types.SerializableDate` from github.com/atombender/go-jsonschema/pkg/types) where the file
-had previously imported only `time`.
-**Cause:** go-jsonschema maps JSON-Schema `format:"date"` to its own SerializableDate type.
-**Rule:** For date-only fields use `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, NOT
-`format:"date"` — generated Go/TS stay plain `string` with zero new deps; parse with a
-hand-written layout const (e.g. `tick.TargetDateLayout`). The regex is shape-only (accepts
-`2026-13-45`); Go `time.Parse` in `Validate()` is the authoritative gate, so validate there too.
+**Problem:** A schema date field pulled go-jsonschema's `SerializableDate` dep into generated Go.
+**Cause:** go-jsonschema maps `format:"date"` to its own type.
+**Rule:** Date-only fields: `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, never
+`format:"date"`; the regex is shape-only, so also validate with `time.Parse` in `Validate()`.
 
 ## Docs & marketing copy
 
-**Problem:** A user-facing page (docs/quickstart, landing) shipped copy-pasteable `tk` commands
-that don't exist — `tk done`, a `--title` flag, bare `tk create`, `tk ready <id>` — caught only
-at epic final review. This is the exact "unknown command/flag" failure a promo refresh existed
-to eliminate, reintroduced by the refresh itself.
+**Problem:** A user-facing page shipped copy-pasteable `tk` commands that don't exist
+(`tk done`, `--title`, `tk ready <id>`) — caught only at epic final review.
 **Cause:** Agents writing examples guess CLI syntax from memory instead of the real cobra defs.
-**Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each against
-`cmd/tk/cmd/*.go` (`Use:`/`Args:`). Known traps: closing is `tk close <id>` (there is no
-`tk done`); `tk create` needs a positional title and has no `--title` flag; `tk ready` takes no
-args (it lists); `tk block <id> <blocker-id>` needs the blocker id. There is no `tk run`.
-Spell this verification step out in the tick.
+**Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each
+against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in the tick.
 
 ## Orchestration
 
@@ -107,6 +97,16 @@ current HEAD.
 `git merge <integration-branch>` first, then verify the SHA is an ancestor
 (`git merge-base --is-ancestor <sha> HEAD`) — never cherry-pick around it or re-implement a
 sibling tick's work. (Claude worktrees branch from session-start HEAD; see claude-runner.md.)
+
+## Orchestrator gates
+
+**Problem:** A red test gate reported green: `go test ./... | grep -Ev '^ok' ; echo $?` masks
+the test exit (the status is grep's/echo's), and a background task reports "exit 0" for the
+pipeline. A hanging cmd test sailed through the wave gate and reached final review.
+**Cause:** Pipelines report the LAST command's status; grep exits 1 on no matches.
+**Rule:** Gate on the test command's own exit: run `go test` bare (or `set -o pipefail`),
+capture its status BEFORE any filter, and always give hang-prone suites an explicit
+`-timeout`. Never accept a background task's exit code without reading its output tail.
 
 ## Skill docs
 
