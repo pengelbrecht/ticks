@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
@@ -349,7 +350,11 @@ func apply(ctx context.Context, h Herd, p *Plan) {
 		switch s.Action {
 		case RemoveWorkspace:
 			// Never Force: uncommitted work in the worktree means the
-			// collect step has not been believed yet.
+			// collect step has not been believed yet. consumeOwnResultFile
+			// is the one narrow exception — it only ever removes the tick's
+			// own already-archived RESULT file, and only when nothing else
+			// is dirty.
+			consumeOwnResultFile(p)
 			_, err = h.WorktreeRemove(ctx, client.WorktreeRemoveParams{WorkspaceID: s.Target})
 		case DeleteBranch:
 			// -d, never -D: git itself is the last guard.
@@ -364,6 +369,58 @@ func apply(ctx context.Context, h Herd, p *Plan) {
 		s.Applied = true
 	}
 	p.Applied = true
+}
+
+// consumeOwnResultFile deletes this tick's own uncommitted RESULT file from
+// the worktree when it is the ONLY dirt there, archiving it beside the
+// manifest first so the report survives the worktree.
+//
+// The hardened worker template deliberately leaves RESULT-<tick-id>.md
+// uncommitted, and worktree.remove without Force refuses any dirty worktree
+// — so an otherwise-clean worker always tripped that guard, and every
+// post-fix cleanup failed at remove-workspace. This is the one narrow,
+// load-bearing exception: it acts only when git status reports exactly one
+// line, untracked, with the exact expected name. Any other modification or
+// untracked file is left completely alone, and worktree.remove refuses on
+// it exactly as it always has — this must never be widened to Force.
+//
+// A worktree that cannot be inspected (missing, not a git checkout) is left
+// alone too: silence here is not evidence that removal is safe, so
+// worktree.remove is called exactly as it would have been before this
+// function existed.
+func consumeOwnResultFile(p *Plan) {
+	if p.Worktree == "" || p.ManifestPath == "" {
+		return
+	}
+	out, err := gitcmd.Run(p.Worktree, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return
+	}
+	var entries []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimRight(line, "\r"); line != "" {
+			entries = append(entries, line)
+		}
+	}
+	if len(entries) != 1 || entries[0] != "?? "+spawn.ResultFile(p.Tick) {
+		return
+	}
+
+	resultPath := filepath.Join(p.Worktree, spawn.ResultFile(p.Tick))
+	body, err := os.ReadFile(resultPath)
+	if err != nil {
+		return
+	}
+	archivePath := filepath.Join(filepath.Dir(p.ManifestPath), p.Tick+".RESULT.md")
+	if err := os.WriteFile(archivePath, body, 0o644); err != nil {
+		return
+	}
+	if err := os.Remove(resultPath); err != nil {
+		return
+	}
+	p.Notes = append(p.Notes, fmt.Sprintf(
+		"archived %s to %s and removed it — the only dirt in the worktree, so worktree.remove could proceed without force",
+		spawn.ResultFile(p.Tick), archivePath))
 }
 
 // liveWorker finds the herdr agent belonging to this tick, if any.
