@@ -108,8 +108,8 @@ func TestSkillsInstallUpgradesStampedDir(t *testing.T) {
 
 // TestSkillsInstallFlagsResetAcrossExecutions checks --dir/--force do not
 // leak into the next in-process ExecuteArgs call, per ResetFlags() in
-// root.go. The default (no --dir) install target — ~/.claude/skills/<name>
-// — is covered directly against skills.DefaultDir in internal/skills'
+// root.go. Detection-first target resolution (.claude/skills + .agents/skills
+// at the repo root) is covered in internal/skills'
 // install_test.go; every cmd-layer test here passes --dir explicitly so
 // tests never touch the real ~/.claude.
 func TestSkillsInstallFlagsResetAcrossExecutions(t *testing.T) {

@@ -11,7 +11,10 @@
 // bundle to skills/ on disk. That test can never fail: go:embed resolves at
 // compile time, so `go test` recompiles the bundle from the very tree it is
 // about to compare against. The embed IS the tree. Such a test asserts a
-// tautology and provides no protection.
+// tautology and provides no protection against staleness. (The enumeration and
+// content-floor tests in this package are NOT that tautology: they fail on
+// embed-directive regressions — e.g. dropping the all: prefix silently excludes
+// dot-prefixed files — which is exactly the class that IS testable. Keep them.)
 //
 // Verify exists anyway, but for a different job: comparing the bundle against
 // some OTHER on-disk tree — an installed skill directory under a harness home,

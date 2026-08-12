@@ -27,16 +27,6 @@ type Stamp struct {
 // never wrote. Install wraps it; callers can match with errors.Is.
 var ErrUnmanaged = errors.New("target directory is not tk-managed (no " + StampFile + " stamp)")
 
-// DefaultDir returns the conventional install location for a skill:
-// ~/.claude/skills/<name>.
-func DefaultDir(name string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("determine home directory: %w", err)
-	}
-	return filepath.Join(home, ".claude", "skills", name), nil
-}
-
 // ReadStamp reads and parses the StampFile at the root of dir. It returns an
 // error (os.ErrNotExist in the chain, when absent) if the file is missing,
 // unreadable, or not valid JSON.
@@ -95,6 +85,15 @@ func Install(name, dir string, force bool) (Stamp, error) {
 	parent := filepath.Dir(dir)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return stamp, fmt.Errorf("install %s: %w", name, err)
+	}
+
+	// Sweep stale temp trees from crashed installs first: a fully populated
+	// <name>.tk-tmp-* sibling contains a complete SKILL.md and a harness may
+	// load it as a duplicate skill.
+	if stale, _ := filepath.Glob(filepath.Join(parent, filepath.Base(dir)+".tk-tmp-*")); len(stale) > 0 {
+		for _, d := range stale {
+			_ = os.RemoveAll(d)
+		}
 	}
 
 	tmp, err := os.MkdirTemp(parent, filepath.Base(dir)+".tk-tmp-*")

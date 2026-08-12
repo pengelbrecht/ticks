@@ -150,17 +150,25 @@ func TestInstallUnknownSkillErrors(t *testing.T) {
 	}
 }
 
-func TestDefaultDirUsesClaudeSkillsConvention(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("no home directory available: %v", err)
+// TestInstallSweepsStaleTempTrees pins that a crashed install's leftover
+// <name>.tk-tmp-* sibling — a complete, loadable skill tree — is removed by
+// the next install rather than surviving as a duplicate skill.
+func TestInstallSweepsStaleTempTrees(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "skills", "ticks")
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	got, err := DefaultDir("ticks")
-	if err != nil {
-		t.Fatalf("DefaultDir: %v", err)
+	stale := filepath.Join(filepath.Dir(dir), "ticks.tk-tmp-crashed")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	want := filepath.Join(home, ".claude", "skills", "ticks")
-	if got != want {
-		t.Errorf("DefaultDir(ticks) = %q, want %q", got, want)
+	if err := os.WriteFile(filepath.Join(stale, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install("ticks", dir, false); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale temp tree survived the install: %v", err)
 	}
 }

@@ -90,7 +90,7 @@ func BuildPrompt(in PromptInput) string {
    and end your turn to wait for them: the moment your turn ends, the substrate
    reads you as finished, and your commit and report will not exist yet.
 7. Commit your changes in this worktree: `+"`git add -A && git commit -m \"tick %s: <short summary>\"`"+`.
-8. Write your report to %s at the root of this worktree (see below) and commit it too.
+8. Write your report to %s at the root of this worktree (see below) — do NOT commit it.
 
 ## Boundaries (important)
 - Do NOT run any `+"`tk`"+` command and do NOT touch the `+"`.tick/`"+` directory — the orchestrator owns all tick state.
