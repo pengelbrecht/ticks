@@ -10,7 +10,7 @@
 
 ## Live confirmation (same day)
 
-Rendered for real on the main session: flag enabled in the existing `[experimental]` section (a duplicate-table append is rejected cleanly by `reload-config` — good fail-closed), fresh pane `w4C:pA`, `pane.graphics.set` → **user confirms the bars render** in their terminal. Quirk: `pane.graphics.info` reported `cell_size_unavailable` even while rendering succeeded — the info endpoint's cell-metrics view lags the actual client capability; don't gate on it.
+Rendered for real on the main session: flag enabled in the existing `[experimental]` section (a duplicate-table append is rejected cleanly by `reload-config` — good fail-closed), fresh pane `w4C:pA`, `pane.graphics.set` → **user confirms the bars render** in their terminal — but only after **restarting the herdr client session**: graphics capability is negotiated at client attach, so `reload-config` alone does not enable rendering for already-attached clients. Enable-flag → reattach → set, in that order. Quirk: `pane.graphics.info` reported `cell_size_unavailable` even while rendering succeeded — the info endpoint's cell-metrics view lags the actual client capability; don't gate on it.
 
 ## Verdict
 
