@@ -8,7 +8,7 @@ import (
 
 // skillsConventionsDesc names the two harness-skill directory conventions
 // install/diff detect at a repo root when no explicit --dir is given.
-const skillsConventionsDesc = ".claude/skills/ and .agents/skills/"
+const skillsConventionsDesc = ".claude/skills/ or .agents/skills/ (or both)"
 
 // resolveSkillsTargets resolves the install/diff target directories for a
 // skill: dirFlag verbatim if given (bypassing detection entirely, as

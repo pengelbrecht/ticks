@@ -286,7 +286,7 @@ target such as the user-level `~/.claude/skills/<name>`.
 
 `tk skills install ticks` is the canonical way to install or upgrade the ticks skill
 once `tk` itself is installed — see [Skill (Claude Code / Codex)](#skill-claude-code--codex)
-below for the bootstrap path when `tk` isn't installed yet.
+above for the bootstrap path when `tk` isn't installed yet.
 
 This is a different thing from `tk snippet` (above): `tk snippet` prints a short,
 runner-neutral instruction block meant to be pasted straight into an agent config file

@@ -379,6 +379,7 @@ Epic: <epic-title> (<epic-id>)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
 - Work only inside this worktree. Do not touch sibling worktrees, other branches, or the main checkout.
 - Stay in scope: implement this tick only. Don't add features it didn't ask for.
+- Your RESULT-<tick-id>.md report stays UNCOMMITTED in the worktree root — write it after your commit (or exclude it): it is run state the orchestrator collects, not repo content.
 - Commit source and tests only — never build/run artifacts (`__pycache__`, `*.pyc`, coverage files,
   caches). If `.gitignore` doesn't cover what your test run produces, extend it as part of your change.
 - If the task is ambiguous or you're missing something, stop and report it in RESULT-<tick-id>.md — don't guess.
@@ -397,7 +398,7 @@ workers write their own, and a shared filename collides when the wave is merged)
   STATUS: BLOCKED — <why>
 ```
 
-The two herdr-specific edits to the shared template are the branch-name statement (the orchestrator named the branch before the worker existed) and the `RESULT-<tick-id>.md` reporting section replacing "report back" — a worker has no return channel, so the report must be a file. Everything else, including the boundaries, is the shared template verbatim.
+The two herdr-specific edits to the shared template are the branch-name statement (the orchestrator named the branch before the worker existed) and the `RESULT-<tick-id>.md` reporting section replacing "report back" — a worker has no return channel, so the report must be a file. Everything else, including the boundaries, is the shared template.
 
 The `## How this fits` paragraph is the one part `tk herd spawn` cannot render, because it is knowledge only the orchestrator has. Put it in the tick's description when it matters.
 
