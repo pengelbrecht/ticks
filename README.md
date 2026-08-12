@@ -103,6 +103,11 @@ canonical path, since the installed skill is then guaranteed to match your `tk` 
 tk skills install ticks
 ```
 
+This detects `.claude/skills/` and/or `.agents/skills/` at your repo root and installs
+into whichever exist (most Claude Code and Codex projects already have one). Neither
+present yet? Create one, or install to an explicit location with `--dir`, e.g.
+`tk skills install ticks --dir ~/.claude/skills/ticks` for a user-level install.
+
 Before `tk` is installed, or to install the skill on its own from the marketplace:
 
 ```bash
@@ -267,12 +272,17 @@ than fetched from elsewhere, whatever `tk skills install` puts on disk always ma
 the `tk` version you're running, so the skill's instructions can never drift ahead of
 or behind the CLI they describe.
 
+`install` and `diff` are detection-first: without `--dir`, they check the repo root for
+`.claude/skills/` and `.agents/skills/` and act on every one that exists (both, if both
+do). Neither present is an error — create one of them, or pass `--dir` for an explicit
+target such as the user-level `~/.claude/skills/<name>`.
+
 | Command | Description |
 |---------|-------------|
 | `tk skills list` | List embedded skills and the tk version they ship with |
 | `tk skills get <name>` | Print a skill's `SKILL.md` (`--full` for the whole bundle) |
-| `tk skills install <name>` | Install a skill to disk (default: `~/.claude/skills/<name>`) |
-| `tk skills diff <name>` | Compare an installed skill against the embedded bundle |
+| `tk skills install <name> [--dir PATH]` | Install a skill to disk (default: detect `.claude/skills/`, `.agents/skills/` at the repo root) |
+| `tk skills diff <name> [--dir PATH]` | Compare installed skill(s) against the embedded bundle |
 
 `tk skills install ticks` is the canonical way to install or upgrade the ticks skill
 once `tk` itself is installed — see [Skill (Claude Code / Codex)](#skill-claude-code--codex)
