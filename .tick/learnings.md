@@ -76,8 +76,8 @@ against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in 
 **Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — the epic's
 docs ticks scoped skill references + plugin README only; the repo README was nobody's file.
 **Cause:** Docs-cutover ticks enumerate the surfaces they own, never the surfaces users see.
-**Rule:** Every feature epic's final docs tick must checklist the user-facing surfaces —
-README Commands table, docs/, --help — and say per surface "updated" or "not applicable".
+**Rule:** A feature epic's final docs tick must checklist README Commands table, docs/, and
+--help, saying per surface "updated" or "not applicable".
 
 ## Orchestration
 
