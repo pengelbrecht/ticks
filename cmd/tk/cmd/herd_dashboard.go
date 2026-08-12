@@ -43,8 +43,9 @@ what tells the subscription its pane set changed. If the stream dies the board
 reloads, resubscribes and says so in its header rather than exiting.
 
 Keys
-  j / k   move the selection      g / G   first / last
-  r       reload now              q       quit
+  j / k   move selection / scroll detail   g / G   first / last
+  enter   open tick detail, or close it    esc     close detail, or quit
+  r       reload now                       q       quit
 
 Exit codes
   0  the dashboard exited cleanly
