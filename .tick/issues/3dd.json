@@ -1,0 +1,13 @@
+{
+  "id": "3dd",
+  "title": "Remove tk board: TUI-only direction",
+  "description": "Human decision (2026-08-12): drop the web board and move to TUI-only. Rough scope (flesh out at run start): remove the `tk board` command (cobra + legacy switch + usage), retire internal/tickboard (server + embedded static + ui/ source + cloud client wiring — determine what cloud sync loses and surface BEFORE deleting: tk board --cloud is the current cloud surface), simplify CI (pnpm/UI jobs) and scripts/build-ui.sh, update the herdr-ticks plugin (\"Open tick board\" action becomes dashboard-or-removed), README/docs/promo copy sweep (the 0gg epic promoted the board — coverage checklist required), CHANGELOG entry as a breaking removal with rationale, and a deprecation decision: hard-remove vs one release of a stub pointing at the TUI (human call at planning: recommend stub for one release). Definition of done: no board code, binary shrinks, CI green without UI jobs, all user-facing surfaces consistent with TUI-only, cloud implications explicitly resolved with the human.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "tk board gone (or stubbed per human choice) with no dangling references in code, plugin, CI, or docs; cloud-sync implications explicitly decided by the human before deletion; full suite + CI green; CHANGELOG breaking entry",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T15:00:35.585956Z",
+  "updated_at": "2026-08-12T15:00:35.585956Z"
+}

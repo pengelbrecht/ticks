@@ -37,6 +37,18 @@ const displayTickInterval = time.Second
 // wakes on its own. See the package doc's "why events and not a poll loop".
 type displayTickMsg time.Time
 
+// viewMode is which of the board's two screens [Model] is showing.
+type viewMode int
+
+const (
+	// modeBoard is the wave/tick/worker list — the board's only screen
+	// before tick 7hm.
+	modeBoard viewMode = iota
+	// modeDetail is the read-only detail view for [Model.Selected]: full
+	// description, acceptance criteria, blockers and worker info.
+	modeDetail
+)
+
 // Config builds a [Model].
 type Config struct {
 	// RepoRoot is the repository whose run is displayed. Required.
@@ -101,6 +113,13 @@ type Model struct {
 	cursor int
 	width  int
 	height int
+
+	// mode is board or detail (tick 7hm). detailScroll is the detail body's
+	// scroll offset, reset whenever detail opens or closes; it is clamped
+	// against the rendered content in [Model.clampDetailScroll], which both
+	// the key handler and a snapshot refresh call.
+	mode         viewMode
+	detailScroll int
 
 	quitting bool
 }
@@ -216,6 +235,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// status of a pane it has never seen before).
 		m.updateStatusSince(msg.Snapshot.LoadedAt)
 		m.pruneStatusSince()
+		// A reload can change the selected tick's own content (a closed
+		// tick's new status, a worker's timer) or shrink it, so the detail
+		// scroll — set against the PREVIOUS content — needs re-bounding.
+		m.clampDetailScroll()
 		if cmd := m.maybeStartDisplayTick(); cmd != nil {
 			return m, cmd
 		}
@@ -265,10 +288,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mode == modeDetail {
+		return m.handleDetailKey(msg)
+	}
 	switch msg.String() {
 	case "q", "esc", "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	case "enter":
+		if _, ok := m.Selected(); ok {
+			m.mode = modeDetail
+			m.detailScroll = 0
+		}
 	case "j", "down":
 		m.moveCursor(1)
 	case "k", "up":
@@ -284,10 +315,61 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the board.
+// handleDetailKey is the detail view's input surface: esc or enter closes it,
+// j/k scroll its body, and q still quits — everything else is a no-op, unlike
+// the board (no reload, no cursor movement; the selected tick is fixed while
+// its detail is open).
+func (m *Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "esc", "enter":
+		m.mode = modeBoard
+		m.detailScroll = 0
+	case "j", "down":
+		m.detailScroll++
+		m.clampDetailScroll()
+	case "k", "up":
+		m.detailScroll--
+		m.clampDetailScroll()
+	}
+	return m, nil
+}
+
+// clampDetailScroll bounds [Model.detailScroll] to the selected tick's
+// rendered content: never negative, never past the point where the last line
+// is already on screen. It is idempotent and safe to call whether or not the
+// board is in detail mode, which is what lets [Model.Update]'s SnapshotMsg
+// case call it unconditionally after every reload.
+func (m *Model) clampDetailScroll() {
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+	sel, ok := m.Selected()
+	if !ok {
+		m.detailScroll = 0
+		return
+	}
+	lines := m.detailBody(sel)
+	budget := m.detailScrollBudget()
+	max := len(lines) - budget
+	if max < 0 {
+		max = 0
+	}
+	if m.detailScroll > max {
+		m.detailScroll = max
+	}
+}
+
+// View renders the board, or the detail view for [Model.Selected] while in
+// detail mode.
 func (m *Model) View() string {
 	if m.quitting {
 		return ""
+	}
+	if m.mode == modeDetail {
+		return m.renderDetail()
 	}
 	return m.render()
 }

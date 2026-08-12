@@ -1,0 +1,16 @@
+{
+  "id": "7hm",
+  "title": "Dashboard: Enter opens tick detail view",
+  "description": "Human decision (2026-08-12): the board cursor (j/k + Selected()) finally gets its one job — Enter on the selected tick opens a read-only DETAIL VIEW; esc (or Enter again) returns to the board.\n\nDetail content, from the same read-only sources the snapshot already uses (tick store + manifests + live herd state — NEVER a tk subprocess): title/id/status/priority, full description (wrapped, scrollable if long), acceptance criteria, blockers/blocked-by, worker info when a manifest exists (kind, model, pane, workspace, branch, worktree path, age/status timers reusing the qh6 helpers), and recent activity/notes if cheaply readable from the store (check what internal/ticks exposes; skip gracefully if not — do not shell out).\n\nImplementation: internal/herd/dashboard only. A view-mode enum on the model (board | detail) with the detail rendering in view.go; events/reloads keep flowing while in detail (the underlying snapshot updates; detail re-renders from the refreshed snapshot — a closed tick shows its new status live). Keys: enter opens on Selected(); esc/enter closes; j/k scroll the detail when it overflows; q still quits from either mode. Update the pane/help footer line to advertise enter.\n\nRead internal/herd/dashboard/doc.go + model/view/watch and the qh6 timer helpers first. Model tests: enter/esc mode transitions; detail renders the selected tick fields; snapshot refresh while in detail updates content; overflow scrolling bounds; q quits from detail. Boundaries: internal/herd/dashboard (+ cobra Long help text line in cmd/tk/cmd/herd_dashboard.go if it lists keys). Full-suite gate on real exits; gofmt/vet clean; do NOT commit your RESULT file.",
+  "notes": "2026-08-12 17:00 - runner-state: substrate=herdr kind=claude branch=tick/7hm workspace=w7M agent=tick-7hm session=a85c719e. First spawn eaten by an oh-my-zsh update prompt racing command injection (claude -\u003e laude) — new spawn-robustness finding; respawn clean.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Enter on a selected tick shows the detail view with description/acceptance/worker info; esc returns; live refresh visible in detail; keys documented in footer+help; tests pin transitions/refresh/scroll; suite green",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T14:57:30.523626Z",
+  "updated_at": "2026-08-12T15:07:48.660049Z",
+  "closed_at": "2026-08-12T15:07:48.660049Z",
+  "closed_reason": "Completed: Enter opens read-only tick detail (description/acceptance/blockers/worker+timers), esc returns, live refresh in detail, overflow scroll; footer+help updated; model tests pin transitions"
+}

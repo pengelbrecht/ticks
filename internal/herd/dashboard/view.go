@@ -75,7 +75,7 @@ func (m *Model) render() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(truncate(metaStyle.Render("j/k move · g/G first/last · r reload · q quit · read-only"), m.width))
+	b.WriteString(truncate(metaStyle.Render("j/k move · enter details · g/G first/last · r reload · q quit · read-only"), m.width))
 	return b.String()
 }
 
@@ -304,4 +304,135 @@ func truncate(s string, width int) string {
 		return s
 	}
 	return lipgloss.NewStyle().MaxWidth(width).Render(s)
+}
+
+// renderDetail draws the read-only detail screen for [Model.Selected]: an
+// id/status/priority header, then the tick's description, acceptance
+// criteria, blockers, notes and worker info as a scrolled body — the same
+// height-clamping shape [Model.render] uses for the board, but scrolled by
+// [Model.detailScroll] instead of always showing the top.
+func (m *Model) renderDetail() string {
+	sel, ok := m.Selected()
+	if !ok {
+		return truncate(metaStyle.Render("no tick selected"), m.width) + "\n"
+	}
+
+	var b strings.Builder
+	b.WriteString(truncate(titleStyle.Render(sel.ID+" — "+sel.Title), m.width))
+	b.WriteString("\n")
+	meta := fmt.Sprintf("status: %s · priority: %d · type: %s", sel.Status, sel.Priority, sel.Type)
+	b.WriteString(truncate(metaStyle.Render(meta), m.width))
+	b.WriteString("\n")
+
+	lines := m.detailBody(sel)
+	budget := m.detailScrollBudget()
+	start := m.detailScroll
+	if start > len(lines) {
+		start = len(lines)
+	}
+	end := start + budget
+	if end > len(lines) {
+		end = len(lines)
+	}
+	for _, line := range lines[start:end] {
+		b.WriteString(truncate(line, m.width))
+		b.WriteString("\n")
+	}
+	if len(lines) > budget {
+		b.WriteString(truncate(metaStyle.Render(fmt.Sprintf("  … line %d/%d (j/k to scroll)", end, len(lines))), m.width))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(truncate(metaStyle.Render("esc/enter back · j/k scroll · q quit · read-only"), m.width))
+	return b.String()
+}
+
+// detailScrollBudget is how many body lines [Model.renderDetail] has room
+// for: the terminal height minus its two header lines, the blank separator,
+// the footer, and one line of margin. [Model.clampDetailScroll] uses the same
+// number so scrolling never stops short of — or past — what actually renders.
+func (m *Model) detailScrollBudget() int {
+	budget := m.height - 6
+	if budget < 1 {
+		budget = 1
+	}
+	return budget
+}
+
+// detailBody renders the selected tick's full content as a flat, unscrolled
+// line list: description, acceptance criteria, blockers, notes, and worker
+// info when a manifest exists. It reads the same live-refreshed state the
+// board does — [Model.Worker] and [Model.Status] — so a snapshot reload while
+// the detail view is open changes what this returns without any extra
+// plumbing.
+func (m *Model) detailBody(sel TickRow) []string {
+	width := m.width - 2
+	if width < 10 {
+		width = 10
+	}
+
+	var lines []string
+	lines = append(lines, "", epicStyle.Render("Description"))
+	lines = append(lines, wrapLines(orNone(sel.Description), width)...)
+
+	if sel.AcceptanceCriteria != "" {
+		lines = append(lines, "", epicStyle.Render("Acceptance Criteria"))
+		lines = append(lines, wrapLines(sel.AcceptanceCriteria, width)...)
+	}
+
+	if len(sel.BlockedBy) > 0 {
+		lines = append(lines, "", epicStyle.Render("Blocked by"))
+		for _, blk := range sel.BlockedBy {
+			title := blk.Title
+			status := blk.Status
+			if status == "" {
+				title, status = "(unknown tick)", "?"
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s %s",
+				tickStatusStyle(blk.Status).Render(pad(status, 12)), idStyle.Render(pad(blk.ID, 5)), title))
+		}
+	}
+
+	if sel.Notes != "" {
+		lines = append(lines, "", epicStyle.Render("Notes"))
+		lines = append(lines, wrapLines(sel.Notes, width)...)
+	}
+
+	lines = append(lines, "", epicStyle.Render("Worker"))
+	if w, ok := m.Worker(sel.ID); ok {
+		st := m.Status(w.PaneID, w.Status)
+		lines = append(lines, fmt.Sprintf("  kind: %s   model: %s   pane: %s", orNone(w.Kind), orNone(w.Model), orNone(w.PaneID)))
+		lines = append(lines, fmt.Sprintf("  workspace: %s", orNone(w.WorkspaceID)))
+		lines = append(lines, fmt.Sprintf("  branch: %s", orNone(w.Branch)))
+		lines = append(lines, fmt.Sprintf("  worktree: %s", orNone(w.Worktree)))
+		lines = append(lines, "  status: "+statusStyle(st).Render(string(st)))
+		if timer := m.workerTimer(w, st); timer != "" {
+			lines = append(lines, "  "+metaStyle.Render(timer))
+		}
+	} else {
+		lines = append(lines, metaStyle.Render("  not spawned"))
+	}
+
+	return lines
+}
+
+// orNone renders an empty field as an explicit placeholder instead of a blank
+// that reads as a rendering bug.
+func orNone(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+// wrapLines word-wraps text to width and splits it into lines, the way
+// [Model.detailBody] renders free-text fields (description, acceptance
+// criteria, notes) that are not pre-wrapped on disk.
+func wrapLines(s string, width int) []string {
+	if s == "" {
+		return nil
+	}
+	wrapped := lipgloss.NewStyle().Width(width).Render(s)
+	return strings.Split(wrapped, "\n")
 }
