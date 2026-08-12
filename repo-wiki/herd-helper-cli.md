@@ -20,6 +20,7 @@ Layer 2 of the herdr agent-agnostic orchestrator (design: `docs/design/herdr-orc
 - `agent_prompt_stalled` is a non-signal: it fires even when the worker answered <1 s. Settle, read the pane, let the gate classify.
 - Fire-and-forget dispatch races the fan-in — spawn confirms dispatch by waiting bounded for `working` (non-fatal `DispatchUnconfirmed` warning).
 - `worktree.create` against a repo with no open workspace opens TWO workspaces (worktree + implicit source checkout; the response names only one) — cleanup must cover the source workspace.
+- **Harness background tasks are invisible to herdr lifecycle** (uvv wave 2): a claude worker parked its test gate in background shells and ended its turn → herdr `done`, wait settled, collect refused (no commits/RESULT — the durable layer caught it). Worker template now forbids backgrounding the final gate; recovery = continue the same worker (`agent prompt` + `--until working` dispatch-confirm), never redispatch. Also explains "worker looks done but orch still waiting" reports.
 - Focus: `--no-focus` works on create; workspace remove/close ALWAYS moves focus and never returns it — hence cleanup's focus restore.
 - **Explicit targets always**: herdr commands that default to the UI-focused workspace/pane when no target is given (`plugin pane open`, `pane split`, …) must ALWAYS carry an explicit target pinned to run-created resources. The user jumps between sessions — focus is never a safe implicit target (field-observed: a verification pane opened in the user's unrelated focused workspace).
 
