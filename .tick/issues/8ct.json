@@ -3,7 +3,7 @@
   "title": "Docs cutover + snippet relationship + surface checklist",
   "description": "Final docs tick. Per .tick/learnings.md (\"Docs \u0026 marketing copy\"), verify EVERY tk command you write against the real cobra definitions, and end your report with the user-facing surface checklist: README Commands table / docs/ / --help, each marked updated or not-applicable.\n\n1. README.md: add tk skills rows to the Commands table + a short \"Skills\" subsection: what it serves, version-matching rationale, `tk skills install` as the canonical install path for the ticks skill; note the relationship to `tk snippet` (snippet = inline runner-neutral instructions for agent config files; skills = the full skill tree - document, do not merge them).\n2. skills/ticks/SKILL.md prerequisites section: mention that a current tk can install/update this skill via tk skills install (keep it one sentence - the skill must not depend on it).\n3. docs/releasing.md: one line noting released binaries embed the skills tree at tag build (version-match guarantee).\n4. cmd/tk/main.go usage: confirm the skills section line(s) the earlier ticks added read well together; adjust wording only if inconsistent.\n5. If plugins/herdr-ticks/README.md or the Pi package README reference skill installation, point them at tk skills install where accurate.\n\nNo behavior changes. Full suite green (docs-only should not break it, but run it); relative links must resolve. Commit in your worktree with message prefix \"tick \u003cthis-tick-id\u003e: \".",
   "notes": "2026-08-12 11:08 - runner-state: substrate=herdr kind=claude branch=tick/8ct workspace=w74 agent=tick-8ct pane=w74:p1 session=bc147347-0e02-4b2f-a3db-0d60f8c45536",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "README documents the skills group with verified command syntax; snippet relationship documented; releasing.md updated; surface checklist in report with every surface marked",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T08:31:44.168576Z",
-  "updated_at": "2026-08-12T09:08:50.35078Z",
-  "started_at": "2026-08-12T09:08:33.122628Z"
+  "updated_at": "2026-08-12T09:15:30.019756Z",
+  "closed_at": "2026-08-12T09:15:30.019756Z",
+  "closed_reason": "Completed: README skills section + snippet relationship + releasing.md embed note; user-facing surface checklist delivered per learnings rule"
 }
