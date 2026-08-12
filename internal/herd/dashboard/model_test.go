@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/herd/state"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -338,6 +339,143 @@ func TestViewRespectsTerminalSize(t *testing.T) {
 	}
 	if n := len(strings.Split(view, "\n")); n > 12 {
 		t.Errorf("view is %d lines in a 12-line terminal", n)
+	}
+}
+
+// The manifest's CreatedAt is the total age since spawn, independent of
+// status.
+func TestWorkerRowShowsAgeFromCreatedAt(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+
+	snap := boardSnapshot()
+	snap.Epics[0].Workers[0].CreatedAt = fixedTime.Add(-9*time.Minute - time.Second).Format(state.TimeLayout)
+	apply(m, SnapshotMsg{Snapshot: snap})
+
+	if v := m.View(); !strings.Contains(v, "age 9m01s") {
+		t.Errorf("worker row age not rendered from CreatedAt:\n%s", v)
+	}
+}
+
+// A worker row with no parseable CreatedAt (an empty manifest field, or one
+// this board version cannot read) must not render a fabricated age.
+func TestWorkerRowHidesAgeWithoutCreatedAt(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+
+	if v := m.View(); strings.Contains(v, "age ") {
+		t.Errorf("age rendered without a CreatedAt to derive it from:\n%s", v)
+	}
+}
+
+// The status timer starts at zero on the pane's first observation (history
+// before the dashboard was watching is unknowable), then advances with the
+// clock, and resets to zero the moment a transition is observed — whether
+// through a re-list's listing delta or a pushed event.
+func TestStatusTimerStartsAtFirstObservationAndResetsOnTransition(t *testing.T) {
+	pinProfile(t)
+	clock := fixedTime
+	m := New(t.Context(), Config{
+		RepoRoot:        t.TempDir(),
+		Epic:            "zz0",
+		RefreshInterval: -1,
+		Now:             func() time.Time { return clock },
+	})
+	t.Cleanup(m.Close)
+	m.width, m.height = 120, 40
+
+	// First observation: the worker's status (working) starts at zero even
+	// though it may have been working for a while before the board opened.
+	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+	if v := m.View(); !strings.Contains(v, "working 0s") {
+		t.Fatalf("first observation did not start the status timer at zero:\n%s", v)
+	}
+
+	clock = fixedTime.Add(90 * time.Second)
+	if v := m.View(); !strings.Contains(v, "working 1m30s") {
+		t.Errorf("status timer did not advance with the clock:\n%s", v)
+	}
+
+	// A transition observed through a re-list's listing delta resets it.
+	relisted := boardSnapshot()
+	relisted.Epics[0].Workers[0].Status = client.StatusIdle
+	relisted.LoadedAt = clock
+	apply(m, SnapshotMsg{Snapshot: relisted})
+	if v := m.View(); !strings.Contains(v, "idle 0s") {
+		t.Fatalf("transition observed via re-list did not reset the timer:\n%s", v)
+	}
+
+	// A transition observed through a pushed event also resets it.
+	clock = clock.Add(30 * time.Second)
+	apply(m, StatusMsg{PaneID: "w1:p1", Status: client.StatusBlocked, At: clock})
+	if v := m.View(); !strings.Contains(v, "blocked 0s") {
+		t.Fatalf("transition observed via event did not reset the timer:\n%s", v)
+	}
+
+	clock = clock.Add(4 * time.Second)
+	if v := m.View(); !strings.Contains(v, "blocked 4s") {
+		t.Errorf("status timer did not advance after the event reset it:\n%s", v)
+	}
+}
+
+// The once-a-second display tick must run only while a worker is unsettled,
+// and must stop rescheduling itself the moment the board settles — an idle
+// board is never woken on its own.
+func TestDisplayTickerRunsOnlyWhileUnsettled(t *testing.T) {
+	m := testModel(t)
+
+	// No workers at all: nothing to tick for.
+	if cmd := apply(m, SnapshotMsg{Snapshot: Snapshot{RepoRoot: "/repo", LoadedAt: fixedTime}}); cmd != nil {
+		t.Error("an empty board armed a display tick")
+	}
+
+	// boardSnapshot has a working worker and an idle one — both unsettled.
+	if cmd := apply(m, SnapshotMsg{Snapshot: boardSnapshot()}); cmd == nil {
+		t.Fatal("an unsettled board did not arm a display tick")
+	}
+
+	// While still unsettled, a firing tick must reschedule itself.
+	if cmd := apply(m, displayTickMsg(fixedTime)); cmd == nil {
+		t.Error("display tick did not reschedule itself while the board is unsettled")
+	}
+
+	// Every worker settles (done).
+	settled := boardSnapshot()
+	for i := range settled.Epics[0].Workers {
+		settled.Epics[0].Workers[i].Status = client.StatusDone
+	}
+	if cmd := apply(m, SnapshotMsg{Snapshot: settled}); cmd != nil {
+		t.Error("a fully settled board kept arming the display tick")
+	}
+
+	// A tick already in flight when the board settled must stop
+	// rescheduling itself instead of ticking an idle board forever.
+	if cmd := apply(m, displayTickMsg(fixedTime)); cmd != nil {
+		t.Error("display tick kept rescheduling after the board settled")
+	}
+}
+
+// formatDuration's three rendering tiers, pinned at their boundaries.
+func TestFormatDurationRenderingCaps(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{0, "0s"},
+		{45 * time.Second, "45s"},
+		{59 * time.Second, "59s"},
+		{60 * time.Second, "1m00s"},
+		{90 * time.Second, "1m30s"},
+		{59*time.Minute + 59*time.Second, "59m59s"},
+		{60 * time.Minute, "1h00m"},
+		{2*time.Hour + 5*time.Minute, "2h05m"},
+		{-5 * time.Second, "0s"},
+	}
+	for _, c := range cases {
+		if got := formatDuration(c.d); got != c.want {
+			t.Errorf("formatDuration(%s) = %q, want %q", c.d, got, c.want)
+		}
 	}
 }
 
