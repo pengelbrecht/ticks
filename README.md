@@ -94,7 +94,16 @@ go install github.com/pengelbrecht/ticks/cmd/tk@latest
 
 ### Skill (Claude Code / Codex)
 
-The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan and orchestrate epics. Install it once:
+The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan and orchestrate epics.
+
+If `tk` is already installed, install the skill straight from the binary — this is the
+canonical path, since the installed skill is then guaranteed to match your `tk` version:
+
+```bash
+tk skills install ticks
+```
+
+Before `tk` is installed, or to install the skill on its own from the marketplace:
 
 ```bash
 npx skills add pengelbrecht/ticks
@@ -221,6 +230,7 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
 | `tk snippet` | Output runner-neutral agent instructions |
+| `tk skills …` | Inspect/install the version-matched skill bundle embedded in this binary (see below) |
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
 
 All commands support `--help` for options and `--json` for machine-readable output.
@@ -248,6 +258,33 @@ The optional **mission-control herdr plugin** ([`plugins/herdr-ticks`](plugins/h
 adds a board pane, workspace badges via event hooks, notification chimes, and
 context-menu actions. Full conventions live in the ticks skill:
 [`skills/ticks/references/herdr-runner.md`](skills/ticks/references/herdr-runner.md).
+
+### Skills: version-matched skill distribution
+
+`tk` serves the same `skills/ticks` tree it ships with straight from the binary — no
+network fetch or separate install step needed. Because the skill is embedded rather
+than fetched from elsewhere, whatever `tk skills install` puts on disk always matches
+the `tk` version you're running, so the skill's instructions can never drift ahead of
+or behind the CLI they describe.
+
+| Command | Description |
+|---------|-------------|
+| `tk skills list` | List embedded skills and the tk version they ship with |
+| `tk skills get <name>` | Print a skill's `SKILL.md` (`--full` for the whole bundle) |
+| `tk skills install <name>` | Install a skill to disk (default: `~/.claude/skills/<name>`) |
+| `tk skills diff <name>` | Compare an installed skill against the embedded bundle |
+
+`tk skills install ticks` is the canonical way to install or upgrade the ticks skill
+once `tk` itself is installed — see [Skill (Claude Code / Codex)](#skill-claude-code--codex)
+below for the bootstrap path when `tk` isn't installed yet.
+
+This is a different thing from `tk snippet` (above): `tk snippet` prints a short,
+runner-neutral instruction block meant to be pasted straight into an agent config file
+like `AGENTS.md` or `CLAUDE.md`, while `tk skills` serves the full skill tree — the
+complete workflow, references, and adapters that a skill-aware harness loads on its
+own. They're complementary, not interchangeable: use `tk snippet` for harnesses without
+skill support, and the skill (via `tk skills install` or a skill marketplace) for
+harnesses that have it.
 
 ## TUI
 

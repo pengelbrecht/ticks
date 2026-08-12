@@ -7,6 +7,8 @@ This repository now uses a single tag-driven release flow for every shipped comp
 - hosted cloud worker at `ticks.sh`
 - Homebrew formula updates for stable releases
 
+Released binaries also embed the `skills/` tree as it exists at the tag, so `tk skills install` on any given release always installs the skill version-matched to that exact build.
+
 ## Release Inputs
 
 Stable releases are created from git tags like `v0.10.8`.

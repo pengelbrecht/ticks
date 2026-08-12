@@ -44,6 +44,8 @@ ls .tick/ 2>/dev/null || tk init
 which tk || echo "Install: curl -fsSL https://ticks.sh/install | sh"
 ```
 
+A current `tk` can also install or update this skill directly via `tk skills install ticks`, but this skill works fine without ever running that command.
+
 **4. Git tracking (important):**
 
 The `.tick/` directory should be tracked by git, not gitignored. Ticks are designed to be version-controlled so they sync across machines and team members via normal git workflows.
