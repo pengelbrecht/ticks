@@ -24,6 +24,25 @@ Read this file first, then the matching adapter. The adapter maps every capabili
 
 The harness plays the orchestrator; git and `.tick/` are the durable coordination layer.
 
+## The second axis: dispatch substrate
+
+The adapter you just picked settles **who orchestrates**. A separate, independent choice settles **how workers are dispatched** — the **substrate**. The two axes are orthogonal: any of the four harnesses can orchestrate under either substrate.
+
+| Substrate | Workers are | Adapter |
+|---|---|---|
+| `harness` | subagents of the orchestrating harness | the harness adapter above — unchanged, still authoritative |
+| `herdr` | independent CLI processes in herdr panes and worktrees, one per tick, possibly of different vendors | [`herdr-runner.md`](herdr-runner.md), *in addition to* your harness adapter |
+
+Herdr is **not a fifth harness adapter**: it replaces the dispatch and supervision layer only. Under it you still read your own harness adapter for everything herdr does not supply (tier resolution for roles you run in-process, your own self-isolation and boundary mechanisms).
+
+Settle the substrate once per run, after harness detection:
+
+1. **Read `.tick/runners.toml`** (optional; absent means `auto`). `[orchestration].substrate` is `herdr | harness | auto`, default `auto`. `harness` is final — do not probe, and do not use herdr even when running inside a herdr pane. `herdr` and `auto` continue to step 2.
+2. **Probe herdr availability — read-only.** Herdr is available when `HERDR_ENV=1` (you are inside a herdr-managed pane) or the herdr socket answers a read-only call (`herdr status server`); resolve the socket path as `[orchestration].socket` → `$HERDR_SOCKET_PATH` → `~/.config/herdr/herdr.sock` rather than hardcoding it, and let `[orchestration].detect` narrow which of the two probes counts. **Never start a herdr server, workspace, or TUI to detect one**, and never run bare `herdr` — it launches or attaches the TUI. Available → herdr substrate. Unavailable under `auto` → harness dispatch, silently.
+3. **`substrate = "herdr"` with herdr unavailable degrades explicitly — it never fails the run.** Before dispatching the first worker, state the requested substrate, the probe(s) that failed, and the harness adapter you are falling back to; record the same fact durably (`tk note <epic-id> "runner-state: substrate=harness requested=herdr reason=herdr-unavailable"`); then continue under harness dispatch.
+
+[`runners-config.md`](runners-config.md) owns these semantics — the full decision table, the `detect`/`socket` keys, per-role/tier routing, and the degradation announcement. Do not re-derive them here. With no `runners.toml`, nothing changes: harness dispatch through the adapter above.
+
 ## Mental model
 
 - **You are the orchestrator.** You own all tick state: you spawn implementers, wait for them, integrate their branches, and update ticks. You don't write feature code yourself during a run — you coordinate.
@@ -138,7 +157,7 @@ These rules complement the "run continuously" guidance above. Name them internal
 
 ## Launching agents
 
-Read the adapter for the active harness before dispatch. Every adapter must provide these capabilities:
+Read the adapter for the active harness before dispatch — and, when the selected substrate is herdr (see *The second axis: dispatch substrate*), [`herdr-runner.md`](herdr-runner.md) as well: it supplies the dispatch primitives below while your harness adapter keeps everything else. Every adapter must provide these capabilities:
 
 | Capability | Required behavior |
 |---|---|
@@ -155,6 +174,8 @@ branch:   tick/<epic-id>/<tick-id>
 worktree: ../.ticks-worktrees/<tick-id>
 report:   ../.ticks-worktrees/<tick-id>.report
 ```
+
+(The herdr substrate deviates on the branch: it uses single-segment `<worktree_branch_prefix><tick-id>` — `tick/<tick-id>` by default — because that is what `herdr worktree create --branch` is given; [`herdr-runner.md`](herdr-runner.md) carries the rationale. Tick IDs are unique either way, so recovery is unaffected.)
 
 Add a note such as `runner-state: branch=tick/e1/t1 worktree=../.ticks-worktrees/t1 runner=codex` as soon as the branch name is known — before launch when the adapter creates the worktree itself; at first report when the harness assigns the name (the adapter documents which, and how to find branches that died before a note was written). The note is a recovery hint; git and tick status remain authoritative. Never store a harness session ID as the only way to find work.
 
@@ -456,7 +477,7 @@ Claude may create ticks that Codex executes, Codex may create ticks that Claude 
 | Scope, acceptance, dependencies, status | tick files and `tk show` / `tk graph` |
 | Project rules and tests | `.tick/config.md`, `.tick/learnings.md`, and the active harness's instruction files |
 | Integrated work | integration branch history |
-| In-flight work | deterministic `tick/<epic>/<tick>` branch and worktree |
+| In-flight work | deterministic `tick/<epic>/<tick>` branch and worktree (single-segment `tick/<tick>` under the herdr substrate) |
 | Runner provenance | activity actor such as `claude:orchestrator`, `codex:orchestrator`, `pi:orchestrator`, or `prime:orchestrator` |
 | Human decisions and blockers | tick notes and awaiting state |
 
@@ -567,5 +588,5 @@ Epic: <epic-title> (<epic-id>)
 
 ## Current limitations
 
-- **Resumable, not continuous.** Runs resume cleanly from tick state: re-invoke the skill, run the stale-state and worktree-reconciliation checks (see *Resuming a run*), and continue from `tk next`. In-flight agents do not survive a session crash — they are identified via the stale-state check and their ticks are reset to `open` for re-dispatch. Completed work is never re-opened.
+- **Resumable, not continuous.** Runs resume cleanly from tick state: re-invoke the skill, run the stale-state and worktree-reconciliation checks (see *Resuming a run*), and continue from `tk next`. **Under the harness substrate**, in-flight agents do not survive a session crash — they are subagents of the orchestrating session, so they are identified via the stale-state check and their ticks are reset to `open` for re-dispatch. (Substrate-specific: under the herdr substrate workers are independent processes that keep running when the orchestrator dies, and a fresh session reconciles and continues them — see [`herdr-runner.md`](herdr-runner.md) → *Crash recovery and continuation*. Do not reset such a tick to `open` without first checking for a live worker.) Completed work is never re-opened.
 - **Cost is yours to watch.** There's no built-in spend cap here; keep an eye on wave width and role settings. Use the adapter's economy implementation mapping, which may mean a cheaper model or lower reasoning effort.

@@ -103,18 +103,18 @@ the shared checkout, diff tick state against the activity log before trusting th
 foundation commit; one re-implemented the missing field and caused a merge conflict.
 **Cause:** Harness worktrees can be created from a stale ref rather than the orchestrator's
 current HEAD.
-**Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: verify it is
-an ancestor (`git merge-base --is-ancestor <sha> HEAD`) and cherry-pick it if absent — never
-re-implement a sibling tick's work.
+**Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: run
+`git merge <integration-branch>` first, then verify the SHA is an ancestor
+(`git merge-base --is-ancestor <sha> HEAD`) — never cherry-pick around it or re-implement a
+sibling tick's work. (Claude worktrees branch from session-start HEAD; see claude-runner.md.)
 
-**Problem:** Implementer agents dispatched without a `model=` parameter run at frontier tier
-by default, silently spending frontier budget on balanced/mechanical work.
-**Cause:** The Agent call template in claude-runner.md shows `model: "sonnet"` but it is one
-line in a 10-line block, not a named step. Under orchestration pressure the tier selection
-step gets skipped entirely.
-**Rule:** Before each Agent call, explicitly choose a tier from the claude-runner.md table and
-set `model=` to the matching model. Omitting it is not "defaulting to balanced" — it is
-implicitly choosing frontier. Resolve the tier per-tick, not once for the run.
+## Skill docs
+
+**Problem:** Validating runners-config.md's TOML examples fails with ImportError.
+**Cause:** System python3 has no `jsonschema`; the repo carries no venv for it.
+**Rule:** Validate with `uv run --with jsonschema python …` (tomllib is stdlib). Re-run the
+validation after ANY edit to runners-config.md or runners-config.schema.json — every TOML
+block in the doc must validate against the schema.
 
 **Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
 `--flags` or code) silently corrupted the stored field — the backtick spans were shell
@@ -130,8 +130,10 @@ half-staged merge leftovers into the tracker commit — corrupting HEAD and caus
 conflicts on the retry.
 **Cause:** `git add .tick/` stages .tick, but `git commit` commits the WHOLE index, including
 anything a prior failed merge left staged.
-**Rule:** Commit orchestrator tracker state with a pathspec — `git commit .tick/ -m "..."` —
-never `git add .tick/ && git commit`. And after any merge, check it actually committed
+**Rule:** Commit orchestrator tracker state as `git add .tick/ && git commit .tick/ -m "..."` —
+the pathspec on commit keeps foreign staged leftovers out, and the explicit add is REQUIRED
+because a bare pathspec commit silently skips untracked files (new tick JSONs from `tk create`
+never land; field-observed twice). And after any merge, check it actually committed
 (`git rev-parse -q --verify MERGE_HEAD` should be empty; `git status` clean) BEFORE committing
 tracker state. To recover a botched merge-commit, `git reset --hard <pre-merge-sha>` and re-merge.
 

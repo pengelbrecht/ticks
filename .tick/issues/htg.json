@@ -1,0 +1,17 @@
+{
+  "id": "htg",
+  "title": "Capability matrix: per-kind spawn and full-auto templates",
+  "description": "New file skills/ticks/references/herdr-kinds.md: for each initially supported worker kind (claude, codex at minimum; note the pattern for the other herdr kinds), the verified 'herdr agent start ... -- \u003cargs\u003e' template covering model selection and full-auto/skip-permissions mode, whether a herdr integration exists (herdr integration status) and why that matters for lifecycle fidelity, and the resume story (native session id from herdr api snapshot -\u003e resume flag). Verify each template live in a scratch pane, do not transcribe from memory.\nTest: for each documented kind, a live 'agent start' + trivial prompt round-trip succeeds using the documented template.",
+  "notes": "2026-08-11 13:23 - runner-state: runner=claude branch=worktree-agent-a5c1efa27088b6d37 substrate=harness",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "ias",
+  "acceptance_criteria": "herdr-kinds.md exists; claude + codex templates verified live (evidence in tick notes); integration + resume columns filled for every documented kind",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T09:45:54.86785Z",
+  "updated_at": "2026-08-11T11:25:06.748688Z",
+  "closed_at": "2026-08-11T11:25:06.748688Z",
+  "closed_reason": "Completed: herdr-kinds.md capability matrix — live-verified claude+codex spawn/full-auto/resume templates, integration states, green-start trap documented; codex integration left outdated (machine-global install deferred)"
+}

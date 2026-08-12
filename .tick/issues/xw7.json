@@ -1,0 +1,15 @@
+{
+  "id": "xw7",
+  "title": "Herdr socket client package (internal/herd/client)",
+  "description": "Foundation + contract tick. Go package internal/herd/client: a minimal typed client for the herdr unix-socket JSON API (protocol 19; authority: herdr api schema --json). Socket path resolution per skills/ticks/references/runners-config.md: explicit path arg -\u003e $HERDR_SOCKET_PATH -\u003e ~/.config/herdr/herdr.sock. Cover: request/response envelope with ids and error mapping; Ping/status; the request methods the helper needs (worktree.create/list/remove, agent.start/prompt/wait/list/get, pane.read, pane.wait_for_output, session.snapshot aka api snapshot) and, critically, events.subscribe + events.wait — the push-event surface the herdr CLI does NOT expose and the reason this client talks to the socket directly instead of shelling out. Context: the CLI-visible surface is documented in skills/ticks/references/herdr-runner.md; the socket schema is discoverable live. Design for testability: transport injected; unit tests against an in-process fake unix-socket server replaying captured protocol JSON; optional live round-trip test gated behind HERDR_ENV=1 + a guard env var (skip by default in CI). Stdlib only — add NO new go.mod dependencies in this tick (the config tick owns dependency additions to avoid lockfile collisions). Protocol drift guard: on connect, read the protocol version and fail closed with a clear error if it is not the pinned one.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "gyz",
+  "acceptance_criteria": "go test -short -count=1 ./internal/herd/... passes with the fake-server unit tests covering envelope, error mapping, events.subscribe/events.wait streaming, and protocol-version fail-closed; no new go.mod deps; live test compiles but auto-skips outside herdr",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-11T12:06:09.409551Z",
+  "updated_at": "2026-08-11T12:06:42.658428Z",
+  "started_at": "2026-08-11T12:06:42.658427Z"
+}

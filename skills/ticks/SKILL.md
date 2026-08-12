@@ -374,7 +374,7 @@ tk close <id> --reason "Completed: connection string in .env"
 
 ### Step 5: Run the Epic
 
-Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi, **`references/prime-runner.md`** if you are running in Prime Agent. If you haven't already, settle the *Goal-ready handoff* decision (above) before launching: how far should this run go before it stops for a human? The shape is:
+Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi, **`references/prime-runner.md`** if you are running in Prime Agent. The adapter settles *who orchestrates*; a second, independent choice settles *how workers are dispatched* — the **substrate**, either the harness's own subagents or a heterogeneous [herdr](https://herdr.dev) fleet (**`references/herdr-runner.md`**, read alongside your harness adapter, never instead of it). `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto`, default `auto`) decides, with explicit degradation to harness dispatch when herdr is pinned but unavailable — semantics in **`references/runners-config.md`**. If you haven't already, settle the *Goal-ready handoff* decision (above) before launching: how far should this run go before it stops for a human? The shape is:
 
 1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
 2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
@@ -438,7 +438,9 @@ Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 ### Running the Epic
 
-Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi, `prime-runner.md` for Prime Agent):
+Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi, `prime-runner.md` for Prime Agent).
+
+Then pick the dispatch **substrate** — harness-native subagents, or a herdr fleet of independent per-tick workers (`references/herdr-runner.md`, additional to the harness adapter). It comes from `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto`, default `auto` = herdr when a read-only probe finds it, harness otherwise); `references/runners-config.md` has the decision table and the explicit-degradation rule.
 
 ```bash
 # 1. Get the dependency graph (waves + max parallelism)
