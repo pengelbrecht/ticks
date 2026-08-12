@@ -2,12 +2,14 @@
   "id": "bhn",
   "title": "Spike: pane.graphics board rendering",
   "description": "Probe pane.graphics.set (socket method, CLI-unexposed): schema from herdr api schema, render a generated image (e.g. wave-progress chart PNG built with Go stdlib image) into a pane in the isolated session; document capabilities/limits (formats, sizing, persistence, interaction with TUI panes) in docs/design/experiments/pane-graphics.md + the generator script. Verdict: is a graphical board mode worth a real tick?",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "nmn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T12:43:10.932172Z",
-  "updated_at": "2026-08-12T12:43:10.932172Z"
+  "updated_at": "2026-08-12T12:47:42.485391Z",
+  "closed_at": "2026-08-12T12:47:42.485391Z",
+  "closed_reason": "Completed: pane.graphics spike — API works (png/rgb/rgba + placement) behind experimental.kitty_graphics; headless lacks cell metrics; verdict: optional enhancement only, not tick-worthy until someone runs with the flag on"
 }
