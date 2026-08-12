@@ -194,6 +194,9 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 		}
 		deaths++
 		if deaths > 1 {
+			if ctx.Err() != nil {
+				break
+			}
 			return nil, fmt.Errorf("herd/wait: event stream failed again after resubscribing: %w", streamErr)
 		}
 		if ctx.Err() != nil {
@@ -202,6 +205,13 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 		// Close the gap the dead stream left before opening a new one. The
 		// replaying subscriptions make this order safe; see the package doc.
 		if err := w.reconcile(ctx); err != nil {
+			if ctx.Err() != nil {
+				// The deadline expired while recovery was in flight: the
+				// recovery failure (a dial or call cut off mid-attempt) is a
+				// symptom of the deadline, not a distinct fault. A timeout is
+				// an outcome, not an error.
+				break
+			}
 			return nil, fmt.Errorf("herd/wait: reconciling after stream failure: %w", err)
 		}
 	}

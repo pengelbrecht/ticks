@@ -531,3 +531,38 @@ func TestWaitNoWorkers(t *testing.T) {
 		t.Fatal("Wait with no workers returned nil error")
 	}
 }
+
+// TestWaitDeadlineDuringRecoveryIsATimeout pins the boundary the CI flake
+// exposed: the stream dies just before the deadline and the recovery re-list
+// is cut off by it. That recovery failure is a symptom of the deadline — Wait
+// must return the timeout summary, never the recovery error.
+func TestWaitDeadlineDuringRecoveryIsATimeout(t *testing.T) {
+	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
+	// The recovery re-list (list call 2) stalls past the wait's deadline.
+	srv.RouteN("agent.list", func(tt *testing.T, req herdtest.Request, w *herdtest.ConnWriter, n int) error {
+		if n < 2 {
+			return srv.Builtin("agent.list")(tt, req, w)
+		}
+		time.Sleep(600 * time.Millisecond)
+		return herdtest.RespondJSON(w, req.ID, map[string]any{"type": "agent_list", "agents": []map[string]any{}})
+	})
+	go func() {
+		srv.waitForStreams(1)
+		time.Sleep(250 * time.Millisecond) // die close to the 500ms deadline
+		srv.KillStreams()
+	}()
+
+	sum, err := Wait(testContext(t), srv.Client(t), Options{
+		Workers: []string{"tick-a"},
+		Timeout: 500 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Wait returned an error at the deadline boundary: %v (a timeout is an outcome, not an error)", err)
+	}
+	if !sum.TimeoutFired {
+		t.Fatalf("summary = %+v, want TimeoutFired", sum)
+	}
+	if got := resultsByName(sum)["tick-a"].State; got != "working" {
+		t.Errorf("timed-out worker state = %q, want last known status", got)
+	}
+}

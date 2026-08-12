@@ -145,8 +145,14 @@ func (s *Server) handleAgentList(_ *testing.T, req Request, w *ConnWriter) error
 
 	if after != nil {
 		// The hook models a change that happens between this reply and the
-		// caller's next call, so it must run after the connection is gone.
-		w.after = func() { after(n) }
+		// caller's next call. Run it BEFORE writing the reply: the reply's
+		// content is already built from the pre-hook state, and committing
+		// the change first guarantees any later request (e.g. the subscribe
+		// whose replay the race tests depend on) observes it. Deferring it
+		// to connection teardown raced the caller's next dial on slow
+		// runners (field-observed: CI-only 10s hang in
+		// TestWaitRaceListThenSubscribe).
+		after(n)
 	}
 	return RespondJSON(w, req.ID, map[string]any{"type": "agent_list", "agents": listed})
 }

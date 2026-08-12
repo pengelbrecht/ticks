@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-08-12
+
+### Fixed
+
+- **`tk herd wait` deadline boundary** — when the event stream died just before the overall timeout and the recovery re-list was cut off by it, `Wait` returned the recovery error instead of the documented timeout summary. The deadline now wins: recovery failures with an expired context report `TimeoutFired` with last-known worker states. (Also fixed a test-fake hook-ordering race that masked this as CI flakiness.)
+
 ## [0.20.0] - 2026-08-12
 
 ### Added
