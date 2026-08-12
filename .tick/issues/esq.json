@@ -1,0 +1,15 @@
+{
+  "id": "esq",
+  "title": "Cleanup: consume the uncommitted RESULT file before worktree removal",
+  "description": "Design collision found live (2026-08-12): the hardened worker template leaves RESULT-\u003ctick-id\u003e.md deliberately uncommitted, and herdr worktree.remove without Force refuses dirty worktrees — so every post-fix cleanup fails at remove-workspace. Fix in internal/herd/cleanup: before the remove-workspace step, inspect the worktree; if the ONLY dirt is the tick own RESULT file (untracked, exact expected name from spawn.ResultFile) delete that file and proceed WITHOUT Force. Any other modification or untracked file still refuses exactly as today (the no-force guard is load-bearing — never widen it to Force). Archive rather than lose: before deleting, copy the RESULT file next to the manifest (e.g. .tick/logs/herd/\u003cepic\u003e/\u003ctick\u003e.RESULT.md) so the report survives the worktree — collect already read it, but the archive keeps the audit trail. Tests (herdtest + temp repos, extend the existing cleanup suite): clean-except-RESULT proceeds + archives + removes; RESULT + one other untracked file refuses; RESULT + modified tracked file refuses; missing RESULT unchanged behavior. Update the cleanup section of skills/ticks/references/herdr-runner.md (one sentence: cleanup consumes the RESULT file; other dirt still refuses). Boundaries: internal/herd/cleanup + that doc sentence; do NOT touch dashboard (sibling tick) or spawn. Full-suite gate real exits; gofmt/vet clean; do NOT commit your RESULT file.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "fit",
+  "acceptance_criteria": "Clean-except-RESULT worktrees remove without force with the report archived beside the manifest; any other dirt still refuses; pinned by tests; doc sentence updated",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T10:11:03.982213Z",
+  "updated_at": "2026-08-12T10:11:04.030675Z",
+  "started_at": "2026-08-12T10:11:04.030674Z"
+}
