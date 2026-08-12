@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+// docGitCommonDir is the resolved git common dir runners-config.md's
+// compiled-argv example lines are written against. The doc prints the argv
+// with this exact path, so the expectations below are byte-for-byte the doc's
+// own text; changing one means changing both.
+const docGitCommonDir = "/repo/.git"
+
+// testEnv is the spawn environment these tests compile in: a repo whose git
+// metadata was resolved. A production spawner fills it from
+// spawn.GitCommonDir.
+var testEnv = SpawnContext{GitCommonDir: docGitCommonDir}
+
 // TestDocExamplesResolveAndCompile is the round-trip proof: every worked
 // example in runners-config.md resolves and compiles exactly as the doc
 // states, including the three compiled-argv lines the doc spells out
@@ -83,14 +94,14 @@ func TestDocExamplesResolveAndCompile(t *testing.T) {
 			toml: docExample2, role: "implement", tier: TierStrong,
 			wantResolvedRole: "implement", wantTierApplied: true,
 			wantKind: "codex", wantModel: "gpt-5.6-luna", wantEffort: EffortHigh,
-			wantArgv: []string{"-a", "never", "-s", "workspace-write", "-m", "gpt-5.6-luna", "-c", `model_reasoning_effort="high"`},
+			wantArgv: []string{"-a", "never", "-s", "workspace-write", "--add-dir", docGitCommonDir, "-m", "gpt-5.6-luna", "-c", `model_reasoning_effort="high"`},
 		},
 		{
 			name: "ex2 implement/economy — codex tiers vary a single scalar",
 			toml: docExample2, role: "implement", tier: TierEconomy,
 			wantResolvedRole: "implement", wantTierApplied: true,
 			wantKind: "codex", wantModel: "gpt-5.6-luna", wantEffort: EffortLow,
-			wantArgv: []string{"-a", "never", "-s", "workspace-write", "-m", "gpt-5.6-luna", "-c", `model_reasoning_effort="low"`},
+			wantArgv: []string{"-a", "never", "-s", "workspace-write", "--add-dir", docGitCommonDir, "-m", "gpt-5.6-luna", "-c", `model_reasoning_effort="low"`},
 		},
 		{
 			name: "ex2 review/frontier — crosses back to claude",
@@ -105,14 +116,14 @@ func TestDocExamplesResolveAndCompile(t *testing.T) {
 			name: "ex3 implement — omitting model means codex resolves its own",
 			toml: docExample3, role: "implement", tier: "",
 			wantResolvedRole: "implement", wantKind: "codex", wantEffort: EffortMedium,
-			wantArgv: []string{"-a", "never", "-s", "workspace-write", "-c", `model_reasoning_effort="medium"`},
+			wantArgv: []string{"-a", "never", "-s", "workspace-write", "--add-dir", docGitCommonDir, "-c", `model_reasoning_effort="medium"`},
 		},
 		{
 			name: "ex3 implement/strong",
 			toml: docExample3, role: "implement", tier: TierStrong,
 			wantResolvedRole: "implement", wantTierApplied: true,
 			wantKind: "codex", wantEffort: EffortHigh,
-			wantArgv: []string{"-a", "never", "-s", "workspace-write", "-c", `model_reasoning_effort="high"`},
+			wantArgv: []string{"-a", "never", "-s", "workspace-write", "--add-dir", docGitCommonDir, "-c", `model_reasoning_effort="high"`},
 		},
 
 		// --- Example 4: cross-provider pi ----------------------------------
@@ -170,7 +181,7 @@ func TestDocExamplesResolveAndCompile(t *testing.T) {
 				t.Errorf("Args = %q, want %q", w.Args, tc.wantArgs)
 			}
 
-			sp, err := cfg.SpawnFor(tc.role, tc.tier)
+			sp, err := cfg.SpawnFor(tc.role, tc.tier, testEnv)
 			if err != nil {
 				t.Fatalf("SpawnFor: %v", err)
 			}
@@ -238,7 +249,7 @@ args = []
 			if !equalArgs(w.Args, tc.wantArgs) {
 				t.Errorf("Args = %q, want %q", w.Args, tc.wantArgs)
 			}
-			sp, err := cfg.SpawnFor(RoleImplement, tc.tier)
+			sp, err := cfg.SpawnFor(RoleImplement, tc.tier, testEnv)
 			if err != nil {
 				t.Fatalf("SpawnFor: %v", err)
 			}
@@ -254,7 +265,7 @@ func TestFullAutoFalseOmitsTheTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	sp, err := cfg.SpawnFor(RoleImplement, "")
+	sp, err := cfg.SpawnFor(RoleImplement, "", testEnv)
 	if err != nil {
 		t.Fatalf("SpawnFor: %v", err)
 	}
@@ -271,12 +282,102 @@ func TestPiHasNoVerifiedFullAutoTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	sp, err := cfg.SpawnFor(RoleImplement, TierStrong)
+	sp, err := cfg.SpawnFor(RoleImplement, TierStrong, testEnv)
 	if err != nil {
 		t.Fatalf("SpawnFor: %v", err)
 	}
 	if len(sp.Warnings) != 1 || !strings.Contains(sp.Warnings[0], "no verified full-auto template") {
 		t.Fatalf("Warnings = %q, want one about the missing pi template", sp.Warnings)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Computed per-spawn extras: codex's git-metadata grant.
+// --------------------------------------------------------------------------
+
+const codexImplement = "[roles.implement]\nkind = \"codex\"\nmodel = \"gpt-5.6-luna\"\neffort = \"high\"\n"
+
+// TestCodexCarriesTheGitMetadataAddDir is the production finding from tick s8u
+// turned into a pin: a codex worker in a LINKED worktree writes its git
+// metadata under the main repo's git common dir, which is outside the
+// workspace-write sandbox, so without this grant it cannot commit. The sandbox
+// pair itself is untouched — the grant widens it by exactly one directory.
+func TestCodexCarriesTheGitMetadataAddDir(t *testing.T) {
+	cfg, err := Parse([]byte(codexImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sp, err := cfg.SpawnFor(RoleImplement, "", SpawnContext{GitCommonDir: "/srv/repo/.bare/worktrees-root"})
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	want := []string{
+		"-a", "never", "-s", "workspace-write",
+		"--add-dir", "/srv/repo/.bare/worktrees-root",
+		"-m", "gpt-5.6-luna",
+		"-c", `model_reasoning_effort="high"`,
+	}
+	if !equalArgs(sp.Argv, want) {
+		t.Errorf("Argv  = %q\n want = %q", sp.Argv, want)
+	}
+}
+
+// The grant is not gated on full_auto: the sandbox bounds a codex worker
+// whether approvals are on or off, so the metadata directory is granted either
+// way rather than becoming an approval prompt nobody is there to answer.
+func TestCodexGitMetadataAddDirSurvivesFullAutoFalse(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nfull_auto = false\n\n" + codexImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sp, err := cfg.SpawnFor(RoleImplement, "", testEnv)
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	want := []string{"--add-dir", docGitCommonDir, "-m", "gpt-5.6-luna", "-c", `model_reasoning_effort="high"`}
+	if !equalArgs(sp.Argv, want) {
+		t.Errorf("Argv  = %q\n want = %q (no full-auto template, still the metadata grant)", sp.Argv, want)
+	}
+}
+
+// A kind that declares no computed extras is untouched by the context — a
+// claude or pi spawn compiles identically with and without one.
+func TestKindsWithoutExtrasIgnoreTheSpawnContext(t *testing.T) {
+	for _, tc := range []struct {
+		name, toml string
+		want       []string
+	}{
+		{
+			name: "claude", toml: "[roles.implement]\nkind = \"claude\"\nmodel = \"sonnet\"\neffort = \"high\"\n",
+			want: []string{"--permission-mode", "bypassPermissions", "--model", "sonnet", "--effort", "high"},
+		},
+		{
+			name: "pi", toml: "[roles.implement]\nkind = \"pi\"\nmodel = \"openai-codex/gpt-5.6-sol\"\neffort = \"high\"\n",
+			want: []string{"--model", "openai-codex/gpt-5.6-sol:high"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tc.toml))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			// With a context…
+			sp, err := cfg.SpawnFor(RoleImplement, "", testEnv)
+			if err != nil {
+				t.Fatalf("SpawnFor: %v", err)
+			}
+			if !equalArgs(sp.Argv, tc.want) {
+				t.Errorf("Argv = %q, want %q", sp.Argv, tc.want)
+			}
+			// …and without one: no extras to render, so nothing to refuse.
+			bare, err := cfg.SpawnFor(RoleImplement, "", SpawnContext{})
+			if err != nil {
+				t.Fatalf("SpawnFor with an empty context: %v — only a kind that declares an extra may refuse", err)
+			}
+			if !equalArgs(bare.Argv, tc.want) {
+				t.Errorf("Argv without a context = %q, want %q", bare.Argv, tc.want)
+			}
+		})
 	}
 }
 
@@ -373,7 +474,7 @@ func TestSpawnRefusals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse: %v — a spawn-time refusal must be shape-valid first", err)
 			}
-			sp, err := cfg.SpawnFor(tc.role, tc.tier)
+			sp, err := cfg.SpawnFor(tc.role, tc.tier, testEnv)
 			if err == nil {
 				t.Fatalf("SpawnFor succeeded with argv %q, want a refusal", sp.Argv)
 			}
@@ -414,6 +515,41 @@ func TestSpawnRefusals(t *testing.T) {
 	}
 }
 
+// TestMissingGitCommonDirFailsClosed: a codex spawn with no resolved git
+// metadata is refused, not compiled. Emitting the sandbox without the grant is
+// the exact failure this mechanism exists to prevent — a worker that starts
+// green, does the work and cannot commit it — so the compile stops and says
+// what is missing and how to get it.
+func TestMissingGitCommonDirFailsClosed(t *testing.T) {
+	cfg, err := Parse([]byte(codexImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sp, err := cfg.SpawnFor(RoleImplement, "", SpawnContext{})
+	if err == nil {
+		t.Fatalf("SpawnFor succeeded with argv %q, want a refusal", sp.Argv)
+	}
+	if sp != nil {
+		t.Error("a refusal must return no spawn — never a sandbox that cannot commit")
+	}
+	var ref *RefusalError
+	if !errors.As(err, &ref) {
+		t.Fatalf("error is %T, want *RefusalError", err)
+	}
+	if ref.Reason != RefusalSpawnContext {
+		t.Errorf("Reason = %q, want %q", ref.Reason, RefusalSpawnContext)
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		FileName, "[roles.implement]", `"codex"`, `"gpt-5.6-luna"`,
+		"--add-dir", "git common dir", "cannot commit", "git rev-parse --git-common-dir",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message does not contain %q:\n  %s", want, msg)
+		}
+	}
+}
+
 // TestGreenStartTrapIsNotStaticallyDecidable documents the one row of the
 // doc's spawner table this package deliberately does not refuse: a
 // well-formed but non-existent OpenAI model id. No static check can tell it
@@ -423,7 +559,7 @@ func TestGreenStartTrapIsNotStaticallyDecidable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if _, err := cfg.SpawnFor(RoleImplement, ""); err != nil {
+	if _, err := cfg.SpawnFor(RoleImplement, "", testEnv); err != nil {
 		t.Fatalf("SpawnFor = %v; a well-formed non-existent id must compile, then be caught by the first-round-trip gate", err)
 	}
 }

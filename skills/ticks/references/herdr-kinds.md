@@ -43,7 +43,7 @@ That two-step is for panes you made yourself with `herdr pane split` — a scrat
 | Kind | Model flag | Full-auto / skip-permissions | Integration (this machine) | `agent_session` kind | Native resume |
 |---|---|---|---|---|---|
 | `claude` | `--model <alias\|full-name>` | `--permission-mode bypassPermissions` (or `--dangerously-skip-permissions`) | **current (v7)** — `~/.claude/hooks/herdr-agent-state.sh` | `id` (UUID), **not dependable at start** — see below | `claude --resume <id>` |
-| `codex` | `-m, --model <MODEL>` | `-a never -s workspace-write` (or `--dangerously-bypass-approvals-and-sandbox`) | **outdated (v6 < v7)** — `~/.codex/herdr-agent-state.sh` | `id` (UUID), appears **after the first prompt** | `codex resume <id>` |
+| `codex` | `-m, --model <MODEL>` | `-a never -s workspace-write` **plus `--add-dir <git-common-dir>` in a linked worktree** (see [codex](#codex)) | **outdated (v6 < v7)** — `~/.codex/herdr-agent-state.sh` | `id` (UUID), appears **after the first prompt** | `codex resume <id>` |
 
 Everything in that table was read from the CLIs' own `--help` and then round-tripped live; flag names drift between releases, so re-verify with `--help` rather than copying this table into a new environment unchecked.
 
@@ -53,7 +53,9 @@ Everything in that table was read from the CLIs' own `--help` and then round-tri
 
 The spawner under this substrate is `tk herd spawn`: the compilation below, its fixed argv order, and the fail-closed refusal further down are implemented there, and the argv herdr echoed on `agent_started` is recorded in the run-state manifest as the ground truth for what actually landed.
 
-Compiled argv order is fixed: **full-auto template → compiled `model`/`effort` flags → `args` verbatim.**
+Compiled argv order is fixed: **full-auto template → the kind's computed per-spawn extras → compiled `model`/`effort` flags → `args` verbatim.**
+
+The third position is empty for most kinds. A **computed per-spawn extra** is argv a kind needs that only the *repository* can name, so it is rendered at spawn time from a context the spawner resolves rather than read from `.tick/runners.toml`. Today the only one is codex's `--add-dir <git-common-dir>` below. It is declared on the kind row like every other template, lands in the same argv, and is passed through verbatim with the rest; a kind that declares one and cannot render it refuses the spawn rather than starting a worker missing it.
 
 | Kind | `model = "M"` compiles to | `effort = "E"` compiles to | Verified against |
 |---|---|---|---|
@@ -146,11 +148,18 @@ The pane banner confirmed `Sonnet 5 with medium effort` and the worktree cwd, so
 
 ```bash
 herdr agent start <name> --kind codex --pane <pane-id> --timeout 120000 \
-  -- -m <model> -a never -s workspace-write
+  -- -m <model> -a never -s workspace-write --add-dir <git-common-dir>
 ```
+
+`<git-common-dir>` is `git rev-parse --git-common-dir` resolved from the repo root — never a hardcoded `.git`, because a repo may keep it elsewhere. It is required whenever the worker runs in a **linked worktree**, which is every worker `tk herd spawn` starts; see *Full auto* below.
 
 - **Model.** `-m, --model <MODEL>`. Codex resolves the default from `model = "..."` in `~/.codex/config.toml`; when in doubt read that file rather than guessing a model string (see [The green-start trap](#the-green-start-trap) for why guessing is expensive here). Reasoning effort is config, not a flag: `-c model_reasoning_effort="high"`.
 - **Full auto.** There is no `--full-auto` flag on the interactive `codex` CLI at the version verified here. Full autonomy is the **pair** `-a never` (never ask for approval; failures are returned to the model) plus `-s workspace-write` (the sandbox the agent may write in). `--dangerously-bypass-approvals-and-sandbox` is the harder form — skips approvals *and* removes the sandbox — and is only appropriate when the surrounding environment is itself sandboxed. For tick implementers in a git worktree, `-a never -s workspace-write` is the right default: the agent is unblocked but the sandbox still bounds the blast radius. Add `--add-dir <dir>` if a tick legitimately needs to write outside its worktree.
+- **Linked worktrees: `workspace-write` alone cannot commit** *(observed 2026-08-12, tick s8u)*. A codex worker started with the pair above in a **linked** worktree did its work and then could not commit it — the orchestrator had to commit on its behalf. A linked worktree's `.git` is a *file* pointing at `<git-common-dir>/worktrees/<name>/`, so the index, the refs and the objects a commit writes all live **outside** the directory `workspace-write` bounds. Nothing about it looks like a permission problem from the config side: the spawn is green, the work happens, only the durable step fails.
+
+  The fix is the mechanism named in the bullet above, applied by the spawner rather than left to the tick: **`--add-dir <git-common-dir>`**, where the path comes from `git rev-parse --git-common-dir` at the repo root. `tk herd spawn` compiles it into every codex argv as a [computed per-spawn extra](#model-and-effort-translation) and refuses the spawn if it cannot resolve it — a codex worker that starts without it is a worker that will fail at the last step.
+
+  **Do not reach for `--dangerously-bypass-approvals-and-sandbox` here.** It would also let the commit through, and it is wrong by this document's own rule: it removes the sandbox entirely and is only appropriate inside an already-sandboxed environment. A worktree on a developer's machine is not one. Widening the sandbox by exactly one directory is the proportionate fix.
 - **Worth knowing.** `-C, --cd <DIR>` sets the agent's working root independently of the pane's cwd, and `--search` enables web search without per-call approval.
 
 **Live evidence.**
@@ -218,11 +227,11 @@ herdr api snapshot | jq '.result.snapshot.agents[]
 | Kind | On exit the CLI prints | Resume through Herdr |
 |---|---|---|
 | `claude` | `Resume this session with: claude --resume <uuid>` | `herdr agent start <n> --kind claude --pane <p> -- --model sonnet --permission-mode bypassPermissions --resume <uuid>` |
-| `codex` | `To continue this session, run codex resume <uuid>` | `herdr agent start <n> --kind codex --pane <p> -- resume <uuid> -m <model> -a never -s workspace-write` |
+| `codex` | `To continue this session, run codex resume <uuid>` | `herdr agent start <n> --kind codex --pane <p> -- resume <uuid> -m <model> -a never -s workspace-write --add-dir <git-common-dir>` |
 
 Both were verified live: after `C-c C-c`-ing each agent and restarting it in the same pane with the resume form, `herdr pane read` showed the prior turn (`Reply with the single word OK` → `OK`) replayed in the restored transcript, and for claude the `agent_session.value` was unchanged across the restart.
 
-Note the shape difference. Claude's resume is a **flag** that composes with the rest of the spawn template. Codex's is a **subcommand** — `resume` and its `SESSION_ID` come first in argv, then the ordinary flags (`-m`, `-a`, `-s` all exist on `codex resume` too). Both accept a picker when the id is omitted; an orchestrator must always pass the id, because a picker is an interactive prompt that will hang the wave.
+Note the shape difference. Claude's resume is a **flag** that composes with the rest of the spawn template. Codex's is a **subcommand** — `resume` and its `SESSION_ID` come first in argv, then the ordinary flags (`-m`, `-a`, `-s`, `--add-dir` all exist on `codex resume` too). A resumed worker keeps working in the same linked worktree, so it needs the same `--add-dir <git-common-dir>` grant; `tk herd reconcile` composes the resume argv from the flags recorded at spawn, which carries it across for free. Both accept a picker when the id is omitted; an orchestrator must always pass the id, because a picker is an interactive prompt that will hang the wave.
 
 Two escape hatches worth knowing: `claude --fork-session` resumes into a *new* session id (useful when you want the context but not to mutate the original), and `codex fork --last` is codex's equivalent. `claude --session-id <uuid>` inverts the problem entirely by letting the orchestrator assign the id before the process exists.
 

@@ -158,7 +158,17 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
-	compiled, err := cfg.SpawnFor(herdSpawnRole, herdconfig.Tier(herdSpawnTier))
+	// The spawn environment. A worker runs in a LINKED worktree, whose git
+	// metadata lives under the main repo's git common dir — outside the
+	// worktree, and so outside a sandboxed kind's writable area unless it is
+	// granted. Resolved from git rather than assumed to be `<root>/.git`, and
+	// resolved here so a failure stops the spawn before herdr is dialled.
+	gitCommonDir, err := spawn.GitCommonDir(root)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	compiled, err := cfg.SpawnFor(herdSpawnRole, herdconfig.Tier(herdSpawnTier),
+		herdconfig.SpawnContext{GitCommonDir: gitCommonDir})
 	if err != nil {
 		if errors.Is(err, herdconfig.ErrNoConfig) {
 			return NewExitError(ExitGeneric,

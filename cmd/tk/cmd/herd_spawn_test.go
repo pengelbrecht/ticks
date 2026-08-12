@@ -88,6 +88,17 @@ kind = "claude"
 model = "sonnet"
 `
 
+const codexRunners = `version = 1
+
+[orchestrator]
+harness = "codex"
+
+[roles.implement]
+kind = "codex"
+model = "gpt-5.6-luna"
+effort = "high"
+`
+
 // captureCmdOutput redirects the cobra command output for one test.
 func captureCmdOutput(t *testing.T) *bytes.Buffer {
 	t.Helper()
@@ -202,6 +213,35 @@ func TestHerdSpawnMissingConfigNamesTheFix(t *testing.T) {
 	}
 	if srv.Dials() != 0 {
 		t.Errorf("dials = %d, want 0", srv.Dials())
+	}
+}
+
+// TestHerdSpawnCodexGrantsGitMetadata pins the wiring the codex sandbox fix
+// depends on: the command resolves the repo's git common dir and hands it to
+// the compiler, so the argv herdr is asked to run carries the `--add-dir`
+// grant a worker in a linked worktree needs to commit at all. Asserted on what
+// the server received, not on what the compiler returned.
+func TestHerdSpawnCodexGrantsGitMetadata(t *testing.T) {
+	repo, _ := setupSpawnRepo(t, codexRunners)
+	srv := newSpawnFakeHerd(t)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()}); err != nil {
+		t.Fatalf("herd spawn: %v\noutput:\n%s", err, buf.String())
+	}
+
+	gitDir, err := spawn.GitCommonDir(repo)
+	if err != nil {
+		t.Fatalf("GitCommonDir: %v", err)
+	}
+	m, err := state.Read(filepath.Join(repo, ".tick", "logs", "herd", "gy1", "a1w.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	want := "codex -a never -s workspace-write --add-dir " + gitDir +
+		` -m gpt-5.6-luna -c model_reasoning_effort="high"`
+	if got := strings.Join(m.Argv, " "); got != want {
+		t.Errorf("argv herdr was asked to run:\n  %s\nwant:\n  %s", got, want)
 	}
 }
 
