@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-08-12
+
 ### Added
 
 - **Dashboard worker timers** — each worker row in `tk herd dashboard` now carries an elapsed-time summary (`working 4m12s · age 9m01s`): time in the current status, and total age since the manifest was written. A worker stuck in one status is the thing an operator is watching for, and a static status column never showed it.
