@@ -1,0 +1,17 @@
+{
+  "id": "qvm",
+  "title": "tk skills command group: list + get",
+  "description": "Create cmd/tk/cmd/skills.go (parent \"tk skills\" command) + the list/get subcommands, consuming internal/skills (from the previous tick - read its doc.go and exported API first).\n\n- `tk skills list [--json]`: skill names + the tk version they are bundled with (internal/skills.Version()).\n- `tk skills get \u003cname\u003e [--full] [--json]`: prints SKILL.md; --full prints the whole bundle (SKILL.md then each references/ file, with clear per-file separators naming the path - match the style agent-browser uses for `skills get core --full`: a header line per file). Unknown skill = exit 4 via explicit ExitError (never GetExitCode substring reliance); usage errors exit 2.\n\nREGISTRATION (read .tick/learnings.md \"This repo build\" first): register in BOTH cobra and the legacy switch + usage text in cmd/tk/main.go (TestLegacyDispatchCoversAllCobraCommands enforces). Reset any new persistent flag vars in ResetFlags() in cmd/tk/cmd/root.go. Drive command tests only via ExecuteArgs/ExecuteArgsContext. Add a usage section line for skills in main.go help.\n\nTests: list shows ticks + version; get prints SKILL.md head; get --full contains every references file header; unknown skill exit code; flags reset across in-process executions. Full suite green per .tick/config.md Testing; gofmt/vet clean. Commit in your worktree with message prefix \"tick \u003cthis-tick-id\u003e: \".",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "v69"
+  ],
+  "parent": "uvv",
+  "acceptance_criteria": "tk skills list/get work against the embedded bundle; legacy dispatch test green; unknown skill = exit 4; --full output contains every bundled file exactly once",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T08:31:44.110542Z",
+  "updated_at": "2026-08-12T08:31:44.110542Z"
+}

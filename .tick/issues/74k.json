@@ -1,0 +1,16 @@
+{
+  "id": "74k",
+  "title": "Final review of tk-skills epic diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8ct"
+  ],
+  "parent": "uvv",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-12T08:31:44.197463Z",
+  "updated_at": "2026-08-12T08:31:44.197463Z"
+}
