@@ -84,7 +84,11 @@ func BuildPrompt(in PromptInput) string {
    and any nested instruction files that apply.
 4. Read the relevant existing code before changing anything.
 5. Implement the task test-first: write the failing test, then make it pass.
-6. Run the tests named in the acceptance criteria and confirm they pass.
+6. Run the tests named in the acceptance criteria and confirm they pass. Run
+   them in the FOREGROUND and read the results before your message ends — never
+   park test runs (or any final-step work) in your harness's background tasks
+   and end your turn to wait for them: the moment your turn ends, the substrate
+   reads you as finished, and your commit and report will not exist yet.
 7. Commit your changes in this worktree: `+"`git add -A && git commit -m \"tick %s: <short summary>\"`"+`.
 8. Write your report to %s at the root of this worktree (see below) and commit it too.
 
