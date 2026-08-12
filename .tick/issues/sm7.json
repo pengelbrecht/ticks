@@ -1,7 +1,7 @@
 {
   "id": "sm7",
   "title": "Close out mop-up epic: retro",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -12,5 +12,6 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T09:56:14.516663Z",
-  "updated_at": "2026-08-12T09:56:14.516663Z"
+  "updated_at": "2026-08-12T11:02:21.582477Z",
+  "started_at": "2026-08-12T11:02:21.582477Z"
 }
