@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 )
 
@@ -84,6 +85,16 @@ func newManifest(tick, branch string) state.Manifest {
 		Agent:       "tick-" + tick,
 		Base:        "deadbeef",
 	}
+}
+
+// worktreeDir creates a REAL git worktree checked out to branch. The RESULT-
+// file consumption logic runs `git status` in the worktree, so a fabricated
+// path (as [newManifest] otherwise uses) would never exercise it.
+func worktreeDir(t *testing.T, repo, branch string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "wt")
+	run(t, repo, "git", "worktree", "add", "-q", dir, branch)
+	return dir
 }
 
 func opts(repo string, m state.Manifest, path string, apply bool) Options {
@@ -662,5 +673,179 @@ func TestRecheckFailureRefuses(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("the manifest was removed on an unanswerable re-check: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Consuming the tick's own uncommitted RESULT file
+// ---------------------------------------------------------------------------
+//
+// The hardened worker template leaves RESULT-<tick-id>.md deliberately
+// uncommitted, and worktree.remove without Force refuses any dirty
+// worktree — so a design collision made every post-fix cleanup fail at
+// remove-workspace. These tests pin the one narrow exception: the RESULT
+// file, and only the RESULT file, is archived and deleted before the
+// removal is attempted.
+
+// TestApplyConsumesOnlyResultFileAndArchivesIt is the headline case: a
+// worktree whose only dirt is the tick's own RESULT file proceeds without
+// Force, and the report is archived beside the manifest before it is
+// deleted from the worktree.
+func TestApplyConsumesOnlyResultFileAndArchivesIt(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	wt := worktreeDir(t, repo, "tick/nhk")
+	resultPath := filepath.Join(wt, spawn.ResultFile("nhk"))
+	writeFile(t, resultPath, "STATUS: DONE\n")
+
+	m := newManifest("nhk", "tick/nhk")
+	m.Worktree = wt
+	// The fake herd only records worktree.remove, it does not tear down the
+	// real git worktree — unlike production herdr, which removes it as part
+	// of the same call, freeing the branch for `git branch -d`. Leave branch
+	// deletion out of scope for this test by recording none, since it is not
+	// what consumeOwnResultFile is about.
+	m.Branch = ""
+	m, path := manifestOnDisk(t, repo, m)
+	srv := newFakeHerd(t)
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	p := plans[0]
+	if p.Refused || !p.Applied || !p.OK() {
+		t.Fatalf("plan = %+v, want a clean apply", p)
+	}
+	if _, err := os.Stat(resultPath); !os.IsNotExist(err) {
+		t.Errorf("RESULT file left behind in the worktree: %v", err)
+	}
+	archivePath := filepath.Join(filepath.Dir(path), "nhk.RESULT.md")
+	body, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("archive not written next to the manifest: %v", err)
+	}
+	if string(body) != "STATUS: DONE\n" {
+		t.Errorf("archive content = %q, want the RESULT file's own content", body)
+	}
+	if got := srv.Removed(); len(got) != 1 || got[0] != "w-nhk" {
+		t.Errorf("removed workspaces = %v, want [w-nhk]", got)
+	}
+	var noted bool
+	for _, n := range p.Notes {
+		if strings.Contains(n, "archived") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("notes = %v, want the archive recorded", p.Notes)
+	}
+}
+
+// TestApplyRefusesWhenOtherUntrackedFileAccompaniesResult pins that the
+// exception is exact: a second untracked file means the worktree is left
+// completely alone and worktree.remove refuses exactly as it always has.
+func TestApplyRefusesWhenOtherUntrackedFileAccompaniesResult(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	wt := worktreeDir(t, repo, "tick/nhk")
+	resultPath := filepath.Join(wt, spawn.ResultFile("nhk"))
+	writeFile(t, resultPath, "STATUS: DONE\n")
+	writeFile(t, filepath.Join(wt, "scratch.txt"), "leftover\n")
+
+	m := newManifest("nhk", "tick/nhk")
+	m.Worktree = wt
+	m, path := manifestOnDisk(t, repo, m)
+	srv := newFakeHerd(t)
+	srv.SetRemoveError("worktree has uncommitted changes")
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	p := plans[0]
+	if p.Applied || p.OK() {
+		t.Fatalf("plan = %+v, want a failed apply — other dirt must still refuse", p)
+	}
+	if _, err := os.Stat(resultPath); err != nil {
+		t.Errorf("RESULT file was removed despite other untracked dirt in the worktree: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "scratch.txt")); err != nil {
+		t.Errorf("the other untracked file was touched: %v", err)
+	}
+	archivePath := filepath.Join(filepath.Dir(path), "nhk.RESULT.md")
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Errorf("the RESULT file was archived despite other dirt in the worktree")
+	}
+}
+
+// TestApplyRefusesWhenResultAccompaniesModifiedTrackedFile pins the other
+// half: a tracked-file modification is dirt too, even with no other
+// untracked file present.
+func TestApplyRefusesWhenResultAccompaniesModifiedTrackedFile(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	wt := worktreeDir(t, repo, "tick/nhk")
+	resultPath := filepath.Join(wt, spawn.ResultFile("nhk"))
+	writeFile(t, resultPath, "STATUS: DONE\n")
+	// workerBranch commits "tick-nhk.go" on this branch; modify it in place.
+	writeFile(t, filepath.Join(wt, "tick-nhk.go"), "package a\n\n// modified\n")
+
+	m := newManifest("nhk", "tick/nhk")
+	m.Worktree = wt
+	m, path := manifestOnDisk(t, repo, m)
+	srv := newFakeHerd(t)
+	srv.SetRemoveError("worktree has uncommitted changes")
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	p := plans[0]
+	if p.Applied || p.OK() {
+		t.Fatalf("plan = %+v, want a failed apply — a modified tracked file must still refuse", p)
+	}
+	if _, err := os.Stat(resultPath); err != nil {
+		t.Errorf("RESULT file was removed despite a modified tracked file: %v", err)
+	}
+	archivePath := filepath.Join(filepath.Dir(path), "nhk.RESULT.md")
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Errorf("the RESULT file was archived despite a modified tracked file")
+	}
+}
+
+// TestApplyProceedsNormallyWhenWorktreeHasNoResultFile pins that a clean
+// worktree with no RESULT file at all behaves exactly as before this
+// exception existed: no archive, no note, just the ordinary apply.
+func TestApplyProceedsNormallyWhenWorktreeHasNoResultFile(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	wt := worktreeDir(t, repo, "tick/nhk")
+
+	m := newManifest("nhk", "tick/nhk")
+	m.Worktree = wt
+	// See the comment in TestApplyConsumesOnlyResultFileAndArchivesIt: the
+	// fake herd does not tear down the real git worktree, so branch deletion
+	// is out of scope here.
+	m.Branch = ""
+	m, path := manifestOnDisk(t, repo, m)
+	srv := newFakeHerd(t)
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	p := plans[0]
+	if !p.Applied || !p.OK() {
+		t.Fatalf("plan = %+v, want a clean apply", p)
+	}
+	archivePath := filepath.Join(filepath.Dir(path), "nhk.RESULT.md")
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Errorf("an archive was created despite no RESULT file ever existing")
+	}
+	for _, n := range p.Notes {
+		if strings.Contains(n, "archived") {
+			t.Errorf("notes = %v, want no archive note when there was no RESULT file", p.Notes)
+		}
 	}
 }

@@ -265,6 +265,8 @@ tk herd cleanup --epic "$epic" --apply    # perform exactly that plan
 
 Three removals, in this order: the herdr **workspace** (`worktree.remove` on the recorded workspace id, which tears down worktree + workspace + pane + running agent in one call), then the local **branch** (`git branch -d`, never `-D`), then the **manifest LAST** — so a failed workspace removal leaves the manifest on disk and a half-cleaned tick stays visible to the next reconcile.
 
+Before that first removal, cleanup consumes the tick's own uncommitted `RESULT-<tick-id>.md` (archiving it beside the manifest, then deleting it) when it is the *sole* dirt in the worktree — any other uncommitted change still refuses exactly as before.
+
 `--preview` is the default and is built by the same code as `--apply`, so a preview is a promise rather than a description. One refused tick never strands the others.
 
 Four refusals, in the order they are checked, each a categorical rule:
