@@ -8,9 +8,7 @@ ticks skill (`claude-runner.md`, Epic-close retro promotion table), not here.
 
 **Problem:** A machine-readable output field shipped with the wrong semantics and a test
 cementing the bug — caught only by the epic's final review.
-**Cause:** The tick description defined the field by implementation predicate ("true when the
-epic has zero children") instead of by consumer semantics (what the orchestration loop should
-DO when it sees the value: plan now vs wait).
+**Cause:** The tick defined the field by implementation predicate, not consumer semantics.
 **Rule:** When a tick specifies a flag/field another tool consumes, define it by the consumer's
 action and let the implementation derive the predicate — and state the consumer in the tick.
 
@@ -77,6 +75,12 @@ touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced
 **Cause:** Agents writing examples guess CLI syntax from memory instead of the real cobra defs.
 **Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each
 against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in the tick.
+
+**Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — the epic's
+docs ticks scoped skill references + plugin README only; the repo README was nobody's file.
+**Cause:** Docs-cutover ticks enumerate the surfaces they own, never the surfaces users see.
+**Rule:** Every feature epic's final docs tick must checklist the user-facing surfaces —
+README Commands table, docs/, --help — and say per surface "updated" or "not applicable".
 
 ## Orchestration
 
