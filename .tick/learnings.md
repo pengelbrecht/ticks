@@ -1,8 +1,7 @@
 # Learnings
 
-Repo-specific gotchas for implementers and the orchestrator. Problem → Cause → Rule under
-category headers. Hard cap 150 lines — compact at every retro. Cross-repo learnings go in the
-ticks skill (`claude-runner.md`, Epic-close retro promotion table), not here.
+Repo-specific gotchas, Problem → Cause → Rule. Hard cap 150 lines — compact every retro.
+Cross-repo learnings go in the ticks skill (claude-runner.md promotion table), not here.
 
 ## Tick authoring
 
