@@ -2,7 +2,8 @@
   "id": "zz0",
   "title": "herdr-ticks mission-control plugin",
   "description": "Layer 3. A herdr plugin (herdr-plugin.toml) making runs visible and steerable: board pane (live epic dashboard - waves, tick status, worker states - driven by plugin event hooks + tk state), metadata painting via workspace/pane report_metadata (titles like '42i - implement - wave 2/3', TTL token badges for tests/diff size), notification.show with distinct sounds for wave-complete vs worker-blocked, plugin actions (retry tick, open worktree, merge wave, escalate model), link handlers making tick IDs clickable. Distribution: herdr plugin install pengelbrecht/ticks/\u003csubdir\u003e. Rough deliverables: plugin manifest + board TUI + hook scripts + actions + install docs.",
-  "status": "open",
+  "notes": "2026-08-11 18:54 - Branch strategy: epic/zz0 stacked on epic/gyz (PR #38) which stacks on epic/ias (PR #37). Base recorded main.\n2026-08-11 20:50 - RETRO (epic zz0). Verification vs DoD: board real-time from events - PASS (met, +documented safety re-list); badges - PASS; blocked request-chime - PASS (real approval-driven block); actions from herdr UI - MET WITH DOCUMENTED DEVIATION (collect verdict + retry advice instead of merge button — merging stays orchestrator duty; retry/open-worktree live-invoked only via lint, residual noted); plugin install - link path fully evidenced, GitHub path labeled unverifiable pre-merge. Controller closeout evidence: offline 19 PASS + live plugin smoke 83 assertions PASS 70s (authorized commands in config.md). Learnings already promoted continuously (wiki herd page, learnings.md, config.md). Accepted debt (next planning input): herdtest Strict-in-one-test-per-package; sed pane-id fallback; paint debounce-before-success stamp; collect sed status path; ExitNoRepo/ExitNotFound normalization (~15 commands); state phantom-manifest fixed this epic. PROPOSALS for human at project checkpoint: [P1] upstream herdr: focus behaviors (steal on close/remove, focused-default targeting, async pane open races focus) — one consolidated report; [P2] upstream herdr: first-prompt-after-start silently dropped + agent_prompt_stalled false positives; [P3] upgrade/pin installed tk (predates tk herd — plugin inert without pin); [P4] per-tick vendor routing key in tk (carried since ias); [P5] notification rate-limit interplay if more chime types are added. Integration: PR to follow, stacked on #38.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "noreply@anthropic.com",
@@ -11,7 +12,10 @@
   ],
   "parent": "t63",
   "acceptance_criteria": "During a live epic run: board pane updates in real time from events (not polling); worker workspaces carry tick metadata badges; a blocked worker raises a request-sound notification; retry/open-worktree/merge actions work from the herdr UI; plugin installs cleanly via herdr plugin install on a machine that has tk.",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:19.830486Z",
-  "updated_at": "2026-08-11T09:45:19.830486Z"
+  "updated_at": "2026-08-11T18:56:05.750323Z",
+  "closed_at": "2026-08-11T18:56:05.750323Z",
+  "closed_reason": "Completed: mission-control plugin shipped — dashboard pane, badges, notifications, actions, ticks:// links + herd hardening (herdtest, TOCTOU, typed exit codes); frontier review 0 blockers, live smoke 83 assertions; DoD met with two documented deviations"
 }

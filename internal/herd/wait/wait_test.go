@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
 )
 
 // resultsByName indexes a summary for assertions.
@@ -153,12 +154,12 @@ func TestWaitSubscribesPerTerminalStatus(t *testing.T) {
 // subscription can report it.
 func TestWaitRaceListThenSubscribe(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.afterList = func(n int) {
+	srv.SetAfterList(func(n int) {
 		if n == 1 {
 			// Settle silently: no live stream exists, so nothing is pushed.
 			srv.setStatus("tick-a", client.StatusDone)
 		}
-	}
+	})
 
 	sum, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a"},
@@ -257,14 +258,14 @@ func TestWaitContextCancelled(t *testing.T) {
 // settled while nothing was subscribed, so the reconcile alone answers it.
 func TestWaitStreamDeathReconcileClosesGap(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.killSub = func(n int) bool {
+	srv.SetKillSubscribe(func(n int) bool {
 		if n != 1 {
 			return false
 		}
 		// The worker settles while no stream is watching.
 		srv.setStatus("tick-a", client.StatusIdle)
 		return true
-	}
+	})
 
 	sum, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a"},
@@ -281,11 +282,178 @@ func TestWaitStreamDeathReconcileClosesGap(t *testing.T) {
 	}
 }
 
+// TestWaitDuplicateTerminalEventsSettleOnce pins settle dedupe against the
+// duplicates the three-subscription design guarantees. One pending pane carries
+// three subscriptions (idle|done|blocked), so a worker that bounces idle→done
+// delivers two terminal events for the same pane — and herdr can repeat a
+// status event on its own. The first one is the answer: later ones must not
+// re-report the worker, overwrite its state or fire OnSettle again.
+//
+// tick-b stays pending across all of tick-a's duplicates, so the waiter is
+// guaranteed to have consumed them (one ordered stream) rather than to have
+// exited before they arrived.
+func TestWaitDuplicateTerminalEventsSettleOnce(t *testing.T) {
+	srv := newFakeHerd(t,
+		&fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking},
+		&fakeAgent{name: "tick-b", paneID: "w1:p2", status: client.StatusWorking},
+	)
+	go func() {
+		srv.waitForStreams(1)
+		srv.pushStatus("tick-a", client.StatusIdle)
+		srv.pushStatus("tick-a", client.StatusIdle) // herdr repeating itself
+		srv.pushStatus("tick-a", client.StatusDone) // the second terminal sub
+		srv.pushStatus("tick-b", client.StatusDone) // releases the wait
+	}()
+
+	var settled []Result
+	sum, err := Wait(testContext(t), srv.Client(t), Options{
+		Workers:  []string{"tick-a", "tick-b"},
+		Timeout:  10 * time.Second,
+		OnSettle: func(r Result) { settled = append(settled, r) },
+	})
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if len(settled) != 2 {
+		t.Fatalf("OnSettle fired %d times (%+v), want exactly one per worker", len(settled), settled)
+	}
+	if settled[0].Name != "tick-a" || settled[0].State != "idle" {
+		t.Errorf("first settle = %+v, want tick-a idle — the first terminal event is the answer", settled[0])
+	}
+	if got := resultsByName(sum)["tick-a"].State; got != "idle" {
+		t.Errorf("tick-a state = %q, want idle — a later duplicate overwrote the settled result", got)
+	}
+	if sum.Settled != 2 || !sum.OK() {
+		t.Errorf("summary = %+v, want 2 settled and OK", sum)
+	}
+	if len(sum.Workers) != 2 {
+		t.Errorf("workers = %+v, want one row per requested worker", sum.Workers)
+	}
+	if got := srv.Subscribes(); got != 1 {
+		t.Errorf("events.subscribe calls = %d, want 1 — a duplicate must not restart the stream", got)
+	}
+}
+
+// TestWaitStreamDeathAfterPartialDelivery pins recovery from a stream that dies
+// mid-wave: some workers have already been answered from pushed events, others
+// are still pending. The reconcile-then-resubscribe must keep the delivered
+// answers AND pick up the stragglers.
+//
+// tick-a is removed from the session before the kill, so a reconcile that
+// re-answered settled workers would report it "exited" — the only way the test
+// can see the difference between "kept the event" and "re-derived from the
+// listing".
+func TestWaitStreamDeathAfterPartialDelivery(t *testing.T) {
+	srv := newFakeHerd(t,
+		&fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking},
+		&fakeAgent{name: "tick-b", paneID: "w1:p2", status: client.StatusWorking},
+	)
+	settledA := make(chan struct{})
+	go func() {
+		srv.waitForStreams(1)
+		srv.pushStatus("tick-a", client.StatusIdle)
+		<-settledA // the partial delivery has landed; now break the stream
+		srv.RemoveAgent("tick-a")
+		srv.KillStreams()
+		srv.waitForStreams(1) // the resubscribed stream
+		srv.pushStatus("tick-b", client.StatusDone)
+	}()
+
+	var settled []Result
+	sum, err := Wait(testContext(t), srv.Client(t), Options{
+		Workers: []string{"tick-a", "tick-b"},
+		Timeout: 15 * time.Second,
+		OnSettle: func(r Result) {
+			settled = append(settled, r)
+			if r.Name == "tick-a" {
+				close(settledA)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	byName := resultsByName(sum)
+	if got := byName["tick-a"]; got.State != "idle" || got.Exited {
+		t.Errorf("tick-a = %+v, want the idle it was answered with before the stream died", got)
+	}
+	if got := byName["tick-b"].State; got != "done" {
+		t.Errorf("tick-b state = %q, want done — the straggler was not picked up after resubscribing", got)
+	}
+	if len(settled) != 2 {
+		t.Errorf("OnSettle fired %d times (%+v), want one per worker across the stream break", len(settled), settled)
+	}
+	if got := srv.Lists(); got != 2 {
+		t.Errorf("agent.list calls = %d, want 2 (opening + one gap-closing reconcile)", got)
+	}
+	if got := srv.Subscribes(); got != 2 {
+		t.Errorf("events.subscribe calls = %d, want 2 (original + one resubscribe)", got)
+	}
+	// The resubscribe watches only what is still pending: re-subscribing to a
+	// settled worker's pane would re-deliver its status and cost a replay.
+	subs := srv.LastSubs()
+	if len(subs) != len(terminalStatuses) {
+		t.Fatalf("resubscribe carried %d subscriptions, want %d — only tick-b was still pending: %+v",
+			len(subs), len(terminalStatuses), subs)
+	}
+	for _, sub := range subs {
+		if sub.PaneID != "w1:p2" {
+			t.Errorf("resubscribe watches pane %q, want only the pending worker's w1:p2", sub.PaneID)
+		}
+	}
+}
+
+// TestWaitIgnoresStrayEvents pins consume's ignore paths. A stream carries more
+// than the events this waiter asked for — session-wide kinds, kinds newer than
+// this code, status events for panes nobody is waiting on, and lines that are
+// not event envelopes at all — and none of them may settle a worker, break the
+// stream or cost a resubscribe.
+func TestWaitIgnoresStrayEvents(t *testing.T) {
+	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
+	go func() {
+		srv.waitForStreams(1)
+		// A session-wide kind the client passes through untyped.
+		srv.PushLine(herdtest.EventLine("pane_updated", map[string]any{
+			"pane_id": "w1:p1", "workspace_id": "w1",
+		}))
+		// A kind this code has never heard of.
+		srv.PushLine(herdtest.EventLine("something_new", map[string]any{"pane_id": "w1:p1"}))
+		// A well-formed status event for a pane this wave does not include.
+		srv.PushLine(herdtest.StatusEventLine("w9:p9", string(client.StatusIdle)))
+		// A line that is not an event envelope at all.
+		srv.PushLine(herdtest.IgnoredNonEventLine)
+		// Only now the real settle.
+		srv.pushStatus("tick-a", client.StatusDone)
+	}()
+
+	var settled []Result
+	sum, err := Wait(testContext(t), srv.Client(t), Options{
+		Workers:  []string{"tick-a"},
+		Timeout:  10 * time.Second,
+		OnSettle: func(r Result) { settled = append(settled, r) },
+	})
+	if err != nil {
+		t.Fatalf("Wait: %v (stray traffic must not fail the wait)", err)
+	}
+	if len(settled) != 1 || settled[0].Name != "tick-a" || settled[0].State != "done" {
+		t.Fatalf("settles = %+v, want exactly one: tick-a done", settled)
+	}
+	if !sum.OK() || sum.Settled != 1 {
+		t.Errorf("summary = %+v, want one settled worker and OK", sum)
+	}
+	if got := srv.Subscribes(); got != 1 {
+		t.Errorf("events.subscribe calls = %d, want 1 — a stray line read as a break costs a resubscribe", got)
+	}
+	if got := srv.Lists(); got != 1 {
+		t.Errorf("agent.list calls = %d, want 1 — a stray line must not trigger a reconcile", got)
+	}
+}
+
 // TestWaitStreamDeathResubscribes pins that a broken stream is replaced once
 // and the wait then completes on a pushed event.
 func TestWaitStreamDeathResubscribes(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.killSub = func(n int) bool { return n == 1 }
+	srv.SetKillSubscribe(func(n int) bool { return n == 1 })
 	go func() {
 		srv.waitForStreams(1) // the second subscribe is the first live stream
 		srv.pushStatus("tick-a", client.StatusDone)
@@ -313,7 +481,7 @@ func TestWaitStreamDeathResubscribes(t *testing.T) {
 // loop.
 func TestWaitStreamDiesTwice(t *testing.T) {
 	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
-	srv.killSub = func(n int) bool { return true }
+	srv.SetKillSubscribe(func(n int) bool { return true })
 
 	_, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a"},
@@ -339,7 +507,7 @@ func TestWaitInvalidPaneAttribution(t *testing.T) {
 		&fakeAgent{name: "tick-b", paneID: "w1:p2", status: client.StatusWorking},
 	)
 	// Index 4 is the second worker's second subscription.
-	srv.rejectSub = func(n int) (int, bool) { return 4, true }
+	srv.SetRejectSubscribe(func(n int) (int, bool) { return 4, true })
 
 	_, err := Wait(testContext(t), srv.Client(t), Options{
 		Workers: []string{"tick-a", "tick-b"},

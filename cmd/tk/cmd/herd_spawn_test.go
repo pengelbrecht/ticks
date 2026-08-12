@@ -1,182 +1,45 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
+	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 // ---------------------------------------------------------------------------
-// A minimal fake herdr server for the command tests.
+// The fake herdr server for the command tests.
 //
-// herd/client's and herd/wait's fakes are package-internal by design, so this
-// package builds its own. It is a real unix listener speaking the real wire
-// protocol and, like herdr, answers exactly one request per connection — spawn
-// makes five or six sequential calls. No events: spawn is request/response only.
+// It is the shared fake from internal/herd/herdtest — one canonical fake for
+// the whole repo, a real unix listener speaking the real wire protocol and,
+// like herdr, answering exactly one request per connection. A spawn makes five
+// or six sequential calls. No events: spawn is request/response only.
+//
+// Keeping reply shapes here is how a cmd-local fake came to omit
+// `interactive_ready` on agent.start and hid a real startup-gate defect; the
+// shapes now live in exactly one place.
 // ---------------------------------------------------------------------------
 
-type spawnFakeHerd struct {
-	t    *testing.T
-	path string
-	ln   net.Listener
-
-	mu       sync.Mutex
-	methods  []string
-	dials    int
-	paneText string
-
-	wg sync.WaitGroup
-}
-
-func newSpawnFakeHerd(t *testing.T) *spawnFakeHerd {
+// newSpawnFakeHerd starts the shared fake with the identifiers this command's
+// assertions expect: the a1w worktree, and the session id the manifest records.
+func newSpawnFakeHerd(t *testing.T) *herdtest.Server {
 	t.Helper()
-	// Unix socket paths are length-limited on darwin; keep the prefix short.
-	dir, err := os.MkdirTemp("", "hx")
-	if err != nil {
-		t.Fatalf("temp dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-
-	path := filepath.Join(dir, "h.sock")
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	s := &spawnFakeHerd{
-		t: t, path: path, ln: ln,
-		paneText: "> " + spawn.DefaultGateProbe + "\n\n⏺ OK\n",
-	}
-	s.wg.Add(1)
-	go s.acceptLoop()
-	t.Cleanup(func() {
-		_ = s.ln.Close()
-		s.wg.Wait()
+	return herdtest.New(t, herdtest.Config{
+		Worktree: herdtest.Worktree{
+			Path:   "/herdr/worktrees/repo/tick-a1w",
+			Label:  "tick-a1w",
+			Branch: "tick/a1w",
+		},
+		AgentSession: "sess-abc",
+		PaneTexts:    []string{"> " + spawn.DefaultGateProbe + "\n\n⏺ OK\n"},
 	})
-	return s
-}
-
-func (s *spawnFakeHerd) acceptLoop() {
-	defer s.wg.Done()
-	for {
-		conn, err := s.ln.Accept()
-		if err != nil {
-			return
-		}
-		s.mu.Lock()
-		s.dials++
-		s.mu.Unlock()
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.serve(conn)
-		}()
-	}
-}
-
-func (s *spawnFakeHerd) serve(conn net.Conn) {
-	defer conn.Close()
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
-	if err != nil {
-		return
-	}
-	var req struct {
-		ID     string          `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
-	}
-	if err := json.Unmarshal(line, &req); err != nil {
-		return
-	}
-	s.mu.Lock()
-	s.methods = append(s.methods, req.Method)
-	paneText := s.paneText
-	s.mu.Unlock()
-
-	var result any
-	switch req.Method {
-	case "ping":
-		result = map[string]any{"type": "pong", "version": "0.8.0", "protocol": 19}
-	case "worktree.create":
-		result = map[string]any{
-			"type":      "worktree_created",
-			"workspace": map[string]any{"workspace_id": "w7"},
-			"tab":       map[string]any{"tab_id": "w7:t1"},
-			"root_pane": map[string]any{"pane_id": "w7:p1"},
-			"worktree":  map[string]any{"path": "/herdr/worktrees/repo/tick-a1w"},
-		}
-	case "agent.start":
-		var p struct {
-			Args []string `json:"args"`
-			Kind string   `json:"kind"`
-		}
-		_ = json.Unmarshal(req.Params, &p)
-		result = map[string]any{
-			"type": "agent_started",
-			"agent": map[string]any{
-				"pane_id":           "w7:p1",
-				"agent_status":      "idle",
-				"interactive_ready": true,
-			},
-			"argv": append([]string{p.Kind}, p.Args...),
-		}
-	case "agent.get":
-		result = map[string]any{
-			"type":  "agent_info",
-			"agent": map[string]any{"pane_id": "w7:p1", "agent_status": "idle", "interactive_ready": true},
-		}
-	case "agent.prompt":
-		result = map[string]any{
-			"type": "agent_prompted",
-			"agent": map[string]any{
-				"pane_id":      "w7:p1",
-				"agent_status": "idle",
-				"agent_session": map[string]any{
-					"source": "herdr:claude", "agent": "claude",
-					"kind": "id", "value": "sess-abc",
-				},
-			},
-		}
-	case "pane.read":
-		result = map[string]any{
-			"type": "pane_read",
-			"read": map[string]any{"pane_id": "w7:p1", "source": "recent_unwrapped", "text": paneText},
-		}
-	default:
-		body, _ := json.Marshal(map[string]any{
-			"id":    req.ID,
-			"error": map[string]string{"code": "invalid_request", "message": "unexpected " + req.Method},
-		})
-		w := bufio.NewWriter(conn)
-		_, _ = w.Write(append(body, '\n'))
-		_ = w.Flush()
-		return
-	}
-	body, _ := json.Marshal(map[string]any{"id": req.ID, "result": result})
-	w := bufio.NewWriter(conn)
-	_, _ = w.Write(append(body, '\n'))
-	_ = w.Flush()
-}
-
-func (s *spawnFakeHerd) Dials() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.dials
-}
-
-func (s *spawnFakeHerd) Methods() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.methods...)
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +122,7 @@ func TestHerdSpawnUnknownTick(t *testing.T) {
 	setupSpawnRepo(t, validRunners)
 	srv := newSpawnFakeHerd(t)
 
-	err := ExecuteArgs([]string{"herd", "spawn", "zzz", "--socket", srv.path})
+	err := ExecuteArgs([]string{"herd", "spawn", "zzz", "--socket", srv.Path()})
 	if err == nil {
 		t.Fatal("herd spawn on an unknown tick returned nil error")
 	}
@@ -286,7 +149,7 @@ model = "gpt-5.6-luna"
 `)
 	srv := newSpawnFakeHerd(t)
 
-	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path})
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
 	if err == nil {
 		t.Fatal("herd spawn with an impossible kind/model returned nil error")
 	}
@@ -312,7 +175,7 @@ bogus_key = true
 `)
 	srv := newSpawnFakeHerd(t)
 
-	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path})
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
 	if err == nil {
 		t.Fatal("herd spawn with an invalid runners.toml returned nil error")
 	}
@@ -330,7 +193,7 @@ func TestHerdSpawnMissingConfigNamesTheFix(t *testing.T) {
 	setupSpawnRepo(t, "")
 	srv := newSpawnFakeHerd(t)
 
-	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path})
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
 	if err == nil {
 		t.Fatal("herd spawn without runners.toml returned nil error")
 	}
@@ -349,7 +212,7 @@ func TestHerdSpawnEndToEnd(t *testing.T) {
 	srv := newSpawnFakeHerd(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()}); err != nil {
 		t.Fatalf("herd spawn: %v\noutput:\n%s", err, buf.String())
 	}
 
@@ -417,7 +280,7 @@ func TestHerdSpawnJSONOutput(t *testing.T) {
 	srv := newSpawnFakeHerd(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path, "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--json"}); err != nil {
 		t.Fatalf("herd spawn --json: %v\n%s", err, buf.String())
 	}
 
@@ -450,9 +313,9 @@ func TestHerdSpawnJSONOutput(t *testing.T) {
 func TestHerdSpawnGateFailureLeavesNoManifest(t *testing.T) {
 	repo, _ := setupSpawnRepo(t, validRunners)
 	srv := newSpawnFakeHerd(t)
-	srv.paneText = "> " + spawn.DefaultGateProbe + "\n\n■ error 400: model not supported\n"
+	srv.SetPaneTexts("> " + spawn.DefaultGateProbe + "\n\n■ error 400: model not supported\n")
 
-	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path})
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
 	if err == nil {
 		t.Fatal("herd spawn past a failed gate returned nil error")
 	}
@@ -478,14 +341,113 @@ func TestHerdSpawnRejectsNonPositiveTimeouts(t *testing.T) {
 	}
 }
 
+// TestHerdSpawnUnknownTierIsUsage pins that a misspelled tier is a usage stop
+// (exit 2) taken BEFORE anything is resolved or dialled — not a generic exit-1
+// routing failure discovered after the config was loaded.
+func TestHerdSpawnUnknownTierIsUsage(t *testing.T) {
+	setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+
+	for _, tier := range []string{"strongg", "STRONG", "fast"} {
+		err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--tier", tier})
+		if err == nil {
+			t.Fatalf("--tier %q returned nil error", tier)
+		}
+		if code := GetExitCode(err); code != ExitUsage {
+			t.Errorf("--tier %q: exit code = %d, want %d (usage): %v", tier, code, ExitUsage, err)
+		}
+		if !strings.Contains(err.Error(), tier) || !strings.Contains(err.Error(), "economy, balanced, strong, frontier") {
+			t.Errorf("--tier %q: error = %v, want it to name the bad value and the vocabulary", tier, err)
+		}
+	}
+	if srv.Dials() != 0 {
+		t.Errorf("dials = %d, want 0 — a bad flag must cost zero herdr calls", srv.Dials())
+	}
+}
+
+// TestHerdSpawnKnownTiersPass pins the other side of the check: every tier the
+// config vocabulary defines is accepted, tier tables or not.
+func TestHerdSpawnKnownTiersPass(t *testing.T) {
+	setupSpawnRepo(t, validRunners)
+	for _, tier := range []string{"economy", "balanced", "strong", "frontier"} {
+		srv := newSpawnFakeHerd(t)
+		if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--tier", tier}); err != nil {
+			t.Errorf("--tier %s was rejected: %v", tier, err)
+		}
+	}
+}
+
+// TestHerdSpawnRoleFallbackWarns pins the typo trap: `--role reveiw` has no
+// table, so the routing falls back to [roles.implement] — a reviewer silently
+// spawned as an implementer. The fallback still spawns, but it must name both
+// roles on stderr and the manifest must record the role that was ASKED FOR
+// alongside the one it resolved to.
+func TestHerdSpawnRoleFallbackWarns(t *testing.T) {
+	repo, _ := setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--role", "reveiw"}); err != nil {
+		t.Fatalf("herd spawn --role reveiw: %v\n%s", err, buf.String())
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "warning:") {
+		t.Errorf("output has no warning about the role fallback:\n%s", out)
+	}
+	for _, want := range []string{"roles.reveiw", "roles.implement", "runners.toml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("fallback warning missing %q:\n%s", want, out)
+		}
+	}
+
+	m, err := state.Read(filepath.Join(repo, ".tick", "logs", "herd", "gy1", "a1w.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.Role != "reveiw" {
+		t.Errorf("manifest role = %q, want the REQUESTED role reveiw", m.Role)
+	}
+	if m.ResolvedRole != "implement" {
+		t.Errorf("manifest resolved_role = %q, want implement", m.ResolvedRole)
+	}
+}
+
+// TestHerdSpawnNoRoleFallbackRecordsNoResolvedRole pins that resolved_role is a
+// signal, not noise: a role that resolved to itself warns about nothing and
+// leaves the field out of the manifest.
+func TestHerdSpawnNoRoleFallbackRecordsNoResolvedRole(t *testing.T) {
+	repo, _ := setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--role", "implement"}); err != nil {
+		t.Fatalf("herd spawn: %v\n%s", err, buf.String())
+	}
+	if strings.Contains(buf.String(), "warning:") {
+		t.Errorf("a role that resolved to itself warned:\n%s", buf.String())
+	}
+
+	m, err := state.Read(filepath.Join(repo, ".tick", "logs", "herd", "gy1", "a1w.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if m.ResolvedRole != "" {
+		t.Errorf("manifest resolved_role = %q, want it omitted when the role resolved to itself", m.ResolvedRole)
+	}
+	if m.Role != "implement" {
+		t.Errorf("manifest role = %q, want implement", m.Role)
+	}
+}
+
 // TestHerdSpawnFlagsResetBetweenExecutions pins the ResetFlags contract for the
 // flags this command adds.
 func TestHerdSpawnFlagsResetBetweenExecutions(t *testing.T) {
 	setupSpawnRepo(t, validRunners)
 	srv := newSpawnFakeHerd(t)
 
-	_ = ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path, "--json", "--tier", "strong", "--wait"})
-	_ = ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.path})
+	_ = ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path(), "--json", "--tier", "strong", "--wait"})
+	_ = ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
 
 	if herdSpawnJSON {
 		t.Error("herdSpawnJSON leaked across executions")

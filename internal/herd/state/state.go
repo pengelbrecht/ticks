@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,19 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrNoTick reports a JSON file that parsed as a manifest but carries no
+// `tick` field.
+//
+// The tick id is a manifest's identity: it names the worker in every paint
+// badge, collect verdict, cleanup plan, reconcile class and notification. A
+// manifest without one is not a degraded manifest, it is not a manifest — and
+// `.tick/logs/herd/<epic>/` is an ordinary directory that anything may drop a
+// stray `.json` into. Before this check such a file became a PHANTOM WORKER
+// with an empty tick id, visible across paint, collect, cleanup, reconcile and
+// notify. So [Read] refuses it and [List] skips it: one bad file in a
+// directory must not deny the operator the whole wave.
+var ErrNoTick = errors.New("manifest has no tick id")
 
 // RelDir is the repo-relative directory every manifest lives under. It is
 // inside `.tick/logs/`, which `.tick/.gitignore` already excludes from git.
@@ -42,9 +56,17 @@ type Manifest struct {
 	Tick string `json:"tick"`
 	// Epic is the parent epic id, or "" when the tick has no parent.
 	Epic string `json:"epic,omitempty"`
-	// Role and Tier are the routing that selected the worker.
+	// Role and Tier are the routing that selected the worker, as REQUESTED —
+	// the values the spawn was invoked with, not what they resolved to.
 	Role string `json:"role,omitempty"`
 	Tier string `json:"tier,omitempty"`
+	// ResolvedRole is the role the routing values actually came from, and is
+	// recorded ONLY when it differs from Role — i.e. the requested role had no
+	// table in runners.toml and fell back to `implement`. Recording both is
+	// what lets a reader tell a deliberate fallback from a typo (`--role
+	// reveiw` routing a reviewer as an implementer) without re-resolving the
+	// config, which may have changed since.
+	ResolvedRole string `json:"resolved_role,omitempty"`
 	// Branch is the worker's branch, `<worktree_branch_prefix><tick-id>`.
 	Branch string `json:"branch"`
 	// Worktree is the absolute path herdr chose for the worktree. Never
@@ -110,7 +132,7 @@ func RelPath(epicID, tickID string) string {
 // reader listing the directory sees complete manifests only.
 func Write(repoRoot string, m Manifest) (string, error) {
 	if m.Tick == "" {
-		return "", fmt.Errorf("herd/state: manifest has no tick id")
+		return "", fmt.Errorf("herd/state: %w", ErrNoTick)
 	}
 	if m.CreatedAt == "" {
 		m.CreatedAt = time.Now().UTC().Format(TimeLayout)
@@ -160,6 +182,10 @@ func Write(repoRoot string, m Manifest) (string, error) {
 }
 
 // Read loads one manifest by path.
+//
+// A file that parses but carries no `tick` field is rejected with [ErrNoTick]
+// rather than returned as a manifest with an empty tick id — see ErrNoTick for
+// why an empty id is never a usable answer.
 func Read(path string) (Manifest, error) {
 	var m Manifest
 	data, err := os.ReadFile(path)
@@ -168,6 +194,9 @@ func Read(path string) (Manifest, error) {
 	}
 	if err := json.Unmarshal(data, &m); err != nil {
 		return m, fmt.Errorf("herd/state: parsing %s: %w", path, err)
+	}
+	if m.Tick == "" {
+		return Manifest{}, fmt.Errorf("herd/state: %s: %w", path, ErrNoTick)
 	}
 	return m, nil
 }
@@ -193,6 +222,14 @@ func List(repoRoot, epicID string) ([]Manifest, error) {
 		}
 		m, err := Read(filepath.Join(dir, name))
 		if err != nil {
+			// A stray .json that is not a manifest is skipped, not fatal: the
+			// directory is an ordinary one and a file nobody here wrote must
+			// not deny the operator every real worker in the wave. A manifest
+			// that is CORRUPT (unparseable) still fails loudly — that one is a
+			// file this code wrote, and silence there would hide a real worker.
+			if errors.Is(err, ErrNoTick) {
+				continue
+			}
 			return nil, err
 		}
 		out = append(out, m)

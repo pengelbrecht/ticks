@@ -1,0 +1,220 @@
+# herdr-plugin.toml — manifest for the herdr-ticks mission-control plugin.
+#
+# Ticks (https://ticks.sh) issue tracking, surfaced inside herdr: a dashboard pane
+# and actions that reach the tick board without leaving the multiplexer.
+#
+# Schema notes — all VERIFIED live against herdr 0.8.0, not guessed:
+#  - Top-level key is `id`; `herdr plugin list --json` reports it as `plugin_id`.
+#  - `[[panes]]`, `[[actions]]`, `[[events]]` and `[[link_handlers]]` are arrays of tables.
+#  - `command` is an argv array — no shell, no word splitting. Anything needing a pipeline
+#    or a conditional goes in a script under scripts/.
+#  - Commands run with cwd = the plugin root, so "scripts/foo.sh" resolves against this
+#    directory. NEVER use cwd to find the user's repo — read the context env instead
+#    (HERDR_PLUGIN_CONTEXT_JSON; see README.md for the full contract).
+#  - `contexts` is a CLOSED enum: global | workspace | tab | pane | selection.
+#  - `placement` is a CLOSED enum: overlay | popup | split | tab | zoomed.
+#  - `events.on` is NOT validated — a typo'd event name parses fine and silently never
+#    fires. Cross-check names against a plugin herdr already runs.
+#  - Action ids must be unique across the whole manifest, including across `platforms`
+#    gates — see herdr-file-viewer's `-windows` id suffixes.
+
+id = "pengelbrecht.herdr-ticks"
+name = "Ticks mission control"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Ticks issue tracking inside herdr: a mission-control dashboard pane and tick board actions."
+platforms = ["macos", "linux"]
+
+# The mission-control dashboard pane: `tk herd dashboard`, a read-only bubbletea
+# board of the run — the epic's waves and ticks beside the workers herdr is running,
+# updated by pushed pane.agent_status_changed events rather than polling.
+#
+# The command is argv-only and runs with cwd = this directory, so the script (not the
+# manifest) resolves the user's repo from HERDR_PLUGIN_CONTEXT_JSON and locates the
+# `tk` binary. See scripts/dashboard.sh and README.md.
+[[panes]]
+id = "dashboard"
+title = "Ticks"
+placement = "split"
+command = ["bash", "scripts/dashboard.sh"]
+
+# Open the ticks board (the local web UI served by `tk board`) for the invoking repo.
+# Works today: reports the board URL, opens it when a board is already listening, and
+# prints the command to start one when it is not. Read-only — never mutates .tick.
+[[actions]]
+id = "open-tick-board"
+title = "Open tick board"
+description = "Open the ticks board web UI for the current repository (or show how to start it)."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/open-tick-board.sh"]
+
+# ---------------------------------------------------------------------------
+# Herd-worker actions.
+#
+# All three answer the same question first: WHICH worker was right-clicked.
+# `HERDR_PLUGIN_CONTEXT_JSON` names the invocation target (workspace_id,
+# focused_pane_id, worktree.repo_root); the run-state manifests `tk herd spawn`
+# writes to `.tick/logs/herd/<epic>/<tick>.json` record `pane_id` and
+# `workspace_id`. Matching one against the other maps the click onto a tick.
+# The manifests live in the CONTROLLER checkout, which is what herdr reports as
+# `worktree.repo_root` even for a worker's linked worktree.
+#
+# On a workspace or pane with no matching manifest, every one of them prints why
+# and exits 0 — a context menu entry that shouts at an ordinary pane is worse
+# than one that quietly says "not a herd worker".
+# ---------------------------------------------------------------------------
+
+# Open a plain shell at the worker's worktree, split into the worker's OWN
+# workspace and without stealing focus. Nothing is sent to the agent.
+[[actions]]
+id = "open-worktree"
+title = "Open worktree"
+description = "Open a shell pane at this herd worker's worktree, in its own workspace, without taking focus."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/action-open-worktree.sh"]
+
+# `tk herd collect` for the targeted worker, verdict raised as a notification.
+# Read-only: collect never merges and never mutates .tick.
+[[actions]]
+id = "collect-tick"
+title = "Collect tick"
+description = "Run 'tk herd collect' for this worker and show the verdict (ready-to-merge / no-commits / missing-result / boundary-violation). Never merges."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/action-collect-tick.sh"]
+
+# ADVISORY ONLY, and the description says so where the operator reads it.
+# Reconcile's contract is that ONE actor decides: a right-click that could
+# redispatch would race the orchestrator that owns dispatch, and the one
+# unforgivable move is starting a second worker for a tick that still has a live
+# one. So this reports the classification and stops.
+[[actions]]
+id = "retry-tick"
+title = "Retry tick"
+description = "Advisory: classify this worker with 'tk herd reconcile' and report what the orchestrator should do. Starts and kills nothing — dispatch stays with the orchestrator."
+contexts = ["workspace", "pane"]
+command = ["bash", "scripts/action-retry-tick.sh"]
+
+# The [[link_handlers]] target. Also exposed on the pane menu, where it opens
+# the dashboard for the right-clicked worker's epic.
+[[actions]]
+id = "open-tick-dashboard"
+title = "Open tick dashboard"
+description = "Open the ticks mission-control dashboard scoped to this tick's epic."
+contexts = ["pane"]
+command = ["bash", "scripts/action-open-tick-dashboard.sh"]
+
+# Link handling — URL-ONLY, verified against herdr 0.8.0, not assumed.
+#
+# herdr hands a link handler a CLICKED URL: the context field is `clicked_url`,
+# the env var is `HERDR_PLUGIN_CLICKED_URL`, and a handler fires on Ctrl-click of
+# a link herdr's terminal already recognises (plain left-click is not routed to
+# plugins — see ghzinga's README, the only shipped example). Two consequences:
+#
+#   * A bare tick id (`5yt`) printed into a pane is NOT a link. No `pattern`,
+#     however permissive, can make herdr offer a handler for it — the pattern is
+#     matched against a clicked URL that a bare word never becomes.
+#   * There is no socket method to invoke a link handler (`herdr api schema
+#     --json` lists only plugin.link/unlink/enable/disable/list), so nothing
+#     outside the UI can simulate a click either.
+#
+# The graceful fallback is therefore a URL form ticks can actually print:
+# `ticks://<tick>` or `ticks://<epic>/<tick>`. Anything that writes tick
+# references into a pane can emit those and they become Ctrl-clickable.
+# scripts/action-open-tick-dashboard.sh already parses a bare id too, so if
+# herdr later supports non-URL patterns only this `pattern` needs to change.
+[[link_handlers]]
+id = "ticks-tick-ref"
+title = "Open tick in the ticks dashboard"
+pattern = "^ticks://[A-Za-z0-9][A-Za-z0-9_-]*(/[A-Za-z0-9][A-Za-z0-9_-]*)?/?$"
+action = "open-tick-dashboard"
+
+# Event hooks — workspace badge painting.
+#
+# Every hook runs the same script, `scripts/paint-hook.sh`, which shells out to
+# `tk herd paint`: display-only, TTL'd metadata naming the tick each herd worker is on.
+# Read-only with respect to .tick, and it never renames a pane or moves focus.
+#
+# Event names are COPIED VERBATIM from rjyo.window-title-sync's live manifest
+# (`herdr plugin list --json`), because `events.on` is NOT validated — a typo'd name
+# parses fine, links fine, and then silently never fires. Never invent one.
+#
+# The full set herdr is known to emit:
+#   workspace.focused  workspace.renamed  workspace.updated
+#   tab.focused        tab.renamed
+#   pane.created       pane.closed        pane.focused  pane.moved
+#   pane.agent_detected                   pane.agent_status_changed
+#
+# The five below are the ones that can change what a badge should SAY:
+#   pane.agent_status_changed  a worker started or finished a turn — the state label
+#   pane.agent_detected        herdr recognised the agent CLI in a freshly spawned pane
+#   pane.created               a worktree.create just opened a worker's pane
+#   pane.closed                a worker went away; the survivors get repainted
+#   workspace.focused          the operator looked at a workspace, so refresh the TTL
+#
+# Deliberately NOT hooked: pane.focused, pane.moved, tab.*, workspace.renamed and
+# workspace.updated. They fire on ordinary navigation without changing any painted fact,
+# and the badges already refresh well inside their TTL from the five above. The script
+# also debounces, so a burst of events costs one paint.
+#
+# FEEDBACK BOUNCE — measured live, not theorised. A pane.report_metadata carrying a title
+# or state labels makes herdr emit `pane.agent_status_changed` FOR THAT PANE, carrying the
+# fields just painted. So this hook does re-trigger itself, once:
+#
+#   paint → pane.agent_status_changed → hook → paint → pane.agent_status_changed → hook
+#   → DEBOUNCED (the previous paint stamped the clock <2s ago) → stops
+#
+# The debounce in paint-hook.sh is therefore not a nicety, it is the loop breaker: the
+# bounce arrives within milliseconds, far inside the 2s window. Do NOT remove it, and do
+# not set TICKS_PAINT_DEBOUNCE_SECONDS to 0.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "pane.created"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["bash", "scripts/paint-hook.sh"]
+
+[[events]]
+on = "workspace.focused"
+command = ["bash", "scripts/paint-hook.sh"]
+
+# Event hook — blocked/wave-complete notifications.
+#
+# `tk herd notify` chimes twice and only twice: sound `request` when a herd
+# worker enters `blocked` and is waiting on the operator, sound `done` when
+# every in-flight worker of an epic has settled.
+#
+# ONE event, not five. Unlike painting — where any event can change what a
+# badge should say, so hooking broadly is cheap and correct — the only thing
+# that can change a notification decision is an agent's STATUS. Hooking
+# workspace.focused here would run the notifier every time the operator looked
+# at a window, which cannot produce news.
+#
+# The name is copied verbatim from the paint hooks above, which are the
+# confirmed-firing set: `events.on` is NOT validated, so a typo'd name parses
+# fine, links fine, and then silently never fires.
+#
+# NO DEBOUNCE, on purpose. paint-hook.sh's time window is safe because an
+# elided paint is repainted by the next event; an elided NOTIFY invocation can
+# be the only one that would have seen a blocked transition. `tk herd notify`
+# is instead edge-triggered against persisted per-epic state
+# (.tick/logs/herd/<epic>/.notify-state.json) under a lock, so repeat
+# invocations — including the paint feedback bounce, where a
+# pane.report_metadata makes herdr emit pane.agent_status_changed again — send
+# nothing and log why.
+#
+# FOCUS SAFETY: notification.show carries no pane or workspace target. It is an
+# overlay herdr renders on the foreground client, so this hook can never open,
+# split or steal anything in whatever workspace the operator happens to be
+# looking at. `position` is left unset so herdr's own placement wins.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bash", "scripts/notify-hook.sh"]

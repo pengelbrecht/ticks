@@ -19,7 +19,7 @@ func streamFixtureHandler(fixture string, release <-chan struct{}) fakeHandler {
 			return err
 		}
 		for _, line := range loadEventLines(t, fixture) {
-			if err := w.writeLine(line); err != nil {
+			if err := w.WriteLine(line); err != nil {
 				return err
 			}
 		}
@@ -308,9 +308,10 @@ func TestEventStreamCloseIsIdempotent(t *testing.T) {
 		t.Fatalf("second Close: %v", err)
 	}
 	// Drain: an event already buffered before Close may still be delivered;
-	// the channel must close after at most that backlog.
-	for range stream.Events() {
-	}
+	// the channel must close after at most that backlog. The drain is bounded
+	// so a regression that leaves the channel open fails here by name instead
+	// of hanging until the package timeout kills the whole suite.
+	waitStreamClosed(t, stream)
 	if err := stream.Err(); err != nil {
 		t.Errorf("Err after Close = %v, want nil", err)
 	}
@@ -408,7 +409,7 @@ func TestEventStreamDisconnectIsDistinguishableFromClose(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
+			if err := w.WriteLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
 				return err
 			}
 			// Returning closes the connection: a mid-stream disconnect.
@@ -454,7 +455,7 @@ func TestEventStreamAppliesBackpressure(t *testing.T) {
 			}
 			for i := range total {
 				line := `{"event":"pane_updated","data":{"type":"pane_updated","seq":` + strconv.Itoa(i) + `}}`
-				if err := w.writeLine(line); err != nil {
+				if err := w.WriteLine(line); err != nil {
 					return err
 				}
 			}
@@ -547,7 +548,7 @@ func TestEventStreamCloseFromConsumerLoop(t *testing.T) {
 					return nil
 				default:
 				}
-				if err := w.writeLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
+				if err := w.WriteLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
 					return nil
 				}
 			}
@@ -596,10 +597,10 @@ func TestEventStreamIgnoresUnrecognisedLine(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(`{"keepalive":true}`); err != nil {
+			if err := w.WriteLine(`{"keepalive":true}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
+			if err := w.WriteLine(`{"event":"pane_updated","data":{"type":"pane_updated"}}`); err != nil {
 				return err
 			}
 			<-release
@@ -628,7 +629,7 @@ func TestEventStreamNamesMalformedLine(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			return w.writeLine(`{"event":"pane_updated","data":`)
+			return w.WriteLine(`{"event":"pane_updated","data":`)
 		},
 	})
 
@@ -663,7 +664,11 @@ func nextEvent(t *testing.T, s *EventStream) Event {
 	}
 }
 
-// waitStreamClosed drains until the event channel closes.
+// waitStreamClosed drains the event channel until it closes, under its own
+// deadline. Every drain in this file goes through it: an unbounded
+// `for range s.Events()` turns a stream that never closes into a package-wide
+// `go test` timeout, which names no test and takes the rest of the suite with
+// it. Here the same regression is one named failure.
 func waitStreamClosed(t *testing.T, s *EventStream) {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
@@ -674,7 +679,7 @@ func waitStreamClosed(t *testing.T, s *EventStream) {
 				return
 			}
 		case <-deadline:
-			t.Fatal("stream did not close")
+			t.Fatal("stream did not close within the drain deadline")
 		}
 	}
 }
@@ -770,7 +775,7 @@ func TestEventStreamMidStreamAPIErrorEndsStream(t *testing.T) {
 			if err := respond(w, req.ID, `{"type":"subscription_started"}`); err != nil {
 				return err
 			}
-			if err := w.writeLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
+			if err := w.WriteLine(loadEventLines(t, "event_stream.ndjson")[0]); err != nil {
 				return err
 			}
 			if err := respondErr(w, req.ID, CodePaneNotFound, "pane closed mid-run"); err != nil {

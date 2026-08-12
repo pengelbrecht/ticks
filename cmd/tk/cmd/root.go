@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -61,28 +62,93 @@ func NewExitError(code int, format string, args ...interface{}) error {
 }
 
 // GetExitCode returns the exit code from an error.
-// If the error is an ExitError, it returns that code.
-// For Cobra argument/flag validation errors, returns ExitUsage (2).
-// Otherwise, it returns ExitGeneric (1).
+//
+// Classification is TYPED, never textual: an error carries [ExitError]
+// somewhere in its unwrap chain or it does not. Anything else is ExitGeneric
+// (1). Usage errors (2) reach here as ExitError because the two places that
+// produce them — cobra's flag parser and cobra's positional-argument
+// validators — are converted at the source by usageFlagError and usageArgs.
+//
+// The previous implementation classified by message substring, which read any
+// error text containing "invalid argument" as a usage error. A unix-socket
+// dial failure says exactly that ("connect: invalid argument"), so an
+// unreachable herdr told orchestrators to fix a command line that was already
+// correct. Substrings are gone; do not reintroduce them. A command that needs
+// a specific exit code returns NewExitError at the point it knows the reason.
 func GetExitCode(err error) int {
 	if err == nil {
 		return ExitSuccess
 	}
-	if exitErr, ok := err.(ExitError); ok {
+	var exitErr ExitError
+	if errors.As(err, &exitErr) {
 		return exitErr.Code
 	}
-	// Check for Cobra argument validation errors
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "accepts ") && strings.Contains(errMsg, "arg(s)") {
-		return ExitUsage
-	}
-	if strings.Contains(errMsg, "requires at least") && strings.Contains(errMsg, "arg(s)") {
-		return ExitUsage
-	}
-	if strings.Contains(errMsg, "unknown flag") || strings.Contains(errMsg, "invalid argument") {
-		return ExitUsage
-	}
 	return ExitGeneric
+}
+
+// usageFlagError converts a cobra/pflag flag-parsing failure ("unknown flag",
+// `invalid argument "x" for "--priority" flag`) into an explicit ExitUsage
+// error. Installed on the root command; cobra's FlagErrorFunc lookup walks up
+// to the parent, so every subcommand — including ones added later — inherits
+// it without opting in.
+func usageFlagError(_ *cobra.Command, err error) error {
+	if err == nil {
+		return nil
+	}
+	// pflag's help sentinel is control flow, not a usage failure.
+	if errors.Is(err, pflag.ErrHelp) {
+		return err
+	}
+	var exitErr ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
+	return NewExitError(ExitUsage, "%v", err)
+}
+
+// usageArgs wraps a positional-argument validator so its rejection carries
+// ExitUsage explicitly. cobra.ExactArgs and friends return plain errors
+// ("accepts 1 arg(s), received 0"); classifying those by message is what
+// GetExitCode used to do, so the conversion happens here instead, at the
+// validator that knows the failure is about the command line.
+//
+// A validator that already returns an ExitError keeps its own code — commands
+// with a custom Args func can still say "not found" or "no repo".
+func usageArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
+	if validate == nil {
+		return nil
+	}
+	return func(cmd *cobra.Command, args []string) error {
+		err := validate(cmd, args)
+		if err == nil {
+			return nil
+		}
+		var exitErr ExitError
+		if errors.As(err, &exitErr) {
+			return err
+		}
+		return NewExitError(ExitUsage, "%v", err)
+	}
+}
+
+var usageArgsOnce sync.Once
+
+// installUsageArgs wraps every registered command's Args validator once per
+// process. Doing it centrally (rather than at each of the ~40 declaration
+// sites) means a newly added command is classified correctly by construction.
+// Commands that leave Args nil are untouched: cobra's nil behaviour also
+// covers "unknown command", which is not a flag/arity failure.
+func installUsageArgs() {
+	usageArgsOnce.Do(func() {
+		var walk func(*cobra.Command)
+		walk = func(cmd *cobra.Command) {
+			cmd.Args = usageArgs(cmd.Args)
+			for _, sub := range cmd.Commands() {
+				walk(sub)
+			}
+		}
+		walk(rootCmd)
+	})
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -151,6 +217,7 @@ Human-Only Tasks (awaiting=work):
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	installUsageArgs()
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -167,6 +234,8 @@ func ExecuteArgs(args []string) error {
 // is propagated to commands via cmd.Context(), which lets callers (tests) stop
 // long-running commands such as 'tk board'.
 func ExecuteArgsContext(ctx context.Context, args []string) error {
+	installUsageArgs()
+
 	// Reset all flags to their default values before each execution.
 	// This is necessary because Cobra uses global variables for flag values,
 	// and when running multiple commands in the same process (e.g., tests),
@@ -444,9 +513,18 @@ func ResetFlags() {
 	// Reset herd collect flags
 	herdCollectEpic, herdCollectJSON = "", false
 
+	// Reset herd dashboard flags
+	herdDashboardEpic, herdDashboardSocket, herdDashboardInterval = "", "", defaultHerdDashboardIntervalMs
+
 	// Reset herd cleanup flags
 	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
 	herdCleanupPreview, herdCleanupApply = false, false
+
+	// Reset herd paint flags
+	herdPaintEpic, herdPaintTick, herdPaintSocket, herdPaintTTLMs, herdPaintSeq, herdPaintDryRun, herdPaintJSON = "", "", "", defaultHerdPaintTTLMs, 0, false, false
+
+	// Reset herd notify flags
+	herdNotifyEpic, herdNotifySocket, herdNotifyDryRun, herdNotifyJSON = "", "", false, false
 
 	// Reset board flags
 	boardPort = 3000
@@ -468,4 +546,8 @@ func init() {
 
 	// Disable the default completion command (can be re-enabled later if needed)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Flag-parse failures are usage errors (exit 2), typed at the source.
+	// Subcommands inherit this through cobra's FlagErrorFunc parent lookup.
+	rootCmd.SetFlagErrorFunc(usageFlagError)
 }

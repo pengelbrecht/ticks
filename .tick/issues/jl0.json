@@ -1,7 +1,7 @@
 {
   "id": "jl0",
   "title": "Final review of mission-control plugin epic diff",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -12,5 +12,7 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:25.568648Z",
-  "updated_at": "2026-08-11T16:53:25.568648Z"
+  "updated_at": "2026-08-11T18:50:15.663966Z",
+  "closed_at": "2026-08-11T18:50:15.663966Z",
+  "closed_reason": "Completed: frontier final review — 0 blockers, 4 should-fix (settle-string contract pinned offline +2 assertions; install-path/coverage/arithmetic honesty fixes applied), 6 nits (4 accepted as debt: herdtest strict default, sed pane fallback, paint debounce stamp, collect sed path); all scrutiny items adjudicated incl. DoD wrinkles (merge-button reduction honest; GitHub install unverifiable pre-merge, now labeled); controller re-ran live plugin smoke PASS 83 assertions"
 }

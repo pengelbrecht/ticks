@@ -2,7 +2,8 @@
   "id": "o83",
   "title": "tk herd paint + event hooks: worker workspace metadata badges",
   "description": "New small command tk herd paint (cobra+legacy switch+ResetFlags; ExitError) that reads manifests + tk state and calls pane.report_metadata/workspace.report_metadata via the socket client: workspace title \"\u003ctick-id\u003e - \u003crole\u003e - wave\", state labels, TTL token badges (parked until data exists: tests/diff-size). Plugin event hooks (herdr-plugin.toml events section) run it on pane.agent_status_changed etc. Respect TTLs so stale badges expire. Live-verify report_metadata field shapes against herdr api schema first (methods exist: workspace.report_metadata, pane.report_metadata; CLI pane report-metadata shows the field vocabulary).",
-  "status": "open",
+  "notes": "2026-08-11 19:35 - runner-state: runner=claude branch=worktree-agent-a20179992450c984a substrate=harness. Concern resolved: README edits outside boundary accepted (stale rows would have shipped otherwise). Live findings: paint feedback bounce (report_metadata re-emits agent_status_changed; 2s debounce absorbs), herdr server PATH does not inherit shell PATH (tk-bin-path config file is the supported resolution).",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,7 @@
   "acceptance_criteria": "Live: a herd-spawned worker workspace shows tick-id title + state label painted by the hook; badges TTL-expire; unit tests against herdtest for the paint logic",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T16:53:04.976177Z",
-  "updated_at": "2026-08-11T16:53:04.976177Z"
+  "updated_at": "2026-08-11T17:36:48.273197Z",
+  "closed_at": "2026-08-11T17:36:48.273197Z",
+  "closed_reason": "Completed: tk herd paint + report_metadata client methods (schema-verified incl. workspace-tokens-only shape), 5 confirmed-firing plugin hooks with debounced feedback-bounce handling, live-verified paint+TTL-expiry on a real worker; PATH-resolution via tk-bin-path config"
 }

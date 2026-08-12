@@ -2,11 +2,13 @@
   "id": "t63",
   "title": "Herdr agent-agnostic orchestrator (herd mode)",
   "description": "Orchestrate ticks epics through Herdr panes/worktrees with heterogeneous agent fleets (any of herdr's 21 agent kinds as workers), while keeping harness-native orchestration as a configurable/auto-detected fallback. Spec: docs/design/herdr-orchestrator.md. Exploration: repo-wiki/herdr-orchestrator-exploration.md. Three epics: adapter conventions -\u003e helper CLI -\u003e mission-control plugin.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-11T09:45:19.760035Z",
-  "updated_at": "2026-08-11T09:45:19.760035Z"
+  "updated_at": "2026-08-11T18:56:05.777592Z",
+  "closed_at": "2026-08-11T18:56:05.777592Z",
+  "closed_reason": "Completed: herdr agent-agnostic orchestrator project — all three layers shipped (conventions #37, tk herd CLI #38, mission-control plugin #39), each frontier-reviewed with live evidence; checkpoint approved by human"
 }

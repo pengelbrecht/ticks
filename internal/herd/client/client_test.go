@@ -593,6 +593,57 @@ func TestEventsWaitValidatesAgentStatusMatch(t *testing.T) {
 	}
 }
 
+func TestNotificationShowSendsSchemaParamsAndDecodesTheReason(t *testing.T) {
+	c, srv := newTestClient(t, map[string]fakeHandler{
+		MethodNotificationShow: func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
+			return respond(w, req.ID, `{"type":"notification_show","shown":false,"reason":"no_foreground_client"}`)
+		},
+	})
+
+	shown, err := c.NotificationShow(t.Context(), NotificationShowParams{
+		Title: "tick 6pn blocked",
+		Body:  Ptr("epic zz0 implement"),
+		Sound: SoundRequest,
+	})
+	if err != nil {
+		t.Fatalf("NotificationShow: %v", err)
+	}
+	// herdr declining to display is a NORMAL result, not an error: a caller
+	// that treated it as one would retry for ever against a session with no
+	// UI attached.
+	if shown.Shown {
+		t.Error("shown = true, want false")
+	}
+	if shown.Reason != ReasonNoForegroundClient {
+		t.Errorf("reason = %q, want %q", shown.Reason, ReasonNoForegroundClient)
+	}
+	assertParams(t, srv, MethodNotificationShow, map[string]any{
+		"title": "tick 6pn blocked",
+		"body":  "epic zz0 implement",
+		"sound": "request",
+	})
+}
+
+func TestNotificationShowRejectsBadParamsBeforeDialling(t *testing.T) {
+	c, srv := newTestClient(t, nil)
+
+	if _, err := c.NotificationShow(t.Context(), NotificationShowParams{Sound: SoundDone}); err == nil {
+		t.Error("an empty title was accepted; herdr's schema requires one")
+	}
+	// `sound` is a closed enum in the schema, so a typo must fail here
+	// rather than come back as an opaque invalid_request.
+	if _, err := c.NotificationShow(t.Context(), NotificationShowParams{
+		Title: "hi", Sound: NotificationSound("chime"),
+	}); err == nil {
+		t.Error("an unknown sound was accepted")
+	}
+	for _, req := range srv.Requests() {
+		if req.Method == MethodNotificationShow {
+			t.Fatal("an invalid notification reached the server")
+		}
+	}
+}
+
 // assertParams checks the JSON params the client sent for a method.
 func assertParams(t *testing.T, srv *fakeServer, method string, want map[string]any) {
 	t.Helper()

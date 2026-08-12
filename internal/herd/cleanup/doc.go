@@ -34,6 +34,19 @@
 // settled live worker is the normal end-of-wave state, and worktree.remove
 // tears the agent down with the workspace in one call.
 //
+// # The liveness answer expires
+//
+// [Run] takes ONE agent.list for the whole wave, and then walks the plans one
+// at a time. Between the snapshot and a given plan's worktree.remove, that
+// worker can be prompted or wake itself and go `working` — and worktree.remove
+// tears down the pane and the running agent together. So under Apply the
+// blocked/working check is taken AGAIN, per plan, immediately before that
+// plan's first destructive call. A worker that has since gone live flips its
+// own plan to the same refusal it would have got at planning time; the rest of
+// the wave is decided by its own re-checks. A re-check that cannot be taken
+// (herdr stopped answering) refuses too, as `recheck-failed`: silence is not
+// evidence that killing an agent is safe.
+//
 // # Order
 //
 // Workspace, then branch, then the manifest LAST. The manifest is the record

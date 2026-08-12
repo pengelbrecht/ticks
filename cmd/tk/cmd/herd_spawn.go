@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/github"
-	"github.com/pengelbrecht/ticks/internal/herd/client"
 	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
@@ -106,7 +105,7 @@ func init() {
 	herdSpawnCmd.Flags().BoolVar(&herdSpawnWait, "wait", false,
 		"block until the worker settles after the implementer prompt (serializes a wave)")
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnStartupTimeout, "startup-timeout", defaultHerdSpawnStartupTimeoutMs,
-		"agent.start startup deadline, in milliseconds")
+		"agent.start startup deadline, in milliseconds (also bounds the agent_pane_busy retries)")
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnGateTimeout, "gate-timeout", defaultHerdSpawnGateTimeoutMs,
 		"deadline for each first-round-trip gate probe, in milliseconds")
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnPromptTimeout, "prompt-timeout", defaultHerdSpawnPromptTimeoutMs,
@@ -132,6 +131,16 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// A misspelled tier is a USAGE error, not a routing refusal: it is a typo
+	// in the invocation, so it is caught here — before the repo is located,
+	// the config is read or herdr is dialled. Reaching Resolve with it would
+	// report the same mistake as a generic failure (exit 1) after the work of
+	// loading and resolving.
+	if herdSpawnTier != "" && !herdSpawnKnownTier(herdSpawnTier) {
+		return NewExitError(ExitUsage, "unknown --tier %q (want one of %s)",
+			herdSpawnTier, strings.Join(herdSpawnTierNames(), ", "))
+	}
+
 	root, err := repoRoot()
 	if err != nil {
 		return NewExitError(ExitNoRepo, "failed to detect repo root: %v", err)
@@ -145,7 +154,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 
 	// 2. Routing. Compiled BEFORE any herdr connection, so a refusal costs
 	//    zero dials and leaves no half-made workspace behind.
-	cfg, err := herdSpawnLoadConfig(root)
+	cfg, err := herdLoadConfig(root, herdSpawnConfig)
 	if err != nil {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
@@ -164,6 +173,17 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	for _, w := range compiled.Warnings {
 		fmt.Fprintln(errOut, "warning: "+w)
 	}
+	// A role with no table falls back to [roles.implement]. That fallback is
+	// deliberate for a role nobody configured, and indistinguishable from a
+	// typo (`--role reveiw`) that silently routes a reviewer as an
+	// implementer — so say both names out loud. The manifest records the role
+	// that was ASKED FOR plus the one the routing came from, so a later reader
+	// can tell the two apart without re-resolving the config.
+	if compiled.ResolvedRole != herdSpawnRole {
+		fmt.Fprintf(errOut, "warning: no [roles.%s] in %s — this worker is routed from [roles.%s] instead"+
+			" (fix the role name, or add the table)\n",
+			herdSpawnRole, herdconfig.FileName, compiled.ResolvedRole)
+	}
 
 	base := herdSpawnBase
 	if base == "" {
@@ -177,9 +197,9 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	agentName := spawn.AgentName(t.ID)
 
 	// 3. herdr.
-	herd, err := client.New(ctx, client.Options{SocketPath: herdSpawnSocket})
+	herd, err := herdConnect(ctx, herdSpawnSocket)
 	if err != nil {
-		return NewExitError(ExitGeneric, "connecting to herdr: %v", err)
+		return err
 	}
 
 	prompt := spawn.BuildPrompt(spawn.PromptInput{
@@ -220,6 +240,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		Epic:         epic.ID,
 		Role:         herdSpawnRole,
 		Tier:         herdSpawnTier,
+		ResolvedRole: herdSpawnResolvedRole(compiled.ResolvedRole),
 		Branch:       res.Branch,
 		Worktree:     res.WorktreePath,
 		WorkspaceID:  res.WorkspaceID,
@@ -277,6 +298,35 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// herdSpawnKnownTier reports whether name is one of the four capability tiers.
+func herdSpawnKnownTier(name string) bool {
+	for _, t := range herdconfig.TierNames {
+		if string(t) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// herdSpawnTierNames is the tier vocabulary, for a usage message.
+func herdSpawnTierNames() []string {
+	names := make([]string, 0, len(herdconfig.TierNames))
+	for _, t := range herdconfig.TierNames {
+		names = append(names, string(t))
+	}
+	return names
+}
+
+// herdSpawnResolvedRole is the role the routing came from, recorded only when
+// it differs from the requested one: a manifest carrying both is how a reader
+// sees a fallback that the operator may have missed on stderr.
+func herdSpawnResolvedRole(resolved string) string {
+	if resolved == herdSpawnRole {
+		return ""
+	}
+	return resolved
+}
+
 // herdSpawnLoadTick reads the tick and, when it has one, its parent epic. Both
 // reads are read-only: the orchestrator owns every tracker mutation.
 func herdSpawnLoadTick(root, rawID string) (tick.Tick, tick.Tick, error) {
@@ -306,15 +356,6 @@ func herdSpawnLoadTick(root, rawID string) (tick.Tick, tick.Tick, error) {
 		}
 	}
 	return t, epic, nil
-}
-
-// herdSpawnLoadConfig loads the routing config. A missing file yields a nil
-// config (defaults apply); an invalid one is a hard stop, never a guess.
-func herdSpawnLoadConfig(root string) (*herdconfig.Config, error) {
-	if herdSpawnConfig != "" {
-		return herdconfig.Load(herdSpawnConfig)
-	}
-	return herdconfig.LoadRepo(root)
 }
 
 // herdSpawnHeadCommit resolves the repo's current HEAD, which is the default

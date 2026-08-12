@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/herd/cleanup"
-	"github.com/pengelbrecht/ticks/internal/herd/client"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 )
 
@@ -44,6 +43,15 @@ Refusals — never touched, per skills/ticks/references/herdr-runner.md
                    commit. A respawned worker carries a fresh name
                    (tick-<id>-r2), so the match is a prefix match on tick-<id>.
   missing manifest with no recorded state there is nothing safe to remove.
+  recheck-failed   --apply only: herdr stopped answering between the plan and
+                   the teardown, so the worker could not be proven idle.
+
+Under --apply the blocked/live check is taken AGAIN for each tick, immediately
+before that tick's own removals. The plans are built from one agent.list and
+performed one at a time, so a worker that was idle when the wave was planned
+can be mid-turn by the time its workspace is removed — and worktree.remove
+tears the running agent down with it. A worker that went live in that window
+refuses its own plan; the rest of the wave still proceeds.
 
 A settled live agent on a merged branch is NOT a refusal. Interactive agent
 CLIs do not exit when they finish a turn, so a wave's workers are still listed
@@ -120,12 +128,9 @@ func runHerdCleanup(cmd *cobra.Command, args []string) error {
 		paths[f.manifest.Tick] = f.path
 	}
 
-	herd, err := client.New(ctx, client.Options{SocketPath: herdCleanupSocket})
+	herd, err := herdConnect(ctx, herdCleanupSocket)
 	if err != nil {
-		// Explicit exit code: GetExitCode's message heuristics would
-		// otherwise read a dial error such as "connect: invalid argument" as
-		// a usage error.
-		return NewExitError(ExitGeneric, "connecting to herdr: %v", err)
+		return err
 	}
 
 	plans, err := cleanup.Run(ctx, herd, cleanup.Options{

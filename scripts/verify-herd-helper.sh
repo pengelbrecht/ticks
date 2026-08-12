@@ -198,19 +198,35 @@ close_new_workspaces() {
   restore_focus
 }
 
-# restore_focus puts the user's view back where it was. Removing or closing a
-# workspace moves herdr's focus to a NEIGHBOURING workspace — whatever
-# --no-focus was passed on the way in — so a run's teardown drags the user onto
-# a pane the run created, and then onto whatever is adjacent when that closes.
-# The run that moved it is the only thing that knows where it was.
+# restore_focus undoes the focus moves THIS RUN caused, and nothing else.
+# Removing or closing a workspace moves herdr's focus to a NEIGHBOURING
+# workspace — whatever --no-focus was passed on the way in — so a run's teardown
+# drags the user onto a pane the run created, and then onto whatever is adjacent
+# when that closes. The run that moved it is the only thing that knows where it
+# was.
+#
+# But the rule is ASYMMETRIC, because a herdr session is shared with a human and
+# with other agents. If focus is sitting on a workspace that existed before this
+# run, someone chose that while the run was working, and dragging it back is
+# exactly the discourtesy this script polices — so leave it. Only focus that
+# landed on something the run created (or on nothing) is the run's mess to
+# clean. Measured: a live run failed an absolute "focus never moved" assertion
+# because an unrelated session moved it mid-wave.
+focus_is_pre_existing() {
+  local now; now="$(herdr_focused_workspace)"
+  [ -n "$now" ] || return 1
+  grep -qx "$now" "$WS_BEFORE"
+}
 restore_focus() {
   [ -n "${FOCUS_BEFORE:-}" ] || return 0
-  local now; now="$(herdr_focused_workspace)"
-  if [ "$now" = "$FOCUS_BEFORE" ]; then
+  if focus_is_pre_existing; then
+    local now; now="$(herdr_focused_workspace)"
+    [ "$now" = "$FOCUS_BEFORE" ] || log "focus is on $now, which pre-dates this run — leaving it alone"
     return 0
   fi
+  local now; now="$(herdr_focused_workspace)"
   if herdr_workspace_ids | grep -qx "$FOCUS_BEFORE"; then
-    log "teardown moved focus to ${now:-<none>} — restoring it to $FOCUS_BEFORE"
+    log "teardown left focus on ${now:-<none>}, which this run created — restoring it to $FOCUS_BEFORE"
     herdr workspace focus "$FOCUS_BEFORE" >/dev/null || log "  could not restore focus"
   else
     log "the workspace focused at run start ($FOCUS_BEFORE) is gone — leaving herdr's choice (${now:-<none>})"
@@ -564,11 +580,16 @@ herdr_agent_names > "$EVIDENCE/agents-after.txt"
 assert_eq "zero run-created agents remain" "" \
   "$(comm -13 "$AGENTS_BEFORE" "$EVIDENCE/agents-after.txt" | tr '\n' ' ' | sed 's/ *$//')"
 
-# The run must not leave the user looking somewhere else. close_new_workspaces
-# already restored focus; this asserts it landed.
+# The run must not leave the user looking at a pane the run created — which is
+# where teardown always drags focus. close_new_workspaces already put it back;
+# this asserts it landed. The invariant is "a workspace that pre-dates this
+# run", not "the exact one from run start": a shared session's focus can be
+# moved by a human or another agent mid-run, and that is not this run's mess.
 FOCUS_AFTER="$(herdr_focused_workspace)"
 echo "$FOCUS_AFTER" > "$EVIDENCE/focus-after.txt"
-assert_eq "focus is back on the workspace that had it at run start" "$FOCUS_BEFORE" "$FOCUS_AFTER"
+assert "focus is on a workspace that pre-dates this run" focus_is_pre_existing
+[ "$FOCUS_AFTER" = "$FOCUS_BEFORE" ] || \
+  log "focus is on $FOCUS_AFTER rather than the run-start $FOCUS_BEFORE — pre-existing, so left alone"
 
 # ------------------------------------------------------------------ report ---
 echo
