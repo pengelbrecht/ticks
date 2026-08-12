@@ -3,7 +3,7 @@
   "title": "Repair review findings: fswatch promotion blocker + six smaller items",
   "description": "Frontier-review findings on the mop-up epic, all verified by the reviewer. Apply exactly:\n\n1. BLOCKER fswatch.go (~243): trackHerdDir match loop starts at filepath.Dir(f.herdDir), so when the watched ancestor is .tick/logs (already exists in most repos) the Create event for herd/ matches nothing and promotion NEVER fires — the dashboard silently degrades with a healthy header. Fix: include f.herdDir itself (loop from f.herdDir, not its Dir). Add a test variant that PRE-CREATES .tick/logs before starting the watcher, then creates herd/+epic+manifest and asserts the fast-path reload. Also close the fresh-repo race the reviewer identified (event processed between MkdirAll of logs and herd stranding the watch): after promoting on an ancestor event, stat-and-add descendants that already exist.\n2. SHOULD-FIX fswatch.go (~212): every raw fsnotify event emits FSWatchMsg{Up:true} into the 128-slot drop-on-full channel — bursts can drop the debounced ReloadMsg itself. Gate the recovery emission on an internal wasDown flag: emit Up:true only on an actual down-\u003eup transition.\n3. NIT: after successful promotion, remove the stale ancestor watch (fsw.Remove(ancestor)) so .tick/config.json writes etc. stop triggering spurious reloads.\n4. NIT herd_spawn.go (~357): herdSpawnLoadTick maps every store.Read failure to ExitNotFound — switch to the notFoundIfMissing helper so a corrupt-but-existing tick file exits 1 not 4 (matches lookup.go invariant + TestCorruptTickIsNotNotFound).\n5. NIT skills_targets.go (~28): folds repoRoot Getwd failure into ExitNoRepo with a misleading message — check errors.As for the typed ExitError before substituting the not-a-repo message (contract documented at init.go:110).\n6. NIT CHANGELOG.md: add Unreleased entries for the three observable changes lacking them — cleanup RESULT consumption+archive, codex --add-dir argv addition, dashboard worker timers — one line each, matching house style.\n7. NIT herd_spawn.go: GitCommonDir is resolved unconditionally for every kind, so a claude spawn fails if git rev-parse fails — resolve lazily/only when the compiled kind declares extras needing it (read how the computed-extras seam exposes that; keep fail-closed for kinds that DO need it).\n\nTests for 1-2 mandatory; 3-5 pinned where a cheap assertion exists. Boundaries: internal/herd/dashboard, internal/herd/spawn, cmd/tk/cmd/{herd_spawn,skills_targets}.go, CHANGELOG.md + touched tests. Full-suite gate on real exits; gofmt/vet clean; do NOT commit your RESULT file.",
   "notes": "2026-08-12 12:47 - runner-state: substrate=herdr kind=claude branch=tick/7fa workspace=w7F agent=tick-7fa session=4b7294b4",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,6 +11,7 @@
   "acceptance_criteria": "Pre-existing .tick/logs promotion pinned by test; Up-only-on-transition pinned; ancestor watch removed post-promotion; corrupt tick exits 1 in herd spawn; Getwd failure not mislabeled; three CHANGELOG entries; extras-driven lazy git resolution; full suite green",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-12T10:47:11.980479Z",
-  "updated_at": "2026-08-12T10:47:26.487418Z",
-  "started_at": "2026-08-12T10:47:12.027505Z"
+  "updated_at": "2026-08-12T11:02:18.997833Z",
+  "closed_at": "2026-08-12T11:02:18.997833Z",
+  "closed_reason": "Completed: all 7 review findings — promotion blocker (race-free add-then-recheck, fail-on-old-code proven), transition-gated health, ancestor drop, both exit-code slips, 3 CHANGELOG entries, lazy git resolution"
 }
