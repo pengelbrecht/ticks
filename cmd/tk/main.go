@@ -105,6 +105,8 @@ func printUsage() {
 	fmt.Println("Skill Bundle:")
 	fmt.Println("  tk skills list                List embedded skills and the tk version they ship with")
 	fmt.Println("  tk skills get <name>          Print a skill's SKILL.md (--full for the whole bundle)")
+	fmt.Println("  tk skills install <name>      Install a skill to disk (default: ~/.claude/skills/<name>)")
+	fmt.Println("  tk skills diff <name>         Compare an installed skill against the embedded bundle")
 	fmt.Println()
 	fmt.Println("Agent Orchestration (herdr):")
 	fmt.Println("  tk herd spawn <id>            Spawn a gated herdr worker: worktree + agent + first prompt")
