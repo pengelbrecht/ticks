@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-08-13
+
+### Added
+
+- **Dashboard tick detail view** — Enter on the cursor-selected tick opens a read-only detail view (description, acceptance criteria, blockers, worker info with elapsed timers); esc returns; content live-refreshes while open. The board's selection cursor now has a purpose.
+
+
 ## [0.22.0] - 2026-08-12
 
 ### Added
