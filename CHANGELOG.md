@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-08-13
+
+### Added
+
+- **opencode as a verified worker kind** — `kind = "opencode"` in `.tick/runners.toml` (second cross-provider kind): `--auto` full-auto template, provider-qualified `--model` ids, `-s` flag resume, no sandbox restrictions. Effort levels are refused for this kind (opencode's variant mechanism is config-side; escape hatch documented). Includes a strict model-family check because opencode silently substitutes its default model for unresolvable ids — verify the pane footer's model name, not just the first answer.
+
+
 ## [0.23.0] - 2026-08-13
 
 ### Added
