@@ -7,7 +7,7 @@ A worker is specified along **two explicit dimensions**, never as raw argv:
 - **`kind`** — the harness dimension, herdr's `--kind` value (`claude`, `codex`, `gemini`, `pi`, …). The installed herdr binary is the authority on the valid list (`herdr agent`).
 - **`model`** + optional **`effort`** — the capability dimension, in the kind's own model namespace plus a kind-neutral effort level.
 
-The spawner compiles `model`/`effort` into that kind's native argv (`claude --model … --effort …`, `codex -m … -c model_reasoning_effort="…"`, `pi --model <provider>/<model>:<effort>`). The translation table, the model families each kind accepts, and the fail-closed rule for impossible combinations live in [`herdr-kinds.md`](herdr-kinds.md) → *[Model and effort translation](herdr-kinds.md#model-and-effort-translation)*; this document never restates them, nor the per-kind spawn and full-auto templates.
+The spawner compiles `model`/`effort` into that kind's native argv (`claude --model … --effort …`, `codex -m … -c model_reasoning_effort="…"`, `pi --model <provider>/<model>:<effort>`, `opencode --model <provider>/<model>` with no effort form at all). The translation table, the model families each kind accepts, and the fail-closed rule for impossible combinations live in [`herdr-kinds.md`](herdr-kinds.md) → *[Model and effort translation](herdr-kinds.md#model-and-effort-translation)*; this document never restates them, nor the per-kind spawn and full-auto templates.
 
 **Under the herdr substrate, "the spawner" is `tk herd spawn`.** It loads this file, resolves the role/tier cell, compiles the argv, refuses an impossible cell *before dialling herdr*, and passes the result through verbatim — so everything this document specifies about resolution order, argv order and fail-closed behaviour is enforced code, not a convention an orchestrator has to remember. `tk herd spawn --role <role> --tier <tier>` is where a config choice actually takes effect; see [`herdr-runner.md`](herdr-runner.md#the-helper-tk-herd). Under harness orchestration the same structure is read by the active adapter, which cannot enforce it the same way.
 
@@ -84,7 +84,7 @@ The tier names are the shared capability tiers from `agent-runner.md` — the co
 
 The computed extras are the one position that comes from neither the config file nor the kind's static template: they are argv a kind needs that only the *repository* can name, rendered at spawn time. Today there is exactly one — codex's `--add-dir <git-common-dir>`, which keeps a sandboxed worker able to write the git metadata of its own linked worktree (see [`herdr-kinds.md`](herdr-kinds.md#codex)). They sit next to the full-auto template because they belong to the same question, *what may this worker touch*, and they are **not** gated on `full_auto`. A kind that declares an extra and cannot render it is a spawn-time refusal, not an argv silently missing an element.
 
-**The effort enum is a union across kinds, not a per-kind guarantee.** `off` and `minimal` exist for pi but not for `claude --effort`; codex's accepted set belongs to the model, not the CLI. The schema checks the value's *shape*; the spawner checks whether this *kind* accepts it.
+**The effort enum is a union across kinds, not a per-kind guarantee.** `off` and `minimal` exist for pi but not for `claude --effort`; codex's accepted set belongs to the model, not the CLI; **opencode has no effort mechanism at all**, so every level is refused there and a tier ladder has to be built from `model` instead. The schema checks the value's *shape*; the spawner checks whether this *kind* accepts it — including whether it has anywhere to put it.
 
 ### Resolution order
 
@@ -381,6 +381,40 @@ effort = "xhigh"
 
 Compiled argv for `implement` at `frontier`: `--model anthropic/claude-opus-4-6:max`. The same pair under `kind = "claude"` would be an impossible cell (`anthropic/claude-opus-4-6` is not a name `claude --model` takes) — the cell's validity is a property of the *kind*, which is exactly why compatibility cannot live in the schema.
 
+### 5. A kind with no effort dimension: opencode
+
+Every example above varies its tiers by `effort`, because every kind above has somewhere to put one. `opencode` does not: its interactive CLI has no effort flag, so setting `effort` anywhere in an opencode role is a spawn refusal (see [`herdr-kinds.md`](herdr-kinds.md#opencode)). The tier ladder is therefore built from `model` — which is also what a multi-provider kind makes cheap, since the whole catalogue is addressable by id.
+
+```toml
+version = 1
+
+[orchestrator]
+harness = "claude"
+kind = "claude"
+
+[orchestration]
+substrate = "herdr"
+max_parallel = 3
+
+[roles.implement]
+kind = "opencode"
+model = "openai/gpt-5.6-luna"     # no `effort` — opencode has no flag for it
+
+[roles.implement.tiers.economy]
+model = "openai/gpt-5.4-mini-fast"
+
+[roles.implement.tiers.strong]
+model = "openai/gpt-5.6-sol"
+
+[roles.review]
+kind = "claude"
+harness = "claude"
+model = "opus"
+effort = "high"
+```
+
+Compiled argv for `implement` at `strong`: `--auto --model openai/gpt-5.6-sol`. Two things to carry away. First, `--auto` is opencode's entire full-auto template — it approves permissions rather than choosing a sandbox, so unlike codex there is no computed per-spawn extra and nothing extra is needed to commit from a linked worktree. Second, the model ids must be **exactly** what `opencode models` prints: a bare or misspelled id is not an error there, it is a silent fall back to the CLI's default model, which is why the spawner's family check for this kind is strict about the `<provider>/<model>` shape.
+
 ## Negative cases
 
 These are the failures a config author should expect, and where each one is caught.
@@ -404,7 +438,9 @@ These are the failures a config author should expect, and where each one is caug
 |---|---|
 | `kind = "claude"`, `model = "gpt-5.6-luna"` | **Impossible cell.** Valid shape, incompatible pair. Refuse the spawn naming role/tier, kind and model; never reroute to codex, never drop the model. |
 | `kind = "claude"`, `effort = "minimal"` | `claude --effort` accepts `low…max` only. The enum is a union across kinds. |
-| `kind = "codex"`, `model = "gpt-9-imaginary"` | Well-formed, non-existent. This is the [green-start trap](herdr-kinds.md#the-green-start-trap): the pane starts green and does zero work. |
+| `kind = "opencode"`, `effort = "high"` | opencode has **no argv form for effort** — `--variant` is a flag of the one-shot `opencode run`, and passing it to the interactive CLI kills the spawn. Refused rather than dropped: a dropped level runs the tier at the model's own default variant. Vary the tier by `model`, or select a configured agent with `args = ["--agent", "<name>"]`. |
+| `kind = "opencode"`, `model = "gpt-5.6-luna"` | Not provider-qualified. opencode takes ids exactly as `opencode models` prints them (`openai/gpt-5.6-luna`); anything else is silently replaced by its default model, so the check is strict. |
+| `kind = "codex"`, `model = "gpt-9-imaginary"` | Well-formed, non-existent. This is the [green-start trap](herdr-kinds.md#the-green-start-trap): the pane starts green and does zero work. Under `kind = "opencode"` the same class is *worse* — a provider-qualified but unresolvable id starts green, answers the gate correctly, and runs the whole tick on the CLI's default model. |
 | `model = "opus"` **and** `args = ["--model", "sonnet"]` | `args` restates a compiled flag. Duplicate/conflicting argv — a config error, not a precedence puzzle. |
 | `kind = "frobnicator"` | Shape-valid kind name the installed herdr does not know (`herdr agent`). |
 | `kind = "codex"` where the repo's git common dir could not be resolved | The kind's computed `--add-dir <git-common-dir>` extra has nothing to render from. The config is fine; the *environment* is. Refused anyway — compiling the sandbox without the grant produces a worker that starts green, does the work and cannot commit it. |
@@ -418,7 +454,8 @@ The dividing line is the same one stated under [Shape versus compatibility](#sha
 - **Args are argv, not shell.** `["--add-dir", "/x"]`, never `["--add-dir /x"]`. Quoting inside a single argv element (as in Codex's `--config 'foo="bar"'`) is part of that element's value.
 - **`--add-dir` in `args` is additive, not a conflict.** The spawner already compiles one for codex (the git common dir); repeated `--add-dir` elements widen the sandbox further rather than overriding each other, so it is not a reserved flag. Name the *extra* directory a tick needs — never restate the git one.
 - **Omitting `model` is legal and means "the kind's own default".** Example 3 above carries `effort` and no `model`, so the spawner passes no model flag and codex resolves `model` from `~/.codex/config.toml` — verified live. That is a deliberate choice, not an oversight: it keeps the config from pinning a model string that will age. Set `model` only when a role must not follow the CLI's local default, and re-read [`herdr-kinds.md`](herdr-kinds.md)'s green-start trap before you do — a model string that the account cannot use starts green and does zero work.
-- **Model strings live in the kind's namespace.** `opus` means something to `claude` and nothing to `codex`; `openai-codex/gpt-5.6-sol` means something to `pi` and nothing to either. Changing a tier's `kind` obliges you to restate its `model`.
+- **Model strings live in the kind's namespace.** `opus` means something to `claude` and nothing to `codex`; `openai-codex/gpt-5.6-sol` means something to `pi` and nothing to either; `openai/gpt-5.6-luna` is opencode's spelling of a model codex calls `gpt-5.6-luna`. Changing a tier's `kind` obliges you to restate its `model`.
+- **`effort` is not universal.** A kind may have no mechanism for it (opencode), in which case setting it is a spawn refusal, not a hint. Check [`herdr-kinds.md`](herdr-kinds.md#model-and-effort-translation) before writing an effort ladder for a kind you have not used here before, and build the ladder from `model` when there is no effort dimension.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.
 - **Keep `[roles.implement]` present.** It is the fallback for every unlisted role.
 - **A config that fails schema validation is a stop, not a guess** — report the validation error and let the user fix it rather than falling back to defaults silently. **A config that passes the schema but hits an impossible cell at spawn time is equally a stop** — see [Shape versus compatibility](#shape-versus-compatibility).
