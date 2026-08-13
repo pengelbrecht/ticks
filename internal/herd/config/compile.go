@@ -173,13 +173,28 @@ func Compile(w Worker, fullAuto bool, env SpawnContext) (*Spawn, error) {
 		}
 	}
 
-	if w.Effort != "" && len(spec.efforts) > 0 && !containsEffort(spec.efforts, w.Effort) {
-		return nil, &RefusalError{
-			Label: label, Kind: w.Kind, Model: w.Model, Effort: w.Effort,
-			Reason: RefusalEffortLevel,
-			Detail: fmt.Sprintf("kind = %q cannot run effort = %q (%s; the config enum is a union across kinds)",
-				w.Kind, string(w.Effort), spec.effortsNote),
-			Fix: "choose a level this kind accepts, or move the role to a kind that has one",
+	if w.Effort != "" {
+		switch {
+		// A kind with no effort mechanism at all refuses every level. The
+		// alternative — dropping it — would run an `economy` tier at whatever
+		// the model's default is, which is the "silently did the wrong work"
+		// outcome the fail-closed rule exists to prevent.
+		case spec.effortStyle == effortStyleNone:
+			return nil, &RefusalError{
+				Label: label, Kind: w.Kind, Model: w.Model, Effort: w.Effort,
+				Reason: RefusalEffortLevel,
+				Detail: fmt.Sprintf("kind = %q has no argv form for effort = %q (%s)",
+					w.Kind, string(w.Effort), spec.effortsNote),
+				Fix: "drop `effort` for this kind — omitting it means the model's own default — or vary the tier by `model` instead",
+			}
+		case len(spec.efforts) > 0 && !containsEffort(spec.efforts, w.Effort):
+			return nil, &RefusalError{
+				Label: label, Kind: w.Kind, Model: w.Model, Effort: w.Effort,
+				Reason: RefusalEffortLevel,
+				Detail: fmt.Sprintf("kind = %q cannot run effort = %q (%s; the config enum is a union across kinds)",
+					w.Kind, string(w.Effort), spec.effortsNote),
+				Fix: "choose a level this kind accepts, or move the role to a kind that has one",
+			}
 		}
 	}
 
@@ -261,6 +276,13 @@ func compileCapability(spec *kindSpec, model string, effort Effort) []string {
 			out = append(out, spec.modelFlag, model)
 		case effort != "":
 			out = append(out, spec.effortFlag, string(effort))
+		}
+	case effortStyleNone:
+		// opencode: the model dimension alone. Effort never reaches here —
+		// Compile refuses it above — and there is no flag to render it into
+		// if it did.
+		if model != "" {
+			out = append(out, spec.modelFlag, model)
 		}
 	case effortStyleConfig:
 		// codex: `-m M -c model_reasoning_effort="E"`.

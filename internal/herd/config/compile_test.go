@@ -142,6 +142,35 @@ func TestDocExamplesResolveAndCompile(t *testing.T) {
 			wantArgv: []string{"--model", "openai-codex/gpt-5.6-sol:low"},
 		},
 
+		// --- Example 5: opencode, a kind with no effort dimension ----------
+		{
+			name: "ex5 implement/strong — the doc's compiled argv line",
+			toml: docExample5, role: "implement", tier: TierStrong,
+			wantResolvedRole: "implement", wantTierApplied: true,
+			wantKind: "opencode", wantModel: "openai/gpt-5.6-sol",
+			wantArgv: []string{"--auto", "--model", "openai/gpt-5.6-sol"},
+		},
+		{
+			name: "ex5 implement/economy — the ladder is built from model, not effort",
+			toml: docExample5, role: "implement", tier: TierEconomy,
+			wantResolvedRole: "implement", wantTierApplied: true,
+			wantKind: "opencode", wantModel: "openai/gpt-5.4-mini-fast",
+			wantArgv: []string{"--auto", "--model", "openai/gpt-5.4-mini-fast"},
+		},
+		{
+			name: "ex5 implement — the role's own model, no effort anywhere",
+			toml: docExample5, role: "implement", tier: "",
+			wantResolvedRole: "implement",
+			wantKind:         "opencode", wantModel: "openai/gpt-5.6-luna",
+			wantArgv: []string{"--auto", "--model", "openai/gpt-5.6-luna"},
+		},
+		{
+			name: "ex5 review — crosses back to claude, which does have effort",
+			toml: docExample5, role: "review", tier: "",
+			wantResolvedRole: "review", wantKind: "claude", wantModel: "opus", wantEffort: EffortHigh,
+			wantArgv: []string{"--permission-mode", "bypassPermissions", "--model", "opus", "--effort", "high"},
+		},
+
 		// --- The tier-overrides-kind snippet -------------------------------
 		{
 			name: "tier crossing the kind boundary restates the model",
@@ -459,6 +488,30 @@ func TestSpawnRefusals(t *testing.T) {
 			wantLabel:  "roles.implement", wantKind: "claude", wantModel: "anthropic/claude-opus-4-6",
 		},
 		{
+			name: "opencode refuses an unqualified model id",
+			toml: "[roles.implement]\nkind = \"opencode\"\nmodel = \"gpt-5.6-luna\"\n",
+			role: "implement", tier: "",
+			wantReason: RefusalModelFamily,
+			wantIn:     []string{"provider-qualified", "silently"},
+			wantLabel:  "roles.implement", wantKind: "opencode", wantModel: "gpt-5.6-luna",
+		},
+		{
+			name: "opencode refuses a claude alias",
+			toml: "[roles.implement]\nkind = \"opencode\"\n\n[roles.implement.tiers.strong]\nmodel = \"opus\"\n",
+			role: "implement", tier: TierStrong,
+			wantReason: RefusalModelFamily,
+			wantIn:     []string{"provider-qualified"},
+			wantLabel:  "roles.implement.tiers.strong", wantKind: "opencode", wantModel: "opus",
+		},
+		{
+			name: "opencode args must not restate the model flag",
+			toml: "[roles.implement]\nkind = \"opencode\"\nmodel = \"openai/gpt-5.6-luna\"\nargs = [\"-m\", \"openai/gpt-5.6-sol\"]\n",
+			role: "implement", tier: "",
+			wantReason: RefusalArgsConflict,
+			wantIn:     []string{"restates a flag"},
+			wantLabel:  "roles.implement", wantKind: "opencode", wantModel: "openai/gpt-5.6-luna",
+		},
+		{
 			name: "codex args must not smuggle model_reasoning_effort",
 			toml: "[roles.implement]\nkind = \"codex\"\nmodel = \"gpt-5.6-luna\"\nargs = [\"-c\", \"model_reasoning_effort=\\\"high\\\"\"]\n",
 			role: "implement", tier: "",
@@ -659,8 +712,174 @@ func TestResolveErrors(t *testing.T) {
 }
 
 func TestKnownKinds(t *testing.T) {
-	if got := strings.Join(KnownKinds(), ","); got != "claude,codex,pi" {
+	if got := strings.Join(KnownKinds(), ","); got != "claude,codex,opencode,pi" {
 		t.Errorf("KnownKinds = %q", got)
+	}
+}
+
+// --------------------------------------------------------------------------
+// opencode: a provider-qualified kind with NO effort dimension.
+// --------------------------------------------------------------------------
+
+const opencodeImplement = "[roles.implement]\nkind = \"opencode\"\nmodel = \"openai/gpt-5.6-luna\"\n"
+
+// TestOpencodeCompilesTheVerifiedTemplate pins the template round-tripped live
+// on 2026-08-13 (opencode 1.18.18): `--auto` is the full-auto form and
+// `--model <provider>/<model>` the capability form, in that order.
+func TestOpencodeCompilesTheVerifiedTemplate(t *testing.T) {
+	cfg, err := Parse([]byte(opencodeImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sp, err := cfg.SpawnFor(RoleImplement, "", testEnv)
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	want := []string{"--auto", "--model", "openai/gpt-5.6-luna"}
+	if !equalArgs(sp.Argv, want) {
+		t.Errorf("Argv  = %q\n want = %q", sp.Argv, want)
+	}
+	if len(sp.Warnings) != 0 {
+		t.Errorf("Warnings = %q, want none — the opencode full-auto template is round-tripped", sp.Warnings)
+	}
+}
+
+// The template is a template: with full_auto off, `--auto` is dropped and every
+// permission ask (including opencode's `external_directory` ask, which a linked
+// worktree's git metadata triggers) becomes a human escalation.
+func TestOpencodeFullAutoFalseDropsAuto(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nfull_auto = false\n\n" + opencodeImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	sp, err := cfg.SpawnFor(RoleImplement, "", testEnv)
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	want := []string{"--model", "openai/gpt-5.6-luna"}
+	if !equalArgs(sp.Argv, want) {
+		t.Errorf("Argv = %q, want %q", sp.Argv, want)
+	}
+}
+
+// TestOpencodeRefusesEffort: the interactive opencode CLI has no
+// reasoning-effort flag at all — `--variant` exists on `opencode run` only, and
+// passing it to the TUI is a HARD startup failure (yargs prints usage and the
+// process exits, so `herdr agent start` times out; observed live 2026-08-13).
+// Silently dropping the level would run an "economy" tier at the model's
+// default variant, so the compile refuses and names the real mechanism.
+func TestOpencodeRefusesEffort(t *testing.T) {
+	for _, level := range []Effort{EffortLow, EffortMedium, EffortMax, EffortOff} {
+		t.Run(string(level), func(t *testing.T) {
+			cfg, err := Parse([]byte(opencodeImplement + "effort = \"" + string(level) + "\"\n"))
+			if err != nil {
+				t.Fatalf("Parse: %v — the refusal must be shape-valid first", err)
+			}
+			sp, err := cfg.SpawnFor(RoleImplement, "", testEnv)
+			if err == nil {
+				t.Fatalf("SpawnFor succeeded with argv %q, want a refusal", sp.Argv)
+			}
+			if sp != nil {
+				t.Error("a refusal must return no spawn — never an argv with the level silently dropped")
+			}
+			var ref *RefusalError
+			if !errors.As(err, &ref) {
+				t.Fatalf("error is %T, want *RefusalError", err)
+			}
+			if ref.Reason != RefusalEffortLevel {
+				t.Errorf("Reason = %q, want %q", ref.Reason, RefusalEffortLevel)
+			}
+			msg := err.Error()
+			for _, want := range []string{
+				FileName, "[roles.implement]", `"opencode"`, `"openai/gpt-5.6-luna"`,
+				string(level), "--variant", "opencode run", "--agent",
+			} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("message does not contain %q:\n  %s", want, msg)
+				}
+			}
+		})
+	}
+}
+
+// TestOpencodeModelFamily is the strictest family rule in the table, and the
+// reason is live evidence rather than taste: an id opencode does not recognise
+// produces NO error — the TUI starts on its own default model and answers the
+// first-round-trip gate correctly (observed 2026-08-13:
+// `--model openai/gpt-9-imaginary` ran on `opencode/deepseek-v4-flash-free`).
+// Compile time is the only cheap place to catch the whole class.
+func TestOpencodeModelFamily(t *testing.T) {
+	ok := []string{
+		"openai/gpt-5.6-luna", "opencode/big-pickle", "anthropic/claude-opus-4-6",
+	}
+	bad := []string{
+		"gpt-5.6-luna",             // bare: opencode wants provider/model
+		"opus",                     // a claude alias
+		"openai/gpt-5.6-luna:high", // pi's model:thinking shorthand
+		"openai/",                  // empty model half
+		"/gpt-5.6-luna",            // empty provider half
+	}
+	for _, m := range ok {
+		if !opencodeFamily(m) {
+			t.Errorf("opencodeFamily(%q) = false, want true", m)
+		}
+	}
+	for _, m := range bad {
+		if opencodeFamily(m) {
+			t.Errorf("opencodeFamily(%q) = true, want false", m)
+		}
+	}
+}
+
+// The `:variant` rejection has to be pinned through Compile as well as through
+// the family predicate: Compile is public and a caller may hand it a Worker it
+// built itself, never having passed the loader's own `:` check.
+func TestOpencodeRefusesAVariantSuffixThroughCompile(t *testing.T) {
+	sp, err := Compile(Worker{
+		Role: RoleImplement, ResolvedRole: RoleImplement,
+		Kind: "opencode", Model: "openai/gpt-5.6-luna:high",
+	}, true, testEnv)
+	if err == nil {
+		t.Fatalf("Compile succeeded with argv %q, want a refusal", sp.Argv)
+	}
+	var ref *RefusalError
+	if !errors.As(err, &ref) {
+		t.Fatalf("error is %T, want *RefusalError", err)
+	}
+	if ref.Reason != RefusalModelFamily {
+		t.Errorf("Reason = %q, want %q", ref.Reason, RefusalModelFamily)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "silently") {
+		t.Errorf("message must say the failure mode is silent, not an error:\n  %s", msg)
+	}
+}
+
+// opencode declares no computed per-spawn extras: it runs under a permission
+// model, not a filesystem sandbox, so committing from a linked worktree needs
+// no `--add-dir` analogue (verified end to end 2026-08-13 — a real opencode
+// worker committed from a `tk herd spawn` worktree). An empty spawn context
+// must therefore compile identically to a populated one.
+func TestOpencodeDeclaresNoSpawnExtras(t *testing.T) {
+	cfg, err := Parse([]byte(opencodeImplement))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	calls := 0
+	sp, err := cfg.SpawnFor(RoleImplement, "", SpawnContext{
+		ResolveGitCommonDir: func() (string, error) {
+			calls++
+			return "", errors.New("git rev-parse --git-common-dir: exit status 128")
+		},
+	})
+	if err != nil {
+		t.Fatalf("SpawnFor: %v", err)
+	}
+	if calls != 0 {
+		t.Errorf("the git common dir was resolved %d time(s) for kind opencode, which declares no fragment needing it", calls)
+	}
+	want := []string{"--auto", "--model", "openai/gpt-5.6-luna"}
+	if !equalArgs(sp.Argv, want) {
+		t.Errorf("Argv = %q, want %q", sp.Argv, want)
 	}
 }
 

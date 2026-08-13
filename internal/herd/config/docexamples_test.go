@@ -188,6 +188,34 @@ model = "openai-codex/gpt-5.6-sol"
 effort = "xhigh"
 `
 
+const docExample5 = `
+version = 1
+
+[orchestrator]
+harness = "claude"
+kind = "claude"
+
+[orchestration]
+substrate = "herdr"
+max_parallel = 3
+
+[roles.implement]
+kind = "opencode"
+model = "openai/gpt-5.6-luna"     # no ` + "`effort`" + ` — opencode has no flag for it
+
+[roles.implement.tiers.economy]
+model = "openai/gpt-5.4-mini-fast"
+
+[roles.implement.tiers.strong]
+model = "openai/gpt-5.6-sol"
+
+[roles.review]
+kind = "claude"
+harness = "claude"
+model = "opus"
+effort = "high"
+`
+
 // The tier-override snippet from "Within one wave, the tier is the only
 // per-tick routing knob", wrapped in the minimum that makes it a whole file.
 const docTierKindOverride = `

@@ -40,8 +40,12 @@ type kindSpec struct {
 
 	// efforts is the set of levels this kind accepts. Empty means "the level
 	// belongs to the model, not the CLI" — codex — and nothing is refused.
+	// It is not consulted at all when effortStyle is effortStyleNone: that
+	// kind refuses EVERY level, because it has no mechanism to compile one
+	// into.
 	efforts []Effort
-	// effortsNote explains the accepted set in a refusal message.
+	// effortsNote explains the accepted set — or, for effortStyleNone, the
+	// absence of any mechanism — in a refusal message.
 	effortsNote string
 
 	// modelOK reports whether a model id belongs to this kind's family.
@@ -121,9 +125,10 @@ var gitMetadataAddDir = spawnExtra{
 
 // kindSpecs is the capability matrix. Keys are herdr kinds.
 //
-// The claude and codex rows are round-tripped live in herdr-kinds.md. The pi
-// row is read from `pi --help` only — pi is not yet verified as a tick
-// implementer, which is why it carries no full-auto template.
+// The claude, codex and opencode rows are round-tripped live in
+// herdr-kinds.md. The pi row is read from `pi --help` only — pi is not yet
+// verified as a tick implementer, which is why it carries no full-auto
+// template.
 var kindSpecs = map[string]*kindSpec{
 	"claude": {
 		name: "claude",
@@ -170,6 +175,33 @@ var kindSpecs = map[string]*kindSpec{
 		},
 		reservedSubstrings: []string{"model_reasoning_effort"},
 	},
+	"opencode": {
+		name: "opencode",
+		// herdr-kinds.md: `--auto` is the whole full-auto story — opencode
+		// gates on per-permission asks rather than a filesystem sandbox, and
+		// `--auto` auto-approves everything not explicitly denied. Verified
+		// live 2026-08-13: the pane footer reads `Build auto · …`.
+		fullAuto:         []string{"--auto"},
+		fullAutoVerified: true,
+		modelFlag:        "--model",
+		// The interactive opencode CLI carries no effort/variant flag at all.
+		// `--variant` exists on the non-interactive `opencode run` only, and
+		// passing it to the TUI is a hard startup failure (yargs prints usage
+		// and exits, so `herdr agent start` times out) — observed live
+		// 2026-08-13, opencode 1.18.18.
+		effortStyle: effortStyleNone,
+		effortsNote: "the interactive opencode CLI has no reasoning-effort flag — `--variant` exists on `opencode run` only, " +
+			"and passing it to the TUI kills the spawn; set the variant on an agent in opencode's own config " +
+			"(`agent.<name>.variant`) and select it with args = [\"--agent\", \"<name>\"]",
+		modelOK: opencodeFamily,
+		familyNote: "opencode is multi-provider and takes a provider-qualified <provider>/<model> id " +
+			"(`opencode models`); an id it does not recognise is not an error — it silently starts on the default model",
+		familyHint: "qualify the id with its provider (openai/…, opencode/…, anthropic/…) exactly as `opencode models` prints it, " +
+			"or use the kind that serves this model directly",
+		reservedArgs: []string{
+			"--model", "-m",
+		},
+	},
 	"pi": {
 		name: "pi",
 		// pi has not been round-tripped as a tick implementer, so
@@ -202,6 +234,18 @@ const (
 	// effortStyleSuffix: appended to the model id, e.g. `--model M:high`;
 	// with no model it falls back to the equivalent flag (`--thinking high`).
 	effortStyleSuffix
+	// effortStyleNone: the kind's interactive CLI has NO way to carry a
+	// reasoning-effort level in argv, so the dimension cannot be compiled at
+	// all and any level is refused.
+	//
+	// This is distinct from codex's `efforts: nil`, which means "the CLI
+	// accepts every level and the model decides which are real": codex still
+	// has a mechanism (`-c model_reasoning_effort=…`) and still emits it.
+	// Here there is nothing to emit, so the only alternatives to refusing are
+	// dropping the level silently — an `economy` tier that quietly runs at the
+	// model's default variant — or inventing a flag the CLI rejects. Both are
+	// the failures this package fails closed on everywhere else.
+	effortStyleNone
 )
 
 // KnownKinds lists the kinds this package can compile argv for, sorted. It is
@@ -262,4 +306,27 @@ func openAIFamily(model string) bool {
 func providerQualified(model string) bool {
 	i := strings.Index(model, "/")
 	return i > 0 && i < len(model)-1
+}
+
+// opencodeFamily reports whether a model id is one `opencode --model` could
+// resolve: provider-qualified like pi's, and with no `:<variant>` suffix.
+//
+// The strictness is bought with live evidence, not taste. Observed 2026-08-13
+// (opencode 1.18.18): an id opencode does not recognise produces NO error
+// anywhere. `--model openai/gpt-9-imaginary` started green, answered the
+// first-round-trip gate with a clean `OK`, and ran the whole turn on
+// `opencode/deepseek-v4-flash-free` — the CLI's own default — with only the
+// pane footer betraying the substitution. That is strictly worse than codex's
+// green-start trap, where the bad id at least surfaces as a visible API error:
+// here the gate that exists to catch model-name failures passes.
+//
+// So every shape that opencode would silently swallow is refused at compile
+// time: a bare id (`gpt-5.6-luna`), a claude alias (`opus`), and pi's
+// `model:thinking` shorthand — which is doubly wrong here, opencode having no
+// effort dimension at all.
+func opencodeFamily(model string) bool {
+	if strings.Contains(model, ":") {
+		return false
+	}
+	return providerQualified(model)
 }
