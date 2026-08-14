@@ -40,10 +40,14 @@ Workflow:
 	RunE: runReject,
 }
 
-var rejectJSON bool
+var (
+	rejectJSON bool
+	rejectFrom string
+)
 
 func init() {
 	rejectCmd.Flags().BoolVar(&rejectJSON, "json", false, "output as JSON")
+	rejectCmd.Flags().StringVar(&rejectFrom, "from", "", "provenance of the verdict: human (a runner relaying a human decision)")
 
 	rootCmd.AddCommand(rejectCmd)
 }
@@ -75,6 +79,13 @@ func runReject(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "tick %s is not awaiting human decision\n", t.ID)
 		fmt.Fprintf(os.Stderr, "use `tk show %s` to check current status\n", t.ID)
 		return NewExitError(ExitUsage, "tick is not awaiting human decision")
+	}
+
+	// Refuse before any mutation — in particular before the feedback note is
+	// appended, so a refused rejection leaves no trace. See verdictguard.go.
+	actor, err := resolveVerdictActor(rejectFrom, "")
+	if err != nil {
+		return err
 	}
 
 	// Handle legacy manual flag - normalize to awaiting=work before processing
@@ -110,7 +121,7 @@ func runReject(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to process verdict: %w", err)
 	}
 
-	if err := store.WriteAs(t, resolveActor("")); err != nil {
+	if err := store.WriteAs(t, actor); err != nil {
 		return fmt.Errorf("failed to save tick: %w", err)
 	}
 

@@ -116,7 +116,7 @@ tk update <id> [flags]
 | `--after` | Set soft-ordering preference tick ID(s) (`--after ""` to clear) |
 | `-a, --awaiting` | Set awaiting status (or `--awaiting=` to clear) |
 | `-r, --requires` | Set approval gate (empty to clear) |
-| `-v, --verdict` | Set verdict: `approved`, `rejected` |
+| `-v, --verdict` | Set verdict: `approved`, `rejected` (see *Human Verdicts* — a runner must add `--from human`) |
 | `--role` | Set process-tick role: `review`, `closeout` (`--role ""` to clear); used to repair an epic whose skeleton ticks exist but lack roles |
 
 (`tk update` has no single-letter shorthands except `-a`, `-r`, `-v` — use the long form for the rest.)
@@ -138,6 +138,26 @@ Commands for humans responding to agent handoffs:
 tk approve <id>             # Approve tick awaiting human verdict
 tk reject <id> "feedback"   # Reject — feedback message is required (added as a human note)
 ```
+
+**Only a human clears a human gate.** A verdict is refused when the resolved actor is
+runner-shaped — the `<runner>:orchestrator` form every runner exports at run start, or any
+colon-scoped identity. This covers `tk approve`, `tk reject`, `tk update --verdict`, and the
+closes that clear a gate rather than route it (`tk close --force` over a `--requires` gate, and
+plain `tk close` on a tick already `--awaiting`). `--actor` is provenance, not authorization: a
+runner-shaped `--actor` is refused too.
+
+```bash
+tk approve <id> --from human     # a runner relaying a decision a human actually made
+```
+
+`--from human` is the only attestation, and it stamps the activity actor `human` rather than the
+runner name — the same durable provenance boundary `tk note --from human` already uses. It is
+deliberately not tamper-proof: a local CLI cannot stop a determined agent from typing the flag.
+What it stops is the *accidental* self-approval, and it makes the deliberate one auditable —
+epic close-out asserts every gate was cleared by a human actor.
+
+Unaffected: `tk close` on a `--requires` tick that has not been routed yet still routes it to a
+human, which is the agent's normal path.
 
 **What happens on verdict:**
 

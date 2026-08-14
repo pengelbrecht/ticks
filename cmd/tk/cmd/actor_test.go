@@ -162,7 +162,9 @@ func TestUpdateWithTKActorEnvOnStatusInProgress(t *testing.T) {
 // activity entry written by tk approve. Note: approving a terminal awaiting
 // state (approval/review/content/work) closes the tick, and detectChange gives
 // status transitions priority, so the emitted entry has action="close" — the
-// point here is that it carries the env actor.
+// point here is that it carries the env actor. The actor is a person's name:
+// a runner-shaped actor is refused outright by the verdict provenance guard
+// (see verdict_provenance_test.go).
 func TestApproveWithTKActorEnv(t *testing.T) {
 	_, store := setupTestRepo(t)
 
@@ -172,7 +174,7 @@ func TestApproveWithTKActorEnv(t *testing.T) {
 		t.Fatalf("write task: %v", err)
 	}
 
-	t.Setenv("TK_ACTOR", "orchestrator")
+	t.Setenv("TK_ACTOR", "human-pete")
 
 	if _, err := captureStdoutArgs(t, []string{"approve", "a6"}); err != nil {
 		t.Fatalf("ExecuteArgs approve: %v", err)
@@ -186,8 +188,8 @@ func TestApproveWithTKActorEnv(t *testing.T) {
 	var found bool
 	for _, a := range activities {
 		if a.TickID == "a6" && a.Action == tick.ActivityClose {
-			if a.Actor != "orchestrator" {
-				t.Errorf("expected actor=%q, got %q", "orchestrator", a.Actor)
+			if a.Actor != "human-pete" {
+				t.Errorf("expected actor=%q, got %q", "human-pete", a.Actor)
 			}
 			found = true
 			break
@@ -277,7 +279,8 @@ func TestBlockWithTKActorEnv(t *testing.T) {
 // TestRejectWithTKActorEnv verifies that TK_ACTOR env is applied to the
 // activity entry written by tk reject. Rejecting awaiting=approval returns the
 // tick to the agent with a feedback note; detectChange surfaces this as a
-// "note" activity entry, which must carry the env actor.
+// "note" activity entry, which must carry the env actor. As above, the actor
+// is a person's name — a runner-shaped actor cannot supply a verdict.
 func TestRejectWithTKActorEnv(t *testing.T) {
 	_, store := setupTestRepo(t)
 
@@ -287,7 +290,7 @@ func TestRejectWithTKActorEnv(t *testing.T) {
 		t.Fatalf("write task: %v", err)
 	}
 
-	t.Setenv("TK_ACTOR", "orchestrator")
+	t.Setenv("TK_ACTOR", "human-pete")
 
 	if _, err := captureStdoutArgs(t, []string{"reject", "a9", "needs more tests"}); err != nil {
 		t.Fatalf("ExecuteArgs reject: %v", err)
@@ -301,8 +304,8 @@ func TestRejectWithTKActorEnv(t *testing.T) {
 	var found bool
 	for _, a := range activities {
 		if a.TickID == "a9" && a.Action == tick.ActivityNote {
-			if a.Actor != "orchestrator" {
-				t.Errorf("expected actor=%q, got %q", "orchestrator", a.Actor)
+			if a.Actor != "human-pete" {
+				t.Errorf("expected actor=%q, got %q", "human-pete", a.Actor)
 			}
 			found = true
 			break

@@ -67,6 +67,7 @@ var (
 	updateRole         string
 	updateBaseBranch   string
 	updateActor        string
+	updateFrom         string
 	updateJSON         bool
 
 	// Track which flags were explicitly set
@@ -116,6 +117,7 @@ func init() {
 	updateCmd.Flags().StringVarP(&updateVerdict, "verdict", "v", "", "set verdict and trigger processing (approved|rejected)")
 	updateCmd.Flags().StringVar(&updateRole, "role", "", "process-tick role in an epic skeleton (review|closeout, empty to clear)")
 	updateCmd.Flags().StringVar(&updateActor, "actor", "", "override actor for this activity entry (overrides TK_ACTOR env)")
+	updateCmd.Flags().StringVar(&updateFrom, "from", "", "provenance of a --verdict: human (a runner relaying a human decision)")
 	updateCmd.Flags().BoolVar(&updateJSON, "json", false, "output as JSON")
 
 	rootCmd.AddCommand(updateCmd)
@@ -317,7 +319,16 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	verdictActor := ""
 	if updateVerdictSet {
+		// Refuse before any mutation: a runner cannot clear its own human gate.
+		// See verdictguard.go. --actor is provenance, not authorization, so it
+		// is inspected too.
+		var err error
+		verdictActor, err = resolveVerdictActor(updateFrom, updateActor)
+		if err != nil {
+			return err
+		}
 		switch updateVerdict {
 		case tick.VerdictApproved, tick.VerdictRejected:
 			t.Verdict = &updateVerdict
@@ -336,7 +347,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := store.WriteAs(t, resolveActor(updateActor)); err != nil {
+	writeActor := resolveActor(updateActor)
+	if updateVerdictSet {
+		writeActor = verdictActor
+	}
+	if err := store.WriteAs(t, writeActor); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
 	}
 

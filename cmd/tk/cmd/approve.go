@@ -29,6 +29,14 @@ Examples:
   # Approve with JSON output
   tk approve abc123 --json
 
+  # A runner relaying a decision a human actually made
+  tk approve abc123 --from human
+
+A verdict is a human's decision. When TK_ACTOR (or --actor) is runner-shaped —
+the mandated <runner>:orchestrator form — the approval is refused unless
+--from human attests that a human made the call. The activity is then stamped
+"human", not the runner name.
+
 Workflow:
   1. tk list --awaiting        # See what needs attention
   2. tk show abc123            # Review the work
@@ -37,10 +45,14 @@ Workflow:
 	RunE: runApprove,
 }
 
-var approveJSON bool
+var (
+	approveJSON bool
+	approveFrom string
+)
 
 func init() {
 	approveCmd.Flags().BoolVar(&approveJSON, "json", false, "output as JSON")
+	approveCmd.Flags().StringVar(&approveFrom, "from", "", "provenance of the verdict: human (a runner relaying a human decision)")
 
 	rootCmd.AddCommand(approveCmd)
 }
@@ -74,6 +86,13 @@ func runApprove(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitUsage, "tick is not awaiting human decision")
 	}
 
+	// Refuse before any mutation: a runner clearing its own human gate must not
+	// leave half-applied state behind. See verdictguard.go.
+	actor, err := resolveVerdictActor(approveFrom, "")
+	if err != nil {
+		return err
+	}
+
 	// Handle legacy manual flag - normalize to awaiting=work before processing
 	if t.Awaiting == nil && t.Manual {
 		t.SetAwaiting(tick.AwaitingWork)
@@ -93,7 +112,6 @@ func runApprove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to process verdict: %w", err)
 	}
 
-	actor := resolveActor("")
 	if err := store.WriteAs(t, actor); err != nil {
 		return fmt.Errorf("failed to save tick: %w", err)
 	}

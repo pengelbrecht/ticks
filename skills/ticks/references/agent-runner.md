@@ -327,6 +327,8 @@ Surface it to the user. On a verdict:
 - **Approved** → integrate (if not already) and `tk close`.
 - **Rejected with feedback** → reopen the work. Continue the same agent when the harness preserves its context; otherwise redispatch against the existing branch with the feedback included verbatim.
 
+**You cannot clear a gate yourself.** `tk approve`, `tk reject`, `tk update --verdict`, and the gate-clearing closes (`tk close --force` over a `--requires` gate, plain `tk close` on an already-awaiting tick) refuse a runner-shaped actor. If you are relaying a decision a human actually made, pass `--from human` — it stamps the activity `human` and is the claim epic close-out audits. If you are not, leave the tick awaiting and surface it. Routing a `--requires` tick with `tk close` is unaffected; that is your normal path.
+
 **Planning is interactive; execution is autonomous.** A human tick reaching the runner should be one planning genuinely could not resolve — a post-work approval, or a decision the work itself had to inform. Questions and human setup tasks belong in the planning conversation, where the human is already present; see *Human-in-the-loop ticks* in `references/tick-patterns.md`. When you create an `--awaiting input` or `--awaiting escalation` tick mid-run, note it for the retro.
 
 ## When an agent is blocked
@@ -430,6 +432,8 @@ Verify against the *code*, not the tick status. If the epic carries a **definiti
 - The exactly one command mapped to that stable item under controller-owned `.tick/config.md` `Acceptance Evidence` exists uniquely in Testing or Closeout Evidence Commands, runs during its authorized phase, and succeeds; tracker/model prose is never shell authority.
 
 Gaps get **fixed now** or explicitly surfaced to the human. Never silently defer an undelivered scope item into the next epic.
+
+**Gate audit.** Every tick in the epic that carried a gate (`--requires` or `--awaiting`) must have been cleared by a human actor — an approve/close activity entry stamped `human`, or a named person, never a runner. The activity log under `.tick/activity/` is the source (there is no `tk activity` command — read the files, or the board's activity feed); the CLI refuses runner-shaped verdicts, so an entry that is missing or agent-stamped means a gate was cleared some other way (a `--awaiting=` clear, a direct file edit). Report it and leave the epic open. This is the same fail-closed discipline as Acceptance Evidence: a gate you cannot prove a human cleared is a gate that was not cleared.
 
 #### 5. Drift review
 

@@ -365,6 +365,7 @@ func ResetFlags() {
 	updateAwaiting = ""
 	updateVerdict = ""
 	updateActor = ""
+	updateFrom = ""
 	updateJSON = false
 	updateTitleSet = false
 	updateDescriptionSet = false
@@ -424,6 +425,7 @@ func ResetFlags() {
 	closeForce = false
 	closeJSON = false
 	closeActor = ""
+	closeFrom = ""
 
 	// Reset show flags
 	showJSON = false
@@ -468,9 +470,11 @@ func ResetFlags() {
 
 	// Reset approve flags
 	approveJSON = false
+	approveFrom = ""
 
 	// Reset reject flags
 	rejectJSON = false
+	rejectFrom = ""
 
 	// Reset rebuild flags
 	rebuildJSON = false
