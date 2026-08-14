@@ -327,6 +327,8 @@ Surface it to the user. On a verdict:
 - **Approved** → integrate (if not already) and `tk close`.
 - **Rejected with feedback** → reopen the work. Continue the same agent when the harness preserves its context; otherwise redispatch against the existing branch with the feedback included verbatim.
 
+**Planning is interactive; execution is autonomous.** A human tick reaching the runner should be one planning genuinely could not resolve — a post-work approval, or a decision the work itself had to inform. Questions and human setup tasks belong in the planning conversation, where the human is already present; see *Human-in-the-loop ticks* in `references/tick-patterns.md`. When you create an `--awaiting input` or `--awaiting escalation` tick mid-run, note it for the retro.
+
 ## When an agent is blocked
 
 1. Read its report — it should name the blocker.
@@ -389,6 +391,7 @@ Gather the raw material:
 - `tk notes <tick-id>` for every tick in the epic — look for anything an implementer learned, flagged, or worked around.
 - All `DONE_WITH_CONCERNS` reports from this epic's agents.
 - Anything you noted as orchestrator during integration: merge conflicts, re-dispatches, blocked ticks, unexpected dependencies.
+- Every human interrupt the run hit — each `--awaiting input` / `--awaiting escalation` tick created mid-run, and every human tick that stalled the frontier. For each, ask: *could planning have resolved this?* A question whose answer the work did not change is a planning miss, and the rule that would have caught it belongs in `.tick/learnings.md`. Genuine surprises are not misses — say so and move on.
 
 #### 2. Promote by tier
 

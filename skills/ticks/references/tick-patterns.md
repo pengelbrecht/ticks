@@ -19,6 +19,7 @@ Run this before `tk create`. A fresh subagent sees *only this tick* — not the 
 - [ ] **Self-contained** — no placeholders, and no reference to a type or function defined only in another tick (see *The Ideal Tick*)
 - [ ] **Files (and shared resources) likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
 - [ ] **Human gate decided** — if the tick needs a person (a decision, a secret, a review), create it with the right `--awaiting`/`--requires` flag rather than letting an agent guess
+- [ ] **No unresolved decisions** — every question this tick depends on has an answer *in the tick*, not a plan to ask later (see *Human-in-the-loop ticks*)
 
 The sections below are the detailed backing for each line; this checklist is just the fast gate.
 
@@ -53,6 +54,49 @@ Use this ordered procedure every time you plan an epic. It replaces ad-hoc "defi
 **Step 4 — Extract the foundation.** Scan the matrix for files that appear in many rows — shared types, schemas, contracts, config files, persistence layer, central router. These are the **foundation**. Pull them into one or more wave-1 ticks. Every other tick that touches those files blocks on the foundation wave. This is the concrete form of "define shared contracts first": it is not a style preference, it is what the file matrix forces.
 
 **Step 5 — Maximize the parallel frontier.** After the foundation is set, arrange the remaining ticks into waves so the graph permits everything to run in parallel that safely can. Verify with `tk graph <epic>` that no two ticks in the same wave share a file or an un-isolable resource; if they do, add `--blocked-by`, re-merge, or concentrate the resource work (Step 3) until the graph is clean. The waves are a **feasibility map, not a dispatch order** — they say what *may* run at once; the orchestrator still decides at run time how much of that width to spend.
+
+**Step 6 — Place the human ticks so the least work waits on them.** Run the triage in *Human-in-the-loop ticks* below: most anticipated human touchpoints should be resolved during planning and never become ticks at all. For the ones that survive, check two numbers on the graph — how many ticks are transitively `--blocked-by` the human tick, and how many waves separate it from the first dependent that needs the verdict. Minimize the first, maximize the second. `tk graph <epic>` shows both.
+
+### Human-in-the-loop ticks
+
+**Planning is interactive. Execution is autonomous.**
+
+Human attention is spent up front, during planning, where the human is already present and latency is zero. The graph that comes out of planning should run unattended. Every human tick surviving into execution is a decision that *couldn't* be made at planning time — not one nobody got around to.
+
+This makes planning quality measurable: a plan is good in proportion to how autonomously its graph executes. Don't rush planning to reach execution. Slow planning buys fast execution, and the exchange rate is good.
+
+**The limit, so this doesn't get applied dogmatically:** some information only exists after the work is done, and forcing those decisions early buys a worse answer plus rework. The rule is not "ask everything up front" — it is "ask everything whose answer the work won't change."
+
+#### Triage every anticipated human touchpoint
+
+Before committing the graph, walk the planned work and sort each point where a person is needed into one of three outcomes.
+
+**1. Resolve now — questions.** "Which provider?" "Is this migration allowed to be destructive?" "Match the old behavior or fix it?" The human is in the planning conversation; ask, record the answer, and create no tick. Batch these into one consolidated pass rather than trickling them out — the human's attention is the scarce resource, not the number of questions.
+
+Record answers where agents will actually see them: standing project-wide decisions go in `.tick/config.md` Rules (inherited into every agent prompt), epic-specific ones in the epic or tick description. An answer that lives only in the planning chat gets re-asked at 2am.
+
+**2. Do now — human tasks.** Provision the API key, add the DNS record, flip the account setting, grant the permission. Do these during planning and they never become `--awaiting work`. Ones that can't be finished on the spot should at least be *started* at planning time, for maximum lead.
+
+**3. Reduce — approvals.** Approvals are post-work by nature: `--requires approval` exists exactly for this, routing the tick to a human on `tk close` instead of closing it. Planning can't dissolve them, but it can make them cheap:
+
+- **Convert to a test where the criterion is checkable.** If you can state what "correct" means, it is acceptance criteria, not an approval. Reserve approval for genuine judgment — taste, risk, a business call. Many approval gates are really "I don't trust this will be right"; the honest fix is a sharper acceptance criterion.
+- **Pre-authorize the expected case.** Decide at planning time: "if it meets X, proceed." The tick then routes to a human only when the agent can't self-certify against X.
+- **Agree the bar before the work starts.** For approvals that survive, write down what will be judged. That turns an open-ended "is this good?" into a yes/no against a stated bar — seconds instead of a context reload.
+- **Batch when redoing is cheap.** The EPIC-SKELETON already ends in a final-review tick. Per-tick approvals cost one interrupt each; one review at the end costs one. Keep an approval early only when getting it wrong is expensive to undo.
+
+A human tick surviving into the final graph should have a reason it couldn't be resolved during planning. Resolve is the default; awaiting is the exception you justify.
+
+#### Shape the graph around the survivors
+
+**Ask early, block late.** A decision answerable before the work exists becomes an `--awaiting input` tick in wave 0 with no dependencies of its own, so it sits with the human while agents work waves 1–3. The default instinct — hanging `--requires approval` on the tick where the answer gets used — gives zero slack and stalls the frontier the moment it's reached.
+
+**Split around the decision.** Not "build auth" `--blocked-by` "pick a provider", but "build auth behind an interface" (no human, big) plus "wire the chosen provider" (`--requires approval`, tiny). The human tick should block the smallest committed decision, not the work surrounding it.
+
+**Target the interface.** When the decision picks an implementation, everything written against the interface is unblocked by construction.
+
+**Scrutinize every `--blocked-by` pointing at a human tick.** One sloppy edge drags a whole subtree behind it. Copy approval should not be blocking backend work. Gate edges deserve more scrutiny than ordinary ones.
+
+**Write the tick so it's answerable without reopening the repo.** State the question, the options and what each one costs, and your recommendation. This pays off regardless of how the human is reached — it's the difference between a 20-second answer and a context reload.
 
 ### Vertical slicing (the default shape — constraint surfaces override it)
 
@@ -271,6 +315,15 @@ Group related ticks under an epic — foundation first, then vertical slices tha
 tk create "Search Feature" -t epic -d "Full-text search for documents" \
   --acceptance "User can search documents end-to-end; go test ./internal/search/... passes"
 
+# Wave 0 — the one decision planning could not settle; no dependencies, so it
+# sits with the human while waves 1–2 run. Most questions should have been
+# answered during planning instead of appearing here at all.
+tk create "Decide search ranking: recency-weighted or pure BM25" --parent <epic> \
+  --awaiting input \
+  -d "BM25 is simpler and already in the library; recency-weighted needs a decay
+      term and a nightly re-score job. Recommend BM25 unless stale results are
+      a known complaint. Only the ranking tick depends on this."
+
 # Wave 1 — foundation: the contract every slice consumes
 tk create "Search index schema + query contract" --parent <epic>
 
@@ -287,6 +340,7 @@ tk create "Close out Search Feature: retro + plan next epic" --parent <epic> --r
 
 **Guidelines:**
 - Foundation first, vertical slices behind it on disjoint files — that is what lets a wave run wide.
+- Human ticks that survived planning triage go in wave 0 where possible, blocking as little as possible (see *Human-in-the-loop ticks*).
 - Keep dependent chains in the same epic; genuinely independent work can be its own epic.
 
 ## Anti-Patterns
@@ -314,6 +368,14 @@ Agent has no way to verify "appropriately".
 ### Implicit Dependencies
 - Bad: Create tasks without explicit blockers
 - Good: Use `--blocked-by` for real dependencies (and `--after` for mere ordering preference) to make order explicit
+
+### Decision Hung on Its Consumer
+- Bad: `tk create "Build billing integration" --requires approval` — the provider choice is a planning question, but the approval sits on the tick that consumes it, so the whole subtree stalls the moment the wave reaches it
+- Good: settle the provider during planning and record it in the tick; if it genuinely can't be settled, create `tk create "Decide billing provider" --awaiting input` in wave 0 and block only the small wiring tick on it
+
+### Human Tick That Planning Could Have Resolved
+- Bad: `tk create "Add Stripe API key to env" --awaiting work` created during planning, while the human is sitting right there
+- Good: ask for the key during the planning conversation and create no tick — see *Human-in-the-loop ticks*
 
 ### Placeholders and Cross-References
 - Bad: "Add error handling as appropriate" / "Write tests for the above" / "Use the type from the schema tick"
