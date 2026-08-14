@@ -33,6 +33,13 @@ This protocol closes the loop at the project level:
 - **Skip it** for buckets (passive grouping of unrelated tasks — there is no shared outcome to
   design) and for small epics where a two-line `--acceptance` already says everything.
 
+**What comes next.** Goal design settles what *done* means while the human is present. The
+companion pass settles the decisions the *work* depends on: `tick-patterns.md` →
+*Human-in-the-loop ticks*, which triages every anticipated human touchpoint into resolve-now,
+do-now, or a justified `--awaiting` tick. Both are the same principle — planning is interactive,
+execution is autonomous — applied to different questions. Run goal design first; a question the
+goal already answers is one the triage doesn't have to.
+
 ## Where a goal lives (write-back targets)
 
 Nothing new is invented; the protocol's outputs land in existing homes:

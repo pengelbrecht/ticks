@@ -65,6 +65,8 @@ Human attention is spent up front, during planning, where the human is already p
 
 This makes planning quality measurable: a plan is good in proportion to how autonomously its graph executes. Don't rush planning to reach execution. Slow planning buys fast execution, and the exchange rate is good.
 
+The same principle one level up is `references/goal-design.md`: interview the human and settle the project's goal *before* the epics are planned, so the project boundary verifies against stated facts instead of stopping for an unstructured look. Goal design settles what "done" means; the triage below settles the decisions the work depends on. Run goal design first for a multi-epic project — a question the goal already answers is one you don't have to triage.
+
 **The limit, so this doesn't get applied dogmatically:** some information only exists after the work is done, and forcing those decisions early buys a worse answer plus rework. The rule is not "ask everything up front" — it is "ask everything whose answer the work won't change."
 
 #### Triage every anticipated human touchpoint
