@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Resolved model on the dashboard's worker rows** — `tk herd dashboard` listed each worker's kind (`claude`, `codex`) but not its model, so a board under tier routing could not tell a haiku worker from an opus one; after a cross-vendor tier the kind is the only thing that changes, making the model the field an operator actually wants. The workers section now carries a model column beside the kind. The value is the *resolved* capability dimension recorded in the run manifest, and an empty one renders as an em dash — the kind's own default, never a substituted name — matching what the tick detail view already showed.
+
 ## [0.25.0] - 2026-08-14
 
 ### Added

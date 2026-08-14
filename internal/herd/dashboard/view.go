@@ -221,10 +221,15 @@ func (m *Model) tickLine(t TickRow, selected bool) string {
 // timers.
 func (m *Model) workerLine(w WorkerRow) string {
 	st := m.Status(w.PaneID, w.Status)
-	line := fmt.Sprintf("    %s %s %s %s %s",
+	// Kind alone does not say whether a "claude" worker is a haiku or an opus,
+	// which is the whole point of tier routing. The model is the RESOLVED
+	// capability dimension; empty means the kind's own default, so it renders
+	// as the same em dash the detail view uses rather than a guessed name.
+	line := fmt.Sprintf("    %s %s %s %s %s %s",
 		idStyle.Render(pad(w.Tick, 5)),
 		statusStyle(st).Render(pad(string(st), 9)),
 		pad(w.Kind, 8),
+		metaStyle.Render(pad(orNone(w.Model), 13)),
 		pad(w.PaneID, 10),
 		metaStyle.Render(w.Branch))
 	if timer := m.workerTimer(w, st); timer != "" {
