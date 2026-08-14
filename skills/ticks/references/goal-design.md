@@ -85,11 +85,13 @@ behavior changes, what success looks like, **what's in and out of scope** (the m
 area), edge cases, constraints and precedent.
 
 **Optional deep pass ("grill me").** When the goal is vague or carries many interdependent
-decisions — or whenever the human asks for it — offer a relentless one-question-at-a-time
-interview instead: walk each branch of the design tree, resolve dependencies between decisions
-one by one, recommend an answer for every question, and explore the codebase instead of asking
-wherever possible. This is opt-in; for a clear, well-scoped goal it fights the
-fewer-better-questions rule.
+decisions — or whenever the human asks for it — run the full frontier walk instead: rounds over
+a decision tree, the whole frontier asked at once with a recommended answer per question, facts
+looked up rather than asked, done when the frontier is empty. The algorithm is written out once
+in `tick-patterns.md` → *Asking the questions: rounds over a decision frontier*; use it here
+rather than restating it. This is opt-in; for a clear, well-scoped goal it fights the
+fewer-better-questions rule above. Note the difference in ordering: the rule above minimizes
+question count, the deep pass maximizes coverage — pick one per goal, don't blend them.
 
 If an answer contains uncertainty ("not sure", "needs context", a question back), stop and
 resolve it in conversation before moving on. A skipped question with a note is intentional

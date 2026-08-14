@@ -73,7 +73,7 @@ The same principle one level up is `references/goal-design.md`: interview the hu
 
 Before committing the graph, walk the planned work and sort each point where a person is needed into one of three outcomes.
 
-**1. Resolve now — questions.** "Which provider?" "Is this migration allowed to be destructive?" "Match the old behavior or fix it?" The human is in the planning conversation; ask, record the answer, and create no tick. Batch these into one consolidated pass rather than trickling them out — the human's attention is the scarce resource, not the number of questions.
+**1. Resolve now — questions.** "Which provider?" "Is this migration allowed to be destructive?" "Match the old behavior or fix it?" The human is in the planning conversation; ask, record the answer, and create no tick. Ask them in **rounds over a decision frontier** rather than trickling them out — the algorithm is below.
 
 Record answers where agents will actually see them: standing project-wide decisions go in `.tick/config.md` Rules (inherited into every agent prompt), epic-specific ones in the epic or tick description. An answer that lives only in the planning chat gets re-asked at 2am.
 
@@ -87,6 +87,22 @@ Record answers where agents will actually see them: standing project-wide decisi
 - **Batch when redoing is cheap.** The EPIC-SKELETON already ends in a final-review tick. Per-tick approvals cost one interrupt each; one review at the end costs one. Keep an approval early only when getting it wrong is expensive to undo.
 
 A human tick surviving into the final graph should have a reason it couldn't be resolved during planning. Resolve is the default; awaiting is the exception you justify.
+
+#### Asking the questions: rounds over a decision frontier
+
+Decisions form a tree — settling one unblocks the ones hanging off it. Work it the way the runner works the tick graph: in waves.
+
+1. **Compute the frontier.** Every decision whose prerequisites are already settled. A question whose answer depends on another question still open belongs to a *later* round, not this one.
+2. **Prune it.** Drop any branch whose answer the work itself will change — that is not a planning question, it is a `--requires approval` later. This is the pruning step; without it a frontier walk will happily extract premature answers that get reworked.
+3. **Find the facts yourself.** A question the codebase, the git history, or the environment can answer is not a question for the human. Look it up — dispatch a subagent if it is a real search. Don't block the round on it: a running lookup is just an unsettled prerequisite, so ask the rest of the frontier now and let its dependents wait for the answer.
+4. **Ask the whole remaining frontier in one message.** Number each question and give your recommended answer with it. One round of five numbered questions with recommendations costs the human far less than five separate exchanges, and the recommendations mean most rounds are answered by exception.
+5. **Wait, then recompute.** Their answers reshape the tree; settled decisions push the frontier outward. Repeat.
+
+**Done when the frontier is empty** — every branch visited, nothing left silently assumed. That is the operational form of the *no unresolved decisions* line in the Definition of Ready: not a feeling that you have asked enough, but a frontier you have actually exhausted.
+
+Then convert: settled decisions get written down (`.tick/config.md` Rules for standing ones, tick or epic descriptions for local ones), and the pruned post-work branches become gated ticks placed per the rules below. Planning ends at a graph, not at a shared understanding.
+
+*(The frontier-in-rounds mechanic is adapted from Matt Pocock's MIT-licensed `grilling` skill; the pruning step and the conversion to a graph are the ticks-specific parts.)*
 
 #### Shape the graph around the survivors
 
