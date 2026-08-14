@@ -110,6 +110,7 @@ If there are gaps, close them through conversation: let the user describe the fu
 **Capture the understanding in proportion to the work:**
 - *Small, clear task* — a brief restatement of scope in conversation is enough; confirm and move on
 - *Larger feature or epic* — write it down (e.g. `SPEC.md`, or update the existing doc) so the ticks have a stable reference; if a doc already exists, fill in its gaps rather than starting over
+- *Multi-epic project* — run the goal-design protocol (`references/goal-design.md`): rearticulate, interview, fact sheet, write-back. It produces the project's verifiable goal before any epic is planned
 
 Once you can answer the questions above, proceed to creating ticks.
 
@@ -206,6 +207,10 @@ Optional, but strongly encouraged — it is the single thing that lets a run kno
 
 A goal-compatible done is what makes an epic safe to hand off and walk away from (see *Goal-ready handoff*). Items that genuinely need human taste ("looks right", "feels fast") are fine to write down, but keep them behind an `--awaiting` gate instead of expecting an autonomous run to settle them.
 
+#### Project goals (goal design)
+
+Projects deserve the same treatment one level up: a **goal statement** in the project's description and a **fact sheet** — discrete, testable `[A<n>]`-marked outcome statements — as the project's `--acceptance`. Design the goal *with the human* before planning the child epics, using the protocol in `references/goal-design.md` (rearticulate → interview → fact sheet → write-back). The facts turn the project checkpoint from "pause for a look" into item-by-item goal verification, and they are what lets an autonomous run legitimately flow through a project boundary — or stop on a real gap. Keep `A<n>` IDs unique across containers (the epic and its project must not both use `A1`).
+
 #### Roadmap edges
 
 When the spec spans multiple epics, link them with ordering edges. Two types exist, and choosing correctly is the core decision:
@@ -276,6 +281,8 @@ When the front epic has a goal-compatible definition of done (above), the plan i
 - **Done is missing or not goal-compatible** → say what is unclear, offer to tighten it first, or run with the default human checkpoint at each project boundary.
 
 This is where you decide *how far* the run goes before it stops for you — one epic, one project, or the whole roadmap — instead of discovering it mid-run.
+
+The same decision extends to projects: a project whose goal facts are all auto-verifiable with approved Acceptance Evidence mappings (see *Project goals* above and `references/goal-design.md`) is safe to hand off end-to-end — the run verifies the goal at the project boundary and stops only on a real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode or not.
 
 #### Target dates and the slip signal
 

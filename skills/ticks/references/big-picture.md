@@ -47,6 +47,10 @@ tk create "Dashboard"    -t epic --parent <v2> --after <billing>
 Epics auto-continue into each other inside the project. When the last epic closes the project
 boundary stops for human sign-off (`--awaiting checkpoint` by default).
 
+Give the project a **designed goal** before planning its epics: a goal statement in its
+description and a fact sheet of testable `[A<n>]` outcome statements as its `--acceptance` —
+protocol in `goal-design.md`. The facts are what the checkpoint verifies against.
+
 ### Rung 2 — + Dates
 
 Add `--target-date` when "are we on track" matters. The signal is derived, never stored — it
@@ -156,7 +160,10 @@ tk create "Push epic"    -t epic --parent <notifications>
 
 Epics auto-continue across epic boundaries by default. **Project boundaries stop for a human
 checkpoint** — the project's final child carries `--awaiting checkpoint` by default, so the run
-pauses for a human review before the next project begins.
+pauses for a human review before the next project begins. When the project carries a designed
+goal (fact sheet in its `acceptance_criteria` — see `goal-design.md`), the checkpoint walks the
+facts item by item and presents the verification table plus any human-judgment facts as the
+sign-off agenda, instead of an unstructured "come look."
 
 To run fully hands-off through all project checkpoints, pass `--autonomous` to `tk next`, or set
 `policy.autonomous_mode: true` in `.tick/config.json`. Other awaiting types (work, approval,
