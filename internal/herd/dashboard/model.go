@@ -114,6 +114,10 @@ type Model struct {
 	width  int
 	height int
 
+	// epicExpanded records an operator's explicit collapse choices by epic id.
+	// Absent means "use the default" — see [Model.expanded].
+	epicExpanded map[string]bool
+
 	// mode is board or detail (tick 7hm). detailScroll is the detail body's
 	// scroll offset, reset whenever detail opens or closes; it is clamped
 	// against the rendered content in [Model.clampDetailScroll], which both
@@ -147,17 +151,18 @@ func New(ctx context.Context, cfg Config) *Model {
 	}
 	watcher := NewWatcher(cfg.Herd)
 	return &Model{
-		loader:      Loader{RepoRoot: cfg.RepoRoot, Epic: cfg.Epic, Now: now},
-		watcher:     watcher,
-		fswatch:     NewFSWatcher(cfg.RepoRoot, watcher.emit),
-		herd:        cfg.Herd,
-		interval:    interval,
-		now:         now,
-		ctx:         ctx,
-		live:        map[string]liveStatus{},
-		statusSince: map[string]statusObservation{},
-		width:       100,
-		height:      30,
+		loader:       Loader{RepoRoot: cfg.RepoRoot, Epic: cfg.Epic, Now: now},
+		watcher:      watcher,
+		fswatch:      NewFSWatcher(cfg.RepoRoot, watcher.emit),
+		herd:         cfg.Herd,
+		interval:     interval,
+		now:          now,
+		ctx:          ctx,
+		live:         map[string]liveStatus{},
+		statusSince:  map[string]statusObservation{},
+		epicExpanded: map[string]bool{},
+		width:        100,
+		height:       30,
 	}
 }
 
@@ -222,6 +227,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loadErr = nil
 		m.snap = msg.Snapshot
+		m.seedEpicDefaults()
 		// The snapshot's listing is newer than any event that preceded
 		// it, so the overlay starts from it and only keeps entries for
 		// panes still on the board.
@@ -296,6 +302,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "enter":
+		if id, ok := m.SelectedEpic(); ok {
+			m.toggleEpic(id)
+			m.clampCursor()
+			break
+		}
 		if _, ok := m.Selected(); ok {
 			m.mode = modeDetail
 			m.detailScroll = 0
@@ -419,12 +430,21 @@ type row struct {
 	Epic string
 	Wave int
 	Tick TickRow
+	// Header marks the epic's own line. It is a selection row so the cursor
+	// can land on an epic and toggle it; Tick is zero on such a row, which is
+	// what [Model.Selected] keys off.
+	Header bool
 }
 
-// rows flattens the board into selection order.
+// rows flattens the board into selection order: each epic's header, followed
+// by its ticks when the epic is expanded.
 func (m *Model) rows() []row {
 	var out []row
 	for _, e := range m.snap.Epics {
+		out = append(out, row{Epic: e.Epic, Header: true})
+		if !m.expanded(e) {
+			continue
+		}
 		for _, w := range e.Waves {
 			for _, t := range w.Ticks {
 				out = append(out, row{Epic: e.Epic, Wave: w.Number, Tick: t})
@@ -434,12 +454,70 @@ func (m *Model) rows() []row {
 	return out
 }
 
+// seedEpicDefaults decides the collapse state of epics the board has not seen
+// before: a fully-closed epic starts collapsed, anything else expanded.
+//
+// It runs ONCE PER EPIC, on first sight, and never re-derives. Two reasons.
+// An operator's explicit toggle has to survive the next refresh, which lands
+// within a second (timer or filesystem event). And an epic that closes its
+// last tick while being watched must not fold up under the cursor mid-look —
+// re-deriving every snapshot did exactly that, taking the tick out of the
+// selection list while its detail view was open.
+func (m *Model) seedEpicDefaults() {
+	if m.epicExpanded == nil {
+		m.epicExpanded = map[string]bool{}
+	}
+	for _, e := range m.snap.Epics {
+		if _, seen := m.epicExpanded[e.Epic]; !seen {
+			m.epicExpanded[e.Epic] = !e.AllClosed()
+		}
+	}
+}
+
+// expanded reports whether an epic's ticks are shown. Unseen epics default to
+// expanded; [Model.seedEpicDefaults] is what records the real answer.
+func (m *Model) expanded(e EpicBoard) bool {
+	if v, ok := m.epicExpanded[e.Epic]; ok {
+		return v
+	}
+	return true
+}
+
+// toggleEpic flips one epic's expansion, recording it as an explicit choice.
+func (m *Model) toggleEpic(id string) {
+	if m.epicExpanded == nil {
+		m.epicExpanded = map[string]bool{}
+	}
+	for _, e := range m.snap.Epics {
+		if e.Epic == id {
+			m.epicExpanded[id] = !m.expanded(e)
+			return
+		}
+	}
+}
+
+// SelectedEpic returns the epic id under the cursor when the cursor is on an
+// epic header, which is the only place the collapse toggle applies.
+func (m *Model) SelectedEpic() (string, bool) {
+	rows := m.rows()
+	if len(rows) == 0 || m.cursor < 0 || m.cursor >= len(rows) {
+		return "", false
+	}
+	if !rows[m.cursor].Header {
+		return "", false
+	}
+	return rows[m.cursor].Epic, true
+}
+
 // Selected returns the highlighted tick. This is the seam tick 5yt hangs
 // actions off: an action operates on the selected tick and, when it has one,
 // the worker in [Model.Worker].
 func (m *Model) Selected() (TickRow, bool) {
 	rows := m.rows()
 	if len(rows) == 0 || m.cursor < 0 || m.cursor >= len(rows) {
+		return TickRow{}, false
+	}
+	if rows[m.cursor].Header {
 		return TickRow{}, false
 	}
 	return rows[m.cursor].Tick, true

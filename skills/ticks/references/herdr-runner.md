@@ -328,7 +328,7 @@ What it provides:
 
 | Surface | What the operator gets | Underneath |
 |---|---|---|
-| **Board pane** | a live read-only board of the run — the epic's waves and ticks beside the workers herdr is running, updated by pushed events (with a 30-second safety re-list, not the mechanism) | `tk herd dashboard [--epic <id>]` |
+| **Board pane** | a live read-only board of the run — the epic's waves and ticks beside the workers herdr is running, updated by pushed events (with a 30-second safety re-list, not the mechanism). Unpinned, it lists **every** epic with run state, most active first (running workers, then open ticks), with epics that were already fully closed folded to one line — `enter` on an epic header folds or unfolds it | `tk herd dashboard [--epic <id>]` |
 | **Workspace/pane badges** | every worker's workspace and pane labelled with its tick id, role and tracker status, so the session strip says *what* each pane is working on | `tk herd paint`, on five event hooks |
 | **Notifications** | two chimes, and only two: a worker went **blocked** and wants a human (sound `request`), and every worker of a wave has **settled** (sound `done`) | `tk herd notify`, on `pane.agent_status_changed` |
 | **Actions** (right-click a worker) | *Open worktree* (a shell in the worker's worktree), *Collect tick* (verdict as a notification), *Retry tick* (reconcile classification — **advisory, dispatches nothing**), *Open tick board*, *Open tick dashboard* | `tk herd collect` / `reconcile`, `herdr pane split` |

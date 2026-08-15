@@ -61,6 +61,7 @@ func TestEnterOpensDetailEscCloses(t *testing.T) {
 	pinProfile(t)
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: detailSnapshot()})
+	apply(m, key("j")) // off the epic header, onto the tick
 
 	if strings.Contains(m.View(), "Description") {
 		t.Fatalf("board view rendered detail content before enter:\n%s", m.View())
@@ -103,6 +104,7 @@ func TestDetailRendersSelectedTickFields(t *testing.T) {
 	pinProfile(t)
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: detailSnapshot()})
+	apply(m, key("j")) // off the epic header, onto the tick
 	apply(m, key("enter"))
 
 	view := m.View()
@@ -129,6 +131,7 @@ func TestDetailShowsNotSpawnedWithoutManifest(t *testing.T) {
 	snap := detailSnapshot()
 	snap.Epics[0].Workers = nil
 	apply(m, SnapshotMsg{Snapshot: snap})
+	apply(m, key("j")) // off the epic header, onto the tick
 	apply(m, key("enter"))
 
 	if v := m.View(); !strings.Contains(v, "not spawned") {
@@ -143,6 +146,7 @@ func TestDetailReflectsSnapshotRefresh(t *testing.T) {
 	pinProfile(t)
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: detailSnapshot()})
+	apply(m, key("j")) // off the epic header, onto the tick
 	apply(m, key("enter"))
 
 	if v := m.View(); !strings.Contains(v, "status: in_progress") {
@@ -172,6 +176,7 @@ func TestDetailScrollBounds(t *testing.T) {
 	snap := detailSnapshot()
 	snap.Epics[0].Waves[0].Ticks[0].Description = strings.Repeat("word ", 200)
 	apply(m, SnapshotMsg{Snapshot: snap})
+	apply(m, key("j")) // off the epic header, onto the tick
 	apply(m, key("enter"))
 
 	if m.detailScroll != 0 {
@@ -207,6 +212,7 @@ func TestDetailScrollBounds(t *testing.T) {
 func TestDetailScrollNoopWhenContentFits(t *testing.T) {
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: detailSnapshot()})
+	apply(m, key("j")) // off the epic header, onto the tick
 	apply(m, key("enter"))
 
 	apply(m, key("j"))
@@ -218,6 +224,7 @@ func TestDetailScrollNoopWhenContentFits(t *testing.T) {
 func TestQuitFromDetail(t *testing.T) {
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: detailSnapshot()})
+	apply(m, key("j")) // off the epic header, onto the tick
 	apply(m, key("enter"))
 
 	cmd := apply(m, key("q"))

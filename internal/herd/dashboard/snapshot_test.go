@@ -152,7 +152,9 @@ func TestLoadKeepsBoardWhenHerdListingFails(t *testing.T) {
 	}
 }
 
-// With no --epic the board enumerates the manifest directories.
+// With no --epic the board enumerates the manifest directories, ordered by
+// activity rather than by id: "other" has a manifest but no ticks in the
+// tracker, so zz0's open work outranks it. See [SortEpics].
 func TestLoadWithoutEpicEnumeratesRunState(t *testing.T) {
 	ticks, manifests := epicFixture()
 	manifests = append(manifests, fixtureManifest("other", "zzz", "tick-zzz", "w2:p1"))
@@ -166,8 +168,8 @@ func TestLoadWithoutEpicEnumeratesRunState(t *testing.T) {
 	for _, e := range snap.Epics {
 		ids = append(ids, e.Epic)
 	}
-	if len(ids) != 2 || ids[0] != "other" || ids[1] != "zz0" {
-		t.Errorf("epics = %v, want sorted [other zz0]", ids)
+	if len(ids) != 2 || ids[0] != "zz0" || ids[1] != "other" {
+		t.Errorf("epics = %v, want activity order [zz0 other]", ids)
 	}
 }
 

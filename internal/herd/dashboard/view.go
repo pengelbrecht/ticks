@@ -75,7 +75,7 @@ func (m *Model) render() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(truncate(metaStyle.Render("j/k move · enter details · g/G first/last · r reload · q quit · read-only"), m.width))
+	b.WriteString(truncate(metaStyle.Render("j/k move · enter details / fold epic · g/G first/last · r reload · q quit · read-only"), m.width))
 	return b.String()
 }
 
@@ -156,11 +156,12 @@ func (m *Model) body() []string {
 	var lines []string
 	cursorIx := 0
 	for _, e := range m.snap.Epics {
-		label := e.Epic
-		if e.Title != "" {
-			label += " — " + e.Title
+		open := m.expanded(e)
+		lines = append(lines, "", m.epicLine(e, open, cursorIx == m.cursor))
+		cursorIx++
+		if !open {
+			continue
 		}
-		lines = append(lines, "", epicStyle.Render(label))
 		if len(e.Waves) == 0 {
 			lines = append(lines, metaStyle.Render("  (no child ticks)"))
 		}
@@ -179,6 +180,43 @@ func (m *Model) body() []string {
 		}
 	}
 	return lines
+}
+
+// epicLine renders one epic header: the selection marker, the chevron that
+// says whether its ticks are shown, and — when collapsed — the tick count the
+// operator is choosing not to look at, so a collapsed epic still reports its
+// size rather than reading as empty.
+func (m *Model) epicLine(e EpicBoard, open, selected bool) string {
+	marker := "  "
+	if selected {
+		marker = "▸ "
+	}
+	chevron := "▸"
+	if open {
+		chevron = "▾"
+	}
+	label := e.Epic
+	if e.Title != "" {
+		label += " — " + e.Title
+	}
+	line := marker + epicStyle.Render(label) + " " + metaStyle.Render(chevron)
+	if !open {
+		total := 0
+		for _, w := range e.Waves {
+			total += len(w.Ticks)
+		}
+		if total > 0 {
+			summary := fmt.Sprintf(" · %d ticks", total)
+			if e.AllClosed() {
+				summary = fmt.Sprintf(" · %d closed", total)
+			}
+			line += metaStyle.Render(summary)
+		}
+	}
+	if selected {
+		return selectedStyle.Render(line)
+	}
+	return line
 }
 
 // waveLabel names a wave; wave 0 is this package's bucket for ticks the wave

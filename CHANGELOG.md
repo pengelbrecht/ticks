@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-08-15
+
+### Changed
+
+- **Mission control is no longer pinned to one epic** (`references/herdr-runner.md`) — the run-start ritual passed `--env TICKS_EPIC=<epic>` when opening the dashboard pane, but `tk herd dashboard` with no `--epic` already watches every epic with run state under `.tick/logs/herd/`. Pinning meant the board kept showing a *finished* epic for the rest of a multi-epic run: live workers, live panes, and an operator reasonably concluding the run had stalled. The ritual now opens the board unpinned, and `TICKS_EPIC` is documented as the deliberate single-epic case (which is what the `ticks://` link handler wants).
+- **The stall instinct gets an operational test** (`references/agent-runner.md`) — knowing the rule was not enough: an orchestrator that had quoted the "epic boundaries are waypoints" line still stopped after closing an epic mid-project. The rule now states the test — *end a turn on a dispatch, never on a close* — because the retro-and-close is the most satisfying output of a run and reads like a finished task, which is exactly where the stall lands. A turn whose last action was `tk close` on an epic or its close-out is not finished; the close-out's own acceptance is retro **and** flesh out the next feasible epic, so the same turn plans and spawns the next wave or names the blocker.
+
+### Added
+
+- **Callers' claims are a planning-time constraint surface** (`SKILL.md`) — when an epic changes a shared mechanism, the code depending on it carries sentences explaining why *it* is safe (module headers, invariant comments, published docs), and those sentences do not move with the code. Across four consecutive epics in one project, every final review's most-cited finding was a claim the epic had falsified. Grep the mechanism's name and its guarantee words (`safe`, `no-op`, `cannot`, `always`, `only`) during partitioning, list the hits, and give them to a tick the same way you would a seam file.
+- **Docs pages are a constraint surface too** (`SKILL.md`) — an epic that changes a subsystem gives several ticks the same reason to fix the same architecture or decision page, and doc edits look harmless during planning precisely because nobody lists them as files touched. Three ticks in one epic rewrote the same two wiki pages in sequence and merged cleanly *by luck*: prose conflicts are textual, so git resolves them silently into an incoherent merge rather than a conflict a human reviews. Name the pages an epic will touch and give each to one tick, or let the close-out own them all.
+- **The review phase is invisible to the operator** (`references/herdr-runner.md`) — review is deliberately not a helper capability, so a reviewer is a harness subagent at the controller checkout: it appears in no pane, in `herdr agent list`, on the board, or in the badges. An operator sees the implementers go quiet and then nothing at all for the length of a whole-epic diff review. Two consequences now stated rather than fixed silently: the orchestrator should *say* when it dispatches a review and roughly what it covers, since the board cannot; and unlike a worker, a reviewer does not survive an orchestrator crash — the review tick stays open and is re-reviewed, which is safe because the pass is read-only.
+
 ## [0.26.0] - 2026-08-14
 
 ### Added

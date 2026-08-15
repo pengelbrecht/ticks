@@ -240,9 +240,15 @@ func TestCursorNavigationAndSelection(t *testing.T) {
 	m := testModel(t)
 	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
 
+	// Row 0 is the epic header, so nothing is selected until the cursor
+	// steps into the epic's ticks.
+	if _, ok := m.Selected(); ok {
+		t.Fatal("cursor started on a tick, not the epic header")
+	}
+	apply(m, key("j"))
 	sel, ok := m.Selected()
 	if !ok || sel.ID != "m05" {
-		t.Fatalf("initial selection = %q (%v), want m05", sel.ID, ok)
+		t.Fatalf("first tick selection = %q (%v), want m05", sel.ID, ok)
 	}
 	apply(m, key("j"))
 	if sel, _ = m.Selected(); sel.ID != "o83" {
@@ -254,9 +260,13 @@ func TestCursorNavigationAndSelection(t *testing.T) {
 		t.Errorf("selection ran past the end: %q", sel.ID)
 	}
 	apply(m, key("k"))
-	apply(m, key("k"))
 	if sel, _ = m.Selected(); sel.ID != "m05" {
-		t.Errorf("selection ran past the start: %q", sel.ID)
+		t.Errorf("k did not step back to the first tick: %q", sel.ID)
+	}
+	apply(m, key("k"))
+	apply(m, key("k"))
+	if _, ok := m.Selected(); ok {
+		t.Error("selection ran past the epic header at the top")
 	}
 
 	// The seam tick 5yt hangs actions off.

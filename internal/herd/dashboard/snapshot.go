@@ -211,7 +211,72 @@ func (l Loader) Load(ctx context.Context, herd Herd) (Snapshot, error) {
 		board.Waves = computeWaves(ticks, byID, epicID, paneByTick)
 		snap.Epics = append(snap.Epics, board)
 	}
+	SortEpics(snap.Epics)
 	return snap, nil
+}
+
+// RunningWorkers counts the epic's workers that are still in flight.
+//
+// `idle` and `done` are herdr's own terminal statuses
+// ([client.TerminalStatuses]) and [StatusGone] is an absence, so none of the
+// three counts. That exclusion is the point: a closed epic keeps its `done`
+// manifests until cleanup, and counting them pinned finished epics to the top
+// of the board while a live run sat below the fold. `blocked` does count — an
+// agent waiting on a human is the most active thing on the board.
+func (e EpicBoard) RunningWorkers() int {
+	n := 0
+	for _, w := range e.Workers {
+		switch w.Status {
+		case client.StatusWorking, client.StatusBlocked, client.StatusUnknown:
+			n++
+		}
+	}
+	return n
+}
+
+// OpenTicks counts the epic's ticks that are not closed.
+func (e EpicBoard) OpenTicks() int {
+	n := 0
+	for _, w := range e.Waves {
+		for _, t := range w.Ticks {
+			if t.Status != tick.StatusClosed {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// AllClosed reports whether every one of the epic's ticks is closed. An epic
+// with no ticks at all is not "all closed" — there is nothing to hide, and
+// collapsing it would only remove the one line that says it exists.
+func (e EpicBoard) AllClosed() bool {
+	total := 0
+	for _, w := range e.Waves {
+		total += len(w.Ticks)
+	}
+	return total > 0 && e.OpenTicks() == 0
+}
+
+// SortEpics orders the board by activity: running workers first, then open
+// ticks, then epic id.
+//
+// The id tiebreak is not cosmetic. The board reloads on a timer and on every
+// filesystem event, and the cursor is an index into the flattened row list —
+// so an order that is merely "some valid ordering" would reshuffle rows under
+// the operator's cursor between two refreshes that saw identical state.
+func SortEpics(epics []EpicBoard) {
+	sort.SliceStable(epics, func(i, j int) bool {
+		ri, rj := epics[i].RunningWorkers(), epics[j].RunningWorkers()
+		if ri != rj {
+			return ri > rj
+		}
+		oi, oj := epics[i].OpenTicks(), epics[j].OpenTicks()
+		if oi != oj {
+			return oi > oj
+		}
+		return epics[i].Epic < epics[j].Epic
+	})
 }
 
 // epics resolves which epic boards to build: the explicit filter, or every
