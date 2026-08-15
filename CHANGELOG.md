@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-08-15
+
+### Added
+
+- **A claim the diff *writes* is also untested** (`SKILL.md`) — the stale-claims rule catches sentences an epic invalidates; it cannot catch the ones an epic is born with. A tick that adds a safety mechanism usually documents it in the same commit, and that new sentence is asserted rather than tested: it describes what the author intended, which is exactly where an implementation gap hides. Field-observed: a wiki page written by the same epic said an attempts counter "keeps a poison row walking the MAX_ATTEMPTS ladder instead of being reclaimed forever", while the code consumed that counter on only one of the two failure paths — the ladder was counted and had no top, so a row whose delivery threw was reclaimed indefinitely. Grepping old files cannot find that one; treating every new invariant sentence as a test that has not been written yet can.
+
 ## [0.28.0] - 2026-08-15
 
 ### Changed
