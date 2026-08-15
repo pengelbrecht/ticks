@@ -27,7 +27,18 @@ Everything below applies only once herdr is the selected and available substrate
 
 **`tk herd` is how this substrate is driven. It is the primary mechanism, not a convenience wrapper.** Five commands cover the whole worker lifecycle, and each one implements the rules the rest of this document explains:
 
-**Run-start ritual:** before wave 1, open the mission-control dashboard pane for the epic if one is not already open (`herdr plugin pane open --plugin pengelbrecht.herdr-ticks --entrypoint dashboard --placement split --target-pane <your pane> --no-focus --env TICKS_EPIC=<epic>`). The board is part of the run, not furniture — a user watching the run should never have to ask for it, and a pane closed between epics does not carry over.
+**Run-start ritual:** before wave 1, open the mission-control dashboard pane if one is not already open — **without `TICKS_EPIC`**:
+
+```bash
+herdr plugin pane open --plugin pengelbrecht.herdr-ticks --entrypoint dashboard \
+  --placement split --target-pane <your pane> --no-focus
+```
+
+The board is part of the run, not furniture — a user watching should never have to ask for it.
+
+**Do not pin it to an epic.** `tk herd dashboard` with no `--epic` already watches *every* epic that has run state under `.tick/logs/herd/`, so an unpinned board follows a multi-epic run — and a project run crossing `atu → vbd → 51t` — with no further action. Passing `--env TICKS_EPIC=<epic>` pins it to that one epic, and the board then silently shows a **finished** epic for the rest of the run: the workers are live, the panes are live, and the operator sees an empty board and reasonably concludes the run has stalled. Field-observed 2026-08-14: the user asked why the running agents were missing from mission control, two epics after the one the board was pinned to had closed.
+
+Pin with `TICKS_EPIC` only when you deliberately want one epic's slice — the `ticks://` link handler does this, which is where the env var earns its place. If you ever do pin it, re-point the pane at each epic boundary, in the same turn that spawns the next epic's wave 1.
 
 | Command | What it does | The rule it enforces |
 |---|---|---|
