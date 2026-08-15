@@ -86,7 +86,7 @@ func TestSnapshotRendersWavesTicksAndWorkers(t *testing.T) {
 	for _, want := range []string{
 		"Ticks mission control", "epic zz0", "mission control",
 		"wave 1", "wave 2", "m05", "dashboard pane", "o83", "paint hook",
-		"workers", "tick/m05", "claude", "2 workers",
+		"workers", "claude", "2 workers",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
@@ -362,7 +362,9 @@ func TestWorkerRowShowsAgeFromCreatedAt(t *testing.T) {
 	snap.Epics[0].Workers[0].CreatedAt = fixedTime.Add(-9*time.Minute - time.Second).Format(state.TimeLayout)
 	apply(m, SnapshotMsg{Snapshot: snap})
 
-	if v := m.View(); !strings.Contains(v, "age 9m01s") {
+	// The row's single timer is unlabelled — the detail view is where the
+	// labelled "age" and the time-in-status live.
+	if v := m.View(); !strings.Contains(v, "9m01s") {
 		t.Errorf("worker row age not rendered from CreatedAt:\n%s", v)
 	}
 }
@@ -379,6 +381,8 @@ func TestWorkerRowHidesAgeWithoutCreatedAt(t *testing.T) {
 	}
 }
 
+// The status timer lives in the DETAIL view: the worker row carries only the
+// worker's age, because the row's status column already names the status.
 // The status timer starts at zero on the pane's first observation (history
 // before the dashboard was watching is unknowable), then advances with the
 // clock, and resets to zero the moment a transition is observed — whether
@@ -398,6 +402,8 @@ func TestStatusTimerStartsAtFirstObservationAndResetsOnTransition(t *testing.T) 
 	// First observation: the worker's status (working) starts at zero even
 	// though it may have been working for a while before the board opened.
 	apply(m, SnapshotMsg{Snapshot: boardSnapshot()})
+	apply(m, key("j"))     // off the epic header, onto m05
+	apply(m, key("enter")) // into the detail view, where the status timer lives
 	if v := m.View(); !strings.Contains(v, "working 0s") {
 		t.Fatalf("first observation did not start the status timer at zero:\n%s", v)
 	}

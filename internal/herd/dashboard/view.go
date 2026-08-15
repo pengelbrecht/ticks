@@ -263,17 +263,32 @@ func (m *Model) workerLine(w WorkerRow) string {
 	// which is the whole point of tier routing. The model is the RESOLVED
 	// capability dimension; empty means the kind's own default, so it renders
 	// as the same em dash the detail view uses rather than a guessed name.
-	line := fmt.Sprintf("    %s %s %s %s %s %s",
+	// The branch and the time-in-current-status both used to sit here and both
+	// restated something already on the row: the branch is the conventional
+	// prefix plus the tick id in the first column, and the timer prefixed
+	// itself with the status the status column names. The detail view still
+	// carries both.
+	line := fmt.Sprintf("    %s %s %s %s %s",
 		idStyle.Render(pad(w.Tick, 5)),
 		statusStyle(st).Render(pad(string(st), 9)),
 		pad(w.Kind, 8),
 		metaStyle.Render(pad(orNone(w.Model), 13)),
-		pad(w.PaneID, 10),
-		metaStyle.Render(w.Branch))
-	if timer := m.workerTimer(w, st); timer != "" {
-		line += "  " + metaStyle.Render(timer)
+		pad(w.PaneID, 10))
+	if age := workerAge(m.now(), w); age != "" {
+		line += " " + metaStyle.Render(age)
 	}
 	return line
+}
+
+// workerAge is how long the worker has been alive, or "" when the manifest
+// carries no parseable spawn time — an absent timestamp renders as no timer
+// rather than as a zero duration that reads like a worker spawned just now.
+func workerAge(now time.Time, w WorkerRow) string {
+	createdAt, err := time.Parse(state.TimeLayout, w.CreatedAt)
+	if err != nil {
+		return ""
+	}
+	return formatDuration(now.Sub(createdAt))
 }
 
 // workerTimer renders the compact elapsed-time summary for a worker row,
