@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-08-15
+
 ### Changed
 
 - **Slimmer dashboard worker rows** — the row repeated itself twice over: the timer prefixed itself with the status the status column already named (`working … working 4m12s`), and the branch was the conventional worktree prefix plus the tick id sitting in the first column. Both are gone; the row now ends in one unlabelled timer, how long the worker has been alive. A worker whose manifest carries no parseable spawn time renders no timer rather than a zero duration that would read as "just spawned". The branch and the time-in-current-status both remain in the tick detail view, which has room for them. The timer advances on the board's existing once-a-second display tick — armed only while some worker is unsettled, so a finished board is still never woken.
