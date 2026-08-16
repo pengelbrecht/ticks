@@ -88,6 +88,8 @@ Record answers where agents will actually see them: standing project-wide decisi
 
 A human tick surviving into the final graph should have a reason it couldn't be resolved during planning. Resolve is the default; awaiting is the exception you justify.
 
+**A configured operator channel changes the economics of the survivors, not the triage.** When the run can reach the human on their device (`tk tell` / `tk ask` / `tk answer` — routing table in `references/agent-runner.md` → *The operator channel*), a post-work approval costs one tap on a phone instead of a return to the terminal, and `--escalate-after` holds the message for a grace window so an answer given at the keyboard never disturbs the device at all. What does not change is anything above: a question whose answer the work won't change is still resolved during planning, "do now" tasks are still done during planning, and a cheap interrupt is still an interrupt. The rules below are unchanged too — ask early, block late, split around the decision. Reachability is a latency fix, never a licence to defer decisions into the run.
+
 #### Asking the questions: rounds over a decision frontier
 
 Decisions form a tree — settling one unblocks the ones hanging off it. Work it the way the runner works the tick graph: in waves.
