@@ -1,0 +1,12 @@
+{
+  "id": "wlo",
+  "title": "Rich operator messages: formatted tells + attachments",
+  "description": "Rough scope (flesh out when fronted): teach the operator channel the rich message elements the transport already supports — demoed live 2026-08-16 via raw Bot API, chosen by the operator over the channel itself (multi-select answer: formatted-tells + attachments).\n\nDeliverables sketch:\n- Channel interface: additive methods for formatted text and attachments (SendFormatted or a message struct with markup flag; SendAttachment for documents/photos with optional caption + gate buttons). Telegram impl (HTML parse mode, sendDocument/sendPhoto), FakeChannel, fakebot coverage.\n- CLI: tk tell --format (or auto-detected markdown subset) and tk tell --file \u003cpath\u003e; tk ask photo+gate shape for content review.\n- Keep Send plain-text contract intact (review decision, epic 54v); formatting is a new path, never re-interpretation of existing text.\n- Interlocks with epic 7ab (tick attachments / screenshots for content review): 7ab produces the screenshots, this epic delivers them to the phone with approve/reject under the standard gate provenance rules.\n- Channel-neutral: every element must be expressible in Slack Block Kit terms before it lands in the interface.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T19:21:37.298698Z",
+  "updated_at": "2026-08-16T19:21:37.298698Z"
+}
