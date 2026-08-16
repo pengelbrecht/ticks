@@ -1,7 +1,7 @@
 {
   "id": "slp",
   "title": "Close out rich-messages epic: retro",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -12,5 +12,7 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T19:24:43.983415Z",
-  "updated_at": "2026-08-16T19:24:44.011348Z"
+  "updated_at": "2026-08-16T20:14:12.159603Z",
+  "closed_at": "2026-08-16T20:14:12.159603Z",
+  "closed_reason": "Completed: wlo retro — A50-A55 verified incl live operator demo, gate audit passes, drift none, 1 accepted nit recorded"
 }

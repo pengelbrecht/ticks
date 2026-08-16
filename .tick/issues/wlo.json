@@ -2,8 +2,8 @@
   "id": "wlo",
   "title": "Rich operator messages: formatted tells + attachments",
   "description": "Rough scope (flesh out when fronted): teach the operator channel the rich message elements the transport already supports — demoed live 2026-08-16 via raw Bot API, chosen by the operator over the channel itself (multi-select answer: formatted-tells + attachments).\n\nDeliverables sketch:\n- Channel interface: additive methods for formatted text and attachments (SendFormatted or a message struct with markup flag; SendAttachment for documents/photos with optional caption + gate buttons). Telegram impl (HTML parse mode, sendDocument/sendPhoto), FakeChannel, fakebot coverage.\n- CLI: tk tell --format (or auto-detected markdown subset) and tk tell --file \u003cpath\u003e; tk ask photo+gate shape for content review.\n- Keep Send plain-text contract intact (review decision, epic 54v); formatting is a new path, never re-interpretation of existing text.\n- Interlocks with epic 7ab (tick attachments / screenshots for content review): 7ab produces the screenshots, this epic delivers them to the phone with approve/reject under the standard gate provenance rules.\n- Channel-neutral: every element must be expressible in Slack Block Kit terms before it lands in the interface.",
-  "notes": "2026-08-16 22:00 - [human] Human instruction (Peter, 2026-08-16): epic approval includes live Telegram demos of each feature via the shipped commands — added as fact A55 and demo tick with --requires approval, gating final review.",
-  "status": "open",
+  "notes": "2026-08-16 22:00 - [human] Human instruction (Peter, 2026-08-16): epic approval includes live Telegram demos of each feature via the shipped commands — added as fact A55 and demo tick with --requires approval, gating final review.\n2026-08-16 22:14 - RETRO (epic close, 2026-08-16). VERIFICATION: A50 gate green (fresh) | A51 formatted+plain-byte-identical tested | A52 photo/document routing, guards, exit 4 | A53 photo gate end-to-end with transport-stamped presser provenance | A54 optional interfaces, no leaks, Block Kit godoc | A55 verified LIVE: four demos via shipped commands, operator approved via the photo gate itself ([human] Approve via telegram user 6283960894). GATE AUDIT: one gated tick (txl --requires approval) — cleared by human actor via channel press, activity human-stamped: PASSES. DRIFT: zero markers. REVIEW: APPROVE, 3 nits — 2 applied at adjudication (godoc footgun warning, bytes wording), 1 accepted as tech debt: settle() retries any editMessageText 400 as caption edit, degrading error messages on unrelated 400s (behavior correct; revisit if error triage ever matters). LEARNINGS: none new promoted — no interrupts, no misses; the TG preview mojibake + copy normalization went to docs (user-facing, not agent-operational). SCOPE: grew by 1 (txl demo tick, operator-requested). INTEGRATION: awaiting PR + CI. FIELD NOTE: operator ran the epic sign-off entirely over the feature being signed off — dogfood loop closed.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "noreply@anthropic.com",
@@ -11,5 +11,7 @@
   "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T19:21:37.298698Z",
-  "updated_at": "2026-08-16T20:00:10.509097Z"
+  "updated_at": "2026-08-16T20:14:12.250956Z",
+  "closed_at": "2026-08-16T20:14:12.250956Z",
+  "closed_reason": "Completed: rich operator messages — formatted tells, attachments, photo gates; review APPROVE; A55 demo approved live by operator over the channel itself"
 }
