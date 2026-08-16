@@ -59,6 +59,35 @@ token) from "operator quiet". `MessageRef` is the correlation key for concurrent
 unsolicited operator text is an `EventAnswer` with zero Ref. Config ids are strings (not
 int64) so non-numeric channels fit; Telegram code must `strconv.ParseInt`.
 
+## Telegram transport as landed (epic 54v tick pwd)
+
+`internal/operator/telegram` is raw net/http + encoding/json; Bot API wire structs are
+**unexported** so the schema cannot leak — the exported surface is `Client` (GetMe,
+SendMessage, EditMessageText, EditMessageReplyMarkup, AnswerCallbackQuery, GetUpdates),
+`Channel` (the `operator.Channel` impl), and neutral value types (`BotInfo`, `Update`,
+`OutgoingMessage`, `Button`, `Error`).
+
+- **Offset lives in the Client**, not the caller: `GetUpdates(ctx, timeout)` confirms the
+  previous batch itself. Crucially the offset advances past *dropped* updates too —
+  filtering after computing it, so a stranger's traffic can't wedge the poll loop forever.
+  `SetOffset` exists for resuming from persisted state.
+- **`UserID: 0` means unfiltered** — that's the pairing mode (tk channel setup hasn't learned
+  the operator's id yet). Any non-zero id drops every other sender at the transport (A14 half).
+- **Callback data scheme** (≤64 bytes by construction): `o<index>` single-select press,
+  `t<index>` multi-select toggle, `d` Done, `x` Other…. The index is into the question's
+  option slice; labels and caller option ids never leave the process (`pendingQuestion` state
+  keyed by question message id). Presses correlate by *message id*, not callback payload.
+- **`Error.Fatal()` is the transient/fatal split** the `Events` contract needs: 401/403/404/409
+  → `EventError` + stream close; everything else retried with doubling backoff (409 counts as
+  fatal because another getUpdates consumer owns the token). Network errors are wrapped in a
+  `transportError` that redacts the token — `url.Error` would otherwise print it.
+- **Clearing an inline keyboard = omitting `reply_markup`** on an edit. `Resolve` uses that,
+  and re-renders the original question body + outcome so the chat keeps the record.
+- **`fakebot` speaks HTTP only** — it does not import the client package, so a wire-format bug
+  can't be cancelled out by a shared Go type. It caps its own long-poll wait
+  (`MaxPollWait`, 150ms) because Telegram's `timeout` is whole seconds; `FailNext` injects
+  status codes to drive the transient-vs-fatal paths. Reuse it for pairing (tick jmk) and epic 2.
+
 ## Fact-sheet numbering gotcha
 
 `.tick/config.md` Acceptance Evidence is a single namespace across all containers; A1–A6 were
