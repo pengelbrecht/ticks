@@ -282,6 +282,98 @@ means project detection failed.
 empty message (no arguments and nothing but whitespace on stdin), `4` for no
 configured channel, and a nonzero code for a delivery failure.
 
+## Rich messages
+
+`tk tell` and `tk ask` both carry rich delivery beyond plain text: **formatted
+text** (MarkdownLite, rendered per channel) and **attachments** (a local file
+or photo). Both are optional channel capabilities — a channel that lacks one
+degrades to plain text automatically, never a hard failure.
+
+### MarkdownLite
+
+MarkdownLite is the small markup subset every channel `tk` might speak to can
+render. `tk tell --format` sends the text through it:
+
+```bash
+tk tell --format "**Deploy** finished — see \`v2.3.1\` for details"
+```
+
+| Element | MarkdownLite | Telegram HTML | Block Kit equivalent |
+|---|---|---|---|
+| Bold | `**text**` | `<b>text</b>` | `*text*` |
+| Italic | `_text_` | `<i>text</i>` | `_text_` |
+| Inline code | `` `text` `` | `<code>text</code>` | `` `text` `` |
+| Code block | ` ```` ```text``` ```` ` | `<pre>text</pre>` | ` ```` ```text``` ```` ` |
+| Link | `[label](url)` | `<a href="url">label</a>` | `<url\|label>` |
+
+Nothing outside this subset is markup — headings, lists, tables, and
+strikethrough characters are shown literally on every channel, and an unclosed
+or empty marker (`**oops`) is literal too. Block Kit is not an implemented
+channel yet (Telegram is the only one today); the subset was deliberately kept
+small enough to map cleanly onto it too, so that column documents the target
+it was chosen to reach, not a shipped mapping.
+
+### Attachments and the upload limit
+
+`tk tell --file <path>` and `tk ask --photo <path>` upload a local file
+instead of sending text:
+
+```bash
+tk tell --file report.pdf --caption "Nightly build report"
+tk tell --file screenshot.png --as document   # force document over the photo default
+```
+
+`--as photo|document` (on `tell`) picks how the file is presented; without it,
+the kind resolves from the extension — only `.png`, `.jpg`, and `.jpeg`
+auto-resolve to a photo, everything else is a document. `--caption` is the
+plain-text (not MarkdownLite) message shown with the file, capped at 900
+characters client-side — comfortably under Telegram's 1024-character caption
+limit, with margin because a photo gate's caption is rewritten on resolution
+to also carry the verdict.
+
+Uploads are capped client-side at 50 MB (52,428,800 bytes) — Telegram's own
+ceiling on a file a bot can upload. `tk` checks the file's size before
+starting the upload, so an over-limit file fails immediately naming the size
+and the limit, rather than after streaming the whole thing to the wire.
+
+Telegram's in-app text-file preview guesses the charset of a BOM-less UTF-8
+document, and can render non-ASCII characters (em-dashes, arrows) as mojibake
+(`â€"`, `â†'`) inside that preview. The uploaded bytes are unaffected —
+`sendDocument` is a binary transfer, and downloading the file or opening it
+elsewhere shows correct UTF-8 — as are message text and captions, which go
+through a separate path. Prefer ASCII-safe punctuation in a small text
+document meant to be read straight in Telegram's preview, or accept the
+preview-only quirk.
+
+### Photo gates
+
+```bash
+tk ask abc123 --photo shots/board.png --gate approve --caption "New board OK?"
+```
+
+`--photo` delivers the image itself as the gate: the approve/reject buttons
+hang under the picture instead of under a separate text question. It requires
+`--gate approve` — a photo on a plain (non-gated) `tk ask` isn't supported —
+and otherwise behaves exactly like a text gate: the same verdict, the same
+`[human]` note, and the same `--timeout`/`--async`/`--escalate-after` flags
+compose with it.
+
+### Capability fallback
+
+Formatted text and attachments are both *optional* channel capabilities, not
+guarantees:
+
+- A channel that can't render MarkdownLite gets a `tk tell --format` message
+  sent as plain text with the markup stripped (a link keeps its target:
+  `label (url)`), and a warning on stderr.
+- A channel that can't upload files gets a plain-text message naming the local
+  path instead of the file itself (plus the caption, if any), and a warning on
+  stderr.
+
+Both fallbacks mean a prompt can call `--format` or `--file` unconditionally —
+the announcement always reaches the operator, in the richest shape the
+current channel supports.
+
 ## Commands
 
 | Command | Description |
@@ -292,8 +384,11 @@ configured channel, and a nonzero code for a delivery failure.
 | `tk channel status --offline` | Show configuration without checking the token live |
 | `tk channel status --check` | Exit nonzero when a configured token is rejected |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel |
+| `tk tell --format` | Send the announcement as MarkdownLite, rendered where the channel supports it |
+| `tk tell --file <path> [--caption "..."] [--as photo\|document]` | Upload a file or photo instead of a message |
 | `tk ask <id> --question "..."` | Ask a question and block until it's answered |
 | `tk ask <id> --question "..." --gate approve` | Ask as an approval gate |
+| `tk ask <id> --photo <path> --gate approve [--caption "..."]` | Ask as a photo approval gate — the image carries the buttons |
 | `tk ask <id> --question "..." --async` | Register and deliver, print the question id, and return |
 | `tk ask --collect [--wait]` | Drain settled questions asked with `--async` |
 | `tk answer <id> <answer...>` | Answer a question `tk ask` parked, from the terminal |
