@@ -537,6 +537,14 @@ func ResetFlags() {
 	boardDev = false
 	boardHost = "127.0.0.1"
 
+	// Reset channel flags
+	channelSetupToken = ""
+	channelSetupAPIBase = ""
+	channelSetupTimeout = defaultPairTimeout
+	channelStatusOffline = false
+	channelStatusCheck = false
+	channelStatusAPIBase = ""
+
 	// Reset skills flags
 	skillsListJSON = false
 	skillsGetFull = false
