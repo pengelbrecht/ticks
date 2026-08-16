@@ -3,7 +3,7 @@
   "title": "Apply epic-54v final-review findings (2 should-fix, 4 nits)",
   "description": "Read-only final review approved the epic with findings to fix now. Apply exactly these, nothing else:\n1. Channel.Send contract (internal/operator/channel.go): define Send text as PLAIN TEXT at the interface; the Telegram implementation must HTML-escape it before sending (parse_mode stays HTML internally). Update the Telegram impl + tests; callers stay channel-neutral. (Supersedes the earlier 'Send carries intentional markup' decision.)\n2. Pairing offset confirm (cmd/tk/cmd/channel.go + telegram client): after a successful /start match, issue one short GetUpdates with the advanced offset so Telegram marks the pairing update confirmed and a later run's poll does not replay it. Test: fakebot asserts the confirming offset call.\n3. Chat filter (internal/operator/telegram/channel.go handleMessage): drop messages whose ChatID differs from the paired chat id; test with a bound-user message from a different chat.\n4. internal/operator/mapping.go: remove speculative exports — drop unused PublicIdentity/OperatorMapping aliases, change ResolveOperator from variadic emulation to the plain two-arg signature its callers use.\n5. cmd/tk/cmd/channel.go token prompt: use golang.org/x/term ReadPassword when stdin is a TTY (no echo); keep the current bufio path when not a TTY so tests keep working.\n6. Fix stale doc comment on pairWhenPrompted (channel_test.go ~line 87) mentioning a nonexistent 'prefix' parameter.\nRun gofmt; keep the whole repo green.",
   "notes": "2026-08-16 19:21 - Note: golang.org/x/term is not a direct dep; charmbracelet/x/term v0.2.1 is already in go.mod (indirect). Prefer promoting an existing module rather than adding a new one; if neither fits cleanly, a raw termios fallback is overkill — adding golang.org/x/term as a direct dep is acceptable (single-tick go.mod change, no same-wave siblings).\n2026-08-16 19:21 - runner-state: substrate=herdr kind=claude branch=tick/i3z worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-i3z workspace=w9B base=c1cd147fd6a87ca3b12f7317ba227f1cae8f8855 agent=tick-i3z pane=w9B:p1 session=7b6fbd82-b280-4983-ab46-572901f89ecd",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,6 +11,7 @@
   "acceptance_criteria": "go test -short -count=1 ./internal/operator/... ./cmd/tk/... passes; Send escaping + offset confirm + chat filter each have a test; no new exported identifiers without callers; gofmt clean",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T17:21:21.58464Z",
-  "updated_at": "2026-08-16T17:21:42.873852Z",
-  "started_at": "2026-08-16T17:21:29.569552Z"
+  "updated_at": "2026-08-16T17:27:38.290344Z",
+  "closed_at": "2026-08-16T17:27:38.290344Z",
+  "closed_reason": "Completed: all 6 final-review findings — Send=plain-text contract w/ transport escaping, pairing offset confirm, chat-id filter, mapping export pruning, no-echo token prompt (x/term direct dep), stale comment; repo green"
 }
