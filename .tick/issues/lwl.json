@@ -2,6 +2,7 @@
   "id": "lwl",
   "title": "tk ask rich: multi-select, Other, async, escalate-after, tk answer",
   "description": "Extends cmd/tk/cmd/ask.go and the v6z engine (sequenced after r6r — same files, no parallel sibling).\n\n1. Rich shapes over the transport that already supports them: multi-select toggle keyboard + Done commit; allow_other button → ForceReply follow-up correlated back to the same pending entry. Remove the single-select fallback from r6r.\n2. Async: --async registers pending + delivers + returns immediately printing the question id; tk ask --collect [--wait] gathers resolved entries as JSON lines (and with --wait blocks on the remaining ones); pending entries visible via tk list --awaiting= as today plus the pending files.\n3. Escalation delay: --escalate-after \u003cdur\u003e sets the not-before timestamp (v6z) so local surfaces get the question immediately and Telegram only after the grace window (Peter, 2026-08-16: presence-agnostic, no presence detection).\n4. tk answer \u003ctick-id\u003e [option-label-or-id | text]: first-class local answer verb — resolves the pending entry through the same engine path (resolved_by=terminal, note --from human), and the channel message gets edited exactly as with a phone answer. Registration in both dispatch layers + ResetFlags.\n5. Stale-press hardening end-to-end: press after resolution → answerCallbackQuery \"already resolved\", no tick mutation (transport handles the ack; verify the engine ignores the event).\n\nTest cases: multi-select toggle→Done → option_ids resolution; other→ForceReply reply resolves same entry; --async + --collect --wait round-trip; --escalate-after: no channel delivery before the window (fakebot asserts zero sendMessage), tk answer inside the window resolves and cancels delivery; tk answer on an option question by label and by id; stale press after tk answer → ack only.\nRun: go test -short -count=1 ./internal/operator/... ./cmd/tk/...",
+  "notes": "2026-08-16 19:59 - runner-state: substrate=herdr kind=claude branch=tick/lwl worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-lwl workspace=w9F base=068427a63e08bfbd7ff4db2348491afdf0ea68e3 agent=tick-lwl pane=w9F:p1 session=a0f35d44-692f-4102-a020-fe29c8731c06",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -13,6 +14,6 @@
   "acceptance_criteria": "Rich-ask tests pass: all four shapes live end-to-end, async collect contract, escalate-after grace window proven (zero premature HTTP), tk answer symmetrical with phone answers",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T17:32:07.44491Z",
-  "updated_at": "2026-08-16T17:58:43.699363Z",
+  "updated_at": "2026-08-16T17:59:02.649866Z",
   "started_at": "2026-08-16T17:58:43.699363Z"
 }
