@@ -239,7 +239,10 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
 | `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
+| `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
+| `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
 | `tk ask <id> --question "..."` | Ask the operator a question and block until it's answered, on either surface (see below) |
+| `tk ask <id> --photo <path> --gate approve` | Ask as a photo approval gate — the image itself carries the approve/reject buttons (see below) |
 | `tk answer <id> <answer...>` | Answer a question `tk ask` parked on a tick, from the terminal (see below) |
 
 All commands support `--help` for options and `--json` for machine-readable output.
@@ -321,13 +324,29 @@ paging the phone, and the exit-code table (`tk ask` exits `7` when the wait
 times out — the question stays open and answerable, so a later `tk answer` or
 a later run still settles it).
 
+Both commands carry rich message support. `tk tell --format` sends the text as
+MarkdownLite (bold, italic, inline code, code block, link) instead of plain
+text, and `tk tell --file <path>` uploads a local file or photo (`--caption`,
+`--as photo|document`) instead of a message. `tk ask <id> --photo <path>
+--gate approve` delivers the image itself as the approval gate, with the
+approve/reject buttons under it. Every rich send degrades automatically on a
+channel that can't render it: unsupported markup falls back to plain text with
+the markup stripped, and a file a channel can't upload falls back to a message
+naming its path — never a hard failure. See
+[Rich messages](docs/operator-channel.md#rich-messages) for the MarkdownLite
+subset, attachment kinds, the upload size limit, and the fallback rules in
+full.
+
 | Command | Description |
 |---------|-------------|
 | `tk channel setup telegram` | Pair your Telegram bot with this machine (token stays out of the repo) |
 | `tk channel status` | Show what is configured, who it is paired with, and whether the token works |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (reads stdin with no args) |
+| `tk tell --format` | Send the announcement as MarkdownLite, rendered where the channel supports it |
+| `tk tell --file <path> [--caption "..."] [--as photo\|document]` | Upload a file or photo instead of a message |
 | `tk ask <id> --question "..."` | Ask a question and block until it's answered, on either surface |
 | `tk ask <id> --question "..." --gate approve` | Ask as an approval gate — approve/reject buttons, verdict answer |
+| `tk ask <id> --photo <path> --gate approve [--caption "..."]` | Ask as a photo approval gate — the image carries the buttons |
 | `tk ask --collect --wait` | Drain settled questions from earlier `--async` asks, optionally blocking on the rest |
 | `tk answer <id> <answer...>` | Answer a question `tk ask` parked, from the terminal |
 
