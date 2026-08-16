@@ -3,7 +3,7 @@
   "title": "CLI: tk tell --format/--file, tk ask --photo --gate",
   "description": "CLI surface — cmd/tk/cmd/{tell,ask}.go + registration/ResetFlags; no interface or transport changes (consume x72/r6d as-is).\n\n- tk tell --format: treat the text (args or stdin) as MarkdownLite and route through SendFormatted when the channel supports it (capability probe); without support, strip markup and fall back to plain Send with a stderr note. Plain tell unchanged.\n- tk tell --file \u003cpath\u003e [--caption \"...\"]: SendAttachment KindAuto (respect --as photo|document override). Mutually exclusive with --format. Unconfigured: exit 4, zero HTTP (existing contract).\n- tk ask \u003ctick\u003e --photo \u003cpath\u003e --gate approve [--caption]: gated attachment via the engine hook from x72 — parks awaiting approval, delivers photo+buttons, blocks/resolves/edits exactly like a text gate (all existing flags --timeout/--async/--escalate-after compose). --photo without --gate is a usage error in this epic (open questions on photos deferred).\n- ResetFlags entries for every new flag var; both dispatch layers already list tell/ask (verify, no main.go change expected).\n\nTest cases (fakebot + temp repo): formatted tell arrives with markup intact and plain path byte-identical to before; --file photo and document routing + caption; unsupported-capability fallback (FakeChannel minus the optional interfaces); photo gate end-to-end: tap resolves verdict with human provenance and the caption edit; flag exclusivity and usage errors; unconfigured exit 4 for both new paths.\nRun: go test -short -count=1 ./internal/operator/... ./cmd/tk/...",
   "notes": "2026-08-16 21:47 - runner-state: substrate=herdr kind=claude branch=tick/ici worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ici workspace=w9P base=4d0b5c4ded620c7dad20675b407bc6742a4fdd85 agent=tick-ici pane=w9P:p1 session=29b26c71-64e4-482b-9eb3-b3241bfc94e4",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "CLI tests pass incl photo-gate end-to-end and capability fallback; plain-text paths byte-identical; exit-code contracts preserved",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T19:24:32.538528Z",
-  "updated_at": "2026-08-16T19:47:08.179517Z",
-  "started_at": "2026-08-16T19:46:48.290861Z"
+  "updated_at": "2026-08-16T20:00:59.320647Z",
+  "closed_at": "2026-08-16T20:00:59.320647Z",
+  "closed_reason": "Completed: tk tell --format/--file/--caption/--as, tk ask --photo --gate approve, StripMarkdownLite fallback in internal/operator, caption length guard; gate green"
 }

@@ -2,7 +2,7 @@
   "id": "txl",
   "title": "Live demo: rich messages to operator via shipped commands",
   "description": "Operator-requested (Peter, 2026-08-16): epic approval includes live demos to his Telegram, sent with the shipped commands (not raw Bot API). Orchestrator-owned tick — no worker; the orchestrator builds tk from the epic branch and runs, in order:\n1. tk tell --format with a short MarkdownLite feature summary (bold/code/link visible).\n2. tk tell --file with a small document + caption.\n3. tk tell --file with a photo (auto-detected kind).\n4. tk ask \u003cthis-tick\u003e --photo \u003cimage\u003e --gate approve --caption \"Rich messages demo — approve to sign off\" — the operator's tap IS the approval that clears this tick's gate with human provenance.\nAny element that fails or renders wrong on the real transport becomes a repair tick before final review.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +13,6 @@
   "requires": "approval",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T20:00:10.458559Z",
-  "updated_at": "2026-08-16T20:00:10.458559Z"
+  "updated_at": "2026-08-16T20:01:00.395275Z",
+  "started_at": "2026-08-16T20:01:00.395274Z"
 }
