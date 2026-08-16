@@ -86,6 +86,19 @@ func (f *FakeChannel) AskDeliver(ctx context.Context, q Question) (MessageRef, e
 	return ref, nil
 }
 
+// Adopt records a question delivered by an earlier run under ref, so the fake
+// answers [FakeChannel.Question] for it as if it had delivered it itself. It
+// implements [Adopter] and is idempotent.
+func (f *FakeChannel) Adopt(ref MessageRef, q Question) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.questions[ref]; ok {
+		return nil
+	}
+	f.questions[ref] = q
+	return nil
+}
+
 // Events delivers scripted events until ctx is cancelled, then closes the
 // returned channel. Events scripted before the call are delivered too.
 //

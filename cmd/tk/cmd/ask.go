@@ -76,16 +76,29 @@ The question comes from --question, or from stdin as JSON with --json:
    "multi": false, "allow_other": false}
 
 Option ids are derived from the labels ("Deep Green" -> "deep-green") unless the
-option carries an explicit "id". Multi-select and "other" are accepted in the
-JSON shape but delivered as a single-select question for now.
+option carries an explicit "id". "multi" delivers a toggle keyboard committed
+with Done; "allow_other" adds an Other… button that asks for free text and
+resolves the same question.
+
+Not blocking:
+  --async            register, deliver, and print the question id, then exit
+  --collect          print every settled question as a JSON line and drain it
+  --collect --wait   also block on the questions still open
+  --escalate-after   hold channel delivery for a grace window; local surfaces
+                     (tk answer, the dashboard) see the question immediately,
+                     so answering in time means the phone is never disturbed
 
 Output:
-  text mode  the answer, and nothing else, on stdout
-  --json     {"answer", "option_ids", "resolved_by": telegram|terminal, "telegram_user_id"}
+  text mode  the answer, and nothing else, on stdout (--async: the question id)
+  --json     {"id", "tick_id", "answer", "option_ids",
+              "resolved_by": telegram|terminal, "telegram_user_id"}
+  --collect  one JSON object per line, in the order the questions were asked
 
 Examples:
   tk ask abc123 --question "Which region should this deploy to?"
   tk ask abc123 --question "Ship it?" --gate approve --timeout 30m
+  tk ask abc123 --question "Which region?" --async --escalate-after 5m
+  tk ask --collect --wait --timeout 30m
   echo '{"question":"Pick one","options":[{"label":"A"},{"label":"B"}]}' | tk ask abc123 --json
 
 Exit codes:
@@ -97,17 +110,21 @@ Exit codes:
      the same park-and-surface behaviour as before a channel existed.
   5  exit code 5: the timeout expired. The tick stays awaiting and the pending
      question is left on disk, so a later run or a human can still settle it.`,
-	Args:          cobra.ExactArgs(1),
+	Args:          cobra.MaximumNArgs(1),
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	RunE:          runAsk,
 }
 
 var (
-	askQuestion string
-	askJSON     bool
-	askTimeout  time.Duration
-	askGate     string
+	askQuestion      string
+	askJSON          bool
+	askTimeout       time.Duration
+	askGate          string
+	askAsync         bool
+	askCollect       bool
+	askWait          bool
+	askEscalateAfter time.Duration
 )
 
 func init() {
@@ -115,6 +132,10 @@ func init() {
 	askCmd.Flags().BoolVar(&askJSON, "json", false, "read the question from stdin as JSON and print the answer as JSON")
 	askCmd.Flags().DurationVar(&askTimeout, "timeout", askDefaultTimeout, "how long to wait for an answer before giving up (exit 5)")
 	askCmd.Flags().StringVar(&askGate, "gate", askGateNone, "gate kind: approve (verdict, approve/reject buttons) or none")
+	askCmd.Flags().BoolVar(&askAsync, "async", false, "register and deliver the question, print its id, and return without waiting")
+	askCmd.Flags().BoolVar(&askCollect, "collect", false, "print settled questions as JSON lines and drain them (takes no tick id)")
+	askCmd.Flags().BoolVar(&askWait, "wait", false, "with --collect: also block on the questions still open")
+	askCmd.Flags().DurationVar(&askEscalateAfter, "escalate-after", 0, "hold channel delivery for this long; local surfaces see the question at once")
 
 	rootCmd.AddCommand(askCmd)
 }
@@ -130,6 +151,11 @@ type askOptions struct {
 	Question operator.Question
 	// Gate makes the answer a verdict instead of a note.
 	Gate bool
+	// Async registers and delivers the question and returns without waiting.
+	Async bool
+	// NotBefore holds channel delivery until this instant (--escalate-after).
+	// Local surfaces see the parked question immediately regardless.
+	NotBefore time.Time
 	// Timeout bounds the wait. Zero means [askDefaultTimeout].
 	Timeout time.Duration
 	// PollInterval overrides the wait/delivery cadence. Zero means the
@@ -141,11 +167,15 @@ type askOptions struct {
 }
 
 // askResult is what the command prints. The JSON field names are the machine
-// contract: a caller reads answer/option_ids and branches on resolved_by.
+// contract: a caller reads answer/option_ids and branches on resolved_by. The
+// id is what --async prints and what a later --collect line names, so the two
+// halves of an asynchronous ask can be correlated.
 type askResult struct {
-	Answer         string   `json:"answer"`
+	ID             string   `json:"id"`
+	TickID         string   `json:"tick_id"`
+	Answer         string   `json:"answer,omitempty"`
 	OptionIDs      []string `json:"option_ids,omitempty"`
-	ResolvedBy     string   `json:"resolved_by"`
+	ResolvedBy     string   `json:"resolved_by,omitempty"`
 	TelegramUserID string   `json:"telegram_user_id,omitempty"`
 
 	// consumer reports whether this run held the repository's single channel
@@ -154,10 +184,40 @@ type askResult struct {
 	consumer bool
 }
 
+// askCollected is one settled question, printed as a JSON line by --collect.
+// It is askResult plus the two things a batch consumer needs and a single ask
+// already knew: which question this is, and how it ended.
+type askCollected struct {
+	ID             string   `json:"id"`
+	TickID         string   `json:"tick_id"`
+	Question       string   `json:"question"`
+	Status         string   `json:"status"`
+	Answer         string   `json:"answer,omitempty"`
+	OptionIDs      []string `json:"option_ids,omitempty"`
+	ResolvedBy     string   `json:"resolved_by"`
+	TelegramUserID string   `json:"telegram_user_id,omitempty"`
+}
+
 func runAsk(cmd *cobra.Command, args []string) error {
 	root, err := repoRoot()
 	if err != nil {
 		return askError(cmd, NewExitError(ExitNoRepo, "failed to detect repo root: %v", err))
+	}
+	if err := askValidateFlags(args); err != nil {
+		return askError(cmd, err)
+	}
+
+	if askCollect {
+		if err := askCollectFlow(commandContext(cmd), askCollectOptions{
+			Root:    root,
+			Wait:    askWait,
+			Timeout: askTimeout,
+			Out:     cmd.OutOrStdout(),
+			Stderr:  cmd.ErrOrStderr(),
+		}); err != nil {
+			return askError(cmd, err)
+		}
+		return nil
 	}
 
 	gate, err := askGateKind()
@@ -179,13 +239,20 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		return askError(cmd, NewExitError(ExitNotFound, "invalid id: %v", err))
 	}
 
+	var notBefore time.Time
+	if askEscalateAfter > 0 {
+		notBefore = time.Now().Add(askEscalateAfter)
+	}
+
 	res, err := askFlow(commandContext(cmd), askOptions{
-		Root:     root,
-		TickID:   id,
-		Question: question,
-		Gate:     gate,
-		Timeout:  askTimeout,
-		Stderr:   cmd.ErrOrStderr(),
+		Root:      root,
+		TickID:    id,
+		Question:  question,
+		Gate:      gate,
+		Async:     askAsync,
+		NotBefore: notBefore,
+		Timeout:   askTimeout,
+		Stderr:    cmd.ErrOrStderr(),
 	})
 	if err != nil {
 		return askError(cmd, err)
@@ -199,7 +266,47 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
 	}
+	if askAsync {
+		// The id is the whole point of not waiting: it is what `tk ask
+		// --collect` prints back and what names the entry in .tick/pending.
+		fmt.Fprintln(cmd.OutOrStdout(), res.ID)
+		return nil
+	}
 	fmt.Fprintln(cmd.OutOrStdout(), res.Answer)
+	return nil
+}
+
+// askValidateFlags rejects the flag combinations that mean two different runs.
+//
+// --collect is the other end of --async, not a variant of asking: it takes no
+// tick id and no question, because the questions it drains were asked earlier.
+func askValidateFlags(args []string) error {
+	if askCollect {
+		switch {
+		case len(args) > 0:
+			return NewExitError(ExitUsage,
+				"tk ask --collect takes no tick id: it drains every settled question in the repository")
+		case askAsync:
+			return NewExitError(ExitUsage,
+				"--async and --collect are the two halves of one flow: ask with --async, gather with --collect")
+		case strings.TrimSpace(askQuestion) != "" || askJSON:
+			return NewExitError(ExitUsage,
+				"--collect gathers answers to questions already asked: drop --question/--json")
+		case askEscalateAfter != 0:
+			return NewExitError(ExitUsage, "--escalate-after applies to asking a question, not to --collect")
+		}
+		return nil
+	}
+	if askWait {
+		return NewExitError(ExitUsage, "--wait applies to --collect only (a plain tk ask already blocks)")
+	}
+	if len(args) != 1 {
+		return NewExitError(ExitUsage,
+			"ask needs a tick id: tk ask <id> --question <text>, or tk ask --collect to gather answers")
+	}
+	if askEscalateAfter < 0 {
+		return NewExitError(ExitUsage, "--escalate-after cannot be negative")
+	}
 	return nil
 }
 
@@ -227,47 +334,144 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 	// awaiting value it parked as the baseline for out-of-band detection.
 	// Never set awaiting separately here.
 	pending, err := engine.Register(operator.Registration{
-		TickID:   opts.TickID,
-		Kind:     kind,
-		Question: opts.Question,
+		TickID:    opts.TickID,
+		Kind:      kind,
+		Question:  opts.Question,
+		NotBefore: opts.NotBefore,
 	})
 	if err != nil {
 		return askResult{}, NewExitError(ExitIO, "%v", err)
 	}
+	registered := askResult{ID: pending.ID, TickID: pending.TickID}
 
-	config, err := operator.LoadOperatorConfig()
+	channel, channelConfig, err := askChannel()
 	if err != nil {
-		return askResult{}, NewExitError(ExitIO, "loading operator config: %v", err)
+		return registered, err
 	}
-	channelConfig, ok := config.Channel(channelTelegram)
-	if !ok {
-		return askResult{}, NewExitError(ExitNotFound,
+	if channel == nil {
+		return registered, NewExitError(ExitNotFound,
 			"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
 			channelTelegram, opts.TickID, pending.Awaiting, pending.ID)
 	}
-	channel, err := telegram.NewChannel(channelConfig)
-	if err != nil {
-		return askResult{}, NewExitError(ExitGeneric, "opening the %s channel: %v", channelTelegram, err)
+
+	if opts.Async {
+		if err := askDeliverNow(ctx, engine, channel, channelConfig); err != nil {
+			return registered, err
+		}
+		return registered, nil
 	}
 
-	applied, wasConsumer, err := askWait(ctx, engine, channel, channelConfig, pending, opts)
+	applied, wasConsumer, err := askAwait(ctx, engine, channel, channelConfig, pending, opts)
 	if err != nil {
-		return askResult{consumer: wasConsumer}, err
+		registered.consumer = wasConsumer
+		return registered, err
 	}
 
 	res := askResultFrom(applied)
-	res.consumer = wasConsumer
+	res.ID, res.TickID, res.consumer = pending.ID, pending.TickID, wasConsumer
 	return res, nil
 }
 
-// askWait runs the poll loop (or defers to whoever already does), blocks until
+// askChannel opens the configured operator channel, reporting a nil channel
+// when none is configured.
+//
+// A missing channel is not an error here: it is degraded mode, and only the
+// caller knows whether that is fatal (a blocking ask has nobody to ask) or
+// merely lossy (a collect can still drain answers into tick state).
+func askChannel() (operator.Channel, operator.ChannelConfig, error) {
+	config, err := operator.LoadOperatorConfig()
+	if err != nil {
+		return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading operator config: %v", err)
+	}
+	channelConfig, ok := config.Channel(channelTelegram)
+	if !ok {
+		return nil, operator.ChannelConfig{}, nil
+	}
+	channel, err := telegram.NewChannel(channelConfig)
+	if err != nil {
+		return nil, channelConfig, NewExitError(ExitGeneric, "opening the %s channel: %v", channelTelegram, err)
+	}
+	return channel, channelConfig, nil
+}
+
+// askDeliverNow posts questions whose escalation window has passed and returns.
+//
+// Delivery belongs to the elected consumer, so an async run only does it when
+// nobody else holds the role. When someone does, this is a no-op on purpose:
+// their next sweep picks the entry up, and opening a second transport to race
+// them would be how one question reaches the operator twice.
+func askDeliverNow(ctx context.Context, engine *operator.Engine, channel operator.Channel, channelConfig operator.ChannelConfig) error {
+	lock, err := engine.Pending().AcquireConsumer()
+	if err != nil {
+		if errors.Is(err, operator.ErrConsumerBusy) {
+			return nil
+		}
+		return NewExitError(ExitIO, "%v", err)
+	}
+	defer func() { _ = lock.Release() }()
+
+	consumer := operator.NewConsumer(engine.Pending(), channel)
+	consumer.TelegramUserID = channelConfig.UserID
+
+	deliverCtx, cancel := context.WithTimeout(ctx, askSettleTimeout)
+	defer cancel()
+	if err := consumer.Deliver(deliverCtx); err != nil {
+		return NewExitError(ExitGeneric, "delivering to the %s channel: %v", channelTelegram, err)
+	}
+	return nil
+}
+
+// askConsumer starts this run's attempt at the repository's single channel poll
+// loop and returns a stop function: it waits for the loop to exit and reports
+// whether this run held the consumer role.
+//
+// Losing the election is the normal case, not a failure: the winner delivers
+// this run's questions too and writes the resolutions it is waiting for.
+// Opening a second Events stream would fight it for the operator's updates. A
+// fatal channel failure cancels the run, because an answer can no longer
+// arrive on a dead channel.
+func askConsumer(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	engine *operator.Engine,
+	channel operator.Channel,
+	telegramUserID string,
+	interval time.Duration,
+) func() (bool, error) {
+	consumer := operator.NewConsumer(engine.Pending(), channel)
+	consumer.TelegramUserID = telegramUserID
+	consumer.Interval = interval
+
+	done := make(chan error, 1)
+	go func() {
+		err := consumer.Run(ctx)
+		if err != nil && !errors.Is(err, operator.ErrConsumerBusy) {
+			cancel()
+		}
+		done <- err
+	}()
+
+	return func() (bool, error) {
+		err := <-done
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, operator.ErrConsumerBusy):
+			return false, nil
+		default:
+			return false, NewExitError(ExitGeneric, "the %s channel failed: %v", channelTelegram, err)
+		}
+	}
+}
+
+// askAwait runs the poll loop (or defers to whoever already does), blocks until
 // the question is settled, and edits the channel message to match.
 //
 // It returns the applied resolution and whether this run held the consumer
 // role. A timeout comes back as an [ExitTimeout] error AFTER the message has
 // been settled — the operator's phone must not keep showing a live question
 // nobody is listening to.
-func askWait(
+func askAwait(
 	ctx context.Context,
 	engine *operator.Engine,
 	channel operator.Channel,
@@ -278,35 +482,16 @@ func askWait(
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	// Exactly one process per repository talks to the transport. Losing the
-	// election is the normal case, not a failure: the winner delivers this
-	// question too and writes the resolution this run is waiting for. Opening a
-	// second Events stream would fight it for the operator's updates.
-	consumer := operator.NewConsumer(engine.Pending(), channel)
-	consumer.TelegramUserID = channelConfig.UserID
-	consumer.Interval = opts.PollInterval
-
-	done := make(chan error, 1)
-	go func() {
-		err := consumer.Run(runCtx)
-		if err != nil && !errors.Is(err, operator.ErrConsumerBusy) {
-			// The channel is dead. Stop waiting for an answer that can no
-			// longer arrive on it.
-			cancel()
-		}
-		done <- err
-	}()
+	// Exactly one process per repository talks to the transport.
+	stop := askConsumer(runCtx, cancel, engine, channel, channelConfig.UserID, opts.PollInterval)
 
 	// Await watches both surfaces and applies whatever settles the question —
 	// including reporting an out-of-band resolution. Do not apply it again.
 	applied, awaitErr := engine.Await(runCtx, pending.ID, opts.PollInterval)
 	cancel()
-	consumerErr := <-done
-	wasConsumer := consumerErr == nil
-
-	if consumerErr != nil && !errors.Is(consumerErr, operator.ErrConsumerBusy) {
-		return operator.Applied{}, wasConsumer,
-			NewExitError(ExitGeneric, "the %s channel failed: %v", channelTelegram, consumerErr)
+	wasConsumer, consumerErr := stop()
+	if consumerErr != nil {
+		return operator.Applied{}, wasConsumer, consumerErr
 	}
 
 	timedOut := false
@@ -369,7 +554,7 @@ func askGiveUp(engine *operator.Engine, id string, timeout time.Duration) (opera
 // state, and reporting an error would tell the caller their decision was lost.
 func askSettle(ctx context.Context, channel operator.Channel, applied operator.Applied, stderr io.Writer) {
 	ref := applied.Pending.Ref
-	if ref.IsZero() {
+	if channel == nil || ref.IsZero() {
 		// Never delivered (an unconfigured or slow channel): nothing to edit.
 		return
 	}
@@ -380,6 +565,156 @@ func askSettle(ctx context.Context, channel operator.Channel, applied operator.A
 	if err := channel.Resolve(settleCtx, ref, applied.Outcome); err != nil && stderr != nil {
 		fmt.Fprintf(stderr, "warning: %s settled on the tick but its %s message was not updated: %v\n",
 			applied.Pending.TickID, channelTelegram, err)
+	}
+}
+
+// askCollectOptions is one `tk ask --collect` run, resolved from the command
+// line. Like [askOptions] it carries no cobra state, so tests can drive the
+// flow directly.
+type askCollectOptions struct {
+	// Root is the repository root.
+	Root string
+	// Wait blocks on the questions that are still open, instead of skipping
+	// them.
+	Wait bool
+	// Timeout bounds a waiting collect. Zero means [askDefaultTimeout].
+	Timeout time.Duration
+	// PollInterval overrides the wait/delivery cadence. Zero means the operator
+	// package default; tests shorten it.
+	PollInterval time.Duration
+	// Out receives one JSON line per settled question.
+	Out io.Writer
+	// Stderr receives non-fatal warnings. Nil discards them.
+	Stderr io.Writer
+}
+
+// askCollectFlow drains the repository's settled questions: it applies each
+// resolution to its tick, settles the channel message, prints a JSON line, and
+// removes the entry.
+//
+// It is the other half of --async, and the reason an entry is only deleted
+// here: a question stays on disk — visible to `tk list --awaiting` and
+// answerable from either surface — until somebody has actually taken delivery
+// of the answer.
+//
+// The set of questions is snapshotted at the start, so a --wait run finishes
+// when the questions that existed when it began are settled, rather than
+// chasing new ones forever.
+func askCollectFlow(ctx context.Context, opts askCollectOptions) error {
+	if opts.Timeout <= 0 {
+		opts.Timeout = askDefaultTimeout
+	}
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+
+	engine := operator.NewEngine(opts.Root)
+	entries, err := engine.Pending().List()
+	if err != nil {
+		return NewExitError(ExitIO, "listing pending questions: %v", err)
+	}
+
+	// A missing channel costs the message edit, not the answer: collecting is
+	// about draining resolutions into tick state, and a terminal answer needs
+	// no transport at all.
+	channel, channelConfig, err := askChannel()
+	if err != nil {
+		return err
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+	stop := func() (bool, error) { return false, nil }
+	if opts.Wait && channel != nil {
+		stop = askConsumer(runCtx, cancel, engine, channel, channelConfig.UserID, opts.PollInterval)
+	}
+
+	encoder := json.NewEncoder(out)
+	var open []string
+	for _, entry := range entries {
+		applied, settled, err := askCollectOne(runCtx, engine, entry, opts)
+		if err != nil {
+			cancel()
+			_, _ = stop()
+			return err
+		}
+		if !settled {
+			open = append(open, entry.ID)
+			continue
+		}
+		askSettle(ctx, channel, applied, opts.Stderr)
+		if err := encoder.Encode(askCollectedFrom(applied)); err != nil {
+			cancel()
+			_, _ = stop()
+			return NewExitError(ExitIO, "printing the answer to %s: %v", entry.ID, err)
+		}
+		if err := engine.Pending().Delete(entry.ID); err != nil {
+			cancel()
+			_, _ = stop()
+			return NewExitError(ExitIO, "draining %s: %v", entry.ID, err)
+		}
+	}
+	cancel()
+	if _, err := stop(); err != nil {
+		return err
+	}
+
+	if opts.Wait && len(open) > 0 {
+		return NewExitError(ExitTimeout,
+			"no answer within %s to %d question(s): %s — still pending and still answerable",
+			opts.Timeout, len(open), strings.Join(open, ", "))
+	}
+	return nil
+}
+
+// askCollectOne settles one entry, reporting false when it is still open (or
+// the wait ran out). A --wait run blocks on it; a plain collect skips it.
+func askCollectOne(ctx context.Context, engine *operator.Engine, entry operator.Pending, opts askCollectOptions) (operator.Applied, bool, error) {
+	if opts.Wait {
+		applied, err := engine.Await(ctx, entry.ID, opts.PollInterval)
+		switch {
+		case err == nil:
+			return applied, true, nil
+		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+			return operator.Applied{}, false, nil
+		case errors.Is(err, operator.ErrPendingNotFound):
+			// Somebody else drained it while we waited.
+			return operator.Applied{}, false, nil
+		default:
+			return operator.Applied{}, false,
+				NewExitError(ExitGeneric, "waiting for an answer to %s: %v", entry.ID, err)
+		}
+	}
+
+	fresh, err := engine.Pending().Load(entry.ID)
+	if err != nil {
+		if errors.Is(err, operator.ErrPendingNotFound) {
+			return operator.Applied{}, false, nil
+		}
+		return operator.Applied{}, false, NewExitError(ExitIO, "reading pending question %s: %v", entry.ID, err)
+	}
+	if !fresh.Resolved() {
+		return operator.Applied{}, false, nil
+	}
+	applied, err := engine.Apply(fresh)
+	if err != nil {
+		return operator.Applied{}, false, NewExitError(ExitIO, "applying the resolution of %s: %v", entry.ID, err)
+	}
+	return applied, true, nil
+}
+
+func askCollectedFrom(applied operator.Applied) askCollected {
+	res := askResultFrom(applied)
+	return askCollected{
+		ID:             applied.Pending.ID,
+		TickID:         applied.Pending.TickID,
+		Question:       applied.Pending.Question.Text,
+		Status:         string(applied.Outcome.Status),
+		Answer:         res.Answer,
+		OptionIDs:      res.OptionIDs,
+		ResolvedBy:     res.ResolvedBy,
+		TelegramUserID: res.TelegramUserID,
 	}
 }
 
@@ -458,19 +793,16 @@ func askQuestionFrom(cmd *cobra.Command, gate bool) (operator.Question, error) {
 			"--gate %s renders its own %s/%s buttons: drop the options", askGateApprove, operator.OptionApprove, operator.OptionReject)
 	}
 
-	q := operator.Question{
-		Text:    strings.TrimSpace(spec.Question),
-		Header:  strings.TrimSpace(spec.Header),
-		Options: askSpecOptions(spec.Options),
-	}
-	// Multi-select and "other" are accepted so a caller's question shape does
-	// not have to change, but this tick delivers a single-select question. Say
-	// so on stderr rather than silently answering a different question than the
-	// one that was asked.
-	if spec.Multi || spec.AllowOther {
-		fmt.Fprintln(cmd.ErrOrStderr(), "note: multi-select and free-text 'other' are delivered as a single-select question")
-	}
-	return q, nil
+	// Every shape in the spec is delivered as asked: a multi-select becomes a
+	// toggle keyboard committed with Done, and allow_other adds a button that
+	// asks for free text and resolves this same question.
+	return operator.Question{
+		Text:        strings.TrimSpace(spec.Question),
+		Header:      strings.TrimSpace(spec.Header),
+		Options:     askSpecOptions(spec.Options),
+		MultiSelect: spec.Multi,
+		AllowOther:  spec.AllowOther,
+	}, nil
 }
 
 // askSpecOptions converts the spec's options, assigning an id to each one that
