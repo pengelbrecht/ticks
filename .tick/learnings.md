@@ -40,13 +40,15 @@ source changes need a production build.
 keep internal/tickboard/ui/pnpm-workspace.yaml committed. Workflow changes are only proven by
 an actual CI run, never by local tests.
 
-**Problem:** cloud/worker's full `pnpm test` crashes workerd at boot ("inserted row already
-exists in table") whenever multiple test files share the runtime; auth-integration.test.ts also
-has 2 stale tests hitting a removed /agent route (tracked: tick xdq).
-**Cause:** pre-existing vitest-pool-workers/Node-24 incompatibility plus stale tests; worker
-tests are not in CI so breakage is invisible.
+**Problem:** cloud/worker's full `pnpm test` crashes workerd at boot when test files share
+the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in tick xdq).
 **Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
 "fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
+
+**Problem:** A codex herdr worker's sandbox blocks loopback sockets — httptest-based tests
+(fakebot) could not run in its worktree (reported DONE_WITH_CONCERNS).
+**Rule:** Route loopback-HTTP-test ticks to a claude worker, or treat the integrated
+post-wave gate as the authoritative first full test run.
 
 ## Schema codegen
 
@@ -71,9 +73,8 @@ touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced
 **Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each
 against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in the tick.
 
-**Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — the epic's
-docs ticks scoped skill references + plugin README only; the repo README was nobody's file.
-**Cause:** Docs-cutover ticks enumerate the surfaces they own, never the surfaces users see.
+**Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — docs ticks
+enumerate the surfaces they own, never the surfaces users see.
 **Rule:** A feature epic's final docs tick must checklist README Commands table, docs/, and
 --help, saying per surface "updated" or "not applicable".
 
