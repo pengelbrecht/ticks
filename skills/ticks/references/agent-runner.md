@@ -319,7 +319,7 @@ Tag each finding with a **confidence** as well as a severity. Severity sets the 
 
 An autonomous run can reach the human who launched it without them watching a terminal. Three commands make up the surface, and all of them are the **orchestrator's** — implementers never call them:
 
-- `tk tell <text…>` (or piped on stdin) — a one-way announcement. Nothing waits on it.
+- `tk tell <text…>` (or piped on stdin) — a one-way announcement. Nothing waits on it, and nothing listens after it: an operator who replies to a tell is talking to a closed channel (field-observed — a tell that ended "or say the word" invited an answer no consumer would ever read). Never write a reply-inviting call to action into a tell; if you want a response, send a `tk ask`.
 - `tk ask <tick-id> --question "…"` — parks a question on the tick, delivers it to the channel, and blocks until it is answered on *either* surface: the operator's device, or a local `tk answer` / `tk approve`. Whichever lands first ends the wait.
 - `tk answer <tick-id> <answer…>` — the terminal twin, for settling a parked question locally.
 
