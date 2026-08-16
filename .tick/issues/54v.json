@@ -8,7 +8,8 @@
   "owner": "noreply@anthropic.com",
   "parent": "9m8",
   "acceptance_criteria": "[A30] go test -short -count=1 ./internal/operator/... passes, covering the interface contract, config persistence, the Telegram client against a local fake Bot API, and the pairing flow.\n[A31] tk channel setup telegram completes pairing against the fake Bot API: writes ~/.ticks/operator.json with 0600 perms and offers the .tick/operators.json entry; no token-shaped string appears anywhere under .tick/.\n[A32] tk channel status reports each configured channel with its pairing state; with nothing configured it says so and exits 0.",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T16:26:34.067811Z",
-  "updated_at": "2026-08-16T16:26:34.067811Z"
+  "updated_at": "2026-08-16T16:32:50.886412Z"
 }
