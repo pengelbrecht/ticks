@@ -1,11 +1,11 @@
 {
-  "id": "qf8e734d7785c",
-  "tick_id": "toc",
+  "id": "qc6e45a6254b0",
+  "tick_id": "3dc",
   "kind": "gate",
   "awaiting": "approval",
   "question": {
-    "id": "qf8e734d7785c",
-    "text": "Live A20 drill: approve the operator-channel project's final fact? One tap closes the loop.",
+    "id": "qc6e45a6254b0",
+    "text": "Merge PR #46 (rich operator messages) to main? CI green, review APPROVE. Approve = I merge it.",
     "options": [
       {
         "id": "approve",
@@ -19,9 +19,9 @@
   },
   "ref": {
     "channel_id": "6283960894",
-    "message_id": "4"
+    "message_id": "17"
   },
-  "created_at": "2026-08-16T19:12:42.925764Z",
+  "created_at": "2026-08-16T20:25:03.405381Z",
   "resolution": {
     "outcome": {
       "status": "answered",
@@ -32,7 +32,7 @@
     },
     "answered_by": "telegram",
     "telegram_user_id": "6283960894",
-    "answered_at": "2026-08-16T19:12:50.145872Z",
-    "applied_at": "2026-08-16T19:12:50.228902Z"
+    "answered_at": "2026-08-16T20:26:13.141491Z",
+    "applied_at": "2026-08-16T20:26:13.175788Z"
   }
 }

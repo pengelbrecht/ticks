@@ -1,0 +1,15 @@
+{
+  "id": "3dc",
+  "title": "Merge PR #46 (rich operator messages) to main",
+  "description": "Human decision: merge the reviewed, CI-green PR #46.",
+  "notes": "2026-08-16 22:26 - [human] Approve (via telegram user 6283960894)",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "verdict": "approved",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T20:25:03.353229Z",
+  "updated_at": "2026-08-16T20:26:13.174653Z",
+  "closed_at": "2026-08-16T22:26:13.174654+02:00"
+}
