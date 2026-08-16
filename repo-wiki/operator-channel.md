@@ -116,3 +116,32 @@ user <id>)`, explicit approve/reject activity on gates), and returns `OutOfBand`
 settle the stale Telegram message via `channel.Resolve`. Non-answered outcomes (timeout)
 deliberately touch no tick state. Escalation delay = `not-before` on the entry; the consumer
 withholds channel delivery until then, so local surfaces always see questions first.
+
+## Epic d0d rich ask surface as landed (tick lwl, 2026-08-16)
+
+Four non-obvious things fell out of making `tk ask` async and `tk answer` first-class:
+
+- **Applying a resolution is exactly-once, enforced, not hoped for.** Two processes can hold
+  the same answer — a local `tk answer` and the `tk ask` blocked on it both run
+  `Engine.Apply` — and a second apply would write the `[human]` note twice. Apply now takes
+  `.tick/pending/.apply.lock` (blocking flock, 30s ceiling), re-reads the entry under it, and
+  skips when `resolution.applied_at` is stamped, reporting `Applied.AlreadyApplied` while
+  still returning the outcome so the loser can tell its caller what was decided. The stamp is
+  written last: a crash between the tick write and the stamp costs an idempotent re-apply,
+  never a lost answer.
+- **`operator.Adopter` is why async works across processes.** The Telegram transport keeps
+  option labels and multi-select state in memory keyed by message id, so a press on a message
+  a *previous* run delivered is unroutable — it reads as a stale button. `Consumer.Deliver` is
+  therefore a reconcile sweep, not just a poster: delivered-and-unresolved entries are handed
+  back through the optional `Adopter` interface. `Run` calls `Deliver` **before** subscribing
+  to `Events`, because the first poll can return an update for a question not yet adopted.
+  Adopted multi-selects start with an empty selection — the toggles lived in the dead process.
+- **`--collect` owns entry deletion.** Nothing else removes a `.tick/pending` file: a question
+  stays on disk, visible to `tk list --awaiting` and answerable from either surface, until
+  somebody takes delivery of the answer. `--collect --wait` snapshots the entry set at start
+  so it terminates instead of chasing new questions.
+- **`tk answer` refuses to guess.** On an option question a non-matching word is exit 2 naming
+  the options, never a silent free-text answer — free text is accepted only where the question
+  allows it (no options, or `allow_other`). It targets the *oldest* open question on the tick;
+  answering a newer one would strand the older behind a tick the engine now reads as
+  out-of-band.

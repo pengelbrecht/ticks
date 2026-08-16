@@ -168,6 +168,11 @@ type Applied struct {
 	OutOfBand bool
 	// Closed reports that applying a verdict closed the tick.
 	Closed bool
+	// AlreadyApplied reports that another process had already written this
+	// resolution into tick state, so this call changed nothing. The outcome is
+	// still returned: a waiter that lost the race must be able to tell its
+	// caller what the operator decided.
+	AlreadyApplied bool
 }
 
 // Apply writes a resolved question into tick state and returns what the caller
@@ -177,17 +182,40 @@ type Applied struct {
 // it also sets the verdict and runs [tick.ProcessVerdict], which is what
 // decides whether the tick closes or returns to the agent. A resolution that is
 // not an answer (timed out, cancelled) touches no tick state.
+//
+// Applying is exactly-once per resolution, even across processes: an answer
+// typed with `tk answer` is seen by the blocked `tk ask` too, and a tick must
+// not end up with the same human note twice. The apply lock plus the
+// resolution's applied-at stamp are what enforce that; a second applier reports
+// [Applied.AlreadyApplied] and changes nothing.
 func (e *Engine) Apply(p Pending) (Applied, error) {
 	if !p.Resolved() {
 		return Applied{}, fmt.Errorf("%w: %s", ErrNotResolved, p.ID)
 	}
-	res := *p.Resolution
 
-	if res.Outcome.Status != OutcomeAnswered {
+	if p.Resolution.Outcome.Status != OutcomeAnswered {
 		// Nothing to apply: the question ended without a decision, so the tick
 		// stays exactly as it is (still awaiting, for a timeout).
-		return Applied{Pending: p, Outcome: res.Outcome}, nil
+		return Applied{Pending: p, Outcome: p.Resolution.Outcome}, nil
 	}
+
+	lock, err := e.pending.AcquireApply(context.Background())
+	if err != nil {
+		return Applied{}, fmt.Errorf("operator: applying %s: %w", p.ID, err)
+	}
+	defer func() { _ = lock.Release() }()
+
+	// Re-read under the lock. A collected entry is gone from disk, in which
+	// case the caller's copy is all there is and the marker is moot.
+	switch fresh, err := e.pending.Load(p.ID); {
+	case err == nil && fresh.Applied():
+		return Applied{Pending: fresh, Outcome: fresh.Resolution.Outcome, AlreadyApplied: true}, nil
+	case err == nil && fresh.Resolved():
+		p = fresh
+	case err != nil && !errors.Is(err, ErrPendingNotFound):
+		return Applied{}, err
+	}
+	res := *p.Resolution
 
 	out, err := e.OutOfBand(p)
 	if err != nil {
@@ -247,6 +275,16 @@ func (e *Engine) Apply(p Pending) (Applied, error) {
 		if err := e.ticks.WriteAs(t, humanActor); err != nil {
 			return Applied{}, fmt.Errorf("operator: saving tick %s: %w", p.TickID, err)
 		}
+	}
+
+	// Stamped last, and inside the lock: the tick is the source of truth, so a
+	// crash between the write and the stamp costs an idempotent re-apply, not a
+	// lost answer.
+	switch marked, err := e.pending.MarkApplied(p.ID, e.now().UTC()); {
+	case err == nil:
+		p = marked
+	case !errors.Is(err, ErrPendingNotFound):
+		return Applied{}, err
 	}
 
 	return Applied{Pending: p, Outcome: res.Outcome, Closed: closed}, nil
@@ -440,13 +478,17 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 	defer func() { _ = lock.Release() }()
 
+	// Sync the transport with the store BEFORE the first poll: an event for a
+	// question this process did not deliver can only be routed once the
+	// transport has adopted it, and the first poll may return one immediately.
+	if err := c.Deliver(ctx); err != nil && ctx.Err() == nil {
+		return err
+	}
+
 	events := c.channel.Events(ctx)
 	ticker := time.NewTicker(c.interval())
 	defer ticker.Stop()
 
-	if err := c.Deliver(ctx); err != nil && ctx.Err() == nil {
-		return err
-	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -475,8 +517,10 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 }
 
-// Deliver posts every open question whose escalation window has passed and
-// records the message ref it landed as.
+// Deliver reconciles the transport with the store: it posts every open question
+// whose escalation window has passed, records the message ref it landed as, and
+// hands back any question an EARLIER run delivered so presses on it still route
+// (see [Adopter]).
 //
 // An entry is only ever delivered once: the ref is written before the next
 // sweep can see it, so a restart mid-sweep re-delivers at most the one question
@@ -486,8 +530,20 @@ func (c *Consumer) Deliver(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	adopter, _ := c.channel.(Adopter)
 	now := c.now()
 	for _, p := range entries {
+		if p.Resolved() {
+			continue
+		}
+		if p.Delivered() {
+			if adopter != nil {
+				if err := adopter.Adopt(p.Ref, p.Question); err != nil {
+					return fmt.Errorf("operator: adopting question %s: %w", p.ID, err)
+				}
+			}
+			continue
+		}
 		if !p.Deliverable(now) {
 			continue
 		}

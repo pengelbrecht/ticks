@@ -39,6 +39,16 @@ const (
 	// [validPendingID] rejects anyway.
 	consumerLockName = ".consumer.lock"
 
+	// applyLockName is the flock file serializing [Engine.Apply]. Unlike the
+	// consumer lock it is held for a few file operations, never for a run.
+	applyLockName = ".apply.lock"
+
+	// applyLockRetry is how often a blocked applier retries, and
+	// applyLockTimeout is when it gives up rather than hanging a run behind a
+	// lock some other process is sitting on.
+	applyLockRetry   = 5 * time.Millisecond
+	applyLockTimeout = 30 * time.Second
+
 	pendingFileMode = 0o644
 	pendingDirMode  = 0o755
 
@@ -135,6 +145,11 @@ type PendingResolution struct {
 	TelegramUserID string `json:"telegram_user_id,omitempty"`
 	// AnsweredAt is when the resolution was recorded.
 	AnsweredAt time.Time `json:"answered_at"`
+	// AppliedAt is when [Engine.Apply] wrote this resolution into tick state,
+	// zero until it has. It is what makes application exactly-once: an answer
+	// can reach two processes (a local `tk answer` and a blocked `tk ask`), and
+	// only one of them may write the note.
+	AppliedAt time.Time `json:"applied_at,omitzero"`
 }
 
 // Delivered reports whether the question has reached the channel.
@@ -312,6 +327,32 @@ func (s *PendingStore) Resolve(id string, res PendingResolution) (Pending, error
 	return p, nil
 }
 
+// Applied reports whether the resolution has already been written into tick
+// state.
+func (p Pending) Applied() bool {
+	return p.Resolution != nil && !p.Resolution.AppliedAt.IsZero()
+}
+
+// MarkApplied records that this resolution has been written into tick state, so
+// a second applier leaves it alone. It is a no-op for an unresolved entry.
+func (s *PendingStore) MarkApplied(id string, at time.Time) (Pending, error) {
+	p, err := s.Load(id)
+	if err != nil {
+		return Pending{}, err
+	}
+	if p.Resolution == nil {
+		return p, nil
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	p.Resolution.AppliedAt = at
+	if err := s.Save(p); err != nil {
+		return Pending{}, err
+	}
+	return p, nil
+}
+
 // WaitResolved blocks until the entry carries a resolution, polling its file
 // every interval. This is what a non-owner waits on: the pending file, not the
 // channel — only the elected consumer talks to the transport.
@@ -343,10 +384,50 @@ func (s *PendingStore) WaitResolved(ctx context.Context, id string, interval tim
 // The lock is an flock on .tick/pending/.consumer.lock, so it is released by
 // the kernel if the owner is killed — a crashed run never wedges the repo.
 func (s *PendingStore) AcquireConsumer() (*ConsumerLock, error) {
+	lock, err := s.tryLock(consumerLockName)
+	if err != nil {
+		return nil, err
+	}
+	if lock == nil {
+		return nil, fmt.Errorf("%w (%s)", ErrConsumerBusy, filepath.Join(s.dir, consumerLockName))
+	}
+	return lock, nil
+}
+
+// AcquireApply takes the repository's apply lock, waiting for whoever holds it.
+//
+// It is what makes [Engine.Apply] exactly-once across processes: a local
+// `tk answer` and a blocked `tk ask` can both hold the same resolution, and the
+// second one through the lock finds it already marked applied.
+func (s *PendingStore) AcquireApply(ctx context.Context) (*FileLock, error) {
+	deadline := time.Now().Add(applyLockTimeout)
+	for {
+		lock, err := s.tryLock(applyLockName)
+		if err != nil {
+			return nil, err
+		}
+		if lock != nil {
+			return lock, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("operator: timed out after %s waiting for %s",
+				applyLockTimeout, filepath.Join(s.dir, applyLockName))
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(applyLockRetry):
+		}
+	}
+}
+
+// tryLock takes the named lock file without blocking, returning a nil lock (and
+// a nil error) when someone else holds it.
+func (s *PendingStore) tryLock(name string) (*FileLock, error) {
 	if err := os.MkdirAll(s.dir, pendingDirMode); err != nil {
 		return nil, fmt.Errorf("operator: creating %s: %w", s.dir, err)
 	}
-	path := filepath.Join(s.dir, consumerLockName)
+	path := filepath.Join(s.dir, name)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, pendingFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("operator: opening %s: %w", path, err)
@@ -358,20 +439,23 @@ func (s *PendingStore) AcquireConsumer() (*ConsumerLock, error) {
 	}
 	if !locked {
 		_ = file.Close()
-		return nil, fmt.Errorf("%w (%s)", ErrConsumerBusy, path)
+		return nil, nil
 	}
-	return &ConsumerLock{file: file}, nil
+	return &FileLock{file: file}, nil
+}
+
+// FileLock is a held flock on one of the store's lock files.
+type FileLock struct {
+	file *os.File
 }
 
 // ConsumerLock is the held poll-loop ownership. Release it when the loop exits
 // so the role hands off cleanly to the next process.
-type ConsumerLock struct {
-	file *os.File
-}
+type ConsumerLock = FileLock
 
 // Release drops the lock. It is safe to call more than once, so a deferred
 // release after an explicit one is harmless.
-func (l *ConsumerLock) Release() error {
+func (l *FileLock) Release() error {
 	if l == nil || l.file == nil {
 		return nil
 	}
@@ -380,10 +464,10 @@ func (l *ConsumerLock) Release() error {
 	unlockErr := unlockFile(file)
 	closeErr := file.Close()
 	if unlockErr != nil {
-		return fmt.Errorf("operator: unlocking consumer lock: %w", unlockErr)
+		return fmt.Errorf("operator: unlocking %s: %w", file.Name(), unlockErr)
 	}
 	if closeErr != nil {
-		return fmt.Errorf("operator: closing consumer lock: %w", closeErr)
+		return fmt.Errorf("operator: closing %s: %w", file.Name(), closeErr)
 	}
 	return nil
 }

@@ -557,6 +557,10 @@ func ResetFlags() {
 	askJSON = false
 	askTimeout = askDefaultTimeout
 	askGate = askGateNone
+	askAsync = false
+	askCollect = false
+	askWait = false
+	askEscalateAfter = 0
 
 	// Reset skills flags
 	skillsListJSON = false

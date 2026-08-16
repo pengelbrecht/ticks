@@ -168,6 +168,33 @@ func (ch *Channel) AskDeliver(ctx context.Context, q operator.Question) (operato
 	return ch.ref(messageID), nil
 }
 
+// Adopt takes over a question an earlier run delivered, rebuilding the local
+// state a press needs: the labels behind the buttons and, for a multi-select,
+// an empty selection.
+//
+// It implements [operator.Adopter] and is idempotent — a message this process
+// already tracks keeps the state it has, including toggles the operator made
+// since. Selections made against the previous run are NOT recoverable: they
+// lived in that process, so an adopted multi-select starts empty and the
+// keyboard on the phone is repainted on the next toggle.
+func (ch *Channel) Adopt(ref operator.MessageRef, q operator.Question) error {
+	messageID, err := parseID(ref.MessageID)
+	if err != nil {
+		return fmt.Errorf("telegram: adopt: message ref: %w", err)
+	}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	if _, ok := ch.pending[messageID]; ok {
+		return nil
+	}
+	ch.pending[messageID] = &pendingQuestion{
+		question: q,
+		body:     renderQuestion(q),
+		selected: make(map[int]bool),
+	}
+	return nil
+}
+
 // Resolve edits the question to show its outcome and clears the keyboard, so the
 // message reads as settled and cannot be answered again.
 func (ch *Channel) Resolve(ctx context.Context, ref operator.MessageRef, outcome operator.Outcome) error {

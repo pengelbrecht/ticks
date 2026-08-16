@@ -52,6 +52,24 @@ type Channel interface {
 	Resolve(ctx context.Context, ref MessageRef, outcome Outcome) error
 }
 
+// Adopter is an optional [Channel] capability: taking ownership of a question
+// this process never delivered.
+//
+// A transport that keeps per-question state in memory — Telegram holds the
+// option labels and multi-select selection behind the buttons — cannot
+// interpret a press on a message an earlier run posted. The durable pending
+// store has both the ref and the question, so [Consumer.Deliver] hands them
+// back through Adopt on every sweep, which is what makes `tk ask --async`
+// followed by `tk ask --collect` in another process work at all.
+//
+// Adopt must be idempotent: it is called on every sweep for every delivered,
+// unresolved question, and must not disturb state the transport already holds
+// for that message. A transport that needs no local state does not implement
+// it.
+type Adopter interface {
+	Adopt(ref MessageRef, q Question) error
+}
+
 // MessageRef identifies a message that a channel has delivered. Both fields are
 // opaque, provider-defined strings (for Telegram: chat id and message id).
 type MessageRef struct {
