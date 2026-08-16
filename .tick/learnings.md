@@ -45,10 +45,10 @@ the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in
 **Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
 "fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
 
-**Problem:** A codex herdr worker's sandbox blocks loopback sockets — httptest-based tests
-(fakebot) could not run in its worktree (reported DONE_WITH_CONCERNS).
-**Rule:** Route loopback-HTTP-test ticks to a claude worker, or treat the integrated
-post-wave gate as the authoritative first full test run.
+**Problem:** A codex herdr worker's sandbox blocks loopback sockets — httptest-based
+(fakebot) tests could not run in its worktree (DONE_WITH_CONCERNS).
+**Rule:** Route loopback-HTTP-test ticks to a claude worker, or let the integrated
+post-wave gate be the authoritative first full run.
 
 ## Schema codegen
 
@@ -114,9 +114,8 @@ runners-config.md or its schema — every TOML block must validate.
 
 ## Naming
 
-**Problem:** A merged tick's global config dir (`~/.ticks`, `TICKS_HOME`) was renamed mid-run
-by human interrupt to `~/.tick`/`TK_HOME` — planning ignored existing conventions (`.tick/`,
-`TK_*`), costing post-merge rework across code/tests/docs.
+**Problem:** A merged tick's global config dir (`~/.ticks`/`TICKS_HOME`) was renamed mid-run
+by human interrupt — planning ignored existing conventions (`.tick/`, `TK_*`); rework.
 **Rule:** Derive new user-facing names (dirs, env vars, flags) from existing repo conventions
 in the tick description itself — name the convention, not just the name.
 
