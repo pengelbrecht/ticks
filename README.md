@@ -237,6 +237,7 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk snippet` | Output runner-neutral agent instructions |
 | `tk skills …` | Inspect/install the version-matched skill bundle embedded in this binary (see below) |
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
+| `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
 
 All commands support `--help` for options and `--json` for machine-readable output.
 
@@ -295,6 +296,18 @@ complete workflow, references, and adapters that a skill-aware harness loads on 
 own. They're complementary, not interchangeable: use `tk snippet` for harnesses without
 skill support, and the skill (via `tk skills install` or a skill marketplace) for
 harnesses that have it.
+
+### Operator channel: reach a human from an autonomous run
+
+`tk channel` pairs a personal Telegram bot with this machine so an autonomous run can
+send approvals, escalations, and completion reports to your phone instead of a
+terminal you have to keep watching. Full setup, the pairing flow, and where secrets
+are (and aren't) stored live in [`docs/operator-channel.md`](docs/operator-channel.md).
+
+| Command | Description |
+|---------|-------------|
+| `tk channel setup telegram` | Pair your Telegram bot with this machine (token stays out of the repo) |
+| `tk channel status` | Show what is configured, who it is paired with, and whether the token works |
 
 ## TUI
 
