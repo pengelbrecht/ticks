@@ -2,6 +2,7 @@
   "id": "r6r",
   "title": "tk ask core: deliver a question, block, resolve into tick state",
   "description": "New cmd/tk/cmd/ask.go wired onto the v6z engine. Registration in both dispatch layers + ResetFlags (see learnings).\n\ntk ask \u003ctick-id\u003e [--question text | --json (stdin: {question, header, options[{label,description}], multi, allow_other})] [--timeout 10m] [--gate approve|none]: create pending entry (v6z store), set tick awaiting (input, or approval when --gate approve renders approve/reject buttons), acquire-or-defer to the single consumer, deliver via the channel (free text = ForceReply; options = single-select buttons in this tick — multi/other shapes accepted in JSON but delivered as single-select fallback until the next tick), block until resolution from EITHER surface (channel event or out-of-band tick-state change — the engine returns which), then print the answer: text mode plain, --json mode {answer, option_ids, resolved_by: telegram|terminal, telegram_user_id?}. Resolution side effects (note --from human, awaiting clear) come from the engine, not reimplemented. --timeout: leave tick awaiting, keep pending entry, exit 5 (documented). Unconfigured channel: exit 4 BUT still create the pending entry and park the tick awaiting — degraded mode is exactly today's park-and-surface behavior.\n\nTest cases (fakebot + temp repo): free-text ask → operator reply → stdout answer + tick note --from human + awaiting cleared + message edited; single-select press → option id resolution; out-of-band tk approve while blocked → wait returns resolved_by=terminal and channel message edited; timeout → exit 5, tick still awaiting, pending entry intact; unconfigured → exit 4, tick parked; concurrent two asks → one consumer (no double getUpdates registration in fakebot).\nRun: go test -short -count=1 ./internal/operator/... ./cmd/tk/...",
+  "notes": "2026-08-16 19:45 - runner-state: substrate=herdr kind=claude branch=tick/r6r worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-r6r workspace=w9E base=e9d6ff0903df102750adb91b88f7a3cd04d28244 agent=tick-r6r pane=w9E:p1 session=a770b4c6-a05a-4543-a2d9-ce63664cd920",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -14,6 +15,6 @@
   "acceptance_criteria": "Ask-core tests pass: both-surface resolution, timeout contract (exit 5), unconfigured degradation (exit 4 + parked tick), message edit on every resolution path",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T17:31:53.823521Z",
-  "updated_at": "2026-08-16T17:45:07.56871Z",
+  "updated_at": "2026-08-16T17:45:29.476332Z",
   "started_at": "2026-08-16T17:45:07.56871Z"
 }
