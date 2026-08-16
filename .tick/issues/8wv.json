@@ -3,7 +3,7 @@
   "title": "Docs + skill: rich messages, and fix the stale tk-close routing sentence",
   "description": "Docs + skill pass, prose only (learnings checklist: README, docs/, --help per surface, \"updated\" or \"n/a\").\n\n- README Commands table + Operator channel subsection: --format, --file, --photo gate rows.\n- docs/operator-channel.md: \"Rich messages\" section — MarkdownLite subset table (element → Telegram HTML → Block Kit equivalent), attachment kinds and the 50 MB client-side limit, photo-gate flow, capability fallback behavior. Verify every command/flag against cmd/tk/cmd/*.go (learnings rule).\n- skills/ticks/references/agent-runner.md, two surgical edits: (1) in the operator-channel section, one sentence noting completion reports and checkpoint reports may use tk tell --format / --file when available, degrading to plain automatically; (2) FIX THE STALE SENTENCE in Human-in-the-loop ticks: \"Routing a --requires tick with tk close is unaffected; that is your normal path\" — the current CLI REFUSES tk close on a --requires tick (verified live 2026-08-16; drill tick toc); the correct instruction is tk update \u003cid\u003e --awaiting approval. Verify against cmd/tk/cmd/close.go before writing.\n- Channel-neutral language throughout (\"operator channel\"; transport specifics only in docs/operator-channel.md).",
   "notes": "2026-08-16 22:01 - runner-state: substrate=herdr kind=claude branch=tick/8wv worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-8wv workspace=w9Q base=21767d2fd2e0857c1b8413c97a25a7c0e3933bd0 agent=tick-8wv pane=w9Q:p1 session=62210d6a-7c4e-46ba-8f90-afe120a42357",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "README/docs/--help checklist complete with verified syntax; agent-runner.md gains the formatted-report sentence and the corrected --requires routing instruction; prose only",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T19:24:43.920951Z",
-  "updated_at": "2026-08-16T20:01:24.590001Z",
-  "started_at": "2026-08-16T20:01:00.37248Z"
+  "updated_at": "2026-08-16T20:08:32.89097Z",
+  "closed_at": "2026-08-16T20:08:32.89097Z",
+  "closed_reason": "Completed: README + docs rich-messages section (incl TG preview mojibake gotcha), agent-runner formatted-report sentence, corrected tk-close-on-requires routing instruction verified against close.go"
 }
