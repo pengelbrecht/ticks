@@ -1,0 +1,16 @@
+{
+  "id": "toc",
+  "title": "Live A20 drill: approve from phone",
+  "description": "Fact A20 verification: this tick routes to awaiting approval and the verdict arrives via a Telegram button tap.",
+  "notes": "2026-08-16 19:12 - Work complete, awaiting approval\n2026-08-16 21:12 - [human] Approve (via telegram user 6283960894)",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "requires": "approval",
+  "verdict": "approved",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T19:12:24.83207Z",
+  "updated_at": "2026-08-16T19:12:50.225766Z",
+  "closed_at": "2026-08-16T21:12:50.225767+02:00"
+}

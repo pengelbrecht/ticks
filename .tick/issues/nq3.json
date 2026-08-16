@@ -1,0 +1,19 @@
+{
+  "id": "nq3",
+  "title": "Project checkpoint: verify operator-channel goal facts (A10–A20)",
+  "description": "Project boundary. Walk facts A10–A18 with their Acceptance Evidence commands (fail closed on missing/ambiguous evidence), write the verification table into the checkpoint report, and present A19–A20 (human judgment: prompt quality, live phone-tap end-to-end) as the sign-off agenda.",
+  "notes": "2026-08-16 21:04 - PROJECT CHECKPOINT REPORT (2026-08-16). Verification method: no human-approved Acceptance Evidence mappings exist for A10-A18 (proposed, not committed by a human), so per fail-closed rules facts were verified as direct behavior+test checks, freshly re-run at the boundary: whole-repo go test -short PASS, internal/operator -race PASS.\nA10 pairing end-to-end: VERIFIED — TestChannelSetupTelegramPairs + jmk binary-level evidence (0600 operator.json, opt-in mapping, deep link).\nA11 no token under .tick/: VERIFIED — test walks .tick asserting no token-shape; mapping.go rejects token-shaped values on load AND save.\nA12 tk tell + unconfigured no-op exit 4: VERIFIED — TestTellUnconfiguredReturnsExitFourWithoutHTTP.\nA13 four ask shapes JSON io: VERIFIED — ask/ask_rich tests vs fakebot.\nA14 bound-user filter + message-id matching: VERIFIED — transport filter tests + concurrent-questions tests.\nA15 resolution into tick state with human provenance: VERIFIED — [human] notes with telegram user id, awaiting clears, gate verdicts under actor guard.\nA16 tick is source of truth: VERIFIED — out-of-band tk approve wins, message edited, stale press acked not applied.\nA17 blocking/--timeout(exit 7)/--async+collect/single consumer: VERIFIED — election, timeout, collect tests.\nA18 channel interface isolation: VERIFIED — telegram types confined; ask/tell semantics tested through FakeChannel.\nA19 skill prompts (HUMAN JUDGMENT): frontier review APPROVE (commands verified against implementation, doctrine preserved) — awaiting operator sign-off on the prose itself.\nA20 live phone tap (HUMAN JUDGMENT): NOT YET RUN — requires the operator to create a real bot and pair (tk channel setup telegram), then a --requires approval tick tapped on a real phone.\nIntegration: PR #45 open, CI running at report time. Sign-off agenda: A19 prose review, A20 live test, PR merge.\n2026-08-16 21:13 - A20 VERIFIED LIVE (2026-08-16 21:12): real pairing to @pe_ticks_bot (user 6283960894), drill tick toc routed to awaiting=approval, tk ask --gate approve delivered to the operator's phone, one tap resolved the blocked ask, closed the tick with verdict=approved and activity '[human] Approve (via telegram user 6283960894)'. Checkpoint agenda remaining: A19 prose sign-off, PR #45 merge.\n2026-08-16 21:21 - [human] A19 approved by Peter (2026-08-16, in-session): skill prose / routing doctrine signed off. Both human-judgment facts now settled (A20 verified live 21:12). PR #45 merge remains on GitHub.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "au6"
+  ],
+  "parent": "9m8",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:26:54.013609Z",
+  "updated_at": "2026-08-16T19:21:47.425192Z",
+  "closed_at": "2026-08-16T19:21:47.425192Z",
+  "closed_reason": "Completed: project checkpoint — A10-A18 verified by behavior+tests (fresh gate+race green), A19 approved by Peter in-session, A20 verified live by phone tap; PR #45 merge tracked on GitHub"
+}

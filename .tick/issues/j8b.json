@@ -1,0 +1,20 @@
+{
+  "id": "j8b",
+  "title": "Document tk tell / tk ask / tk answer (README + docs page)",
+  "description": "Close the docs gap r6r flagged (same learnings rule as epic-1 pny): document tk tell, tk ask, and tk answer across all user surfaces. README Commands table rows + extend the Operator channel README subsection; extend docs/operator-channel.md with an \"Asking from a run\" section: ask shapes, --gate, --timeout/exit 5, --async/--collect, --escalate-after, tk answer, exit-code table (0/4/5, noting 5 is shared with ExitGitHub — distinguish by stderr), dual-surface answering (terminal wins, message edits itself). Verify every documented command/flag against cmd/tk/cmd/*.go (learnings rule: never write tk syntax from memory). Checklist per surface: README updated / docs page updated / --help already covered. Prose only — no Go changes.",
+  "notes": "2026-08-16 20:21 - runner-state: substrate=herdr kind=claude branch=tick/j8b worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-j8b workspace=w9G base=1e5a346db2ab1a9ffe36dc93dac4d69b5259cd36 agent=tick-j8b pane=w9G:p1 session=f94ee581-dda9-4959-97f2-d82efd414006",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "lwl"
+  ],
+  "parent": "d0d",
+  "acceptance_criteria": "README table + operator-channel docs cover tell/ask/answer with verified syntax and the exit-code table; per-surface checklist in the result; no Go changes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T17:58:37.309564Z",
+  "updated_at": "2026-08-16T18:25:48.223318Z",
+  "closed_at": "2026-08-16T18:25:48.223318Z",
+  "closed_reason": "Completed: README rows + docs/operator-channel.md ask/tell/answer section with verified syntax, exit-code table, dual-surface semantics; prose only"
+}

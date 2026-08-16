@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	cobracmd "github.com/pengelbrecht/ticks/cmd/tk/cmd"
@@ -2521,5 +2522,17 @@ func TestLegacyDispatchCoversAllCobraCommands(t *testing.T) {
 					name, code, out)
 			}
 		})
+	}
+}
+
+func TestMainHelpListsTell(t *testing.T) {
+	out, code := captureStdout(func() int {
+		return run([]string{"tk", "--help"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("tk --help: exit %d", code)
+	}
+	if !strings.Contains(out, "tell") {
+		t.Fatalf("tk --help does not list tell:\n%s", out)
 	}
 }

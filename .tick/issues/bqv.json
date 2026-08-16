@@ -1,0 +1,20 @@
+{
+  "id": "bqv",
+  "title": "Final review of tk ask/tell epic diff",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "lwl",
+    "j8b",
+    "gqh"
+  ],
+  "parent": "d0d",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T17:32:10.986905Z",
+  "updated_at": "2026-08-16T18:49:22.926516Z",
+  "closed_at": "2026-08-16T18:49:22.926516Z",
+  "closed_reason": "Completed: frontier review (REVISE: 1 blocker + 3 should-fix + 4 nits) — all 8 repaired via gqh and re-verified: gate-forge path closed, timeout contract now true, resolution race single-winner; A40-43 re-confirmed on integrated tree"
+}

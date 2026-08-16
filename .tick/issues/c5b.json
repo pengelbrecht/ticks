@@ -1,0 +1,18 @@
+{
+  "id": "c5b",
+  "title": "Close out skill-integration epic: retro; project boundary (nq3) follows",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "lw5"
+  ],
+  "parent": "au6",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T18:51:40.094576Z",
+  "updated_at": "2026-08-16T19:02:32.882477Z",
+  "closed_at": "2026-08-16T19:02:32.882477Z",
+  "closed_reason": "Completed: au6 retro (A19 verified via frontier review, zero interrupts, no drift); project boundary follows"
+}

@@ -5,11 +5,10 @@ Cross-repo learnings go in the ticks skill (claude-runner.md promotion table), n
 
 ## Tick authoring
 
-**Problem:** A machine-readable output field shipped with the wrong semantics and a test
-cementing the bug — caught only by the epic's final review.
-**Cause:** The tick defined the field by implementation predicate, not consumer semantics.
-**Rule:** When a tick specifies a flag/field another tool consumes, define it by the consumer's
-action and let the implementation derive the predicate — and state the consumer in the tick.
+**Problem:** A machine-readable output field shipped with wrong semantics plus a test
+cementing the bug — the tick defined it by implementation predicate, not consumer semantics.
+**Rule:** When a tick specifies a flag/field another tool consumes, define it by the
+consumer's action (and name the consumer); let the implementation derive the predicate.
 
 ## This repo's build
 
@@ -41,13 +40,15 @@ source changes need a production build.
 keep internal/tickboard/ui/pnpm-workspace.yaml committed. Workflow changes are only proven by
 an actual CI run, never by local tests.
 
-**Problem:** cloud/worker's full `pnpm test` crashes workerd at boot ("inserted row already
-exists in table") whenever multiple test files share the runtime; auth-integration.test.ts also
-has 2 stale tests hitting a removed /agent route (tracked: tick xdq).
-**Cause:** pre-existing vitest-pool-workers/Node-24 incompatibility plus stale tests; worker
-tests are not in CI so breakage is invisible.
+**Problem:** cloud/worker's full `pnpm test` crashes workerd at boot when test files share
+the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in tick xdq).
 **Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
 "fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
+
+**Problem:** A codex herdr worker's sandbox blocks loopback sockets — httptest-based
+(fakebot) tests could not run in its worktree (DONE_WITH_CONCERNS).
+**Rule:** Route loopback-HTTP-test ticks to a claude worker, or let the integrated
+post-wave gate be the authoritative first full run.
 
 ## Schema codegen
 
@@ -72,22 +73,18 @@ touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced
 **Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each
 against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in the tick.
 
-**Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — the epic's
-docs ticks scoped skill references + plugin README only; the repo README was nobody's file.
-**Cause:** Docs-cutover ticks enumerate the surfaces they own, never the surfaces users see.
+**Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — docs ticks
+enumerate the surfaces they own, never the surfaces users see.
 **Rule:** A feature epic's final docs tick must checklist README Commands table, docs/, and
 --help, saying per surface "updated" or "not applicable".
 
 ## Orchestration
 
-**Problem:** A tick's close vanished — the tracker showed it in_progress at epic close despite
-a successful tk close hours earlier.
-**Cause:** tk mutations are working-tree file edits; an implementer agent mistakenly ran
-git-restore against the shared checkout and wiped uncommitted tick state. A later "tree is
-clean" check read the wipe as healthy.
-**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note) —
-before merging any agent branch or launching agents. If an implementer reports having touched
-the shared checkout, diff tick state against the activity log before trusting the tree.
+**Problem:** A tick's close vanished — in_progress at epic close despite a successful
+tk close hours earlier: an implementer's stray git-restore wiped uncommitted .tick state.
+**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note),
+before merging any agent branch or launching agents; if an implementer touched the shared
+checkout, diff tick state against the activity log before trusting a clean tree.
 
 **Problem:** Wave-2 worktree agents branched from a base missing the just-merged wave-1
 foundation commit; one re-implemented the missing field and caused a merge conflict.
@@ -112,17 +109,21 @@ capture its status BEFORE any filter, and always give hang-prone suites an expli
 
 **Problem:** Validating runners-config.md's TOML examples fails with ImportError.
 **Cause:** System python3 has no `jsonschema`; the repo carries no venv for it.
-**Rule:** Validate with `uv run --with jsonschema python …` (tomllib is stdlib). Re-run the
-validation after ANY edit to runners-config.md or runners-config.schema.json — every TOML
-block in the doc must validate against the schema.
+**Rule:** Validate with `uv run --with jsonschema python …` after any edit to
+runners-config.md or its schema — every TOML block must validate.
 
-**Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
-`--flags` or code) silently corrupted the stored field — the backtick spans were shell
-command-substituted, embedding command output (e.g. a `tk roadmap` dump) into the description.
-**Cause:** Double-quoted shell strings still evaluate backticks and `$(...)`.
-**Rule:** Author tick descriptions/notes with SINGLE-quoted strings (or a heredoc), never
-double-quoted, whenever the text contains backticks, `$`, or `()`. Verify with `tk show <id>`
-after bulk creation — substitution failures go to stderr and are easy to miss.
+## Naming
+
+**Problem:** A merged tick's global config dir (`~/.ticks`/`TICKS_HOME`) was renamed mid-run
+by human interrupt — planning ignored existing conventions (`.tick/`, `TK_*`); rework.
+**Rule:** Derive new user-facing names (dirs, env vars, flags) from existing repo conventions
+in the tick description itself — name the convention, not just the name.
+
+**Problem:** Backticks in double-quoted `tk create -d "..."` strings were shell-substituted,
+silently corrupting stored descriptions with command output.
+**Cause:** Double quotes still evaluate backticks and `$(...)`.
+**Rule:** Single-quote (or heredoc) any tick text containing backticks, `$`, or `()`; verify
+with `tk show <id>` after bulk creation.
 
 **Problem:** A `git merge` of an implementer branch failed/half-applied (rename + go.mod staged
 in the index), then a blind `git add .tick/ && git commit` for tracker state captured the
@@ -145,6 +146,5 @@ so every OTHER view's teatest golden went stale at integration; and inserting a 
 (`WaitFor` 5s) because the test landed on the wrong view.
 **Cause:** Goldens render the whole frame including shared chrome; view tab-hotkeys are positional.
 **Rule:** After integrating any view-model tick, regenerate cross-contaminated goldens
-(`go test ./internal/tui -update`) and confirm the diff is chrome-only. In view tests, reach a
-view by a stable means, not a hardcoded hotkey digit — or expect to fix sibling-view nav when a
-new view is inserted mid-strip. Tab order is List·Board·Roadmap·Timeline.
+(`go test ./internal/tui -update`) and confirm the diff is chrome-only; reach views by stable
+means, never a hardcoded hotkey digit (tab order List·Board·Roadmap·Timeline).

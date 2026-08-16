@@ -237,6 +237,10 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk snippet` | Output runner-neutral agent instructions |
 | `tk skills …` | Inspect/install the version-matched skill bundle embedded in this binary (see below) |
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
+| `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
+| `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
+| `tk ask <id> --question "..."` | Ask the operator a question and block until it's answered, on either surface (see below) |
+| `tk answer <id> <answer...>` | Answer a question `tk ask` parked on a tick, from the terminal (see below) |
 
 All commands support `--help` for options and `--json` for machine-readable output.
 
@@ -295,6 +299,37 @@ complete workflow, references, and adapters that a skill-aware harness loads on 
 own. They're complementary, not interchangeable: use `tk snippet` for harnesses without
 skill support, and the skill (via `tk skills install` or a skill marketplace) for
 harnesses that have it.
+
+### Operator channel: reach a human from an autonomous run
+
+`tk channel` pairs a personal Telegram bot with this machine so an autonomous run can
+send approvals, escalations, and completion reports to your phone instead of a
+terminal you have to keep watching. Full setup, the pairing flow, and where secrets
+are (and aren't) stored live in [`docs/operator-channel.md`](docs/operator-channel.md).
+
+Once a channel is configured, three commands drive the actual interaction:
+`tk tell` sends a one-way announcement — no question, no wait. `tk ask <id>`
+asks a question, parks it on the tick, and blocks until it's answered on
+either surface: a reply on the phone, or `tk answer` / `tk approve` / `tk
+reject` in a terminal. `tk answer <id> <answer...>` is that terminal half —
+the local twin of replying on the phone, settling the oldest question still
+open on the tick. See [Asking from a run](docs/operator-channel.md#asking-from-a-run)
+for question shapes (multiple choice, multi-select, free text), `--gate
+approve` for an approval gate, `--async`/`--collect` for asking without
+blocking, `--escalate-after` to give a terminal answer first crack before
+paging the phone, and the exit-code table (`tk ask` exits `7` when the wait
+times out — the question stays open and answerable, so a later `tk answer` or
+a later run still settles it).
+
+| Command | Description |
+|---------|-------------|
+| `tk channel setup telegram` | Pair your Telegram bot with this machine (token stays out of the repo) |
+| `tk channel status` | Show what is configured, who it is paired with, and whether the token works |
+| `tk tell [text...]` | Send a one-way announcement to the operator channel (reads stdin with no args) |
+| `tk ask <id> --question "..."` | Ask a question and block until it's answered, on either surface |
+| `tk ask <id> --question "..." --gate approve` | Ask as an approval gate — approve/reject buttons, verdict answer |
+| `tk ask --collect --wait` | Drain settled questions from earlier `--async` asks, optionally blocking on the rest |
+| `tk answer <id> <answer...>` | Answer a question `tk ask` parked, from the terminal |
 
 ## TUI
 

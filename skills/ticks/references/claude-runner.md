@@ -80,6 +80,11 @@ The execution loop does **not** fit the `Workflow` tool: a Workflow script can't
 
 ## Review
 
+**Reviewer agents may settle idle without delivering their final report** (field-observed
+three times in one run, 2026-08-16): the completion notification arrives with no report
+attached. Don't treat idle as failure and don't redispatch — `SendMessage` to the named
+reviewer asking it to deliver the report, and it responds with the full findings.
+
 The shared doc defines the review-axis menu (spec compliance, correctness, security, performance, error handling, test quality, type/contract design, comment accuracy) and the severity + confidence output. Map those axes onto Claude subagents two ways:
 
 - **Purpose-built agents, if installed.** Claude Code's `pr-review-toolkit` plugin ships axis-specialized reviewers — `silent-failure-hunter` (error handling), `pr-test-analyzer` (test quality), `type-design-analyzer` (type/contract design), `comment-analyzer` (comment accuracy), `code-reviewer` (general quality + spec compliance), `code-simplifier` (simplification, which doubles as the retro drift pass). When a consuming repo has these — or equivalents — as `subagent_type` values, dispatch them directly, one per axis the diff earns.

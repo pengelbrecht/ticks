@@ -28,4 +28,4 @@ effort = "high"
 [roles.implement.tiers.balanced]
 kind = "codex"
 model = "gpt-5.6-luna"
-effort = "high"
+effort = "max"

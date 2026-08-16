@@ -1,0 +1,38 @@
+{
+  "id": "qf8e734d7785c",
+  "tick_id": "toc",
+  "kind": "gate",
+  "awaiting": "approval",
+  "question": {
+    "id": "qf8e734d7785c",
+    "text": "Live A20 drill: approve the operator-channel project's final fact? One tap closes the loop.",
+    "options": [
+      {
+        "id": "approve",
+        "label": "Approve"
+      },
+      {
+        "id": "reject",
+        "label": "Reject"
+      }
+    ]
+  },
+  "ref": {
+    "channel_id": "6283960894",
+    "message_id": "4"
+  },
+  "created_at": "2026-08-16T19:12:42.925764Z",
+  "resolution": {
+    "outcome": {
+      "status": "answered",
+      "text": "Approve",
+      "option_ids": [
+        "approve"
+      ]
+    },
+    "answered_by": "telegram",
+    "telegram_user_id": "6283960894",
+    "answered_at": "2026-08-16T19:12:50.145872Z",
+    "applied_at": "2026-08-16T19:12:50.228902Z"
+  }
+}

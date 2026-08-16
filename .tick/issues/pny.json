@@ -1,0 +1,17 @@
+{
+  "id": "pny",
+  "title": "Document tk channel: README commands table + docs page",
+  "description": "Close the docs gap jmk flagged: add tk channel (setup telegram + status) to the README Commands table (~line 221) and write a docs/ page covering: per-operator bot rationale (one getUpdates consumer per token), BotFather step, pairing flow with the t.me deep link, where secrets live (~/.tick/operator.json, TK_HOME override, 0600) vs the tracked non-secret .tick/operators.json mapping, and status/--offline/--check. Follow existing README/docs conventions. Do not change any Go code.",
+  "notes": "2026-08-16 19:14 - runner-state: substrate=herdr kind=claude branch=tick/pny worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-pny workspace=w9A base=28aa17d473806e12467d50c4f02e69563172323f agent=tick-pny pane=w9A:p1 session=dd4e0ec6-3568-412b-aa12-62673914f4c8",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "54v",
+  "acceptance_criteria": "README Commands table lists channel; a docs page exists and matches the implemented flags (verify against tk channel --help output committed in cmd/tk/main.go usage text); no Go code changes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T17:13:48.748126Z",
+  "updated_at": "2026-08-16T17:16:40.477577Z",
+  "closed_at": "2026-08-16T17:16:40.477577Z",
+  "closed_reason": "Completed: README commands table row + operator-channel subsection + docs/operator-channel.md (pairing flow, secrets split, status semantics); prose-only, verified no Go changes"
+}

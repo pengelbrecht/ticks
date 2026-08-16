@@ -1,0 +1,20 @@
+{
+  "id": "au6",
+  "title": "Skill integration: operator channel in runner prompts",
+  "description": "Serves fact A19. Rough scope (flesh out when epic 2 closes, against the real command surface): agent-runner.md gains an Operator channel section with the routing table (requires/awaiting gates → tk ask with buttons; blocked-with-live-frontier → park + tk tell; blocked-and-stalled → tk ask escalation; checkpoint → tk tell report + tk ask sign-off; completion → tk tell; planning → never, in-session tools). Wire into blocked-agent steps, await-handling table, completion report, and gate-clearing rules; one clause in SKILL.md planning-is-interactive doctrine; ask-bar-unchanged sentence + retro interrupt audit reference; workers never touch the channel (orchestrator only); prompts say operator channel, not Telegram. Edit skills/ticks/ only (source of truth), runner-neutral parts in references/agent-runner.md.",
+  "notes": "2026-08-16 21:02 - RETRO (epic close, 2026-08-16). VERIFICATION: A19 — operator-channel section + routing table landed in agent-runner.md wired at all four spots (blocked steps, await table, completion report, gate-clearing), SKILL.md clause + tick-patterns economics paragraph present, ask-bar doctrine in all three files, workers-never-touch-it stated twice, channel-neutral except the one permitted docs pointer; frontier review verified every command/flag/exit code against the implementation — APPROVE, 3 nits applied. GATE AUDIT: no gated ticks — n/a. DRIFT: prose-only epic, none. LEARNINGS: none new (reviewer-idle quirk already promoted in d0d retro). INTERRUPT AUDIT: zero interrupts. SCOPE: unchanged (1 impl tick + skeleton). INTEGRATION: epic branch local, awaiting PR + CI. NEXT: project boundary — checkpoint nq3.",
+  "status": "closed",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "d0d"
+  ],
+  "parent": "9m8",
+  "base_branch": "main",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:26:44.855468Z",
+  "updated_at": "2026-08-16T19:02:32.919069Z",
+  "closed_at": "2026-08-16T19:02:32.919069Z",
+  "closed_reason": "Completed: skill integration — operator channel wired into runner protocol, doctrine preserved, review APPROVE"
+}

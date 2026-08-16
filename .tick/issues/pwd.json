@@ -1,0 +1,20 @@
+{
+  "id": "pwd",
+  "title": "Telegram Bot API transport (net/http, long polling)",
+  "description": "New package internal/operator/telegram implementing operator.Channel. The ONLY package where Telegram API types appear. Raw net/http + encoding/json — no new go.mod dependencies.\n\n- Client with configurable BaseURL (default https://api.telegram.org, overridable for tests / A31 evidence).\n- Methods: GetMe, SendMessage (HTML parse mode, InlineKeyboardMarkup, ForceReply), EditMessageText, EditMessageReplyMarkup, AnswerCallbackQuery, GetUpdates (long poll: timeout param, offset advance, allowed_updates=message,callback_query).\n- Bound-user filter: updates whose sender/from.id differs from configured user_id are dropped at this layer (fact A14 transport half).\n- Map interface types → Telegram wire types: Question options → callback_data ids (≤64 bytes; short ids, labels stay local), multi-select → toggle keyboard + Done button, allow-other → Other… button switching to ForceReply.\n- fakebot subpackage: httptest server speaking enough Bot API for tests (getMe, sendMessage capture, getUpdates fed from a script queue, edit/answer capture) — shared by T4 pairing tests and epic 2.\n\nTest cases (against fakebot):\n- GetUpdates advances offset; long-poll timeout returns empty slice, no error.\n- Update from wrong user_id is dropped; right user_id becomes an Event.\n- AskDeliver for each shape produces correct reply_markup JSON; callback_data ≤64 bytes.\n- Resolve edits message text and clears reply_markup.\nRun: go test -short -count=1 ./internal/operator/...",
+  "notes": "2026-08-16 18:46 - runner-state: substrate=herdr kind=claude branch=tick/pwd worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-pwd workspace=w97 base=672cd59cc592834dae7969a60b29543a826d5589 agent=tick-pwd pane=w97:p1 session=bce463f1-5222-48a2-8989-075d98ab9265",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "u5o"
+  ],
+  "parent": "54v",
+  "acceptance_criteria": "All telegram transport tests pass against fakebot; operator.Channel satisfied; no telegram import outside internal/operator/telegram (grep-checkable)",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:27:26.579931Z",
+  "updated_at": "2026-08-16T17:00:12.237803Z",
+  "closed_at": "2026-08-16T17:00:12.237803Z",
+  "closed_reason": "Completed: internal/operator/telegram — Bot API client (net/http, long poll, bound-user filter, fatal/transient errors), Channel impl (4 ask shapes, callback scheme o/t/d/x, resolve-edit), fakebot test double; 27 tests green"
+}
