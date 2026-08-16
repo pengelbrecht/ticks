@@ -1,7 +1,7 @@
 {
   "id": "bqv",
   "title": "Final review of tk ask/tell epic diff",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +13,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T17:32:10.986905Z",
-  "updated_at": "2026-08-16T17:58:43.674169Z"
+  "updated_at": "2026-08-16T18:25:49.090873Z",
+  "started_at": "2026-08-16T18:25:49.090873Z"
 }
