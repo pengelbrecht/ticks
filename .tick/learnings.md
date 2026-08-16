@@ -5,11 +5,10 @@ Cross-repo learnings go in the ticks skill (claude-runner.md promotion table), n
 
 ## Tick authoring
 
-**Problem:** A machine-readable output field shipped with the wrong semantics and a test
-cementing the bug — caught only by the epic's final review.
-**Cause:** The tick defined the field by implementation predicate, not consumer semantics.
-**Rule:** When a tick specifies a flag/field another tool consumes, define it by the consumer's
-action and let the implementation derive the predicate — and state the consumer in the tick.
+**Problem:** A machine-readable output field shipped with wrong semantics plus a test
+cementing the bug — the tick defined it by implementation predicate, not consumer semantics.
+**Rule:** When a tick specifies a flag/field another tool consumes, define it by the
+consumer's action (and name the consumer); let the implementation derive the predicate.
 
 ## This repo's build
 
@@ -148,6 +147,5 @@ so every OTHER view's teatest golden went stale at integration; and inserting a 
 (`WaitFor` 5s) because the test landed on the wrong view.
 **Cause:** Goldens render the whole frame including shared chrome; view tab-hotkeys are positional.
 **Rule:** After integrating any view-model tick, regenerate cross-contaminated goldens
-(`go test ./internal/tui -update`) and confirm the diff is chrome-only. In view tests, reach a
-view by a stable means, not a hardcoded hotkey digit — or expect to fix sibling-view nav when a
-new view is inserted mid-strip. Tab order is List·Board·Roadmap·Timeline.
+(`go test ./internal/tui -update`) and confirm the diff is chrome-only; reach views by stable
+means, never a hardcoded hotkey digit (tab order List·Board·Roadmap·Timeline).
