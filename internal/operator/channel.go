@@ -95,6 +95,11 @@ type Format string
 //	code block   ```text```         <pre>text</pre>            ```text```
 //	link         [label](url)       <a href="url">label</a>    <url|label>
 //
+// The `_` italic rule has no word-boundary requirement, so snake_case
+// identifiers in interpolated text get partially italicized (and Slack's
+// mrkdwn, which does require boundaries, would render such input
+// differently). Wrap identifiers in backticks rather than passing them bare.
+//
 // Nothing else is in the subset — headings, tables, images, blockquotes, lists,
 // strikethrough and nested emphasis have no agreed equivalent, so a transport
 // renders those characters literally rather than guessing at one. Text outside

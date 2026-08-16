@@ -142,7 +142,7 @@ func tellPayloadFrom(cmd *cobra.Command, args []string) (tellPayload, error) {
 	}
 	if len(tellCaption) > captionMaxLen {
 		return tellPayload{}, NewExitError(ExitUsage,
-			"--caption is %d characters, over the %d the channel can show with a file",
+			"--caption is %d bytes, over the %d the channel can show with a file",
 			len(tellCaption), captionMaxLen)
 	}
 

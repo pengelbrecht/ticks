@@ -350,7 +350,7 @@ func askValidateFlags(args []string) error {
 func askValidatePhotoFlags() error {
 	if len(askCaption) > captionMaxLen {
 		return NewExitError(ExitUsage,
-			"--caption is %d characters, over the %d the channel can show with a file",
+			"--caption is %d bytes, over the %d the channel can show with a file",
 			len(askCaption), captionMaxLen)
 	}
 	if askPhoto == "" {
