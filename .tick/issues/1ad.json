@@ -3,7 +3,7 @@
   "title": "tk tell: one-way operator announcement",
   "description": "New cmd/tk/cmd/tell.go + registration (BOTH cobra file and the switch + usage in cmd/tk/main.go — TestLegacyDispatchCoversAllCobraCommands enforces; reset new flag vars in ResetFlags). Do NOT touch internal/operator (sibling tick owns it this wave) beyond calling existing APIs.\n\ntk tell \u003ctext...\u003e [--channel telegram]: load global operator config (operator.LoadOperatorConfig), build the configured channel (telegram.NewChannel), Send (plain text — transport escapes). Exit codes: 0 sent; 4 = no channel configured (documented in --help; prints one stderr line, changes nothing — prompts may call unconditionally); nonzero other for delivery failure. Read stdin when no text args (echo report | tk tell).\n\nTest cases (fakebot via api_base in a TK_HOME config fixture): configured → message lands, HTML-special chars arrive escaped exactly once; unconfigured → exit 4, no HTTP calls; delivery 500 → nonzero, error names the channel; stdin mode.\nRun: go test -short -count=1 ./cmd/tk/...",
   "notes": "2026-08-16 19:32 - runner-state: substrate=herdr kind=codex branch=tick/1ad worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-1ad workspace=w9D base=8fb838a9879ddc02a72d6490e7041dde778acf88 agent=tick-1ad pane=w9D:p1 session=01a00ba1-d422-7d41-8811-c975aaf12fec",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,6 +11,7 @@
   "acceptance_criteria": "tell tests pass incl exit-code contract (0/4/other) and no-HTTP-when-unconfigured; registered in both dispatch layers; tk --help lists tell",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T17:31:30.56478Z",
-  "updated_at": "2026-08-16T17:32:43.724295Z",
-  "started_at": "2026-08-16T17:32:17.335798Z"
+  "updated_at": "2026-08-16T17:45:06.393407Z",
+  "closed_at": "2026-08-16T17:45:06.393407Z",
+  "closed_reason": "Completed: tk tell (exit 0/4 contract, stdin mode, once-escaped delivery); codex sandbox blocked loopback tests — verified green on integrated tree here"
 }
