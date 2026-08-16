@@ -309,7 +309,25 @@ func (s *PendingStore) MarkDelivered(id string, ref MessageRef) (Pending, error)
 // The first resolution wins: a second one — the phone answering a question the
 // terminal already settled — is [ErrAlreadyResolved]. AnsweredAt defaults to
 // now when the caller leaves it zero.
+//
+// The load-check-save runs under the apply lock, so first-wins holds against a
+// simultaneous resolver in another process rather than only against a
+// well-spaced one. Without it two answers landing together both read an
+// unresolved entry and the second silently overwrites the first — the exact
+// lost update the dual-surface story promises cannot happen. Callers must not
+// hold the apply lock when calling this (flock is per-process-file, so a nested
+// take would deadlock): [Engine.Apply] takes it separately, after Resolve
+// returns.
 func (s *PendingStore) Resolve(id string, res PendingResolution) (Pending, error) {
+	if err := validPendingID(id); err != nil {
+		return Pending{}, err
+	}
+	lock, err := s.AcquireApply(context.Background())
+	if err != nil {
+		return Pending{}, fmt.Errorf("operator: resolving %s: %w", id, err)
+	}
+	defer func() { _ = lock.Release() }()
+
 	p, err := s.Load(id)
 	if err != nil {
 		return Pending{}, err

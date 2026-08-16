@@ -312,7 +312,7 @@ func (ch *Channel) handleMessage(msg *IncomingMessage) []operator.Event {
 	if ch.chatIDNum != 0 && msg.ChatID != ch.chatIDNum {
 		return nil
 	}
-	ev := operator.Event{Kind: operator.EventAnswer, Text: msg.Text}
+	ev := operator.Event{Kind: operator.EventAnswer, Text: msg.Text, SenderID: senderID(msg.FromID)}
 	if questionID, ok := ch.questionFor(msg.ReplyToMessageID); ok {
 		ev.Ref = ch.ref(questionID)
 	}
@@ -351,6 +351,7 @@ func (ch *Channel) handleCallback(ctx context.Context, cq *CallbackQuery) ([]ope
 		return []operator.Event{{
 			Kind:      operator.EventOptionPress,
 			Ref:       ch.ref(cq.MessageID),
+			SenderID:  senderID(cq.FromID),
 			OptionIDs: []string{option.ID},
 		}}, nil
 
@@ -381,6 +382,7 @@ func (ch *Channel) handleCallback(ctx context.Context, cq *CallbackQuery) ([]ope
 		return []operator.Event{{
 			Kind:      operator.EventMultiSelectCommit,
 			Ref:       ch.ref(cq.MessageID),
+			SenderID:  senderID(cq.FromID),
 			OptionIDs: ids,
 		}}, nil
 

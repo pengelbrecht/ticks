@@ -38,16 +38,24 @@ what an "other" answer is on a question that allows one).
 The question answered is the oldest one still open on the tick. Find them with
 ` + "`tk list --awaiting`" + `, or the entries under .tick/pending.
 
+Answering a --gate approve question is a verdict, so it carries the same
+provenance rule as ` + "`tk approve`" + `: when TK_ACTOR is runner-shaped (the mandated
+<runner>:orchestrator form) the answer is refused unless --from human attests
+that a human made the call. A plain question is a note, not a verdict, and
+needs no attestation.
+
 Examples:
   tk answer abc123 eu-west-1
   tk answer abc123 "Deep Green"
   tk answer abc123 deep-green
   tk answer abc123 eu us          # a multi-select question
   tk answer abc123 approve        # an approval gate
+  tk answer abc123 approve --from human   # a runner relaying a human decision
 
 Exit codes:
   0  answered
-  2  usage error (an option the question does not offer)
+  2  usage error (an option the question does not offer, or a runner answering
+     a gate without --from human)
   3  not in a git repository
   4  no question is parked on that tick, or it is already answered`,
 	Args:          cobra.MinimumNArgs(2),
@@ -56,7 +64,11 @@ Exit codes:
 	RunE:          runAnswer,
 }
 
+var answerFrom string
+
 func init() {
+	answerCmd.Flags().StringVar(&answerFrom, "from", "", "provenance of a gate answer: human (a runner relaying a human decision)")
+
 	rootCmd.AddCommand(answerCmd)
 }
 
@@ -78,6 +90,19 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	pending, err := answerTarget(engine, tickID)
 	if err != nil {
 		return answerError(cmd, err)
+	}
+
+	// A gate answer IS a verdict, so it goes through the same guard as
+	// `tk approve` — and before anything is written, so a refused answer leaves
+	// the gate exactly as it found it. See verdictguard.go. The engine already
+	// stamps the write "human"; this decides whether the write may happen.
+	if pending.Kind == operator.PendingGate {
+		if _, err := resolveVerdictActor(answerFrom, ""); err != nil {
+			return answerError(cmd, err)
+		}
+	} else if answerFrom != "" {
+		return answerError(cmd, NewExitError(ExitUsage,
+			"--from applies to an approval gate (a plain answer is a note, not a verdict)"))
 	}
 
 	outcome, err := answerOutcome(pending.Question, args[1:])

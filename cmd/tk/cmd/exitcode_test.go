@@ -103,3 +103,26 @@ func TestCobraUsageErrorsExitUsage(t *testing.T) {
 		})
 	}
 }
+
+// TestExitTimeoutIsDistinct pins the timeout code as its own slot. It used to
+// share the numeric value of ExitGitHub, so an orchestrator branching on a
+// blocking `tk ask` could not tell "nobody answered" from "the git remote could
+// not be read".
+func TestExitTimeoutIsDistinct(t *testing.T) {
+	for _, other := range []struct {
+		name string
+		code int
+	}{
+		{"ExitSuccess", ExitSuccess},
+		{"ExitGeneric", ExitGeneric},
+		{"ExitUsage", ExitUsage},
+		{"ExitNoRepo", ExitNoRepo},
+		{"ExitNotFound", ExitNotFound},
+		{"ExitGitHub", ExitGitHub},
+		{"ExitIO", ExitIO},
+	} {
+		if ExitTimeout == other.code {
+			t.Errorf("ExitTimeout (%d) collides with %s", ExitTimeout, other.name)
+		}
+	}
+}

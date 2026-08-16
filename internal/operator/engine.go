@@ -270,7 +270,17 @@ func (e *Engine) Apply(p Pending) (Applied, error) {
 			}
 		}
 	} else {
-		t.ClearAwaiting()
+		// One tick can carry several open questions. Clearing awaiting while a
+		// sibling is still open would strand it: the engine reads a tick that
+		// left its parked state as out of band and cancels the question
+		// unanswered. So the LAST answer clears the awaiting, not the first.
+		open, err := e.otherOpen(p)
+		if err != nil {
+			return Applied{}, err
+		}
+		if !open {
+			t.ClearAwaiting()
+		}
 		t.UpdatedAt = e.now().UTC()
 		if err := e.ticks.WriteAs(t, humanActor); err != nil {
 			return Applied{}, fmt.Errorf("operator: saving tick %s: %w", p.TickID, err)
@@ -288,6 +298,28 @@ func (e *Engine) Apply(p Pending) (Applied, error) {
 	}
 
 	return Applied{Pending: p, Outcome: res.Outcome, Closed: closed}, nil
+}
+
+// otherOpen reports whether any OTHER unresolved question is parked on the same
+// tick as p. It is what keeps a multi-question tick parked until the last
+// answer arrives.
+//
+// A missing pending directory is not an error: it just means there is nothing
+// else open.
+func (e *Engine) otherOpen(p Pending) (bool, error) {
+	entries, err := e.pending.List()
+	if err != nil {
+		return false, fmt.Errorf("operator: listing questions on %s: %w", p.TickID, err)
+	}
+	for _, entry := range entries {
+		if entry.ID == p.ID || entry.TickID != p.TickID {
+			continue
+		}
+		if !entry.Resolved() {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // OutOfBand reports whether the tick has already left the state the question
@@ -365,6 +397,11 @@ func outOfBandOutcome() Outcome {
 // noteLine renders the tick note for a resolution, in `tk note --from human`
 // shape. A channel answer additionally names the operator's channel identity:
 // a verdict is a person's decision and the audit trail should say which person.
+//
+// The timestamp is when the operator decided, not when this apply ran. An
+// answer can sit resolved on disk for hours before `tk ask --collect` drains
+// it, and a note stamped at drain time would misdate the decision by exactly
+// that lag.
 func (e *Engine) noteLine(p Pending, res PendingResolution) string {
 	text := strings.TrimSpace(res.Outcome.Text)
 	if text == "" {
@@ -373,7 +410,11 @@ func (e *Engine) noteLine(p Pending, res PendingResolution) string {
 	if text == "" {
 		text = "(no answer text)"
 	}
-	line := fmt.Sprintf("%s - [human] %s", e.now().Format(noteTimestampLayout), text)
+	at := res.AnsweredAt
+	if at.IsZero() {
+		at = e.now()
+	}
+	line := fmt.Sprintf("%s - [human] %s", at.Local().Format(noteTimestampLayout), text)
 	if res.AnsweredBy == AnsweredByTelegram && res.TelegramUserID != "" {
 		line += fmt.Sprintf(" (via telegram user %s)", res.TelegramUserID)
 	}
@@ -584,7 +625,7 @@ func (c *Consumer) Route(ctx context.Context, ev Event) (Pending, bool, error) {
 		resolved, err := c.store.Resolve(p.ID, PendingResolution{
 			Outcome:        eventOutcome(p.Question, ev),
 			AnsweredBy:     AnsweredByTelegram,
-			TelegramUserID: c.TelegramUserID,
+			TelegramUserID: c.senderID(ev),
 			AnsweredAt:     c.now().UTC(),
 		})
 		if err != nil {
@@ -597,6 +638,21 @@ func (c *Consumer) Route(ctx context.Context, ev Event) (Pending, bool, error) {
 		return resolved, true, nil
 	}
 	return Pending{}, false, nil
+}
+
+// senderID is the operator identity to stamp on a resolution: the sender of the
+// event that produced it, falling back to the configured operator for a
+// transport that does not report one.
+//
+// The event is the honest source. A run's configuration says who the channel is
+// bound to; the event says who pressed the button. The transport filter keeps
+// those the same today, and a note that names a person should still be derived
+// from the decision rather than from the configuration.
+func (c *Consumer) senderID(ev Event) string {
+	if id := strings.TrimSpace(ev.SenderID); id != "" {
+		return id
+	}
+	return c.TelegramUserID
 }
 
 // eventOutcome renders an operator event as the outcome to record and to show

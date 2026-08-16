@@ -147,13 +147,20 @@ tk ask abc123 --question "Ship it?" --gate approve --timeout 30m
 are rejected alongside it — and the answer becomes a verdict rather than a
 plain note on the tick.
 
-### `--timeout` and exit 5
+### `--timeout` and exit 7
 
-`tk ask` waits `--timeout` (default 10m) for an answer. When it expires, the
-tick stays `awaiting` and the pending question is left on disk for a later run
-or a human to settle, and the command exits `5`. See
-[Exit codes](#exit-codes) below — `5` means two different things on `tk ask`,
-told apart by the stderr text.
+`tk ask` waits `--timeout` (default 10m) for an answer. When it expires the run
+stops waiting — but *giving up waiting is not an answer*. The tick stays
+`awaiting`, the pending question is left **open** on disk, and the command exits
+`7`. The delivered message is edited to say the run stopped waiting and the
+question is still open, so nothing on the phone claims the decision was missed
+for good.
+
+Because the question is still open, it is still answerable: a later
+`tk answer <id> <answer...>`, or a later run's `tk ask --collect`, resolves it
+and applies the answer to the tick exactly as an in-time answer would. This is
+the same contract as `tk ask --collect --wait`, which also leaves the questions
+it timed out on untouched.
 
 ### `--async` / `--collect`: asking without blocking
 
@@ -170,7 +177,7 @@ printing one JSON line per question and deleting its pending entry once
 printed; a plain `--collect` skips questions still open. `--collect --wait`
 also blocks on those, snapshotting the set of pending entries at the moment it
 starts, so it finishes once everything open *then* is settled rather than
-chasing questions asked afterward; a waiting collect that times out exits `5`
+chasing questions asked afterward; a waiting collect that times out exits `7`
 and lists the still-open question ids in its error text.
 
 `tk ask --json` output, and each `--collect` line, carries `id` and `tick_id`
@@ -202,44 +209,78 @@ tk answer abc123 eu us          # a multi-select question
 tk answer abc123 approve        # an approval gate
 ```
 
-`tk answer <id> <answer...>` takes no flags and settles the oldest question
-still open on the tick — find them with `tk list --awaiting` or the entries
-under `.tick/pending`. For a question with options, give an option label or
-its id (matching is case-insensitive); a word that doesn't match any option is
-a usage error, not a free-text answer — unless the question has no options at
-all, or `allow_other`, in which case whatever was typed is accepted as free
-text.
+`tk answer <id> <answer...>` settles the oldest question still open on the
+tick — find them with `tk list --awaiting` or the entries under
+`.tick/pending`. For a question with options, give an option label or its id
+(matching is case-insensitive); a word that doesn't match any option is a usage
+error, not a free-text answer — unless the question has no options at all, or
+`allow_other`, in which case whatever was typed is accepted as free text.
+
+Answering a `--gate approve` question is a **verdict**, so it carries the same
+provenance rule as `tk approve`: with a runner-shaped `TK_ACTOR` (the mandated
+`<runner>:orchestrator` form) the answer is refused unless `--from human`
+attests that a human actually made the call, and the write is then stamped
+`human` rather than the runner name. A plain question is a note, not a verdict,
+and needs no attestation:
+
+```bash
+tk answer abc123 approve --from human   # a runner relaying a human decision
+```
+
+### More than one question on a tick
+
+A tick can carry several open questions — a run that asked two things, or an
+escalation asked alongside an earlier ask. Answering one of them writes its
+note but leaves the tick `awaiting`, so its siblings stay open and answerable;
+the *last* answer is what clears the awaiting state. (Clearing it early would
+make the engine read the tick as having moved on and cancel every remaining
+question unanswered.)
 
 ### Dual-surface answering
 
 The same question can be answered from the phone or the terminal — whichever
-lands first wins. `tk answer` and a Telegram reply both resolve through the
-same pending entry, so the losing surface is told the question already moved:
+lands first wins, including when both land at once: the resolution is written
+under the repository's apply lock, so two simultaneous answers cannot overwrite
+each other. `tk answer` and a Telegram reply both resolve through the same
+pending entry, so the losing surface is told the question already moved:
 a second `tk answer` exits `4` naming the earlier answer, and a stale button
 press on the phone gets its own explanation. Either way, the channel message
 is edited to show what was decided — exactly as if the winning surface's
 decision had happened there, so the operator's phone never keeps showing a
 live question nobody is listening to.
 
+### What the note records
+
+An answer becomes a `[human]` note on the tick, and the note is written to be
+true about the decision rather than about the run that happened to drain it:
+
+- the **timestamp** is when the operator answered, not when the answer was
+  applied — an `--async` question collected hours later is still stamped with
+  the moment it was decided;
+- a channel answer additionally names the **Telegram user id read off the
+  update** that carried it, not the id in the configuration. The transport only
+  accepts the bound operator's traffic, so the two agree — but "user 424242
+  decided this" should be a fact taken from the decision.
+
 ### Exit codes
 
 | Exit | `tk ask` | `tk answer` |
 |------|----------|-------------|
 | `0` | Answered, on either surface | Answered |
-| `2` | Usage error (bad flags, or malformed `--json` input) | Usage error — the answer doesn't match any option the question offers |
+| `2` | Usage error (bad flags, or malformed `--json` input) | Usage error — the answer doesn't match any option the question offers, or a runner answered a gate without `--from human` |
 | `3` | Not in a git repository | Not in a git repository |
 | `4` | No operator channel is configured — the question is still registered and the tick still parked awaiting a human | No question is parked on that tick, or every question on it is already answered |
-| `5` | The wait timed out *(see note)*, or project detection failed | Project detection failed *(never a timeout — `tk answer` doesn't wait)* |
+| `5` | Project detection failed (the `origin` remote could not be read) | Project detection failed |
+| `7` | The wait timed out — the tick is still awaiting and the question is still open | *(never — `tk answer` doesn't wait)* |
 
-`5` is `ExitTimeout` on a blocking `tk ask`, but both `tk ask` and `tk answer`
-also use the *same numeric value* for `ExitGitHub` when they can't read or
-parse the `origin` git remote before the question is even registered or
-looked up. The two meanings are told apart by the stderr text: a timeout says
-`no answer to <id> within <duration>`; a project-detection failure says
-`failed to detect project`. An orchestrator branching on exit `5` from `tk
-ask` should default to reading it as "still unanswered" and consult stderr
-only if the distinction matters; for `tk answer`, exit `5` always means
-project detection failed.
+Timeout has its own code. It used to share `5` with `ExitGitHub`, which meant an
+orchestrator had to read stderr to tell "nobody answered" from "the git remote
+could not be read"; `7` is now unambiguous, and `5` on either command always
+means project detection failed.
+
+`tk tell` uses the same first four codes: `2` for an unknown `--channel` or an
+empty message (no arguments and nothing but whitespace on stdin), `4` for no
+configured channel, and a nonzero code for a delivery failure.
 
 ## Commands
 
@@ -256,6 +297,7 @@ project detection failed.
 | `tk ask <id> --question "..." --async` | Register and deliver, print the question id, and return |
 | `tk ask --collect [--wait]` | Drain settled questions asked with `--async` |
 | `tk answer <id> <answer...>` | Answer a question `tk ask` parked, from the terminal |
+| `tk answer <id> approve --from human` | Answer an approval gate as a runner relaying a human decision |
 
 All of `tk channel`, `tk tell`, `tk ask`, and `tk answer` support `--help` for
 the full flag reference.
