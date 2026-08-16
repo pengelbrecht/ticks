@@ -194,3 +194,15 @@ review caught `tk answer` forging human stamps; closed), `--async`/`--collect --
 `--escalate-after` (channel delivery delayed, local surfaces immediate), timeout leaves
 questions answerable with distinct exit 7, unconfigured = exit 4 no-op. Review REVISE →
 all 8 findings repaired in-epic; whole-repo gate and race pass green.
+
+## Project 9m8 closed (2026-08-16)
+
+Checkpoint nq3 signed off: A10–A18 behavior+test verified (fresh gate + race green at the
+boundary), A19 (skill prose) approved by Peter in-session, A20 verified LIVE — real pairing to
+@pe_ticks_bot, `tk ask --gate approve` to a phone, one tap closed the drill tick with
+`[human] Approve (via telegram user …)`. PR #45 green, merge on GitHub. Follow-up epic `wlo`
+(operator-chosen over the channel itself via a live multi-select ask): rich operator messages —
+formatted tells (HTML/Block-Kit-expressible) + attachments (documents/photos, photo+gate for
+epic 7ab's screenshot review). CLI note: `tk close` on a `--requires` tick now refuses instead
+of routing to awaiting (route with `tk update --awaiting`); the skill's "normal path" sentence
+is stale — fix scoped to wlo or next skill pass.
