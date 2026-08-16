@@ -134,7 +134,7 @@ Before calling `tk graph`, read `.tick/config.md` (if present). It contains thes
 - **Testing** — the exact test commands to pass on to implementers.
 - **Closeout Evidence Commands** — strict controller-owned commands executable only by closeout, never by implementers, per-tick verifiers, post-wave gates, or final-review tests.
 - **Acceptance Evidence** — optional controller-owned closeout authorization, exactly one bounded `- A<n>: \`exact command\`` mapping per acceptance item. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands. Tracker/model prose remains non-authoritative; duplicate, ambiguous, unknown/stale, injected, missing, generic-for-an-unmapped-item, or cross-item evidence fails closed.
-- **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop; don't start a wave on a broken environment.
+- **Environment** — a set of pre-flight checks to run *right now*, once, before wave 1. Each check should be a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop (with a paired operator channel, `tk tell` what failed — run start is execution, so the channel applies); don't start a wave on a broken environment.
 - **Rules** — project-specific constraints to include verbatim in every implementer prompt.
 
 **Read it fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the file from the worktree each time you start or resume a run. If the file is absent, fall back to current behavior: implementers discover test commands themselves.
@@ -338,7 +338,7 @@ An autonomous run can reach the human who launched it without them watching a te
 | A worker is blocked and the frontier is empty or stalling | `tk ask <tick-id> --question "…"` — this is an escalation; the run has nothing else to do |
 | Project checkpoint | `tk tell` the progress report, then `tk ask <tick-id> --question "…" --gate approve` for sign-off |
 | Epic or run completion report | `tk tell` — one-way; the work is done and nothing is waiting on an answer |
-| Planning, kickoff, or retro conversation | **Never.** The human is in-session; use the harness's own question tools |
+| Planning, kickoff, or retro conversation | **Never.** Planning-shaped work resolves questions in-session where a human is present — and when a mid-run `action: plan` surfaces one no human is present for, that is an `--awaiting input` tick, not a channel round trip |
 
 Shapes worth knowing on `tk ask`:
 
@@ -372,7 +372,7 @@ Surface it to the user — with a paired operator channel, "surface it" has a me
    - **Missing context** → continue the same agent or redispatch it with what it needed.
    - **Needs more reasoning** → re-dispatch at a more-capable tier.
    - **Too big** → split the tick, re-graph.
-   - **The plan itself is wrong** → stop and raise it with the user.
+   - **The plan itself is wrong** → stop and raise it with the user (step 5 gives the stop its mechanical form when a channel is paired).
 4. Keep going with the rest of the wave. A blocked tick may leave its dependents blocked — that's fine; report them at the end.
 5. Reach the operator, sized by what the frontier is doing (see *The operator channel*): **still moving** → park it as above and `tk tell` what was lost and what is still running, so the human learns without being stopped; **empty or stalling** → this is an escalation, so `tk ask <tick-id> --question "…"` and let the run wait on the answer it now has nothing to do without.
 
