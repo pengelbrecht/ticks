@@ -17,8 +17,8 @@ approval gates, escalations, checkpoint sign-offs, completion reports.
   interactive-chat lib worth adopting exists (nikoksr/notify is send-only; go-joe/go-sarah own
   the event loop). We own a small `internal/operator.Channel` interface sized to ask/tell;
   Telegram wire types appear only in `internal/operator/telegram`.
-- **Secrets split:** credentials (token, chat binding) live globally in `~/.ticks/operator.json`
-  (`TICKS_HOME` override; 0600 file / 0700 dir, atomic temp+rename writes). The repo gets only
+- **Secrets split:** credentials (token, chat binding) live globally in `~/.tick/operator.json`
+  (`TK_HOME` override; 0600 file / 0700 dir, atomic temp+rename writes). The repo gets only
   a non-secret multiplayer mapping `.tick/operators.json` (operator name → bot username +
   telegram user_id); a token-shaped string in the repo file is rejected on load. Global config
   is per-user by design — one pairing serves every repo.
