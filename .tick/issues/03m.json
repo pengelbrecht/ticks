@@ -1,7 +1,7 @@
 {
   "id": "03m",
   "title": "Close out tk ask/tell epic: retro, then flesh out skill-integration epic (au6)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -12,5 +12,7 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T17:32:11.018916Z",
-  "updated_at": "2026-08-16T17:32:17.256477Z"
+  "updated_at": "2026-08-16T18:51:06.520248Z",
+  "closed_at": "2026-08-16T18:51:06.520248Z",
+  "closed_reason": "Completed: d0d retro (A40-43 verified, blocker-fix audited, learnings promoted) and au6 fleshed out by this close-out"
 }
