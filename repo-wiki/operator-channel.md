@@ -93,3 +93,13 @@ SendMessage, EditMessageText, EditMessageReplyMarkup, AnswerCallbackQuery, GetUp
 `.tick/config.md` Acceptance Evidence is a single namespace across all containers; A1–A6 were
 already claimed by the Pi-extension epic, so this project uses A10–A20 and epic 54v uses
 A30–A32. Always grep existing usage before numbering a new fact sheet.
+
+## Epic 54v closed (2026-08-16)
+
+Foundation shipped: `internal/operator` (contract + config + fake), `internal/operator/telegram`
+(client, Channel, fakebot), `tk channel setup telegram`/`status` (pairing with no-echo token
+prompt, offset-confirmed `/start`, chat+user filtering), README + `docs/operator-channel.md`.
+Frontier final review APPROVEd; all 6 findings repaired in-epic (notably: `Channel.Send` is
+PLAIN TEXT at the interface — transports escape; pairing update offset-confirmed so later
+polls don't replay it). Epic 2 (`d0d`) inherits two review notes: backlog replay semantics on
+first poll, and durable pending-question state for cross-restart button matching.

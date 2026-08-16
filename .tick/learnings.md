@@ -112,9 +112,17 @@ capture its status BEFORE any filter, and always give hang-prone suites an expli
 
 **Problem:** Validating runners-config.md's TOML examples fails with ImportError.
 **Cause:** System python3 has no `jsonschema`; the repo carries no venv for it.
-**Rule:** Validate with `uv run --with jsonschema python …` (tomllib is stdlib). Re-run the
-validation after ANY edit to runners-config.md or runners-config.schema.json — every TOML
-block in the doc must validate against the schema.
+**Rule:** Validate with `uv run --with jsonschema python …` after any edit to
+runners-config.md or its schema — every TOML block must validate.
+
+## Naming
+
+**Problem:** A merged tick's global config dir (`~/.ticks`, `TICKS_HOME`) was renamed
+mid-run to `~/.tick`/`TK_HOME` by human interrupt — post-merge rework across code/tests/docs.
+**Cause:** Planning named a new user-facing path without checking the repo's existing
+conventions (`.tick/` dir, `TK_*` env prefix).
+**Rule:** New user-facing names (dirs, env vars, flags) must be derived from existing repo
+conventions in the tick description itself — name the convention, not just the name.
 
 **Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
 `--flags` or code) silently corrupted the stored field — the backtick spans were shell
