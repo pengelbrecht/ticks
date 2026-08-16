@@ -1,7 +1,7 @@
 {
   "id": "lw5",
   "title": "Final review of skill-integration epic diff",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -12,5 +12,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T18:51:40.064805Z",
-  "updated_at": "2026-08-16T18:51:40.064805Z"
+  "updated_at": "2026-08-16T18:58:27.972723Z",
+  "started_at": "2026-08-16T18:58:27.972722Z"
 }
