@@ -103,3 +103,16 @@ Frontier final review APPROVEd; all 6 findings repaired in-epic (notably: `Chann
 PLAIN TEXT at the interface — transports escape; pairing update offset-confirmed so later
 polls don't replay it). Epic 2 (`d0d`) inherits two review notes: backlog replay semantics on
 first poll, and durable pending-question state for cross-restart button matching.
+
+## Epic d0d engine layer as landed (tick v6z, 2026-08-16)
+
+Durable ask state lives in `.tick/pending/` (atomic writes; entries record the parked
+`awaiting` value as the out-of-band baseline). One consumer per repo via flock
+(`lock_unix.go`/`lock_windows.go` — LockFileEx port made `golang.org/x/sys` a direct dep);
+losers of the election get `ErrConsumerBusy` and watch their resolution file instead — never a
+second Events stream. `Engine.Register` parks awaiting + writes the entry; `Await` blocks on
+either surface, applies human-provenance tick state itself (note `[human]` + `(via telegram
+user <id>)`, explicit approve/reject activity on gates), and returns `OutOfBand` so callers
+settle the stale Telegram message via `channel.Resolve`. Non-answered outcomes (timeout)
+deliberately touch no tick state. Escalation delay = `not-before` on the entry; the consumer
+withholds channel delivery until then, so local surfaces always see questions first.
