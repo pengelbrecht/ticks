@@ -1,0 +1,16 @@
+{
+  "id": "grm",
+  "title": "Final review of rich-messages epic diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8wv"
+  ],
+  "parent": "wlo",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T19:24:43.951519Z",
+  "updated_at": "2026-08-16T19:24:43.951519Z"
+}

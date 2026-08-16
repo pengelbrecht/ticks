@@ -1,0 +1,15 @@
+{
+  "id": "x72",
+  "title": "Rich-message contract: FormattedSender + AttachmentSender + fake",
+  "description": "Foundation contract tick — internal/operator only (channel.go, fake.go + tests); do NOT touch telegram/ or cmd/.\n\nAdditive channel capabilities (operator.Channel itself unchanged — model on the existing optional-interface precedent set by operator.Adopter, so FakeChannel and telegram.Channel opt in and other implementers do not break):\n- FormattedSender: SendFormatted(ctx, FormattedText) error where FormattedText{Text string, Format Format} with Format one of FormatMarkdownLite (bold/italic/code/links subset expressible in BOTH Telegram HTML and Slack Block Kit — document the mapping in godoc per element) — keep the enum open for future formats. Plain Send stays plain-text (54v review decision) and its contract text must not change.\n- AttachmentSender: SendAttachment(ctx, Attachment) (MessageRef, error) with Attachment{Path string, Caption string, Kind AttachmentKind (KindAuto|KindDocument|KindPhoto), Gate bool} — Gate=true means approve/reject buttons under the attachment; returning MessageRef lets the ask engine treat a gated attachment exactly like a delivered question.\n- AskDeliver gains nothing — a photo+gate ask is composed by the caller: SendAttachment(Gate:true) then the pending entry adopts that MessageRef (verify the engine's Adopter path can register it; if a small engine hook is needed — e.g. Engine.RegisterDelivered(tick, ref, q) — add it here with tests through FakeChannel).\n- FakeChannel implements both, with recorders (Formatted() []FormattedText, Attachments() []Attachment) and scriptable gate events on attachment refs.\n\nTest cases: FormattedText round-trip through fake; attachment kinds incl KindAuto resolution by extension (.png/.jpg→photo, else document); gated attachment produces a ref the engine can await on (press resolves like a normal gate, human provenance unchanged); interface assertions that a channel WITHOUT the new interfaces still compiles and degrades (capability probe helper, e.g. operator.SupportsAttachments(ch) bool).\nRun: go test -short -count=1 ./internal/operator/...",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "wlo",
+  "acceptance_criteria": "Contract tests pass through FakeChannel incl gated-attachment await path and capability probes; no telegram/ or cmd/ changes; godoc maps each element to its Block Kit equivalent",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T19:24:07.866281Z",
+  "updated_at": "2026-08-16T19:24:49.072978Z",
+  "started_at": "2026-08-16T19:24:49.072977Z"
+}

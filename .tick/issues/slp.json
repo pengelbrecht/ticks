@@ -1,0 +1,16 @@
+{
+  "id": "slp",
+  "title": "Close out rich-messages epic: retro",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "grm"
+  ],
+  "parent": "wlo",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T19:24:43.983415Z",
+  "updated_at": "2026-08-16T19:24:44.011348Z"
+}
