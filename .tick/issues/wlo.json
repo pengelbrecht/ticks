@@ -6,7 +6,9 @@
   "priority": 2,
   "type": "epic",
   "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "[A50] go test -short -count=1 ./internal/operator/... ./cmd/tk/... passes covering formatted sends, document and photo attachments, and the photo+gate ask via FakeChannel and fakebot.\n[A51] tk tell --format delivers formatted text (fakebot asserts the markup arrives intact and the plain-text path is unchanged: escaped exactly once); unconfigured still exits 4.\n[A52] tk tell --file \u003cpath\u003e delivers an attachment (photo for image extensions, document otherwise) with optional --caption; unconfigured still exits 4 with zero HTTP.\n[A53] tk ask --photo \u003cpath\u003e --gate approve delivers a photo with approve/reject buttons and a tap resolves with the same unforgeable human provenance as text gates (verdict + [human] note + message caption edit).\n[A54] The channel interface additions are channel-neutral: FakeChannel implements them, no Telegram type leaks outside internal/operator/telegram, and each new element is documented with its Slack Block Kit equivalent in the interface godoc.",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T19:21:37.298698Z",
-  "updated_at": "2026-08-16T19:21:37.298698Z"
+  "updated_at": "2026-08-16T19:23:51.654877Z"
 }
