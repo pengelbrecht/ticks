@@ -544,6 +544,7 @@ func ResetFlags() {
 	channelStatusOffline = false
 	channelStatusCheck = false
 	channelStatusAPIBase = ""
+	tellChannel = channelTelegram
 
 	// Reset skills flags
 	skillsListJSON = false
