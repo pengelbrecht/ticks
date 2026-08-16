@@ -552,6 +552,10 @@ func ResetFlags() {
 	channelStatusCheck = false
 	channelStatusAPIBase = ""
 	tellChannel = channelTelegram
+	tellFormat = false
+	tellFile = ""
+	tellCaption = ""
+	tellAs = ""
 
 	// Reset ask flags
 	askQuestion = ""
@@ -562,6 +566,8 @@ func ResetFlags() {
 	askCollect = false
 	askWait = false
 	askEscalateAfter = 0
+	askPhoto = ""
+	askCaption = ""
 
 	// Reset answer flags
 	answerFrom = ""
