@@ -41,6 +41,12 @@ const (
 	ExitNotFound = 4
 	ExitGitHub   = 5
 	ExitIO       = 6
+
+	// ExitTimeout reports that a blocking command gave up waiting: `tk ask`
+	// whose question nobody answered in time. It shares the numeric slot with
+	// ExitGitHub, which the blocking commands never return — an orchestrator
+	// branching on 5 from `tk ask` is branching on "still unanswered".
+	ExitTimeout = 5
 )
 
 // ExitError is an error that carries a specific exit code.
@@ -545,6 +551,12 @@ func ResetFlags() {
 	channelStatusCheck = false
 	channelStatusAPIBase = ""
 	tellChannel = channelTelegram
+
+	// Reset ask flags
+	askQuestion = ""
+	askJSON = false
+	askTimeout = askDefaultTimeout
+	askGate = askGateNone
 
 	// Reset skills flags
 	skillsListJSON = false
