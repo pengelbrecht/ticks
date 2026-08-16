@@ -319,11 +319,13 @@ Tag each finding with a **confidence** as well as a severity. Severity sets the 
 
 An autonomous run can reach the human who launched it without them watching a terminal. Three commands make up the surface, and all of them are the **orchestrator's** — implementers never call them:
 
-- `tk tell <text…>` (or piped on stdin) — a one-way announcement. Nothing waits on it.
+- `tk tell <text…>` (or piped on stdin) — a one-way announcement. Nothing waits on it, and nothing listens after it: an operator who replies to a tell is talking to a closed channel (field-observed — a tell that ended "or say the word" invited an answer no consumer would ever read). Never write a reply-inviting call to action into a tell; if you want a response, send a `tk ask`.
 - `tk ask <tick-id> --question "…"` — parks a question on the tick, delivers it to the channel, and blocks until it is answered on *either* surface: the operator's device, or a local `tk answer` / `tk approve`. Whichever lands first ends the wait.
 - `tk answer <tick-id> <answer…>` — the terminal twin, for settling a parked question locally.
 
 `tk channel status` reports whether a channel is paired; `tk channel setup <channel>` pairs one. Pairing is per-machine operator config, never repo state. Setup is documented in `docs/operator-channel.md` in the ticks repo — that is the only place a specific transport is named. Everywhere else, in prompts and in reports, it is *the operator channel*.
+
+A completion report or checkpoint report may send with `tk tell --format` (MarkdownLite) or `--file` (an attachment) when the run wants richer delivery than plain text; both degrade to plain text automatically on a channel that can't render them, so reaching for them is never a gamble.
 
 **The mechanical trigger.** Use the channel only when both hold: a pairing exists (`tk channel status`) **and** you are executing, not planning. In planning the human is already in the session, so an in-session question is faster and richer than a round trip to a device. Both `tk tell` and `tk ask` degrade safely when nothing is configured — they exit 4, and `tk ask` still registers the question and still leaves the tick awaiting, which is exactly the park-and-surface behaviour that existed before a channel did. So a prompt may call them **unconditionally**; branching on a status probe buys nothing.
 
@@ -358,7 +360,7 @@ Surface it to the user — with a paired operator channel, "surface it" has a me
 - **Approved** → integrate (if not already) and `tk close`.
 - **Rejected with feedback** → reopen the work. Continue the same agent when the harness preserves its context; otherwise redispatch against the existing branch with the feedback included verbatim.
 
-**You cannot clear a gate yourself.** `tk approve`, `tk reject`, `tk update --verdict`, and the gate-clearing closes (`tk close --force` over a `--requires` gate, plain `tk close` on an already-awaiting tick) refuse a runner-shaped actor. If you are relaying a decision a human actually made, pass `--from human` — it stamps the activity `human` and is the claim epic close-out audits. If you are not, leave the tick awaiting and surface it. Routing a `--requires` tick with `tk close` is unaffected; that is your normal path.
+**You cannot clear a gate yourself.** `tk approve`, `tk reject`, `tk update --verdict`, and the gate-clearing closes (`tk close --force` over a `--requires` gate, plain `tk close` on an already-awaiting tick) refuse a runner-shaped actor. If you are relaying a decision a human actually made, pass `--from human` — it stamps the activity `human` and is the claim epic close-out audits. If you are not, leave the tick awaiting and surface it. Plain `tk close` on an unrouted `--requires` tick now refuses too (non-zero exit; it still parks the tick awaiting as a side effect, but the command itself does not complete) — route it with `tk update <tick-id> --awaiting approval` (see above), not `tk close`.
 
 **An answer that came over the channel IS a human decision, relayed mechanically — the audit standard is unchanged.** A `--gate approve` question answered on the operator's device is the human pressing the button, and the verdict is recorded under the `human` actor without any attestation from you, because you did not make the call. `tk answer <tick-id> approve --from human` is the terminal twin and carries exactly the rule above: a runner-shaped actor answering a gate is refused unless `--from human` attests that a human decided. A plain (non-gate) question is a note, not a verdict, and needs no attestation. Never relay a decision nobody made. The channel is yours alone — workers never touch it; an implementer with a question reports its status and you decide whether it is worth a human's attention.
 

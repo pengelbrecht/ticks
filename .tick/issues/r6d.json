@@ -1,0 +1,20 @@
+{
+  "id": "r6d",
+  "title": "Telegram transport: formatted sends + photo/document upload + gated attachments",
+  "description": "Telegram implementation of the x72 contract — internal/operator/telegram/ (+fakebot) only; do NOT touch cmd/ or the interface files.\n\n- SendFormatted: FormatMarkdownLite → Telegram HTML (escape everything outside the markup subset; reuse the existing escaping discipline — formatted path escapes interpolated text but preserves the rendered elements).\n- SendAttachment: multipart upload — sendPhoto for KindPhoto/auto-image, sendDocument otherwise; caption escaped; Gate=true attaches the standard approve/reject inline keyboard reusing the existing callback scheme so gate presses flow through the existing Events/pending machinery unchanged; the returned MessageRef must be adoptable (Adopter path) so a later consumer process can route the press.\n- fakebot: multipart handling for sendPhoto/sendDocument (capture filename, caption, markup, parse_mode), so CLI tests can assert delivery without real Telegram.\n- Error paths: oversized file (Telegram bot limit 50 MB — reject client-side with a clear error), missing file, unconfigured unchanged.\n\nTest cases: HTML mapping per MarkdownLite element incl escaping of user text inside; photo vs document routing incl KindAuto; gated photo press → EventOptionPress with the attachment ref; caption escaping; stale press on resolved gated photo acked; client-side size/missing-file rejection.\nRun: go test -short -count=1 ./internal/operator/...",
+  "notes": "2026-08-16 21:33 - runner-state: substrate=herdr kind=claude branch=tick/r6d worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-r6d workspace=w9N base=af6725aea70392fe11790d080e30349677da93d5 agent=tick-r6d pane=w9N:p1 session=b6e92203-5611-4a71-98c3-0d6203865bb0",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "x72"
+  ],
+  "parent": "wlo",
+  "acceptance_criteria": "All telegram+fakebot tests pass; gate presses on attachments flow through existing pending machinery with unchanged provenance; no exported Telegram types leak",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T19:24:20.242534Z",
+  "updated_at": "2026-08-16T19:46:47.234062Z",
+  "closed_at": "2026-08-16T19:46:47.234062Z",
+  "closed_reason": "Completed: MarkdownLite→HTML (30-case mapping, mutation-checked), photo/document multipart, gated attachments through existing callback machinery, caption-edit settle w/ text-edit fallback, size-limit client-side; whole-repo + race green"
+}

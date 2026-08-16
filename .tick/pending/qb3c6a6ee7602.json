@@ -1,0 +1,38 @@
+{
+  "id": "qb3c6a6ee7602",
+  "tick_id": "txl",
+  "kind": "gate",
+  "awaiting": "approval",
+  "question": {
+    "id": "qb3c6a6ee7602",
+    "text": "Demo 4: photo gate via tk ask --photo. Approve = A55 sign-off.",
+    "options": [
+      {
+        "id": "approve",
+        "label": "Approve"
+      },
+      {
+        "id": "reject",
+        "label": "Reject"
+      }
+    ]
+  },
+  "ref": {
+    "channel_id": "6283960894",
+    "message_id": "13"
+  },
+  "created_at": "2026-08-16T20:01:30.884127Z",
+  "resolution": {
+    "outcome": {
+      "status": "answered",
+      "text": "Approve",
+      "option_ids": [
+        "approve"
+      ]
+    },
+    "answered_by": "telegram",
+    "telegram_user_id": "6283960894",
+    "answered_at": "2026-08-16T20:02:18.349346Z",
+    "applied_at": "2026-08-16T20:02:18.50275Z"
+  }
+}

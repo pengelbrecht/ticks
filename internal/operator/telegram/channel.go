@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,6 +63,9 @@ type pendingQuestion struct {
 	body string
 	// selected marks chosen option indexes on a multi-select question.
 	selected map[int]bool
+	// media records that the message carries an upload, whose caption is edited
+	// on resolution — a photo or document message has no text to edit.
+	media bool
 }
 
 // Channel is the Telegram implementation of [operator.Channel]: it delivers
@@ -141,6 +145,67 @@ func (ch *Channel) Send(ctx context.Context, text string) error {
 	return err
 }
 
+// SendFormatted renders msg's markup as Telegram HTML and posts it, implementing
+// [operator.FormattedSender].
+//
+// Only [operator.FormatMarkdownLite] is rendered. Any other format — including
+// the zero value — is an error rather than a send: markup this transport cannot
+// read must never reach the operator raw, and the Bot API's HTML parser would
+// reject most of it anyway.
+func (ch *Channel) SendFormatted(ctx context.Context, msg operator.FormattedText) error {
+	if msg.Format != operator.FormatMarkdownLite {
+		return fmt.Errorf("telegram: unsupported message format %q, this transport renders %q", msg.Format, operator.FormatMarkdownLite)
+	}
+	_, err := ch.client.SendMessage(ctx, OutgoingMessage{ChatID: ch.chatID, Text: markdownLiteToHTML(msg.Text)})
+	return err
+}
+
+// SendAttachment uploads a local file to the paired chat and returns the ref it
+// landed as, implementing [operator.AttachmentSender].
+//
+// The kind decides the API method — a photo goes up with sendPhoto so it renders
+// inline, everything else with sendDocument so it arrives intact under its own
+// name — and comes from [operator.Attachment.ResolvedKind], never from a second
+// reading of the extension here.
+//
+// The caption is plain text, escaped like [Channel.Send]'s text. A gated
+// attachment gets the same approve/reject inline keyboard and the same callback
+// scheme a delivered gate question gets, so a press arrives on [Channel.Events]
+// as an [operator.EventOptionPress] against the returned ref with no new routing
+// anywhere. The caller registers the gate against that ref; a later process that
+// adopts it ([Channel.Adopt]) can interpret the press just as well.
+func (ch *Channel) SendAttachment(ctx context.Context, a operator.Attachment) (operator.MessageRef, error) {
+	var gate *pendingQuestion
+	var keyboard [][]Button
+	if a.Gate {
+		gate = &pendingQuestion{
+			question: operator.Question{Options: operator.GateOptions()},
+			body:     html.EscapeString(a.Caption),
+			selected: make(map[int]bool),
+			media:    true,
+		}
+		keyboard = gate.keyboard()
+	}
+
+	messageID, err := ch.client.SendFile(ctx, OutgoingFile{
+		ChatID:   ch.chatID,
+		Path:     a.Path,
+		Caption:  html.EscapeString(a.Caption),
+		Photo:    a.ResolvedKind() == operator.KindPhoto,
+		Keyboard: keyboard,
+	})
+	if err != nil {
+		return operator.MessageRef{}, err
+	}
+
+	if gate != nil {
+		ch.mu.Lock()
+		ch.pending[messageID] = gate
+		ch.mu.Unlock()
+	}
+	return ch.ref(messageID), nil
+}
+
 // AskDeliver renders q for Telegram and posts it: a free-text question becomes a
 // force-reply message, an option question an inline keyboard, a multi-select
 // question a toggle keyboard plus Done, and AllowOther adds an "Other…" button.
@@ -217,7 +282,28 @@ func (ch *Channel) Resolve(ctx context.Context, ref operator.MessageRef, outcome
 	if chat == "" {
 		chat = ch.chatID
 	}
-	return ch.client.EditMessageText(ctx, chat, messageID, renderOutcome(pending, outcome), nil)
+	return ch.settle(ctx, chat, messageID, renderOutcome(pending, outcome), pending != nil && pending.media)
+}
+
+// settle writes the resolved body onto the message and clears its keyboard,
+// picking the edit the message can take: an uploaded photo or document carries a
+// caption, everything else text.
+//
+// The kind is only known locally, and a question adopted from the pending store
+// arrives without it — the store keeps the ref, not how the message was posted.
+// So a text edit that Telegram rejects (400 "there is no text in the message to
+// edit") is retried as a caption edit rather than leaving live buttons on a gate
+// that is already decided.
+func (ch *Channel) settle(ctx context.Context, chat string, messageID int64, body string, media bool) error {
+	if media {
+		return ch.client.EditMessageCaption(ctx, chat, messageID, body, nil)
+	}
+	err := ch.client.EditMessageText(ctx, chat, messageID, body, nil)
+	var apiErr *Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest {
+		return ch.client.EditMessageCaption(ctx, chat, messageID, body, nil)
+	}
+	return err
 }
 
 // Events long-polls for the bound operator's activity and translates it into
@@ -534,7 +620,7 @@ func renderQuestion(q operator.Question) string {
 // so the chat still reads as a record, plus what was decided.
 func renderOutcome(pending *pendingQuestion, outcome operator.Outcome) string {
 	var b strings.Builder
-	if pending != nil {
+	if pending != nil && pending.body != "" {
 		b.WriteString(pending.body)
 		b.WriteString("\n\n")
 	}

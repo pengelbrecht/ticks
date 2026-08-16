@@ -8,7 +8,11 @@
 // [Channel]; [FakeChannel] is the in-memory double used by tests.
 package operator
 
-import "context"
+import (
+	"context"
+	"path/filepath"
+	"strings"
+)
 
 // Channel is the operator-facing transport. It is deliberately sized to the two
 // interactions a run needs: tell (Send) and ask (AskDeliver + Events + Resolve).
@@ -68,6 +72,153 @@ type Channel interface {
 // it.
 type Adopter interface {
 	Adopt(ref MessageRef, q Question) error
+}
+
+// Format selects how a channel renders a [FormattedText].
+//
+// It is an open string enum on purpose: a transport switches on the formats it
+// knows and rejects one it does not, so a later format can be introduced
+// without invalidating implementations that predate it.
+type Format string
+
+// FormatMarkdownLite is the markup subset that every supported transport can
+// render, chosen so one authored string means the same thing everywhere. It is
+// deliberately small: an element is in the subset only if BOTH Telegram HTML and
+// Slack Block Kit can express it without loss.
+//
+// The subset, element by element, and what each becomes on the wire:
+//
+//	element      MarkdownLite       Telegram HTML              Slack Block Kit (mrkdwn)
+//	bold         **text**           <b>text</b>                *text*
+//	italic       _text_             <i>text</i>                _text_
+//	inline code  `text`             <code>text</code>          `text`
+//	code block   ```text```         <pre>text</pre>            ```text```
+//	link         [label](url)       <a href="url">label</a>    <url|label>
+//
+// The `_` italic rule has no word-boundary requirement, so snake_case
+// identifiers in interpolated text get partially italicized (and Slack's
+// mrkdwn, which does require boundaries, would render such input
+// differently). Wrap identifiers in backticks rather than passing them bare.
+//
+// Nothing else is in the subset — headings, tables, images, blockquotes, lists,
+// strikethrough and nested emphasis have no agreed equivalent, so a transport
+// renders those characters literally rather than guessing at one. Text outside
+// the markup is escaped per transport (HTML entities on Telegram), so the
+// operator reads what the caller wrote.
+const FormatMarkdownLite Format = "markdown_lite"
+
+// FormattedText is a message the operator should see rendered.
+type FormattedText struct {
+	// Text is the message in Format's markup.
+	Text string `json:"text"`
+	// Format says how to interpret Text. Zero is not a format: a caller names
+	// one (today [FormatMarkdownLite]) and a transport that does not know it
+	// reports an error rather than sending the markup raw.
+	Format Format `json:"format"`
+}
+
+// FormattedSender is an optional [Channel] capability: sending a message with
+// markup rather than as plain text.
+//
+// It is separate from [Channel.Send] rather than an option on it because the two
+// have different contracts. Send is PLAIN TEXT — callers pass interpolated
+// values (branch names, error messages) through untouched and the transport
+// escapes them — and that guarantee does not change. SendFormatted moves the
+// escaping burden onto the caller for the markup it authors, which only code
+// that knows it is writing markup should take on.
+//
+// A transport that cannot render markup simply does not implement this, and
+// callers probe with [SupportsFormatted] and fall back to Send.
+type FormattedSender interface {
+	SendFormatted(ctx context.Context, msg FormattedText) error
+}
+
+// AttachmentKind says how a channel should present an attached file.
+type AttachmentKind string
+
+const (
+	// KindAuto resolves the kind from the file extension (see
+	// [Attachment.ResolvedKind]). It is the zero value, so an [Attachment] that
+	// names only a path gets sensible handling.
+	KindAuto AttachmentKind = ""
+	// KindDocument sends the file as-is, with its name preserved.
+	KindDocument AttachmentKind = "document"
+	// KindPhoto sends the file as an inline image. Transports may re-encode or
+	// downscale a photo, which is why it is never the fallback for a file whose
+	// type is uncertain.
+	KindPhoto AttachmentKind = "photo"
+)
+
+// Attachment is a local file to deliver to the operator.
+type Attachment struct {
+	// Path is the local file to upload. Channels read it at send time; nothing
+	// in this package copies or retains it.
+	Path string `json:"path"`
+	// Caption is the text shown with the file. Plain text, escaped by the
+	// transport exactly like [Channel.Send].
+	Caption string `json:"caption,omitempty"`
+	// Kind says how to present the file; zero ([KindAuto]) resolves by
+	// extension.
+	Kind AttachmentKind `json:"kind,omitempty"`
+	// Gate asks the transport to put approve/reject controls ([GateOptions])
+	// under the attachment, making it an approval gate the operator can settle
+	// in place. A press arrives on [Channel.Events] as an [EventOptionPress]
+	// carrying the returned [MessageRef], exactly as a press on a delivered
+	// question does.
+	Gate bool `json:"gate,omitempty"`
+}
+
+// ResolvedKind returns the kind to send this attachment as: the explicit Kind
+// when set, otherwise one derived from the file extension.
+//
+// Only .png, .jpg and .jpeg auto-resolve to [KindPhoto]. The list is short by
+// design — a photo send is a lossy, re-encoding path on real transports, and an
+// animation or an unknown binary is better off arriving intact as a document —
+// so anything else auto-resolves to [KindDocument]. A caller that knows better
+// sets Kind explicitly.
+func (a Attachment) ResolvedKind() AttachmentKind {
+	if a.Kind == KindPhoto || a.Kind == KindDocument {
+		return a.Kind
+	}
+	switch strings.ToLower(filepath.Ext(a.Path)) {
+	case ".png", ".jpg", ".jpeg":
+		return KindPhoto
+	default:
+		return KindDocument
+	}
+}
+
+// AttachmentSender is an optional [Channel] capability: delivering a local file
+// — a screenshot, a report, a log — to the operator.
+//
+// It returns the [MessageRef] the file landed as, which is what lets a gated
+// attachment ([Attachment.Gate]) be treated exactly like a delivered question:
+// the caller registers a pending gate against that ref
+// ([Engine.RegisterDelivered]), and from there delivery, routing and resolution
+// are the existing machinery. There is no attachment-flavoured AskDeliver on
+// purpose — a photo gate is composed by the caller from a send plus a
+// registration, so neither [Channel] nor the ask engine grows a second delivery
+// path.
+//
+// A transport without file upload does not implement this, and callers probe
+// with [SupportsAttachments].
+type AttachmentSender interface {
+	SendAttachment(ctx context.Context, a Attachment) (MessageRef, error)
+}
+
+// SupportsFormatted reports whether ch can render markup ([FormattedSender]).
+// Callers that probe false send plain text through [Channel.Send] instead.
+func SupportsFormatted(ch Channel) bool {
+	_, ok := ch.(FormattedSender)
+	return ok
+}
+
+// SupportsAttachments reports whether ch can upload files
+// ([AttachmentSender]). Callers that probe false report the file's path in text
+// rather than failing.
+func SupportsAttachments(ch Channel) bool {
+	_, ok := ch.(AttachmentSender)
+	return ok
 }
 
 // MessageRef identifies a message that a channel has delivered. Both fields are

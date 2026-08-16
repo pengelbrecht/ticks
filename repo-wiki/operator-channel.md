@@ -206,3 +206,18 @@ formatted tells (HTML/Block-Kit-expressible) + attachments (documents/photos, ph
 epic 7ab's screenshot review). CLI note: `tk close` on a `--requires` tick now refuses instead
 of routing to awaiting (route with `tk update --awaiting`); the skill's "normal path" sentence
 is stale — fix scoped to wlo or next skill pass.
+
+## Epic wlo closed (2026-08-16): rich messages
+
+Formatted tells + attachments shipped as OPTIONAL channel interfaces (`FormattedSender`,
+`AttachmentSender` — `operator.Channel` stays frozen; capability probes + plain-text
+degradation). MarkdownLite = exactly bold/italic/code/code-block/link, godoc maps each to
+Telegram HTML and Slack mrkdwn; escaping proven single-pass on every path; `StripMarkdownLite`
+mirrors the renderer. Attachments: `KindAuto` zero-value resolver (.png/.jpg/.jpeg→photo),
+client-side 50 MB + caption-byte guards; media settles via `editMessageCaption` with a 400
+text-edit fallback for adopted refs (fakebot models both). Photo gates reuse the register/
+adopt/route/settle machinery via `Engine.RegisterDelivered` (no second delivery path).
+CLI: `tk tell --format|--file|--caption|--as`, `tk ask --photo --gate approve`. A55 demo
+signed off live by the operator over the channel itself. Gotchas documented: Telegram's
+text-file preview mojibakes BOM-less UTF-8 (display AND copy path; bytes intact);
+snake_case italics footgun (`_` has no word boundary — backtick identifiers).

@@ -80,6 +80,18 @@ option carries an explicit "id". "multi" delivers a toggle keyboard committed
 with Done; "allow_other" adds an Other… button that asks for free text and
 resolves the same question.
 
+Approving a picture:
+  --photo <path>     deliver a local image as the gate itself, with the
+                     approve/reject buttons under it. Requires --gate approve.
+  --caption <text>   the text shown with the photo; it is the question when
+                     --question is omitted
+
+  tk ask abc123 --photo shots/board.png --gate approve --caption "New board OK?"
+
+The photo gate blocks, resolves and edits exactly like a text gate — the same
+verdict, the same [human] note, and the same flags (--timeout, --async,
+--escalate-after) compose with it.
+
 Not blocking:
   --async            register, deliver, and print the question id, then exit
   --collect          print every settled question as a JSON line and drain it
@@ -127,6 +139,8 @@ var (
 	askCollect       bool
 	askWait          bool
 	askEscalateAfter time.Duration
+	askPhoto         string
+	askCaption       string
 )
 
 func init() {
@@ -138,6 +152,8 @@ func init() {
 	askCmd.Flags().BoolVar(&askCollect, "collect", false, "print settled questions as JSON lines and drain them (takes no tick id)")
 	askCmd.Flags().BoolVar(&askWait, "wait", false, "with --collect: also block on the questions still open")
 	askCmd.Flags().DurationVar(&askEscalateAfter, "escalate-after", 0, "hold channel delivery for this long; local surfaces see the question at once")
+	askCmd.Flags().StringVar(&askPhoto, "photo", "", "deliver this local image as the gate itself, with the approve/reject buttons under it (requires --gate approve)")
+	askCmd.Flags().StringVar(&askCaption, "caption", "", "the text shown with --photo (defaults the question when --question is omitted)")
 
 	rootCmd.AddCommand(askCmd)
 }
@@ -153,6 +169,11 @@ type askOptions struct {
 	Question operator.Question
 	// Gate makes the answer a verdict instead of a note.
 	Gate bool
+	// Photo is a local image delivered as the gate itself: the approve/reject
+	// buttons hang under the picture. Requires Gate.
+	Photo string
+	// Caption is the text shown with Photo.
+	Caption string
 	// Async registers and delivers the question and returns without waiting.
 	Async bool
 	// NotBefore holds channel delivery until this instant (--escalate-after).
@@ -227,7 +248,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		return askError(cmd, err)
 	}
 
-	question, err := askQuestionFrom(cmd, gate)
+	question, err := askQuestionFrom(cmd, gate, askCaption)
 	if err != nil {
 		return askError(cmd, err)
 	}
@@ -251,6 +272,8 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		TickID:    id,
 		Question:  question,
 		Gate:      gate,
+		Photo:     askPhoto,
+		Caption:   askCaption,
 		Async:     askAsync,
 		NotBefore: notBefore,
 		Timeout:   askTimeout,
@@ -296,8 +319,13 @@ func askValidateFlags(args []string) error {
 				"--collect gathers answers to questions already asked: drop --question/--json")
 		case askEscalateAfter != 0:
 			return NewExitError(ExitUsage, "--escalate-after applies to asking a question, not to --collect")
+		case askPhoto != "" || askCaption != "":
+			return NewExitError(ExitUsage, "--photo/--caption deliver a question: they mean nothing to --collect")
 		}
 		return nil
+	}
+	if err := askValidatePhotoFlags(); err != nil {
+		return err
 	}
 	if askWait {
 		return NewExitError(ExitUsage, "--wait applies to --collect only (a plain tk ask already blocks)")
@@ -308,6 +336,32 @@ func askValidateFlags(args []string) error {
 	}
 	if askEscalateAfter < 0 {
 		return NewExitError(ExitUsage, "--escalate-after cannot be negative")
+	}
+	return nil
+}
+
+// askValidatePhotoFlags keeps --photo to the one shape this epic settled: an
+// approval gate.
+//
+// A photo with a plain ask would raise questions this epic deliberately left
+// open — what a free-text answer to a picture means, whether the picture is the
+// question or context for one — and answering them by accident here is worse
+// than a usage error that says so.
+func askValidatePhotoFlags() error {
+	if len(askCaption) > captionMaxLen {
+		return NewExitError(ExitUsage,
+			"--caption is %d bytes, over the %d the channel can show with a file",
+			len(askCaption), captionMaxLen)
+	}
+	if askPhoto == "" {
+		if askCaption != "" {
+			return NewExitError(ExitUsage, "--caption is the text shown with --photo: it means nothing without one")
+		}
+		return nil
+	}
+	if strings.ToLower(strings.TrimSpace(askGate)) != askGateApprove {
+		return NewExitError(ExitUsage,
+			"--photo delivers an approval gate: pass --gate %s (a photo on a plain ask is not supported yet)", askGateApprove)
 	}
 	return nil
 }
@@ -332,15 +386,21 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 	if opts.Gate {
 		kind = operator.PendingGate
 	}
-	// Register parks the tick AND writes the pending entry, recording the
-	// awaiting value it parked as the baseline for out-of-band detection.
-	// Never set awaiting separately here.
-	pending, err := engine.Register(operator.Registration{
+	registration := operator.Registration{
 		TickID:    opts.TickID,
 		Kind:      kind,
 		Question:  opts.Question,
 		NotBefore: opts.NotBefore,
-	})
+	}
+
+	if opts.Photo != "" {
+		return askPhotoFlow(ctx, engine, registration, opts)
+	}
+
+	// Register parks the tick AND writes the pending entry, recording the
+	// awaiting value it parked as the baseline for out-of-band detection.
+	// Never set awaiting separately here.
+	pending, err := engine.Register(registration)
 	if err != nil {
 		return askResult{}, NewExitError(ExitIO, "%v", err)
 	}
@@ -355,6 +415,76 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 			"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
 			channelTelegram, opts.TickID, pending.Awaiting, pending.ID)
 	}
+
+	return askSettleFlow(ctx, engine, channel, channelConfig, pending, opts)
+}
+
+// askPhotoFlow is the gated-attachment shape of an ask: the picture IS the
+// question, and the buttons hang under it.
+//
+// The order is inverted from the text flow on purpose. A gate under a photo only
+// exists once the upload has a message ref, so the channel comes first and the
+// entry is written with [operator.Engine.RegisterDelivered] — already delivered,
+// which is what stops the consumer from posting a duplicate text question on its
+// next sweep. From there nothing is special: the consumer adopts the ref, a press
+// routes by it, and Await/Apply settle the verdict exactly as they do for a text
+// gate.
+//
+// Degraded mode is unchanged: with no channel configured there is nothing to
+// upload to, so the question is registered and the tick parked exactly as a text
+// ask would leave them, and the run exits 4.
+func askPhotoFlow(ctx context.Context, engine *operator.Engine, registration operator.Registration, opts askOptions) (askResult, error) {
+	channel, channelConfig, err := askChannel()
+	if err != nil || channel == nil {
+		pending, regErr := engine.Register(registration)
+		if regErr != nil {
+			return askResult{}, NewExitError(ExitIO, "%v", regErr)
+		}
+		registered := askResult{ID: pending.ID, TickID: pending.TickID}
+		if err != nil {
+			return registered, err
+		}
+		return registered, NewExitError(ExitNotFound,
+			"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
+			channelTelegram, opts.TickID, pending.Awaiting, pending.ID)
+	}
+
+	if !operator.SupportsAttachments(channel) {
+		return askResult{}, NewExitError(ExitGeneric,
+			"the %s channel cannot upload files, so it cannot carry a photo gate", channelTelegram)
+	}
+	// --photo names the presentation, so the kind is explicit rather than
+	// resolved from the extension: a .webp screenshot asked for as a photo is
+	// sent as one.
+	ref, err := channel.(operator.AttachmentSender).SendAttachment(ctx, operator.Attachment{
+		Path:    opts.Photo,
+		Caption: opts.Caption,
+		Kind:    operator.KindPhoto,
+		Gate:    true,
+	})
+	if err != nil {
+		return askResult{}, NewExitError(ExitGeneric, "delivering the photo gate to the %s channel: %v", channelTelegram, err)
+	}
+
+	pending, err := engine.RegisterDelivered(registration, ref)
+	if err != nil {
+		return askResult{}, NewExitError(ExitIO, "%v", err)
+	}
+	return askSettleFlow(ctx, engine, channel, channelConfig, pending, opts)
+}
+
+// askSettleFlow is what every ask does once the question is registered and the
+// channel is open: return the id without waiting (--async), or block until one
+// of the two surfaces settles it.
+func askSettleFlow(
+	ctx context.Context,
+	engine *operator.Engine,
+	channel operator.Channel,
+	channelConfig operator.ChannelConfig,
+	pending operator.Pending,
+	opts askOptions,
+) (askResult, error) {
+	registered := askResult{ID: pending.ID, TickID: pending.TickID}
 
 	if opts.Async {
 		if err := askDeliverNow(ctx, engine, channel, channelConfig); err != nil {
@@ -779,10 +909,18 @@ type askSpecOption struct {
 
 // askQuestionFrom builds the question from --question or from the JSON on
 // stdin.
-func askQuestionFrom(cmd *cobra.Command, gate bool) (operator.Question, error) {
+//
+// fallback is the text to ask when --question is omitted: a photo gate's caption
+// is what the operator actually reads under the picture, so repeating it in
+// --question just to satisfy this would be ceremony. It is ignored under --json,
+// where the question is the document's business.
+func askQuestionFrom(cmd *cobra.Command, gate bool, fallback string) (operator.Question, error) {
 	text := strings.TrimSpace(askQuestion)
 
 	if !askJSON {
+		if text == "" {
+			text = strings.TrimSpace(fallback)
+		}
 		if text == "" {
 			return operator.Question{}, NewExitError(ExitUsage,
 				"ask needs a question: --question <text>, or --json with the question on stdin")
