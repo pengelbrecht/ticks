@@ -90,6 +90,157 @@ The token check is a live `getMe` call against the Telegram API:
   `--check`; add `--check` when you want the exit code to gate on the token
   actually working.
 
+## Asking from a run
+
+Once a channel is configured, two more commands turn it into two-way
+communication. `tk tell` sends a one-way announcement — no question, no wait:
+
+```bash
+echo "deploy finished" | tk tell
+tk tell "deploy finished"
+```
+
+`tk ask` asks a question, parks it on the tick, and blocks until it's
+answered — on either surface, a reply on the phone or `tk answer` in a
+terminal:
+
+```bash
+tk ask abc123 --question "Which region should this deploy to?"
+```
+
+The question is delivered to the channel AND parked on the tick at the same
+time, so an unconfigured or broken channel degrades to exactly what a tick
+tracker did before channels existed: the tick stays `awaiting`, findable with
+`tk list --awaiting`.
+
+### Question shapes
+
+A plain question is free text:
+
+```bash
+tk ask abc123 --question "Ship it?"
+```
+
+A richer shape — multiple choice, multi-select, or an "other" free-text
+escape hatch — comes from stdin as JSON with `--json`:
+
+```bash
+echo '{"question": "Which region?",
+       "header":   "Deploy",
+       "options":  [{"label": "eu-west-1", "description": "Ireland"},
+                    {"label": "us-east-1"}],
+       "multi": false, "allow_other": false}' | tk ask abc123 --json
+```
+
+Option ids are derived from labels (`"Deep Green"` → `"deep-green"`) unless an
+option carries an explicit `"id"`. `"multi": true` delivers a toggle keyboard
+committed with Done; `"allow_other": true` adds an Other… button that asks for
+free text and resolves the same question.
+
+### `--gate approve`: turning a question into an approval gate
+
+```bash
+tk ask abc123 --question "Ship it?" --gate approve --timeout 30m
+```
+
+`--gate approve` renders its own approve/reject buttons — options in `--json`
+are rejected alongside it — and the answer becomes a verdict rather than a
+plain note on the tick.
+
+### `--timeout` and exit 5
+
+`tk ask` waits `--timeout` (default 10m) for an answer. When it expires, the
+tick stays `awaiting` and the pending question is left on disk for a later run
+or a human to settle, and the command exits `5`. See
+[Exit codes](#exit-codes) below — `5` means two different things on `tk ask`,
+told apart by the stderr text.
+
+### `--async` / `--collect`: asking without blocking
+
+```bash
+tk ask abc123 --question "Which region?" --async --escalate-after 5m
+# ... run continues; the question id was printed to stdout ...
+tk ask --collect --wait --timeout 30m
+```
+
+`--async` registers and delivers the question, prints its id, and returns
+immediately instead of waiting. `--collect` is the other half: it drains every
+*settled* question in the repository — it takes no tick id and no question —
+printing one JSON line per question and deleting its pending entry once
+printed; a plain `--collect` skips questions still open. `--collect --wait`
+also blocks on those, snapshotting the set of pending entries at the moment it
+starts, so it finishes once everything open *then* is settled rather than
+chasing questions asked afterward; a waiting collect that times out exits `5`
+and lists the still-open question ids in its error text.
+
+`tk ask --json` output, and each `--collect` line, carries `id` and `tick_id`
+so an async ask and its later `--collect` line can be correlated:
+
+```json
+{"id", "tick_id", "answer", "option_ids",
+ "resolved_by": "telegram" | "terminal", "telegram_user_id"}
+```
+
+### `--escalate-after`: give a terminal answer first crack
+
+```bash
+tk ask abc123 --question "Which region?" --escalate-after 5m
+```
+
+`--escalate-after` delays delivery to the *channel* only — the phone doesn't
+see the question until the grace window passes. Local surfaces (`tk answer`,
+`tk list --awaiting`, the dashboard) see the parked question immediately, so
+answering from a terminal within the window means the operator's phone is
+never disturbed.
+
+### `tk answer`: the terminal twin
+
+```bash
+tk answer abc123 eu-west-1
+tk answer abc123 "Deep Green"
+tk answer abc123 eu us          # a multi-select question
+tk answer abc123 approve        # an approval gate
+```
+
+`tk answer <id> <answer...>` takes no flags and settles the oldest question
+still open on the tick — find them with `tk list --awaiting` or the entries
+under `.tick/pending`. For a question with options, give an option label or
+its id (matching is case-insensitive); a word that doesn't match any option is
+a usage error, not a free-text answer — unless the question has no options at
+all, or `allow_other`, in which case whatever was typed is accepted as free
+text.
+
+### Dual-surface answering
+
+The same question can be answered from the phone or the terminal — whichever
+lands first wins. `tk answer` and a Telegram reply both resolve through the
+same pending entry, so the losing surface is told the question already moved:
+a second `tk answer` exits `4` naming the earlier answer, and a stale button
+press on the phone gets its own explanation. Either way, the channel message
+is edited to show what was decided — exactly as if the winning surface's
+decision had happened there, so the operator's phone never keeps showing a
+live question nobody is listening to.
+
+### Exit codes
+
+| Exit | `tk ask` | `tk answer` |
+|------|----------|-------------|
+| `0` | Answered, on either surface | Answered |
+| `2` | Usage error (bad flags, or malformed `--json` input) | Usage error — the answer doesn't match any option the question offers |
+| `3` | Not in a git repository | Not in a git repository |
+| `4` | No operator channel is configured — the question is still registered and the tick still parked awaiting a human | No question is parked on that tick, or every question on it is already answered |
+| `5` | The wait timed out *(see note)*, or project detection failed | Project detection failed *(never a timeout — `tk answer` doesn't wait)* |
+
+`5` is `ExitTimeout` on a blocking `tk ask`, but both `tk ask` and `tk answer`
+also use the *same numeric value* for `ExitGitHub` when they can't read or
+parse the `origin` git remote before the question is even registered or
+looked up. The two meanings are told apart by the stderr text: a timeout says
+`no answer to <id> within <duration>`; a project-detection failure says
+`failed to detect project`. An orchestrator branching on exit `5` from `tk
+ask` should default to reading it as "still unanswered" and consult stderr
+only if the distinction matters; for `tk answer`, exit `5` always means
+project detection failed.
+
 ## Commands
 
 | Command | Description |
@@ -99,5 +250,12 @@ The token check is a live `getMe` call against the Telegram API:
 | `tk channel status` | Show what is configured, who it is paired with, and whether the token works |
 | `tk channel status --offline` | Show configuration without checking the token live |
 | `tk channel status --check` | Exit nonzero when a configured token is rejected |
+| `tk tell [text...]` | Send a one-way announcement to the operator channel |
+| `tk ask <id> --question "..."` | Ask a question and block until it's answered |
+| `tk ask <id> --question "..." --gate approve` | Ask as an approval gate |
+| `tk ask <id> --question "..." --async` | Register and deliver, print the question id, and return |
+| `tk ask --collect [--wait]` | Drain settled questions asked with `--async` |
+| `tk answer <id> <answer...>` | Answer a question `tk ask` parked, from the terminal |
 
-All `tk channel` subcommands support `--help` for the full flag reference.
+All of `tk channel`, `tk tell`, `tk ask`, and `tk answer` support `--help` for
+the full flag reference.
