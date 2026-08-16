@@ -1,0 +1,16 @@
+{
+  "id": "sa9",
+  "title": "Close out operator channel foundation: epic retro, then flesh out tk ask/tell epic (d0d) into ticks",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "dus"
+  ],
+  "parent": "54v",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:27:43.859229Z",
+  "updated_at": "2026-08-16T16:27:47.477582Z"
+}

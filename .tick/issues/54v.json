@@ -1,0 +1,14 @@
+{
+  "id": "54v",
+  "title": "Operator channel foundation: channel interface, Telegram transport, pairing",
+  "description": "Serves facts A10, A11, A14 (bound-user filter at transport level), A18 (interface + fake channel). The channel-neutral core and the only Telegram-aware code in the system.\n\nDeliverables:\n- internal/operator package: Channel interface sized to ask/tell (Send, AskDeliver → message ref, Events stream, Resolve/edit-after-outcome), operator config types, global config load/save (~/.ticks/operator.json, TICKS_HOME override for tests, 0600 perms), in-memory fake channel for tests.\n- internal/operator/telegram: Bot API client over raw net/http (no new go.mod deps): getMe, sendMessage, editMessageText, editMessageReplyMarkup, answerCallbackQuery, getUpdates long-poll with offset management; bound-user filtering; configurable API base URL so tests run against an httptest fake Bot API server.\n- Tracked non-secret mapping .tick/operators.json: operator name (tk whoami) → per-channel public identity (bot username, telegram user_id).\n- tk channel command group: setup telegram (pairing flow) + status.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "parent": "9m8",
+  "acceptance_criteria": "[A30] go test -short -count=1 ./internal/operator/... passes, covering the interface contract, config persistence, the Telegram client against a local fake Bot API, and the pairing flow.\n[A31] tk channel setup telegram completes pairing against the fake Bot API: writes ~/.ticks/operator.json with 0600 perms and offers the .tick/operators.json entry; no token-shaped string appears anywhere under .tick/.\n[A32] tk channel status reports each configured channel with its pairing state; with nothing configured it says so and exits 0.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:26:34.067811Z",
+  "updated_at": "2026-08-16T16:26:34.067811Z"
+}

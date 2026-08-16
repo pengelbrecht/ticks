@@ -1,0 +1,16 @@
+{
+  "id": "d0d",
+  "title": "tk ask / tk tell: operator interactions resolved into tick state",
+  "description": "Serves facts A12–A17. Rough scope (flesh out at epic 1 close-out): tk tell one-way announcements with distinct unconfigured exit code; tk ask with JSON in/out and four interaction shapes (free text via ForceReply, single-select inline buttons, multi-select toggle keyboard with Done, Other… fallback); pending-question store in .tick (survives crashes, powers reply matching by message id); blocking default with --timeout leaving the tick awaiting, --async + collect command; single getUpdates consumer shared across concurrent asks on one machine; resolution into tick state — note --from human with telegram identity, awaiting cleared, approve/reject buttons clearing gates with human-stamped activity; message edited after outcome, stale presses acknowledged as already resolved; out-of-band tk approve wins (tick is source of truth).",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "54v"
+  ],
+  "parent": "9m8",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:26:44.826031Z",
+  "updated_at": "2026-08-16T16:26:44.826031Z"
+}

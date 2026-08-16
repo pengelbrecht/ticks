@@ -1,0 +1,18 @@
+{
+  "id": "jmk",
+  "title": "tk channel command: setup telegram + status",
+  "description": "New file cmd/tk/cmd/channel.go plus registration: add \"channel\" to the dispatch list in cmd/tk/main.go and the cmd package dispatcher (pattern: herd/board commands).\n\ntk channel setup telegram [--token T]:\n1. Token from flag or interactive prompt (never echoed into repo files).\n2. GetMe → verify token, capture bot_username.\n3. Print one-time pairing code + t.me/\u003cbot_username\u003e link; long-poll GetUpdates until /start \u003ccode\u003e arrives (5 min timeout).\n4. Bind sender: write token/user_id/chat_id/bot_username to ~/.ticks/operator.json (0600); send confirmation message to the paired chat.\n5. If run inside a repo with .tick/, offer (y/N) to upsert the non-secret entry into .tick/operators.json for tk whoami's operator name.\nHonors a hidden --api-base flag (and/or config) so the whole flow runs against fakebot in tests and for A31 evidence.\n\ntk channel status: per configured channel print bot username, paired operator identity, repo mapping presence; verify token liveness with GetMe (--offline skips). Nothing configured → friendly message, exit 0.\n\nTest cases (fakebot):\n- Full pairing happy path writes both files with correct contents/permissions; wrong /start code is ignored, flow keeps waiting; timeout exits nonzero leaving no partial global config.\n- status with and without config; dead token reported, exit nonzero only with --check.\n- After setup: no token-shaped string anywhere under .tick/ (fact A11).\nRun: go test -short -count=1 ./internal/operator/... ./cmd/tk/...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "pwd",
+    "92u"
+  ],
+  "parent": "54v",
+  "acceptance_criteria": "Pairing + status tests pass against fakebot; A31/A32 behaviors demonstrated; command registered and listed in tk --help",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:27:40.314218Z",
+  "updated_at": "2026-08-16T16:27:40.314218Z"
+}

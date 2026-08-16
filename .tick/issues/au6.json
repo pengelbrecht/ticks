@@ -1,0 +1,16 @@
+{
+  "id": "au6",
+  "title": "Skill integration: operator channel in runner prompts",
+  "description": "Serves fact A19. Rough scope (flesh out when epic 2 closes, against the real command surface): agent-runner.md gains an Operator channel section with the routing table (requires/awaiting gates → tk ask with buttons; blocked-with-live-frontier → park + tk tell; blocked-and-stalled → tk ask escalation; checkpoint → tk tell report + tk ask sign-off; completion → tk tell; planning → never, in-session tools). Wire into blocked-agent steps, await-handling table, completion report, and gate-clearing rules; one clause in SKILL.md planning-is-interactive doctrine; ask-bar-unchanged sentence + retro interrupt audit reference; workers never touch the channel (orchestrator only); prompts say operator channel, not Telegram. Edit skills/ticks/ only (source of truth), runner-neutral parts in references/agent-runner.md.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "d0d"
+  ],
+  "parent": "9m8",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:26:44.855468Z",
+  "updated_at": "2026-08-16T16:26:53.992224Z"
+}

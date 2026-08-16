@@ -1,0 +1,16 @@
+{
+  "id": "dus",
+  "title": "Final review of operator channel foundation epic diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "jmk"
+  ],
+  "parent": "54v",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:27:43.820922Z",
+  "updated_at": "2026-08-16T16:27:43.820922Z"
+}

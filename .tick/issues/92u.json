@@ -1,0 +1,17 @@
+{
+  "id": "92u",
+  "title": ".tick/operators.json mapping and operator identity resolution",
+  "description": "Tracked, non-secret, merge-friendly multiplayer mapping in internal/operator (file mapping.go — do not touch telegram/ or cmd/, which other same-wave ticks own).\n\n- Format: {\"operators\":{\"\u003ctk whoami name\u003e\":{\"telegram\":{\"bot_username\":\"...\",\"user_id\":123}}}} — one top-level key per operator so concurrent adds merge cleanly; stable key ordering on write.\n- LoadMapping/SaveMapping against \u003crepo\u003e/.tick/operators.json; UpsertOperator(name, channel, identity).\n- ResolveOperator(name): merge repo mapping (public identity) with global ~/.ticks/operator.json (credentials); credentials NEVER come from the repo file — a token-shaped field in operators.json is rejected with an error naming the file (fact A11 guard).\n\nTest cases:\n- Round-trip + upsert preserves other operators' entries; output is stable/deterministic bytes.\n- Missing file → empty mapping, no error.\n- Repo file containing a token-shaped string (\\d+:[A-Za-z0-9_-]{30,}) → load fails with clear error.\nRun: go test -short -count=1 ./internal/operator/...",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "u5o"
+  ],
+  "parent": "54v",
+  "acceptance_criteria": "Mapping round-trip, upsert, and token-rejection tests pass; deterministic serialization",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:27:26.608354Z",
+  "updated_at": "2026-08-16T16:27:26.608354Z"
+}

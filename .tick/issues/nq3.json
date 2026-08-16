@@ -1,0 +1,17 @@
+{
+  "id": "nq3",
+  "title": "Project checkpoint: verify operator-channel goal facts (A10–A20)",
+  "description": "Project boundary. Walk facts A10–A18 with their Acceptance Evidence commands (fail closed on missing/ambiguous evidence), write the verification table into the checkpoint report, and present A19–A20 (human judgment: prompt quality, live phone-tap end-to-end) as the sign-off agenda.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "au6"
+  ],
+  "parent": "9m8",
+  "awaiting": "checkpoint",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T16:26:54.013609Z",
+  "updated_at": "2026-08-16T16:26:54.013609Z"
+}
