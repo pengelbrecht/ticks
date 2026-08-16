@@ -1,0 +1,15 @@
+{
+  "id": "pny",
+  "title": "Document tk channel: README commands table + docs page",
+  "description": "Close the docs gap jmk flagged: add tk channel (setup telegram + status) to the README Commands table (~line 221) and write a docs/ page covering: per-operator bot rationale (one getUpdates consumer per token), BotFather step, pairing flow with the t.me deep link, where secrets live (~/.tick/operator.json, TK_HOME override, 0600) vs the tracked non-secret .tick/operators.json mapping, and status/--offline/--check. Follow existing README/docs conventions. Do not change any Go code.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "54v",
+  "acceptance_criteria": "README Commands table lists channel; a docs page exists and matches the implemented flags (verify against tk channel --help output committed in cmd/tk/main.go usage text); no Go code changes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T17:13:48.748126Z",
+  "updated_at": "2026-08-16T17:13:54.9066Z",
+  "started_at": "2026-08-16T17:13:54.906599Z"
+}
