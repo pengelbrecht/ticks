@@ -14,10 +14,10 @@ const (
 
 	// HomeEnv overrides the ticks home directory. When set it IS the home
 	// directory (not its parent), which lets tests redirect the whole thing.
-	HomeEnv = "TICKS_HOME"
+	HomeEnv = "TK_HOME"
 
 	// DirName is the ticks home directory under the user's home directory.
-	DirName = ".ticks"
+	DirName = ".tick"
 
 	configFileMode = 0o600
 	configDirMode  = 0o700
@@ -85,8 +85,8 @@ func (c *OperatorConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Home returns the ticks home directory: $TICKS_HOME when set, otherwise
-// ~/.ticks. The directory is not created.
+// Home returns the ticks home directory: $TK_HOME when set, otherwise
+// ~/.tick. The directory is not created.
 func Home() (string, error) {
 	if dir := os.Getenv(HomeEnv); dir != "" {
 		return dir, nil
@@ -143,7 +143,7 @@ func SaveOperatorConfig(cfg OperatorConfig) error {
 	}
 	// MkdirAll's mode only applies to directories it creates, and umask can
 	// loosen it. Tighten unconditionally so a pre-existing world-readable
-	// ~/.ticks does not leak the token file's directory listing.
+	// ~/.tick does not leak the token file's directory listing.
 	if err := os.Chmod(dir, configDirMode); err != nil {
 		return fmt.Errorf("tightening permissions on %s: %w", dir, err)
 	}

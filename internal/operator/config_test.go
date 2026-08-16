@@ -12,7 +12,7 @@ import (
 
 func TestConfigPathHonorsTicksHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 
 	got, err := ConfigPath()
 	if err != nil {
@@ -26,7 +26,7 @@ func TestConfigPathHonorsTicksHome(t *testing.T) {
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "ticks")
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 
 	cfg := OperatorConfig{}
 	cfg.SetChannel("telegram", ChannelConfig{
@@ -63,7 +63,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 
 func TestSaveWritesPerChannelMapJSON(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 
 	cfg := OperatorConfig{}
 	cfg.SetChannel("telegram", ChannelConfig{Token: "t", UserID: "1"})
@@ -96,7 +96,7 @@ func TestSavePermissions(t *testing.T) {
 		t.Skip("POSIX file modes are not meaningful on Windows")
 	}
 	home := filepath.Join(t.TempDir(), "nested", "ticks")
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 
 	cfg := OperatorConfig{}
 	cfg.SetChannel("telegram", ChannelConfig{Token: "secret"})
@@ -129,7 +129,7 @@ func TestSaveTightensPreExistingLooseDir(t *testing.T) {
 	if err := os.Mkdir(home, 0o755); err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 
 	cfg := OperatorConfig{}
 	cfg.SetChannel("telegram", ChannelConfig{Token: "secret"})
@@ -156,7 +156,7 @@ func TestEmptyConfigMarshalsToEmptyObjectAndRoundTrips(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 	if err := SaveOperatorConfig(OperatorConfig{}); err != nil {
 		t.Fatalf("SaveOperatorConfig(empty) error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestEmptyConfigMarshalsToEmptyObjectAndRoundTrips(t *testing.T) {
 
 func TestSaveOverwritesExistingFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 
 	first := OperatorConfig{}
 	first.SetChannel("telegram", ChannelConfig{Token: "old", ChatID: "9"})
@@ -212,7 +212,7 @@ func TestSaveOverwritesExistingFile(t *testing.T) {
 }
 
 func TestLoadMissingFileReturnsZeroConfig(t *testing.T) {
-	t.Setenv("TICKS_HOME", filepath.Join(t.TempDir(), "does-not-exist"))
+	t.Setenv("TK_HOME", filepath.Join(t.TempDir(), "does-not-exist"))
 
 	cfg, err := LoadOperatorConfig()
 	if err != nil {
@@ -228,7 +228,7 @@ func TestLoadMissingFileReturnsZeroConfig(t *testing.T) {
 
 func TestLoadMalformedFileReturnsError(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("TICKS_HOME", home)
+	t.Setenv("TK_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, ConfigFileName), []byte("{not json"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
