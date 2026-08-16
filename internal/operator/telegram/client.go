@@ -19,8 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,8 +39,20 @@ const (
 	// ids, whose length this package does not control.
 	CallbackDataMaxBytes = 64
 
+	// MaxUploadBytes is the Bot API's ceiling on a file a bot uploads. Going
+	// over it is a 400 from Telegram after the whole body has been streamed, so
+	// this package checks the size before the first byte leaves.
+	//
+	// It is the document ceiling; a photo Telegram will re-encode has a tighter
+	// server-side limit, which stays Telegram's answer to give.
+	MaxUploadBytes = 50 << 20
+
 	// defaultRequestTimeout bounds a non-polling call.
 	defaultRequestTimeout = 30 * time.Second
+
+	// defaultUploadTimeout bounds a multipart upload, which moves far more
+	// bytes than an API call and deserves more than a call's patience.
+	defaultUploadTimeout = 5 * time.Minute
 
 	// pollSlack is how much longer than the long-poll timeout the HTTP request
 	// is allowed to take, so the server's own timeout wins the race.
@@ -278,6 +293,103 @@ func (c *Client) SendMessage(ctx context.Context, msg OutgoingMessage) (int64, e
 	return res.MessageID, nil
 }
 
+// OutgoingFile is a local file to upload to a chat. Caption is HTML
+// (parse_mode=HTML), like [OutgoingMessage.Text].
+type OutgoingFile struct {
+	// ChatID is the destination chat.
+	ChatID string
+	// Path is the local file to read. Its base name is the name the operator
+	// sees.
+	Path string
+	// Caption is the HTML caption shown with the file; empty sends none.
+	Caption string
+	// Photo sends the file as an inline image (sendPhoto) rather than as a file
+	// with its name preserved (sendDocument).
+	Photo bool
+	// Keyboard, when set, is an inline keyboard attached to the upload — which
+	// is what makes a delivered file an approval gate.
+	Keyboard [][]Button
+}
+
+// SendFile uploads f as multipart/form-data and returns the id of the message
+// Telegram created.
+//
+// The file is streamed rather than buffered, and its size is checked against
+// [MaxUploadBytes] first: an over-limit upload is rejected here, before the
+// bytes move.
+func (c *Client) SendFile(ctx context.Context, f OutgoingFile) (int64, error) {
+	method, field := "sendDocument", "document"
+	if f.Photo {
+		method, field = "sendPhoto", "photo"
+	}
+	if f.ChatID == "" {
+		return 0, fmt.Errorf("telegram: %s: chat id is required", method)
+	}
+	if f.Path == "" {
+		return 0, fmt.Errorf("telegram: %s: file path is required", method)
+	}
+
+	info, err := os.Stat(f.Path)
+	if err != nil {
+		return 0, fmt.Errorf("telegram: %s: %w", method, err)
+	}
+	if info.IsDir() {
+		return 0, fmt.Errorf("telegram: %s: %s is a directory, not a file", method, f.Path)
+	}
+	if info.Size() > MaxUploadBytes {
+		return 0, fmt.Errorf("telegram: %s: %s is %d bytes, over Telegram's %d byte bot upload limit", method, f.Path, info.Size(), MaxUploadBytes)
+	}
+
+	markup, err := replyMarkup(f.Keyboard, false)
+	if err != nil {
+		return 0, fmt.Errorf("telegram: %s: %w", method, err)
+	}
+
+	file, err := os.Open(f.Path)
+	if err != nil {
+		return 0, fmt.Errorf("telegram: %s: %w", method, err)
+	}
+	defer file.Close()
+
+	fields := [][2]string{{"chat_id", f.ChatID}}
+	if f.Caption != "" {
+		fields = append(fields, [2]string{"caption", f.Caption}, [2]string{"parse_mode", parseModeHTML})
+	}
+	if len(markup) > 0 {
+		fields = append(fields, [2]string{"reply_markup", string(markup)})
+	}
+
+	// The body is written as it is read: a 50 MB attachment never sits in
+	// memory, and a write failure closes the pipe so the request fails with it.
+	reader, writer := io.Pipe()
+	form := multipart.NewWriter(writer)
+	go func() {
+		var err error
+		defer func() { _ = writer.CloseWithError(err) }()
+		for _, kv := range fields {
+			if err = form.WriteField(kv[0], kv[1]); err != nil {
+				return
+			}
+		}
+		var part io.Writer
+		if part, err = form.CreateFormFile(field, filepath.Base(f.Path)); err != nil {
+			return
+		}
+		if _, err = io.Copy(part, file); err != nil {
+			return
+		}
+		err = form.Close()
+	}()
+
+	var res struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err := c.do(ctx, method, reader, form.FormDataContentType(), &res, defaultUploadTimeout); err != nil {
+		return 0, err
+	}
+	return res.MessageID, nil
+}
+
 // EditMessageText replaces a message's text and its inline keyboard. A nil
 // keyboard clears the keyboard, which is how a resolved question stops being
 // answerable.
@@ -294,6 +406,25 @@ func (c *Client) EditMessageText(ctx context.Context, chat string, messageID int
 		ReplyMarkup json.RawMessage `json:"reply_markup,omitempty"`
 	}{ChatID: chatID(chat), MessageID: messageID, Text: text, ParseMode: parseModeHTML, ReplyMarkup: markup}
 	return c.call(ctx, "editMessageText", req, nil, defaultRequestTimeout)
+}
+
+// EditMessageCaption replaces the caption and inline keyboard of a message that
+// carries media. It is the counterpart of [Client.EditMessageText] for an
+// uploaded photo or document, which has no text to edit — the Bot API answers
+// 400 for that — and a nil keyboard clears the keyboard just the same.
+func (c *Client) EditMessageCaption(ctx context.Context, chat string, messageID int64, caption string, keyboard [][]Button) error {
+	markup, err := replyMarkup(keyboard, false)
+	if err != nil {
+		return fmt.Errorf("telegram: editMessageCaption: %w", err)
+	}
+	req := struct {
+		ChatID      chatID          `json:"chat_id"`
+		MessageID   int64           `json:"message_id"`
+		Caption     string          `json:"caption"`
+		ParseMode   string          `json:"parse_mode"`
+		ReplyMarkup json.RawMessage `json:"reply_markup,omitempty"`
+	}{ChatID: chatID(chat), MessageID: messageID, Caption: caption, ParseMode: parseModeHTML, ReplyMarkup: markup}
+	return c.call(ctx, "editMessageCaption", req, nil, defaultRequestTimeout)
 }
 
 // EditMessageReplyMarkup replaces only a message's inline keyboard. A nil
@@ -420,8 +551,8 @@ func (c *Client) convert(up wireUpdate) (Update, bool) {
 	return Update{}, false
 }
 
-// call performs one Bot API method call. out, when non-nil, receives the decoded
-// result.
+// call performs one JSON Bot API method call. out, when non-nil, receives the
+// decoded result.
 func (c *Client) call(ctx context.Context, method string, req, out any, timeout time.Duration) error {
 	var body io.Reader
 	if req != nil {
@@ -431,7 +562,13 @@ func (c *Client) call(ctx context.Context, method string, req, out any, timeout 
 		}
 		body = bytes.NewReader(encoded)
 	}
+	return c.do(ctx, method, body, "application/json", out, timeout)
+}
 
+// do performs one Bot API method call with an already-encoded body, which is
+// what lets a multipart upload share the endpoint, error and response handling
+// every other call gets.
+func (c *Client) do(ctx context.Context, method string, body io.Reader, contentType string, out any, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -440,7 +577,7 @@ func (c *Client) call(ctx context.Context, method string, req, out any, timeout 
 	if err != nil {
 		return &transportError{method: method, token: c.token, err: err}
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", contentType)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

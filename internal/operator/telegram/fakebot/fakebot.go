@@ -34,6 +34,17 @@ const DefaultToken = "fake-bot-token:AAoperator"
 // granularity.
 const DefaultMaxPollWait = 150 * time.Millisecond
 
+const (
+	// maxJSONBodyBytes caps how much of a JSON request body is read.
+	maxJSONBodyBytes = 1 << 20
+	// maxUploadMemoryBytes is how much of a multipart upload is parsed in
+	// memory before it spills to a temp file.
+	maxUploadMemoryBytes = 1 << 20
+	// maxUploadCaptureBytes caps how much of an uploaded file is kept for a
+	// test to assert on.
+	maxUploadCaptureBytes = 1 << 20
+)
+
 // BotUser is the getMe result.
 type BotUser struct {
 	ID        int64  `json:"id"`
@@ -52,9 +63,28 @@ type SentMessage struct {
 	ReplyMarkup json.RawMessage
 }
 
-// Edit is one captured editMessageText or editMessageReplyMarkup call. Text is
-// empty for a markup-only edit, and ReplyMarkup is empty when the call omitted
-// it — which is how the Bot API clears an inline keyboard.
+// SentFile is one captured sendPhoto or sendDocument upload, plus the message
+// id the fake assigned to it. Method and Field say which of the two it was, so a
+// test can assert photo-versus-document routing without inspecting the body.
+type SentFile struct {
+	MessageID int64
+	// Method is "sendPhoto" or "sendDocument".
+	Method string
+	// Field is the multipart file field the upload arrived in: "photo" or
+	// "document".
+	Field       string
+	ChatID      string
+	Filename    string
+	Content     []byte
+	Caption     string
+	ParseMode   string
+	ReplyMarkup json.RawMessage
+}
+
+// Edit is one captured editMessageText, editMessageCaption or
+// editMessageReplyMarkup call. Text is the new text or caption and is empty for
+// a markup-only edit; ReplyMarkup is empty when the call omitted it — which is
+// how the Bot API clears an inline keyboard.
 type Edit struct {
 	ChatID      string
 	MessageID   int64
@@ -101,10 +131,16 @@ type Bot struct {
 	allowedUpdates []string
 	calls          []string
 	sent           []SentMessage
+	files          []SentFile
 	edits          []Edit
+	captionEdits   []Edit
 	markupEdits    []Edit
 	answers        []Answer
 	failures       map[string][]failure
+	// media marks the message ids that were created by an upload. Like the real
+	// API, such a message has a caption and no text: editMessageText on one is a
+	// 400, and editMessageCaption on anything else is too.
+	media map[int64]bool
 
 	// pushed is signalled (non-blocking) whenever an update is queued, so a
 	// blocked getUpdates returns promptly instead of waiting out its timeout.
@@ -125,6 +161,7 @@ func New() *Bot {
 		nextUpdateID:  1,
 		nextMessageID: 100,
 		failures:      make(map[string][]failure),
+		media:         make(map[int64]bool),
 		pushed:        make(chan struct{}, 1),
 	}
 	b.server = httptest.NewServer(http.HandlerFunc(b.handle))
@@ -253,11 +290,26 @@ func (b *Bot) Sent() []SentMessage {
 	return append([]SentMessage(nil), b.sent...)
 }
 
+// Files returns the captured sendPhoto and sendDocument uploads, in order.
+func (b *Bot) Files() []SentFile {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]SentFile(nil), b.files...)
+}
+
 // Edits returns the captured editMessageText calls, in order.
 func (b *Bot) Edits() []Edit {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]Edit(nil), b.edits...)
+}
+
+// CaptionEdits returns the captured editMessageCaption calls, in order. Text
+// carries the new caption.
+func (b *Bot) CaptionEdits() []Edit {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]Edit(nil), b.captionEdits...)
 }
 
 // MarkupEdits returns the captured editMessageReplyMarkup calls, in order.
@@ -285,12 +337,6 @@ func (b *Bot) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Bad Request: unreadable body")
-		return
-	}
-
 	b.mu.Lock()
 	b.calls = append(b.calls, method)
 	var injected *failure
@@ -306,6 +352,19 @@ func (b *Bot) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Uploads arrive as multipart/form-data and are read from the request
+	// itself; every other method is JSON.
+	if field, ok := uploadField(method); ok {
+		b.sendFile(w, r, method, field)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request: unreadable body")
+		return
+	}
+
 	switch method {
 	case "getMe":
 		writeResult(w, b.Me())
@@ -313,6 +372,8 @@ func (b *Bot) handle(w http.ResponseWriter, r *http.Request) {
 		b.sendMessage(w, body)
 	case "editMessageText":
 		b.editMessageText(w, body)
+	case "editMessageCaption":
+		b.editMessageCaption(w, body)
 	case "editMessageReplyMarkup":
 		b.editMessageReplyMarkup(w, body)
 	case "answerCallbackQuery":
@@ -322,6 +383,73 @@ func (b *Bot) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, "Not Found: method not found")
 	}
+}
+
+// uploadField maps an upload method to the multipart file field it carries the
+// file in, reporting false for a method that is not an upload.
+func uploadField(method string) (string, bool) {
+	switch method {
+	case "sendPhoto":
+		return "photo", true
+	case "sendDocument":
+		return "document", true
+	}
+	return "", false
+}
+
+func (b *Bot) sendFile(w http.ResponseWriter, r *http.Request, method, field string) {
+	if err := r.ParseMultipartForm(maxUploadMemoryBytes); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request: "+err.Error())
+		return
+	}
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+
+	chatID := r.FormValue("chat_id")
+	if chatID == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request: chat_id is empty")
+		return
+	}
+	file, header, err := r.FormFile(field)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Bad Request: %s is required", field))
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxUploadCaptureBytes))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request: unreadable upload")
+		return
+	}
+
+	caption := r.FormValue("caption")
+	sent := SentFile{
+		Method:      method,
+		Field:       field,
+		ChatID:      chatID,
+		Filename:    header.Filename,
+		Content:     content,
+		Caption:     caption,
+		ParseMode:   r.FormValue("parse_mode"),
+		ReplyMarkup: rawField(r, "reply_markup"),
+	}
+
+	b.mu.Lock()
+	sent.MessageID = b.nextMessageID
+	b.nextMessageID++
+	b.media[sent.MessageID] = true
+	b.files = append(b.files, sent)
+	b.mu.Unlock()
+
+	writeResult(w, map[string]any{
+		"message_id": sent.MessageID,
+		"date":       0,
+		"chat":       map[string]any{"id": chatValue(chatID), "type": "private"},
+		"caption":    caption,
+	})
 }
 
 type sendMessageRequest struct {
@@ -392,13 +520,63 @@ func (b *Bot) editMessageText(w http.ResponseWriter, body []byte) {
 		ReplyMarkup: cloneRaw(req.ReplyMarkup),
 	}
 	b.mu.Lock()
-	b.edits = append(b.edits, edit)
+	media := b.media[req.MessageID]
+	if !media {
+		b.edits = append(b.edits, edit)
+	}
 	b.mu.Unlock()
+	if media {
+		writeError(w, http.StatusBadRequest, "Bad Request: there is no text in the message to edit")
+		return
+	}
 	writeResult(w, map[string]any{
 		"message_id": req.MessageID,
 		"date":       0,
 		"chat":       map[string]any{"id": chatValue(edit.ChatID), "type": "private"},
 		"text":       req.Text,
+	})
+}
+
+// editMessageCaption edits an uploaded message's caption. Like the real API it
+// refuses a message that has no caption to edit, which is what keeps a caller
+// from settling a text question through the media path by accident.
+func (b *Bot) editMessageCaption(w http.ResponseWriter, body []byte) {
+	var req struct {
+		ChatID      json.RawMessage `json:"chat_id"`
+		MessageID   int64           `json:"message_id"`
+		Caption     string          `json:"caption"`
+		ParseMode   string          `json:"parse_mode"`
+		ReplyMarkup json.RawMessage `json:"reply_markup"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request: "+err.Error())
+		return
+	}
+	if req.MessageID == 0 {
+		writeError(w, http.StatusBadRequest, "Bad Request: message identifier is not specified")
+		return
+	}
+	edit := Edit{
+		ChatID:      scalarString(req.ChatID),
+		MessageID:   req.MessageID,
+		Text:        req.Caption,
+		ReplyMarkup: cloneRaw(req.ReplyMarkup),
+	}
+	b.mu.Lock()
+	media := b.media[req.MessageID]
+	if media {
+		b.captionEdits = append(b.captionEdits, edit)
+	}
+	b.mu.Unlock()
+	if !media {
+		writeError(w, http.StatusBadRequest, "Bad Request: there is no caption in the message to edit")
+		return
+	}
+	writeResult(w, map[string]any{
+		"message_id": req.MessageID,
+		"date":       0,
+		"chat":       map[string]any{"id": chatValue(edit.ChatID), "type": "private"},
+		"caption":    req.Caption,
 	})
 }
 
@@ -563,6 +741,16 @@ func chatValue(chatID string) any {
 		return n
 	}
 	return chatID
+}
+
+// rawField reads a multipart form field that carries JSON (reply_markup),
+// returning nil when it was not sent.
+func rawField(r *http.Request, name string) json.RawMessage {
+	value := r.FormValue(name)
+	if value == "" {
+		return nil
+	}
+	return json.RawMessage(value)
 }
 
 func cloneRaw(raw json.RawMessage) json.RawMessage {
