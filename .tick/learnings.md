@@ -80,14 +80,11 @@ docs ticks scoped skill references + plugin README only; the repo README was nob
 
 ## Orchestration
 
-**Problem:** A tick's close vanished — the tracker showed it in_progress at epic close despite
-a successful tk close hours earlier.
-**Cause:** tk mutations are working-tree file edits; an implementer agent mistakenly ran
-git-restore against the shared checkout and wiped uncommitted tick state. A later "tree is
-clean" check read the wipe as healthy.
-**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note) —
-before merging any agent branch or launching agents. If an implementer reports having touched
-the shared checkout, diff tick state against the activity log before trusting the tree.
+**Problem:** A tick's close vanished — in_progress at epic close despite a successful
+tk close hours earlier: an implementer's stray git-restore wiped uncommitted .tick state.
+**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note),
+before merging any agent branch or launching agents; if an implementer touched the shared
+checkout, diff tick state against the activity log before trusting a clean tree.
 
 **Problem:** Wave-2 worktree agents branched from a base missing the just-merged wave-1
 foundation commit; one re-implemented the missing field and caused a merge conflict.
@@ -124,13 +121,11 @@ conventions (`.tick/` dir, `TK_*` env prefix).
 **Rule:** New user-facing names (dirs, env vars, flags) must be derived from existing repo
 conventions in the tick description itself — name the convention, not just the name.
 
-**Problem:** `tk create`/`tk update -d "..."` descriptions containing backticks (for inline
-`--flags` or code) silently corrupted the stored field — the backtick spans were shell
-command-substituted, embedding command output (e.g. a `tk roadmap` dump) into the description.
-**Cause:** Double-quoted shell strings still evaluate backticks and `$(...)`.
-**Rule:** Author tick descriptions/notes with SINGLE-quoted strings (or a heredoc), never
-double-quoted, whenever the text contains backticks, `$`, or `()`. Verify with `tk show <id>`
-after bulk creation — substitution failures go to stderr and are easy to miss.
+**Problem:** Backticks in double-quoted `tk create -d "..."` strings were shell-substituted,
+silently corrupting stored descriptions with command output.
+**Cause:** Double quotes still evaluate backticks and `$(...)`.
+**Rule:** Single-quote (or heredoc) any tick text containing backticks, `$`, or `()`; verify
+with `tk show <id>` after bulk creation.
 
 **Problem:** A `git merge` of an implementer branch failed/half-applied (rename + go.mod staged
 in the index), then a blind `git add .tick/ && git commit` for tracker state captured the
