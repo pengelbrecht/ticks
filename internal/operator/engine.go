@@ -92,6 +92,30 @@ type Registration struct {
 // answer. The recorded awaiting value is also the baseline for out-of-band
 // detection.
 func (e *Engine) Register(r Registration) (Pending, error) {
+	return e.register(r, MessageRef{})
+}
+
+// RegisterDelivered parks the tick exactly like [Engine.Register] and records
+// the message the caller has ALREADY posted the question as.
+//
+// It exists for a question the caller delivered itself rather than leaving to
+// the consumer — today a gated attachment ([AttachmentSender], [Attachment.Gate]),
+// where the buttons hang under an uploaded photo and the ref only exists after
+// the upload. Writing the ref with the entry rather than after it is what keeps
+// the consumer from posting a duplicate text question on its next sweep: an
+// entry is delivered from the moment it is on disk.
+//
+// From here on the entry is an ordinary delivered question: the consumer adopts
+// it ([Adopter]), a press routes by ref, and [Engine.Await]/[Engine.Apply] treat
+// it like any other gate.
+func (e *Engine) RegisterDelivered(r Registration, ref MessageRef) (Pending, error) {
+	if ref.IsZero() {
+		return Pending{}, errors.New("operator: register-delivered needs the message ref the question was posted as")
+	}
+	return e.register(r, ref)
+}
+
+func (e *Engine) register(r Registration, ref MessageRef) (Pending, error) {
 	if strings.TrimSpace(r.TickID) == "" {
 		return Pending{}, errors.New("operator: register needs a tick id")
 	}
@@ -132,6 +156,7 @@ func (e *Engine) Register(r Registration) (Pending, error) {
 		Kind:      kind,
 		Awaiting:  awaiting,
 		Question:  q,
+		Ref:       ref,
 		CreatedAt: e.now().UTC(),
 		NotBefore: r.NotBefore,
 	}
