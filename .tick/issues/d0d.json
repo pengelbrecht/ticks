@@ -2,6 +2,7 @@
   "id": "d0d",
   "title": "tk ask / tk tell: operator interactions resolved into tick state",
   "description": "Serves facts A12–A17. Rough scope (flesh out at epic 1 close-out): tk tell one-way announcements with distinct unconfigured exit code; tk ask with JSON in/out and four interaction shapes (free text via ForceReply, single-select inline buttons, multi-select toggle keyboard with Done, Other… fallback); pending-question store in .tick (survives crashes, powers reply matching by message id); blocking default with --timeout leaving the tick awaiting, --async + collect command; single getUpdates consumer shared across concurrent asks on one machine; resolution into tick state — note --from human with telegram identity, awaiting cleared, approve/reject buttons clearing gates with human-stamped activity; message edited after outcome, stale presses acknowledged as already resolved; out-of-band tk approve wins (tick is source of truth).",
+  "notes": "2026-08-16 19:24 - [human] Design input (Peter, 2026-08-16): operator may be AT the computer during an autonomous run — Telegram-only answering would feel weird. Resolution: dual-surface by design. Pending questions are durable .tick state; tk ask's wait loop must accept resolution from tick state (tk approve/reject/note, board, herd pane) as well as the channel, first answer wins, Telegram message edits to 'resolved at terminal' (A16 already covers the race). Consider for this epic: (1) --escalate-after \u003cdur\u003e flag/config — fire local surfaces immediately, send to Telegram only after N unanswered minutes (presence-agnostic, no presence detection); (2) a first-class 'tk answer \u003ctick\u003e [option|text]' verb so option/free-text questions are answerable locally as symmetrically as gates. Explicitly rejected: presence detection / screen-unlock heuristics.",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -12,5 +13,5 @@
   "parent": "9m8",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T16:26:44.826031Z",
-  "updated_at": "2026-08-16T16:53:03.039904Z"
+  "updated_at": "2026-08-16T17:24:54.707843Z"
 }
