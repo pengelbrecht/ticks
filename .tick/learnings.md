@@ -113,12 +113,11 @@ runners-config.md or its schema — every TOML block must validate.
 
 ## Naming
 
-**Problem:** A merged tick's global config dir (`~/.ticks`, `TICKS_HOME`) was renamed
-mid-run to `~/.tick`/`TK_HOME` by human interrupt — post-merge rework across code/tests/docs.
-**Cause:** Planning named a new user-facing path without checking the repo's existing
-conventions (`.tick/` dir, `TK_*` env prefix).
-**Rule:** New user-facing names (dirs, env vars, flags) must be derived from existing repo
-conventions in the tick description itself — name the convention, not just the name.
+**Problem:** A merged tick's global config dir (`~/.ticks`, `TICKS_HOME`) was renamed mid-run
+by human interrupt to `~/.tick`/`TK_HOME` — planning ignored existing conventions (`.tick/`,
+`TK_*`), costing post-merge rework across code/tests/docs.
+**Rule:** Derive new user-facing names (dirs, env vars, flags) from existing repo conventions
+in the tick description itself — name the convention, not just the name.
 
 **Problem:** Backticks in double-quoted `tk create -d "..."` strings were shell-substituted,
 silently corrupting stored descriptions with command output.
