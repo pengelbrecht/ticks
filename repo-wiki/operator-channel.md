@@ -183,3 +183,14 @@ misdates the audit trail; and `Consumer.Route` stamps `telegram_user_id` from th
 identical while the transport's sender filter holds, which is the point: the note is a fact
 about the decision. `tk tell` with empty args and empty/whitespace stdin is now exit 2
 before any HTTP.
+
+## Epic d0d closed (2026-08-16)
+
+`tk tell` / `tk ask` / `tk answer` shipped on the epic-1 layer: durable `.tick/pending/`
+entries, flock consumer election with cross-process question adoption, dual-surface
+resolution (first answer wins, stale Telegram message settles itself), gates cleared only
+under the same actor guard as `tk approve` (`--from human` attests a relayed decision —
+review caught `tk answer` forging human stamps; closed), `--async`/`--collect --wait`,
+`--escalate-after` (channel delivery delayed, local surfaces immediate), timeout leaves
+questions answerable with distinct exit 7, unconfigured = exit 4 no-op. Review REVISE →
+all 8 findings repaired in-epic; whole-repo gate and race pass green.
