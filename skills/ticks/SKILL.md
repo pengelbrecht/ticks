@@ -364,6 +364,8 @@ Ticks in the same wave (no blocking relationship between them) run concurrently,
 
 **Order for working state and fail fast.** Sequence ticks so each leaves the build green and the app runnable, and put the riskiest or most uncertain ticks early — discover a wrong assumption on tick 2, not tick 12. For a phase boundary where you want to look before continuing, create an `--awaiting checkpoint` tick; for a genuinely open question, create an `--awaiting input` tick rather than guessing.
 
+**Planning is interactive; execution is autonomous.** Settle questions here, in the conversation, where the human is already present — a run that *can* reach them on a device (the operator channel: `tk tell` / `tk ask` / `tk answer`) has a cheaper answer, not a lower bar for needing one. When a run may use that channel, and for what, is the routing table in `references/agent-runner.md` → *The operator channel*.
+
 **Before running, review the epic's ticks.** Once the ticks exist, do a quick pass:
 1. **Coverage** — walk each requirement from the gathered understanding (for this phase) and point to the tick that implements it. Add ticks for any gaps.
 2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
@@ -517,4 +519,11 @@ tk note <id> "Use sliding window algorithm" --from human
 tk approve <id>
 ```
 
-Always use `--from human` when adding notes on behalf of the user.
+If a run parked a question on the tick with `tk ask`, settle that question instead of clearing the gate around it — `tk answer <id> <answer…>` is the terminal twin of answering on the operator's device, and it clears the awaiting and edits the delivered message the same way:
+
+```bash
+tk answer <id> eu-west-1                # a plain question — becomes a [human] note
+tk answer <id> approve --from human     # an approval gate, relaying the user's decision
+```
+
+Always use `--from human` when adding notes on behalf of the user, and on any verdict you relay — `tk approve` and `tk answer` on a `--gate approve` question apply the same rule.

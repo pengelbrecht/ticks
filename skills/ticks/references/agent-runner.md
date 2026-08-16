@@ -315,6 +315,37 @@ Tag each finding with a **confidence** as well as a severity. Severity sets the 
 - **Comment & doc accuracy** — comments that no longer match the code, stale docs, comment rot.
 - **Maintainability** — structural code smells: mysterious names, duplication, feature envy, data clumps, speculative generality. A curated Fowler baseline lives in `references/code-smells.md`; each smell is a judgment call, never a hard violation. Earn this axis on logic-heavy diffs; skip it for routine ones.
 
+## The operator channel
+
+An autonomous run can reach the human who launched it without them watching a terminal. Three commands make up the surface, and all of them are the **orchestrator's** — implementers never call them:
+
+- `tk tell <text…>` (or piped on stdin) — a one-way announcement. Nothing waits on it.
+- `tk ask <tick-id> --question "…"` — parks a question on the tick, delivers it to the channel, and blocks until it is answered on *either* surface: the operator's device, or a local `tk answer` / `tk approve`. Whichever lands first ends the wait.
+- `tk answer <tick-id> <answer…>` — the terminal twin, for settling a parked question locally.
+
+`tk channel status` reports whether a channel is paired; `tk channel setup <channel>` pairs one. Pairing is per-machine operator config, never repo state. Setup is documented in `docs/operator-channel.md` in the ticks repo — that is the only place a specific transport is named. Everywhere else, in prompts and in reports, it is *the operator channel*.
+
+**The mechanical trigger.** Use the channel only when both hold: a pairing exists (`tk channel status`) **and** you are executing, not planning. In planning the human is already in the session, so an in-session question is faster and richer than a round trip to a device. Both `tk tell` and `tk ask` degrade safely when nothing is configured — they exit 4, and `tk ask` still registers the question and still leaves the tick awaiting, which is exactly the park-and-surface behaviour that existed before a channel did. So a prompt may call them **unconditionally**; branching on a status probe buys nothing.
+
+**`tk ask` changes the latency of an answer, not the bar for needing one.** A question planning could have resolved is still a planning miss, it still lands in the retro's interrupt audit (Retro step 1), and the rule that would have caught it still belongs in `.tick/learnings.md`. A cheap interrupt is still an interrupt.
+
+### Routing table
+
+| Situation | Channel action |
+|---|---|
+| A `--requires` / awaiting gate is reached (approval, review, content) | `tk ask <tick-id> --question "<the bar, and what to judge against it>" --gate approve` — approve/reject buttons, and the answer is recorded as a verdict |
+| A worker is blocked and the frontier is still moving | Park it as today (note it, keep the wave going), then `tk tell` — the human learns without being stopped |
+| A worker is blocked and the frontier is empty or stalling | `tk ask <tick-id> --question "…"` — this is an escalation; the run has nothing else to do |
+| Project checkpoint | `tk tell` the progress report, then `tk ask <tick-id> --question "…" --gate approve` for sign-off |
+| Epic or run completion report | `tk tell` — one-way; the work is done and nothing is waiting on an answer |
+| Planning, kickoff, or retro conversation | **Never.** The human is in-session; use the harness's own question tools |
+
+Shapes worth knowing on `tk ask`:
+
+- `--timeout <duration>` bounds the wait. Expiry exits **7**, and giving up is not an answer: the tick stays awaiting and the question stays open, so a later `tk answer` — or a later run — still settles it.
+- `--escalate-after <duration>` holds channel delivery for a grace window while local surfaces see the question immediately, so an answer given at the keyboard never disturbs the device.
+- `--async` registers and delivers the question, prints its id, and returns; `tk ask --collect [--wait]` drains settled answers as JSON lines later (it takes no tick id). Use these when you want a question in flight while the wave keeps running.
+
 ## Human-in-the-loop ticks
 
 If a tick declared an approval gate, don't close it — route it to the human:
@@ -323,11 +354,13 @@ If a tick declared an approval gate, don't close it — route it to the human:
 tk update <tick-id> --awaiting approval     # or review / content, per the tick
 ```
 
-Surface it to the user. On a verdict:
+Surface it to the user — with a paired operator channel, "surface it" has a mechanical form: `tk ask <tick-id> --question "…" --gate approve` (see *The operator channel* above). On a verdict:
 - **Approved** → integrate (if not already) and `tk close`.
 - **Rejected with feedback** → reopen the work. Continue the same agent when the harness preserves its context; otherwise redispatch against the existing branch with the feedback included verbatim.
 
 **You cannot clear a gate yourself.** `tk approve`, `tk reject`, `tk update --verdict`, and the gate-clearing closes (`tk close --force` over a `--requires` gate, plain `tk close` on an already-awaiting tick) refuse a runner-shaped actor. If you are relaying a decision a human actually made, pass `--from human` — it stamps the activity `human` and is the claim epic close-out audits. If you are not, leave the tick awaiting and surface it. Routing a `--requires` tick with `tk close` is unaffected; that is your normal path.
+
+**An answer that came over the channel IS a human decision, relayed mechanically — the audit standard is unchanged.** A `--gate approve` question answered on the operator's device is the human pressing the button, and the verdict is recorded under the `human` actor without any attestation from you, because you did not make the call. `tk answer <tick-id> approve --from human` is the terminal twin and carries exactly the rule above: a runner-shaped actor answering a gate is refused unless `--from human` attests that a human decided. A plain (non-gate) question is a note, not a verdict, and needs no attestation. Never relay a decision nobody made. The channel is yours alone — workers never touch it; an implementer with a question reports its status and you decide whether it is worth a human's attention.
 
 **Planning is interactive; execution is autonomous.** A human tick reaching the runner should be one planning genuinely could not resolve — a post-work approval, or a decision the work itself had to inform. Questions and human setup tasks belong in the planning conversation, where the human is already present; see *Human-in-the-loop ticks* in `references/tick-patterns.md`. When you create an `--awaiting input` or `--awaiting escalation` tick mid-run, note it for the retro.
 
@@ -341,6 +374,7 @@ Surface it to the user. On a verdict:
    - **Too big** → split the tick, re-graph.
    - **The plan itself is wrong** → stop and raise it with the user.
 4. Keep going with the rest of the wave. A blocked tick may leave its dependents blocked — that's fine; report them at the end.
+5. Reach the operator, sized by what the frontier is doing (see *The operator channel*): **still moving** → park it as above and `tk tell` what was lost and what is still running, so the human learns without being stopped; **empty or stalling** → this is an escalation, so `tk ask <tick-id> --question "…"` and let the run wait on the answer it now has nothing to do without.
 
 ## Closing the epic
 
@@ -357,6 +391,8 @@ tk list --parent <epic-id> --awaiting=        # otherwise, report what's waiting
 Before closing the epic, run the **Epic-close retro** (see below). Write the retro report as the close reason (or as a note on the epic tick if the reason field is short).
 
 **Merge, not squash.** Use `git merge`, never `git merge --squash`. Tick-stamped commits (`tick <id>: …`) are the audit trail the retro mines — squashing destroys it.
+
+**Deliver the completion report.** With a paired operator channel, send it with `tk tell` (pipe it in on stdin for a multi-line report) as well as writing it where the run records it — one-way is the right shape here: the epic is finished and nothing is waiting on an answer. See *The operator channel*.
 
 **Integration status.** The completion report must state the epic branch's integration status: *merged*, *awaiting PR*, or *awaiting human*. For repos with CI, the default is a PR + CI gate before merging to the default branch; configure the requirement in `.tick/config.md` Rules so every agent prompt inherits it.
 
@@ -468,9 +504,9 @@ Re-entry is just re-invoking the skill. Before starting the first wave, run the 
 |---|---|
 | `action: implement` | Dispatch an implementer subagent (standard wave loop) |
 | `action: plan` | Flesh the epic out into ticks (SKILL.md Big picture guidance + foundation-first procedure) |
-| `action: await` (non-checkpoint) | Route to the human — something is waiting on a decision or approval |
-| `action: await` (checkpoint, autonomous mode on) | Project boundary: verify the project's goal facts first (when it carries a fact sheet — `goal-design.md`); all auto-verifiable facts pass and no human-judgment facts exist → flow through; otherwise stop and escalate — verification failure outranks autonomous flow-through |
-| `action: await` (checkpoint, autonomous mode off) | Project boundary: write a progress report (fact-by-fact verification table when the project carries a fact sheet) and stop for human sign-off before the next project begins |
+| `action: await` (non-checkpoint) | Route to the human — something is waiting on a decision or approval. With a paired operator channel that routing is `tk ask … --gate approve` (*The operator channel*) |
+| `action: await` (checkpoint, autonomous mode on) | Project boundary: verify the project's goal facts first (when it carries a fact sheet — `goal-design.md`); all auto-verifiable facts pass and no human-judgment facts exist → flow through; otherwise stop and escalate — verification failure outranks autonomous flow-through. The escalation is `tk ask` (*The operator channel*) |
+| `action: await` (checkpoint, autonomous mode off) | Project boundary: write a progress report (fact-by-fact verification table when the project carries a fact sheet) and stop for human sign-off before the next project begins — `tk tell` the report, `tk ask … --gate approve` for the sign-off (*The operator channel*) |
 | Final-review tick unblocked (`role: review` in the JSON) | Review the epic's full diff (reviewer subagent for substantial epics) |
 | Close-out tick unblocked (`role: closeout` in the JSON) | Run the epic-close retro, then continue into the next feasible epic in soft order (skip hard-blocked or gated epics); if the frontier reaches a project boundary, apply the checkpoint rule above |
 | `tk next` returns nothing and all roadmap epics are closed | Roadmap end: write a completion report and stop |
