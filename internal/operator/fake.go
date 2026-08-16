@@ -6,9 +6,9 @@ import (
 	"sync"
 )
 
-// fakeEventBuffer is how many scripted events a FakeChannel holds before
-// [FakeChannel.Script] blocks. Generous enough that tests can script a whole
-// exchange before subscribing with Events.
+// fakeEventBuffer is how many scripted events a FakeChannel holds. Generous
+// enough that tests can script a whole exchange before subscribing with Events;
+// overflowing it panics rather than deadlocking the test (see FakeChannel.Script).
 const fakeEventBuffer = 64
 
 // Resolution is one recorded [FakeChannel.Resolve] call.
@@ -18,14 +18,18 @@ type Resolution struct {
 }
 
 // FakeChannel is an in-memory [Channel] for tests: it records what a run sent,
-// asked and resolved, and delivers events the test scripts. It is safe for
-// concurrent use.
+// asked and resolved, and delivers events the test scripts. Its methods are safe
+// for concurrent use.
 //
 // The zero value is not usable — construct it with [NewFakeChannel].
 type FakeChannel struct {
 	// SendErr, AskErr and ResolveErr, when set, are returned by the
 	// corresponding method instead of performing it. Failed calls are not
 	// recorded.
+	//
+	// These fields are read without holding the mutex: set them before the
+	// fake is handed to concurrent callers, and do not mutate them while a
+	// call may be in flight.
 	SendErr    error
 	AskErr     error
 	ResolveErr error
@@ -50,8 +54,11 @@ func NewFakeChannel() *FakeChannel {
 	}
 }
 
-// Send records the message.
-func (f *FakeChannel) Send(text string) error {
+// Send records the message. It respects ctx cancellation.
+func (f *FakeChannel) Send(ctx context.Context, text string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if f.SendErr != nil {
 		return f.SendErr
 	}
@@ -61,8 +68,12 @@ func (f *FakeChannel) Send(text string) error {
 	return nil
 }
 
-// AskDeliver records the question and hands back a synthetic message ref.
-func (f *FakeChannel) AskDeliver(q Question) (MessageRef, error) {
+// AskDeliver records the question and hands back a synthetic message ref. It
+// respects ctx cancellation.
+func (f *FakeChannel) AskDeliver(ctx context.Context, q Question) (MessageRef, error) {
+	if err := ctx.Err(); err != nil {
+		return MessageRef{}, err
+	}
 	if f.AskErr != nil {
 		return MessageRef{}, f.AskErr
 	}
@@ -77,6 +88,11 @@ func (f *FakeChannel) AskDeliver(q Question) (MessageRef, error) {
 
 // Events delivers scripted events until ctx is cancelled, then closes the
 // returned channel. Events scripted before the call are delivered too.
+//
+// One subscriber at a time: the scripted queue is shared, so concurrent
+// subscribers compete for events rather than each receiving all of them.
+// Cancellation may drop an in-flight event — one already taken off the queue
+// but not yet handed to the consumer is lost, not requeued.
 func (f *FakeChannel) Events(ctx context.Context) <-chan Event {
 	out := make(chan Event)
 	go func() {
@@ -98,15 +114,25 @@ func (f *FakeChannel) Events(ctx context.Context) <-chan Event {
 }
 
 // Script queues events for delivery on Events. It may be called before or after
-// subscribing.
+// subscribing, and never blocks: queueing more than fakeEventBuffer undelivered
+// events panics, since a test that scripts that much has lost its consumer.
 func (f *FakeChannel) Script(events ...Event) {
 	for _, ev := range events {
-		f.events <- ev
+		select {
+		case f.events <- ev:
+		default:
+			panic(fmt.Sprintf("operator: FakeChannel event buffer full (%d undelivered events) while scripting %+v — is anything consuming Events?", fakeEventBuffer, ev))
+		}
 	}
 }
 
-// Resolve records the outcome for a previously delivered question.
-func (f *FakeChannel) Resolve(ref MessageRef, outcome Outcome) error {
+// Resolve records the outcome for a previously delivered question. It respects
+// ctx cancellation, and reports an error for an unknown ref or one that has
+// already been resolved — a resolved question cannot be answered twice.
+func (f *FakeChannel) Resolve(ctx context.Context, ref MessageRef, outcome Outcome) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if f.ResolveErr != nil {
 		return f.ResolveErr
 	}
@@ -114,6 +140,9 @@ func (f *FakeChannel) Resolve(ref MessageRef, outcome Outcome) error {
 	defer f.mu.Unlock()
 	if _, ok := f.questions[ref]; !ok {
 		return fmt.Errorf("operator: no delivered question for message ref %+v", ref)
+	}
+	if prev, ok := f.outcomes[ref]; ok {
+		return fmt.Errorf("operator: message ref %+v already resolved as %q", ref, prev.Status)
 	}
 	f.resolutions = append(f.resolutions, Resolution{Ref: ref, Outcome: outcome})
 	f.outcomes[ref] = outcome
@@ -149,7 +178,7 @@ func (f *FakeChannel) Resolutions() []Resolution {
 	return append([]Resolution(nil), f.resolutions...)
 }
 
-// Outcome returns the most recent outcome recorded for ref.
+// Outcome returns the outcome recorded for ref.
 func (f *FakeChannel) Outcome(ref MessageRef) (Outcome, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

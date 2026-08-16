@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,10 +27,11 @@ func recvEvent(t *testing.T, ch <-chan Event) Event {
 
 func TestFakeChannelSendRecordsText(t *testing.T) {
 	f := NewFakeChannel()
-	if err := f.Send("run finished"); err != nil {
+	ctx := context.Background()
+	if err := f.Send(ctx, "run finished"); err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
-	if err := f.Send("second"); err != nil {
+	if err := f.Send(ctx, "second"); err != nil {
 		t.Fatalf("Send() error: %v", err)
 	}
 	if got, want := f.Sent(), []string{"run finished", "second"}; !reflect.DeepEqual(got, want) {
@@ -50,7 +52,7 @@ func TestFakeChannelAskDeliverAndScriptedEvent(t *testing.T) {
 		AllowOther: true,
 	}
 
-	ref, err := f.AskDeliver(q)
+	ref, err := f.AskDeliver(context.Background(), q)
 	if err != nil {
 		t.Fatalf("AskDeliver() error: %v", err)
 	}
@@ -100,6 +102,23 @@ func TestFakeChannelEventsScriptedAfterSubscribe(t *testing.T) {
 	}
 }
 
+func TestFakeChannelScriptedErrorEvent(t *testing.T) {
+	fatal := errors.New("unauthorized: bot token revoked")
+	f := NewFakeChannel()
+	f.Script(Event{Kind: EventError, Err: fatal})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ev := recvEvent(t, f.Events(ctx))
+	if ev.Kind != EventError {
+		t.Fatalf("event kind = %q, want %q", ev.Kind, EventError)
+	}
+	if !errors.Is(ev.Err, fatal) {
+		t.Errorf("event Err = %v, want %v", ev.Err, fatal)
+	}
+}
+
 func TestFakeChannelEventsClosesOnContextCancel(t *testing.T) {
 	f := NewFakeChannel()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -116,15 +135,34 @@ func TestFakeChannelEventsClosesOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestFakeChannelScriptPanicsOnOverflow(t *testing.T) {
+	f := NewFakeChannel()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected a panic when the event buffer overflows")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "event buffer full") {
+			t.Errorf("panic message = %v, want one mentioning a full event buffer", r)
+		}
+	}()
+
+	for i := 0; i < fakeEventBuffer+1; i++ {
+		f.Script(Event{Kind: EventAnswer, Text: "flood"})
+	}
+}
+
 func TestFakeChannelResolveRecordsOutcome(t *testing.T) {
 	f := NewFakeChannel()
-	ref, err := f.AskDeliver(Question{ID: "q1", Text: "Ship it?", Options: []Option{{ID: "yes", Label: "Yes"}}})
+	ctx := context.Background()
+	ref, err := f.AskDeliver(ctx, Question{ID: "q1", Text: "Ship it?", Options: []Option{{ID: "yes", Label: "Yes"}}})
 	if err != nil {
 		t.Fatalf("AskDeliver() error: %v", err)
 	}
 
 	outcome := Outcome{Status: OutcomeAnswered, Text: "Answered: Yes", OptionIDs: []string{"yes"}}
-	if err := f.Resolve(ref, outcome); err != nil {
+	if err := f.Resolve(ctx, ref, outcome); err != nil {
 		t.Fatalf("Resolve() error: %v", err)
 	}
 
@@ -144,9 +182,56 @@ func TestFakeChannelResolveRecordsOutcome(t *testing.T) {
 
 func TestFakeChannelResolveUnknownRef(t *testing.T) {
 	f := NewFakeChannel()
-	err := f.Resolve(MessageRef{ChannelID: "fake", MessageID: "nope"}, Outcome{Status: OutcomeAnswered})
+	err := f.Resolve(context.Background(), MessageRef{ChannelID: "fake", MessageID: "nope"}, Outcome{Status: OutcomeAnswered})
 	if err == nil {
 		t.Error("expected an error resolving an unknown message ref")
+	}
+}
+
+func TestFakeChannelResolveTwiceIsAnError(t *testing.T) {
+	f := NewFakeChannel()
+	ctx := context.Background()
+	ref, err := f.AskDeliver(ctx, Question{ID: "q1", Text: "Ship it?"})
+	if err != nil {
+		t.Fatalf("AskDeliver() error: %v", err)
+	}
+	first := Outcome{Status: OutcomeAnswered, Text: "Answered: Yes"}
+	if err := f.Resolve(ctx, ref, first); err != nil {
+		t.Fatalf("first Resolve() error: %v", err)
+	}
+
+	if err := f.Resolve(ctx, ref, Outcome{Status: OutcomeCancelled}); err == nil {
+		t.Error("expected an error resolving an already-resolved ref")
+	}
+	if got, _ := f.Outcome(ref); !reflect.DeepEqual(got, first) {
+		t.Errorf("Outcome() = %#v, want the first outcome %#v", got, first)
+	}
+	if len(f.Resolutions()) != 1 {
+		t.Errorf("Resolutions() = %#v, want only the first resolution", f.Resolutions())
+	}
+}
+
+func TestFakeChannelHonorsCancelledContext(t *testing.T) {
+	f := NewFakeChannel()
+	live, err := f.AskDeliver(context.Background(), Question{ID: "q1", Text: "Ship it?"})
+	if err != nil {
+		t.Fatalf("AskDeliver() error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := f.Send(ctx, "x"); !errors.Is(err, context.Canceled) {
+		t.Errorf("Send() error = %v, want context.Canceled", err)
+	}
+	if _, err := f.AskDeliver(ctx, Question{Text: "x"}); !errors.Is(err, context.Canceled) {
+		t.Errorf("AskDeliver() error = %v, want context.Canceled", err)
+	}
+	if err := f.Resolve(ctx, live, Outcome{Status: OutcomeAnswered}); !errors.Is(err, context.Canceled) {
+		t.Errorf("Resolve() error = %v, want context.Canceled", err)
+	}
+	if len(f.Sent()) != 0 || len(f.Asked()) != 1 || len(f.Resolutions()) != 0 {
+		t.Error("cancelled calls should not be recorded")
 	}
 }
 
@@ -159,14 +244,15 @@ func TestFakeChannelInjectedErrors(t *testing.T) {
 	f.SendErr = sendErr
 	f.AskErr = askErr
 	f.ResolveErr = resolveErr
+	ctx := context.Background()
 
-	if err := f.Send("x"); !errors.Is(err, sendErr) {
+	if err := f.Send(ctx, "x"); !errors.Is(err, sendErr) {
 		t.Errorf("Send() error = %v, want %v", err, sendErr)
 	}
-	if _, err := f.AskDeliver(Question{Text: "x"}); !errors.Is(err, askErr) {
+	if _, err := f.AskDeliver(ctx, Question{Text: "x"}); !errors.Is(err, askErr) {
 		t.Errorf("AskDeliver() error = %v, want %v", err, askErr)
 	}
-	if err := f.Resolve(MessageRef{}, Outcome{}); !errors.Is(err, resolveErr) {
+	if err := f.Resolve(ctx, MessageRef{}, Outcome{}); !errors.Is(err, resolveErr) {
 		t.Errorf("Resolve() error = %v, want %v", err, resolveErr)
 	}
 	if len(f.Sent()) != 0 || len(f.Asked()) != 0 || len(f.Resolutions()) != 0 {

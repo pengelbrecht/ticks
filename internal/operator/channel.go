@@ -13,24 +13,36 @@ import "context"
 // Channel is the operator-facing transport. It is deliberately sized to the two
 // interactions a run needs: tell (Send) and ask (AskDeliver + Events + Resolve).
 //
+// Every method takes a context; implementations must honor its cancellation and
+// deadline on the underlying I/O (HTTP requests, long polls) rather than
+// checking it once and then blocking.
+//
 // Implementations must be safe for concurrent use.
 type Channel interface {
 	// Send delivers a one-way message to the operator. No reply is expected.
-	Send(text string) error
+	Send(ctx context.Context, text string) error
 
 	// AskDeliver posts a question and returns a reference to the delivered
 	// message so it can later be resolved (edited) once an answer is in.
-	AskDeliver(q Question) (MessageRef, error)
+	AskDeliver(ctx context.Context, q Question) (MessageRef, error)
 
 	// Events streams operator activity — free-text answers, option presses and
 	// multi-select commits — until ctx is cancelled, at which point the
 	// implementation closes the returned channel.
+	//
+	// Transient transport errors (timeouts, 5xx, dropped connections) are
+	// retried internally and are NOT surfaced here. A single [EventError] is
+	// emitted only for a fatal channel failure — auth rejection, a revoked
+	// bot, a permanently unusable configuration — after which the
+	// implementation closes the stream. Consumers must treat an EventError as
+	// "this channel is dead": stop expecting further events and fall back
+	// (log, fail the gate, ask in-session) rather than retrying the stream.
 	Events(ctx context.Context) <-chan Event
 
 	// Resolve records the final outcome of a previously delivered question on
 	// the transport: typically editing the message to show what was decided and
 	// removing any interactive controls so it cannot be answered twice.
-	Resolve(ref MessageRef, outcome Outcome) error
+	Resolve(ctx context.Context, ref MessageRef, outcome Outcome) error
 }
 
 // MessageRef identifies a message that a channel has delivered. Both fields are
@@ -91,9 +103,15 @@ const (
 	// EventMultiSelectCommit is a multi-select question committed with the
 	// options selected at that moment (possibly none).
 	EventMultiSelectCommit EventKind = "multi_select_commit"
+	// EventError is a fatal channel failure, carried in [Event.Err]. It is
+	// the last event on the stream: the implementation closes the stream
+	// after emitting it, and the consumer treats the channel as dead.
+	// Transient errors never appear here — they are retried internally.
+	EventError EventKind = "error"
 )
 
-// Event is something the operator did on the channel.
+// Event is something the operator did on the channel, or — for [EventError] —
+// the channel giving up.
 type Event struct {
 	// Kind classifies the event.
 	Kind EventKind `json:"kind"`
@@ -104,6 +122,9 @@ type Event struct {
 	Text string `json:"text,omitempty"`
 	// OptionIDs are the [Option.ID] values pressed or selected.
 	OptionIDs []string `json:"option_ids,omitempty"`
+	// Err is the fatal transport failure on an EventError, and nil on every
+	// other kind. It does not serialize; log or wrap it instead.
+	Err error `json:"-"`
 }
 
 // OutcomeStatus says how a question ended.

@@ -141,6 +141,12 @@ func SaveOperatorConfig(cfg OperatorConfig) error {
 	if err := os.MkdirAll(dir, configDirMode); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
+	// MkdirAll's mode only applies to directories it creates, and umask can
+	// loosen it. Tighten unconditionally so a pre-existing world-readable
+	// ~/.ticks does not leak the token file's directory listing.
+	if err := os.Chmod(dir, configDirMode); err != nil {
+		return fmt.Errorf("tightening permissions on %s: %w", dir, err)
+	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

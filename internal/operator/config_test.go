@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,70 @@ func TestSavePermissions(t *testing.T) {
 	}
 	if got := di.Mode().Perm(); got != 0o700 {
 		t.Errorf("config dir mode = %o, want 700", got)
+	}
+}
+
+func TestSaveTightensPreExistingLooseDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+	home := filepath.Join(t.TempDir(), "ticks")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	t.Setenv("TICKS_HOME", home)
+
+	cfg := OperatorConfig{}
+	cfg.SetChannel("telegram", ChannelConfig{Token: "secret"})
+	if err := SaveOperatorConfig(cfg); err != nil {
+		t.Fatalf("SaveOperatorConfig() error: %v", err)
+	}
+
+	di, err := os.Stat(home)
+	if err != nil {
+		t.Fatalf("Stat home: %v", err)
+	}
+	if got := di.Mode().Perm(); got != 0o700 {
+		t.Errorf("pre-existing loose dir mode = %o, want 700", got)
+	}
+}
+
+func TestEmptyConfigMarshalsToEmptyObjectAndRoundTrips(t *testing.T) {
+	data, err := json.Marshal(OperatorConfig{})
+	if err != nil {
+		t.Fatalf("Marshal(OperatorConfig{}) error: %v", err)
+	}
+	if string(data) != "{}" {
+		t.Errorf("Marshal(OperatorConfig{}) = %s, want {}", data)
+	}
+
+	home := t.TempDir()
+	t.Setenv("TICKS_HOME", home)
+	if err := SaveOperatorConfig(OperatorConfig{}); err != nil {
+		t.Fatalf("SaveOperatorConfig(empty) error: %v", err)
+	}
+
+	stored, err := os.ReadFile(filepath.Join(home, ConfigFileName))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got := strings.TrimSpace(string(stored)); got != "{}" {
+		t.Errorf("stored empty config = %q, want {}", got)
+	}
+
+	loaded, err := LoadOperatorConfig()
+	if err != nil {
+		t.Fatalf("LoadOperatorConfig() error: %v", err)
+	}
+	if len(loaded.Channels) != 0 {
+		t.Errorf("round-tripped empty config = %#v, want no channels", loaded)
+	}
+	if _, ok := loaded.Channel("telegram"); ok {
+		t.Error("round-tripped empty config reported a telegram channel")
+	}
+	loaded.SetChannel("telegram", ChannelConfig{Token: "t"})
+	if got, ok := loaded.Channel("telegram"); !ok || got.Token != "t" {
+		t.Error("round-tripped empty config is not usable with SetChannel")
 	}
 }
 
