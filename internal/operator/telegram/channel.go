@@ -79,6 +79,11 @@ type Channel struct {
 
 	client *Client
 	chatID string
+	// chatIDNum is chatID as a number, or 0 when the configured chat is not
+	// numeric (an @channelusername). It is what incoming updates are matched
+	// against; a zero value means the chat cannot be compared and updates are
+	// let through on the sender check alone.
+	chatIDNum int64
 
 	mu      sync.Mutex
 	pending map[int64]*pendingQuestion
@@ -110,11 +115,16 @@ func NewChannel(cfg operator.ChannelConfig) (*Channel, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A non-numeric chat id is a legal Bot API destination (@channelusername),
+	// so failing to parse it is not an error — it only means updates cannot be
+	// matched by chat.
+	chatIDNum, _ := parseID(cfg.ChatID)
 	return &Channel{
-		client:  client,
-		chatID:  cfg.ChatID,
-		pending: make(map[int64]*pendingQuestion),
-		prompts: make(map[int64]int64),
+		client:    client,
+		chatID:    cfg.ChatID,
+		chatIDNum: chatIDNum,
+		pending:   make(map[int64]*pendingQuestion),
+		prompts:   make(map[int64]int64),
 	}, nil
 }
 
@@ -122,9 +132,12 @@ func NewChannel(cfg operator.ChannelConfig) (*Channel, error) {
 // (pairing runs getMe and polls before a chat is even known).
 func (ch *Channel) Client() *Client { return ch.client }
 
-// Send delivers a one-way message to the paired chat. text is HTML.
+// Send delivers a one-way message to the paired chat. Per [operator.Channel],
+// text is plain text: this transport posts with parse_mode=HTML, so the text is
+// escaped here — a caller's angle bracket is an angle bracket, not markup, and
+// not a 400 from the Bot API's HTML parser either.
 func (ch *Channel) Send(ctx context.Context, text string) error {
-	_, err := ch.client.SendMessage(ctx, OutgoingMessage{ChatID: ch.chatID, Text: text})
+	_, err := ch.client.SendMessage(ctx, OutgoingMessage{ChatID: ch.chatID, Text: html.EscapeString(text)})
 	return err
 }
 
@@ -265,6 +278,13 @@ func (ch *Channel) handle(ctx context.Context, update Update) (events []operator
 }
 
 func (ch *Channel) handleMessage(msg *IncomingMessage) []operator.Event {
+	// The binding is a user in a chat, not a user anywhere. The bound operator
+	// writing to the bot somewhere else — a group the bot was added to, a
+	// second private thread — is not this run's operator channel, so it is
+	// dropped rather than delivered as an answer.
+	if ch.chatIDNum != 0 && msg.ChatID != ch.chatIDNum {
+		return nil
+	}
 	ev := operator.Event{Kind: operator.EventAnswer, Text: msg.Text}
 	if questionID, ok := ch.questionFor(msg.ReplyToMessageID); ok {
 		ev.Ref = ch.ref(questionID)

@@ -20,6 +20,13 @@ import "context"
 // Implementations must be safe for concurrent use.
 type Channel interface {
 	// Send delivers a one-way message to the operator. No reply is expected.
+	//
+	// text is PLAIN TEXT. Callers pass it through unmodified — including
+	// anything interpolated into it, such as a branch name or an error
+	// message — and never markup for a particular transport. An
+	// implementation that renders markup (Telegram sends HTML) escapes the
+	// text before it goes on the wire, so the operator reads what the caller
+	// wrote.
 	Send(ctx context.Context, text string) error
 
 	// AskDeliver posts a question and returns a reference to the delivered
