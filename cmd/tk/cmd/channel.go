@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/operator"
@@ -204,6 +205,7 @@ func setupTelegram(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	confirmPairingUpdate(ctx, client)
 
 	// Nothing is persisted before this point: a timed-out or cancelled pairing
 	// leaves no partial configuration behind.
@@ -245,13 +247,42 @@ func setupTelegram(cmd *cobra.Command) error {
 
 // promptForToken reads the token from the command's input. It is never echoed
 // back, never logged, and never written anywhere but the global config.
+//
+// On a terminal the token is read with echo off, so it does not end up on
+// screen or in the scrollback of a shared session. Everything else — a pipe, a
+// test's strings.Reader — reads a plain line from the shared buffered reader,
+// which is also what keeps a piped "token\ny\n" answering both prompts.
 func promptForToken(cmd *cobra.Command, in *bufio.Reader) (string, error) {
 	fmt.Fprint(cmd.OutOrStdout(), "Telegram bot token (from @BotFather): ")
+
+	if fd, ok := terminalFD(cmd.InOrStdin()); ok {
+		secret, err := term.ReadPassword(fd)
+		// ReadPassword swallows the newline the operator typed, so the next
+		// line of output would otherwise start on the prompt's line.
+		fmt.Fprintln(cmd.OutOrStdout())
+		if err != nil {
+			return "", NewExitError(ExitIO, "reading the bot token: %v", err)
+		}
+		return strings.TrimSpace(string(secret)), nil
+	}
+
 	line, err := readLine(in)
 	if err != nil {
 		return "", NewExitError(ExitIO, "reading the bot token: %v", err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// terminalFD returns the file descriptor behind in when it is a terminal, so a
+// secret can be read without echo. Anything that is not an *os.File on a tty —
+// a pipe, a test reader — reports false.
+func terminalFD(in io.Reader) (int, bool) {
+	file, ok := in.(*os.File)
+	if !ok {
+		return 0, false
+	}
+	fd := int(file.Fd())
+	return fd, term.IsTerminal(fd)
 }
 
 // awaitPairing long-polls until a '/start <code>' message arrives, the deadline
@@ -305,6 +336,16 @@ func awaitPairing(ctx context.Context, client *telegram.Client, code string, tim
 			// is ignored, and the flow keeps waiting for the real one.
 		}
 	}
+}
+
+// confirmPairingUpdate acknowledges the '/start' update with Telegram. The
+// client advanced its offset when it received the update, but an offset only
+// reaches Telegram on the next getUpdates — without this call the pairing
+// message stays unconfirmed and the next run's first poll replays it as if the
+// operator had just written. The call asks for no wait and its result is
+// discarded: a failure here costs a duplicate update, never the pairing.
+func confirmPairingUpdate(ctx context.Context, client *telegram.Client) {
+	_, _ = client.GetUpdates(ctx, 0)
 }
 
 // matchesStart reports whether text is the pairing message for code. It accepts

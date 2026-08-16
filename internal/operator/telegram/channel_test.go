@@ -128,6 +128,29 @@ func TestSendDeliversToPairedChat(t *testing.T) {
 	}
 }
 
+// TestSendEscapesPlainText pins the interface contract: [operator.Channel.Send]
+// takes plain text, so this transport — which sends with parse_mode=HTML — must
+// escape it rather than let the operator's own angle brackets become markup.
+func TestSendEscapesPlainText(t *testing.T) {
+	bot := newTestBot(t)
+	ch := newTestChannel(t, bot)
+
+	if err := ch.Send(context.Background(), "tick <i3z> failed: a < b && c > d"); err != nil {
+		t.Fatalf("Send() error: %v", err)
+	}
+	sent := bot.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("bot captured %d messages, want 1", len(sent))
+	}
+	want := "tick &lt;i3z&gt; failed: a &lt; b &amp;&amp; c &gt; d"
+	if sent[0].Text != want {
+		t.Errorf("text = %q, want %q", sent[0].Text, want)
+	}
+	if sent[0].ParseMode != parseModeHTML {
+		t.Errorf("parse_mode = %q, want %q — escaping only holds if the mode is unchanged", sent[0].ParseMode, parseModeHTML)
+	}
+}
+
 func TestAskDeliverFreeTextUsesForceReply(t *testing.T) {
 	bot := newTestBot(t)
 	ch := newTestChannel(t, bot)
@@ -296,6 +319,31 @@ func TestEventsDropsOtherSendersAndDeliversBoundUser(t *testing.T) {
 	select {
 	case extra := <-events:
 		t.Fatalf("unexpected second event %+v — the stray sender should be dropped", extra)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// TestEventsDropsMessagesFromAnotherChat pins the second half of the binding:
+// the bound operator writing to the bot from some other chat (a group the bot
+// was added to) is not this run's operator channel, so it is ignored.
+func TestEventsDropsMessagesFromAnotherChat(t *testing.T) {
+	bot := newTestBot(t)
+	ch := newTestChannel(t, bot)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	events := ch.Events(ctx)
+	bot.PushMessage(boundUser, testChat+1, "hello from another chat")
+	bot.PushMessage(boundUser, testChat, "hello from the paired chat")
+
+	ev := recvEvent(t, events)
+	if ev.Kind != operator.EventAnswer || ev.Text != "hello from the paired chat" {
+		t.Fatalf("event = %+v, want the paired chat's answer", ev)
+	}
+
+	select {
+	case extra := <-events:
+		t.Fatalf("unexpected second event %+v — the other chat should be dropped", extra)
 	case <-time.After(300 * time.Millisecond):
 	}
 }

@@ -26,10 +26,6 @@ type OperatorIdentity struct {
 	UserID      int64  `json:"user_id"`
 }
 
-// PublicIdentity is an alias that makes the non-secret nature of an identity
-// explicit at call sites.
-type PublicIdentity = OperatorIdentity
-
 // Mapping is the tracked per-repository mapping from tk operator names to
 // their public channel identities.
 //
@@ -42,9 +38,6 @@ type Mapping struct {
 	// resolve credentials without making callers carry the path twice.
 	repoRoot string
 }
-
-// OperatorMapping is a descriptive alias for Mapping.
-type OperatorMapping = Mapping
 
 // MappingPath returns the path of the tracked operator mapping for repoRoot.
 func MappingPath(repoRoot string) string {
@@ -152,20 +145,9 @@ func mappingForJSON(mapping Mapping) Mapping {
 	return mapping
 }
 
-// ResolveOperator merges the public identities for name from a mapping with
-// this user's global credentials. The one-argument form resolves against the
-// current working directory; the two-argument form is ResolveOperator(repo,
-// name). The variadic form keeps both useful call shapes available to callers.
-func ResolveOperator(args ...string) (OperatorConfig, error) {
-	var repoRoot, name string
-	switch len(args) {
-	case 1:
-		repoRoot, name = ".", args[0]
-	case 2:
-		repoRoot, name = args[0], args[1]
-	default:
-		return OperatorConfig{}, fmt.Errorf("ResolveOperator expects name or repo root and name")
-	}
+// ResolveOperator merges the public identities recorded for name in repoRoot's
+// tracked mapping with this user's global credentials.
+func ResolveOperator(repoRoot, name string) (OperatorConfig, error) {
 	mapping, err := LoadMapping(repoRoot)
 	if err != nil {
 		return OperatorConfig{}, err

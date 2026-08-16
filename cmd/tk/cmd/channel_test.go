@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/operator"
+	"github.com/pengelbrecht/ticks/internal/operator/telegram"
 	"github.com/pengelbrecht/ticks/internal/operator/telegram/fakebot"
 )
 
@@ -82,8 +84,9 @@ func channelTestRepo(t *testing.T) string {
 var pairingCodeRE = regexp.MustCompile(`Pairing code:\s+(\S+)`)
 
 // pairWhenPrompted watches the command's output for the pairing code and then
-// sends "/start <code>" from userID as the operator would. prefix lets a caller
-// send something else first (a wrong code) from the same goroutine.
+// sends "/start <code>" from userID in chatID, as the operator would. A caller
+// that also wants a decoy (a wrong code, a stranger) pushes it onto the bot
+// before starting the command.
 func pairWhenPrompted(t *testing.T, bot *fakebot.Bot, out *syncBuffer, userID, chatID int64) {
 	t.Helper()
 	go func() {
@@ -273,6 +276,52 @@ func TestChannelSetupTelegramIgnoresWrongCode(t *testing.T) {
 	// "n" at the offer means the tracked file is never created.
 	if _, err := os.Stat(operator.MappingPath(".")); !os.IsNotExist(err) {
 		t.Errorf("declined mapping offer still wrote %s (err=%v)", operator.MappingPath("."), err)
+	}
+}
+
+// TestChannelSetupConfirmsPairingOffset pins that a successful pairing confirms
+// the '/start' update with Telegram before the command exits. Without the
+// confirming poll the update stays unacknowledged, and the next run's first poll
+// replays it as if the operator had just written.
+func TestChannelSetupConfirmsPairingOffset(t *testing.T) {
+	channelTestHome(t)
+	channelTestRepo(t)
+	bot := fakebot.New()
+	defer bot.Close()
+
+	out := captureChannelIO(t, "n\n")
+	pairWhenPrompted(t, bot, out, 424242, 919191)
+
+	err := ExecuteArgs([]string{
+		"channel", "setup", "telegram",
+		"--token", bot.Token,
+		"--api-base", bot.URL(),
+		"--pair-timeout", "20s",
+	})
+	if err != nil {
+		t.Fatalf("channel setup telegram: %v\n%s", err, out.String())
+	}
+
+	offsets := bot.Offsets()
+	if len(offsets) < 2 {
+		t.Fatalf("getUpdates called %d times (%v), want a confirming call after the match", len(offsets), offsets)
+	}
+	if last := offsets[len(offsets)-1]; last <= 0 {
+		t.Errorf("final getUpdates offset = %d (%v), want the advanced offset that confirms the pairing update", last, offsets)
+	}
+
+	// What the confirmation buys: a later run, polling from a fresh offset,
+	// sees nothing — the pairing message is not replayed.
+	client, err := telegram.NewClient(telegram.Options{Token: bot.Token, BaseURL: bot.URL()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	updates, err := client.GetUpdates(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("GetUpdates: %v", err)
+	}
+	if len(updates) != 0 {
+		t.Errorf("a later run's poll replayed %d update(s): %+v", len(updates), updates)
 	}
 }
 
