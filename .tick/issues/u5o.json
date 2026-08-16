@@ -2,7 +2,7 @@
   "id": "u5o",
   "title": "Channel interface, operator config, and fake channel (contract)",
   "description": "New package internal/operator. Defines the contract every channel implements and the config it persists — everything later ticks build against.\n\n- Channel interface sized to ask/tell: Send(text) error; AskDeliver(Question) (MessageRef, error); Events(ctx) \u003c-chan Event (answer text, option press, multi-select commit); Resolve(MessageRef, Outcome) error (post-resolution message edit / button removal).\n- Question/Event/Outcome types mirror AskUserQuestion semantics: question text, options with label+description, multi-select flag, allow-other flag.\n- Global config: LoadOperatorConfig/SaveOperatorConfig for ~/.ticks/operator.json — per-channel map, e.g. {\"telegram\":{\"token\",\"user_id\",\"chat_id\",\"bot_username\",\"api_base\"}}. Honor TICKS_HOME env override (tests). Write 0600, parent dir 0700.\n- FakeChannel (in-memory) implementing the interface with scriptable events — the test double every ask/tell test in epic 2 will use.\n\nTest cases:\n- Save then Load round-trips config; file mode is 0600.\n- TICKS_HOME redirects the path; missing file → zero-value config, no error.\n- FakeChannel: AskDeliver + scripted event arrives on Events; Resolve records outcome.\nRun: go test -short -count=1 ./internal/operator/...",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "go test -short -count=1 ./internal/operator/... passes; interface + config + fake channel exist; no Telegram types in package internal/operator",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T16:27:09.226044Z",
-  "updated_at": "2026-08-16T16:27:09.226044Z"
+  "updated_at": "2026-08-16T16:32:54.34767Z",
+  "started_at": "2026-08-16T16:32:54.347669Z"
 }
