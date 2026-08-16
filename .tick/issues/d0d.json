@@ -11,7 +11,8 @@
     "54v"
   ],
   "parent": "9m8",
+  "acceptance_criteria": "[A40] go test -short -count=1 ./internal/operator/... ./cmd/tk/... passes, covering the pending-question store, tell, every ask shape, and gate resolution via FakeChannel and fakebot.\n[A41] tk tell: unconfigured exits with the documented distinct code changing nothing; configured delivers to the paired chat (fakebot-verified).\n[A42] tk ask end-to-end vs fakebot: each of the four shapes resolves into tick state (note --from human with telegram identity, awaiting cleared, approve/reject gates cleared with human-stamped activity) and the question message is edited to show the outcome.\n[A43] Concurrency + dual-surface: concurrent asks share one getUpdates consumer (no 409); an out-of-band tk approve resolves the wait and edits the Telegram message; --timeout leaves the tick awaiting with a distinct exit code.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-16T16:26:44.826031Z",
-  "updated_at": "2026-08-16T17:24:54.707843Z"
+  "updated_at": "2026-08-16T17:31:19.781762Z"
 }

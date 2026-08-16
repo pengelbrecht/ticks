@@ -1,0 +1,15 @@
+{
+  "id": "v6z",
+  "title": "Pending-question store and operator ask engine",
+  "description": "New files in internal/operator (pending.go, engine.go + tests) — do NOT touch cmd/ (sibling tick owns it this wave).\n\n- Durable pending-question store under .tick/pending/\u003cquestion-id\u003e.json: question (operator.Question), tick id, kind (ask|gate), channel MessageRef once delivered, created_at, resolution (outcome + answered_by + telegram identity) written atomically beside it. Survives crashes; powers dual-surface answering and cross-restart button matching (epic-1 review note: transport pending state is in-process only — THIS is the durable layer above it).\n- Single-consumer discipline: a file lock (flock on .tick/pending/.consumer.lock) elects one poll-loop owner per repo; waiters watch their pending file for resolution instead of polling Telegram. Owner routes channel events to pending entries by MessageRef, writes resolutions, and hands off the lock cleanly on exit.\n- Resolution engine: given a resolved pending entry, apply it to tick state through the internal tick APIs (same rules as tk note --from human + awaiting clear; approve/reject verdicts carry human provenance with the telegram user id in the note). The engine also detects out-of-band resolution (tick no longer awaiting / gate cleared) and returns that as the outcome so the caller can Resolve the channel message — the tick is the source of truth.\n- Escalation delay support: a pending entry carries an optional not-before timestamp; the consumer delivers to the channel only past it (local surfaces see the entry immediately).\n\nTest cases (FakeChannel; no network): store round-trip + atomicity; lock exclusion (second consumer becomes waiter); event→pending routing by ref; resolution applies note+awaiting to a real tick in a temp repo; out-of-band clear detected and returned; not-before honored.\nRun: go test -short -count=1 ./internal/operator/...",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "d0d",
+  "acceptance_criteria": "Engine tests pass; pending store durable and atomic; single-consumer lock proven by test; resolution writes human-provenance tick state; no cmd/ changes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T17:31:19.803951Z",
+  "updated_at": "2026-08-16T17:32:17.316101Z",
+  "started_at": "2026-08-16T17:32:17.3161Z"
+}

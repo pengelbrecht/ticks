@@ -1,0 +1,16 @@
+{
+  "id": "bqv",
+  "title": "Final review of tk ask/tell epic diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "lwl"
+  ],
+  "parent": "d0d",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-16T17:32:10.986905Z",
+  "updated_at": "2026-08-16T17:32:10.986905Z"
+}
