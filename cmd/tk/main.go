@@ -48,7 +48,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board", "herd", "skills":
+	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board", "herd", "skills", "channel":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		// Handle aliases
 		cmdArgs := args[1:]
@@ -100,7 +100,11 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, skills, version, upgrade, migrate, gc, merge")
+	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, channel, skills, version, upgrade, migrate, gc, merge")
+	fmt.Println()
+	fmt.Println("Operator Channel:")
+	fmt.Println("  tk channel setup telegram     Pair your Telegram bot with this machine (token stays out of the repo)")
+	fmt.Println("  tk channel status             Show what is configured, who it is paired with, and whether the token works")
 	fmt.Println()
 	fmt.Println("Skill Bundle:")
 	fmt.Println("  tk skills list                List embedded skills and the tk version they ship with")
