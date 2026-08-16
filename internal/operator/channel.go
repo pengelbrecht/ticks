@@ -143,6 +143,13 @@ type Event struct {
 	// Ref is the question message this event answers. Zero when the operator
 	// sent something unprompted.
 	Ref MessageRef `json:"ref,omitempty"`
+	// SenderID identifies the operator who produced this event, as the
+	// transport reports it (a Telegram user id). It is the provenance a
+	// resolution is stamped with: the transport already drops traffic from
+	// anyone but the bound operator, so reading the id off the event says who
+	// actually decided rather than restating who the run was configured for.
+	// Empty when the transport does not report a sender.
+	SenderID string `json:"sender_id,omitempty"`
 	// Text carries the operator's free text for EventAnswer.
 	Text string `json:"text,omitempty"`
 	// OptionIDs are the [Option.ID] values pressed or selected.

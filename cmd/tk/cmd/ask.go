@@ -108,8 +108,10 @@ Exit codes:
   4  exit code 4: no operator channel is configured. The question is still
      registered and the tick still parked awaiting a human — degraded mode is
      the same park-and-surface behaviour as before a channel existed.
-  5  exit code 5: the timeout expired. The tick stays awaiting and the pending
-     question is left on disk, so a later run or a human can still settle it.`,
+  5  project detection failed (the origin remote could not be read)
+  7  exit code 7: the timeout expired. Giving up waiting is not an answer: the
+     tick stays awaiting and the question is left OPEN on disk, so a later
+     tk answer — or a later run — still settles it.`,
 	Args:          cobra.MaximumNArgs(1),
 	SilenceErrors: true,
 	SilenceUsage:  true,
@@ -130,7 +132,7 @@ var (
 func init() {
 	askCmd.Flags().StringVar(&askQuestion, "question", "", "the question to ask the operator")
 	askCmd.Flags().BoolVar(&askJSON, "json", false, "read the question from stdin as JSON and print the answer as JSON")
-	askCmd.Flags().DurationVar(&askTimeout, "timeout", askDefaultTimeout, "how long to wait for an answer before giving up (exit 5)")
+	askCmd.Flags().DurationVar(&askTimeout, "timeout", askDefaultTimeout, "how long to wait for an answer before giving up (exit 7; the question stays open)")
 	askCmd.Flags().StringVar(&askGate, "gate", askGateNone, "gate kind: approve (verdict, approve/reject buttons) or none")
 	askCmd.Flags().BoolVar(&askAsync, "async", false, "register and deliver the question, print its id, and return without waiting")
 	askCmd.Flags().BoolVar(&askCollect, "collect", false, "print settled questions as JSON lines and drain them (takes no tick id)")
@@ -510,39 +512,53 @@ func askAwait(
 
 	if timedOut {
 		return applied, wasConsumer, NewExitError(ExitTimeout,
-			"no answer to %s within %s: %s is still awaiting %s, question %s is still pending",
-			pending.ID, opts.Timeout, applied.Pending.TickID, applied.Pending.Awaiting, pending.ID)
+			"no answer to %s within %s: %s is still awaiting %s, and question %s is still open — "+
+				"tk answer %s <answer>, or a later run, can still settle it",
+			pending.ID, opts.Timeout, applied.Pending.TickID, applied.Pending.Awaiting,
+			pending.ID, applied.Pending.TickID)
 	}
 	return applied, wasConsumer, nil
 }
 
-// askGiveUp records the expired deadline on the pending entry and reports
-// whether the question really did time out.
+// askGiveUp reports how a question stood when the deadline expired.
 //
-// A timed-out resolution is not an answer, so [operator.Engine.Apply] touches
-// no tick state: the tick stays awaiting and the entry stays on disk for a
-// later run or a human. An answer that landed while the deadline was firing
-// wins — it is a real decision, and losing it to a race would be worse than
-// waiting a moment longer.
+// Giving up waiting is NOT a resolution: the entry is deliberately left
+// unresolved, exactly as `--collect --wait` leaves the questions it timed out
+// on. The run stopped listening; the question did not stop being a question, so
+// a later `tk answer` — or a later run's consumer — can still settle it and
+// have the answer reach the tick. Resolving it here would spend the one
+// resolution the entry gets on "nobody was around", and the operator's eventual
+// answer would then apply to nothing.
+//
+// An answer that landed while the deadline was firing wins — it is a real
+// decision, and losing it to a race would be worse than waiting a moment
+// longer.
 func askGiveUp(engine *operator.Engine, id string, timeout time.Duration) (operator.Applied, bool, error) {
-	entry, err := engine.Pending().Resolve(id, operator.PendingResolution{
-		Outcome: operator.Outcome{
-			Status: operator.OutcomeTimedOut,
-			Text:   fmt.Sprintf("No answer within %s", timeout),
-		},
-		AnsweredBy: operator.AnsweredByTerminal,
-		AnsweredAt: time.Now().UTC(),
-	})
-	answered := errors.Is(err, operator.ErrAlreadyResolved)
-	if err != nil && !answered {
-		return operator.Applied{}, false, NewExitError(ExitIO, "recording the timeout on %s: %v", id, err)
-	}
-
-	applied, err := engine.Apply(entry)
+	entry, err := engine.Pending().Load(id)
 	if err != nil {
-		return operator.Applied{}, false, NewExitError(ExitIO, "applying the resolution of %s: %v", id, err)
+		return operator.Applied{}, false, NewExitError(ExitIO, "reading the pending question %s: %v", id, err)
 	}
-	return applied, !answered, nil
+	if entry.Resolved() {
+		applied, err := engine.Apply(entry)
+		if err != nil {
+			return operator.Applied{}, false, NewExitError(ExitIO, "applying the resolution of %s: %v", id, err)
+		}
+		return applied, false, nil
+	}
+	// The outcome is for the channel message only — nothing is written to the
+	// entry, so the question stays open on every surface.
+	return operator.Applied{Pending: entry, Outcome: askTimeoutOutcome(timeout)}, true, nil
+}
+
+// askTimeoutOutcome is what the operator's phone shows when a run stops
+// waiting: the question is settled as far as THIS run is concerned, and still
+// open as far as the tick is concerned. Saying only "timed out" would read as
+// "don't bother answering".
+func askTimeoutOutcome(timeout time.Duration) operator.Outcome {
+	return operator.Outcome{
+		Status: operator.OutcomeTimedOut,
+		Text:   fmt.Sprintf("No answer within %s — the run stopped waiting, but this question is still open", timeout),
+	}
 }
 
 // askSettle edits the delivered message to show how the question ended. It runs

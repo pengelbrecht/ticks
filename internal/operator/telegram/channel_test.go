@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -605,4 +606,39 @@ func mustMessageID(t *testing.T, ref operator.MessageRef) int64 {
 		t.Fatalf("MessageRef %+v has a non-numeric message id: %v", ref, err)
 	}
 	return id
+}
+
+// TestEventsCarrySenderID pins where the operator's identity comes from: the
+// update itself. The bound-user filter means it agrees with the configuration
+// today, but a resolution stamped from the event is a fact about who decided
+// rather than a restatement of who was paired.
+func TestEventsCarrySenderID(t *testing.T) {
+	bot := newTestBot(t)
+	ch := newTestChannel(t, bot)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ref, err := ch.AskDeliver(ctx, operator.Question{
+		ID:      "q-sender",
+		Text:    "Ship it?",
+		Options: []operator.Option{{ID: "yes", Label: "Yes"}},
+	})
+	if err != nil {
+		t.Fatalf("AskDeliver() error: %v", err)
+	}
+	msgID := mustMessageID(t, ref)
+	events := ch.Events(ctx)
+
+	want := strconv.FormatInt(boundUser, 10)
+
+	bot.PushMessage(boundUser, testChat, "unsolicited")
+	if ev := recvEvent(t, events); ev.SenderID != want {
+		t.Errorf("message event SenderID = %q, want %q", ev.SenderID, want)
+	}
+
+	kb := parseInlineKeyboard(t, bot.Sent()[0].ReplyMarkup)
+	bot.PushCallback(boundUser, testChat, msgID, kb.InlineKeyboard[0][0].CallbackData)
+	if ev := recvEvent(t, events); ev.SenderID != want {
+		t.Errorf("callback event SenderID = %q, want %q", ev.SenderID, want)
+	}
 }

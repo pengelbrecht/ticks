@@ -43,10 +43,11 @@ const (
 	ExitIO       = 6
 
 	// ExitTimeout reports that a blocking command gave up waiting: `tk ask`
-	// whose question nobody answered in time. It shares the numeric slot with
-	// ExitGitHub, which the blocking commands never return — an orchestrator
-	// branching on 5 from `tk ask` is branching on "still unanswered".
-	ExitTimeout = 5
+	// whose question nobody answered in time. It has its own slot because a
+	// blocking ask can also fail project detection (ExitGitHub), and an
+	// orchestrator branching on "still unanswered" must not have to read stderr
+	// to tell the two apart.
+	ExitTimeout = 7
 )
 
 // ExitError is an error that carries a specific exit code.
@@ -561,6 +562,9 @@ func ResetFlags() {
 	askCollect = false
 	askWait = false
 	askEscalateAfter = 0
+
+	// Reset answer flags
+	answerFrom = ""
 
 	// Reset skills flags
 	skillsListJSON = false

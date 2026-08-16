@@ -317,9 +317,9 @@ open on the tick. See [Asking from a run](docs/operator-channel.md#asking-from-a
 for question shapes (multiple choice, multi-select, free text), `--gate
 approve` for an approval gate, `--async`/`--collect` for asking without
 blocking, `--escalate-after` to give a terminal answer first crack before
-paging the phone, and the exit-code table (`tk ask` can exit `5` for either a
-timeout or a failed project detection — the docs page shows how to tell them
-apart).
+paging the phone, and the exit-code table (`tk ask` exits `7` when the wait
+times out — the question stays open and answerable, so a later `tk answer` or
+a later run still settles it).
 
 | Command | Description |
 |---------|-------------|

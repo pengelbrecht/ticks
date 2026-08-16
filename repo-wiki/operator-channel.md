@@ -145,3 +145,41 @@ Four non-obvious things fell out of making `tk ask` async and `tk answer` first-
   allows it (no options, or `allow_other`). It targets the *oldest* open question on the tick;
   answering a newer one would strand the older behind a tick the engine now reads as
   out-of-band.
+
+## Epic d0d final-review repairs (tick gqh, 2026-08-16)
+
+Eight findings from the epic's final review; the five that change a contract:
+
+- **A gate answered with `tk answer` is a verdict, and goes through the same guard as
+  `tk approve`.** `cmd/tk/cmd/verdictguard.go:resolveVerdictActor` is now called from
+  `runAnswer` for `PendingGate` entries, *before* anything is written, so a runner-shaped
+  `TK_ACTOR` is refused (exit 2) with the gate untouched unless `--from human` attests a
+  relayed human decision. Without this, `tk ask --gate approve` + `tk answer approve` was a
+  self-approval path the CLI otherwise closes. `--from` on a plain ask is a usage error: a
+  note is not a verdict.
+- **A timeout no longer resolves the question.** `askGiveUp` used to write an
+  `OutcomeTimedOut` resolution, which spent the entry's one resolution on "nobody was
+  around" — a later `tk answer` then hit "already answered" and the operator's real answer
+  applied to nothing. It now only *reads* the entry: if an answer landed during the deadline
+  it wins, otherwise the entry is left open and the timeout outcome exists solely to edit the
+  channel message ("the run stopped waiting, but this question is still open"). Same
+  semantics `--collect --wait` always had.
+- **`ExitTimeout` is 7, no longer sharing 5 with `ExitGitHub`.** Branching on "still
+  unanswered" no longer requires reading stderr.
+- **`PendingStore.Resolve` takes the apply lock around load-check-save.** First-resolution-wins
+  was a comment, not a guarantee: two simultaneous resolvers both read an unresolved entry and
+  the second overwrote the first. Callers must NOT hold the apply lock when calling `Resolve`
+  (flock per open file description ⇒ a nested take deadlocks); `Engine.Apply` takes it
+  separately, after `Resolve` returns. `internal/operator/resolve_race_test.go` fails
+  deterministically without the lock.
+- **`Engine.Apply` clears awaiting only when no OTHER open entry names the tick.** A tick can
+  carry several questions; clearing on the first answer made the engine read every sibling as
+  out-of-band and cancel it unanswered. The last answer clears it (`Engine.otherOpen`).
+
+Two provenance repairs worth knowing: the `[human]` note is stamped with
+`resolution.answered_at` (the decision), not apply time — a late `--collect` no longer
+misdates the audit trail; and `Consumer.Route` stamps `telegram_user_id` from the new
+`Event.SenderID` (read off the update) rather than the configured bound id. Behaviour is
+identical while the transport's sender filter holds, which is the point: the note is a fact
+about the decision. `tk tell` with empty args and empty/whitespace stdin is now exit 2
+before any HTTP.

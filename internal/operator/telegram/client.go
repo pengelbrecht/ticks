@@ -551,6 +551,17 @@ func parseID(s string) (int64, error) {
 	return n, nil
 }
 
+// senderID renders an update's sender in the string form the neutral interface
+// carries. A zero id — an update Telegram sent without a sender — becomes the
+// empty string rather than "0", so the consumer falls back to the configured
+// operator instead of stamping a resolution with a user that does not exist.
+func senderID(id int64) string {
+	if id == 0 {
+		return ""
+	}
+	return strconv.FormatInt(id, 10)
+}
+
 // Bot API wire types. They stay unexported: nothing outside this package should
 // be able to name Telegram's schema.
 

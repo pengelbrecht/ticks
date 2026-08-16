@@ -323,8 +323,8 @@ func TestAskResolvedOutOfBandReportsTerminal(t *testing.T) {
 // Timeout and degraded mode
 // ---------------------------------------------------------------------------
 
-// TestAskTimeoutLeavesTickAwaiting pins the timeout contract: exit 5, the tick
-// stays parked, the pending entry survives, and the message says so.
+// TestAskTimeoutLeavesTickAwaiting pins the timeout contract: exit 7, the tick
+// stays parked, the pending entry survives UNRESOLVED, and the message says so.
 func TestAskTimeoutLeavesTickAwaiting(t *testing.T) {
 	repo, store, bot := askTestEnv(t)
 	askTestTick(t, store, "abc123")
@@ -358,11 +358,55 @@ func TestAskTimeoutLeavesTickAwaiting(t *testing.T) {
 	if entries[0].TickID != "abc123" {
 		t.Errorf("pending entry = %+v, want it to belong to abc123", entries[0])
 	}
+	if entries[0].Resolved() {
+		t.Errorf("the timeout resolved the question: %+v", entries[0].Resolution)
+	}
 
 	messageID := waitForAskMessage(t, bot, "Which region?")
 	edit := editedMessage(t, bot, messageID)
 	if !strings.Contains(strings.ToLower(edit.Text), "timed out") {
 		t.Errorf("timed-out message = %q, want it to say the question timed out", edit.Text)
+	}
+	if !strings.Contains(strings.ToLower(edit.Text), "still open") {
+		t.Errorf("timed-out message = %q, want it to say the question is still open", edit.Text)
+	}
+}
+
+// TestAskTimeoutLeavesQuestionAnswerable is the end of that contract: giving up
+// waiting is not an answer, so `tk answer` still settles the question afterward
+// and the answer reaches the tick.
+func TestAskTimeoutLeavesQuestionAnswerable(t *testing.T) {
+	repo, store, bot := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+
+	_, err := askFlow(context.Background(), askOptions{
+		Root:         ".",
+		TickID:       "abc123",
+		Question:     operator.Question{Text: "Which region?"},
+		Timeout:      700 * time.Millisecond,
+		PollInterval: 20 * time.Millisecond,
+	})
+	if code := GetExitCode(err); code != ExitTimeout {
+		t.Fatalf("exit code = %d, want %d (timeout): %v", code, ExitTimeout, err)
+	}
+	waitForAskMessage(t, bot, "Which region?")
+	questionID := askPendingEntries(t, repo)[0].ID
+
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"answer", "abc123", "eu-west-1"}); err != nil {
+		t.Fatalf("tk answer after a timeout: %v\n%s", err, out.String())
+	}
+
+	entry := askPendingEntry(t, repo, questionID)
+	if entry.Resolution == nil || entry.Resolution.Outcome.Status != operator.OutcomeAnswered {
+		t.Fatalf("the late answer did not resolve the question: %+v", entry.Resolution)
+	}
+	tk := mustReadTick(t, store, "abc123")
+	if !strings.Contains(tk.Notes, "[human] eu-west-1") {
+		t.Errorf("the late answer never reached the tick:\n%s", tk.Notes)
+	}
+	if tk.Awaiting != nil {
+		t.Errorf("tick still awaiting %v after the late answer", *tk.Awaiting)
 	}
 }
 
@@ -590,7 +634,7 @@ func TestAskHelpDocumentsExitCodes(t *testing.T) {
 		t.Fatalf("ask --help: %v\n%s", err, out.String())
 	}
 	printed := strings.ToLower(out.String())
-	for _, want := range []string{"--question", "--json", "--timeout", "--gate", "exit code 4", "exit code 5"} {
+	for _, want := range []string{"--question", "--json", "--timeout", "--gate", "exit code 4", "exit code 7"} {
 		if !strings.Contains(printed, strings.ToLower(want)) {
 			t.Errorf("ask --help missing %q:\n%s", want, out.String())
 		}

@@ -142,3 +142,43 @@ func TestTellHelpDocumentsChannelAndUnconfiguredExit(t *testing.T) {
 		}
 	}
 }
+
+// TestTellEmptyTextIsUsageErrorWithoutHTTP keeps an empty announcement from
+// reaching the transport. The Bot API rejects an empty message anyway, so the
+// only question is whether the caller learns that from `tk` or from a 400 —
+// and a `tk tell` whose stdin turned out to be empty is a scripting mistake,
+// not a delivery failure.
+func TestTellEmptyTextIsUsageErrorWithoutHTTP(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		stdin string
+	}{
+		{"blank argument", []string{"tell", "   "}, ""},
+		{"empty stdin", []string{"tell"}, ""},
+		{"whitespace stdin", []string{"tell"}, "  \n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			channelTestHome(t)
+			bot := fakebot.New()
+			defer bot.Close()
+			writeChannelConfig(t, operator.ChannelConfig{
+				Token:   bot.Token,
+				ChatID:  "919191",
+				APIBase: bot.URL(),
+			})
+			out := captureChannelIO(t, tc.stdin)
+
+			err := ExecuteArgs(tc.args)
+			if err == nil {
+				t.Fatalf("tell with no text returned nil error\n%s", out.String())
+			}
+			if code := GetExitCode(err); code != ExitUsage {
+				t.Errorf("exit code = %d, want %d (usage): %v", code, ExitUsage, err)
+			}
+			if calls := bot.Calls(); len(calls) != 0 {
+				t.Errorf("empty tell made HTTP calls: %v", calls)
+			}
+		})
+	}
+}

@@ -23,6 +23,7 @@ message from stdin, so a prompt can announce unconditionally with:
 
 Exit codes:
   0  message sent
+  2  usage error (an unknown --channel, or no text in the arguments or on stdin)
   4  exit code 4: no channel configured (one explanatory line is printed to stderr)
   other nonzero  the configured channel could not deliver the message
 
@@ -60,6 +61,13 @@ func runTell(cmd *cobra.Command, args []string) error {
 	text, err := tellText(cmd, args)
 	if err != nil {
 		return tellError(cmd, NewExitError(ExitIO, "reading announcement text: %v", err))
+	}
+	// An announcement with nothing in it is a scripting mistake — an empty
+	// pipeline, a variable that never got set — and the Bot API would reject it
+	// anyway. Say so here rather than spending a round trip to be told.
+	if strings.TrimSpace(text) == "" {
+		return tellError(cmd, NewExitError(ExitUsage,
+			"tell needs something to say: tk tell <text...>, or pipe the message in on stdin"))
 	}
 
 	channel, err := telegram.NewChannel(channelConfig)
