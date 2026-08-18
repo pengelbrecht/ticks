@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-08-18
+
+### Added
+
+- **Grace-period relay for blocked Herdr agents** — `tk herd wait --relay-blocked-after` parks blocked worker questions locally first, gives a terminal `tk answer` priority during the grace window, and only then escalates unanswered questions through the configured operator channel. The answer is sent back to the same Herdr agent with `agent.prompt`, allowing the wait to resume.
+- **Explicit orchestrator relay** — explicitly watched orchestrator panes and other non-tick Herdr targets can now use the same escalation path with agent-scoped durable questions and `tk answer <question-id> <answer>`. The behavior remains opt-in, so ordinary waits do not relay blocked agents or spam operators at the terminal.
+
 ## [0.30.0] - 2026-08-16
 
 ### Added
