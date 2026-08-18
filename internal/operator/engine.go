@@ -95,6 +95,35 @@ func (e *Engine) Register(r Registration) (Pending, error) {
 	return e.register(r, MessageRef{})
 }
 
+// RegisterAgentRelay parks a question for a live agent or pane rather than a
+// tick. It is the correlation path for an orchestrator, whose Herdr target
+// often has no tick-shaped name and therefore cannot be represented by a
+// normal tick question.
+func (e *Engine) RegisterAgentRelay(target string, q Question, notBefore time.Time) (Pending, error) {
+	if strings.TrimSpace(target) == "" {
+		return Pending{}, errors.New("operator: agent relay needs a target")
+	}
+	if q.ID == "" {
+		id, err := NewQuestionID()
+		if err != nil {
+			return Pending{}, err
+		}
+		q.ID = id
+	}
+	p := Pending{
+		ID:          q.ID,
+		Kind:        PendingAgentRelay,
+		AgentTarget: target,
+		Question:    q,
+		CreatedAt:   e.now().UTC(),
+		NotBefore:   notBefore,
+	}
+	if err := e.pending.Save(p); err != nil {
+		return Pending{}, err
+	}
+	return p, nil
+}
+
 // RegisterDelivered parks the tick exactly like [Engine.Register] and records
 // the message the caller has ALREADY posted the question as.
 //
@@ -217,6 +246,9 @@ func (e *Engine) Apply(p Pending) (Applied, error) {
 	if !p.Resolved() {
 		return Applied{}, fmt.Errorf("%w: %s", ErrNotResolved, p.ID)
 	}
+	if p.Kind == PendingAgentRelay {
+		return e.applyAgentRelay(p)
+	}
 
 	if p.Resolution.Outcome.Status != OutcomeAnswered {
 		// Nothing to apply: the question ended without a decision, so the tick
@@ -323,6 +355,38 @@ func (e *Engine) Apply(p Pending) (Applied, error) {
 	}
 
 	return Applied{Pending: p, Outcome: res.Outcome, Closed: closed}, nil
+}
+
+// applyAgentRelay records an answer as consumed without touching tick state.
+// The Herdr relay owns the second half — prompting the target — so the
+// operator question still gets exactly-once semantics across terminal and
+// channel resolvers.
+func (e *Engine) applyAgentRelay(p Pending) (Applied, error) {
+	lock, err := e.pending.AcquireApply(context.Background())
+	if err != nil {
+		return Applied{}, fmt.Errorf("operator: applying agent relay %s: %w", p.ID, err)
+	}
+	defer func() { _ = lock.Release() }()
+
+	switch fresh, loadErr := e.pending.Load(p.ID); {
+	case loadErr == nil && fresh.Applied():
+		return Applied{Pending: fresh, Outcome: fresh.Resolution.Outcome, AlreadyApplied: true}, nil
+	case loadErr == nil && fresh.Resolved():
+		p = fresh
+	case loadErr != nil && !errors.Is(loadErr, ErrPendingNotFound):
+		return Applied{}, loadErr
+	}
+	if p.Resolution.Outcome.Status != OutcomeAnswered {
+		return Applied{Pending: p, Outcome: p.Resolution.Outcome}, nil
+	}
+	marked, err := e.pending.MarkApplied(p.ID, e.now().UTC())
+	if err != nil && !errors.Is(err, ErrPendingNotFound) {
+		return Applied{}, err
+	}
+	if err == nil {
+		p = marked
+	}
+	return Applied{Pending: p, Outcome: p.Resolution.Outcome}, nil
 }
 
 // otherOpen reports whether any OTHER unresolved question is parked on the same

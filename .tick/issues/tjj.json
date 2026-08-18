@@ -1,0 +1,15 @@
+{
+  "id": "tjj",
+  "title": "Relay explicitly watched orchestrator agents after the grace period",
+  "notes": "2026-08-18 13:12 - Extended --relay-blocked-after to explicitly watched non-tick targets, including the orchestrator pane. Added durable agent-scoped pending questions, terminal cancellation before grace expiry, tk answer \u003cquestion-id\u003e support, and agent.prompt response relay. Verified short suite, focused race tests, go vet, and diff check.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "discovered_from": "8op",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-18T10:58:50.059839Z",
+  "updated_at": "2026-08-18T11:12:24.272957Z",
+  "closed_at": "2026-08-18T11:12:24.272957Z",
+  "closed_reason": "Relay explicitly watched orchestrator agents after grace period"
+}

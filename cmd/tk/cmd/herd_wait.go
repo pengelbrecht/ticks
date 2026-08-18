@@ -61,7 +61,10 @@ Blocked-agent relay
   period. A local tk answer <tick> <answer> during that window wins and no
   Telegram question is sent. An unanswered question is delivered through the
   configured operator channel, and the response is sent back with herdr's
-  agent.prompt. Without this flag, blocked remains a terminal wait outcome.
+  agent.prompt. Explicitly watched non-tick targets, including an orchestrator
+  pane, use an agent-scoped question and can be answered with tk answer
+  <question-id> <answer>. Without this flag, blocked remains a terminal wait
+  outcome.
 
 Exit codes
   0  every worker settled in idle or done (or was absent)
@@ -169,14 +172,26 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 		opts.OnBlocked = func(blockedCtx context.Context, r wait.Result) (client.AgentStatus, error) {
 			target, eligible, targetErr := relay.ResolveRecordedTarget(relayRoot, r)
 			if targetErr != nil {
-				log("warning: blocked agent %s was not relayed because worker manifests could not be checked: %v\n",
-					r.Name, targetErr)
-				return client.StatusBlocked, nil
+				target = relay.TargetFromResult(r)
+				if target == "" {
+					log("warning: blocked agent %s was not relayed because worker manifests could not be checked: %v\n",
+						r.Name, targetErr)
+					return client.StatusBlocked, nil
+				}
+				log("warning: worker manifests could not be checked for blocked target %s; treating the explicitly watched target as an orchestrator relay: %v\n",
+					target, targetErr)
+				eligible = false
 			}
 			if !eligible {
-				log("herd: blocked agent %s is not a recorded tick worker; leaving it blocked without an automatic relay\n",
-					r.Name)
-				return client.StatusBlocked, nil
+				if target == "" {
+					target = relay.TargetFromResult(r)
+				}
+				if target == "" {
+					log("warning: blocked target %s has no live agent name or pane id; leaving it blocked\n", r.Name)
+					return client.StatusBlocked, nil
+				}
+				log("herd: blocked target %s is not a recorded tick worker; relaying the explicitly watched target after the grace period\n",
+					target)
 			}
 			r.AgentName = target
 			state, relayErr := relay.Handle(blockedCtx, herd, r, relay.Options{
@@ -185,10 +200,21 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 				Channel:       relayChannel,
 				Grace:         herdWaitRelayAfter,
 				PromptTimeout: 30 * time.Second,
+				AllowUnscoped: !eligible,
 				OnPark: func(p operator.Pending) {
 					if relayChannel == nil {
-						log("herd: %s is blocked; question %s is parked for terminal answer (no operator channel configured)\n",
-							r.Name, p.ID)
+						if p.Kind == operator.PendingAgentRelay {
+							log("herd: %s is blocked; question %s is parked for terminal answer with tk answer %s <answer> (no operator channel configured)\n",
+								r.Name, p.ID, p.ID)
+						} else {
+							log("herd: %s is blocked; question %s is parked for terminal answer (no operator channel configured)\n",
+								r.Name, p.ID)
+						}
+						return
+					}
+					if p.Kind == operator.PendingAgentRelay {
+						log("herd: %s is blocked; question %s is parked locally and will reach Telegram after %s unless answered with tk answer %s <answer>\n",
+							r.Name, p.ID, herdWaitRelayAfter, p.ID)
 						return
 					}
 					log("herd: %s is blocked; question %s is parked locally and will reach Telegram after %s unless answered with tk answer %s <answer>\n",

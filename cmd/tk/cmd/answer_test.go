@@ -123,6 +123,42 @@ func TestAnswerFreeText(t *testing.T) {
 	editedMessage(t, bot, messageID)
 }
 
+// TestAnswerAgentRelayByQuestionID keeps an orchestrator's non-tick question
+// answerable from the terminal during the grace window. Unlike a tick ask,
+// the question id is the correlation key because there is no tick to update.
+func TestAnswerAgentRelayByQuestionID(t *testing.T) {
+	repo, _, bot := askTestEnv(t)
+	engine := operator.NewEngine(repo)
+	pending, err := engine.RegisterAgentRelay("w9T:p1", operator.Question{
+		Header: "Orchestrator blocked",
+		Text:   "What should the orchestrator do?",
+	}, time.Time{})
+	if err != nil {
+		t.Fatalf("RegisterAgentRelay: %v", err)
+	}
+
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"answer", pending.ID, "Continue with the release"}); err != nil {
+		t.Fatalf("tk answer agent relay: %v\n%s", err, out.String())
+	}
+	stored, err := engine.Pending().Load(pending.ID)
+	if err != nil {
+		t.Fatalf("Load pending: %v", err)
+	}
+	if stored.TickID != "" || stored.AgentTarget != "w9T:p1" {
+		t.Fatalf("stored correlation = tick %q, target %q; want target-only relay", stored.TickID, stored.AgentTarget)
+	}
+	if stored.Resolution == nil || stored.Resolution.Outcome.Text != "Continue with the release" {
+		t.Fatalf("resolution = %+v, want terminal answer", stored.Resolution)
+	}
+	if stored.Resolution.AppliedAt.IsZero() {
+		t.Fatal("agent relay answer was not marked applied")
+	}
+	if len(bot.Sent()) != 0 {
+		t.Fatalf("unexpected Telegram sends while settling an undelivered relay: %+v", bot.Sent())
+	}
+}
+
 // TestAnswerGateSetsVerdict pins that `tk answer <id> approve` is the same
 // decision as a press on the Approve button.
 func TestAnswerGateSetsVerdict(t *testing.T) {

@@ -16,21 +16,31 @@ import (
 )
 
 type fakeController struct {
-	mu        sync.Mutex
-	prompts   []client.AgentPromptParams
-	state     client.AgentStatus
-	promptErr error
+	mu          sync.Mutex
+	prompts     []client.AgentPromptParams
+	state       client.AgentStatus
+	promptState client.AgentStatus
+	promptErr   error
 }
 
 func (f *fakeController) AgentPrompt(_ context.Context, p client.AgentPromptParams) (*client.AgentInfo, error) {
 	f.mu.Lock()
 	f.prompts = append(f.prompts, p)
-	state, err := f.state, f.promptErr
+	state, err := f.promptState, f.promptErr
+	if state == "" {
+		state = f.state
+	}
 	f.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	return &client.AgentInfo{AgentStatus: state}, nil
+}
+
+func (f *fakeController) setState(state client.AgentStatus) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.state = state
 }
 
 func (f *fakeController) AgentGet(context.Context, string) (*client.AgentInfo, error) {
@@ -207,6 +217,133 @@ func TestHandleDeliversAfterGraceAndPromptsAgent(t *testing.T) {
 	stopConsumer()
 	if err := <-consumerDone; err != nil {
 		t.Fatalf("consumer: %v", err)
+	}
+}
+
+// TestHandleUnscopedOrchestratorRelaysAfterGrace covers an explicitly watched
+// pane that has no tick-shaped agent name. The answer is correlated by the
+// agent target, then returned through agent.prompt just like a worker answer.
+func TestHandleUnscopedOrchestratorRelaysAfterGrace(t *testing.T) {
+	root := t.TempDir()
+	engine := operator.NewEngine(root)
+	channel := operator.NewFakeChannel()
+	controller := &fakeController{state: client.StatusBlocked, promptState: client.StatusWorking}
+
+	consumerCtx, stopConsumer := context.WithCancel(t.Context())
+	defer stopConsumer()
+	consumer := operator.NewConsumer(engine.Pending(), channel)
+	consumer.Interval = 5 * time.Millisecond
+	consumerDone := make(chan error, 1)
+	go func() { consumerDone <- consumer.Run(consumerCtx) }()
+
+	asked := make(chan struct{})
+	go func() {
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(channel.Asked()) == 1 {
+				close(asked)
+				channel.Script(operator.Event{
+					Kind: operator.EventAnswer,
+					Ref:  operator.MessageRef{ChannelID: "fake", MessageID: "1"},
+					Text: "Continue from the terminal question",
+				})
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	state, err := Handle(ctx, controller, wait.Result{
+		Name:   "w9T:p1",
+		PaneID: "w9T:p1",
+		State:  string(client.StatusBlocked),
+	}, Options{
+		RepoRoot:      root,
+		Engine:        engine,
+		Channel:       channel,
+		Grace:         20 * time.Millisecond,
+		AllowUnscoped: true,
+	})
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if state != client.StatusWorking {
+		t.Fatalf("state = %s, want working", state)
+	}
+	select {
+	case <-asked:
+	case <-ctx.Done():
+		t.Fatal("orchestrator question was not delivered after the grace period")
+	}
+	prompts := controller.promptSnapshot()
+	if len(prompts) != 1 || prompts[0].Target != "w9T:p1" || prompts[0].Text != "Continue from the terminal question" {
+		t.Fatalf("prompts = %+v, want the answer sent to the orchestrator pane", prompts)
+	}
+	if resolutions := channel.Resolutions(); len(resolutions) != 1 || resolutions[0].Outcome.Text != "Continue from the terminal question" {
+		t.Fatalf("channel resolutions = %+v, want the answered orchestrator question settled", resolutions)
+	}
+
+	stopConsumer()
+	if err := <-consumerDone; err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+}
+
+// TestHandleUnscopedTerminalFirstCancelsBeforeDelivery proves that handling
+// the orchestrator pane locally makes the pending question moot before the
+// channel grace deadline.
+func TestHandleUnscopedTerminalFirstCancelsBeforeDelivery(t *testing.T) {
+	root := t.TempDir()
+	engine := operator.NewEngine(root)
+	channel := operator.NewFakeChannel()
+	controller := &fakeController{state: client.StatusBlocked}
+	parked := make(chan operator.Pending, 1)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result := make(chan struct {
+		state client.AgentStatus
+		err   error
+	}, 1)
+	go func() {
+		state, err := Handle(ctx, controller, wait.Result{
+			Name:   "w9T:p1",
+			PaneID: "w9T:p1",
+			State:  string(client.StatusBlocked),
+		}, Options{
+			RepoRoot:      root,
+			Engine:        engine,
+			Channel:       channel,
+			Grace:         time.Hour,
+			AllowUnscoped: true,
+			OnPark:        func(p operator.Pending) { parked <- p },
+		})
+		result <- struct {
+			state client.AgentStatus
+			err   error
+		}{state, err}
+	}()
+
+	p := <-parked
+	controller.setState(client.StatusWorking)
+	got := <-result
+	if got.err != nil {
+		t.Fatalf("Handle: %v", got.err)
+	}
+	if got.state != client.StatusWorking {
+		t.Fatalf("state = %s, want working", got.state)
+	}
+	if asked := channel.Asked(); len(asked) != 0 {
+		t.Fatalf("channel asked %d questions before the grace deadline, want 0: %+v", len(asked), asked)
+	}
+	resolved, err := engine.Pending().Load(p.ID)
+	if err != nil {
+		t.Fatalf("Load pending: %v", err)
+	}
+	if resolved.Resolution == nil || resolved.Resolution.AnsweredBy != operator.AnsweredByOutOfBand {
+		t.Fatalf("resolution = %+v, want terminal-handled out-of-band resolution", resolved.Resolution)
 	}
 }
 

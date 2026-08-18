@@ -80,6 +80,10 @@ const (
 	PendingAsk PendingKind = "ask"
 	// PendingGate is an approval gate: the answer is a verdict.
 	PendingGate PendingKind = "gate"
+	// PendingAgentRelay is a question whose answer is sent back to a Herdr
+	// agent. It is not attached to a tick because an orchestrator may be a
+	// live pane with no tick-shaped agent name.
+	PendingAgentRelay PendingKind = "agent_relay"
 )
 
 // AnsweredBy records which surface produced a resolution.
@@ -112,7 +116,11 @@ type Pending struct {
 	// every surface uses.
 	ID string `json:"id"`
 	// TickID is the tick the question belongs to.
-	TickID string `json:"tick_id"`
+	// It is empty for [PendingAgentRelay], which is correlated by AgentTarget.
+	TickID string `json:"tick_id,omitempty"`
+	// AgentTarget is the Herdr agent name or pane id to which an agent relay
+	// answer is sent. It is set only for [PendingAgentRelay].
+	AgentTarget string `json:"agent_target,omitempty"`
 	// Kind says whether the answer is a note or a verdict.
 	Kind PendingKind `json:"kind"`
 	// Awaiting is the tick's awaiting value at registration. The engine
@@ -208,7 +216,8 @@ func (s *PendingStore) Save(p Pending) error {
 	if err := validPendingID(p.ID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(p.TickID) == "" {
+	if strings.TrimSpace(p.TickID) == "" &&
+		(p.Kind != PendingAgentRelay || strings.TrimSpace(p.AgentTarget) == "") {
 		return errors.New("operator: pending entry needs a tick id")
 	}
 	data, err := json.MarshalIndent(p, "", "  ")

@@ -212,23 +212,36 @@ tk herd wait --agents tick-abc,tick-def \
   --relay-blocked-after 5m --timeout 1800000
 ```
 
-When the flag is set, a blocked worker immediately gets a durable free-text
-question parked on its tick as `awaiting escalation`. That question is visible
-to `tk list --awaiting` and can be answered with `tk answer <tick> <answer>`;
-that local answer wins during the grace period and no Telegram message is
-created. If it remains unanswered after `--relay-blocked-after`, the normal
-operator-channel consumer delivers it. The first answer is applied to the
-tick, sent back to the exact Herdr agent (including a respawned `-rN` name),
-and the same `tk herd wait` resumes watching that worker.
+The same option applies to an explicitly watched orchestrator pane:
+
+```bash
+tk herd wait --agents w9T:p1 --relay-blocked-after 5m --timeout 1800000
+```
+
+When the flag is set, a blocked recorded worker immediately gets a durable
+free-text question parked on its tick as `awaiting escalation`. That question
+is visible to `tk list --awaiting` and can be answered with `tk answer <tick>
+<answer>`; that local answer wins during the grace period and no Telegram
+message is created. If it remains unanswered after `--relay-blocked-after`,
+the normal operator-channel consumer delivers it. The first answer is applied
+to the tick, sent back to the exact Herdr agent (including a respawned `-rN`
+name), and the same `tk herd wait` resumes watching that worker.
+
+An explicitly watched target that is not a recorded tick worker — for example
+the orchestrator's pane — is relayed too. Its durable question is scoped to
+the Herdr agent/pane instead of a tick, and the question id printed by
+`tk herd wait` is the terminal answer key: `tk answer <question-id> <answer>`.
+If the operator handles that pane in the terminal before the grace deadline,
+the agent-scoped question is canceled and no Telegram message is sent.
 
 The option is intentionally opt-in, so existing waves never start sending
-blocked-agent questions to a phone unexpectedly. If no operator channel is
-configured, the parked question remains terminal-only and is still answerable
-locally. The overall `--timeout` remains the outer bound; when it expires, an
-unanswered question stays open on disk for a later `tk answer` or run. Relay
-eligibility is also fail-closed: only targets recorded in Herdr worker
-manifests are relayed, so an accidentally included orchestrator pane is
-reported as blocked without being prompted back through itself.
+blocked-agent questions to a phone unexpectedly. Only targets explicitly
+passed in `--agents` are watched. If no operator channel is configured, a
+parked question remains terminal-only and is still answerable locally. The
+overall `--timeout` remains the outer bound; when it expires, an unanswered
+question stays open on disk for a later `tk answer` or run. Recorded manifests
+still authorize exact worker/respawn targeting; an explicit non-worker target
+is handled as an agent-scoped relay rather than being silently discarded.
 
 ### `tk answer`: the terminal twin
 

@@ -35,8 +35,10 @@ case-insensitive. A multi-select question takes several of them. Anything else
 is the free-text answer, which is what a question with no options expects (and
 what an "other" answer is on a question that allows one).
 
-The question answered is the oldest one still open on the tick. Find them with
-` + "`tk list --awaiting`" + `, or the entries under .tick/pending.
+The question answered is the oldest one still open on the tick. An
+orchestrator/pane relay is instead answered by the question id printed by
+` + "`tk herd wait`" + `. Find tick questions with ` + "`tk list --awaiting`" + `, or
+the entries under .tick/pending.
 
 Answering a --gate approve question is a verdict, so it carries the same
 provenance rule as ` + "`tk approve`" + `: when TK_ACTOR is runner-shaped (the mandated
@@ -50,6 +52,7 @@ Examples:
   tk answer abc123 deep-green
   tk answer abc123 eu us          # a multi-select question
   tk answer abc123 approve        # an approval gate
+  tk answer q4d2e8a1 Continue      # an orchestrator/pane relay question
   tk answer abc123 approve --from human   # a runner relaying a human decision
 
 Exit codes:
@@ -77,19 +80,26 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return answerError(cmd, NewExitError(ExitNoRepo, "failed to detect repo root: %v", err))
 	}
-	project, err := github.DetectProject(nil)
-	if err != nil {
-		return answerError(cmd, NewExitError(ExitGitHub, "failed to detect project: %v", err))
-	}
-	tickID, err := github.NormalizeID(project, args[0])
-	if err != nil {
-		return answerError(cmd, NewExitError(ExitNotFound, "invalid id: %v", err))
-	}
 
 	engine := operator.NewEngine(root)
-	pending, err := answerTarget(engine, tickID)
+	pending, agentRelay, err := answerAgentTarget(engine, args[0])
 	if err != nil {
 		return answerError(cmd, err)
+	}
+	tickID := args[0]
+	if !agentRelay {
+		project, projectErr := github.DetectProject(nil)
+		if projectErr != nil {
+			return answerError(cmd, NewExitError(ExitGitHub, "failed to detect project: %v", projectErr))
+		}
+		tickID, err = github.NormalizeID(project, args[0])
+		if err != nil {
+			return answerError(cmd, NewExitError(ExitNotFound, "invalid id: %v", err))
+		}
+		pending, err = answerTarget(engine, tickID)
+		if err != nil {
+			return answerError(cmd, err)
+		}
 	}
 
 	// A gate answer IS a verdict, so it goes through the same guard as
@@ -121,7 +131,7 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if errors.Is(err, operator.ErrAlreadyResolved) {
 			return answerError(cmd, NewExitError(ExitNotFound,
-				"question %s on %s was already answered: %s", pending.ID, tickID, answerSummary(resolved)))
+				"question %s on %s was already answered: %s", pending.ID, answerSubject(pending, tickID), answerSummary(resolved)))
 		}
 		return answerError(cmd, NewExitError(ExitIO, "recording the answer to %s: %v", pending.ID, err))
 	}
@@ -138,10 +148,14 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 		askSettle(commandContext(cmd), channel, applied, cmd.ErrOrStderr())
 	} else {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s answered, but its %s message was not updated: %v\n",
-			tickID, channelTelegram, channelErr)
+			answerSubject(pending, tickID), channelTelegram, channelErr)
 	}
 
 	out := cmd.OutOrStdout()
+	if agentRelay {
+		fmt.Fprintf(out, "answered agent relay %s (%s): %s\n", pending.AgentTarget, pending.ID, outcome.Text)
+		return nil
+	}
 	switch {
 	case applied.OutOfBand:
 		fmt.Fprintf(out, "answered %s (%s), but the tick had already moved on — nothing changed on it\n",
@@ -156,8 +170,32 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func answerSubject(pending operator.Pending, tickID string) string {
+	if pending.Kind == operator.PendingAgentRelay {
+		return pending.AgentTarget
+	}
+	return tickID
+}
+
+// answerAgentTarget resolves the explicit question id printed for an
+// orchestrator relay. It is checked before GitHub project detection because an
+// agent relay is repository-local and does not need a tick/global id.
+func answerAgentTarget(engine *operator.Engine, id string) (operator.Pending, bool, error) {
+	entries, err := engine.Pending().List()
+	if err != nil {
+		return operator.Pending{}, false, NewExitError(ExitIO, "listing pending questions: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Kind == operator.PendingAgentRelay && entry.ID == id {
+			return entry, true, nil
+		}
+	}
+	return operator.Pending{}, false, nil
+}
+
 // answerTarget picks the question this command settles: the oldest one still
-// open on the tick.
+// open on the tick. Agent-scoped relay questions are selected by their
+// question id in [answerAgentTarget] above.
 //
 // Oldest-first matters when a run parked more than one question: answering the
 // newest would leave the older one stranded behind a tick that is no longer
