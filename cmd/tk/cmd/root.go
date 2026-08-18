@@ -507,6 +507,7 @@ func ResetFlags() {
 	herdWaitTimeout = defaultHerdWaitTimeoutMs
 	herdWaitSocket = ""
 	herdWaitJSON = false
+	herdWaitRelayAfter = 0
 
 	// Reset herd spawn flags
 	herdSpawnRole = "implement"

@@ -168,12 +168,21 @@ A confirmation that times out is **not** a failure — a trivial tick can finish
 ## Wait discipline
 
 ```bash
-tk herd wait --agents tick-a,tick-b,tick-c --timeout 1800000 [--json]
+tk herd wait --agents tick-a,tick-b,tick-c --timeout 1800000 [--json] [--relay-blocked-after 5m]
 ```
 
 One call per **wave**, not per worker. It resolves current state with a single `agent.list` — workers that have already settled are reported immediately, and workers herdr does not know are reported as `exited` rather than waited on — then watches the rest through **one `events.subscribe` stream**, blocking on pushed `pane.agent_status_changed` events. If that stream breaks it reconciles against `agent.list` and resubscribes once; a second failure is an error. There is no polling loop anywhere in it.
 
 Exit `0` means every worker settled `idle` or `done` (or was absent); exit `1` means one settled `blocked`, the deadline fired, or the wait itself failed. The summary line carries `timed_out`, `blocked` and `elapsed_ms`.
+
+`--relay-blocked-after` is an explicit terminal-first escalation mode. It
+parks an `awaiting escalation` question on a blocked worker's tick immediately,
+holds channel delivery for the supplied grace period, and sends the first
+answer back through `agent.prompt` so this wait can resume the same worker.
+Without the flag, `blocked` remains a settled nonzero outcome. Relay is
+fail-closed to the recorded worker manifests and matching pane, so an
+accidentally included orchestrator pane is reported as blocked rather than
+being prompted back through itself.
 
 Three rules survive the helper and still bind you:
 
@@ -220,7 +229,8 @@ Reading panes (`herdr agent read`, `herdr pane read --source recent-unwrapped`) 
 Herdr recognizes approval and question UIs and reports `blocked`. The orchestrator's response is fixed:
 
 - **Never drive an approval UI.** No `send-keys` to click through a permission prompt, no synthesized "yes". Workers are started in their kind's full-auto mode precisely so this situation does not arise in the normal path ([`herdr-kinds.md`](herdr-kinds.md) has the per-kind templates; `orchestration.full_auto` governs whether they are applied).
-- **A `blocked` worker is a human escalation.** `tk herd wait` counts it in `summary.blocked` and exits 1. Notify the user, `tk note <tick-id> "Agent blocked: <what the pane shows>"`, and include it in the wave report. Then continue with the rest of the wave — the shared protocol's blocked handling applies unchanged.
+- **A `blocked` worker is a human escalation.** Without the relay option, `tk herd wait` counts it in `summary.blocked` and exits 1. Notify the user, `tk note <tick-id> "Agent blocked: <what the pane shows>"`, and include it in the wave report. Then continue with the rest of the wave — the shared protocol's blocked handling applies unchanged.
+- **Optional terminal-first relay.** When the wave is run with `--relay-blocked-after <duration>`, the blocked worker's question is parked locally first. `tk answer <tick-id> <answer>` wins during the grace period; only an unanswered question reaches the operator channel, and only a target recorded in a worker manifest is prompted with the response. A missing channel leaves the question terminal-only.
 - **Leave the pane intact.** The blocked pane *is* the handoff state: the human can attach (`herdr agent attach <name>`), answer the question, and hand the worker back. `tk herd cleanup` refuses a blocked worker with reason `blocked-worker` for exactly this reason. Never close, kill, or clean a blocked worker's pane, workspace, or worktree.
 
 `blocked` on a full-auto worker usually means routing is wrong (the full-auto template did not land — check the manifest's `argv`) or the tick genuinely needs a decision only a human can make. `unknown`, by contrast, does not prove anything: it means herdr sees an agent it cannot classify. Diagnose it with `herdr agent explain`; do not read it as completion.

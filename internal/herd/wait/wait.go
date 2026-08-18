@@ -84,6 +84,10 @@ type Herd interface {
 type Result struct {
 	// Name is the worker as the caller named it (a herdr agent name or pane id).
 	Name string `json:"name"`
+	// AgentName is the live herdr agent name. It is useful when the caller
+	// waited by pane id and an integration needs to prompt the worker again.
+	// It is empty when the worker was absent and herdr supplied no name.
+	AgentName string `json:"agent_name,omitempty"`
 	// State is the settled agent status ("idle", "done", "blocked"),
 	// [StateExited] for an absent worker, or the last known non-terminal
 	// status for a worker the timeout caught.
@@ -133,6 +137,12 @@ type Options struct {
 	// CLI streams its per-worker lines from. It runs on the waiter's
 	// goroutine, so keep it cheap.
 	OnSettle func(Result)
+	// OnBlocked, when set, is called asynchronously when a worker reaches
+	// blocked. The worker remains pending while the handler deals with the
+	// human escalation. Returning working resumes the same wait; returning idle,
+	// done or blocked settles it with that state. A nil handler preserves the
+	// ordinary blocked-is-terminal behavior.
+	OnBlocked func(context.Context, Result) (client.AgentStatus, error)
 }
 
 // Wait blocks until every named worker has settled, the deadline fires, or ctx
@@ -169,11 +179,15 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 		herd:      herd,
 		start:     time.Now(),
 		onSettle:  opts.OnSettle,
+		onBlocked: opts.OnBlocked,
 		order:     append([]string(nil), opts.Workers...),
 		results:   make(map[string]Result, len(opts.Workers)),
 		unsettled: make(map[string]bool, len(opts.Workers)),
 		panes:     make(map[string]string, len(opts.Workers)),
+		agents:    make(map[string]string, len(opts.Workers)),
 		last:      make(map[string]client.AgentStatus, len(opts.Workers)),
+		blocking:  make(map[string]bool, len(opts.Workers)),
+		blocked:   make(chan blockedResult, len(opts.Workers)),
 	}
 	for _, name := range w.order {
 		w.unsettled[name] = true
@@ -199,6 +213,10 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 		_ = stream.Close()
 		if streamErr == nil {
 			break
+		}
+		var blockedErr *blockedHandlerError
+		if errors.As(streamErr, &blockedErr) {
+			return nil, blockedErr.err
 		}
 		deaths++
 		if deaths > 1 {
@@ -232,16 +250,43 @@ func Wait(ctx context.Context, herd Herd, opts Options) (*Summary, error) {
 
 // waiter holds the state of one Wait call.
 type waiter struct {
-	herd     Herd
-	start    time.Time
-	onSettle func(Result)
+	herd      Herd
+	start     time.Time
+	onSettle  func(Result)
+	onBlocked func(context.Context, Result) (client.AgentStatus, error)
 
 	order     []string                      // requested names, output order
 	results   map[string]Result             // answered workers
 	unsettled map[string]bool               // names still being waited on
 	panes     map[string]string             // name -> pane id
+	agents    map[string]string             // name -> live herdr agent name
 	last      map[string]client.AgentStatus // name -> last observed status
+	blocking  map[string]bool               // blocked handlers currently running
+	blocked   chan blockedResult            // asynchronous handler results
 }
+
+// blockedResult is the handoff from an asynchronous OnBlocked callback back to
+// the waiter's event loop. Keeping it on the event loop preserves the same
+// single-owner rule as settle: callbacks never mutate waiter state themselves.
+type blockedResult struct {
+	result Result
+	state  client.AgentStatus
+	err    error
+}
+
+// blockedHandlerError distinguishes a callback failure from an event-stream
+// failure. The latter is safe to reconcile and resubscribe; the former belongs
+// to the caller and must not be hidden behind a second stream attempt.
+type blockedHandlerError struct {
+	name string
+	err  error
+}
+
+func (e *blockedHandlerError) Error() string {
+	return fmt.Sprintf("herd/wait: blocked handler for %q: %v", e.name, e.err)
+}
+
+func (e *blockedHandlerError) Unwrap() error { return e.err }
 
 // reconcile resolves every unsettled worker against a fresh agent listing:
 // settling the ones that are terminal, reporting the absent ones as exited and
@@ -271,10 +316,14 @@ func (w *waiter) reconcile(ctx context.Context) error {
 			continue
 		}
 		w.panes[name] = info.PaneID
+		w.agents[name] = agentName(info)
 		w.last[name] = info.AgentStatus
-		if IsTerminal(info.AgentStatus) {
-			w.settle(Result{Name: name, State: string(info.AgentStatus), PaneID: info.PaneID})
-		}
+		w.observe(ctx, Result{
+			Name:      name,
+			AgentName: w.agents[name],
+			State:     string(info.AgentStatus),
+			PaneID:    info.PaneID,
+		})
 	}
 	return nil
 }
@@ -325,6 +374,10 @@ func (w *waiter) consume(ctx context.Context, stream *client.EventStream) error 
 		select {
 		case <-ctx.Done():
 			return nil
+		case br := <-w.blocked:
+			if err := w.completeBlocked(ctx, br); err != nil {
+				return err
+			}
 		case ev, open := <-stream.Events():
 			if !open {
 				if err := stream.Err(); err != nil {
@@ -349,12 +402,89 @@ func (w *waiter) consume(ctx context.Context, stream *client.EventStream) error 
 				continue
 			}
 			w.last[name] = changed.AgentStatus
-			if IsTerminal(changed.AgentStatus) {
-				w.settle(Result{Name: name, State: string(changed.AgentStatus), PaneID: changed.PaneID})
-			}
+			w.observe(ctx, Result{
+				Name:      name,
+				AgentName: w.agents[name],
+				State:     string(changed.AgentStatus),
+				PaneID:    changed.PaneID,
+			})
 		}
 	}
 	return nil
+}
+
+// observe handles one status observation. A blocked worker is handed to the
+// asynchronous operator callback when configured; all other terminal statuses
+// retain the ordinary one-event settle behavior.
+func (w *waiter) observe(ctx context.Context, r Result) {
+	status := client.AgentStatus(r.State)
+	if w.blocking[r.Name] {
+		// The callback owns the blocked→prompt→resume transition. Herdr can
+		// emit a stale idle/done event while that round trip is in flight;
+		// settling it here would cancel the callback before the operator's
+		// answer reached the agent.
+		return
+	}
+	if status == client.StatusBlocked && w.onBlocked != nil {
+		w.blocking[r.Name] = true
+		go func() {
+			state, err := w.onBlocked(ctx, r)
+			select {
+			case w.blocked <- blockedResult{result: r, state: state, err: err}:
+			case <-ctx.Done():
+			}
+		}()
+		return
+	}
+	if IsTerminal(status) {
+		w.settle(r)
+	}
+}
+
+// agentName returns the stable target herdr associates with a pane. The
+// similarly named Agent field is the integration kind ("claude", "codex"),
+// not the target name, so it must not be used as a prompt target.
+func agentName(info *client.AgentInfo) string {
+	if info == nil {
+		return ""
+	}
+	if info.Name != nil && *info.Name != "" {
+		return *info.Name
+	}
+	return ""
+}
+
+// completeBlocked applies an OnBlocked result on the waiter's event loop.
+func (w *waiter) completeBlocked(ctx context.Context, br blockedResult) error {
+	name := br.result.Name
+	delete(w.blocking, name)
+	if !w.unsettled[name] {
+		return nil
+	}
+	if br.err != nil {
+		// A handler normally returns as the wait deadline is firing. Let the
+		// deadline produce the documented timeout summary instead of turning
+		// the context error into a spurious stream failure.
+		if ctx.Err() != nil {
+			return nil
+		}
+		return &blockedHandlerError{name: name, err: br.err}
+	}
+	switch br.state {
+	case client.StatusWorking:
+		w.last[name] = br.state
+		return nil
+	case client.StatusIdle, client.StatusDone, client.StatusBlocked:
+		w.last[name] = br.state
+		br.result.State = string(br.state)
+		w.settle(br.result)
+		return nil
+	default:
+		return &blockedHandlerError{
+			name: name,
+			err:  fmt.Errorf("returned invalid state %q", br.state),
+		}
+	}
 }
 
 // pendingWorker finds the unsettled worker occupying a pane.
@@ -374,6 +504,9 @@ func (w *waiter) settle(r Result) {
 		return
 	}
 	delete(w.unsettled, r.Name)
+	if r.AgentName == "" {
+		r.AgentName = w.agents[r.Name]
+	}
 	r.WaitedMs = time.Since(w.start).Milliseconds()
 	w.results[r.Name] = r
 	if w.onSettle != nil {
@@ -393,10 +526,11 @@ func (w *waiter) summary() *Summary {
 				state = string(client.StatusUnknown)
 			}
 			r = Result{
-				Name:     name,
-				State:    state,
-				PaneID:   w.panes[name],
-				WaitedMs: s.ElapsedMs,
+				Name:      name,
+				AgentName: w.agents[name],
+				State:     state,
+				PaneID:    w.panes[name],
+				WaitedMs:  s.ElapsedMs,
 			}
 			s.TimedOut = append(s.TimedOut, name)
 			s.TimeoutFired = true

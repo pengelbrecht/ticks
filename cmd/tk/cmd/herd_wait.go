@@ -1,23 +1,29 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/herd/relay"
 	"github.com/pengelbrecht/ticks/internal/herd/wait"
+	"github.com/pengelbrecht/ticks/internal/operator"
 )
 
 var (
-	herdWaitAgents  []string
-	herdWaitTimeout int64
-	herdWaitSocket  string
-	herdWaitJSON    bool
+	herdWaitAgents     []string
+	herdWaitTimeout    int64
+	herdWaitSocket     string
+	herdWaitJSON       bool
+	herdWaitRelayAfter time.Duration
 )
 
 // defaultHerdWaitTimeoutMs is the wait's deadline when the caller supplies
@@ -49,6 +55,14 @@ Output
   With --json, a single document {"workers":[…],"summary":{…}} is printed at
   the end instead.
 
+Blocked-agent relay
+  --relay-blocked-after is opt-in. When set, a blocked tick is parked as an
+	operator question immediately, but delivery to Telegram waits for the grace
+  period. A local tk answer <tick> <answer> during that window wins and no
+  Telegram question is sent. An unanswered question is delivered through the
+  configured operator channel, and the response is sent back with herdr's
+  agent.prompt. Without this flag, blocked remains a terminal wait outcome.
+
 Exit codes
   0  every worker settled in idle or done (or was absent)
   1  a worker settled in blocked, the timeout fired, or the wait failed
@@ -71,6 +85,8 @@ func init() {
 		"herdr socket path (default: $HERDR_SOCKET_PATH, then ~/.config/herdr/herdr.sock)")
 	herdWaitCmd.Flags().BoolVar(&herdWaitJSON, "json", false,
 		"print one JSON document at the end instead of streaming a line per worker")
+	herdWaitCmd.Flags().DurationVar(&herdWaitRelayAfter, "relay-blocked-after", 0,
+		"after this grace period, relay blocked-agent questions through the operator channel (opt-in)")
 	herdCmd.AddCommand(herdWaitCmd)
 }
 
@@ -82,13 +98,56 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 	if herdWaitTimeout <= 0 {
 		return NewExitError(ExitUsage, "--timeout must be a positive number of milliseconds")
 	}
+	if herdWaitRelayAfter < 0 {
+		return NewExitError(ExitUsage, "--relay-blocked-after cannot be negative")
+	}
 
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
+	stderr := cmd.ErrOrStderr()
 
 	herd, err := herdConnect(ctx, herdWaitSocket)
 	if err != nil {
 		return err
+	}
+
+	// The relay is deliberately opt-in. Opening the operator channel, and
+	// owning the repository's one consumer loop, only happens when the caller
+	// has explicitly asked for blocked-agent escalation.
+	runCtx := ctx
+	var relayCancel context.CancelFunc
+	var relayRoot string
+	var relayEngine *operator.Engine
+	var relayChannel operator.Channel
+	var relayConfig operator.ChannelConfig
+	var consumerDone chan error
+	if herdWaitRelayAfter > 0 {
+		root, rootErr := repoRoot()
+		if rootErr != nil {
+			return NewExitError(ExitNoRepo, "failed to detect repo root: %v", rootErr)
+		}
+		relayRoot = root
+		relayEngine = operator.NewEngine(root)
+		relayChannel, relayConfig, err = askChannel()
+		if err != nil {
+			return err
+		}
+		runCtx, relayCancel = context.WithCancel(ctx)
+		if relayChannel != nil {
+			consumerDone = make(chan error, 1)
+			consumer := operator.NewConsumer(relayEngine.Pending(), relayChannel)
+			consumer.TelegramUserID = relayConfig.UserID
+			go func() {
+				consumerErr := consumer.Run(runCtx)
+				if consumerErr != nil && !errors.Is(consumerErr, operator.ErrConsumerBusy) {
+					relayCancel()
+				}
+				consumerDone <- consumerErr
+			}()
+		}
+	}
+	if relayCancel != nil {
+		defer relayCancel()
 	}
 
 	opts := wait.Options{
@@ -100,7 +159,61 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 		opts.OnSettle = func(r wait.Result) { writeJSONLine(out, r) }
 	}
 
-	summary, err := wait.Wait(ctx, herd, opts)
+	if herdWaitRelayAfter > 0 {
+		var logMu sync.Mutex
+		log := func(format string, args ...any) {
+			logMu.Lock()
+			defer logMu.Unlock()
+			fmt.Fprintf(stderr, format, args...)
+		}
+		opts.OnBlocked = func(blockedCtx context.Context, r wait.Result) (client.AgentStatus, error) {
+			target, eligible, targetErr := relay.ResolveRecordedTarget(relayRoot, r)
+			if targetErr != nil {
+				log("warning: blocked agent %s was not relayed because worker manifests could not be checked: %v\n",
+					r.Name, targetErr)
+				return client.StatusBlocked, nil
+			}
+			if !eligible {
+				log("herd: blocked agent %s is not a recorded tick worker; leaving it blocked without an automatic relay\n",
+					r.Name)
+				return client.StatusBlocked, nil
+			}
+			r.AgentName = target
+			state, relayErr := relay.Handle(blockedCtx, herd, r, relay.Options{
+				RepoRoot:      relayRoot,
+				Engine:        relayEngine,
+				Channel:       relayChannel,
+				Grace:         herdWaitRelayAfter,
+				PromptTimeout: 30 * time.Second,
+				OnPark: func(p operator.Pending) {
+					if relayChannel == nil {
+						log("herd: %s is blocked; question %s is parked for terminal answer (no operator channel configured)\n",
+							r.Name, p.ID)
+						return
+					}
+					log("herd: %s is blocked; question %s is parked locally and will reach Telegram after %s unless answered with tk answer %s <answer>\n",
+						r.Name, p.ID, herdWaitRelayAfter, p.TickID)
+				},
+				Warning: func(warn error) { log("warning: %v\n", warn) },
+			})
+			if relayErr == nil {
+				log("herd: operator answer relayed to %s; worker state is %s\n", r.Name, state)
+			}
+			return state, relayErr
+		}
+	}
+
+	summary, waitErr := wait.Wait(runCtx, herd, opts)
+	if relayCancel != nil {
+		relayCancel()
+	}
+	if consumerDone != nil {
+		consumerErr := <-consumerDone
+		if consumerErr != nil && !errors.Is(consumerErr, operator.ErrConsumerBusy) {
+			return NewExitError(ExitGeneric, "the %s channel failed: %v", channelTelegram, consumerErr)
+		}
+	}
+	err = waitErr
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
 	}

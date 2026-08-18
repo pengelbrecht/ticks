@@ -200,6 +200,36 @@ see the question until the grace window passes. Local surfaces (`tk answer`,
 answering from a terminal within the window means the operator's phone is
 never disturbed.
 
+### Herdr blocked-agent relay: terminal first, Telegram second
+
+`tk herd wait` keeps the historical behavior by default: a worker that reaches
+Herdr's `blocked` state is reported as blocked and the command exits nonzero.
+For a live wave where the operator may be watching a terminal, opt into a
+delayed relay explicitly:
+
+```bash
+tk herd wait --agents tick-abc,tick-def \
+  --relay-blocked-after 5m --timeout 1800000
+```
+
+When the flag is set, a blocked worker immediately gets a durable free-text
+question parked on its tick as `awaiting escalation`. That question is visible
+to `tk list --awaiting` and can be answered with `tk answer <tick> <answer>`;
+that local answer wins during the grace period and no Telegram message is
+created. If it remains unanswered after `--relay-blocked-after`, the normal
+operator-channel consumer delivers it. The first answer is applied to the
+tick, sent back to the exact Herdr agent (including a respawned `-rN` name),
+and the same `tk herd wait` resumes watching that worker.
+
+The option is intentionally opt-in, so existing waves never start sending
+blocked-agent questions to a phone unexpectedly. If no operator channel is
+configured, the parked question remains terminal-only and is still answerable
+locally. The overall `--timeout` remains the outer bound; when it expires, an
+unanswered question stays open on disk for a later `tk answer` or run. Relay
+eligibility is also fail-closed: only targets recorded in Herdr worker
+manifests are relayed, so an accidentally included orchestrator pane is
+reported as blocked without being prompted back through itself.
+
 ### `tk answer`: the terminal twin
 
 ```bash

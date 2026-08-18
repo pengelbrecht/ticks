@@ -346,6 +346,7 @@ Shapes worth knowing on `tk ask`:
 
 - `--timeout <duration>` bounds the wait. Expiry exits **7**, and giving up is not an answer: the tick stays awaiting and the question stays open, so a later `tk answer` — or a later run — still settles it.
 - `--escalate-after <duration>` holds channel delivery for a grace window while local surfaces see the question immediately, so an answer given at the keyboard never disturbs the device.
+- `tk herd wait --relay-blocked-after <duration>` applies the same terminal-first grace window to a live Herdr wave: a blocked worker is parked as an `awaiting escalation` question, an unanswered question reaches the operator channel after the delay, and the response is sent back with `agent.prompt` so the same wait can resume. It is opt-in; without the flag, `blocked` remains a settled nonzero outcome.
 - `--async` registers and delivers the question, prints its id, and returns; `tk ask --collect [--wait]` drains settled answers as JSON lines later (it takes no tick id). Use these when you want a question in flight while the wave keeps running.
 
 ## Human-in-the-loop ticks

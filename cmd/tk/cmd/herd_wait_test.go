@@ -31,6 +31,21 @@ func TestHerdWaitRejectsNonPositiveTimeout(t *testing.T) {
 	}
 }
 
+// TestHerdWaitRejectsNegativeRelayGrace keeps an accidental negative duration
+// from turning the operator channel into an immediate delivery path.
+func TestHerdWaitRejectsNegativeRelayGrace(t *testing.T) {
+	err := ExecuteArgs([]string{
+		"herd", "wait", "--agents", "tick-a", "--timeout", "500",
+		"--relay-blocked-after", "-1s",
+	})
+	if err == nil {
+		t.Fatal("herd wait --relay-blocked-after -1s returned nil error")
+	}
+	if code := GetExitCode(err); code != ExitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", code, ExitUsage)
+	}
+}
+
 // TestHerdWaitUnreachableSocket pins that an unreachable herdr is a plain
 // failure, and — importantly for tests and CI — that an explicit --socket is
 // honoured so no live herdr session is ever contacted.
@@ -60,6 +75,9 @@ func TestHerdWaitFlagsResetBetweenExecutions(t *testing.T) {
 	}
 	if herdWaitJSON {
 		t.Error("herdWaitJSON leaked across executions")
+	}
+	if herdWaitRelayAfter != 0 {
+		t.Errorf("herdWaitRelayAfter = %s, want reset to zero", herdWaitRelayAfter)
 	}
 }
 

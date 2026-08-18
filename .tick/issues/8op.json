@@ -1,0 +1,16 @@
+{
+  "id": "8op",
+  "title": "Relay blocked Herdr agents through the operator channel after a terminal grace period",
+  "description": "Add an opt-in tk herd wait blocked-agent relay. When --relay-blocked-after is set, park an operator question on the worker tick immediately, let local tk answer win during the grace period, deliver unanswered questions through the configured operator channel after the delay, and send the response back to the original Herdr agent with agent.prompt. Keep the existing no-relay behavior by default. Cover wait resumption, terminal-first answers, channel delivery, and prompt correlation with focused tests and docs.",
+  "notes": "2026-08-18 12:55 - Implemented opt-in --relay-blocked-after for tk herd wait. Questions stay terminal-first via durable operator pending state; unanswered questions use the configured channel and responses return through herdr agent.prompt. Relay is fail-closed to recorded worker manifests and matching panes, so an accidentally included orchestrator is left blocked. Verified with short suite, focused race tests, go vet, and diff check.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "discovered_from": "nmn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-18T10:30:33.108349Z",
+  "updated_at": "2026-08-18T10:55:25.969522Z",
+  "closed_at": "2026-08-18T10:55:25.969522Z",
+  "closed_reason": "Implemented terminal-first blocked-agent relay with orchestrator guard, tests, and docs"
+}

@@ -2,6 +2,7 @@ package wait
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +200,77 @@ func TestWaitBlockedWorker(t *testing.T) {
 	}
 	if sum.OK() {
 		t.Error("summary.OK() = true for a blocked worker, want false (non-zero exit)")
+	}
+}
+
+// TestWaitBlockedHandlerResumesWorker pins the opt-in escalation seam: blocked
+// is handed to the operator callback without settling the worker, and a working
+// result puts the same worker back under the original event stream.
+func TestWaitBlockedHandlerResumesWorker(t *testing.T) {
+	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
+	started := make(chan Result, 1)
+	release := make(chan struct{})
+	resumed := make(chan struct{})
+	go func() {
+		srv.waitForStreams(1)
+		srv.pushStatus("tick-a", client.StatusBlocked)
+		blocked := <-started
+		if blocked.AgentName != "tick-a" {
+			t.Errorf("blocked agent name = %q, want tick-a", blocked.AgentName)
+		}
+		close(release)
+		<-resumed
+		srv.pushStatus("tick-a", client.StatusDone)
+	}()
+
+	sum, err := Wait(testContext(t), srv.Client(t), Options{
+		Workers: []string{"tick-a"},
+		Timeout: 10 * time.Second,
+		OnBlocked: func(ctx context.Context, r Result) (client.AgentStatus, error) {
+			started <- r
+			select {
+			case <-release:
+				close(resumed)
+				return client.StatusWorking, nil
+			case <-ctx.Done():
+				return client.StatusBlocked, ctx.Err()
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if sum.Blocked != 0 || sum.Settled != 1 || !sum.OK() {
+		t.Fatalf("summary = %+v, want one resumed settled worker", sum)
+	}
+	if got := resultsByName(sum)["tick-a"].State; got != string(client.StatusDone) {
+		t.Errorf("tick-a state = %q, want done after the resumed wait", got)
+	}
+}
+
+// TestWaitBlockedHandlerErrorIsNotStreamFailure pins error ownership: a relay
+// failure belongs to the caller and must not trigger the waiter's one allowed
+// event-stream resubscription.
+func TestWaitBlockedHandlerErrorIsNotStreamFailure(t *testing.T) {
+	srv := newFakeHerd(t, &fakeAgent{name: "tick-a", paneID: "w1:p1", status: client.StatusWorking})
+	want := errors.New("operator unavailable")
+	go func() {
+		srv.waitForStreams(1)
+		srv.pushStatus("tick-a", client.StatusBlocked)
+	}()
+
+	_, err := Wait(testContext(t), srv.Client(t), Options{
+		Workers: []string{"tick-a"},
+		Timeout: 10 * time.Second,
+		OnBlocked: func(context.Context, Result) (client.AgentStatus, error) {
+			return client.StatusBlocked, want
+		},
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("Wait error = %v, want blocked-handler error %v", err, want)
+	}
+	if got := srv.Subscribes(); got != 1 {
+		t.Errorf("events.subscribe calls = %d, want 1 — handler failure is not stream failure", got)
 	}
 }
 
