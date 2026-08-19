@@ -228,3 +228,67 @@ effort = "medium"
 kind = "claude"
 model = "haiku"
 `
+
+// docExample6 is worked example 6 from runners-config.md, transcribed
+// verbatim: routing plus the whole command surface.
+const docExample6 = `
+version = 1
+
+[orchestrator]
+harness = "claude"
+kind = "claude"
+
+[orchestration]
+substrate = "auto"
+max_parallel = 4
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[roles.implement.tiers.economy]
+model = "haiku"
+effort = "low"
+
+[roles.implement.tiers.strong]
+model = "opus"
+
+[roles.review]
+kind = "claude"
+model = "opus"
+effort = "high"
+
+[testing]
+notes = """
+Go: internal/worktree can fail locally when temporary repositories lack a git \
+identity; it passes in CI. Do not chase that environmental baseline.
+UI/worker: run the targeted vitest files, not the full suite — it has known \
+pre-existing failures.
+"""
+
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+runner = { command = "node --test --no-warnings extensions/ticks-runner/*.test.ts", description = "Pi runner tests" }
+
+[evidence]
+notes = "Live smokes spawn real workers; budget ~90s each and never run them from a wave gate."
+
+[evidence.commands]
+herd-helper-quick = { command = "bash scripts/verify-herd-helper.sh --quick", description = "Herd helper live smoke (2 workers, ~1 min)" }
+herd-plugin-offline = { command = "bash scripts/verify-herd-plugin.sh --offline-only", description = "Herd plugin offline checks (zero herdr calls)" }
+package-rpc = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc", description = "Package RPC discovery" }
+
+[evidence.acceptance]
+A1 = "package-rpc"
+A2 = "herd-helper-quick"
+A3 = "herd-plugin-offline"
+A4 = "go"
+
+[environment]
+
+[environment.commands]
+go-toolchain = { command = "which go", description = "Go toolchain on PATH" }
+pnpm = { command = "which pnpm", description = "pnpm on PATH (never npm/yarn in this repo)" }
+git-identity = { command = "git config user.email", description = "git identity configured" }
+`

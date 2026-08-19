@@ -1,6 +1,8 @@
 # `.tick/runners.toml` — runner routing configuration
 
-Read [`agent-runner.md`](agent-runner.md) first for the runner-neutral contract and the capability-tier vocabulary. This file defines `.tick/runners.toml`: the per-repo configuration that decides **which substrate orchestrates a run** (herdr panes versus the harness's own subagent primitive) and **which worker serves each task role and tier**.
+Read [`agent-runner.md`](agent-runner.md) first for the runner-neutral contract and the capability-tier vocabulary. This file defines `.tick/runners.toml`: the per-repo configuration that decides **which substrate orchestrates a run** (herdr panes versus the harness's own subagent primitive), **which worker serves each task role and tier**, and **which commands a run may execute, in which phase**.
+
+Two kinds of thing live here, and the dividing line is the working rule from the config-migration epic: *if a program parses it and a mistake fails closed, it needs a schema; if a model reads it, markdown is right.* Routing (`[orchestrator]`, `[orchestration]`, `[roles]`) and the run's command surface (`[testing]`, `[evidence]`, `[evidence.acceptance]`, `[environment]`) are both parsed and both fail closed, so both are schema-validated here. Genuine prose — the `Rules` an implementer reads verbatim into its prompt — stays in `.tick/config.md`.
 
 A worker is specified along **two explicit dimensions**, never as raw argv:
 
@@ -31,6 +33,8 @@ print("ok")
 PY
 ```
 
+That snippet checks **shape**. Three whole-file rules about commands sit outside what a JSON Schema can express and must be checked too — see [Caught by the config loader](#caught-by-the-config-loader). In this repo `scripts/verify-runners-config.py` does both layers for a file (`uv run --with jsonschema python scripts/verify-runners-config.py .tick/runners.toml`) and, run with no argument, self-tests the schema and validates every TOML block in this document.
+
 ## File shape
 
 ```text
@@ -40,6 +44,14 @@ version = 1                 # optional; only 1 is defined
 [orchestration]             # optional — substrate selection and dispatch limits
 [roles.<name>]              # required — at least [roles.implement]
 [roles.<name>.tiers.<tier>] # optional — per-tier overrides
+
+[testing]                   # optional — notes; commands implementers run
+[testing.commands]          #            <id> = { command = "...", description = "..." }
+[evidence]                  # optional — notes; commands CLOSEOUT MAY RUN, nobody else
+[evidence.commands]         #            same shape as testing.commands
+[evidence.acceptance]       # optional — A<n> = "<command id>"
+[environment]               # optional — notes; run-start pre-flight checks
+[environment.commands]      #            same shape as testing.commands
 ```
 
 ### `[orchestrator]`
@@ -124,6 +136,114 @@ Compatibility is therefore enforced by the **spawner, at spawn time**, and it fa
 Under herdr, `tk herd spawn` performs that check, verified live against herdr 0.8.0, 2026-08: a `[roles.review]` of `kind = "claude"` with `model = "gpt-x"` exits 1 with the documented message, writes no plan to stdout, creates no branch and no manifest, and makes **zero herdr calls** — the routing is compiled before the socket is dialled, so a refusal cannot leave a half-made workspace behind. That is a dated observation of one build, not a protocol guarantee.
 
 Under harness orchestration the `kind` values are inert (the harness spawns its own subagents), but the role/tier structure still applies: the adapter maps tier names to its own model classes or reasoning-effort settings, per `agent-runner.md`. `model`/`effort` are hints there, not commands — a harness cannot spawn another vendor's model.
+
+## What a run may execute
+
+Three tables carry commands, and **the table a command sits in is its authorisation** — there is no `phase` key, no `closeout_only` boolean, nothing a typo can flip:
+
+| Table | Who runs it | When |
+|---|---|---|
+| `[testing.commands]` | implementers, per-tick verifiers, post-wave gates, final-review tests | any time |
+| `[evidence.commands]` | the close-out tick, and nothing else | close-out only |
+| `[environment.commands]` | the orchestrator | once, at run start, before wave 1 |
+
+Each table maps a **command id** to a command:
+
+```toml
+# fragment
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+```
+
+`command` is run verbatim: one shell string, no template, no prose riding along, no control characters. `description` is a human label and is never executed or matched against. Ids match `^[a-z0-9][a-z0-9_-]*$` and are **unique across all three tables** — see [Caught by the config loader](#caught-by-the-config-loader).
+
+A keyed table rather than an array of entries is the point of moving here from markdown: the id is a TOML key, so a duplicate id is a parse error before validation runs, and `[evidence.acceptance]` gets something stable to point at that is not the command's own text.
+
+### `[testing]`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `notes` | string | Free-text caveats that are *not* commands — "this suite fails locally without a git identity", "the full worker suite has a known boot crash, run the targeted files". Read by a human or a model; never parsed, never executed. |
+| `commands` | table | Command id → command. Handed to implementers. |
+
+`notes` exists so the narrative hints do not have to leave the structured file to stay useful. A repo that moves its commands here and its caveats to some other file ends up with a stale copy of the caveats. **Prose is not authority:** a command mentioned only in `notes` is not authorised to run — only a command table authorises shell.
+
+### `[evidence]`
+
+Same two keys as `[testing]`, plus `acceptance`. Its commands are **close-out only**. This is the pre-existing rule from `agent-runner.md`, kept intact: an evidence command must never be run by an implementer, a per-tick verifier, a post-wave gate, or final-review tests. The separation is structural — a command is in `[testing.commands]` or in `[evidence.commands]`, never both (the loader rejects a config where the same command string appears in both), so there is no way to widen an evidence command's authorisation short of moving it and saying so in the diff.
+
+### `[evidence.acceptance]`
+
+The acceptance-item-to-command authorisation table: one acceptance item id to the id of the one command that proves it.
+
+```toml
+# fragment
+[evidence.acceptance]
+A1 = "package-rpc"        # an id in evidence.commands
+A2 = "go"                 # or in testing.commands
+```
+
+Item ids match `^A[1-9][0-9]{0,2}$` — the `A<n>` written in the tick's acceptance criteria. The value is a command id defined in `[testing.commands]` or `[evidence.commands]`; **`[environment.commands]` is not an authorisation source** — a pre-flight check is not evidence.
+
+This table replaces the markdown format's verbatim-and-uniquely-matching apparatus, and it is worth being precise about what changed and what did not:
+
+- **Gone, because structure supplies it.** Exactly-one-mapping-per-item: an item is a key, so a duplicate is a TOML parse error. Repeating the command text verbatim so it can be matched: the value is an id, so there is nothing to match. Ambiguity from a command appearing twice: ids are unique, and one command string belongs to one table.
+- **Unchanged, because it is semantics, not parsing.** An item whose reference names no command in the file is a **stop**, never a degradation to running something generic. An acceptance item with no mapping is unverified and leaves close-out and the epic open. And **nothing outside this file authorises shell** — not a tick description, not tracker prose, not a model's suggestion, not a command a worker read in a log. Cross-item evidence (running A2's command for A1) is still wrong; the mapping is the authority for which item a command proves.
+
+### `[environment]`
+
+Same two keys as `[testing]`. These are the run-start pre-flight checks: each one **tests** a precondition rather than asking a human about it (`which go`, `pg_isready -h localhost`, `git config user.email`). Run them once, before wave 1; on a failure, surface it to the user and stop — do not start a wave on a broken environment.
+
+### Caught by the config loader
+
+Three rules span tables, and JSON Schema has no referential integrity, so the schema cannot express them. They are **normative and fail closed** exactly like the schema's own rules, and a config that breaks one is a stop, not a warning:
+
+| Rule | Why | Failure |
+|---|---|---|
+| A command id is defined in **at most one** of `testing.commands`, `evidence.commands`, `environment.commands`. | The id is the namespace an acceptance mapping resolves in; a collision makes the authorised phase of a command ambiguous. | `evidence.commands.<id>: command id is already defined in testing.commands` |
+| A command **string** appears in at most one of those three tables. | This is what the markdown format's "must exist verbatim and *uniquely*" was protecting: a command reachable from two phases lets an implementer run a close-out-only command. | `evidence.commands.<id>: command is already authorised as testing.commands.<other>` |
+| Every `[evidence.acceptance]` value names an id defined in `testing.commands` or `evidence.commands`. | Nothing outside this file authorises shell; an unresolvable reference has no command to run. | `evidence.acceptance.A1: "package-rcp" is not a command defined in testing.commands or evidence.commands` |
+
+This is the same division of labour the file already draws for routing — the schema knows the format, the spawner knows the vendor, and the loader knows the file as a whole. In this repo the loader is the one behind `tk herd spawn`, and `scripts/verify-runners-config.py` is a standalone reference implementation of both layers (`uv run --with jsonschema python scripts/verify-runners-config.py .tick/runners.toml`).
+
+## Replacing `.tick/config.md`'s structured sections
+
+`.tick/config.md` historically carried four machine-parsed sections in markdown. They move here; `Rules` — prose an implementer reads verbatim into its prompt — stays in `config.md`.
+
+| `.tick/config.md` section | Moves to |
+|---|---|
+| `## Testing` (command bullets) | `[testing.commands]` |
+| `## Testing` (prose bullets, the Go/UI/worker caveats) | `testing.notes` |
+| `## Closeout Evidence Commands` | `[evidence.commands]` |
+| `## Acceptance Evidence` (`- A<n>: \`command\``) | `[evidence.acceptance]`, by id |
+| `## Environment` | `[environment.commands]` (label after the em dash → `description`) |
+| `## Pi Orchestrator` | `[roles]`, `[roles.*.tiers]`, `[orchestration]` — see below |
+| `## Rules` | stays in `.tick/config.md` |
+
+### The `## Pi Orchestrator` block
+
+That block was key/value routing config in markdown, duplicating what `[roles]` and `[roles.*.tiers]` already express. It maps onto the **existing** roles and tiers vocabulary with no new keys — there is deliberately no second routing model:
+
+| Markdown key | TOML location |
+|---|---|
+| `planner_model` | `[roles.plan]` → `model` (+ `effort`) |
+| `scout_model` | `[roles.scout]` → `model` (+ `effort`) |
+| `implement_economy_model` | `[roles.implement.tiers.economy]` |
+| `implement_balanced_model` | `[roles.implement.tiers.balanced]` |
+| `implement_strong_model` | `[roles.implement.tiers.strong]` |
+| `review_model` | `[roles.review]` |
+| `closeout_model` | `[roles.closeout]` |
+| `max_parallel` | `[orchestration]` → `max_parallel` |
+
+Three things a migration has to do rather than copy:
+
+- **Split the effort suffix.** `openai-codex/gpt-5.6-sol:xhigh` is one markdown string but two fields here: `model = "openai-codex/gpt-5.6-sol"` and `effort = "xhigh"`. The `Model` pattern rejects `:` for exactly this reason — the `model:thinking` shorthand is what the spawner *emits*, not what the config carries.
+- **Make the kind explicit.** The markdown block named models and never a kind; the kind was implied by the heading saying *Pi*. `kind` is required on every role here, so write `kind = "pi"`.
+- **`max_parallel` lands in `[orchestration]`, not `[orchestrator]`.** They are different tables: `[orchestrator]` is advisory ("which harness this config was written for"), `[orchestration]` is dispatch policy.
+
+Two vocabulary notes for a reader porting the pi extension's own routing helper. Its `review` and `closeout` "tiers" are **roles** here, not tiers — the four tier names are `economy`/`balanced`/`strong`/`frontier`, and `[roles.review]`/`[roles.closeout]` is where those models belong. Its `foundation` tier is `[roles.review]` at the `frontier` tier. Neither needs a new key.
+
+One key in that block has **no home in this schema and does not get one**: `review_should_fix` (`repair` | `record`) is a review-outcome policy — what to do with a should-fix finding — not routing, not a command, and not a phase. Bolting it into `[orchestrator]` would start the second routing model this migration exists to remove. Until it is given a table of its own by a tick that has thought about run policy as a category, it stays where a model reads it.
 
 ## Substrate semantics
 
@@ -415,6 +535,74 @@ effort = "high"
 
 Compiled argv for `implement` at `strong`: `--auto --model openai/gpt-5.6-sol`. Two things to carry away. First, `--auto` is opencode's entire full-auto template — it approves permissions rather than choosing a sandbox, so unlike codex there is no computed per-spawn extra and nothing extra is needed to commit from a linked worktree. Second, the model ids must be **exactly** what `opencode models` prints: a bare or misspelled id is not an error there, it is a silent fall back to the CLI's default model, which is why the spawner's family check for this kind is strict about the `<provider>/<model>` shape.
 
+### 6. Routing plus the whole command surface
+
+Everything above is routing. This one adds the four command tables, and is the shape a repo lands in after moving `.tick/config.md`'s structured sections here. Note what is *not* in it: no `phase` key on a command (the table is the phase), and no routing key that `[roles]`/`[roles.*.tiers]` did not already have.
+
+```toml
+version = 1
+
+[orchestrator]
+harness = "claude"
+kind = "claude"
+
+[orchestration]
+substrate = "auto"
+max_parallel = 4
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[roles.implement.tiers.economy]
+model = "haiku"
+effort = "low"
+
+[roles.implement.tiers.strong]
+model = "opus"
+
+[roles.review]
+kind = "claude"
+model = "opus"
+effort = "high"
+
+[testing]
+notes = """
+Go: internal/worktree can fail locally when temporary repositories lack a git \
+identity; it passes in CI. Do not chase that environmental baseline.
+UI/worker: run the targeted vitest files, not the full suite — it has known \
+pre-existing failures.
+"""
+
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+runner = { command = "node --test --no-warnings extensions/ticks-runner/*.test.ts", description = "Pi runner tests" }
+
+[evidence]
+notes = "Live smokes spawn real workers; budget ~90s each and never run them from a wave gate."
+
+[evidence.commands]
+herd-helper-quick = { command = "bash scripts/verify-herd-helper.sh --quick", description = "Herd helper live smoke (2 workers, ~1 min)" }
+herd-plugin-offline = { command = "bash scripts/verify-herd-plugin.sh --offline-only", description = "Herd plugin offline checks (zero herdr calls)" }
+package-rpc = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc", description = "Package RPC discovery" }
+
+[evidence.acceptance]
+A1 = "package-rpc"
+A2 = "herd-helper-quick"
+A3 = "herd-plugin-offline"
+A4 = "go"
+
+[environment]
+
+[environment.commands]
+go-toolchain = { command = "which go", description = "Go toolchain on PATH" }
+pnpm = { command = "which pnpm", description = "pnpm on PATH (never npm/yarn in this repo)" }
+git-identity = { command = "git config user.email", description = "git identity configured" }
+```
+
+`A4` points at a `[testing.commands]` id, which is allowed: close-out may run a testing command as evidence. The reverse is not — an implementer may not run `herd-helper-quick`, because it lives in `[evidence.commands]`, and no key in this file can change that.
+
 ## Negative cases
 
 These are the failures a config author should expect, and where each one is caught.
@@ -431,6 +619,27 @@ These are the failures a config author should expect, and where each one is caug
 | `[roles.implement.tiers.strong]` with no keys | A tier must set at least one of `kind`/`model`/`effort`/`args`. |
 | `[roles.implement] models = "opus"` | `additionalProperties: false` — a typo'd key is an error, never a silently ignored one. |
 | `[roles.implement.tiers.turbo]` | Not one of the four tier names. |
+| `[testing] notez = "…"` | `additionalProperties: false` in every new table too. A typo that silently degraded a repo to no-evidence is the failure this file exists to prevent. |
+| `go = { command = "go test", describtion = "…" }` | Same, inside a command: only `command` and `description` exist. |
+| `go = { description = "…" }` | `command` is required — a labelled entry with nothing to run is not a command. |
+| `go = "go test -short ./..."` | A command is a table, not a bare string. One shape, so a consumer never branches. |
+| `go = { command = "" }` | Empty command. Delete the entry instead. |
+| `go = { command = "which go rm -rf /" }` | Control characters are rejected in `command`, not escaped. |
+| `[evidence.acceptance] A0 = "go"`, `Item1 = "go"` | Item ids are `A<n>`, `n` ≥ 1. |
+| `[evidence.acceptance] A1 = 1` | The value is a command **id**, a string. |
+| `[testing.commands] Go = { … }` | Command ids are lowercase `^[a-z0-9][a-z0-9_-]*$`. |
+| `[evidence.acceptance]` twice, or `A1` twice in it | Rejected by TOML itself, before the schema — which is the point of keying the table by the item id. |
+
+### Caught by the config loader (shape-valid, still unusable)
+
+| Config | Why it fails |
+|---|---|
+| `A1 = "package-rcp"` with no such command id | **Unresolvable authorisation.** Nothing outside this file authorises shell, so there is no command to run. A stop, never "run the closest match". |
+| the same id in `[testing.commands]` and `[environment.commands]` | Ambiguous: an acceptance reference could not say which phase it meant. |
+| the same command **string** in `[testing.commands]` and `[evidence.commands]` | Ambiguous authorisation — the close-out-only command becomes runnable by an implementer. This is the rule the markdown format spelled as "verbatim and *uniquely*". |
+| `A1 = "go-toolchain"` where `go-toolchain` is in `[environment.commands]` | A pre-flight check is not acceptance evidence. |
+
+See [Caught by the config loader](#caught-by-the-config-loader) for the full statement of these three rules.
 
 ### Caught by the spawner (shape-valid, still unroutable)
 
@@ -458,4 +667,8 @@ The dividing line is the same one stated under [Shape versus compatibility](#sha
 - **`effort` is not universal.** A kind may have no mechanism for it (opencode), in which case setting it is a spawn refusal, not a hint. Check [`herdr-kinds.md`](herdr-kinds.md#model-and-effort-translation) before writing an effort ladder for a kind you have not used here before, and build the ladder from `model` when there is no effort dimension.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.
 - **Keep `[roles.implement]` present.** It is the fallback for every unlisted role.
+- **The table is the authorisation.** Put a command in `[evidence.commands]` only if close-out is the *only* phase that may run it, and never copy it into `[testing.commands]` to "also run it in a wave" — that is the ambiguity the loader refuses. Move it and say so in the diff.
+- **Name commands for what they prove, not for how they run.** The id is a stable reference an acceptance mapping and a close-out report both quote (`package-rpc`, `herd-helper-quick`), so renaming one is a contract change; rewriting the command it points at is not.
+- **Prose goes in `notes`, never in a command.** `notes` is where the caveats live — flaky suites, known-failing full runs, timing. A command string carries no commentary, and a caveat in `notes` authorises nothing.
+- **Every acceptance item the epic will be closed against needs a mapping.** An unmapped item is unverified, and unverified leaves close-out and the epic open. Adding an acceptance item to a tick is therefore also an edit to this file.
 - **A config that fails schema validation is a stop, not a guess** — report the validation error and let the user fix it rather than falling back to defaults silently. **A config that passes the schema but hits an impossible cell at spawn time is equally a stop** — see [Shape versus compatibility](#shape-versus-compatibility).
