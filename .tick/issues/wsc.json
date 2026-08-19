@@ -2,7 +2,7 @@
   "id": "wsc",
   "title": "Final review of the config migration diff",
   "description": "Review: schema completeness and fail-closed behaviour on unknown keys, that no parsing heuristic was ported onto the structured path, that the two paths cannot drift in fail-closed semantics, migration idempotency and its refusal cases, and that the docs describe one shape. Confirm no consuming repo is silently broken: the legacy path must still work end to end, not merely compile.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -16,5 +16,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T16:42:18.080276Z",
-  "updated_at": "2026-08-19T16:42:18.080276Z"
+  "updated_at": "2026-08-19T20:38:04.825875Z",
+  "started_at": "2026-08-19T20:38:04.825874Z"
 }
