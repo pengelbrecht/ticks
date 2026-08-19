@@ -752,6 +752,20 @@ What each layer emits, and where it lands:
 | Model traffic | Per-request logs with run/tick metadata, tokens, cost — ground truth for D17 budgets | AI Gateway logs |
 | Tracker | The existing audit trail, unchanged: `.tick/activity/activity.jsonl`, actor-stamped notes, `run-state:` notes | git |
 
+**Why D1 for signals and dispatch, not the logging pipeline:** those rows are
+operational state first and observability second — the dispatcher reads them
+synchronously to decide (dedup by `external_ref`, strike counting, the
+flake gate's pass-history check), so they must be exactly-once, queryable,
+and retained on the factory's terms. Cloudflare's logging services trade
+exactly those properties for volume (sampling, short retention, no SQL reads
+from the hot path) — right for telemetry, wrong for audit records that policy
+depends on. The split is by role and rate: low-rate load-bearing records →
+D1; high-volume streams → R2 and gateway logs; invocation noise → Workers
+Logs. (Analytics Engine may later serve aggregate *metrics* — spend per day,
+runs per week — a different job than the audit trail; a Tail Worker/Logpush
+export stays an option for users who want logs in their own stack, never a
+dependency.)
+
 Three rules keep it useful rather than voluminous:
 
 - **Log the vocabulary, not prose.** Failure events use the taxonomy this
