@@ -142,7 +142,17 @@ func Migrate(configMD, runnersTOML []byte) (MigrationResult, error) {
 		return MigrationResult{}, err
 	}
 	if !legacy.hasStructuredSections() {
-		return MigrationResult{ConfigMD: append([]byte(nil), configMD...), RunnersTOML: append([]byte(nil), runnersTOML...)}, nil
+		// Nothing left in the markdown — but the runners.toml a pre-gate tk
+		// wrote may still carry the command surface under `version = 1`. That
+		// file is exactly the one an older tk cannot read, so this command
+		// stays the one that fixes it rather than reporting a clean no-op.
+		bumped, warnings := raiseConfigVersion(runnersTOML)
+		return MigrationResult{
+			ConfigMD:    append([]byte(nil), configMD...),
+			RunnersTOML: bumped,
+			Warnings:    warnings,
+			Changed:     !bytesEqual(runnersTOML, bumped),
+		}, nil
 	}
 
 	tables, err := buildMigrationTables(legacy)
@@ -153,6 +163,8 @@ func Migrate(configMD, runnersTOML []byte) (MigrationResult, error) {
 	if err != nil {
 		return MigrationResult{}, err
 	}
+	mergedRunners, versionWarnings := raiseConfigVersion(mergedRunners)
+	warnings = append(warnings, versionWarnings...)
 	if _, err := Parse(mergedRunners); err != nil {
 		return MigrationResult{}, fmt.Errorf("migrated .tick/runners.toml does not validate: %w", err)
 	}
@@ -859,6 +871,99 @@ func mergeRunnersTOML(original []byte, tables []migrateTable) ([]byte, []string,
 		result += lineEnding
 	}
 	return []byte(result), warnings, nil
+}
+
+// tomlVersionRE matches the top-level `version = <n>` assignment, keeping any
+// trailing comment so a bump does not silently delete one.
+var tomlVersionRE = regexp.MustCompile(`^\s*version\s*=\s*[0-9]+\s*(#.*)?$`)
+
+var tomlCommentRE = regexp.MustCompile(`^\s*(#.*)?$`)
+
+// raiseConfigVersion writes the version the file's own content requires, and
+// warns about what that costs: a version 2 file is unreadable by a tk that
+// only understands version 1, which now says so in one line instead of
+// listing every key it does not know.
+//
+// It only ever raises. A routing-only file stays at version 1 — a file an
+// older tk can read is one it should be allowed to read — and a file already
+// declaring the right version is returned byte-identical, which is what keeps
+// `tk config migrate` idempotent.
+func raiseConfigVersion(runners []byte) ([]byte, []string) {
+	var cfg Config
+	if _, err := toml.Decode(string(runners), &cfg); err != nil {
+		// Not parseable: leave it exactly as it is and let validation speak.
+		return append([]byte(nil), runners...), nil
+	}
+	required := cfg.RequiredVersion()
+	if cfg.DeclaredVersion() >= required {
+		return append([]byte(nil), runners...), nil
+	}
+	updated := writeConfigVersion(runners, required)
+	warning := fmt.Sprintf(
+		"%s is now version %d — it carries the [testing]/[evidence]/[environment] command surface, which a version %d reader cannot read. "+
+			"Every checkout that runs this repo needs tk %s or newer; an older tk refuses the file with one line telling its operator to run `tk upgrade`.",
+		FileName, required, required-1, MinTkVersion)
+	return updated, []string{warning}
+}
+
+// writeConfigVersion sets the top-level `version` key, replacing an existing
+// assignment in place (comments around it survive) or inserting one above the
+// first real content when the file has none.
+func writeConfigVersion(runners []byte, version int) []byte {
+	text := string(runners)
+	lineEnding := "\n"
+	if strings.Contains(text, "\r\n") {
+		lineEnding = "\r\n"
+	} else if strings.Contains(text, "\r") {
+		lineEnding = "\r"
+	}
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	hadTrailingNewline := strings.HasSuffix(normalized, "\n")
+	lines := strings.Split(normalized, "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	} else if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	assignment := "version = " + strconv.Itoa(version)
+	replaced := false
+	for i, line := range lines {
+		if tomlTableRE.MatchString(line) {
+			break // past the top-level keys
+		}
+		if match := tomlVersionRE.FindStringSubmatch(line); match != nil {
+			if match[1] != "" {
+				lines[i] = assignment + " " + match[1]
+			} else {
+				lines[i] = assignment
+			}
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		insert := 0
+		for insert < len(lines) && tomlCommentRE.MatchString(lines[insert]) {
+			insert++
+		}
+		block := []string{assignment}
+		if insert < len(lines) && strings.TrimSpace(lines[insert]) != "" {
+			block = append(block, "")
+		}
+		merged := make([]string, 0, len(lines)+len(block))
+		merged = append(merged, lines[:insert]...)
+		merged = append(merged, block...)
+		merged = append(merged, lines[insert:]...)
+		lines = merged
+	}
+
+	result := strings.Join(lines, lineEnding)
+	if hadTrailingNewline || len(runners) == 0 {
+		result += lineEnding
+	}
+	return []byte(result)
 }
 
 func findTomlTables(lines []string) map[string]tomlTableSpan {

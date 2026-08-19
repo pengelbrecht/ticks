@@ -46,7 +46,11 @@ func TestRepoConfigHasNoLegacyStructuredSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate on the repo's own config: %v", err)
 	}
-	if result.Changed {
+	// config.md is what this test guards. The migration may still have
+	// something to say about runners.toml — raising the format version of an
+	// already-migrated file is also its job — and that is a separate
+	// obligation, not a legacy section creeping back in.
+	if string(result.ConfigMD) != string(configMD) {
 		t.Errorf(".tick/config.md still carries legacy structured sections; run `tk config migrate --apply`")
 	}
 }

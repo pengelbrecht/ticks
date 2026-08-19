@@ -3,10 +3,31 @@ package config
 // FileName is the repo-relative path of the runner routing config.
 const FileName = ".tick/runners.toml"
 
-// Version is the only config format version defined. A file carrying any
-// other `version` is a stop, per the schema: "A reader that does not
-// recognise the value must stop rather than guess."
-const Version = 1
+// Version is the newest config format version this binary understands, and
+// the version [Migrate] writes. MinVersion is the oldest it still reads: a
+// version 1 file — routing only, written before the command surface existed —
+// keeps loading untouched.
+//
+// The field exists for one job, learned the hard way on 2026-08-19: a tk that
+// predates a format change must fail with one line telling its operator to
+// upgrade, not with a list of the keys it does not recognise. [Parse] reads
+// `version` BEFORE it reads shape, so a file from the future is refused with
+// an [UnsupportedVersionError] and nothing else.
+const (
+	Version    = 2
+	MinVersion = 1
+)
+
+// CommandSurfaceVersion is the format version that introduced `[testing]`,
+// `[evidence]` and `[environment]`. A file carrying any of them cannot be
+// read by a version 1 reader, so it must declare this version — that is what
+// makes the older binary say "upgrade tk" instead of enumerating 57 keys.
+const CommandSurfaceVersion = 2
+
+// MinTkVersion is the first tk release that understands [Version]. It is what
+// a migration warning tells the operator to install everywhere else; keep it
+// in step with the CHANGELOG release that ships the version bump.
+const MinTkVersion = "0.32.0"
 
 // Effort is the kind-neutral reasoning/thinking level from the schema's
 // `Effort` enum. It is a union across kinds — a value valid here can still be
@@ -167,6 +188,34 @@ type Evidence struct {
 type Environment struct {
 	Notes    string   `toml:"notes"`
 	Commands Commands `toml:"commands"`
+}
+
+// DeclaredVersion reports the `version` the file carries. An omitted key
+// means [MinVersion] — the format predates the field, so absence cannot mean
+// anything else. It is nil-safe.
+func (c *Config) DeclaredVersion() int {
+	if c == nil || c.Version == nil {
+		return MinVersion
+	}
+	return *c.Version
+}
+
+// RequiredVersion reports the lowest format version that can express this
+// config: [CommandSurfaceVersion] once `[testing]`, `[evidence]` or
+// `[environment]` is present, [MinVersion] for a routing-only file. It is
+// nil-safe.
+//
+// This is what [Migrate] writes, and why it does not bump a routing-only
+// file: a version an older tk can read is a version it should be allowed to
+// read.
+func (c *Config) RequiredVersion() int {
+	if c == nil {
+		return MinVersion
+	}
+	if c.Testing != nil || c.Evidence != nil || c.Environment != nil {
+		return CommandSurfaceVersion
+	}
+	return MinVersion
 }
 
 // Substrate reports the configured substrate, defaulting to

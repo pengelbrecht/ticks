@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`tk factory status`** — reports each rung (deployment, GitHub, gateway, cost telemetry), what is configured and whether it currently works, following the `tk channel status` pattern: live checks by default, `--offline` to skip them so it is safe with no network, and a rejected credential always reported but only turned into a nonzero exit by `--check`. No credential is ever printed — only the account a token authenticates as, the repository it can reach, and the provider behind the gateway.
 
 
+### Fixed
+
+- **`.tick/runners.toml` version gate — an older `tk` now says "upgrade", not "57 unknown keys"** — the command surface (`[testing]`, `[evidence]`, `[environment]`) makes a config file that a previous release cannot read, and until now it did not degrade: every `tk herd` command on an older binary died with *"57 validation errors: environment.commands: unknown key; …"*, naming no cause and no fix, the moment somebody ran `tk config migrate`. The compatibility direction that was designed (a new `tk` reading a legacy `config.md`) was fine; its mirror image was never tested. A file carrying the command surface is now **version 2**, every reader — the Go loader and the pi runner's TypeScript one — checks `version` **before** shape, and a file newer than the binary is refused with exactly one line: `.tick/runners.toml is version 2 and this tk understands version 1; upgrade tk (tk upgrade)`. Within a version the reader understands nothing is relaxed: a typo'd key is still a stop that names the key. `tk config migrate` writes the new version — including for a repo an earlier migration already moved, which is otherwise stranded at `version = 1` with version 2 content — and warns that every other checkout needs tk 0.32.0 or newer before the file lands there.
+
+
 ## [0.31.0] - 2026-08-18
 
 ### Added

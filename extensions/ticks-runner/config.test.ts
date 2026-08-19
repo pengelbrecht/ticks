@@ -335,6 +335,58 @@ test("a runners.toml that does not parse or validate stops instead of falling ba
 	assert.match(unknownKey.errors[0], /testing\.commands\.go: unknown key "phase"/);
 });
 
+// The mirror image of the compatibility everyone designed for: an OLD reader
+// meeting a NEW file. Before the version gate it reported one unknown key per
+// table it had never heard of — 57 of them in the live incident — and named no
+// cause and no fix.
+test("a runners.toml newer than this reader fails with one upgrade line, not a key list", () => {
+	const config = resolveRunnerConfigFromToml([
+		'version = 99',
+		'[roles.implement]',
+		'kind = "pi"',
+		'[warp.drive]',
+		'setting = 11',
+	].join("\n"), {});
+
+	assert.equal(config.errors.length, 1);
+	assert.equal(
+		config.errors[0],
+		".tick/runners.toml is version 99 and this ticks runner understands version 2; upgrade tk (tk upgrade)",
+	);
+	assert.doesNotMatch(config.errors[0], /unknown key/);
+});
+
+// The gate is about ordering, not about relaxing anything: inside a version
+// this reader understands, a typo is still a stop that names the key.
+test("a typo inside a supported version still fails closed", () => {
+	const config = resolveRunnerConfigFromToml([
+		'version = 2',
+		'[roles.implement]',
+		'kind = "pi"',
+		'[testing.commands]',
+		'go = { command = "go test", describtion = "Go suite" }',
+	].join("\n"), {});
+
+	assert.equal(config.errors.length, 1);
+	assert.match(config.errors[0], /testing\.commands\.go: unknown key "describtion"/);
+});
+
+// A file `tk config migrate` wrote before the gate existed carries the version
+// 2 tables under `version = 1`. Refusing it would break every repo migrated in
+// that window; the migration raises the version instead.
+test("a command surface still declaring version 1 is read, not refused", () => {
+	const config = resolveRunnerConfigFromToml([
+		'version = 1',
+		'[roles.implement]',
+		'kind = "pi"',
+		'[testing.commands]',
+		'go = { command = "go test ./..." }',
+	].join("\n"), {});
+
+	assert.deepEqual(config.errors, []);
+	assert.equal(config.testCommands.length, 1);
+});
+
 test("a command reachable from two phases is refused, the way verbatim-unique matching used to be", () => {
 	const config = resolveRunnerConfigFromToml([
 		'[roles.implement]',
