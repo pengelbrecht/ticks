@@ -87,6 +87,8 @@ The schema removes the markdown matcher this adapter used to describe. A command
 
 Model routing is `[roles.*]` and `[roles.*.tiers.*]` — the same roles and tiers vocabulary every runner uses, with no second routing model. A `model:thinking` string is two fields here, `model` plus `effort`, because the schema's `Model` pattern rejects `:`.
 
+**Every cell this adapter reads must be `kind = "pi"`.** It spawns `pi` itself and `model` is in the kind's own namespace, so a role or tier of another kind is refused, never read with the kind dropped: no model is derived from it, the mismatch is reported naming the cell, the kind and the model it would have passed, and the run blocks with nothing authorized. One `[roles]` table cannot carry a herdr routing and a pi routing at once — a repo whose roles are `claude`/`codex` is configured for `tk herd spawn`, and this adapter does not run from it. The environment overrides below still win per key, but they do not un-refuse a config. See [`runners-config.md`](runners-config.md#one-table-one-kind-per-reader) → *One table, one kind per reader*.
+
 ```toml
 version = 1
 

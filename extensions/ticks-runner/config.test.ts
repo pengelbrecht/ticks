@@ -255,12 +255,12 @@ const frontierlessMarkdown = `
 
 const frontierlessToml = `
 [roles.plan]
-kind = "claude"
+kind = "pi"
 model = "opus"
 effort = "max"
 
 [roles.implement]
-kind = "claude"
+kind = "pi"
 model = "haiku"
 effort = "low"
 `;
@@ -288,7 +288,7 @@ test("neither path invents a review, closeout or scout model from [roles.impleme
 // paths hand the runner an undefined model, which is its blocked condition.
 test("closeout with neither a closeout nor a planner model resolves to nothing on both paths", () => {
 	const legacy = resolveRunnerConfig("## Pi Orchestrator\n- implement_balanced_model: haiku:low\n", {});
-	const migrated = resolveRunnerConfigFromToml('[roles.implement]\nkind = "claude"\nmodel = "haiku"\neffort = "low"\n', {});
+	const migrated = resolveRunnerConfigFromToml('[roles.implement]\nkind = "pi"\nmodel = "haiku"\neffort = "low"\n', {});
 
 	assert.deepEqual(migrated.errors, []);
 	assert.equal(modelForTier(legacy, "closeout"), undefined);
@@ -300,12 +300,12 @@ test("closeout with neither a closeout nor a planner model resolves to nothing o
 test("an explicit [roles.review] still supplies the review model", () => {
 	const config = resolveRunnerConfigFromToml(`${frontierlessToml}
 [roles.review]
-kind = "claude"
+kind = "pi"
 model = "opus"
 effort = "max"
 
 [roles.scout]
-kind = "claude"
+kind = "pi"
 model = "haiku"
 effort = "medium"
 `, {});
@@ -314,6 +314,122 @@ effort = "medium"
 	assert.equal(config.models.review_model, "opus:max");
 	assert.equal(modelForTier(config, "review"), "opus:max");
 	assert.equal(config.models.scout_model, "haiku:medium");
+});
+
+// One `[roles]` table cannot carry a herdr routing and a pi routing at once.
+// `model` is documented as living in the kind's own namespace, and every model
+// this reader resolves goes on a `pi` command line as `--provider/--model/
+// --thinking`. A repo whose roles are claude/codex is configured for `tk herd
+// spawn`; reading it here is what put `sonnet:high` behind `pi --model`, with
+// no provider at all. So the mismatched kind is refused, not dropped —
+// dropping it would run the tick on pi's own default, which is the same silent
+// substitution the spawner refuses for an impossible cell.
+test("a role whose kind is not pi yields no model, and the refusal names the kind", () => {
+	const config = resolveRunnerConfigFromToml([
+		"[roles.plan]",
+		'kind = "claude"',
+		'model = "opus"',
+		'effort = "xhigh"',
+		"[roles.implement]",
+		'kind = "claude"',
+		'model = "sonnet"',
+		'effort = "high"',
+		"[roles.implement.tiers.economy]",
+		'model = "haiku"',
+		'effort = "low"',
+		"[roles.review]",
+		'kind = "claude"',
+		'model = "opus"',
+		'effort = "max"',
+	].join("\n"), {});
+
+	assert.deepEqual(config.models, {}, "no claude id may reach `pi --model`");
+	assert.equal(modelForTier(config, "balanced"), undefined);
+	assert.equal(modelForTier(config, "review"), undefined);
+	assert.equal(modelForTier(config, "closeout"), undefined, "the planner fallback must not smuggle one in either");
+
+	const errors = config.errors.join("\n");
+	assert.match(errors, /roles\.plan: kind = "claude"/);
+	assert.match(errors, /roles\.review: kind = "claude"/);
+	assert.match(errors, /pi --provider\/--model/);
+	assert.match(errors, /tk herd spawn/);
+	// One report per mis-kinded cell, naming every key it refused — not one
+	// report per key, which for `[roles.implement]` would be three near-copies.
+	const implementErrors = config.errors.filter((error) => error.startsWith("roles.implement:"));
+	assert.equal(implementErrors.length, 1, config.errors.join("\n"));
+	assert.match(implementErrors[0], /implement_economy_model = "haiku:low"/);
+	assert.match(implementErrors[0], /implement_balanced_model = "sonnet:high"/);
+	assert.match(implementErrors[0], /implement_strong_model = "sonnet:high"/);
+	assert.deepEqual(config.testCommands, [], "a refused config authorizes nothing");
+});
+
+// The tier is where a config crosses vendors, so it is where the refusal has
+// to be precise: this is exactly this repo's `balanced` cell after migration.
+test("a tier that switches kind is refused at the tier, leaving its pi siblings intact", () => {
+	const config = resolveRunnerConfigFromToml([
+		"[roles.implement]",
+		'kind = "pi"',
+		'model = "openai-codex/gpt-5.6-sol"',
+		'effort = "medium"',
+		"[roles.implement.tiers.economy]",
+		'effort = "low"',
+		"[roles.implement.tiers.balanced]",
+		'kind = "codex"',
+		'model = "gpt-5.6-luna"',
+		'effort = "max"',
+	].join("\n"), {});
+
+	assert.equal(config.models.implement_economy_model, "openai-codex/gpt-5.6-sol:low");
+	assert.equal(config.models.implement_strong_model, "openai-codex/gpt-5.6-sol:medium");
+	assert.equal(config.models.implement_balanced_model, undefined, "a codex id must not reach `pi --model`");
+	assert.equal(config.errors.length, 1, config.errors.join("\n"));
+	assert.match(config.errors[0], /roles\.implement\.tiers\.balanced: kind = "codex"/);
+	assert.match(config.errors[0], /implement_balanced_model = "gpt-5\.6-luna:max"/);
+});
+
+// A kind this reader cannot recognize as a string is a kind it cannot refuse
+// either, so the tier's `kind` is shape-checked exactly as the role's is —
+// which is also what `internal/herd/config` does, and the two readers may not
+// disagree about whether a file is valid.
+test("a tier's kind is shape-checked, so a malformed one cannot slip a model through", () => {
+	for (const [malformed, pattern] of [["kind = 3", /roles\.implement\.tiers\.strong\.kind: must be a non-empty string/], ['kind = "Codex"', /roles\.implement\.tiers\.strong\.kind: "Codex" is not a herdr kind name/]] as const) {
+		const config = resolveRunnerConfigFromToml([
+			"[roles.implement]",
+			'kind = "pi"',
+			'model = "openai-codex/gpt-5.6-sol"',
+			"[roles.implement.tiers.strong]",
+			malformed,
+			'model = "gpt-5.6-luna"',
+		].join("\n"), {});
+
+		assert.match(config.errors.join("\n"), pattern);
+		assert.deepEqual(config.testCommands, [], "a malformed kind is a stop, not a hint");
+	}
+});
+
+// The refusal is about the kind a cell declares, not about the runner's own
+// name for the role: a `harness` note never overrides `kind` (runners-config.md
+// — "Routing uses `kind`").
+test("harness = \"pi\" does not license a claude kind", () => {
+	const config = resolveRunnerConfigFromToml([
+		"[roles.implement]",
+		'kind = "claude"',
+		'harness = "pi"',
+		'model = "sonnet"',
+	].join("\n"), {});
+
+	assert.equal(config.models.implement_balanced_model, undefined);
+	assert.match(config.errors.join("\n"), /roles\.implement: kind = "claude"/);
+});
+
+// The deprecated block was pi-only by its heading, so its keys stay readable:
+// this rule is about the shared TOML table, not about routing in general.
+test("the markdown Pi Orchestrator block still resolves without a kind", () => {
+	const legacy = resolveRunnerConfig("## Pi Orchestrator\n- implement_balanced_model: openai-codex/gpt-5.6-sol:medium\n- review_model: openai-codex/gpt-5.6-sol:xhigh\n", {});
+
+	assert.deepEqual(legacy.errors, []);
+	assert.equal(legacy.models.implement_balanced_model, "openai-codex/gpt-5.6-sol:medium");
+	assert.equal(legacy.models.review_model, "openai-codex/gpt-5.6-sol:xhigh");
 });
 
 test("environment variables keep winning over the TOML values", () => {
@@ -351,7 +467,7 @@ test("a legacy repo reads config.md and emits exactly one deprecation warning", 
 
 test("a routing-only runners.toml still leaves the command surface on the deprecated markdown path", () => {
 	const root = repoWith({
-		"runners.toml": "[roles.implement]\nkind = \"claude\"\nmodel = \"sonnet\"\n",
+		"runners.toml": "[roles.implement]\nkind = \"pi\"\nmodel = \"sonnet\"\n",
 		"config.md": equivalentMarkdown,
 	});
 	const config = loadRunnerConfig(root, {});
@@ -387,7 +503,7 @@ test("orchestration values use the same enums and types as the Go reader", () =>
 		'worktree_branch_prefix = ""',
 		'full_auto = "yes"',
 		"[roles.implement]",
-		'kind = "claude"',
+		'kind = "pi"',
 	].join("\n"), {});
 
 	assert.match(config.errors.join("\n"), /orchestration\.substrate/);
@@ -542,16 +658,37 @@ test("this repo's own run config loads from runners.toml with no deprecation", (
 	const root = path.resolve(import.meta.dirname, "..", "..");
 	const config = loadRunnerConfig(root, {});
 
-	assert.deepEqual(config.errors, [], "the committed .tick/runners.toml must load clean");
 	assert.equal(config.configSource, "runners.toml");
 	assert.ok(
 		!config.warnings.includes(MARKDOWN_CONFIG_DEPRECATION),
 		`expected no markdown deprecation warning, got ${JSON.stringify(config.warnings)}`,
 	);
-	assert.ok(config.testCommands.length > 0, "[testing.commands] must reach the runner");
-	assert.ok(config.closeoutEvidenceCommands.length > 0, "[evidence.commands] must reach the runner");
-	assert.ok(config.environmentCommands.length > 0, "[environment.commands] must reach the runner");
-	assert.ok(config.acceptanceEvidence.length > 0, "[evidence.acceptance] must reach the runner");
 	// Rules stay in markdown on both paths and are prose, never shell.
 	assert.ok(config.rules.length > 0, "`## Rules` must still come from .tick/config.md");
+});
+
+// The recorded decision for this repo (tick qf0): its `[roles]` table is herdr
+// routing — claude and codex, read by `tk herd spawn` — and the pi extension
+// is not run from it. That is a decision, not a bug, and the test is written
+// so it survives the other future too: restore pi routing and the reader must
+// resolve the whole command surface; leave it as herdr routing and the reader
+// must refuse it, naming the kind, and authorize nothing. The one state this
+// forbids is the one the migration produced — claude and codex ids resolving
+// into `pi --model` with no provider.
+test("this repo's runners.toml never hands the pi runner a foreign-kind model", () => {
+	const root = path.resolve(import.meta.dirname, "..", "..");
+	const config = loadRunnerConfig(root, {});
+
+	if (config.errors.length === 0) {
+		assert.ok(config.testCommands.length > 0, "[testing.commands] must reach the runner");
+		assert.ok(config.closeoutEvidenceCommands.length > 0, "[evidence.commands] must reach the runner");
+		assert.ok(config.environmentCommands.length > 0, "[environment.commands] must reach the runner");
+		assert.ok(config.acceptanceEvidence.length > 0, "[evidence.acceptance] must reach the runner");
+		return;
+	}
+	for (const error of config.errors) {
+		assert.match(error, /but this runner spawns `pi`/, "the only accepted refusal here is the kind mismatch");
+	}
+	assert.deepEqual(config.models, {}, "a refused config routes nothing");
+	assert.deepEqual(config.testCommands, [], "a refused config authorizes nothing");
 });

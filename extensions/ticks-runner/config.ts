@@ -439,12 +439,63 @@ function enumField(table: TomlTable, key: string, at: string, allowed: readonly 
 	}
 }
 
-/** The `model[:effort]` string every consumer of `RunnerConfig.models` expects. */
+/**
+ * The `model[:effort]` string every consumer of `RunnerConfig.models` expects.
+ *
+ * It deliberately carries no kind: the string is a `pi` model id, and `pi` is
+ * the only thing this extension spawns. `piRoutingLabel` is what decides
+ * whether a cell may be read at all, and nothing else may call this directly.
+ */
 function capabilityLabel(role: TomlTable | undefined, variant: TomlTable | undefined): string | undefined {
 	const model = variant?.model ?? role?.model;
 	const effort = variant?.effort ?? role?.effort;
 	if (typeof model !== "string" || !model) return undefined;
 	return typeof effort === "string" && effort ? `${model}:${effort}` : model;
+}
+
+/**
+ * The herdr kind this reader dispatches. Every model it resolves is handed to
+ * `pi --provider/--model/--thinking`, and `runners-config.md` defines `model`
+ * as living **in the kind's own namespace** — so a role written for another
+ * kind carries an id `pi` cannot use.
+ *
+ * One `[roles]` table cannot express a herdr routing and a pi routing at once:
+ * it expresses the kind's, and each reader may take only its own. A repo whose
+ * roles are `claude`/`codex` is configured for `tk herd spawn`, and reading it
+ * here is what put `sonnet:high` and `gpt-5.6-luna:max` on a `pi` command line
+ * with no provider at all. This reader therefore fails closed on a foreign
+ * kind rather than dropping it, which is the same rule the spawner applies to
+ * an impossible cell.
+ */
+const READER_KIND = "pi";
+
+type RoutingCell = { at: string; table: TomlTable | undefined };
+type RoutingRefusal = { kind: string; entries: string[] };
+
+/**
+ * Resolve one routing key from the cell that supplies it, refusing a foreign
+ * kind. The kind comes from the tier when the tier sets one and from the role
+ * otherwise — the same field-wise resolution `runners-config.md` specifies —
+ * and refusals are collected per cell so one mis-kinded role reports once
+ * instead of once per tier.
+ */
+function piRoutingLabel(
+	key: string,
+	role: RoutingCell,
+	tier: RoutingCell | undefined,
+	refusals: Map<string, RoutingRefusal>,
+): string | undefined {
+	if (!role.table) return undefined;
+	const tierKind = tier?.table?.kind;
+	const source = typeof tierKind === "string" && tierKind ? (tier as RoutingCell) : role;
+	const kind = source.table!.kind;
+	const label = capabilityLabel(role.table, tier?.table);
+	if (typeof kind !== "string" || !kind) return label; // Absent/malformed kind is already reported as such.
+	if (kind === READER_KIND) return label;
+	const refusal = refusals.get(source.at) ?? { kind, entries: [] };
+	refusal.entries.push(label ? `${key} = ${JSON.stringify(label)}` : key);
+	refusals.set(source.at, refusal);
+	return undefined;
 }
 
 /**
@@ -456,6 +507,11 @@ function capabilityLabel(role: TomlTable | undefined, variant: TomlTable | undef
  * `plan`, `scout`, `review` and `closeout` come only from their own explicit
  * table, because this extension's planning and process gates refuse to run on
  * a defaulted model and must fail closed on both config paths alike.
+ *
+ * Every cell is also read through `piRoutingLabel`, so a role whose `kind` is
+ * not `pi` yields no model here and is reported instead: the markdown block
+ * these keys came from was pi-only by its heading, and the TOML that replaced
+ * it is one table shared with `tk herd spawn`.
  */
 function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 	const routing: RoutingSettings = {};
@@ -526,6 +582,13 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 			if (!TIER_VARIANT_KEYS.some((key) => variant[key] !== undefined)) {
 				errors.push(`${tierAt}: must set at least one of kind/model/effort/args — an empty tier table is meaningless`);
 			}
+			// A tier's kind is checked exactly as the role's is — `internal/herd/config`
+			// checks it too, and a kind this reader cannot recognize as a string is a
+			// kind it cannot refuse either.
+			const tierKind = stringField(variant, "kind", `${tierAt}.kind`, errors);
+			if (tierKind !== undefined && !KIND_PATTERN.test(tierKind)) {
+				errors.push(`${tierAt}.kind: ${JSON.stringify(tierKind)} is not a herdr kind name`);
+			}
 			checkCapability(variant, tierAt, errors);
 		}
 	}
@@ -554,16 +617,27 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 		return isTomlTable(variant) ? variant : undefined;
 	};
 	const implement = roleFor("implement");
-	routing.planner_model = capabilityLabel(explicitRole("plan"), undefined);
-	routing.scout_model = capabilityLabel(explicitRole("scout"), undefined);
-	routing.implement_economy_model = capabilityLabel(implement, tierOf(implement, "economy"));
-	routing.implement_balanced_model = capabilityLabel(implement, tierOf(implement, "balanced"));
-	routing.implement_strong_model = capabilityLabel(implement, tierOf(implement, "strong"));
-	routing.review_model = capabilityLabel(explicitRole("review"), undefined);
+	const implementCell: RoutingCell = { at: "roles.implement", table: implement };
+	const tierCell = (tier: string): RoutingCell => ({ at: `roles.implement.tiers.${tier}`, table: tierOf(implement, tier) });
+	const explicitCell = (name: string): RoutingCell => ({ at: `roles.${name}`, table: explicitRole(name) });
+	// One entry per cell whose `kind` is not this reader's, so a mis-kinded
+	// `[roles.implement]` reports once rather than once per tier.
+	const refusals = new Map<string, RoutingRefusal>();
+	routing.planner_model = piRoutingLabel("planner_model", explicitCell("plan"), undefined, refusals);
+	routing.scout_model = piRoutingLabel("scout_model", explicitCell("scout"), undefined, refusals);
+	routing.implement_economy_model = piRoutingLabel("implement_economy_model", implementCell, tierCell("economy"), refusals);
+	routing.implement_balanced_model = piRoutingLabel("implement_balanced_model", implementCell, tierCell("balanced"), refusals);
+	routing.implement_strong_model = piRoutingLabel("implement_strong_model", implementCell, tierCell("strong"), refusals);
+	routing.review_model = piRoutingLabel("review_model", explicitCell("review"), undefined, refusals);
 	// `plan` is in the explicit set too, and has to be: closeout resolves
 	// `closeout_model ?? planner_model`, so a defaulted planner would put the
 	// implement model back into the closeout gate through the side door.
-	routing.closeout_model = capabilityLabel(explicitRole("closeout"), undefined);
+	routing.closeout_model = piRoutingLabel("closeout_model", explicitCell("closeout"), undefined, refusals);
+	for (const [at, refusal] of refusals) {
+		errors.push(
+			`${at}: kind = ${JSON.stringify(refusal.kind)}, but this runner spawns \`${READER_KIND}\` and a model id is in its own kind's namespace — refusing to derive ${refusal.entries.join(", ")} from a ${refusal.kind} role rather than hand a ${refusal.kind} id to \`${READER_KIND} --provider/--model\`. Give the role \`kind = "${READER_KIND}"\` and a ${READER_KIND} model id, or run this epic through \`tk herd spawn\`, the reader a ${refusal.kind} role is written for.`,
+		);
+	}
 	return routing;
 }
 
