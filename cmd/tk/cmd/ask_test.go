@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/operator"
+	"github.com/pengelbrecht/ticks/internal/operator/telegram"
 	"github.com/pengelbrecht/ticks/internal/operator/telegram/fakebot"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -447,6 +449,71 @@ func TestAskUnconfiguredChannelParksTick(t *testing.T) {
 	}
 	if entries[0].Resolved() {
 		t.Errorf("unconfigured ask resolved the entry: %+v", entries[0].Resolution)
+	}
+}
+
+func TestAskIgnoresAnInvalidOptionalFactory(t *testing.T) {
+	channelTestHome(t)
+	t.Setenv("TICKS_FACTORY_URL", "://not-a-url")
+	t.Setenv("TICKS_FACTORY_TOKEN", "tkf_secret")
+
+	channel, _, err := askChannel()
+	if err != nil {
+		t.Fatalf("askChannel returned an optional factory error: %v", err)
+	}
+	if channel != nil {
+		t.Fatalf("askChannel returned %T without a usable local or factory channel", channel)
+	}
+}
+
+func TestAskFactoryDeliveryFailureKeepsTheQuestionParked(t *testing.T) {
+	_, store := setupTestRepo(t)
+	if err := store.Ensure(); err != nil {
+		t.Fatalf("ensure tick store: %v", err)
+	}
+	askTestTick(t, store, "abc123")
+
+	engine := operator.NewEngine(".")
+	pending, err := engine.Register(operator.Registration{
+		TickID:   "abc123",
+		Kind:     operator.PendingAsk,
+		Question: operator.Question{Text: "Which region?"},
+	})
+	if err != nil {
+		t.Fatalf("register question: %v", err)
+	}
+	channel, err := telegram.NewFactoryChannel(telegram.FactoryConfig{
+		URL:     "https://factory.example.test",
+		Token:   "tkf_secret",
+		Project: "owner/repo",
+		HTTPClient: &http.Client{Transport: remoteRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return remoteJSONResponse(http.StatusNotFound, `{"error":"not_found"}`), nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("NewFactoryChannel: %v", err)
+	}
+
+	_, _, err = askAwait(context.Background(), engine, channel, operator.ChannelConfig{}, pending, askOptions{
+		Timeout:      time.Second,
+		PollInterval: 5 * time.Millisecond,
+	})
+	if code := GetExitCode(err); code != ExitNotFound {
+		t.Fatalf("exit code = %d, want %d (parked): %v", code, ExitNotFound, err)
+	}
+	entry, err := engine.Pending().Load(pending.ID)
+	if err != nil {
+		t.Fatalf("load pending question: %v", err)
+	}
+	if entry.Resolved() {
+		t.Fatalf("factory delivery failure resolved the question: %+v", entry.Resolution)
+	}
+	tk, err := store.Read("abc123")
+	if err != nil {
+		t.Fatalf("read tick: %v", err)
+	}
+	if tk.Awaiting == nil || *tk.Awaiting != tick.AwaitingInput {
+		t.Fatalf("tick awaiting = %v, want %s", tk.Awaiting, tick.AwaitingInput)
 	}
 }
 

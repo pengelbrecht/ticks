@@ -411,9 +411,7 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 		return registered, err
 	}
 	if channel == nil {
-		return registered, NewExitError(ExitNotFound,
-			"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
-			channelTelegram, opts.TickID, pending.Awaiting, pending.ID)
+		return registered, askParkedError(pending)
 	}
 
 	return askSettleFlow(ctx, engine, channel, channelConfig, pending, opts)
@@ -444,14 +442,16 @@ func askPhotoFlow(ctx context.Context, engine *operator.Engine, registration ope
 		if err != nil {
 			return registered, err
 		}
-		return registered, NewExitError(ExitNotFound,
-			"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
-			channelTelegram, opts.TickID, pending.Awaiting, pending.ID)
+		return registered, askParkedError(pending)
 	}
 
 	if !operator.SupportsAttachments(channel) {
-		return askResult{}, NewExitError(ExitGeneric,
-			"the %s channel cannot upload files, so it cannot carry a photo gate", channelTelegram)
+		pending, regErr := engine.Register(registration)
+		if regErr != nil {
+			return askResult{}, NewExitError(ExitIO, "%v", regErr)
+		}
+		registered := askResult{ID: pending.ID, TickID: pending.TickID}
+		return registered, askParkedError(pending)
 	}
 	// --photo names the presentation, so the kind is explicit rather than
 	// resolved from the extension: a .webp screenshot asked for as a photo is
@@ -487,7 +487,7 @@ func askSettleFlow(
 	registered := askResult{ID: pending.ID, TickID: pending.TickID}
 
 	if opts.Async {
-		if err := askDeliverNow(ctx, engine, channel, channelConfig); err != nil {
+		if err := askDeliverNow(ctx, engine, channel, channelConfig, pending); err != nil {
 			return registered, err
 		}
 		return registered, nil
@@ -513,10 +513,7 @@ func askSettleFlow(
 func askChannel() (operator.Channel, operator.ChannelConfig, error) {
 	if factoryOperatorEnvConfigured() {
 		remote, configured, remoteErr := factoryOperatorChannel("")
-		if remoteErr != nil {
-			return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading the factory operator channel: %v", remoteErr)
-		}
-		if configured {
+		if remoteErr == nil && configured {
 			return remote, operator.ChannelConfig{}, nil
 		}
 	}
@@ -527,10 +524,7 @@ func askChannel() (operator.Channel, operator.ChannelConfig, error) {
 	channelConfig, ok := config.Channel(channelTelegram)
 	if !ok {
 		remote, configured, remoteErr := factoryOperatorChannel("")
-		if remoteErr != nil {
-			return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading the factory operator channel: %v", remoteErr)
-		}
-		if configured {
+		if remoteErr == nil && configured {
 			return remote, operator.ChannelConfig{}, nil
 		}
 		return nil, operator.ChannelConfig{}, nil
@@ -548,7 +542,13 @@ func askChannel() (operator.Channel, operator.ChannelConfig, error) {
 // nobody else holds the role. When someone does, this is a no-op on purpose:
 // their next sweep picks the entry up, and opening a second transport to race
 // them would be how one question reaches the operator twice.
-func askDeliverNow(ctx context.Context, engine *operator.Engine, channel operator.Channel, channelConfig operator.ChannelConfig) error {
+func askDeliverNow(
+	ctx context.Context,
+	engine *operator.Engine,
+	channel operator.Channel,
+	channelConfig operator.ChannelConfig,
+	pending operator.Pending,
+) error {
 	lock, err := engine.Pending().AcquireConsumer()
 	if err != nil {
 		if errors.Is(err, operator.ErrConsumerBusy) {
@@ -564,6 +564,9 @@ func askDeliverNow(ctx context.Context, engine *operator.Engine, channel operato
 	deliverCtx, cancel := context.WithTimeout(ctx, askSettleTimeout)
 	defer cancel()
 	if err := consumer.Deliver(deliverCtx); err != nil {
+		if _, ok := isFactoryChannel(channel); ok {
+			return askParkedError(pending)
+		}
 		return NewExitError(ExitGeneric, "delivering to the %s channel: %v", channelTelegram, err)
 	}
 	return nil
@@ -639,6 +642,9 @@ func askAwait(
 	cancel()
 	wasConsumer, consumerErr := stop()
 	if consumerErr != nil {
+		if _, ok := isFactoryChannel(channel); ok {
+			return operator.Applied{}, wasConsumer, askParkedError(pending)
+		}
 		return operator.Applied{}, wasConsumer, consumerErr
 	}
 
@@ -664,6 +670,16 @@ func askAwait(
 			pending.ID, applied.Pending.TickID)
 	}
 	return applied, wasConsumer, nil
+}
+
+// askParkedError is the degraded-mode contract shared by an absent channel and
+// an optional factory surface that cannot currently deliver. Registration has
+// already parked the tick before this is called, so the caller can safely leave
+// the question open for tk answer or a later run.
+func askParkedError(pending operator.Pending) error {
+	return NewExitError(ExitNotFound,
+		"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
+		channelTelegram, pending.TickID, pending.Awaiting, pending.ID)
 }
 
 // askGiveUp reports how a question stood when the deadline expired.
