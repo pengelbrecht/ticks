@@ -419,9 +419,13 @@ function capabilityLabel(role: TomlTable | undefined, variant: TomlTable | undef
 
 /**
  * Map `[roles]`/`[orchestration]` onto the routing keys every consumer speaks.
- * A role with no entry resolves against `implement`, and a tier that is absent
- * resolves to its role's own model and effort — the resolution order
- * runners-config.md defines and `tk herd spawn` implements.
+ * A tier that is absent resolves to its role's own model and effort — the
+ * resolution order runners-config.md defines and `tk herd spawn` implements.
+ *
+ * The `implement` fallback for an unlisted role stops at the implement tiers.
+ * `plan`, `scout`, `review` and `closeout` come only from their own explicit
+ * table, because this extension's planning and process gates refuse to run on
+ * a defaulted model and must fail closed on both config paths alike.
  */
 function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 	const routing: RoutingSettings = {};
@@ -479,6 +483,18 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 		}
 	}
 
+	// Two resolutions, deliberately different. `tk herd spawn` resolves an
+	// unlisted role against `implement` (runners-config.md, Resolution order),
+	// which is right for spawning a worker: something has to run. The keys
+	// below feed process gates that refuse to default — a final review, a
+	// closeout, a planning scout — so for them an absent role table stays
+	// absent and the guard fires, exactly as the markdown path's missing
+	// `review_model`/`scout_model` line did. Falling back here would review
+	// frontier work with whatever model wrote it, silently.
+	const explicitRole = (name: string): TomlTable | undefined => {
+		const entry = roles[name];
+		return isTomlTable(entry) ? entry : undefined;
+	};
 	const roleFor = (name: string): TomlTable | undefined => {
 		const entry = roles[name];
 		if (isTomlTable(entry)) return entry;
@@ -491,13 +507,16 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 		return isTomlTable(variant) ? variant : undefined;
 	};
 	const implement = roleFor("implement");
-	routing.planner_model = capabilityLabel(roleFor("plan"), undefined);
-	routing.scout_model = capabilityLabel(roleFor("scout"), undefined);
+	routing.planner_model = capabilityLabel(explicitRole("plan"), undefined);
+	routing.scout_model = capabilityLabel(explicitRole("scout"), undefined);
 	routing.implement_economy_model = capabilityLabel(implement, tierOf(implement, "economy"));
 	routing.implement_balanced_model = capabilityLabel(implement, tierOf(implement, "balanced"));
 	routing.implement_strong_model = capabilityLabel(implement, tierOf(implement, "strong"));
-	routing.review_model = capabilityLabel(roleFor("review"), undefined);
-	routing.closeout_model = capabilityLabel(roleFor("closeout"), undefined);
+	routing.review_model = capabilityLabel(explicitRole("review"), undefined);
+	// `plan` is in the explicit set too, and has to be: closeout resolves
+	// `closeout_model ?? planner_model`, so a defaulted planner would put the
+	// implement model back into the closeout gate through the side door.
+	routing.closeout_model = capabilityLabel(explicitRole("closeout"), undefined);
 	return routing;
 }
 

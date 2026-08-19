@@ -239,6 +239,83 @@ test("a TOML config produces the identical RunnerConfig its markdown equivalent 
 	assert.equal(migrated.configSource, "runners.toml");
 });
 
+// The process gates refuse to default: `review_model` absent means the final
+// review is blocked, never quietly demoted to whatever wrote the code. The
+// TOML path therefore may not resolve `review`, `closeout` or `scout` against
+// `[roles.implement]` the way `tk herd spawn` resolves an unlisted role — a
+// migrated repo that never wrote `[roles.review]` must fail exactly where its
+// markdown original failed.
+const frontierlessMarkdown = `
+## Pi Orchestrator
+- planner_model: opus:max
+- implement_economy_model: haiku:low
+- implement_balanced_model: haiku:low
+- implement_strong_model: haiku:low
+`;
+
+const frontierlessToml = `
+[roles.plan]
+kind = "claude"
+model = "opus"
+effort = "max"
+
+[roles.implement]
+kind = "claude"
+model = "haiku"
+effort = "low"
+`;
+
+test("neither path invents a review, closeout or scout model from [roles.implement]", () => {
+	const legacy = resolveRunnerConfig(frontierlessMarkdown, {});
+	const migrated = resolveRunnerConfigFromToml(frontierlessToml, {});
+
+	assert.deepEqual(migrated.errors, []);
+	assert.deepEqual(migrated.models, legacy.models);
+	for (const [path, config] of [["config.md", legacy], ["runners.toml", migrated]] as const) {
+		assert.equal(config.models.review_model, undefined, `${path} must leave review_model unset`);
+		assert.equal(config.models.scout_model, undefined, `${path} must leave scout_model unset`);
+		assert.equal(config.models.closeout_model, undefined, `${path} must leave closeout_model unset`);
+		assert.equal(modelForTier(config, "review"), undefined, `${path} must not route review to the implement model`);
+		assert.equal(modelForTier(config, "foundation"), undefined, `${path} must not route foundation to the implement model`);
+		// Closeout is the one process role with a documented fallback, and it is
+		// the planner — reachable on both paths only while closeout_model is unset.
+		assert.equal(modelForTier(config, "closeout"), "opus:max", `${path} must fall closeout back to the planner model`);
+		assert.equal(modelForTier(config, "balanced"), "haiku:low");
+	}
+});
+
+// With no `[roles.plan]` either, closeout has nothing to fall back to and both
+// paths hand the runner an undefined model, which is its blocked condition.
+test("closeout with neither a closeout nor a planner model resolves to nothing on both paths", () => {
+	const legacy = resolveRunnerConfig("## Pi Orchestrator\n- implement_balanced_model: haiku:low\n", {});
+	const migrated = resolveRunnerConfigFromToml('[roles.implement]\nkind = "claude"\nmodel = "haiku"\neffort = "low"\n', {});
+
+	assert.deepEqual(migrated.errors, []);
+	assert.equal(modelForTier(legacy, "closeout"), undefined);
+	assert.equal(modelForTier(migrated, "closeout"), undefined);
+});
+
+// An explicit role still resolves, tiers and all: this is a fail-closed rule
+// about absence, not a refusal to read the table.
+test("an explicit [roles.review] still supplies the review model", () => {
+	const config = resolveRunnerConfigFromToml(`${frontierlessToml}
+[roles.review]
+kind = "claude"
+model = "opus"
+effort = "max"
+
+[roles.scout]
+kind = "claude"
+model = "haiku"
+effort = "medium"
+`, {});
+
+	assert.deepEqual(config.errors, []);
+	assert.equal(config.models.review_model, "opus:max");
+	assert.equal(modelForTier(config, "review"), "opus:max");
+	assert.equal(config.models.scout_model, "haiku:medium");
+});
+
 test("environment variables keep winning over the TOML values", () => {
 	const config = resolveRunnerConfigFromToml(equivalentToml, {
 		TICKS_PI_IMPLEMENT_BALANCED_MODEL: "openai-codex/gpt-5.6-sol:high",
