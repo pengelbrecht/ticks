@@ -33,7 +33,7 @@ export type Env = Cloudflare.Env;
  */
 const SERVICE = "ticks-factory";
 
-function health(env: Env): Response {
+async function health(env: Env): Promise<Response> {
   return Response.json({
     status: "ok",
     service: SERVICE,
@@ -43,11 +43,13 @@ function health(env: Env): Response {
       db: Boolean(env.DB),
     },
     // Lets `tk factory deploy` confirm the token secret landed (and that a
-    // rotation took) without presenting a token. It reports only presence and
-    // validity of shape — never the hash, its salt, or any prefix of either.
+    // rotation took) without presenting a token. `configured` is proven by a
+    // real derivation against the stored record, not by its shape — see
+    // isAuthConfigured. It reports only that verdict, never the hash, its
+    // salt, or any prefix of either.
     auth: {
       required: true,
-      configured: isAuthConfigured(env),
+      configured: await isAuthConfigured(env),
     },
   });
 }
@@ -67,7 +69,7 @@ export default {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return Response.json({ error: "method_not_allowed" }, { status: 405 });
       }
-      return health(env);
+      return await health(env);
     }
 
     return Response.json({ error: "not_found" }, { status: 404 });
