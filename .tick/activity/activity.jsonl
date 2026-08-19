@@ -1256,3 +1256,5 @@
 {"ts":"2026-08-19T11:18:31.28620744Z","tick":"aw5","action":"create","actor":"peter@engelbrecht.dk","epic":"63t","data":{"priority":2,"title":"Final review of foundations epic diff","type":"task"}}
 {"ts":"2026-08-19T11:18:31.309898251Z","tick":"9jk","action":"create","actor":"peter@engelbrecht.dk","epic":"63t","data":{"priority":2,"title":"Close out foundations epic: retro + plan Phase 1","type":"task"}}
 {"ts":"2026-08-19T12:58:40.408336Z","tick":"63t","action":"note","actor":"claude:orchestrator","epic":"w1z","data":{"note":"2026-08-19 14:58 - runner-state: substrate=herdr orchestrator=claude:orchestrator base=main branch=epic/63t focus-at-start=w9T","title":"Factory foundations"}}
+{"ts":"2026-08-19T12:58:52.208557Z","tick":"n3e","action":"start","actor":"claude:orchestrator","epic":"63t","data":{"title":"Scaffold cloud/factory worker bundle"}}
+{"ts":"2026-08-19T12:58:52.240049Z","tick":"zjp","action":"start","actor":"claude:orchestrator","epic":"63t","data":{"title":"Retire ralph/swarm enum from run_event schema"}}

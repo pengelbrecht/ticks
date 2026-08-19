@@ -2,7 +2,7 @@
   "id": "n3e",
   "title": "Scaffold cloud/factory worker bundle",
   "description": "New cloud/factory/ directory: its own wrangler.toml with a current compatibility_date (unblocking DO SQLite storage and current WebSocket hibernation), an R2 bucket binding for run artifacts, a D1 binding, a placeholder RunRoom Durable Object class registered in migrations (lease logic lands in Phase 1), a health route, and a vitest + @cloudflare/vitest-pool-workers test harness mirroring cloud/worker/test. Completely separate from cloud/worker — the factory bundle never imports from or deploys with the ticks.sh worker (D16: ticks.sh never operates the factory). Keep the bundle deployable from day one even though it does almost nothing.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,6 @@
   "acceptance_criteria": "The bundle deploys to a personal Cloudflare account with wrangler deploy and serves its health route. The compatibility date is current at merge time. R2 and D1 bindings resolve in the vitest-pool-workers harness. Nothing in cloud/worker changed. pnpm test passes in cloud/factory.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:18:31.161668096Z",
-  "updated_at": "2026-08-19T11:18:31.161668096Z"
+  "updated_at": "2026-08-19T12:58:52.208333Z",
+  "started_at": "2026-08-19T12:58:52.208333Z"
 }
