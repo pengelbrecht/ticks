@@ -48,7 +48,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board", "herd", "skills", "channel", "tell", "ask", "answer", "factory", "cloud":
+	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "config", "gc", "merge", "board", "herd", "skills", "channel", "tell", "ask", "answer", "factory", "cloud":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		// Handle aliases
 		cmdArgs := args[1:]
@@ -100,7 +100,7 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, channel, tell, ask, answer, skills, factory, cloud, version, upgrade, migrate, gc, merge")
+	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, config, channel, tell, ask, answer, skills, factory, cloud, version, upgrade, migrate, gc, merge")
 	fmt.Println()
 	fmt.Println("Operator Channel:")
 	fmt.Println("  tk channel setup telegram     Pair your Telegram bot with this machine (token stays out of the repo)")
