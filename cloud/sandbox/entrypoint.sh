@@ -4,9 +4,10 @@
 #
 # Given a repository URL, a submitted SHA and an AI Gateway base URL, it clones
 # the repo at that SHA, verifies tk, provisions anything the repository needs
-# that the image does not already carry, runs the `.tick/config.md` Environment
-# pre-flight, exports TK_ACTOR=cloud:orchestrator, and execs the headless
-# harness on the ticks skill loop (docs/design/cloud-factory.md, Phase 1).
+# that the image does not already carry, runs the repository's own `[sandbox]`
+# setup, runs the `.tick/config.md` Environment pre-flight, exports
+# TK_ACTOR=cloud:orchestrator, and execs the headless harness on the ticks
+# skill loop (docs/design/cloud-factory.md, Phase 1).
 #
 # It is NOT the container ENTRYPOINT — the Cloudflare sandbox control server
 # keeps that. The Run Workflow starts this command inside the running sandbox
@@ -24,6 +25,7 @@ readonly EXIT_CONFIG=2
 readonly EXIT_CLONE=3
 readonly EXIT_TK_VERSION=4
 readonly EXIT_PREFLIGHT=5
+readonly EXIT_SETUP=6
 
 say() { printf '%s: %s\n' "$ME" "$*"; }
 warn() { printf '%s: warning: %s\n' "$ME" "$*"; }
@@ -55,6 +57,10 @@ stop_reason="${TICKS_STOP_REASON:-}"
 workdir="${TICKS_WORKDIR:-/work/repo}"
 cache_dir="${TICKS_CACHE_DIR:-/cache}"
 pinned_tk="${TICKS_TK_VERSION:-}"
+# What image the control plane says it booted. Advisory: the container cannot
+# change what it is running, so this exists to make a repository that asks for
+# a DIFFERENT image visible in the log rather than silently ignored.
+booted_image="${TICKS_SANDBOX_IMAGE:-}"
 # Cloud-connected operator channel. These are optional so a sandbox can still
 # run a repository whose operator channel is local-only; when present, tk ask
 # mirrors its pending entry into the factory RunRoom and watches that DO for
@@ -226,9 +232,13 @@ provision_toolchain() {
 }
 
 # Toolchain versions come from the ecosystem's own pins, never a ticks-specific
-# format: go.mod, package.json's packageManager, .node-version.
+# format: go.mod, package.json's packageManager, .node-version — plus whatever
+# `[sandbox].toolchain` in the tracked `.tick/runners.toml` declares, which is
+# where a repository says the thing those files cannot (`rust@1.90.0` in a repo
+# whose Rust is not pinned by any manifest the image reads).
 declared_tool_specs() {
 	local version
+	tk sandbox toolchain --root "$workdir" 2>/dev/null || true
 	if [[ -f go.mod ]]; then
 		version="$(awk '$1 == "go" { print $2; exit }' go.mod)"
 		[[ -z $version ]] || printf 'go@%s\n' "$version"
@@ -257,14 +267,35 @@ tool_satisfied() {
 	[[ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -1)" == "$want" ]]
 }
 
-# Seam for tick 79x (per-repo Sandbox section in .tick/config.md): a repository
-# may want idempotent setup/warm commands — `pnpm install --frozen-lockfile`,
-# `go mod download` — run here, after the checkout and before the harness, to
-# populate the persistent cache. No format is invented here, and nothing runs
-# today: the Environment section is verification only ("test, don't ask"), so
-# there is nowhere to declare a warm step yet.
+# The repository's own setup: idempotent, cache-populating commands —
+# `pnpm install --frozen-lockfile`, `go mod download` — run after the checkout
+# and before the harness, from the `[sandbox]` table of the tracked
+# `.tick/runners.toml`. This is provisioning, which the Environment pre-flight
+# deliberately cannot express: an Environment check is verification only ("test,
+# don't ask").
+#
+# The commands are read by `tk` out of the checkout at the submitted SHA and
+# from nowhere else. Nothing in this script's environment can supply one, which
+# is the point: this shell runs inside a container holding the run's gateway
+# credential and its GitHub token, so the capability to run arbitrary commands
+# here comes from a reviewed pull request, never from a tick note, a model, a
+# signal payload or an API parameter.
+#
+# Unlike toolchain provisioning this is NOT best effort. A repository that
+# declares a warm step and does not get it starts a wave in which every worker
+# fails the same way, at model prices; one legible stop beats that.
 repo_setup() {
-	:
+	local declared
+	declared="$(tk sandbox image --declared-only --root "$workdir" 2>/dev/null)" || declared=""
+	[[ -z $booted_image ]] || say "sandbox image $booted_image"
+	if [[ -n $declared && $declared != "$booted_image" ]]; then
+		# The container cannot change what it is running, so this is reported
+		# rather than acted on — never silently dropped.
+		warn "the repository declares the sandbox image $declared; this container is ${booted_image:-not identified by the control plane}, so the toolchain and setup below are all it gets"
+	fi
+
+	tk sandbox setup --root "$workdir" ||
+		die $EXIT_SETUP "the repository's [sandbox] setup failed — the failing command is named above; fix it in .tick/runners.toml (it must be idempotent) or remove it"
 }
 
 verify_tk() {

@@ -30,6 +30,7 @@ type fixture struct {
 	firstSHA string
 	headSHA  string
 	mise     string // the version-manager stub's recording
+	tkRecord string // the tk stub's recording of `tk sandbox ...` calls
 }
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -117,8 +118,20 @@ func newFixtureWithFiles(t *testing.T, environment string, files map[string]stri
 `)
 	writeStub(t, filepath.Join(binDir, "pnpm"), `echo "11.0.6"
 `)
+	// `tk` is stubbed the way the toolchains are: the entrypoint's job is to
+	// DELEGATE the repository's [sandbox] declaration to tk, and this records
+	// that it did. What tk then does with the declaration is proved against the
+	// real implementation in setup_test.go, not against a shell stub.
 	writeStub(t, filepath.Join(binDir, "tk"), `case "$1" in
   version) echo "tk ${TICKS_TEST_TK_VERSION}"; echo "Update available: pretend" ;;
+  sandbox)
+    printf '%s\n' "$*" >> "$TICKS_TEST_TK_RECORD"
+    case "$2" in
+      toolchain) [ -z "${TICKS_TEST_SANDBOX_TOOLCHAIN:-}" ] || printf '%s\n' $TICKS_TEST_SANDBOX_TOOLCHAIN ;;
+      image) [ -z "${TICKS_TEST_SANDBOX_IMAGE_DECLARED:-}" ] || printf '%s\n' "$TICKS_TEST_SANDBOX_IMAGE_DECLARED" ;;
+      setup) exit "${TICKS_TEST_SANDBOX_SETUP_EXIT:-0}" ;;
+    esac
+    ;;
   *) exit 0 ;;
 esac
 `)
@@ -128,6 +141,7 @@ esac
 		workdir:  filepath.Join(root, "work"),
 		record:   record,
 		mise:     mise,
+		tkRecord: filepath.Join(root, "tk-record"),
 		firstSHA: first, headSHA: head,
 	}
 	f.env = map[string]string{
@@ -145,6 +159,7 @@ esac
 		EnvRunID:                 "run_test",
 		"TICKS_TEST_RECORD":      record,
 		"TICKS_TEST_MISE_RECORD": mise,
+		"TICKS_TEST_TK_RECORD":   f.tkRecord,
 		"TICKS_TEST_TK_VERSION":  "0.31.0",
 	}
 	return f
@@ -185,6 +200,16 @@ func (f *fixture) harnessRecord() string {
 	b, err := os.ReadFile(f.record)
 	if err != nil {
 		f.t.Fatalf("the harness never started: %v", err)
+	}
+	return string(b)
+}
+
+// tkCalls returns every `tk sandbox ...` invocation the stub saw.
+func (f *fixture) tkCalls() string {
+	f.t.Helper()
+	b, err := os.ReadFile(f.tkRecord)
+	if err != nil {
+		return ""
 	}
 	return string(b)
 }
@@ -672,5 +697,120 @@ func TestEntrypointRefusesAnUnknownPhase(t *testing.T) {
 	mustContain(t, out, "improvise", "the refusal names the unknown phase")
 	if f.harnessStarted() {
 		t.Error("the harness started on an unknown phase")
+	}
+}
+
+// --------------------------------------------- the repository's own sandbox ---
+
+// The 99% path, stated as a test: a repository that declares no [sandbox]
+// still boots the base image, provisions nothing extra and reaches the harness.
+// The entrypoint asks anyway — asking is free, and the answer is silence.
+func TestEntrypointRunsUnchangedWithoutASandboxDeclaration(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	if !f.harnessStarted() {
+		t.Fatal("the harness never started")
+	}
+	if calls := f.miseCalls(); calls != "" {
+		t.Errorf("nothing was declared but the version manager was used:\n%s", calls)
+	}
+	if calls := f.tkCalls(); !strings.Contains(calls, "sandbox setup") {
+		t.Errorf("the entrypoint never asked about the repository's sandbox:\n%s", calls)
+	}
+}
+
+// A repository that declares extra toolchain gets it provisioned through the
+// version manager, into the persistent cache — the same path the ecosystem's
+// own pins take, so the "already satisfied" skip and the warm cache apply
+// unchanged.
+func TestEntrypointProvisionsTheDeclaredSandboxToolchain(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_TOOLCHAIN"] = "rust@1.90.0"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	if calls := f.miseCalls(); !strings.Contains(calls, "rust@1.90.0") {
+		t.Errorf("the declared toolchain was not provisioned, calls were:\n%s", calls)
+	}
+}
+
+// The setup step runs after the checkout and before the harness, delegated to
+// tk so the tracked config is parsed by one reader rather than by a shell.
+func TestEntrypointRunsTheRepositorySetupBeforeTheHarness(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	calls := f.tkCalls()
+	if !strings.Contains(calls, "sandbox setup --root "+f.workdir) {
+		t.Errorf("setup was not run against the checkout:\n%s", calls)
+	}
+	if !f.harnessStarted() {
+		t.Error("the harness never started")
+	}
+}
+
+// A declared warm step that fails stops the run with its own exit code. It is
+// deliberately NOT best effort: a wave started on a half-provisioned sandbox
+// fails in every worker, at model prices.
+func TestEntrypointStopsWhenTheRepositorySetupFails(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_SETUP_EXIT"] = "1"
+	out, code := f.run()
+	if code != ExitSetup {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitSetup, out)
+	}
+	mustContain(t, out, "setup", "the failure says what stage failed")
+	mustContain(t, out, ".tick/runners.toml", "the failure names the file to fix")
+	if f.harnessStarted() {
+		t.Error("the harness started on a half-provisioned sandbox")
+	}
+}
+
+// THE security boundary, at the container's edge: setup comes from the tracked
+// config in the checkout, so nothing in this container's environment — which is
+// where an API parameter, a signal payload or a tick note would have to arrive
+// — can add a command to it.
+func TestEntrypointIgnoresSetupInjectedThroughTheEnvironment(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	marker := filepath.Join(f.root, "pwned")
+	for _, name := range []string{
+		"TICKS_SANDBOX_SETUP", "TICKS_SETUP", "TICKS_REPO_SETUP", "SANDBOX_SETUP",
+	} {
+		f.env[name] = "touch " + marker
+	}
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a setup command injected through the environment ran")
+	}
+	if strings.Contains(f.tkCalls(), marker) {
+		t.Errorf("the injected command was passed to tk:\n%s", f.tkCalls())
+	}
+}
+
+// A repository asking for an image this container is not is reported, never
+// silently ignored: the container cannot change what it is running, so the log
+// is where that fact has to land.
+func TestEntrypointReportsAnImageItCouldNotHonour(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
+	f.env[EnvSandboxImage] = "ticks-orchestrator:0.31.0"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, out, "warning", "the mismatch is a warning, not silence")
+	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the warning names the declared image")
+	mustContain(t, out, "ticks-orchestrator:0.31.0", "the warning names the booted image")
+	if !f.harnessStarted() {
+		t.Error("a declared image the control plane did not boot stopped the run")
 	}
 }

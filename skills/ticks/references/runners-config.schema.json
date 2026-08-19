@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ticks.sh/schemas/runners-config.schema.json",
   "title": "Ticks runners configuration (.tick/runners.toml)",
-  "description": "Configuration for one repo's ticks runs, in `.tick/runners.toml`. Two things live here. ROUTING: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which worker serves each task role and capability tier. A worker is specified along two dimensions — `kind` (the herdr harness dimension) and `model` + optional `effort` (the capability dimension) — which the spawner compiles into that kind's native argv; `args` remains an escape hatch appended after the compiled flags. COMMANDS: the shell a run may execute, split by the phase authorised to execute it — `[testing]` for implementers, `[evidence]` for closeout only, `[environment]` for the run-start pre-flight — plus `[evidence.acceptance]`, the acceptance-item-to-command authorisation table. Parse the TOML file, then validate the resulting object against this schema. This schema validates SHAPE only. Whether a given model is usable by a given kind is a spawn-time compatibility check (see herdr-kinds.md), because model families are open-ended and cannot be enumerated here; and the cross-table command rules (a reference that resolves, a command that belongs to exactly one phase) are loader checks, because JSON Schema has no referential integrity — runners-config.md, 'Caught by the config loader', is normative for those and they fail closed. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
+  "description": "Configuration for one repo's ticks runs, in `.tick/runners.toml`. Two things live here. ROUTING: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which worker serves each task role and capability tier. A worker is specified along two dimensions — `kind` (the herdr harness dimension) and `model` + optional `effort` (the capability dimension) — which the spawner compiles into that kind's native argv; `args` remains an escape hatch appended after the compiled flags. SANDBOX: `[sandbox]`, the environment one run is given — the image, the extra toolchain, and the idempotent setup commands that warm it. COMMANDS: the shell a run may execute, split by the phase authorised to execute it — `[testing]` for implementers, `[evidence]` for closeout only, `[environment]` for the run-start pre-flight — plus `[evidence.acceptance]`, the acceptance-item-to-command authorisation table. Parse the TOML file, then validate the resulting object against this schema. This schema validates SHAPE only. Whether a given model is usable by a given kind is a spawn-time compatibility check (see herdr-kinds.md), because model families are open-ended and cannot be enumerated here; and the cross-table command rules (a reference that resolves, a command that belongs to exactly one phase) are loader checks, because JSON Schema has no referential integrity — runners-config.md, 'Caught by the config loader', is normative for those and they fail closed. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "version": {
       "type": "integer",
       "enum": [1, 2],
-      "description": "Config format version. Omitted means 1. Version 2 introduced the command surface (`[testing]`, `[evidence]`, `[environment]`), so a file carrying any of those tables must declare 2 — that is what lets a reader too old to know them fail with one line telling its operator to upgrade, instead of reporting every key it does not recognise. A reader must therefore check this field BEFORE it checks shape, and must stop rather than guess when the value is newer than it understands. Within a version it understands, an unknown key remains an error: the gate is about ordering, not about relaxing additionalProperties."
+      "description": "Config format version. Omitted means 1. Version 2 introduced the command surface (`[testing]`, `[evidence]`, `[environment]`) and `[sandbox]`, which shipped in the same release, so a file carrying any of those tables must declare 2 — that is what lets a reader too old to know them fail with one line telling its operator to upgrade, instead of reporting every key it does not recognise. A reader must therefore check this field BEFORE it checks shape, and must stop rather than guess when the value is newer than it understands. Within a version it understands, an unknown key remains an error: the gate is about ordering, not about relaxing additionalProperties."
     },
     "orchestrator": {
       "$ref": "#/$defs/Orchestrator"
@@ -28,6 +28,9 @@
     },
     "environment": {
       "$ref": "#/$defs/Environment"
+    },
+    "sandbox": {
+      "$ref": "#/$defs/Sandbox"
     }
   },
   "required": ["roles"],
@@ -235,6 +238,38 @@
       },
       "additionalProperties": { "$ref": "#/$defs/CommandId" },
       "maxProperties": 64
+    },
+    "Sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The environment one run is given: the image it boots, the extra toolchain provisioned into its persistent cache, and the idempotent commands that warm it. Absent means the batteries-included base image and nothing else, which is the 99% path. This table is the ONLY place a sandbox setup command may come from, and the reason it lives in tracked, PR-reviewed config: `setup` runs arbitrary shell inside a sandbox that holds the run's credentials, so it is read from this file at the submitted SHA and never from a tick note, a model, a signal payload or an API parameter. Adding capability is a pull request, not a dashboard click.",
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$",
+          "description": "Custom image reference this repository's sandbox boots. Omitted means the version-pinned base image, which is what almost every repository wants: `toolchain` and `setup` extend the base without a factory-wide image rebuild. Whatever boots a sandbox takes the reference as a parameter, so the resolved value is `tk sandbox image`."
+        },
+        "toolchain": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/ToolSpec" },
+          "description": "Extra tools provisioned through the version manager the base image already ships, resolved on first run into the project's persistent sandbox cache and warm thereafter. Only what the image does not already satisfy is provisioned. Ecosystem pins the image already reads on its own (`go.mod`, `package.json`'s `packageManager`, `.node-version`, `.tool-versions`) do not belong here — this is for what those files cannot say."
+        },
+        "setup": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/Command" },
+          "description": "Idempotent, cache-populating commands run once per sandbox, in order, after the checkout and before the harness starts (`pnpm install --frozen-lockfile`, `go mod download`). An ARRAY, not a keyed table: order is the contract and nothing references a setup command by id. This is provisioning, which `[environment]` deliberately cannot express — an Environment check is verification only, `test, do not ask`. A failing setup command stops the run: a wave started on a half-provisioned sandbox fails in every worker instead."
+        }
+      }
+    },
+    "ToolSpec": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9_.+-]*@[A-Za-z0-9][A-Za-z0-9_.+-]*$",
+      "description": "One `tool@version` pin in the version manager's own namespace (`rust@1.90.0`, `python@3.13`). The version is required: an unpinned tool makes the warm sandbox and the cold one different environments. One entry per tool — two versions of one tool is ambiguous and is refused by the loader."
     },
     "Environment": {
       "type": "object",

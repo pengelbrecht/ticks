@@ -131,6 +131,18 @@ type Options struct {
 
 	// PaneLines caps the gate's pane read. Zero uses the package default.
 	PaneLines uint32
+
+	// Warm optionally prepares the freshly created worktree before the agent
+	// is started in it — the repository's own `[sandbox]` setup, so a local
+	// worker gets the same provisioned tree a cloud sandbox does off the same
+	// tracked declaration.
+	//
+	// It runs between `worktree.create` and `agent.start`, which is the only
+	// window where the tree exists and nothing is reading it yet. A failure is
+	// a spawn failure: a worker started in a tree its repository said needed
+	// warming, and did not get, fails its tick in a way nobody can read back.
+	// Nil skips it.
+	Warm func(worktreePath string) error
 }
 
 // Result is what a successful spawn produced. Every identifier is read out of
@@ -236,6 +248,16 @@ func Run(ctx context.Context, c *client.Client, opts Options) (*Result, error) {
 		PaneID:       created.RootPane.PaneID,
 		AgentName:    opts.AgentName,
 		Kind:         opts.Kind,
+	}
+
+	// 1b. Warm the tree, before anything is looking at it. The commands come
+	//     from the worktree's own tracked config at the base commit — the same
+	//     source, and the same code, a cloud sandbox reads after its clone.
+	if opts.Warm != nil {
+		if err := opts.Warm(res.WorktreePath); err != nil {
+			return res, fmt.Errorf("herd/spawn: warming worktree %s for branch %s: %w",
+				res.WorktreePath, opts.Branch, err)
+		}
 	}
 
 	// 2. Start the worker in that pane with the pre-ordered argv, retrying

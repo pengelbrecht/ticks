@@ -12,6 +12,7 @@ import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import { MAX_SANDBOX_BOOTS } from "../src/run-workflow";
 import { roomFor, startRun, stopRun } from "../src/runs";
 import {
+  DEFAULT_SANDBOX_IMAGE,
   ORCHESTRATOR_COMMAND,
   type OrchestratorSandbox,
   type SandboxBinding,
@@ -112,9 +113,12 @@ class FakeSandbox implements OrchestratorSandbox {
 
 class FakeSandboxes implements SandboxBinding {
   readonly booted: FakeSandbox[] = [];
+  /** The image each `get` asked for — the boot's own parameter, per tick 3q2. */
+  readonly requestedImages: (string | undefined)[] = [];
   readonly #byName = new Map<string, FakeSandbox>();
 
-  async get(name: string): Promise<OrchestratorSandbox> {
+  async get(name: string, options?: { image?: string }): Promise<OrchestratorSandbox> {
+    this.requestedImages.push(options?.image);
     let sandbox = this.#byName.get(name);
     if (sandbox === undefined) {
       sandbox = new FakeSandbox(name);
@@ -275,6 +279,27 @@ describe("boot and finalize", () => {
 
     const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
     expect(record).toMatchObject({ run_id: runID, project, epic, state: "completed" });
+  });
+
+  // The image is a parameter of the boot, not a constant of the call site: the
+  // seam tick 3q2 left, now carrying a value. The container is also told which
+  // image it got, which is what lets it report a repository whose tracked
+  // `[sandbox].image` asks for a different one instead of ignoring it.
+  it("boots the sandbox with an image reference and tells the container which one", async () => {
+    const { runID } = await ignite();
+    const process = await firstProcess();
+
+    expect(sandboxes.requestedImages[0]).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(process.env.TICKS_SANDBOX_IMAGE).toBe(DEFAULT_SANDBOX_IMAGE);
+    // And nothing in that environment can carry a setup command: what a
+    // sandbox runs to warm itself comes from the repository's tracked config
+    // at the submitted SHA, read inside the container.
+    for (const name of Object.keys(process.env)) expect(name).not.toMatch(/SETUP/i);
+
+    // Let the run finish: an ignited run left alive keeps supervising, and a
+    // shared workerd runtime is what the next test file has to run in.
+    process.exit(0);
+    await settled(runID);
   });
 
   it("releases the dispatch lease so the project can run again", async () => {

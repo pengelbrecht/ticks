@@ -52,6 +52,9 @@ version = 2                 # optional; 1 or 2 — 2 once any command table is p
 [evidence.acceptance]       # optional — A<n> = "<command id>"
 [environment]               # optional — notes; run-start pre-flight checks
 [environment.commands]      #            same shape as testing.commands
+
+[sandbox]                   # optional — the sandbox this repo's runs get
+                            #            image / toolchain / setup
 ```
 
 ### `version`, and what an older reader does with a newer file
@@ -252,6 +255,54 @@ Three rules span tables, and JSON Schema has no referential integrity, so the sc
 | Every `[evidence.acceptance]` value names an id defined in `testing.commands` or `evidence.commands`. | Nothing outside this file authorises shell; an unresolvable reference has no command to run. | `evidence.acceptance.A1: "package-rcp" is not a command defined in testing.commands or evidence.commands` |
 
 This is the same division of labour the file already draws for routing — the schema knows the format, the spawner knows the vendor, and the loader knows the file as a whole. In this repo the loader is the one behind `tk herd spawn`, and `scripts/verify-runners-config.py` is a standalone reference implementation of both layers (`uv run --with jsonschema python scripts/verify-runners-config.py .tick/runners.toml`).
+
+## The sandbox a run gets
+
+`[sandbox]` is the per-repo sandbox definition: what a run's container is, on top of the batteries-included base image. Everything in it is optional, and **the 99% path declares nothing** — the base image covers the common toolchain set, and a repo that needs more says so here instead of forcing a factory-wide image rebuild.
+
+```toml
+# fragment
+[sandbox]
+image = "registry.example.com/acme/ticks-orchestrator:0.32.0"
+toolchain = ["rust@1.90.0", "python@3.13"]
+setup = [
+  { command = "pnpm --dir cloud/factory install --frozen-lockfile", description = "warm the pnpm store" },
+  { command = "go mod download" },
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `image` | Image reference the sandbox boots. Absent means the version-pinned base image. `tk sandbox image` prints the resolved reference; `--declared-only` prints one only when the repo declares it. |
+| `toolchain` | Extra `tool@version` pins provisioned through the version manager the base image already ships, into the project's persistent cache — resolved on first run, warm after. The version is required: an unpinned tool makes the warm sandbox and the cold one different environments. Ecosystem pins the image reads on its own (`go.mod`, `package.json`'s `packageManager`, `.node-version`, `.tool-versions`) do **not** belong here. |
+| `setup` | Idempotent, cache-populating commands run once per sandbox, in order, after the checkout and before the harness starts. An array, not a keyed table: order is the contract and nothing refers to a setup command by id. |
+
+### Why setup lives here and nowhere else
+
+`setup` runs arbitrary shell inside a sandbox that holds the run's gateway credential and its GitHub token, before any worker exists. So it comes from the **tracked, PR-reviewed config file at the submitted SHA** — and from nowhere else: never a tick note, a model's suggestion, a signal payload, an API parameter or an environment variable. Adding capability to a sandbox is a pull request, not a dashboard click, which is the same rule the cloud design applies to webhook sources.
+
+This is also the gap `[environment]` deliberately cannot close. An Environment check is **verification only** — *test, don't ask* — and a check that installs something is not a check. `setup` provisions; `[environment]` then decides whether the result is good enough to start a wave.
+
+### What runs it, and what "once" means
+
+One implementation serves both substrates, so a local worker warms identically to a cloud one:
+
+- **Cloud.** The sandbox entrypoint runs `tk sandbox setup` after cloning the submitted SHA and before starting the harness. A failing setup command stops the boot with exit 6 — deliberately not best effort, because a wave started on a half-provisioned sandbox fails in every worker, at model prices.
+- **Local.** `tk herd spawn` runs the same code on the freshly created worktree, between `worktree.create` and `agent.start`. `setup` only: `image` and `toolchain` describe a container, and a local worker runs on the developer's own machine, whose toolchain is not this file's to install. `[environment.commands]` is what tells a developer their machine is missing something.
+
+*Once* is **once per checkout**: the record of what ran lives in the checkout's git directory — never in the worktree, where it would land in a worker's `git add -A` — so a fresh clone or a new worker worktree warms again (its working tree is as cold as its caches are warm), and a repeat call in the same checkout does nothing. The record is a fingerprint of the declared commands, so editing them re-warms. Commands must be idempotent regardless: the record buys time, never correctness, and a failed setup leaves none.
+
+### Rules the loader enforces
+
+| Rule | Why |
+|---|---|
+| A `setup` command string may not also appear in `testing`/`evidence`/`environment` commands. | The same whole-file rule those three already share: a command belongs to exactly one phase. |
+| A tool may be pinned once. | `["rust@1.90.0", "rust@1.91.0"]` is an ambiguous sandbox; the version manager would silently pick one. |
+| Unknown keys are errors, as everywhere else in this file. | A typo'd key in the one table that runs shell before any worker exists must fail closed, not be ignored. |
+
+### What is not implemented yet
+
+`image` is validated, resolved and reported, but **the control plane does not yet boot a declared image**: it chooses one before it has a checkout to read, so honouring `sandbox.image` needs a read of the tracked config at the submitted SHA before boot. Until then the container is told which image it actually got (`TICKS_SANDBOX_IMAGE`) and the entrypoint prints a warning naming both references, so a declared image is never silently ignored. `toolchain` and `setup` are honoured on both substrates today.
 
 ## The deprecated markdown path
 
@@ -658,6 +709,34 @@ git-identity = { command = "git config user.email", description = "git identity 
 ```
 
 `A4` points at a `[testing.commands]` id, which is allowed: close-out may run a testing command as evidence. The reverse is not — an implementer may not run `herd-helper-quick`, because it lives in `[evidence.commands]`, and no key in this file can change that.
+
+### 7. A repo that declares its own sandbox
+
+Routing, a small command surface, and the sandbox the repo needs on top of the base image: a toolchain the base does not carry and two warm steps. Nothing else in the file changes — a `[sandbox]` table is additive, and a repo that removes it goes back to the base image with no other edit.
+
+```toml
+version = 2
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+
+[environment.commands]
+rust-toolchain = { command = "which cargo", description = "cargo on PATH once the sandbox is warm" }
+
+[sandbox]
+toolchain = ["rust@1.90.0"]
+setup = [
+  { command = "pnpm --dir cloud/factory install --frozen-lockfile", description = "warm the pnpm store" },
+  { command = "go mod download", description = "warm the module cache" },
+]
+```
+
+The `[environment]` check and the `[sandbox]` declaration are doing different jobs on purpose: `sandbox.toolchain` *installs* the Rust toolchain into the project's cache, and `which cargo` then *proves* the sandbox actually has it before a wave starts. Provision, then verify — never one instead of the other.
 
 ## Negative cases
 

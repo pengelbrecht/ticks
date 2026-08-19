@@ -66,6 +66,7 @@ import {
   orchestratorEnv,
   repoURL,
   sandboxBinding,
+  sandboxImage,
   sandboxName,
   ORCHESTRATOR_COMMAND,
   type OrchestratorPhase,
@@ -536,7 +537,12 @@ async function supervisePass(
         tick_id: params.epic,
         attempt: boot,
       });
-      const sandbox = await binding.get(name);
+      // The image is a parameter of the boot, not a constant of the call site
+      // (tick 3q2's seam). The container is told which one it got, so a
+      // repository whose tracked config asks for another is reported by the
+      // entrypoint rather than silently ignored.
+      const image = sandboxImage(env);
+      const sandbox = await binding.get(name, { image });
       const started = await sandbox.startProcess(ORCHESTRATOR_COMMAND, {
         env: orchestratorEnv({
           run_id: params.run_id,
@@ -550,6 +556,7 @@ async function supervisePass(
           ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
           ...(context.config.harness === null ? {} : { harness: context.config.harness }),
           ...(context.config.model === null ? {} : { model: context.config.model }),
+          sandbox_image: image,
         }),
       });
       return { process_id: started.id, at_ms: Date.now() };

@@ -47,6 +47,12 @@ const (
 	EnvTkVersion    = "TICKS_TK_VERSION"
 	EnvPhase        = "TICKS_PHASE"
 	EnvStopReason   = "TICKS_STOP_REASON"
+	// EnvSandboxImage is the image reference the control plane says it booted.
+	// It is advisory and read-only from inside: the container cannot change
+	// what it is running, so this exists so that a repository declaring a
+	// DIFFERENT image in its `[sandbox]` table is reported in the boot log
+	// rather than silently ignored.
+	EnvSandboxImage = "TICKS_SANDBOX_IMAGE"
 	// The RunRoom-backed operator bridge. The token is injected only into the
 	// ephemeral sandbox and is never written into the checkout.
 	EnvFactoryURL     = "TICKS_FACTORY_URL"
@@ -87,6 +93,11 @@ const (
 	ExitClone     = 3 // clone/checkout of the submitted SHA failed
 	ExitTkVersion = 4 // tk is absent or is not the version the image pins
 	ExitPreflight = 5 // a .tick/config.md Environment check failed
+	// ExitSetup reports that the repository's own `[sandbox]` setup failed.
+	// It is deliberately not best effort like toolchain provisioning: a
+	// repository that declares a warm step and does not get it starts a wave
+	// in which every worker fails the same way, at model prices.
+	ExitSetup = 6
 )
 
 // Script names the files the image installs into /usr/local/bin.

@@ -521,6 +521,13 @@ func ResetFlags() {
 	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
 	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
 
+	// Reset sandbox flags
+	sandboxRoot = ""
+	sandboxForce = false
+	sandboxStamp = ""
+	sandboxTkVerRaw = ""
+	sandboxDeclaredOnly = false
+
 	// Reset herd reconcile flags
 	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
 	// Reset herd collect flags

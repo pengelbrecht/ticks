@@ -42,6 +42,24 @@ export type OrchestratorPhase = "run" | "reconcile" | "closeout";
  */
 export const DEFAULT_SANDBOX_IMAGE = "ticks-orchestrator";
 
+/**
+ * The image this deployment boots a run in.
+ *
+ * A deployment-level knob, not a per-run one: the control plane picks an image
+ * BEFORE it has a checkout, so it cannot yet read the `[sandbox].image` a
+ * repository declares in its tracked config at the submitted SHA. What it can
+ * do — and does — is tell the container which image it got, so a repository
+ * asking for a different one is reported in the boot log instead of being
+ * silently ignored (`TICKS_SANDBOX_IMAGE`, and the entrypoint's warning).
+ * Honouring a declared image is the remaining half of that seam.
+ */
+export function sandboxImage(env: Env): string {
+  const configured = env.SANDBOX_IMAGE;
+  return typeof configured === "string" && configured.trim() !== ""
+    ? configured.trim()
+    : DEFAULT_SANDBOX_IMAGE;
+}
+
 /** The command the sandbox runs. It is on PATH in the Phase 1 image. */
 export const ORCHESTRATOR_COMMAND = "/usr/local/bin/ticks-orchestrator";
 
@@ -56,6 +74,7 @@ export const TERMINAL_EXIT_CODES: readonly number[] = [
   3, // clone or checkout of the submitted SHA failed
   4, // tk is absent, or is not the version the image pins
   5, // an Environment pre-flight check failed
+  6, // the repository's own [sandbox] setup failed
 ];
 
 /** Whether a nonzero exit means "do not boot another sandbox for this run". */
@@ -155,6 +174,13 @@ export type OrchestratorEnvInput = {
   model?: string;
   workdir?: string;
   cache_dir?: string;
+  /**
+   * The image the control plane booted. Advisory and one-way: the container
+   * cannot change what it is running, so this exists so that a repository
+   * declaring a different `[sandbox].image` is visible in the log rather than
+   * silently ignored.
+   */
+  sandbox_image?: string;
 };
 
 /**
@@ -170,7 +196,11 @@ export type OrchestratorEnvInput = {
  * factory's own `/api/gateway` prefix, and the only model credential the
  * container holds is the run token — so a leaked sandbox environment leaks
  * something run-scoped and revocable rather than the operator's vendor key
- * (D17).
+ * (D17). And no setup commands: what a sandbox runs to warm itself comes from
+ * the repository's tracked, PR-reviewed `.tick/runners.toml` at the submitted
+ * SHA, read inside the container by `tk`. There is deliberately no variable
+ * here that carries one, so no API parameter, signal payload or tick note has
+ * a path into a shell holding this run's credentials.
  */
 export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, string> {
   const env: Record<string, string> = {
@@ -192,6 +222,9 @@ export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, str
   if (input.model !== undefined && input.model !== "") env.TICKS_MODEL = input.model;
   if (input.workdir !== undefined && input.workdir !== "") env.TICKS_WORKDIR = input.workdir;
   if (input.cache_dir !== undefined && input.cache_dir !== "") env.TICKS_CACHE_DIR = input.cache_dir;
+  if (input.sandbox_image !== undefined && input.sandbox_image !== "") {
+    env.TICKS_SANDBOX_IMAGE = input.sandbox_image;
+  }
   return env;
 }
 
