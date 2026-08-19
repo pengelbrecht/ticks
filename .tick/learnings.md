@@ -27,10 +27,10 @@ the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in
 **Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
 "fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
 
-**Problem:** A codex worker's sandbox blocks loopback sockets and cannot resolve github.com,
-so httptest suites and `git push` fail there (recurring DONE_WITH_CONCERNS).
-**Rule:** Route loopback-HTTP ticks to a claude worker; treat the integrated post-wave gate as
-the authoritative first full run, and never let a worker push.
+**Problem:** A codex worker's sandbox blocks loopback sockets and DNS, so httptest suites and
+`git push` fail there (recurring DONE_WITH_CONCERNS).
+**Rule:** Treat the integrated post-wave gate as the authoritative first full run; never let a
+worker push.
 
 ## Schema codegen
 
@@ -43,10 +43,10 @@ regenerated output together; spell these out in any tick touching `schemas/`.
 **Problem:** A user-facing page shipped `tk` commands that don't exist — agents guess CLI syntax.
 **Rule:** Any tick writing `tk` commands into docs must verify each against `cmd/tk/cmd/*.go`.
 
-**Problem:** A released feature had zero README coverage — docs ticks enumerate the surfaces
-they own, never the surfaces users see.
-**Rule:** A feature epic's final docs tick must checklist README, docs/, and --help, saying
-per surface "updated" or "not applicable".
+**Problem:** A released feature had zero README coverage — docs ticks enumerate the surfaces they
+own, never the ones users see.
+**Rule:** A feature epic's docs tick must checklist README, docs/ and --help, saying per surface
+"updated" or "not applicable".
 
 ## Orchestration
 
@@ -55,10 +55,9 @@ per surface "updated" or "not applicable".
 **Rule:** Commit .tick state immediately after every mutation batch, before merging any branch or
 launching agents.
 
-**Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and
-re-implemented it, causing a conflict.
+**Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and re-implemented it.
 **Rule:** Implementer prompts must name the prerequisite SHA and instruct `git merge
-<integration-branch>` first, then verify ancestry (`git merge-base --is-ancestor <sha> HEAD`).
+<integration-branch>` first, then verify ancestry with `git merge-base --is-ancestor`.
 
 **Problem:** A codex worker self-updated at spawn; the output swallowed the content-gate probe and
 the CLI exited, leaving a worktree, branch and workspace with no manifest ("worktree already exists"
