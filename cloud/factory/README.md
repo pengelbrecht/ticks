@@ -48,9 +48,14 @@ board-sync problem on its own track, which this bundle never builds on):
 pbkdf2-sha256$<iterations>$<base64url salt>$<base64url derived key>
 ```
 
-The iteration count lives in the record, so raising the cost later needs a new
-secret rather than a migration. `src/auth.ts` accepts 100,000–1,000,000 and
-mints at 210,000 (~13ms in workerd).
+The iteration count lives in the record, so changing the cost later needs a new
+secret rather than a migration. `src/auth.ts` mints and accepts at 100,000 —
+**Cloudflare Workers caps PBKDF2 there**: `crypto.subtle.deriveBits` throws on
+the edge above 100,000 iterations, so a higher record makes every authenticated
+request a 503. Local workerd does not enforce the cap, so a guard test in
+`test/auth.test.ts` does (`PLATFORM_MAX_ITERATIONS`). Nothing is lost to it:
+the credential is 256 bits of CSPRNG output, not a password, so stretching is
+not what makes it hard to guess.
 
 | Path | Auth |
 |---|---|
