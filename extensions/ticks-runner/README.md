@@ -164,7 +164,7 @@ A2 = "package-proof"
 git = { command = "git --version", description = "Git" }
 ```
 
-A role with no entry resolves against `[roles.implement]`, and a tier that is absent resolves to its role's own model and effort. A file that cannot be parsed, carries an unknown key, or maps an acceptance item to a command id no table defines is a **stop**: the run blocks and the command surface authorizes nothing — it never falls back to markdown. `review_should_fix` has no home in the schema and comes from `TICKS_PI_REVIEW_SHOULD_FIX` (default `repair`) on this path. `## Rules` stays in `.tick/config.md` on both paths.
+An absent tier resolves to its role's own model and effort. `[roles.plan]`, `[roles.scout]`, `[roles.review]` and `[roles.closeout]` do **not** resolve against `[roles.implement]` here: planning and the final process gates refuse to run on a defaulted model, so an absent role table leaves the key unset and the run blocks — the same stop the markdown path's missing `review_model`/`scout_model` line produced. (`tk herd spawn` does fall an unlisted role back to `implement`; that is right for spawning a worker and wrong for a gate that must fail closed.) Closeout alone has a fallback, and it is the planner: `closeout_model ?? planner_model`, blocking when neither is configured. A file that cannot be parsed, carries an unknown key, or maps an acceptance item to a command id no table defines is a **stop**: the run blocks and the command surface authorizes nothing — it never falls back to markdown. `review_should_fix` has no home in the schema and comes from `TICKS_PI_REVIEW_SHOULD_FIX` (default `repair`) on this path. `## Rules` stays in `.tick/config.md` on both paths.
 
 ### Deprecated: structured sections in `.tick/config.md`
 

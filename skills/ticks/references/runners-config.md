@@ -98,7 +98,7 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 
 ### `[roles.<name>]`
 
-Keys are role names matching `^[a-z][a-z0-9_-]*$`. Well-known roles: `plan`, `scout`, `implement`, `review`, `closeout`. Custom names are allowed. `[roles.implement]` is **required**; any role with no entry falls back to `implement`.
+Keys are role names matching `^[a-z][a-z0-9_-]*$`. Well-known roles: `plan`, `scout`, `implement`, `review`, `closeout`. Custom names are allowed. `[roles.implement]` is **required**; any role with no entry falls back to `implement` **at spawn time** — see [Resolution order](#resolution-order) for the one place that fallback deliberately stops.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -124,6 +124,8 @@ For a tick with role R and chosen tier T:
 1. `roles.R.tiers.T` if present → for **each** of `kind`, `model`, `effort`, `args` independently: the tier's value if it sets one, else the role's.
 2. Otherwise `roles.R.kind` + `roles.R.model` + `roles.R.effort` + `roles.R.args`.
 3. If role R has no entry, resolve against `implement` by the same two steps.
+
+**Step 3 is a spawner rule, and a consumer whose role fails closed must not apply it.** `tk herd spawn` has to produce a worker, so an unlisted role resolving to `implement` is the right answer there. A *gate* that refuses to run on a defaulted model needs the opposite answer: the pi extension reads `plan`, `scout`, `review` and `closeout` only from their own explicit tables, leaves the key unset when the table is absent, and blocks — so a repo that migrates without writing `[roles.review]` gets the same stop its `## Pi Orchestrator` block gave when it had no `review_model` line, rather than a final review quietly running on the economy implement model. Its one fallback is closeout to the planner model. Anything that spawns from this file should say explicitly which of the two rules it applies.
 
 `kind`, `model` and `effort` are scalars, so field-wise override is well-defined: a tier that sets only `effort = "high"` keeps the role's kind and model. That is the point of splitting the dimensions out of `args` — the common case (same vendor, same model, different effort) stops requiring a restated argv list.
 
