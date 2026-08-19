@@ -6,7 +6,7 @@
   "$defs": {
     "RunEventSource": {
       "type": "string",
-      "enum": ["ralph", "swarm-orchestrator", "swarm-subagent"],
+      "enum": ["cloud:orchestrator", "cloud:worker", "harness", "herdr", "pi"],
       "description": "Source of run event"
     },
     "RunEventType": {

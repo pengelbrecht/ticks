@@ -27,13 +27,20 @@ import type {
   Note,
   BlockerDetail,
 } from './api/responses.js';
+import type { RunEventSource } from './websocket/messages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Path: src/types/generated -> ../../.. -> src -> ../.. -> internal/tickboard/ui -> ../../../schemas
-const FIXTURES_DIR = join(__dirname, '..', '..', '..', '..', '..', '..', 'schemas', 'fixtures');
+const SCHEMAS_DIR = join(__dirname, '..', '..', '..', '..', '..', '..', 'schemas');
+const FIXTURES_DIR = join(SCHEMAS_DIR, 'fixtures');
 
 function readFixture(name: string): unknown {
   const content = readFileSync(join(FIXTURES_DIR, name), 'utf-8');
+  return JSON.parse(content);
+}
+
+function readSchema(name: string): unknown {
+  const content = readFileSync(join(SCHEMAS_DIR, name), 'utf-8');
   return JSON.parse(content);
 }
 
@@ -172,6 +179,27 @@ describe('Schema Roundtrip Tests', () => {
       expect(blocker.id).toBe('tick-002');
       expect(blocker.title).toBe('Blocking task');
       expect(blocker.status).toBe('open');
+    });
+  });
+
+  describe('WebSocket messages', () => {
+    it('uses substrate-shaped run event sources', () => {
+      const sources = [
+        'cloud:orchestrator',
+        'cloud:worker',
+        'harness',
+        'herdr',
+        'pi',
+      ] satisfies RunEventSource[];
+      const schema = readSchema('websocket/messages.schema.json') as {
+        $defs: {
+          RunEventSource: {
+            enum: string[];
+          };
+        };
+      };
+
+      expect(schema.$defs.RunEventSource.enum).toEqual(sources);
     });
   });
 });
