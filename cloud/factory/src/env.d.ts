@@ -39,6 +39,12 @@ declare namespace Cloudflare {
      */
     SANDBOXES?: import("./sandbox").SandboxBinding;
     /**
+     * Image reference a run boots, for a deployment that pushed the
+     * orchestrator image into its own registry. Unset uses the bundled
+     * default (`DEFAULT_SANDBOX_IMAGE`).
+     */
+    SANDBOX_IMAGE?: string;
+    /**
      * Budget and cadence vars for the Run Workflow (wrangler `[vars]`), so
      * enforcement is a deployment decision and never a prompt. Bounds and
      * defaults live in src/run-workflow.ts, which ignores an unusable value

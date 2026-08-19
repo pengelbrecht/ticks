@@ -336,7 +336,13 @@ export function loadRunnerConfig(root: string, env: Environment = process.env): 
 
 /** The tables whose presence means a repo has migrated its command surface. */
 const COMMAND_TABLES = ["testing", "evidence", "environment"] as const;
-const ROOT_KEYS = ["version", "orchestrator", "orchestration", "roles", "testing", "evidence", "environment"];
+const ROOT_KEYS = ["version", "orchestrator", "orchestration", "roles", "testing", "evidence", "environment", "sandbox"];
+const SANDBOX_KEYS = ["image", "toolchain", "setup"];
+const IMAGE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/;
+const TOOL_SPEC_PATTERN = /^[a-z0-9][a-z0-9_.+-]*@[A-Za-z0-9][A-Za-z0-9_.+-]*$/;
+const MAX_IMAGE = 512;
+const MAX_TOOL_SPEC = 128;
+const MAX_SANDBOX_ENTRIES = 32;
 const ORCHESTRATOR_KEYS = ["harness", "kind", "model", "effort", "args"];
 const ORCHESTRATION_KEYS = ["substrate", "detect", "socket", "max_parallel", "worktree_branch_prefix", "full_auto"];
 const ROLE_KEYS = ["kind", "model", "effort", "args", "harness", "tiers"];
@@ -428,6 +434,91 @@ function checkCapability(table: TomlTable, at: string, errors: string[]): void {
 	}
 	if (table.args !== undefined && (!Array.isArray(table.args) || table.args.some((item) => typeof item !== "string"))) {
 		errors.push(`${at}.args: must be an array of strings, one argv element per entry`);
+	}
+}
+
+/**
+ * Validate `[sandbox]` — the per-repo sandbox definition — without ever
+ * reading a command out of it.
+ *
+ * This reader dispatches `pi` in this process; it never boots a sandbox, so it
+ * has nothing to do with the image, the toolchain or the setup commands. It
+ * still validates them, because one file cannot be valid for one reader and
+ * invalid for another, and because a typo in a table this reader ignores is
+ * still a typo that fails a run somewhere else.
+ *
+ * What it deliberately does NOT do is surface `sandbox.setup` as commands. A
+ * setup command is shell run inside a credentialed sandbox by the thing that
+ * provisions one (`tk sandbox setup`); nothing else executes it, and nothing
+ * here can hand it to a phase that would.
+ */
+function checkSandbox(document: TomlTable, errors: string[]): void {
+	const sandbox = subTable(document, "sandbox", "sandbox", errors);
+	if (!sandbox) return;
+	unknownKeys(sandbox, SANDBOX_KEYS, "sandbox", errors);
+
+	if (sandbox.image !== undefined) {
+		const image = stringField(sandbox, "image", "sandbox.image", errors);
+		if (image !== undefined && (image.length > MAX_IMAGE || !IMAGE_PATTERN.test(image))) {
+			errors.push(`sandbox.image: ${JSON.stringify(image)} is not a well-formed image reference (${IMAGE_PATTERN.source})`);
+		}
+	}
+
+	if (sandbox.toolchain !== undefined) {
+		if (!Array.isArray(sandbox.toolchain)) {
+			errors.push("sandbox.toolchain: must be an array of tool@version pins");
+		} else {
+			if (sandbox.toolchain.length > MAX_SANDBOX_ENTRIES) {
+				errors.push(`sandbox.toolchain: ${sandbox.toolchain.length} entries exceeds the limit of ${MAX_SANDBOX_ENTRIES}`);
+			}
+			const seen = new Map<string, number>();
+			sandbox.toolchain.forEach((spec, index) => {
+				const at = `sandbox.toolchain[${index}]`;
+				if (typeof spec !== "string" || spec.length > MAX_TOOL_SPEC || !TOOL_SPEC_PATTERN.test(spec)) {
+					errors.push(`${at}: ${JSON.stringify(spec)} is not a well-formed tool@version pin (the version is required)`);
+					return;
+				}
+				const tool = spec.slice(0, spec.indexOf("@"));
+				const first = seen.get(tool);
+				if (first !== undefined) {
+					errors.push(`${at}: ${JSON.stringify(tool)} is already pinned by sandbox.toolchain[${first}] — two versions of one tool is ambiguous`);
+					return;
+				}
+				seen.set(tool, index);
+			});
+		}
+	}
+
+	if (sandbox.setup !== undefined) {
+		if (!Array.isArray(sandbox.setup)) {
+			errors.push("sandbox.setup: must be an array of { command, description } tables");
+			return;
+		}
+		if (sandbox.setup.length > MAX_SANDBOX_ENTRIES) {
+			errors.push(`sandbox.setup: ${sandbox.setup.length} entries exceeds the limit of ${MAX_SANDBOX_ENTRIES}`);
+		}
+		sandbox.setup.forEach((entry, index) => {
+			const at = `sandbox.setup[${index}]`;
+			if (!isTomlTable(entry)) {
+				errors.push(`${at}: must be a table`);
+				return;
+			}
+			unknownKeys(entry, COMMAND_KEYS, at, errors);
+			const command = entry.command;
+			if (typeof command !== "string" || !command) {
+				errors.push(`${at}.command: required — a labelled entry with nothing to run is not a setup command`);
+				return;
+			}
+			if (command.length > MAX_COMMAND || CONTROL_CHARACTER.test(command)) {
+				errors.push(`${at}.command: must be one plain shell string of at most ${MAX_COMMAND} characters, with no control characters`);
+			}
+			if (entry.description !== undefined) {
+				const description = entry.description;
+				if (typeof description !== "string" || !description || description.length > MAX_DESCRIPTION) {
+					errors.push(`${at}.description: must be a non-empty string of at most ${MAX_DESCRIPTION} characters — omit the key instead`);
+				}
+			}
+		});
 	}
 }
 
@@ -740,6 +831,7 @@ function configFromRunnersDocument(document: TomlTable, env: Environment, rules:
 		errors.push(`version: unsupported config version ${JSON.stringify(document.version)} (this runner understands ${MIN_CONFIG_VERSION} through ${CONFIG_VERSION})`);
 	}
 	const settings = resolveSettings(readRouting(document, errors), env);
+	checkSandbox(document, errors);
 	const testing = readCommandTable(document, "testing", "testing", errors);
 	const evidence = readCommandTable(document, "evidence", "closeout", errors);
 	const environment = readCommandTable(document, "environment", undefined, errors);

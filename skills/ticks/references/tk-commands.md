@@ -200,6 +200,24 @@ tk notes <id>                         # List notes
 
 This skill runs epics through a runner-neutral orchestration protocol — see `agent-runner.md`, then the Claude Code, Codex, or Pi adapter. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed. The `tk merge` command remains available for merging a completed epic's worktree branch.
 
+## Sandbox
+
+```bash
+tk sandbox image [--root DIR] [--declared-only] [--tk-version V]
+tk sandbox toolchain [--root DIR]
+tk sandbox setup [--root DIR] [--force] [--stamp PATH]
+```
+
+Reads the `[sandbox]` table of `.tick/runners.toml` — the per-repo sandbox definition (`runners-config.md` → *The sandbox a run gets*) — and applies it to a checkout.
+
+| Command | Description |
+|---------|-------------|
+| `tk sandbox image` | Print the image the sandbox boots: the declared one, else the base image pinned to this tk version. `--declared-only` prints nothing when the repo declares none. |
+| `tk sandbox toolchain` | Print the declared `tool@version` pins, one per line. |
+| `tk sandbox setup` | Run the declared setup commands, in order, once per checkout. `--force` ignores the warm record. |
+
+The setup commands come from the tracked config in the checkout and from nowhere else — no flag supplies one. A repo that declares no `[sandbox]` table gets the base image and a no-op, which is the usual case. `tk herd spawn` runs the same setup on a new worker worktree, and the cloud sandbox entrypoint runs it after its clone, so a local worker and a cloud one warm identically.
+
 ## Web Board
 
 ```bash

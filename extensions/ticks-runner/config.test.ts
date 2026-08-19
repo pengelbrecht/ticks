@@ -692,3 +692,65 @@ test("this repo's runners.toml never hands the pi runner a foreign-kind model", 
 	assert.deepEqual(config.models, {}, "a refused config routes nothing");
 	assert.deepEqual(config.testCommands, [], "a refused config authorizes nothing");
 });
+
+// ------------------------------------------------------------- [sandbox] ---
+//
+// The per-repo sandbox definition. This reader never boots a sandbox, so it
+// executes nothing from this table — but one file cannot be valid for one
+// reader and invalid for another, so it validates the same shape the Go loader
+// does and fails closed on the same mistakes.
+
+const sandboxToml = `version = 2
+
+[roles.implement]
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+
+[sandbox]
+image = "registry.example.com/acme/orchestrator:2.0.0"
+toolchain = ["rust@1.90.0", "python@3.13"]
+setup = [
+  { command = "pnpm install --frozen-lockfile", description = "warm the pnpm store" },
+  { command = "go mod download" },
+]
+`;
+
+test("a [sandbox] table is accepted and never becomes a command this reader can run", () => {
+	const config = resolveRunnerConfigFromToml(sandboxToml, {}, { rules: [] });
+
+	assert.deepEqual(config.errors, [], "a valid [sandbox] table must not fail the config");
+	// Nothing from [sandbox] may appear in any phase's command surface: setup
+	// is provisioning, executed by whatever provisions a sandbox, and a reader
+	// that surfaced it would be handing an implementer or a closeout gate a
+	// command the file never authorised for them.
+	const surfaced = [...config.testCommands, ...config.closeoutEvidenceCommands, ...config.environmentCommands];
+	for (const command of surfaced) {
+		assert.ok(
+			!command.command.includes("pnpm install") && !command.command.includes("go mod download"),
+			`a sandbox setup command leaked into the command surface: ${command.command}`,
+		);
+	}
+	assert.deepEqual(config.testCommands, []);
+});
+
+test("[sandbox] fails closed on an unknown key, a malformed image, an unpinned tool and a smuggled command", () => {
+	const cases: Array<[string, RegExp]> = [
+		['[sandbox]\nimages = "x"\n', /unknown key/],
+		['[sandbox]\nsetup = [ { command = "true", shell = "zsh" } ]\n', /unknown key/],
+		['[sandbox]\nimage = "$(echo pwned)"\n', /sandbox\.image/],
+		['[sandbox]\ntoolchain = ["rust"]\n', /sandbox\.toolchain\[0\]/],
+		['[sandbox]\ntoolchain = ["rust@1.90.0", "rust@1.91.0"]\n', /already pinned/],
+		['[sandbox]\nsetup = [ { description = "nothing to run" } ]\n', /sandbox\.setup\[0\]\.command/],
+		['[sandbox]\nsetup = [ { command = "true\\nrm -rf /" } ]\n', /control characters/],
+	];
+	for (const [table, expected] of cases) {
+		const config = resolveRunnerConfigFromToml(
+			`version = 2\n\n[roles.implement]\nkind = "pi"\nmodel = "openai-codex/gpt-5.6-sol"\n\n${table}`,
+			{},
+			{ rules: [] },
+		);
+		assert.ok(config.errors.length > 0, `accepted: ${table}`);
+		assert.ok(config.errors.some((error) => expected.test(error)), `${table} -> ${config.errors.join("; ")}`);
+		assert.deepEqual(config.testCommands, [], "a refused config authorizes nothing");
+	}
+});

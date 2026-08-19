@@ -87,6 +87,15 @@ var (
 	// acceptanceItemPattern is the schema's Acceptance.propertyNames pattern —
 	// the `A<n>` written in a tick's acceptance criteria.
 	acceptanceItemPattern = regexp.MustCompile(`^A[1-9][0-9]{0,2}$`)
+	// imagePattern is the schema's Sandbox.image pattern: a container image
+	// reference with an optional tag and digest. Deliberately narrow — an
+	// image reference is a name, never a place to hide a shell fragment.
+	imagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$`)
+	// toolSpecPattern is the schema's ToolSpec pattern: one `tool@version` pin
+	// in the version manager's namespace. The version is required — an
+	// unpinned tool makes the warm sandbox and the cold one different
+	// environments.
+	toolSpecPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.+-]*@[A-Za-z0-9][A-Za-z0-9_.+-]*$`)
 )
 
 // The schema's bounds on the command surface, kept here so a change to one is
@@ -98,6 +107,12 @@ const (
 	maxNotesLen         = 8000
 	maxCommandsPerTable = 128
 	maxAcceptanceItems  = 64
+	maxImageLen         = 512
+	maxToolSpecLen      = 128
+	// maxSandboxEntries bounds `sandbox.toolchain` and `sandbox.setup`. A
+	// sandbox definition that needs more than this is an image, not a
+	// declaration on top of one.
+	maxSandboxEntries = 32
 )
 
 // LoadRepo loads `<repoRoot>/.tick/runners.toml`.
@@ -406,6 +421,13 @@ func validateCommands(cfg *Config, md toml.MetaData, add addFunc) {
 		}
 	}
 
+	// `[sandbox].setup` joins the same whole-file rule: one command belongs to
+	// exactly one phase. A string that is both a warm step and an
+	// acceptance-authorising command makes "which phase authorised this" a
+	// guess. It is checked here, after the tables, so the error names the
+	// table that claimed the string first.
+	validateSandbox(cfg, md, add, textOwner)
+
 	if cfg.Evidence == nil {
 		return
 	}
@@ -426,6 +448,75 @@ func validateCommands(cfg *Config, md toml.MetaData, add addFunc) {
 		// pre-flight check is not acceptance evidence.
 		if owner := idOwner[ref]; owner != "testing" && owner != "evidence" {
 			add(path, fmt.Sprintf("%q is not a command defined in testing.commands or evidence.commands — nothing outside this file authorises shell", ref))
+		}
+	}
+}
+
+// validateSandbox enforces the schema's `[sandbox]` table: the image
+// reference, the `tool@version` pins, and the setup commands.
+//
+// Setup gets the command surface's hardening unchanged, because it is the same
+// hazard with a wider blast radius: a setup command runs inside a sandbox that
+// holds the run's credentials, before any worker starts. What guards it is not
+// this function alone but where the value comes from — the tracked file at the
+// submitted SHA, and nothing else.
+func validateSandbox(cfg *Config, md toml.MetaData, add addFunc, textOwner map[string]string) {
+	sb := cfg.Sandbox
+	if sb == nil {
+		return
+	}
+
+	if md.IsDefined("sandbox", "image") {
+		switch {
+		case sb.Image == "":
+			add("sandbox.image", "must not be empty — omit the key to boot the version-pinned base image")
+		case len(sb.Image) > maxImageLen:
+			add("sandbox.image", fmt.Sprintf("%d characters exceeds the limit of %d", len(sb.Image), maxImageLen))
+		case !imagePattern.MatchString(sb.Image):
+			add("sandbox.image", fmt.Sprintf("%q is not a well-formed image reference (%s)", sb.Image, imagePattern.String()))
+		}
+	}
+
+	if len(sb.Toolchain) > maxSandboxEntries {
+		add("sandbox.toolchain", fmt.Sprintf("%d entries exceeds the limit of %d", len(sb.Toolchain), maxSandboxEntries))
+	}
+	seenTool := map[string]int{}
+	for i, spec := range sb.Toolchain {
+		path := fmt.Sprintf("sandbox.toolchain[%d]", i)
+		if len(spec) > maxToolSpecLen || !toolSpecPattern.MatchString(spec) {
+			add(path, fmt.Sprintf("%q is not a well-formed tool@version pin (%s); the version is required, or the warm sandbox and the cold one are different environments",
+				spec, toolSpecPattern.String()))
+			continue
+		}
+		tool := spec[:strings.Index(spec, "@")]
+		if first, ok := seenTool[tool]; ok {
+			add(path, fmt.Sprintf("%q is already pinned by sandbox.toolchain[%d] — two versions of one tool is ambiguous", tool, first))
+			continue
+		}
+		seenTool[tool] = i
+	}
+
+	if len(sb.Setup) > maxSandboxEntries {
+		add("sandbox.setup", fmt.Sprintf("%d entries exceeds the limit of %d", len(sb.Setup), maxSandboxEntries))
+	}
+	for i, cmd := range sb.Setup {
+		path := fmt.Sprintf("sandbox.setup[%d]", i)
+		if cmd == nil {
+			add(path, "must be a table")
+			continue
+		}
+		if cmd.Command == "" {
+			add(path+".command", "required — a labelled entry with nothing to run is not a setup command")
+			continue
+		}
+		checkCommandText(add, path+".command", cmd.Command)
+		if cmd.Description != "" && len(cmd.Description) > maxDescriptionLen {
+			add(path+".description", fmt.Sprintf("%d characters exceeds the limit of %d", len(cmd.Description), maxDescriptionLen))
+		}
+		if owner, ok := textOwner[cmd.Command]; ok {
+			add(path, fmt.Sprintf("command is already authorised as %s — a command belongs to exactly one phase, so a warm step and a phase command are never the same string", owner))
+		} else {
+			textOwner[cmd.Command] = path
 		}
 	}
 }

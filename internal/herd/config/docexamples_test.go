@@ -303,6 +303,30 @@ pnpm = { command = "which pnpm", description = "pnpm on PATH (never npm/yarn in 
 git-identity = { command = "git config user.email", description = "git identity configured" }
 `
 
+// docExample7 is worked example 7 from runners-config.md, transcribed
+// verbatim: a repo that declares its own sandbox on top of the base image.
+const docExample7 = `
+version = 2
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+
+[environment.commands]
+rust-toolchain = { command = "which cargo", description = "cargo on PATH once the sandbox is warm" }
+
+[sandbox]
+toolchain = ["rust@1.90.0"]
+setup = [
+  { command = "pnpm --dir cloud/factory install --frozen-lockfile", description = "warm the pnpm store" },
+  { command = "go mod download", description = "warm the module cache" },
+]
+`
+
 func TestDocExampleTranscriptionsMatch(t *testing.T) {
 	doc, err := skills.Read("ticks", "references/runners-config.md")
 	if err != nil {
@@ -316,7 +340,7 @@ func TestDocExampleTranscriptionsMatch(t *testing.T) {
 		}
 		complete = append(complete, body)
 	}
-	want := []string{docExample1, docExample2, docExample3, docExample4, docExample5, docExample6}
+	want := []string{docExample1, docExample2, docExample3, docExample4, docExample5, docExample6, docExample7}
 	if len(complete) != len(want) {
 		t.Fatalf("found %d complete TOML examples, want %d", len(complete), len(want))
 	}

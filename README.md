@@ -269,6 +269,15 @@ orchestrating harness's own subagents. Configure routing in `.tick/runners.toml`
 | `tk herd paint` | Badge worker workspaces with tick id, role, status |
 | `tk herd notify` | Blocked/wave-complete notifications with once-semantics |
 
+A repo can also declare the sandbox its runs get, in the `[sandbox]` table of
+`.tick/runners.toml`: an optional custom `image`, extra `toolchain` pins, and
+idempotent `setup` commands that warm its caches. `tk sandbox image | toolchain
+| setup` reads it, `tk herd spawn` applies it to each new worker worktree, and a
+cloud sandbox applies the same table after its clone — so a local worker and a
+cloud one warm identically. Setup commands run arbitrary shell in a credentialed
+sandbox, so they come only from that tracked, PR-reviewed file at the commit a
+run was submitted with: never a tick note, an API parameter or the environment.
+
 The optional **mission-control herdr plugin** ([`plugins/herdr-ticks`](plugins/herdr-ticks))
 adds a board pane, workspace badges via event hooks, notification chimes, and
 context-menu actions. Full conventions live in the ticks skill:

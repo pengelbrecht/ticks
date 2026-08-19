@@ -19,9 +19,16 @@ const (
 )
 
 // CommandSurfaceVersion is the format version that introduced `[testing]`,
-// `[evidence]` and `[environment]`. A file carrying any of them cannot be
-// read by a version 1 reader, so it must declare this version — that is what
-// makes the older binary say "upgrade tk" instead of enumerating 57 keys.
+// `[evidence]`, `[environment]` and `[sandbox]`. A file carrying any of them
+// cannot be read by a version 1 reader, so it must declare this version —
+// that is what makes the older binary say "upgrade tk" instead of enumerating
+// 57 keys.
+//
+// `[sandbox]` deliberately does NOT get a version of its own. A version gate
+// only helps across a released boundary, and [sandbox] ships in the same
+// release as the command surface: no binary exists that reads version 2 and
+// has never heard of it. Bumping would lock out readers for nothing, which is
+// the mirror of the mistake the gate was added to fix.
 const CommandSurfaceVersion = 2
 
 // MinTkVersion is the first tk release that understands [Version]. It is what
@@ -102,6 +109,7 @@ type Config struct {
 	Testing       *Testing         `toml:"testing"`
 	Evidence      *Evidence        `toml:"evidence"`
 	Environment   *Environment     `toml:"environment"`
+	Sandbox       *Sandbox         `toml:"sandbox"`
 }
 
 // Orchestrator records which harness/kind the config was written for. It is
@@ -190,6 +198,57 @@ type Environment struct {
 	Commands Commands `toml:"commands"`
 }
 
+// Sandbox is the per-repo sandbox definition: what a run's container is, on
+// top of the batteries-included base image.
+//
+// It lives in this file, and only in this file, because of Setup. A setup
+// command is arbitrary shell executed inside a sandbox that holds the run's
+// credentials, so its only source is the tracked, PR-reviewed config at the
+// submitted SHA — never a tick note, a model, a signal payload or an API
+// parameter. Adding capability is a pull request, not a dashboard click.
+type Sandbox struct {
+	// Image is a custom image reference, or "" for the version-pinned base
+	// image. Absent is the 99% path: Toolchain and Setup extend the base
+	// without a factory-wide image rebuild.
+	Image string `toml:"image"`
+	// Toolchain is extra `tool@version` pins provisioned through the version
+	// manager the base image ships, into the project's persistent cache.
+	Toolchain []string `toml:"toolchain"`
+	// Setup is the idempotent, cache-populating commands run once per
+	// sandbox, in order, after the checkout and before the harness starts. An
+	// ordered array rather than a keyed table: order is the contract and
+	// nothing refers to a setup command by id.
+	Setup []*Command `toml:"setup"`
+}
+
+// SandboxImage reports the declared image reference, or "" for the
+// version-pinned base image. It is nil-safe.
+func (c *Config) SandboxImage() string {
+	if c == nil || c.Sandbox == nil {
+		return ""
+	}
+	return c.Sandbox.Image
+}
+
+// SandboxToolchain reports the declared `tool@version` pins, in file order. It
+// is nil-safe.
+func (c *Config) SandboxToolchain() []string {
+	if c == nil || c.Sandbox == nil {
+		return nil
+	}
+	return c.Sandbox.Toolchain
+}
+
+// SandboxSetup reports the declared setup commands, in file order. It is
+// nil-safe, and it is the ONLY way anything in this repository obtains a
+// sandbox setup command.
+func (c *Config) SandboxSetup() []*Command {
+	if c == nil || c.Sandbox == nil {
+		return nil
+	}
+	return c.Sandbox.Setup
+}
+
 // DeclaredVersion reports the `version` the file carries. An omitted key
 // means [MinVersion] — the format predates the field, so absence cannot mean
 // anything else. It is nil-safe.
@@ -201,8 +260,9 @@ func (c *Config) DeclaredVersion() int {
 }
 
 // RequiredVersion reports the lowest format version that can express this
-// config: [CommandSurfaceVersion] once `[testing]`, `[evidence]` or
-// `[environment]` is present, [MinVersion] for a routing-only file. It is
+// config: [CommandSurfaceVersion] once `[testing]`, `[evidence]`,
+// `[environment]` or `[sandbox]` is present, [MinVersion] for a routing-only
+// file. It is
 // nil-safe.
 //
 // This is what [Migrate] writes, and why it does not bump a routing-only
@@ -212,7 +272,7 @@ func (c *Config) RequiredVersion() int {
 	if c == nil {
 		return MinVersion
 	}
-	if c.Testing != nil || c.Evidence != nil || c.Environment != nil {
+	if c.Testing != nil || c.Evidence != nil || c.Environment != nil || c.Sandbox != nil {
 		return CommandSurfaceVersion
 	}
 	return MinVersion

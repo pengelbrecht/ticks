@@ -4,7 +4,8 @@ The container one cloud run boots. `tk cloud run <epic>` starts a Run Workflow;
 the Workflow boots **one** sandbox from this image and starts
 `ticks-orchestrator` inside it, which clones the repo at the submitted SHA,
 verifies `tk`, provisions anything the repository needs that the image does not
-already carry, runs the `.tick/config.md` Environment pre-flight, exports
+already carry, runs the repository's own `[sandbox]` setup, runs the Environment
+pre-flight, exports
 `TK_ACTOR=cloud:orchestrator`, and execs the headless harness on the ticks skill
 loop. See `docs/design/cloud-factory.md` (Phase 1).
 
@@ -54,14 +55,42 @@ in would make every lockfile change a rebuild.
 
 After the clone, the entrypoint reads the repository's own pins — `go.mod`,
 `package.json`'s `packageManager`, `.node-version`, and `mise.toml` /
-`.tool-versions` — and provisions only what the image does not already satisfy,
-into the project's cache directory, so run two is warm. `.tick/config.md`'s
-Environment section is deliberately *not* consulted for this: it is verification
-only ("test, don't ask").
+`.tool-versions`, plus the `[sandbox].toolchain` pins of `.tick/runners.toml` —
+and provisions only what the image does not already satisfy, into the project's
+cache directory, so run two is warm. The Environment checks are deliberately
+*not* consulted for this: they are verification only ("test, don't ask").
 
 Provisioning is best effort. The pre-flight is what decides whether the
 environment is good enough to start a wave: if a toolchain is missing, the
 Environment check that looks for it fails and names itself.
+
+## The repository's own sandbox (`[sandbox]`)
+
+A repository declares what its runs need on top of this image in the `[sandbox]`
+table of the tracked `.tick/runners.toml` — the full contract is in the ticks
+skill's `references/runners-config.md`, *The sandbox a run gets*:
+
+| Key | What this image does with it |
+|---|---|
+| `image` | **Not honoured here yet.** The control plane picks an image before it has a checkout to read one from. The entrypoint compares what the repo declares against `TICKS_SANDBOX_IMAGE` and warns, naming both, so a declared image is never silently ignored. |
+| `toolchain` | Provisioned with the ecosystem pins above, through `mise`, into `TICKS_CACHE_DIR`. |
+| `setup` | Run by `tk sandbox setup` after the checkout and before the harness — idempotent, cache-populating commands (`pnpm install --frozen-lockfile`, `go mod download`). A failure ends the boot with exit 6. |
+
+The entrypoint never parses that file itself: it shells out to the `tk` it
+already verified, so the tracked config has exactly one reader, and the same
+`tk sandbox setup` warms a local herdr worktree.
+
+**Where setup may come from.** This container holds the run's gateway token and
+its GitHub credential, and `setup` is arbitrary shell. It is therefore read from
+the tracked, PR-reviewed config at the submitted SHA and from nowhere else — not
+a tick note, not a model, not a signal payload, not an API parameter, and not
+this container's environment. There is no variable in the entrypoint contract
+below that carries a command, which is the point: adding capability to a sandbox
+is a pull request.
+
+Unlike toolchain provisioning, setup is **not** best effort. A repository that
+declares a warm step and does not get it starts a wave in which every worker
+fails the same way, at model prices; one legible stop beats that.
 
 ## Caches are convenience state
 
@@ -110,6 +139,7 @@ starts a command in a sandbox.
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
 | `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
 | `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
+| `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Advisory: reported, and compared against a repository's declared `[sandbox].image` so a mismatch is a warning rather than silence. |
 | `TICKS_FACTORY_URL` | no | Factory Worker URL for the RunRoom-backed operator channel. |
 | `TICKS_FACTORY_TOKEN` | no | Ephemeral factory bearer credential used by `tk ask` to sync gates. Never written to the checkout. |
 | `TICKS_FACTORY_PROJECT` | no | Canonical `owner/repo` for the RunRoom; defaults to the checked-out Git remote when omitted. |
@@ -160,6 +190,7 @@ distinct, because these are read from a log after the sandbox is gone:
 | 3 | Clone or checkout of the submitted SHA failed. |
 | 4 | `tk` is absent, or is not the version the image pins. |
 | 5 | An Environment pre-flight check failed (the failing check is named). |
+| 6 | The repository's own `[sandbox]` setup failed (the failing command is named). |
 | other | The harness's own exit status — the entrypoint `exec`s it. |
 
 Output streams to stdout as it is produced. The entrypoint prints directly and

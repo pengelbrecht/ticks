@@ -90,6 +90,37 @@ def reference_errors(config: dict) -> list[str]:
             else:
                 by_text[text] = where
 
+    # R2b — `[sandbox].setup` joins the same rule. A warm step and a phase
+    # command that are the same string make "which phase authorized this" a
+    # guess, and setup is the one list executed before any worker exists.
+    for index, entry in enumerate((config.get("sandbox") or {}).get("setup") or []):
+        text = entry.get("command") if isinstance(entry, dict) else None
+        if not isinstance(text, str):
+            continue  # shape error; the schema reports it
+        where = f"sandbox.setup[{index}]"
+        if text in by_text:
+            errors.append(
+                f"{where}: command is already authorized as {by_text[text]} — "
+                f"a command must belong to exactly one phase"
+            )
+        else:
+            by_text[text] = where
+
+    # R2c — one tool may be pinned once. Two versions of one tool is an
+    # ambiguous sandbox, and the version manager would silently pick one.
+    tools: dict[str, int] = {}
+    for index, spec in enumerate((config.get("sandbox") or {}).get("toolchain") or []):
+        if not isinstance(spec, str) or "@" not in spec:
+            continue  # shape error; the schema reports it
+        tool = spec.split("@", 1)[0]
+        if tool in tools:
+            errors.append(
+                f"sandbox.toolchain[{index}]: {tool!r} is already pinned by "
+                f"sandbox.toolchain[{tools[tool]}] — two versions of one tool is ambiguous"
+            )
+        else:
+            tools[tool] = index
+
     # R3 — every acceptance item must name a command defined in
     # testing.commands or evidence.commands. Nothing outside this file
     # authorizes shell, so an unresolvable reference is a stop, never a
