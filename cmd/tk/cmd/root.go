@@ -585,6 +585,16 @@ func ResetFlags() {
 	factoryDeployRotateToken = false
 	factoryDeployURL = ""
 	factoryDeployBundleDir = ""
+	factorySetupRepo = ""
+	factorySetupGitHubToken = ""
+	factorySetupGitHubAPI = ""
+	factorySetupGatewayURL = ""
+	factorySetupProvider = ""
+	factorySetupProviderKey = ""
+	factorySetupBundleDir = ""
+	factoryStatusOffline = false
+	factoryStatusCheck = false
+	factoryStatusGitHubAPI = ""
 }
 
 // SetVersion allows main.go to set the version at initialization

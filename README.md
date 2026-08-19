@@ -239,6 +239,8 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
 | `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
 | `tk factory deploy` | Deploy the cloud factory into your own Cloudflare account (see below) |
+| `tk factory setup` | Walk the factory's credential ladder — deployment, GitHub PAT, AI Gateway — verifying each rung live (see below) |
+| `tk factory status` | Report what the factory has configured and whether each credential still works (see below) |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
 | `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
 | `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
@@ -346,6 +348,45 @@ Missing prerequisites stop the command with the reason — no wrangler, or a wra
 is not logged in — and nothing is created or written until they pass. There is no live
 Cloudflare account in CI, so the end-to-end proof runs against a documented harness:
 `bash scripts/verify-factory-deploy.sh`.
+
+#### Credentials: `tk factory setup`
+
+A deployed factory still needs credentials to do anything: a GitHub token so runs can
+clone and push, and model access so agents can think. `tk factory setup` walks that
+ladder the way `tk channel setup telegram` walks BotFather — one rung at a time,
+verified live before it is stored:
+
+```bash
+tk factory setup
+```
+
+1. **wrangler**, logged in — the precondition.
+2. **A deployment** — if `~/.ticksrc` names none, setup offers to run the deploy above
+   right there.
+3. **A GitHub credential** — a fine-grained PAT scoped to the repository, checked with a
+   real GitHub API call *and* against that repository, because a PAT that authenticates
+   but was never granted the repo is the classic silent misconfiguration. A personal
+   GitHub App (per-run installation tokens) is the documented upgrade path.
+4. **Model access** — your own AI Gateway base URL and the provider behind it, proven
+   with a model-list call through the gateway. `workers-ai` needs no key at all:
+   inference bills to the same Cloudflare account.
+
+Each answer can be passed as a flag (`--repo`, `--github-token`, `--gateway-url`,
+`--provider`, `--provider-key`) instead of typed, so the same walk is scriptable.
+
+Everything it stores goes to exactly two places: **Worker secrets** in your own
+Cloudflare account, and `~/.ticksrc` at 0600 as the mirror `tk factory status` re-checks.
+Never the repository — a test runs the whole walk inside a checkout and fails if any
+secret appears anywhere under it.
+
+```bash
+tk factory status              # live: does each credential still work?
+tk factory status --offline    # what is configured, without touching the network
+tk factory status --check      # exit nonzero when a configured credential is rejected
+```
+
+The full ladder, including the GitHub App upgrade path and how to rotate a key, is in
+[`docs/factory-credentials.md`](docs/factory-credentials.md).
 
 ### Operator channel: reach a human from an autonomous run
 

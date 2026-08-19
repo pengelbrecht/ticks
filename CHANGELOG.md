@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tk factory setup` — the factory's credential walkthrough** — a BotFather-style first-run walk that configures a personal factory through prompts alone, shaped exactly like `tk channel setup telegram`: one rung at a time, verified live, then persisted. It checks wrangler auth, offers `tk factory deploy` when nothing is deployed, walks the GitHub credential ladder (a fine-grained repo-scoped PAT is the supported first rung; a personal GitHub App for per-run installation tokens is the documented upgrade path in `docs/factory-credentials.md`), and configures the AI Gateway base URL with the provider behind it — Workers AI needing no key at all, since inference bills to the same Cloudflare account. Each rung is proven against the real service before it is stored: a GitHub API call that also checks the token can *write* to the target repository (a fine-grained PAT that authenticates but was never granted the repo is the classic silent misconfiguration), and a model-list call through the gateway with the provider key. Every credential lands in exactly two places — a write-only Worker secret in the operator's own Cloudflare account and `~/.ticksrc` at 0600 — and never in the repository, which is enforced by a test that runs the whole walk inside a git checkout and fails if any secret appears anywhere under it.
+
+- **`tk factory status`** — reports each rung (deployment, GitHub, gateway), what is configured and whether it currently works, following the `tk channel status` pattern: live checks by default, `--offline` to skip them so it is safe with no network, and a rejected credential always reported but only turned into a nonzero exit by `--check`. No credential is ever printed — only the account a token authenticates as, the repository it can reach, and the provider behind the gateway.
+
+
 ## [0.31.0] - 2026-08-18
 
 ### Added
