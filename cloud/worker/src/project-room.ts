@@ -96,8 +96,8 @@ interface TickOperationResponse {
 interface RunEventMessage {
   type: "run_event";
   epicId: string;
-  taskId?: string;  // Present for ralph/subagent, absent for swarm orchestrator
-  source: "ralph" | "swarm-orchestrator" | "swarm-subagent";
+  taskId?: string;  // Present for task-level events
+  source: "cloud:orchestrator" | "cloud:worker" | "harness" | "herdr" | "pi";
   event: {
     type: "task-started" | "task-update" | "tool-activity" | "task-completed" | "epic-started" | "epic-completed";
     output?: string;

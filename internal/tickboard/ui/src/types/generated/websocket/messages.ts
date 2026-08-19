@@ -11,7 +11,7 @@
  * This interface was referenced by `WebSocketMessages`'s JSON-Schema
  * via the `definition` "RunEventSource".
  */
-export type RunEventSource = 'ralph' | 'swarm-orchestrator' | 'swarm-subagent';
+export type RunEventSource = 'cloud:orchestrator' | 'cloud:worker' | 'harness' | 'herdr' | 'pi';
 /**
  * Type of run event
  *
