@@ -33,6 +33,9 @@ const (
 	testRepo      = "octo-org/octo-repo"
 	testLogin     = "octo-user"
 	testGatewayNS = "/v1/00000000000000000000000000000000/ticks"
+	// A Cloudflare API token with AI Gateway read access — the credential that
+	// turns a run's cost into gateway telemetry (D17).
+	testCloudflareToken = "cf_api_token_EXAMPLE"
 )
 
 type fakeGitHub struct {
@@ -106,44 +109,72 @@ func newFakeGateway(t *testing.T, key string) *fakeGateway {
 
 func (gw *fakeGateway) base() string { return gw.server.URL + testGatewayNS }
 
+// fakeCloudflareAPI answers the AI Gateway logs read the telemetry rung proves
+// its token with.
+type fakeCloudflareAPI struct {
+	server *httptest.Server
+	token  string
+	calls  atomic.Int32
+}
+
+func newFakeCloudflareAPI(t *testing.T, token string) *fakeCloudflareAPI {
+	t.Helper()
+	api := &fakeCloudflareAPI{token: token}
+	api.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authorization") != "Bearer "+api.token {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"errors":  []any{map[string]any{"message": "Authentication error"}},
+			})
+			return
+		}
+		if !strings.HasSuffix(r.URL.Path, "/logs") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": []any{}})
+	}))
+	t.Cleanup(api.server.Close)
+	return api
+}
+
+func (api *fakeCloudflareAPI) base() string { return api.server.URL }
+
 // setupHarness bundles the deploy harness with the two credential endpoints.
 type setupHarness struct {
 	*harness
-	github  *fakeGitHub
-	gateway *fakeGateway
-	out     *bytes.Buffer
+	github     *fakeGitHub
+	gateway    *fakeGateway
+	cloudflare *fakeCloudflareAPI
+	out        *bytes.Buffer
 }
 
 func newSetupHarness(t *testing.T, gatewayKey string) *setupHarness {
 	t.Helper()
 	return &setupHarness{
-		harness: newHarness(t),
-		github:  newFakeGitHub(t, testPAT, testRepo),
-		gateway: newFakeGateway(t, gatewayKey),
-		out:     &bytes.Buffer{},
+		harness:    newHarness(t),
+		github:     newFakeGitHub(t, testPAT, testRepo),
+		gateway:    newFakeGateway(t, gatewayKey),
+		cloudflare: newFakeCloudflareAPI(t, testCloudflareToken),
+		out:        &bytes.Buffer{},
 	}
 }
 
 func (h *setupHarness) options(stdin string) SetupOptions {
 	return SetupOptions{
-		Version:       "1.2.3",
-		BundleDir:     h.bundleDir,
-		ConfigPath:    h.ticksrc,
-		In:            strings.NewReader(stdin),
-		Out:           h.out,
-		GitHubAPIBase: h.github.base(),
-		Repo:          testRepo,
-		onSecretPut:   h.syncSecret,
+		Version:           "1.2.3",
+		BundleDir:         h.bundleDir,
+		ConfigPath:        h.ticksrc,
+		In:                strings.NewReader(stdin),
+		Out:               h.out,
+		GitHubAPIBase:     h.github.base(),
+		CloudflareAPIBase: h.cloudflare.base(),
+		Repo:              testRepo,
+		onSecretPut:       h.syncSecret,
 	}
-}
-
-// secret returns what the fake wrangler stored for a Worker secret.
-func (h *setupHarness) secret(name string) string {
-	data, err := os.ReadFile(filepath.Join(h.stateDir, "secret-"+name))
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }
 
 func (h *setupHarness) rc(t *testing.T) *ticksrc.File {
@@ -393,6 +424,76 @@ func TestSetupIsIdempotent(t *testing.T) {
 // Persistence: no secret ever lands in a tracked file
 // ---------------------------------------------------------------------------
 
+// D17's ground truth: a run's cost budget acts on what the GATEWAY billed, so
+// the credential that reads gateway logs is proven live and stored like every
+// other rung.
+func TestSetupStoresTheCostTelemetryToken(t *testing.T) {
+	h := newSetupHarness(t, "sk-provider-key")
+	opts := h.options(strings.Join([]string{"y", testPAT, h.gateway.base(), "anthropic", "sk-provider-key", ""}, "\n"))
+	opts.CloudflareAPIToken = testCloudflareToken
+
+	result, err := Setup(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Setup: %v\n%s", err, h.out.String())
+	}
+	if !result.CostTelemetry {
+		t.Error("the walk did not record that cost telemetry is configured")
+	}
+	if got := h.secret(SecretCloudflareAPIToken); got != testCloudflareToken {
+		t.Errorf("Worker secret %s = %q, want the API token", SecretCloudflareAPIToken, got)
+	}
+	if got := h.rc(t).Get(ticksrc.KeyFactoryCloudflareAPIToken); got != testCloudflareToken {
+		t.Errorf("%s not mirrored into ~/.ticksrc: %q", ticksrc.KeyFactoryCloudflareAPIToken, got)
+	}
+	if h.cloudflare.calls.Load() == 0 {
+		t.Error("the token was stored without a live read against the gateway's logs")
+	}
+}
+
+// A rejected telemetry token is a stop with a reason, not a factory that
+// quietly reports every run as costing nothing.
+func TestSetupStopsOnARejectedCostTelemetryToken(t *testing.T) {
+	h := newSetupHarness(t, "sk-provider-key")
+	opts := h.options(strings.Join([]string{"y", testPAT, h.gateway.base(), "anthropic", "sk-provider-key", ""}, "\n"))
+	opts.CloudflareAPIToken = "cf_wrong_token"
+
+	_, err := Setup(context.Background(), opts)
+	if err == nil {
+		t.Fatal("Setup accepted a token the API rejected")
+	}
+	if !strings.Contains(err.Error(), "AI Gateway read") {
+		t.Errorf("error = %v, want it to name the access the token needs", err)
+	}
+	if got := h.secret(SecretCloudflareAPIToken); got != "" {
+		t.Errorf("a rejected token was stored as a Worker secret: %q", got)
+	}
+}
+
+// The one optional rung. Without it the walk still finishes — but it says what
+// is lost and how to add it, rather than leaving the operator to discover that
+// their cost budget never fires.
+func TestSetupWithoutCostTelemetrySaysWhatIsLost(t *testing.T) {
+	h := newSetupHarness(t, "sk-provider-key")
+	stdin := strings.Join([]string{"y", testPAT, h.gateway.base(), "anthropic", "sk-provider-key", ""}, "\n")
+
+	result, err := Setup(context.Background(), h.options(stdin))
+	if err != nil {
+		t.Fatalf("Setup: %v\n%s", err, h.out.String())
+	}
+	if result.CostTelemetry {
+		t.Error("CostTelemetry is true with no token supplied")
+	}
+	out := h.out.String()
+	for _, want := range []string{"cost budget", "--cloudflare-api-token"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the walk never mentioned %q:\n%s", want, out)
+		}
+	}
+	if h.cloudflare.calls.Load() != 0 {
+		t.Error("the telemetry rung probed the API with no token to prove")
+	}
+}
+
 // The persistence contract, asserted against the code that declares it: setup
 // writes credentials to Worker secrets and to exactly one local file.
 func TestSecretSinksAreTheWorkerAndOneLocalFile(t *testing.T) {
@@ -401,7 +502,12 @@ func TestSecretSinksAreTheWorkerAndOneLocalFile(t *testing.T) {
 	if len(localFiles) != 1 || localFiles[0] != "/home/someone/.ticksrc" {
 		t.Errorf("local secret sinks = %v, want exactly the given config path", localFiles)
 	}
-	want := map[string]bool{SecretGitHubToken: true, SecretGatewayBaseURL: true}
+	want := map[string]bool{
+		SecretGitHubToken:        true,
+		SecretGatewayBaseURL:     true,
+		SecretCloudflareAPIToken: true,
+		SecretFactoryBaseURL:     true,
+	}
 	for _, spec := range Providers {
 		if spec.SecretName != "" {
 			want[spec.SecretName] = true

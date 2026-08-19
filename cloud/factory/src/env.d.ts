@@ -93,6 +93,27 @@ declare namespace Cloudflare {
     ANTHROPIC_API_KEY?: string;
     OPENAI_API_KEY?: string;
     OPENROUTER_API_KEY?: string;
+    /**
+     * A Cloudflare API token that can read the gateway's logs (and open an
+     * authenticated gateway). It is what makes `runs.cost_usd` ground truth
+     * rather than an agent's self-report (D17), so a deployment without one
+     * routes and attributes model traffic but cannot enforce the cost budget —
+     * `tk factory setup --cloudflare-api-token` is what supplies it.
+     */
+    CLOUDFLARE_API_TOKEN?: string;
+    /** Test/deployment override; defaults to api.cloudflare.com/client/v4. */
+    CLOUDFLARE_API_BASE_URL?: string;
+    /**
+     * This deployment's own public base URL, written by `tk factory deploy`.
+     *
+     * A run's sandbox is pointed at `<FACTORY_BASE_URL>/api/gateway` rather
+     * than at the AI Gateway itself: the run-scoped token is exchanged for the
+     * operator's provider key here, the run/tick metadata is stamped here, and
+     * revocation takes effect here. A Worker cannot discover its own hostname
+     * outside a request, and the Run Workflow boots sandboxes with no request
+     * in hand, so the deploy records it.
+     */
+    FACTORY_BASE_URL?: string;
     /** Personal Telegram bot and paired operator identity for webhook mode. */
     TELEGRAM_BOT_TOKEN?: string;
     TELEGRAM_USER_ID?: string;

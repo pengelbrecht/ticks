@@ -152,7 +152,8 @@ describe("the image contract", () => {
       epic: "ko8",
       base_sha: "b".repeat(40),
       repo_url: "https://github.com/example-org/example-repo.git",
-      gateway_base_url: "https://gateway.example.com/v1/account/ticks",
+      gateway_base_url: "https://factory.example.com/api/gateway",
+      gateway_token: "tkr_deadbeef",
       phase: "run",
       github_token: "",
     });
@@ -162,5 +163,8 @@ describe("the image contract", () => {
     expect(built).not.toHaveProperty("GITHUB_TOKEN");
     expect(built).not.toHaveProperty("TICKS_STOP_REASON");
     expect(built.TICKS_PHASE).toBe("run");
+    // The run's gateway credential is not optional: a sandbox with no token
+    // cannot make a model call at all (D17).
+    expect(built.AI_GATEWAY_TOKEN).toBe("tkr_deadbeef");
   });
 });

@@ -33,7 +33,8 @@ tk factory setup \
   --github-token "$GITHUB_PAT" \
   --gateway-url https://gateway.ai.cloudflare.com/v1/<account-id>/<gateway> \
   --provider anthropic \
-  --provider-key "$ANTHROPIC_API_KEY"
+  --provider-key "$ANTHROPIC_API_KEY" \
+  --cloudflare-api-token "$CLOUDFLARE_API_TOKEN"
 ```
 
 ## Where the secrets go
@@ -41,8 +42,10 @@ tk factory setup \
 Two places, and only two:
 
 - **Worker secrets** in your own Cloudflare account (`GITHUB_TOKEN`,
-  `AI_GATEWAY_BASE_URL`, and the provider key, e.g. `ANTHROPIC_API_KEY`). These
-  are write-only: nothing, including `tk`, reads them back.
+  `AI_GATEWAY_BASE_URL`, the provider key, e.g. `ANTHROPIC_API_KEY`, the
+  optional `CLOUDFLARE_API_TOKEN`, and `FACTORY_BASE_URL`, which the deploy
+  writes so the Worker knows its own endpoint). These are write-only: nothing,
+  including `tk`, reads them back.
 - **`~/.ticksrc`**, written 0600, as the local mirror `tk factory status`
   re-checks and a later setup offers to keep.
 
@@ -112,6 +115,36 @@ The tier vocabulary in `.tick/runners.toml` is unchanged by any of this: the
 gateway is plumbing below the role → kind/model/effort table, not a new name
 in it.
 
+### What a sandbox actually holds
+
+Not your provider key. A run's model traffic goes to the factory Worker's own
+`/api/gateway` prefix, carrying a **run gateway token** the Run Workflow mints
+per orchestrator boot. The Worker exchanges that token for your provider key,
+stamps the run and tick ids onto the request's `cf-aig-metadata`, and forwards
+it to your gateway. Three things follow:
+
+- **Spend is attributable per run** without trusting the agent to say so, and
+  without the agent being able to write its own attribution.
+- **Revoking the run's token stops its model traffic mid-run** — the kill switch
+  D17 asks for, at the credential layer, so it works on an orchestrator that is
+  wedged or adversarial. The Workflow revokes on every budget trip and stop, on
+  every reboot (the replaced container's token dies first), and at finalize.
+- **A leaked sandbox environment leaks a run-scoped, revocable credential**
+  rather than a vendor key.
+
+### Cost telemetry (optional, and loudly so)
+
+`--cloudflare-api-token` stores a Cloudflare API token with **AI Gateway read**
+access. It is what the Run Workflow reads your gateway's own per-request logs
+with, filtered by the run id it stamped, and that number — not anything the
+agent reports — is what `runs.cost_usd` holds and what the cost budget acts on.
+
+Without it the factory still routes and attributes model traffic, but the cost
+budget has nothing to act on: `tk factory status` reports the rung as not
+configured, and each run's `run.json` records its cost as unknown rather than as
+`$0`. Setup proves the token with a live read of that gateway's logs before
+storing it.
+
 ## Checking it later
 
 ```bash
@@ -132,5 +165,8 @@ unconditionally.
   again (or `tk factory setup --github-token <new>`). The Worker secret and the
   local mirror are both replaced.
 - **Provider key** — same shape: rotate at the vendor, then re-run setup.
+- **A single run's model access** — that is not a rotation, it is `tk cloud stop
+  <run>` (or any budget trip): the Workflow revokes that run's gateway token and
+  its agent stops spending immediately, without touching any other run.
 - **The factory's own bearer token** — that one belongs to the deploy:
   `tk factory deploy --rotate-token`.

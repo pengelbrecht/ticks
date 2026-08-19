@@ -7,7 +7,8 @@ import {
   reconcileKey,
   type RunRecord,
 } from "../src/artifacts";
-import { getRun, listDispatchLogs } from "../src/db";
+import { getRun, listDispatchLogs, listRunGatewayTokens } from "../src/db";
+import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import { MAX_SANDBOX_BOOTS } from "../src/run-workflow";
 import { roomFor, startRun, stopRun } from "../src/runs";
 import {
@@ -144,6 +145,7 @@ class FakeSandboxes implements SandboxBinding {
 // ------------------------------------------------------------------ harness ---
 
 const GATEWAY = "https://gateway.ai.cloudflare.com/v1/account/ticks";
+const FACTORY = "https://factory.example.com";
 const PROJECT = "example-org/example-repo";
 const BASE_SHA = "a".repeat(40);
 
@@ -160,6 +162,11 @@ beforeEach(() => {
   sandboxes = new FakeSandboxes();
   set("SANDBOXES", sandboxes);
   set("AI_GATEWAY_BASE_URL", GATEWAY);
+  // A run's model traffic goes through this deployment's own gateway proxy
+  // (D17), so the Workflow has to know the factory's public URL to hand a
+  // gateway to a sandbox. `tk factory deploy` writes it.
+  set("FACTORY_BASE_URL", FACTORY);
+  set("ANTHROPIC_API_KEY", "sk-operator-key");
   // A tight, fixed cadence: the supervision loop's own backoff is not what
   // these tests are about, and an explicit interval is a supported override.
   set("RUN_POLL_INTERVAL_MS", "25");
@@ -245,8 +252,13 @@ describe("boot and finalize", () => {
       TICKS_EPIC: epic,
       TICKS_RUN_ID: runID,
       TICKS_PHASE: "run",
-      AI_GATEWAY_BASE_URL: GATEWAY,
+      // The gateway a sandbox is pointed at is this factory's proxy, which
+      // exchanges the run's token for the operator's provider key.
+      AI_GATEWAY_BASE_URL: `${FACTORY}${GATEWAY_PATH_PREFIX}`,
     });
+    // …and the only model credential inside the container is run-scoped.
+    expect(process.env.AI_GATEWAY_TOKEN).toMatch(/^tkr_[0-9a-f]{64}$/);
+    expect(JSON.stringify(process.env)).not.toContain("sk-operator-key");
     // The row says the run is live before it is over — `starting` is the
     // submit route's state, and the Workflow owns everything after it.
     await waitFor("the run to be running", async () => (await runState(runID)) === "running");
@@ -520,6 +532,114 @@ describe("a clean stop runs review and closeout", () => {
     const run = await settled(runID);
     expect(run.state).toBe("stopped");
     expect(await roomFor(env, run.project).leaseStatus()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------- the gateway (D17) ---
+
+/** Stands in for the operator's AI Gateway, recording what reached it. */
+function fakeGateway() {
+  const calls: string[] = [];
+  const fetcher = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return Response.json({ ok: true });
+  }) as unknown as typeof fetch;
+  return { calls, fetcher };
+}
+
+/** One model request made with a sandbox's own credential. */
+async function modelCall(token: string, fetcher: typeof fetch): Promise<Response> {
+  return proxyModelRequest(
+    env,
+    new Request(`${FACTORY}${GATEWAY_PATH_PREFIX}/anthropic/v1/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: "{}",
+    }),
+    ["anthropic", "v1", "messages"],
+    { fetcher }
+  );
+}
+
+describe("the run's gateway credential is the kill switch", () => {
+  it("stops a running orchestrator's model traffic the moment the run trips", async () => {
+    const { runID } = await ignite();
+    const process = await firstProcess();
+    const token = process.env.AI_GATEWAY_TOKEN!;
+    const gateway = fakeGateway();
+
+    // Mid-run: the sandbox's credential spends.
+    expect((await modelCall(token, gateway.fetcher)).status).toBe(200);
+    expect(gateway.calls).toHaveLength(1);
+
+    await stopRun(env, runID, "operator");
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+
+    // The orchestrator that was stopped cannot spend another cent, whether or
+    // not it noticed it was stopped — enforcement at the credential layer.
+    const refused = await modelCall(token, gateway.fetcher);
+    expect(refused.status).toBe(403);
+    await expect(refused.json()).resolves.toMatchObject({ error: "run_token_revoked" });
+    expect(gateway.calls).toHaveLength(1);
+
+    // Rotation, not a shutdown: closeout still has to reach review and
+    // closeout (D15), so it boots with a credential of its own.
+    const closeoutToken = closeout.env.AI_GATEWAY_TOKEN!;
+    expect(closeoutToken).not.toBe(token);
+    expect((await modelCall(closeoutToken, gateway.fetcher)).status).toBe(200);
+
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("stopped");
+  });
+
+  it("rotates the credential on every boot, so a dead container cannot spend", async () => {
+    const { runID } = await ignite();
+    const first = await firstProcess();
+    const firstToken = first.env.AI_GATEWAY_TOKEN!;
+    const gateway = fakeGateway();
+
+    sandboxes.booted[0]!.vanished = true;
+    const replacement = await waitFor("the replacement orchestrator", async () => {
+      const sandbox = sandboxes.booted[1];
+      return sandbox !== undefined && sandbox.processes.length > 0 ? sandbox.current : null;
+    });
+
+    // The container that was written off may still be alive somewhere. Its
+    // credential is not.
+    expect((await modelCall(firstToken, gateway.fetcher)).status).toBe(403);
+    expect((await modelCall(replacement.env.AI_GATEWAY_TOKEN!, gateway.fetcher)).status).toBe(200);
+
+    replacement.exit(0);
+    await settled(runID);
+  });
+
+  it("leaves no live credential behind when the run is over", async () => {
+    const { runID } = await ignite();
+    const process = await firstProcess();
+    const token = process.env.AI_GATEWAY_TOKEN!;
+    process.exit(0);
+    await settled(runID);
+
+    const tokens = await listRunGatewayTokens(env.DB, runID);
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(tokens.every((entry) => entry.revoked_at !== null)).toBe(true);
+
+    const gateway = fakeGateway();
+    expect((await modelCall(token, gateway.fetcher)).status).toBe(403);
+    expect(gateway.calls).toHaveLength(0);
+  });
+
+  it("says in the record when gateway cost telemetry could not be read", async () => {
+    // No CLOUDFLARE_API_TOKEN in this harness: the run still runs, bounded by
+    // wall clock, and its record says the cost is unknown rather than $0.
+    const { runID, project } = await ignite();
+    (await firstProcess()).exit(0);
+    await settled(runID);
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.cost_source ?? "").toContain("CLOUDFLARE_API_TOKEN");
   });
 });
 

@@ -226,6 +226,15 @@ This buys three things beyond vendor-agnosticism:
   gateway token when a budget trips or a human hits stop — enforcement that
   works even on a wedged or adversarial agent, consistent with the doc's rule
   that budgets never live in prompts.
+
+  *As built (Phase 1):* the run's gateway is the factory Worker's own
+  `/api/gateway` prefix, and the credential a sandbox carries is a run token
+  minted per orchestrator boot. The Worker exchanges it for the operator's
+  provider key and stamps the run/tick metadata itself, so attribution cannot
+  be forged or suppressed by the agent and the vendor key never enters a
+  container; revocation is a D1 write that the next model request hits. Every
+  boot rotates, every trip and stop revokes, and finalize leaves nothing live.
+  See `cloud/factory/src/gateway.ts`.
 - **Caching, rate limits, and logs** in one place, owned by the user, no
   third-party data path unless they choose one (OpenRouter is an opt-in rung,
   not a dependency).

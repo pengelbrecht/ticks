@@ -67,6 +67,8 @@ class FakeWorkflow {
 let workflow: FakeWorkflow;
 let token: string;
 const originalHash = env.FACTORY_TOKEN_HASH;
+const originalGateway = env.AI_GATEWAY_BASE_URL;
+const originalFactoryURL = env.FACTORY_BASE_URL;
 
 beforeAll(async () => {
   token = mintFactoryToken();
@@ -76,12 +78,20 @@ beforeAll(async () => {
 afterAll(() => {
   if (originalHash === undefined) delete env.FACTORY_TOKEN_HASH;
   else env.FACTORY_TOKEN_HASH = originalHash;
+  if (originalGateway === undefined) delete env.AI_GATEWAY_BASE_URL;
+  else env.AI_GATEWAY_BASE_URL = originalGateway;
+  if (originalFactoryURL === undefined) delete env.FACTORY_BASE_URL;
+  else env.FACTORY_BASE_URL = originalFactoryURL;
   delete env.RUN_WORKFLOW;
 });
 
 beforeEach(() => {
   workflow = new FakeWorkflow();
   env.RUN_WORKFLOW = workflow;
+  // A submission is refused outright when the deployment has no gateway
+  // configured (D17), so a harness that submits runs is a harness with one.
+  env.AI_GATEWAY_BASE_URL = "https://gateway.ai.cloudflare.com/v1/account/ticks";
+  env.FACTORY_BASE_URL = BASE;
 });
 
 afterEach(() => {
@@ -309,6 +319,24 @@ describe("submission on a free project", () => {
     await expect(res.json()).resolves.toMatchObject({ error: "run_unavailable" });
     // Nothing recorded, nothing leased: a run that cannot boot is not a run.
     await expect(roomFor(env, project).leaseStatus()).resolves.toBeNull();
+  });
+
+  it("fails closed when no AI Gateway is configured, naming tk factory setup", async () => {
+    // D17: a run's model traffic goes through the operator's own gateway or it
+    // does not go. The stop is HERE, at submission, while there is still an
+    // operator reading the answer — never a sandbox that quietly falls back to
+    // a vendor default.
+    const project = await enrolled("no-gateway");
+    delete env.AI_GATEWAY_BASE_URL;
+
+    const res = await post("/api/runs", submission(project));
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string; detail: string };
+    expect(body.error).toBe("run_unavailable");
+    expect(body.detail).toContain("tk factory setup");
+    await expect(roomFor(env, project).leaseStatus()).resolves.toBeNull();
+    expect(workflow.created).toHaveLength(0);
   });
 });
 

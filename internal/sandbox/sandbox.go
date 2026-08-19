@@ -32,15 +32,21 @@ const (
 	EnvBaseSHA        = "TICKS_BASE_SHA"
 	EnvEpic           = "TICKS_EPIC"
 	EnvGatewayBaseURL = "AI_GATEWAY_BASE_URL"
-	EnvHarness        = "TICKS_HARNESS"
-	EnvModel          = "TICKS_MODEL"
-	EnvMaxTime        = "TICKS_MAX_TIME"
-	EnvWorkdir        = "TICKS_WORKDIR"
-	EnvCacheDir       = "TICKS_CACHE_DIR"
-	EnvRunID          = "TICKS_RUN_ID"
-	EnvTkVersion      = "TICKS_TK_VERSION"
-	EnvPhase          = "TICKS_PHASE"
-	EnvStopReason     = "TICKS_STOP_REASON"
+	// EnvGatewayToken is the run's own gateway credential (D17), minted per
+	// orchestrator boot by the Run Workflow. It is the ONLY model credential
+	// the container holds: the operator's vendor key stays in the control
+	// plane, which exchanges it per request, stamps the run and tick ids on
+	// the request's gateway metadata, and can revoke this token mid-run.
+	EnvGatewayToken = "AI_GATEWAY_TOKEN"
+	EnvHarness      = "TICKS_HARNESS"
+	EnvModel        = "TICKS_MODEL"
+	EnvMaxTime      = "TICKS_MAX_TIME"
+	EnvWorkdir      = "TICKS_WORKDIR"
+	EnvCacheDir     = "TICKS_CACHE_DIR"
+	EnvRunID        = "TICKS_RUN_ID"
+	EnvTkVersion    = "TICKS_TK_VERSION"
+	EnvPhase        = "TICKS_PHASE"
+	EnvStopReason   = "TICKS_STOP_REASON"
 	// The RunRoom-backed operator bridge. The token is injected only into the
 	// ephemeral sandbox and is never written into the checkout.
 	EnvFactoryURL     = "TICKS_FACTORY_URL"

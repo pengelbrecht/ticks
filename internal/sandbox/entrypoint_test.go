@@ -13,7 +13,12 @@ import (
 	"time"
 )
 
-const testGatewayURL = "https://gateway.ai.cloudflare.com/v1/account/ticks"
+const (
+	// The gateway a run is handed is the factory's own proxy prefix, which
+	// exchanges the run token below for the operator's provider key.
+	testGatewayURL   = "https://factory.example.com/api/gateway"
+	testGatewayToken = "tkr_0123456789abcdef"
+)
 
 type fixture struct {
 	t        *testing.T
@@ -133,6 +138,7 @@ esac
 		EnvBaseSHA:               head,
 		EnvEpic:                  "ko8",
 		EnvGatewayBaseURL:        testGatewayURL,
+		EnvGatewayToken:          testGatewayToken,
 		EnvWorkdir:               f.workdir,
 		EnvCacheDir:              filepath.Join(root, "cache"),
 		EnvTkVersion:             "0.31.0",
@@ -256,6 +262,41 @@ func TestEntrypointPointsModelTrafficAtTheGateway(t *testing.T) {
 		"OPENROUTER_BASE_URL=" + testGatewayURL + "/openrouter",
 	} {
 		mustContain(t, rec, want, "vendor base URLs are rewritten to the gateway")
+	}
+}
+
+// The credential a run's model traffic carries is the run's own token, never
+// the operator's vendor key: it is revocable mid-run, and the gateway stamps
+// the run and tick ids on every request made with it (D17).
+func TestEntrypointPresentsTheRunTokenAsTheModelCredential(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	if _, code := f.run(); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	rec := f.harnessRecord()
+	for _, want := range []string{
+		"AI_GATEWAY_TOKEN=" + testGatewayToken,
+		"ANTHROPIC_AUTH_TOKEN=" + testGatewayToken,
+		"ANTHROPIC_API_KEY=" + testGatewayToken,
+		"OPENAI_API_KEY=" + testGatewayToken,
+		"OPENROUTER_API_KEY=" + testGatewayToken,
+	} {
+		mustContain(t, rec, want, "every vendor credential is the run's gateway token")
+	}
+}
+
+// A container with no token could not make a single model call, so it says so
+// at boot rather than after a clone, a provision and a pre-flight.
+func TestEntrypointRefusesWithoutARunGatewayToken(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	delete(f.env, EnvGatewayToken)
+	out, code := f.run()
+	if code != ExitConfig {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitConfig, out)
+	}
+	mustContain(t, out, EnvGatewayToken, "the refusal names the missing variable")
+	if f.harnessStarted() {
+		t.Error("the harness started with no model credential")
 	}
 }
 

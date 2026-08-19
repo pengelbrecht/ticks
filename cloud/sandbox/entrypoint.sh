@@ -41,6 +41,7 @@ repo_url="${TICKS_REPO_URL:-}"
 base_sha="${TICKS_BASE_SHA:-}"
 epic="${TICKS_EPIC:-}"
 gateway="${AI_GATEWAY_BASE_URL:-}"
+gateway_token="${AI_GATEWAY_TOKEN:-}"
 harness="${TICKS_HARNESS:-omp}"
 model="${TICKS_MODEL:-}"
 max_time="${TICKS_MAX_TIME:-}"
@@ -95,6 +96,13 @@ require_gateway() {
 	if [[ -z $gateway ]]; then
 		die $EXIT_CONFIG "no AI_GATEWAY_BASE_URL — all cloud model traffic must go through the operator's AI Gateway; run 'tk factory setup' to configure one"
 	fi
+	# The run's own credential. It is the ONLY model credential in this
+	# container: the vendor key stays in the control plane, which exchanges it
+	# per request and can revoke this token mid-run. A boot without one could
+	# not make a single model call, so it stops here rather than after a clone.
+	if [[ -z $gateway_token ]]; then
+		die $EXIT_CONFIG "no AI_GATEWAY_TOKEN — a run's model traffic carries a run-scoped gateway token the Run Workflow mints; if you are starting this image by hand, mint one or run 'tk factory setup'"
+	fi
 	gateway="${gateway%/}"
 	if [[ ! $gateway =~ ^https?://[^/]+ ]]; then
 		die $EXIT_CONFIG "AI_GATEWAY_BASE_URL is not a base URL: $gateway"
@@ -116,7 +124,16 @@ configure_model_routing() {
 	export ANTHROPIC_BASE_URL="$gateway/anthropic"
 	export OPENAI_BASE_URL="$gateway/openai"
 	export OPENROUTER_BASE_URL="$gateway/openrouter"
-	say "model traffic routed through the AI Gateway at ${gateway#*://}"
+	# Every vendor credential is the run's gateway token, not the operator's
+	# key: the gateway exchanges it, stamps the run and tick ids on the
+	# request, and stops answering the moment the run's token is revoked.
+	# Whichever variable a harness reads, it reads the same revocable token.
+	export AI_GATEWAY_TOKEN="$gateway_token"
+	export ANTHROPIC_AUTH_TOKEN="$gateway_token"
+	export ANTHROPIC_API_KEY="$gateway_token"
+	export OPENAI_API_KEY="$gateway_token"
+	export OPENROUTER_API_KEY="$gateway_token"
+	say "model traffic routed through the AI Gateway at ${gateway#*://} on this run's token"
 }
 
 # Caches are convenience state (axiom 1): they live in the sandbox filesystem,

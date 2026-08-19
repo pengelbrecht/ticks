@@ -41,6 +41,20 @@ const (
 // SecretName is the Worker secret holding the token hash (src/auth.ts).
 const SecretName = "FACTORY_TOKEN_HASH"
 
+// SecretFactoryBaseURL is the Worker secret holding the factory's own public
+// base URL.
+//
+// A Worker cannot discover its own hostname outside a request, and the Run
+// Workflow boots sandboxes with no request in hand — so the deploy, which is
+// the one place the endpoint is known, records it. A run's sandbox is pointed
+// at `<FACTORY_BASE_URL>/api/gateway` (D17): the run-scoped gateway token is
+// exchanged for the operator's provider key there, the run and tick metadata
+// is stamped there, and revoking the token takes effect there.
+//
+// A secret rather than a wrangler.toml var for the same reason the gateway URL
+// is one: it names the operator's deployment, and this repository is public.
+const SecretFactoryBaseURL = "FACTORY_BASE_URL"
+
 var (
 	pathsOnce sync.Once
 	pathsList []string

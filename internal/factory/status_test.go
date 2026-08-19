@@ -32,8 +32,78 @@ func (h *setupHarness) configure(t *testing.T, gatewayKey string) {
 
 func (h *setupHarness) statusOptions() StatusOptions {
 	return StatusOptions{
-		ConfigPath:    h.ticksrc,
-		GitHubAPIBase: h.github.base(),
+		ConfigPath:        h.ticksrc,
+		GitHubAPIBase:     h.github.base(),
+		CloudflareAPIBase: h.cloudflare.base(),
+	}
+}
+
+// A factory can run without cost telemetry, so status has to say so — a
+// configured-looking report whose cost budget can never fire is the silent
+// failure D17 exists to prevent.
+func TestStatusReportsCostTelemetry(t *testing.T) {
+	h := newSetupHarness(t, "sk-provider-key")
+	h.configure(t, "sk-provider-key")
+
+	report, err := Status(context.Background(), h.statusOptions())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if report.Telemetry.Configured {
+		t.Error("cost telemetry reads as configured with no token stored")
+	}
+	var buf bytes.Buffer
+	report.Write(&buf)
+	for _, want := range []string{"cost telemetry", "--cloudflare-api-token"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("status never mentions %q:\n%s", want, buf.String())
+		}
+	}
+
+	// With a token stored, the rung is checked against the gateway's own logs.
+	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.Set(ticksrc.KeyFactoryCloudflareAPIToken, testCloudflareToken)
+	if err := rc.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err = Status(context.Background(), h.statusOptions())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !report.Telemetry.Configured || !report.Telemetry.Checked || !report.Telemetry.OK {
+		t.Errorf("cost telemetry state = %+v, want configured, checked and live", report.Telemetry)
+	}
+	if h.cloudflare.calls.Load() == 0 {
+		t.Error("status reported a live telemetry credential without reading the gateway's logs")
+	}
+}
+
+// A rejected telemetry token is named as a failure like any other credential.
+func TestStatusReportsARejectedTelemetryToken(t *testing.T) {
+	h := newSetupHarness(t, "sk-provider-key")
+	h.configure(t, "sk-provider-key")
+	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.Set(ticksrc.KeyFactoryCloudflareAPIToken, "cf_wrong_token")
+	if err := rc.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := Status(context.Background(), h.statusOptions())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if report.Telemetry.OK {
+		t.Error("a rejected telemetry token reads as live")
+	}
+	if !strings.Contains(strings.Join(report.Failures(), ","), "cost telemetry") {
+		t.Errorf("Failures() = %v, want the telemetry rung named", report.Failures())
 	}
 }
 

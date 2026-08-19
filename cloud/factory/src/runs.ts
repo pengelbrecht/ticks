@@ -39,6 +39,7 @@ import {
   type DispatchReason,
   type Run,
 } from "./db";
+import { modelRoutingComplaint } from "./gateway";
 import type { Env } from "./index";
 import type {
   DispatchLeaseView,
@@ -437,6 +438,17 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
       outcome: "unavailable",
       detail: "RUN_WORKFLOW binding is not configured on this deployment",
     };
+  }
+
+  // All cloud model traffic goes through the operator's own AI Gateway (D17).
+  // A deployment with none configured must say so HERE, at submission, while
+  // there is still an operator reading the answer — never by booting a sandbox
+  // that quietly falls back to a vendor default, and never by failing a run
+  // minutes later with a message nobody is watching for.
+  const routing = modelRoutingComplaint(env);
+  if (routing !== null) {
+    console.error(`factory runs: refusing every submission — ${routing}`);
+    return { outcome: "unavailable", detail: routing };
   }
 
   const runID = newRunID();
