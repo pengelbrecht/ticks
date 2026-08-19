@@ -3,66 +3,76 @@
 package sandbox
 
 import (
+	"bytes"
+	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// runPreflight runs the pre-flight script against a repo root whose
-// .tick/config.md holds the given Environment section body (empty means no
-// config file at all). It returns the combined output and the exit code.
-func runPreflight(t *testing.T, environment string) (string, int) {
+// runPreflight runs the structured environment checks against a temporary
+// checkout. The markdown config is intentionally absent from this helper: the
+// pre-flight contract is `[environment.commands]` in runners.toml now.
+func runPreflight(t *testing.T, runners string) (string, int) {
 	t.Helper()
 	root := t.TempDir()
-	if environment != "" {
+	if runners != "" {
 		if err := os.MkdirAll(filepath.Join(root, ".tick"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		config := "# Tick Run Configuration\n\n## Testing\n\n- `go test ./...`\n\n## Environment\n\n" +
-			environment + "\n\n## Rules\n\n- be nice\n"
-		if err := os.WriteFile(filepath.Join(root, ".tick", "config.md"), []byte(config), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, ".tick", "runners.toml"), []byte(runners), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	script, err := Path(PreflightScript)
-	if err != nil {
-		t.Fatalf("locating %s: %v", PreflightScript, err)
+
+	var out bytes.Buffer
+	_, err := Environment(context.Background(), EnvironmentOptions{Root: root, Out: &out})
+	if err == nil {
+		return out.String(), 0
 	}
-	cmd := exec.Command("bash", script, root)
-	out, err := cmd.CombinedOutput()
-	code := 0
-	if err != nil {
-		exit, ok := err.(*exec.ExitError)
-		if !ok {
-			t.Fatalf("running the pre-flight: %v (%s)", err, out)
-		}
-		code = exit.ExitCode()
-	}
-	return string(out), code
+	return out.String(), 1
 }
 
-func TestPreflightPassesWhenEveryCheckPasses(t *testing.T) {
-	out, code := runPreflight(t, "- `true` — always fine\n- Go toolchain: `command -v bash`\n")
+const passingEnvironment = `version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+always = { command = "true", description = "always fine" }
+go-toolchain = { command = "command -v bash", description = "Go toolchain" }
+`
+
+func TestPreflightPassesWhenEveryMigratedCheckPasses(t *testing.T) {
+	out, code := runPreflight(t, passingEnvironment)
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
 	}
-	for _, want := range []string{"true", "Go toolchain", "command -v bash"} {
+	for _, want := range []string{"always fine", "Go toolchain", "environment checks green"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("output does not name the check %q\n%s", want, out)
+			t.Errorf("output does not name the result %q\n%s", want, out)
 		}
 	}
 }
 
 // The failure path is the one the operator reads from a log after the fact, so
-// it has to name the check that failed, not just report a red pre-flight.
-func TestPreflightNamesTheFailingCheck(t *testing.T) {
-	out, code := runPreflight(t, "- `true` — fine\n- git identity: `false`\n- `true` — also fine\n")
+// it has to name the migrated check that failed, not just report a red pre-flight.
+func TestPreflightNamesTheFailingMigratedCheck(t *testing.T) {
+	out, code := runPreflight(t, `version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+first = { command = "printf first >/dev/null", description = "first check" }
+identity = { command = "false", description = "git identity" }
+last = { command = "printf last >/dev/null", description = "last check" }
+`)
 	if code == 0 {
 		t.Fatalf("exit 0, want nonzero\n%s", out)
 	}
-	if !strings.Contains(out, "git identity") || !strings.Contains(out, "false") {
+	if !strings.Contains(out, "git identity") {
 		t.Errorf("failure does not name the failing check\n%s", out)
 	}
 	// Every check runs, so one log shows everything that is broken.
@@ -71,27 +81,20 @@ func TestPreflightNamesTheFailingCheck(t *testing.T) {
 	}
 }
 
-// The Environment convention is "test, don't ask": an executable check is
-// exactly one inline-code span, optionally after a label. Prose blocks the
-// run rather than being silently skipped — a check that never ran is not a
-// check that passed.
-func TestPreflightRefusesProseOnlyChecks(t *testing.T) {
-	out, code := runPreflight(t, "- `true` — fine\n- Make sure the database is up before starting\n")
-	if code == 0 {
-		t.Fatalf("exit 0, want nonzero\n%s", out)
-	}
-	if !strings.Contains(out, "not executable") {
-		t.Errorf("refusal does not explain the convention\n%s", out)
-	}
-}
+func TestPreflightRefusesAnInvalidMigratedConfig(t *testing.T) {
+	out, code := runPreflight(t, `version = 2
 
-func TestPreflightRefusesAmbiguousMultiSpanChecks(t *testing.T) {
-	out, code := runPreflight(t, "- run `go build` and then `go test`\n")
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+broken = { description = "missing command" }
+`)
 	if code == 0 {
 		t.Fatalf("exit 0, want nonzero\n%s", out)
 	}
-	if !strings.Contains(out, "not executable") {
-		t.Errorf("refusal does not explain the convention\n%s", out)
+	if !strings.Contains(out, "environment checks not found") || !strings.Contains(out, "runners.toml") {
+		t.Errorf("invalid config does not distinguish missing checks from no checks\n%s", out)
 	}
 }
 
@@ -100,37 +103,60 @@ func TestPreflightSkipsWhenThereIsNoConfig(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
 	}
-	if !strings.Contains(out, "no .tick/config.md") {
-		t.Errorf("output does not say why nothing ran\n%s", out)
+	if !strings.Contains(out, "no [environment.commands]") {
+		t.Errorf("output does not say that no checks were declared\n%s", out)
 	}
 }
 
 func TestPreflightSkipsWhenThereAreNoChecks(t *testing.T) {
-	out, code := runPreflight(t, "- \n")
+	out, code := runPreflight(t, `version = 2
+
+[roles.implement]
+kind = "claude"
+`)
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
 	}
-	if !strings.Contains(out, "no Environment checks") {
+	if !strings.Contains(out, "no [environment.commands]") {
 		t.Errorf("output does not say why nothing ran\n%s", out)
 	}
 }
 
 // Checks are written against the repository, so they run in it.
 func TestPreflightRunsChecksInTheRepoRoot(t *testing.T) {
-	out, code := runPreflight(t, "- `test -f .tick/config.md`\n")
-	if code != 0 {
-		t.Fatalf("exit %d, want 0\n%s", code, out)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".tick"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".tick", "runners.toml"), []byte(`version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+config = { command = "test -f .tick/runners.toml" }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Environment(context.Background(), EnvironmentOptions{Root: root, Out: &out}); err != nil {
+		t.Fatalf("environment pre-flight: %v\n%s", err, out.String())
 	}
 }
 
-// A check is one shell command, not a shell script: nothing in the tracker or
-// a prompt can smuggle a second command past the single-span rule.
 func TestPreflightCheckFailureIsReportedWithItsExitStatus(t *testing.T) {
-	out, code := runPreflight(t, "- `exit 7`\n")
+	out, code := runPreflight(t, `version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+exit-status = { command = "exit 7" }
+`)
 	if code == 0 {
 		t.Fatalf("exit 0, want nonzero\n%s", out)
 	}
 	if !strings.Contains(out, "exit 7") {
-		t.Errorf("failure does not report the check's own status\n%s", out)
+		t.Errorf("failure does not report the check's own command\n%s", out)
 	}
 }

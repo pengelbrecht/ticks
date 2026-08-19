@@ -130,6 +130,24 @@ func newFixtureWithFiles(t *testing.T, environment string, files map[string]stri
       toolchain) [ -z "${TICKS_TEST_SANDBOX_TOOLCHAIN:-}" ] || printf '%s\n' $TICKS_TEST_SANDBOX_TOOLCHAIN ;;
       image) [ -z "${TICKS_TEST_SANDBOX_IMAGE_DECLARED:-}" ] || printf '%s\n' "$TICKS_TEST_SANDBOX_IMAGE_DECLARED" ;;
       setup) exit "${TICKS_TEST_SANDBOX_SETUP_EXIT:-0}" ;;
+      environment)
+        if [ -z "${TICKS_TEST_ENV_CHECK:-}" ]; then
+          printf '%s\n' 'sandbox: no [environment.commands] in .tick/runners.toml — nothing to check'
+          exit 0
+        fi
+        printf 'sandbox: [1/1] running %s: %s\n' "${TICKS_TEST_ENV_LABEL:-environment check}" "$TICKS_TEST_ENV_CHECK"
+        bash -c "$TICKS_TEST_ENV_CHECK"
+        check_status=$?
+        if [ "$check_status" -eq 0 ]; then
+          printf 'sandbox: [1/1] PASS  %s: %s\n' "${TICKS_TEST_ENV_LABEL:-environment check}" "$TICKS_TEST_ENV_CHECK"
+          printf '%s\n' 'sandbox: 1 of 1 environment checks green'
+          exit 0
+        fi
+        printf 'sandbox: [1/1] FAILED  %s: %s (exit %s)\n' "${TICKS_TEST_ENV_LABEL:-environment check}" "$TICKS_TEST_ENV_CHECK" "$check_status"
+        printf 'sandbox: environment pre-flight red: 1 of 1 checks failed\n'
+        printf 'sandbox:   failing check: %s: %s\n' "${TICKS_TEST_ENV_LABEL:-environment check}" "$TICKS_TEST_ENV_CHECK"
+        exit 1
+        ;;
     esac
     ;;
   *) exit 0 ;;
@@ -212,6 +230,31 @@ func (f *fixture) tkCalls() string {
 		return ""
 	}
 	return string(b)
+}
+
+// addMigratedEnvironment adds the structured run config to the submitted
+// repository and configures the tk stub to exercise that command path. The
+// command tests cover the real tk implementation; this fixture isolates the
+// entrypoint's delegation and boot-stop behavior.
+func (f *fixture) addMigratedEnvironment(label, command string) {
+	f.t.Helper()
+	runners := fmt.Sprintf(`version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+check = { command = %q, description = %q }
+`, command, label)
+	if err := os.WriteFile(filepath.Join(f.source, ".tick", "runners.toml"), []byte(runners), 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+	git(f.t, f.source, "add", "-A")
+	git(f.t, f.source, "commit", "-q", "-m", "migrate environment checks")
+	f.headSHA = git(f.t, f.source, "rev-parse", "HEAD")
+	f.env[EnvBaseSHA] = f.headSHA
+	f.env["TICKS_TEST_ENV_LABEL"] = label
+	f.env["TICKS_TEST_ENV_CHECK"] = command
 }
 
 // miseCalls returns everything the version-manager stub was asked to do.
@@ -385,7 +428,8 @@ func TestEntrypointVerifiesTheTkVersion(t *testing.T) {
 // The pre-flight failure path is an acceptance criterion of its own: nonzero,
 // with the failing check named.
 func TestEntrypointFailsPreflightNamingTheCheck(t *testing.T) {
-	f := newFixture(t, "- git identity: `false`\n")
+	f := newFixture(t, "")
+	f.addMigratedEnvironment("git identity", "false")
 	out, code := f.run()
 	if code != ExitPreflight {
 		t.Fatalf("exit %d, want %d\n%s", code, ExitPreflight, out)
@@ -393,6 +437,25 @@ func TestEntrypointFailsPreflightNamingTheCheck(t *testing.T) {
 	mustContain(t, out, "git identity", "the failure names the failing check")
 	if f.harnessStarted() {
 		t.Error("the harness started on a broken environment")
+	}
+}
+
+func TestEntrypointRunsMigratedEnvironmentChecks(t *testing.T) {
+	f := newFixture(t, "")
+	marker := filepath.Join(f.root, "migrated-environment-check-ran")
+	f.env["TICKS_TEST_ENV_MARKER"] = marker
+	f.addMigratedEnvironment("migrated marker", "touch $TICKS_TEST_ENV_MARKER")
+
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the migrated environment check did not run: %v\n%s", err, out)
+	}
+	mustContain(t, out, "migrated marker", "the migrated check is named in the boot log")
+	if !strings.Contains(f.tkCalls(), "sandbox environment --root "+f.workdir) {
+		t.Errorf("the entrypoint did not delegate the migrated checks to tk:\n%s", f.tkCalls())
 	}
 }
 
