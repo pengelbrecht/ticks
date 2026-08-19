@@ -2,7 +2,7 @@
   "id": "aro",
   "title": "Single-tenant bearer auth for the factory worker",
   "description": "Secrets-not-accounts (D16): no user table, no signup. A deploy-time factory token is minted client-side; its hash (salted, WebCrypto — PBKDF2 or better, explicitly not the bare SHA-256 pattern from cloud/worker/src/auth.ts) is stored as a Worker secret. Middleware on every factory route verifies the bearer token with constant-time comparison; webhook routes are exempted now and use per-source shared secrets later (Phase 3). Include a token rotation path: minting a new token replaces the secret without redeploying the bundle.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -16,5 +16,6 @@
   "acceptance_criteria": "All non-health routes reject requests without the token and accept requests with it. The stored value is a salted derived hash, verified by a test, and never appears in logs or config files in the repo. Rotation invalidates the old token in a test against the vitest-pool-workers harness.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:18:31.213740348Z",
-  "updated_at": "2026-08-19T11:18:31.213740348Z"
+  "updated_at": "2026-08-19T13:20:28.407446Z",
+  "started_at": "2026-08-19T13:20:28.407445Z"
 }
