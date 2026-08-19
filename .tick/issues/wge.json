@@ -2,7 +2,7 @@
   "id": "wge",
   "title": "runners.toml v2 must fail readably on an older tk, not with 57 unknown-key errors",
   "description": "BLOCKER found live (2026-08-19), immediately after sqt migrated this repo. Reproduced by experiment, not inference:\n  installed tk 0.30.0  -\u003e tk herd spawn FAILS: \".tick/runners.toml: 57 validation errors: environment.commands: unknown key (a typo is an error, never silently ignored); ...\"\n  tk built from this branch -\u003e spawn succeeds\n\nWe designed the compatibility we expected (new tk reads legacy markdown) and missed its mirror image: OLD TK READS NEW TOML. Because 728 correctly made unknown keys fail closed, an older tk does not degrade — it dies on every herd command with a wall of unknown-key errors that names no cause and no fix. Any operator or teammate on a released tk is hard-broken the moment someone runs tk config migrate, and the error gives them nothing to act on.\n\nrunners.toml already carries a version field, which exists for exactly this. Fix:\n1. Bump the schema/file version when the new tables are present (version = 2).\n2. Make the loader check version FIRST and, when the file is newer than the binary understands, fail with one actionable line — .tick/runners.toml is version 2 and this tk understands version 1; upgrade tk (tk upgrade) — instead of enumerating unknown keys.\n3. tk config migrate must write the new version, and should warn that the migrated file needs a tk of at least the version that introduced it.\n4. Keep unknown-key-fails-closed for keys WITHIN a version the binary does understand — that behaviour is right and 728 should not be weakened. This is about the version gate coming first.\n\nNote the orchestrator is now driving this run with a branch-built tk; the installed 0.30.0 cannot operate this repo at all until it is upgraded.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "A runners.toml carrying the new tables reports version 2; a tk that understands only version 1 fails with a single actionable upgrade message naming the versions, not a list of unknown keys; a typo inside a supported version still fails closed naming the key; tk config migrate writes the new version and says which tk version is required.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T20:39:04.818745Z",
-  "updated_at": "2026-08-19T20:39:04.818745Z"
+  "updated_at": "2026-08-19T20:39:37.636268Z",
+  "started_at": "2026-08-19T20:39:37.636268Z"
 }
