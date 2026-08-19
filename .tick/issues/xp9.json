@@ -2,6 +2,7 @@
   "id": "xp9",
   "title": "D1 schema and migrations for runs, signals and dispatch_log",
   "description": "Foundation contract for Phase 1 observability (D20). Add cloud/factory/migrations/0002_runs.sql defining: runs (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd), signals (signal_id, source, external_ref, payload_digest, verdict, tick_id, received_at) and dispatch_log (run_id, tick_id, decision, reason, at). Reason codes are a closed vocabulary: budget_exhausted, lease_held_by, flake_gate, awaiting_approval, strike_out. Every dispatch refusal must be recordable with its policy reason. Include typed accessors in the worker and a test that each table round-trips through the vitest-pool-workers D1 binding. No routes and no DO logic here — this tick owns the migrations directory and the query layer only, so later ticks never race it.",
+  "notes": "2026-08-19 18:17 - runner-state: substrate=herdr kind=codex branch=tick/xp9 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-xp9 workspace=wAD base=3e15bff81cd888e82dfe521c507a46f4ddf6913b agent=tick-xp9 pane=wAD:p1 session=01a01acf-b4fc-7c30-8d5c-931acdfb108b",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "Migration applies cleanly on a fresh D1 and is a no-op on re-apply; every table round-trips insert and select in the test harness; the reason vocabulary is a typed union, not free strings; tk factory deploy applies it.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:56:17.700564Z",
-  "updated_at": "2026-08-19T16:16:44.456913Z",
+  "updated_at": "2026-08-19T16:17:12.247158Z",
   "started_at": "2026-08-19T16:16:44.456912Z"
 }
