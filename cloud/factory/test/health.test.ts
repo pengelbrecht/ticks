@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { deriveTokenHash, mintFactoryToken } from "../src/auth";
 import * as worker from "../src/index";
 
 describe("health route", () => {
@@ -27,11 +28,21 @@ describe("health route", () => {
     expect(res.status).toBe(405);
   });
 
-  it("404s unknown routes", async () => {
-    const res = await SELF.fetch("https://factory.example.com/api/runs");
+  it("404s unknown routes for an authenticated caller", async () => {
+    // Without the factory token this is a 401 — auth runs before routing, so
+    // 404 is only reachable once the caller is authenticated (auth.test.ts).
+    const token = mintFactoryToken();
+    env.FACTORY_TOKEN_HASH = await deriveTokenHash(token);
+    try {
+      const res = await SELF.fetch("https://factory.example.com/api/runs", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    expect(res.status).toBe(404);
-    await expect(res.json()).resolves.toEqual({ error: "not_found" });
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toEqual({ error: "not_found" });
+    } finally {
+      delete env.FACTORY_TOKEN_HASH;
+    }
   });
 
   it("exposes the same bindings to the test env as to the worker", () => {

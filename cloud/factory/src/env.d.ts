@@ -14,5 +14,13 @@ declare namespace Cloudflare {
     ARTIFACTS: R2Bucket;
     /** Signals, dispatch log, run index. */
     DB: D1Database;
+    /**
+     * Worker secret (not a wrangler.toml binding): the salted PBKDF2 record for
+     * the current factory token — `pbkdf2-sha256$<iterations>$<salt>$<key>`.
+     * Set with `wrangler secret put FACTORY_TOKEN_HASH`; optional in the type
+     * because an un-provisioned deployment must fail closed rather than fail to
+     * compile. See src/auth.ts.
+     */
+    FACTORY_TOKEN_HASH?: string;
   }
 }
