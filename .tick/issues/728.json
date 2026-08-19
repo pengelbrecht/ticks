@@ -2,6 +2,7 @@
   "id": "728",
   "title": "Extend runners-config schema with testing, evidence and environment tables",
   "description": "Contract-first: this tick defines the shape every other tick in the epic consumes, so it runs alone in wave 1 and gets a foundation review.\n\nExtend skills/ticks/references/runners-config.schema.json (and runners-config.md) with:\n- [testing] — the commands implementers run, as a typed list. Keep an optional free-text notes field for the narrative hints (the Go/UI/worker caveats) so they do not have to leave the structured file to stay useful.\n- [evidence] — closeout-only commands, explicitly separate from testing, preserving the existing rule that they may run ONLY during closeout.\n- [evidence.acceptance] — the A\u003cn\u003e to command mapping, expressed as structure rather than prose. A schema gives uniqueness and typing directly, so the verbatim-and-uniquely-matching rules become validation instead of parsing heuristics. Keep the fail-closed SEMANTICS: an acceptance item mapped to an unknown, duplicated or absent command must fail, and nothing outside this file may authorise shell.\n- [environment] — the pre-flight verification commands (test, do not ask).\n- [orchestrator] — replace the Pi Orchestrator markdown block by mapping it onto the EXISTING roles and tiers vocabulary already in this schema. Do not invent a parallel set of keys; if a Pi-specific value has no home in the current shape, say so in the report rather than bolting on a second routing model.\n\nUnknown keys must FAIL CLOSED, not be ignored: a typo silently degrading to no-warming or no-evidence is exactly the failure this epic exists to prevent. Validate every TOML example in runners-config.md against the schema (uv run --with jsonschema).",
+  "notes": "2026-08-19 21:06 - runner-state: substrate=herdr kind=claude branch=tick/728 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-728 workspace=wAP base=63bd46400dc0fc93c12f35aae4d515f2cda07ff9 agent=tick-728 pane=wAP:p1 session=d0cc33b0-ccf3-4632-815a-d1d8d0c7d816",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "The schema accepts a complete example covering all five tables and rejects: an unknown key, an acceptance item pointing at a command not defined in the file, a duplicate acceptance id, and an evidence command reused as a testing command; every TOML block in runners-config.md validates; no parallel routing vocabulary is introduced.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T16:41:39.416741Z",
-  "updated_at": "2026-08-19T19:05:59.473428Z",
+  "updated_at": "2026-08-19T19:06:07.521909Z",
   "started_at": "2026-08-19T19:05:59.473428Z"
 }
