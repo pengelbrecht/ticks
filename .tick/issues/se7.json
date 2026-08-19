@@ -2,7 +2,8 @@
   "id": "se7",
   "title": "tk config migrate: convert config.md structured sections to runners.toml",
   "description": "The migration path other repos need — without it this epic is a breaking change dressed as a cleanup.\n\ntk config migrate reads .tick/config.md, extracts the four structured sections (Testing commands, Closeout Evidence Commands, Acceptance Evidence, Pi Orchestrator), writes them into .tick/runners.toml under the tables from tick 728, and REWRITES config.md to keep only what belongs there: Rules, and the narrative testing hints. Preserve every existing runners.toml key and comment — this is an edit, not a regeneration.\n\nIdempotent: re-running changes nothing. Default to a dry run printing the diff, with an explicit flag to write, mirroring the fail-closed posture of the planning apply path. Refuse and explain rather than guessing when a section does not parse cleanly, and never silently drop a line: anything it cannot classify must be reported, not discarded.",
-  "status": "open",
+  "notes": "2026-08-19 21:30 - Seam: you share this wave with jr9. You own cmd/tk (the migrate command) and its tests. jr9 owns extensions/ticks-runner/*. Do not edit skills/ticks/references/runners-config.schema.json — 728 shipped it and it is the contract you both read. Do NOT migrate this repo's own .tick/config.md — that is sqt's job in the next wave, and doing it here would change the config every live worker reads.",
+  "status": "in_progress",
   "priority": 2,
   "type": "feature",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,6 @@
   "acceptance_criteria": "Running it on a copy of this repo config.md produces a runners.toml that validates against the schema and a config.md containing only prose; re-running is a no-op; an unparseable section causes a refusal naming the line rather than a partial write; the dry run is the default and writes nothing.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T16:41:58.398306Z",
-  "updated_at": "2026-08-19T16:41:58.398306Z"
+  "updated_at": "2026-08-19T19:30:28.42556Z",
+  "started_at": "2026-08-19T19:30:28.367688Z"
 }
