@@ -1,0 +1,16 @@
+{
+  "id": "e1d",
+  "title": "/health must prove a derivation, not just a parse",
+  "description": "Final-review finding 2. cloud/factory/src/auth.ts isAuthConfigured() reports auth.configured from parseTokenHash alone, so a record that parses but cannot be derived reports configured:true.\n\nThis is the exact contradiction that made the 210k-iteration bug expensive: /health said configured:true while every authenticated request returned 503, which pointed diagnosis at the record's FORMAT when the real fault was crypto. t9k flagged it and correctly left it out of scope.\n\nFix: have the health path exercise a real derivation (derive against the stored record's own salt and iterations and confirm it completes) rather than only parsing, so 'configured' means 'this deployment can actually verify a token'. Keep it cheap and keep leaking nothing: the response stays two booleans, and a derivation failure must be distinguishable in the LOG from a parse failure, matching the split t9k already added to the middleware.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "63t",
+  "discovered_from": "aw5",
+  "acceptance_criteria": "A deployment whose record parses but cannot derive reports auth.configured:false; a working deployment still reports true; /health still requires no token and still returns only booleans; a test covers the parses-but-cannot-derive case.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:38:52.483619Z",
+  "updated_at": "2026-08-19T15:39:00.759401Z",
+  "started_at": "2026-08-19T15:39:00.7594Z"
+}

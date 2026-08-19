@@ -1,0 +1,16 @@
+{
+  "id": "5ut",
+  "title": "Guard: accept RFC-reserved domains, restore example.invalid fixtures",
+  "description": "Final-review finding 1. scripts/check-public-repo.mjs:107 accepts ONLY 'example.com' as an email domain. That forced xrk to rewrite pre-existing fixtures from '@example.invalid' to '@example.com' across internal/ (authority@, gate@, ticks-runner@, planning@, planning-death@ in the ticks-runner and planning test helpers).\n\nRFC 2606 reserves .invalid precisely so it can never resolve; example.com is a real, routable domain. The rewrite made those fixtures slightly WORSE, and it was the guard driving the change rather than a genuine leak. A guard that forces correct code to get worse will keep doing so.\n\nFix: accept the RFC-reserved set — example.com, example.org, example.net, and any address whose TLD is .invalid, .test, .localhost or .example — then revert the fixtures the guard forced (git diff main...HEAD will show them; they are the '.invalid' -\u003e '.com' hunks outside .tick/). Add guard unit tests: an @example.invalid address passes, a real-looking domain still fails.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "63t",
+  "discovered_from": "aw5",
+  "acceptance_criteria": "node scripts/check-public-repo.mjs exits 0 with the .invalid fixtures restored; guard unit tests cover example.invalid passing and a realistic domain failing; no allowlist entries added for these.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:38:52.437996Z",
+  "updated_at": "2026-08-19T15:39:00.723543Z",
+  "started_at": "2026-08-19T15:39:00.723543Z"
+}

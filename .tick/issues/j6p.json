@@ -7,11 +7,13 @@
   "type": "chore",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "aw5"
+    "aw5",
+    "5ut",
+    "e1d"
   ],
   "parent": "63t",
   "acceptance_criteria": "None of the three literals appear anywhere in 'git log -p origin/main..HEAD'; HEAD's tree is unchanged by the rewrite (verified by comparing tree hashes before and after); the branch pushes cleanly.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T13:57:40.833639Z",
-  "updated_at": "2026-08-19T13:57:40.833639Z"
+  "updated_at": "2026-08-19T15:38:52.570015Z"
 }
