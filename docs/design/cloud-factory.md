@@ -716,6 +716,63 @@ cheap and safe, have results on my phone by 08:00. Budget: $10."*
 
 ---
 
+## Observability: troubleshooting a headless factory
+
+A factory with no terminal has no scrollback. Every layer must leave a trace
+durable enough to debug *after* the pieces that produced it are gone — the
+sandbox torn down, the DO hibernated, the Workflow completed. Two principles
+govern the design:
+
+**One trace ID threads the whole causal chain.** A signal gets a `signal_id`
+at the Worker's front door; the tick it creates records it; the run that
+dispatches the tick carries `run_id`; every worker attempt carries
+`run_id/tick_id/attempt`. These IDs appear in: Workers logs, Workflow step
+names, DO log lines, R2 object keys, AI Gateway metadata headers (D17), the
+`run_event` stream, and the commit trailers on run-branch commits. "Why did
+this PR do that?" must resolve by following one ID down the stack, never by
+timestamp archaeology.
+
+**Results come from git; diagnostics come from logs — and both are captured.**
+The collect axiom (terminal output is never a *result* channel) stays intact,
+but its contrapositive matters for debugging: harness output is the *primary
+diagnostic* channel — the green-start trap was literally diagnosed from pane
+content. So worker and orchestrator sandboxes stream their harness output
+continuously during the run, never export-at-exit: a sandbox that dies
+mid-tick must leave its logs behind, because the crashed runs are exactly the
+ones worth debugging.
+
+What each layer emits, and where it lands:
+
+| Layer | What | Where |
+|---|---|---|
+| Ingestion | Signal received (redacted payload digest), dedup verdict, tick written / parked / dropped-below-threshold — every signal accounted for, including the ignored ones | D1 `signals` table (queryable: "why didn't my webhook make a tick") |
+| Dispatch | Every ignition *and refusal* with its reason from the deterministic policy: `budget_exhausted`, `lease_held_by:<run>`, `flake_gate:red_on_base`, `awaiting:approval`, `strike_out` | D1 `dispatch_log` + a note on the tick when the refusal is tick-specific |
+| Control plane | Workflow step history (durable execution gives this for free), DO transitions (lease acquire/release, gate parked/answered), structured Workers logs | Workflows instance status API + Workers Logs / `wrangler tail` for live |
+| Run | The Pi extension's artifact tree, adopted wholesale as the cloud schema: `runs/<project>/<run_id>/{run.json, artifacts/<tick_id>/{prompt.md, events.jsonl, harness.log, report.md, epic.diff, attempts/}}` — plus `reconcile.json` per orchestrator reboot | R2, streamed during the run |
+| Model traffic | Per-request logs with run/tick metadata, tokens, cost — ground truth for D17 budgets | AI Gateway logs |
+| Tracker | The existing audit trail, unchanged: `.tick/activity/activity.jsonl`, actor-stamped notes, `run-state:` notes | git |
+
+Three rules keep it useful rather than voluminous:
+
+- **Log the vocabulary, not prose.** Failure events use the taxonomy this
+  repo already named — `green_start_trap`, `no_commits`, `missing_result`,
+  `boundary_violation`, `recheck_failed`, `protocol_mismatch` — so a
+  troubleshooting session starts from a known failure mode, and new incidents
+  that fit no name are themselves a signal (the taxonomy grows by documented
+  incident, as it always has here).
+- **`tk factory trace <tick|run>` is the debugging UX.** One command pulls
+  the joined story across all six layers for one ID — signal → dispatch
+  decision → workflow steps → harness log tail → gateway spend → tracker
+  notes — because a headless factory's operator debugs from the same terminal
+  the factory freed them from. `tk factory logs --follow <run>` tails a live
+  run (R2 stream + `wrangler tail` under the hood).
+- **Redact at the front door, retain by tier.** Secrets never enter any log
+  (webhook payloads are digested, tokens are IDs); harness logs and events
+  are the user's own code in their own account and are kept verbatim.
+  Retention: D1 rows and R2 artifacts age out on a configurable window
+  (default 90 days), except `report.md`/`retro.md`, whose durable homes are
+  git and the tracker anyway.
+
 ## Cross-cutting decisions (consolidated)
 
 Collected from the use cases; each appears above in context.
@@ -741,6 +798,7 @@ Collected from the use cases; each appears above in context.
 | D17 | All cloud model traffic routes through the user's AI Gateway (Workers AI, BYOK vendors, or OpenRouter behind it): ground-truth cost telemetry feeds budget enforcement, and revoking a run's gateway token is the kill switch | model access |
 | D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi/omp = the vendor-neutral kinds; omp the candidate cloud default for its subagents, config inheritance, and memory); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as another kind, never as a rewrite | harness choice |
 | D19 | The cloud substrate is drivable by any orchestrator location: the run API doubles as `tk cloud spawn/wait/collect/reconcile` for local orchestrators, enrolled projects share one RunRoom lease across local and cloud runs, and handoff in either direction is submission + reconcile, never bespoke machinery | local orchestrators |
+| D20 | One trace ID (`signal_id`/`run_id`/`tick_id`) threads every layer; harness output streams to R2 during the run (diagnostics), never export-at-exit; every dispatch refusal is logged with its policy reason; failure events use the named taxonomy; `tk factory trace` joins the story across layers | observability |
 
 ## What this is *not*
 
