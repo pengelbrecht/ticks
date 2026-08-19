@@ -1,0 +1,15 @@
+{
+  "id": "gek",
+  "title": "Config migration cleanup: authorization surface, stale prose, missing CI and doc-drift guards",
+  "description": "Findings 3-12 of the final review, batched — none behaviour-changing on their own, several widening the authorized-shell surface.\n\n3 and 4 (authorization surface, do these carefully): the review reported two defects that widen what counts as authorized shell on the structured path. Re-read RESULT-wsc.md (archived under .tick/logs/herd/48d/) for the exact reproductions and fix both, preserving the rule that nothing outside the config file authorizes shell.\n5-8: one small fix each, per the review.\n9: runner.ts:1252 still instructs the operator to \"add exactly one command mapping per item under ## Acceptance Evidence in .tick/config.md\" — the exact prose removed everywhere else. Fires on the legacy path only, but a migrated repo hitting a legacy edge gets instructions for a shape it no longer has.\n10-11 doc drift nothing checks: internal/herd/config/docexamples_test.go hand-transcribes runners-config.mds 6 worked examples with a comment saying to re-copy them; nothing verifies the transcription. pi-runner.mds TOML block is validated by nothing (manually checked valid). Make both machine-checked.\n12: .github/workflows/ci.yml runs public-repo, go, ui, worker, factory and sandbox but NOTHING runs node --test extensions/ticks-runner/*.test.ts. This epic put the fail-closed authorization logic and a hand-rolled TOML parser in that module and added ~400 lines of tests CI will never execute. Add a job (~15 lines, mirroring worker).\nAlso: scripts/pi-ticks-live-scenario.ts (the epics A4 evidence) still writes MARKDOWN config and calls resolveRunnerConfig. Good news for the legacy path; it also means the structured path has no live end-to-end scenario at all. Give it one.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "48d",
+  "discovered_from": "wsc",
+  "acceptance_criteria": "Findings 3-9 fixed; the doc-example transcription and pi-runner.md TOML block are machine-validated; CI runs the extension tests; a live scenario exercises the structured path end to end.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T21:07:49.288216Z",
+  "updated_at": "2026-08-19T21:07:49.288216Z"
+}
