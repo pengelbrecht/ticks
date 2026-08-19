@@ -29,3 +29,44 @@ effort = "high"
 kind = "codex"
 model = "gpt-5.6-luna"
 effort = "max"
+
+[testing]
+notes = "Go note: internal/worktree can fail locally when temporary repositories lack git identity; it passes in CI. Do not chase that environmental baseline.\nGo note (resolved 2026-08-12): the old TestWaitTimeout/TestWaitRaceListThenSubscribe flakes were real — a herdtest AfterList hook ordering race and a wait deadline-during-recovery misclassification. Both fixed and pinned; a recurrence is a regression, not contention.\nUI hint: when UI source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; the full suite has pre-existing failures.\nWorker hint: when worker source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; full pnpm test has a known workerd boot crash."
+
+[testing.commands]
+pi-runner = { command = "node --test --no-warnings extensions/ticks-runner/*.test.ts", description = "Pi runner" }
+go = { command = "go test -short -count=1 ./...", description = "Go" }
+
+[evidence.commands]
+herd-helper-live-smoke-quick-2-workers-1-min = { command = "bash scripts/verify-herd-helper.sh --quick", description = "Herd helper live smoke (quick: 2 workers, ~1 min)" }
+herd-helper-live-smoke-full-incl-kill-9-drill = { command = "bash scripts/verify-herd-helper.sh", description = "Herd helper live smoke (full, incl. kill-9 drill)" }
+herd-plugin-offline-checks-zero-herdr-calls = { command = "bash scripts/verify-herd-plugin.sh --offline-only", description = "Herd plugin offline checks (zero herdr calls)" }
+herd-plugin-live-smoke-2-workers-one-blocked-90s-relinks-the-plu = { command = "bash scripts/verify-herd-plugin.sh", description = "Herd plugin live smoke (2 workers, one blocked, ~90s; relinks the plugin, restores it)" }
+package-rpc-discovery = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc", description = "Package RPC discovery" }
+four-command-dry-status-smoke = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke", description = "Four-command dry/status smoke" }
+dry-run-wave-plan = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts dry-run-wave-plan", description = "Dry-run wave plan" }
+real-live-scenario = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario", description = "Real live scenario" }
+dashboard-demo-dump = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts dashboard-dump", description = "Dashboard demo/dump" }
+docs-install-content = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts docs-install", description = "Docs/install content" }
+
+[environment.commands]
+which-go = { command = "which go", description = "Go toolchain on PATH" }
+which-pnpm = { command = "which pnpm", description = "pnpm on PATH (never npm/yarn in this repo)" }
+git-config-user-email = { command = "git config user.email", description = "git identity configured" }
+
+[evidence.acceptance]
+A1 = "package-rpc-discovery"
+A2 = "four-command-dry-status-smoke"
+A3 = "dry-run-wave-plan"
+A4 = "real-live-scenario"
+A5 = "dashboard-demo-dump"
+A6 = "docs-install-content"
+
+# `tk config migrate` also offered [roles.plan], [roles.scout] and [roles.review]
+# at kind = "pi", carried over from the legacy `## Pi Orchestrator` block. They
+# are deliberately NOT taken: [roles] is one shared table, this repo's
+# `implement` routing is claude/codex (the migration preserved it over the pi
+# ids, see its warnings), and a file that routes implement to claude and review
+# to pi is not a run any substrate here can execute. With no entry of their own
+# these roles resolve against [roles.implement], which is exactly what they did
+# before the migration — the move changed the file, not what a wave spawns.

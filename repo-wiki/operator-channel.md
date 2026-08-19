@@ -90,7 +90,7 @@ SendMessage, EditMessageText, EditMessageReplyMarkup, AnswerCallbackQuery, GetUp
 
 ## Fact-sheet numbering gotcha
 
-`.tick/config.md` Acceptance Evidence is a single namespace across all containers; A1–A6 were
+`[evidence.acceptance]` is a single namespace across all containers; A1–A6 were
 already claimed by the Pi-extension epic, so this project uses A10–A20 and epic 54v uses
 A30–A32. Always grep existing usage before numbering a new fact sheet.
 

@@ -345,7 +345,7 @@ func parseLegacyCommand(body string, line int, source, table string) (legacyComm
 		return legacyCommand{}, false, true
 	}
 	description := label
-	if suffix := strings.TrimSpace(match[3]); suffix != "" {
+	if suffix := trimLabelSeparator(strings.TrimSpace(match[3])); suffix != "" {
 		if description != "" {
 			description += " " + suffix
 		} else {
@@ -662,6 +662,24 @@ func migrationCommandID(label, command string) string {
 	}
 	hash := sha1.Sum([]byte(command))
 	return "command-" + hex.EncodeToString(hash[:4])
+}
+
+// trimLabelSeparator drops the dash that separates a command from the label
+// after it — the `- \`which go\` — Go toolchain on PATH` form runners-config.md
+// maps to `description`. The dash is punctuation between two fields, not part
+// of the label, so it must not survive into the migrated description. Only a
+// LEADING separator is removed, and only when a label actually follows it: a
+// bare dash carries no label at all, and a dash inside the label is the
+// author's own text.
+func trimLabelSeparator(suffix string) string {
+	for _, separator := range []string{"\u2014", "\u2013", "--", "-"} {
+		if !strings.HasPrefix(suffix, separator) {
+			continue
+		}
+		// An empty rest means the separator was the whole suffix: no label.
+		return strings.TrimSpace(strings.TrimPrefix(suffix, separator))
+	}
+	return suffix
 }
 
 func stripMarkdownBullet(line string) string {

@@ -51,7 +51,7 @@ Set `TK_ACTOR=pi:orchestrator` for tracker writes. The extension does this autom
 
 Only `--apply` permits planning tracker writes. Apply requires a clean non-default branch and TUI confirmation in addition to the flag; outside TUI, the flag is the explicit confirmation. It validates an existing recorded base or derives one from `origin/HEAD` (single local `main`/`master` fallback), fails on ambiguity, and records `base_branch` on the target epic. The controller creates a requirements epic or verifies an existing epic is open/childless/plannable, creates and maps implementation tasks, wires hard/soft dependencies, adds canonical role-tagged review/closeout, and commits `.tick/`. The schema cannot express process roles, shell/tracker argv, parent/roadmap changes, arbitrary fields, or executable acceptance snippets; model acceptance containing backticks/code spans is rejected because only controller configuration may issue verification commands. Strict bounds, dependency/cycle checks, vertical acceptance, and same-wave file checks all pass before mutation. Every create carries target/entity labels atomically. Partial failures are committed when possible and recovered from a target-bound state file, pending-create journal, create-time labels, epic note, validated-plan artifact, and client-ID map; mapped parent/title/role/marker/base identity is verified before reuse, and symlinked artifact ancestors fail closed. After a true controller SIGKILL, a dead apply lock may be taken over only to commit the exact journaled marked issue plus its single append-only controller create activity; unrelated dirt is refused.
 
-Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Closeout can execute only controller-owned item mappings from `.tick/config.md` `Acceptance Evidence`; every item has exactly one mapping to a command that exists verbatim and uniquely in Testing or Closeout Evidence Commands. Closeout-only commands never run in child/per-tick/post-wave/final-review gates. Generic commands are never distributed across items, and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
+Ready `review` and `closeout` ticks are routed to dedicated process execution, never code implementers. Closeout can execute only the controller-owned item mappings in `[evidence.acceptance]`; each item id maps to the id of one command defined in `[testing.commands]` or `[evidence.commands]`. Closeout-only commands never run in child/per-tick/post-wave/final-review gates. Generic commands are never distributed across items, and an unresolvable mapping, a missing mapping, or cross-item evidence fails closed. Missing process ticks self-repair before wave 1, with the tracker repair committed before child launch.
 
 See [`../../../extensions/ticks-runner/README.md`](../../../extensions/ticks-runner/README.md) for exact defaults, dashboard keys, artifacts, recovery, and current limitations.
 
@@ -81,41 +81,74 @@ Reuse the generic example when an interactive agent needs ad-hoc delegation. Use
 
 ## Configuration and model routing
 
-Read `.tick/config.md` fresh at run start. `Environment`, `Testing`, and `Rules` retain the shared meanings. Environment, Testing, and Closeout Evidence Commands are executable only when their bullet has exactly one inline-code span, optionally after `Label:`. Prose-only Environment checks block execution; prose-only Testing entries are prompt hints; malformed Closeout entries do not run. Tracker acceptance and Rules are always prose—even when they contain backticks—and never authorize shell. Closeout issues evidence only from explicit controller-owned `Acceptance Evidence` lines shaped as `- A<n>: \`exact command\``. Every item maps exactly once to a command unique across Testing and Closeout Evidence Commands. Stable `[A<n>]` acceptance IDs are preferred; legacy lines receive deterministic A1/A2 IDs. Unknown, duplicate, ambiguous, stale, injected, missing, or cross-item mappings fail closed. Planning models see relevant sections as context but cannot authorize commands.
+Read the run config fresh at run start. The structured half is `.tick/runners.toml`, validated against [`runners-config.schema.json`](runners-config.schema.json) and defined by [`runners-config.md`](runners-config.md); `.tick/config.md` keeps `Rules` and any narrative testing hints. `Rules` and tracker acceptance are always prose — even when they contain backticks — and never authorize shell.
 
-```markdown
-## Environment
-- Git: `git --version`
+The schema removes the markdown matcher this adapter used to describe. A command is executable because of the **table it sits in**, so there is no inline-code span to detect, no `Label:` prefix to parse, and no malformed entry that silently does not run: a file that does not validate is a stop, and the run's command surface authorizes nothing. `[testing.commands]` serves implementers and every gate, `[evidence.commands]` serves closeout alone, `[environment.commands]` is the run-start pre-flight and is never an evidence source. Closeout issues evidence only for items mapped in `[evidence.acceptance]`, each to the id of one command in `[testing.commands]` or `[evidence.commands]`. Stable `[A<n>]` acceptance IDs are preferred; legacy untagged lines receive deterministic A1/A2 IDs. An unresolvable, missing, or cross-item mapping fails closed. Planning models see relevant tables as context but cannot authorize commands.
 
-## Testing
-- Runner: `node --test extensions/ticks-runner/*.test.ts`
-- Go: `go test ./...`
+Model routing is `[roles.*]` and `[roles.*.tiers.*]` — the same roles and tiers vocabulary every runner uses, with no second routing model. A `model:thinking` string is two fields here, `model` plus `effort`, because the schema's `Model` pattern rejects `:`.
 
-## Closeout Evidence Commands
-- Release scenario: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+```toml
+version = 1
 
-## Acceptance Evidence
-- A1: `node --test extensions/ticks-runner/*.test.ts`
-- A2: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
+[orchestrator]
+harness = "pi"
 
-## Rules
-- Do not add npm lockfiles.
+[orchestration]
+max_parallel = 4
 
-## Pi Orchestrator
-- planner_model: openai-codex/gpt-5.6-sol:xhigh
-- scout_model: openai-codex/gpt-5.6-sol:low
-- implement_economy_model: openai-codex/gpt-5.6-sol:low
-- implement_balanced_model: openai-codex/gpt-5.6-sol:medium
-- implement_strong_model: openai-codex/gpt-5.6-sol:high
-- review_model: openai-codex/gpt-5.6-sol:xhigh
-- closeout_model: openai-codex/gpt-5.6-sol:xhigh
-- review_should_fix: repair
-- max_parallel: 4
+[roles.plan]
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[roles.scout]
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "low"
+
+[roles.implement]
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "medium"
+
+[roles.implement.tiers.economy]
+effort = "low"
+
+[roles.implement.tiers.strong]
+effort = "high"
+
+[roles.review]
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[roles.closeout]
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[testing.commands]
+runner = { command = "node --test extensions/ticks-runner/*.test.ts", description = "Runner" }
+go = { command = "go test ./...", description = "Go" }
+
+[evidence.commands]
+release-scenario = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario", description = "Release scenario" }
+
+[evidence.acceptance]
+A1 = "runner"
+A2 = "release-scenario"
+
+[environment.commands]
+git = { command = "git --version", description = "Git" }
 ```
 
-Environment override names are `TICKS_PI_PLANNER_MODEL`, `TICKS_PI_SCOUT_MODEL`, `TICKS_PI_IMPLEMENT_ECONOMY_MODEL`, `TICKS_PI_IMPLEMENT_BALANCED_MODEL`, `TICKS_PI_IMPLEMENT_STRONG_MODEL`, `TICKS_PI_REVIEW_MODEL`, `TICKS_PI_CLOSEOUT_MODEL`, `TICKS_PI_REVIEW_SHOULD_FIX`, and `TICKS_PI_MAX_PARALLEL`. Resolution is environment > markdown > Pi default.
+Environment override names are `TICKS_PI_PLANNER_MODEL`, `TICKS_PI_SCOUT_MODEL`, `TICKS_PI_IMPLEMENT_ECONOMY_MODEL`, `TICKS_PI_IMPLEMENT_BALANCED_MODEL`, `TICKS_PI_IMPLEMENT_STRONG_MODEL`, `TICKS_PI_REVIEW_MODEL`, `TICKS_PI_CLOSEOUT_MODEL`, `TICKS_PI_REVIEW_SHOULD_FIX`, and `TICKS_PI_MAX_PARALLEL`. Resolution is environment > run config > Pi default.
 
-Model specs use `[provider/]model[:thinking]`. For Codex subscription/OAuth credentials use `openai-codex/<model>`, not the API-key `openai/<model>`. Ordinary implementation routes among economy/balanced/strong from explicit metadata and conservative task shape. Review and closeout have dedicated frontier process tiers; closeout falls back to the planner model only when `closeout_model` is absent. `review_should_fix` is `repair` by default or `record`; blocker findings always create blocking repair work.
+`review_should_fix` has no home in the schema — it is a review-outcome policy, not routing — so on the structured path it comes from `TICKS_PI_REVIEW_SHOULD_FIX` (default `repair`, or `record`); blocker findings always create blocking repair work.
+
+Model specs use `[provider/]model[:thinking]` in the environment overrides; in `runners.toml` the same choice is `model` plus `effort`, because the `Model` pattern rejects `:`. For Codex subscription/OAuth credentials use `openai-codex/<model>`, not the API-key `openai/<model>`. Ordinary implementation routes among economy/balanced/strong from explicit metadata and conservative task shape. Review and closeout have dedicated frontier process tiers; closeout falls back to the planner model only when `[roles.closeout]` is absent.
+
+**A repo that has not migrated** still has its `.tick/config.md` sections parsed, on the deprecated fallback path, with one warning per load. That path and its migration are documented once, in [`runners-config.md`](runners-config.md) → *The deprecated markdown path*.
 
 ## Durable state and recovery
 

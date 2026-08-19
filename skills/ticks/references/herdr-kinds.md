@@ -97,7 +97,7 @@ The matrix is **sparse**. A kind is a specific vendor CLI authenticated against 
 
 Effort levels are sparse too: `claude --effort` accepts `low, medium, high, xhigh, max` (no `off`/`minimal`); `pi --thinking` accepts `off, minimal, low, medium, high, xhigh, max`; codex's `model_reasoning_effort` is a config string whose accepted set is the model's, not the CLI's (`max` is live on this machine's `~/.codex/config.toml`); `opencode` accepts **no level at all** on the interactive CLI, so every level is refused.
 
-Do not treat any model string here as durable. These are dated observations; `pi --list-models` and the vendor CLIs are the authority, and `.tick/config.md`'s *Pi Orchestrator* section carries the ids a given repo actually runs.
+Do not treat any model string here as durable. These are dated observations; `pi --list-models` and the vendor CLIs are the authority, and `.tick/runners.toml`'s `[roles.*]` tables carry the ids a given repo actually runs.
 
 ### Fail closed on an impossible cell
 

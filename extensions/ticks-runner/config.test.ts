@@ -347,3 +347,25 @@ test("a command reachable from two phases is refused, the way verbatim-unique ma
 	assert.equal(config.errors.length, 1);
 	assert.match(config.errors[0], /already authorised as testing\.commands\.go/);
 });
+
+// This repo dogfoods the migrated shape, so the pi-side reader is pointed at
+// the repo's own committed files. It reads them from disk and dials nothing:
+// if `.tick/config.md` ever grows a machine-parsed section back, this repo
+// silently drops onto the deprecated path and this test says so.
+test("this repo's own run config loads from runners.toml with no deprecation", () => {
+	const root = path.resolve(import.meta.dirname, "..", "..");
+	const config = loadRunnerConfig(root, {});
+
+	assert.deepEqual(config.errors, [], "the committed .tick/runners.toml must load clean");
+	assert.equal(config.configSource, "runners.toml");
+	assert.ok(
+		!config.warnings.includes(MARKDOWN_CONFIG_DEPRECATION),
+		`expected no markdown deprecation warning, got ${JSON.stringify(config.warnings)}`,
+	);
+	assert.ok(config.testCommands.length > 0, "[testing.commands] must reach the runner");
+	assert.ok(config.closeoutEvidenceCommands.length > 0, "[evidence.commands] must reach the runner");
+	assert.ok(config.environmentCommands.length > 0, "[environment.commands] must reach the runner");
+	assert.ok(config.acceptanceEvidence.length > 0, "[evidence.acceptance] must reach the runner");
+	// Rules stay in markdown on both paths and are prose, never shell.
+	assert.ok(config.rules.length > 0, "`## Rules` must still come from .tick/config.md");
+});

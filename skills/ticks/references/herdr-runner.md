@@ -394,7 +394,7 @@ Epic: <epic-title> (<epic-id>)
 
 ## Instructions
 1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
-2. Read `.tick/config.md` (if present) — test commands and project-specific rules for implementers.
+2. Read `.tick/runners.toml` and `.tick/config.md` (if present) — test commands and project-specific rules for implementers.
 3. Read the repository instruction file used by your CLI (`AGENTS.md`, `CLAUDE.md`, or equivalent)
    and any nested instruction files that apply.
 4. Read the relevant existing code before changing anything.

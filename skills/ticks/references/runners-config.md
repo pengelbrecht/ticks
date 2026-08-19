@@ -206,11 +206,20 @@ Three rules span tables, and JSON Schema has no referential integrity, so the sc
 
 This is the same division of labour the file already draws for routing — the schema knows the format, the spawner knows the vendor, and the loader knows the file as a whole. In this repo the loader is the one behind `tk herd spawn`, and `scripts/verify-runners-config.py` is a standalone reference implementation of both layers (`uv run --with jsonschema python scripts/verify-runners-config.py .tick/runners.toml`).
 
-## Replacing `.tick/config.md`'s structured sections
+## The deprecated markdown path
 
-`.tick/config.md` historically carried four machine-parsed sections in markdown. They move here; `Rules` — prose an implementer reads verbatim into its prompt — stays in `config.md`.
+`.tick/config.md` historically carried the same routing and commands as machine-parsed markdown sections. **That path is deprecated, not a second supported shape.** `.tick/runners.toml` is where a repo's structured run config lives; markdown remains readable only so a repo that has not migrated yet still runs, and every load of it emits one deprecation warning.
 
-| `.tick/config.md` section | Moves to |
+Move a repo across in one command, from the repo root:
+
+```bash
+tk config migrate            # read-only diff of both files
+tk config migrate --apply    # write, after the whole migration parsed and validated
+```
+
+It rewrites `.tick/config.md` down to `Rules` plus the narrative `Testing` hints and merges everything else into `.tick/runners.toml`, keeping that file's existing keys and comments. A conflict it cannot resolve is a refusal, not an overwrite, and it is safe to re-run: once `config.md` has no structured sections it reports there is nothing to migrate. What lands where:
+
+| Deprecated `.tick/config.md` section | Moves to |
 |---|---|
 | `## Testing` (command bullets) | `[testing.commands]` |
 | `## Testing` (prose bullets, the Go/UI/worker caveats) | `testing.notes` |
@@ -220,7 +229,7 @@ This is the same division of labour the file already draws for routing — the s
 | `## Pi Orchestrator` | `[roles]`, `[roles.*.tiers]`, `[orchestration]` — see below |
 | `## Rules` | stays in `.tick/config.md` |
 
-### The `## Pi Orchestrator` block
+### The deprecated `## Pi Orchestrator` block
 
 That block was key/value routing config in markdown, duplicating what `[roles]` and `[roles.*.tiers]` already express. It maps onto the **existing** roles and tiers vocabulary with no new keys — there is deliberately no second routing model:
 

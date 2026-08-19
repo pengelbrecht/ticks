@@ -2,51 +2,10 @@
 
 ## Testing
 
-- Pi runner: `node --test --no-warnings extensions/ticks-runner/*.test.ts`
-- Go: `go test -short -count=1 ./...`
 - Go note: internal/worktree can fail locally when temporary repositories lack git identity; it passes in CI. Do not chase that environmental baseline.
 - Go note (resolved 2026-08-12): the old TestWaitTimeout/TestWaitRaceListThenSubscribe flakes were real — a herdtest AfterList hook ordering race and a wait deadline-during-recovery misclassification. Both fixed and pinned; a recurrence is a regression, not contention.
 - UI hint: when UI source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; the full suite has pre-existing failures.
 - Worker hint: when worker source changes, run pnpm install frozen, TypeScript noEmit, and targeted Vitest files; full pnpm test has a known workerd boot crash.
-
-## Closeout Evidence Commands
-
-- Herd helper live smoke (quick: 2 workers, ~1 min): `bash scripts/verify-herd-helper.sh --quick`
-- Herd helper live smoke (full, incl. kill-9 drill): `bash scripts/verify-herd-helper.sh`
-- Herd plugin offline checks (zero herdr calls): `bash scripts/verify-herd-plugin.sh --offline-only`
-- Herd plugin live smoke (2 workers, one blocked, ~90s; relinks the plugin, restores it): `bash scripts/verify-herd-plugin.sh`
-
-- Package RPC discovery: `node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc`
-- Four-command dry/status smoke: `node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke`
-- Dry-run wave plan: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dry-run-wave-plan`
-- Real live scenario: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
-- Dashboard demo/dump: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dashboard-dump`
-- Docs/install content: `node --no-warnings scripts/verify-pi-ticks-qfs.ts docs-install`
-
-## Acceptance Evidence
-
-- A1: `node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc`
-- A2: `node --no-warnings scripts/verify-pi-ticks-qfs.ts command-smoke`
-- A3: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dry-run-wave-plan`
-- A4: `node --no-warnings scripts/verify-pi-ticks-qfs.ts live-scenario`
-- A5: `node --no-warnings scripts/verify-pi-ticks-qfs.ts dashboard-dump`
-- A6: `node --no-warnings scripts/verify-pi-ticks-qfs.ts docs-install`
-
-## Pi Orchestrator
-
-- planner_model: openai-codex/gpt-5.6-sol:xhigh
-- scout_model: openai-codex/gpt-5.6-sol:low
-- implement_economy_model: openai-codex/gpt-5.6-sol:low
-- implement_balanced_model: openai-codex/gpt-5.6-sol:medium
-- implement_strong_model: openai-codex/gpt-5.6-sol:high
-- review_model: openai-codex/gpt-5.6-sol:xhigh
-- max_parallel: 4
-
-## Environment
-
-- `which go` — Go toolchain on PATH
-- `which pnpm` — pnpm on PATH (never npm/yarn in this repo)
-- `git config user.email` — git identity configured
 
 ## Rules
 
