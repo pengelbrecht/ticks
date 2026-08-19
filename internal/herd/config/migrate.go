@@ -810,6 +810,11 @@ type tomlTableSpan struct {
 	end    int
 }
 
+type piRoutingMismatch struct {
+	path string
+	kind string
+}
+
 func mergeRunnersTOML(original []byte, tables []migrateTable) ([]byte, []string, error) {
 	originalText := string(original)
 	lineEnding := "\n"
@@ -837,6 +842,9 @@ func mergeRunnersTOML(original []byte, tables []migrateTable) ([]byte, []string,
 	insertions := map[int][]string{}
 	appendBlocks := make([][]string, 0)
 	warnings := make([]string, 0)
+	if warning := piRoutingWarning(existing, metadata, tables); warning != "" {
+		warnings = append(warnings, warning)
+	}
 	for _, table := range tables {
 		pending := make([]migrateAssignment, 0, len(table.assignments))
 		for _, assignment := range table.assignments {
@@ -901,6 +909,72 @@ func mergeRunnersTOML(original []byte, tables []migrateTable) ([]byte, []string,
 		result += lineEnding
 	}
 	return []byte(result), warnings, nil
+}
+
+// piRoutingWarning reports the shared-table kind mismatch once for all Pi
+// routing cells that the migration will touch. The existing merge warnings are
+// still emitted below for individual values that were preserved.
+func piRoutingWarning(cfg Config, md toml.MetaData, tables []migrateTable) string {
+	mismatches := make([]piRoutingMismatch, 0)
+	seen := make(map[string]bool)
+	line := 0
+	for _, table := range tables {
+		if !strings.HasPrefix(table.path, "roles.") {
+			continue
+		}
+		path, kind, ok := existingPiRoutingCell(cfg, md, table.path)
+		if !ok || kind == "pi" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		mismatches = append(mismatches, piRoutingMismatch{path: path, kind: kind})
+		if line == 0 {
+			line = firstAssignmentLine(table.assignments)
+		}
+	}
+	if len(mismatches) == 0 {
+		return ""
+	}
+	details := make([]string, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		details = append(details, fmt.Sprintf("%s (kind = %q)", mismatch.path, mismatch.kind))
+	}
+	return fmt.Sprintf(
+		".tick/config.md:%d: keys from the pi-only ## Pi Orchestrator block are being merged into [roles] routing at %s; the pi extension will refuse this config",
+		line, strings.Join(details, ", "))
+}
+
+func firstAssignmentLine(assignments []migrateAssignment) int {
+	for _, assignment := range assignments {
+		if assignment.line > 0 {
+			return assignment.line
+		}
+	}
+	return 0
+}
+
+func existingPiRoutingCell(cfg Config, md toml.MetaData, table string) (string, string, bool) {
+	path := strings.Split(table, ".")
+	if len(path) != 2 && len(path) != 4 {
+		return "", "", false
+	}
+	if path[0] != "roles" {
+		return "", "", false
+	}
+	roleName := path[1]
+	role, ok := cfg.Roles[roleName]
+	if !ok || role == nil {
+		return "", "", false
+	}
+	if len(path) == 4 && path[2] == "tiers" {
+		if variant, ok := role.Tiers[path[3]]; ok && variant != nil && md.IsDefined("roles", roleName, "tiers", path[3], "kind") && variant.Kind != "" {
+			return table, variant.Kind, true
+		}
+	}
+	if md.IsDefined("roles", roleName, "kind") && role.Kind != "" {
+		return "roles." + roleName, role.Kind, true
+	}
+	return "", "", false
 }
 
 // tomlVersionRE matches the top-level `version = <n>` assignment, keeping any

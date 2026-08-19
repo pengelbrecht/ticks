@@ -104,6 +104,9 @@ func TestConfigMigrateDryRunApplyAndIdempotency(t *testing.T) {
 	if !strings.Contains(out.String(), "warning: .tick/config.md:") || !strings.Contains(out.String(), "preserved existing") {
 		t.Fatalf("dry run did not report preserved conflicting values:\n%s", out.String())
 	}
+	if !strings.Contains(out.String(), `kind = "claude"`) || !strings.Contains(out.String(), "pi extension will refuse this config") {
+		t.Fatalf("dry run did not report the Pi/role kind mismatch:\n%s", out.String())
+	}
 	if got, _ := os.ReadFile(configPath); string(got) != string(originalConfig) {
 		t.Fatal("dry run changed config.md")
 	}
