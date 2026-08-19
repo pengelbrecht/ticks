@@ -2,7 +2,7 @@
   "id": "fdo",
   "title": "TOML path silently loses the frontier-review guarantee",
   "description": "BLOCKER, finding 1 of the final review, reproduced with one config expressed both ways.\n\nreadRoutings roleFor(name) falls back to roles.implement for EVERY unlisted role, so review_model, closeout_model and scout_model can never be absent on the TOML path. Two fail-closed guards become dead code: runner.ts:1576 (\"requires a valid configured review_model; no default model is accepted for final process gates\") and planning.ts:1320-1321 (\"scout_model is required\").\n\nWith [roles.plan] opus:max and [roles.implement] haiku:low and no review/closeout/scout role:\n  markdown path: review_model undefined -\u003e run BLOCKED; scout_model undefined -\u003e planning blocked\n  TOML path:     review_model haiku:low -\u003e THE FINAL REVIEW RUNS ON THE ECONOMY IMPLEMENT MODEL\n\nA repo that migrates and does not add [roles.review] gets a quietly under-powered final review with no warning. This is precisely the \"two paths cannot drift in fail-closed semantics\" the epic set out to guarantee, and it breaks agent-runner.mds REVIEWER-TIER RULE (review with a model at least as capable as the one that wrote the code; epic final reviews default to frontier).\n\nFix: on the TOML path resolve review_model/closeout_model/scout_model ONLY from an explicit [roles.review]/[roles.closeout]/[roles.scout], leaving them undefined otherwise so the existing guards keep firing. Fallback-to-implement is right for tk herd spawn and wrong for the gates the pi extension refuses to default.\n\nAlso fix the related doc error: pi-runner.md says closeout falls back to the PLANNER model when [roles.closeout] is absent; on the TOML path it falls back to IMPLEMENT, and modelForTiers closeout_model ?? planner_model is unreachable there.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -11,5 +11,6 @@
   "acceptance_criteria": "With no [roles.review], the TOML path leaves review_model undefined and the run is blocked exactly as the markdown path blocks it; the same holds for scout_model and closeout_model; a test asserts parity of the fail-closed outcome between the two paths; pi-runner.md describes the actual fallback.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T21:07:22.378812Z",
-  "updated_at": "2026-08-19T21:07:22.378812Z"
+  "updated_at": "2026-08-19T21:08:09.481496Z",
+  "started_at": "2026-08-19T21:08:09.481496Z"
 }

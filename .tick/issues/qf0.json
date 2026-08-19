@@ -6,10 +6,13 @@
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "fdo"
+  ],
   "parent": "48d",
   "discovered_from": "wsc",
   "acceptance_criteria": "The pi extension never derives a pi --provider/--model from a role whose kind is not pi; whichever policy is chosen (refuse, or per-substrate routing) is documented in runners-config.md and covered by a test; this repo either has working pi routing again or an explicit recorded decision that it does not use pi.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T21:07:49.219391Z",
-  "updated_at": "2026-08-19T21:07:49.219391Z"
+  "updated_at": "2026-08-19T21:08:09.389491Z"
 }
