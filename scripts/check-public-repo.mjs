@@ -8,6 +8,7 @@ import {
 } from "./public-repo-allowlist.mjs";
 
 const MAX_ALLOWLIST_ENTRIES = 4;
+const MIN_FILLER_PAYLOAD_LENGTH = 16;
 
 // Keep these patterns deliberately high-confidence. Documentation examples
 // use placeholders such as tkf_... and pbkdf2-sha256$<iterations>$<salt>$<key>,
@@ -112,6 +113,15 @@ function isNonEmailIdentifier(value) {
   return value.toLowerCase() === "git@github.com";
 }
 
+function isSyntheticPlaceholder(value) {
+  // Detector matches can include a fixed prefix or an example marker before
+  // the payload. A sufficiently long terminal run of one character is an
+  // explicit filler payload (for example, the zero account IDs and PATs used
+  // by fixtures), so it carries no operator-specific information.
+  const filler = value.match(/([A-Za-z0-9])\1+$/);
+  return filler !== null && filler[0].length >= MIN_FILLER_PAYLOAD_LENGTH;
+}
+
 function isLegacyTrackerIdentity(path, line, literal, column) {
   if (!path.startsWith(".tick/")) return false;
   if (!LEGACY_TRACKER_IDENTITIES.includes(literal)) return false;
@@ -177,6 +187,7 @@ export function scanTrackedFiles(root) {
         rule.pattern.lastIndex = 0;
         for (const match of line.matchAll(rule.pattern)) {
           const literal = match[0];
+          if (isSyntheticPlaceholder(literal)) continue;
           if (rule.kind === "email" && isExampleEmail(literal)) continue;
           if (rule.kind === "email" && isNonEmailIdentifier(literal)) continue;
           if (

@@ -48,13 +48,18 @@ async function withFixture(files, callback, options) {
 }
 
 const forbidden = {
-  account: "a".repeat(32),
-  factoryToken: ["tkf_", "A".repeat(43)].join(""),
-  pbkdf2: ["pbkdf2-sha256", "210000", "A".repeat(22), "B".repeat(43)].join("$"),
-  githubClassic: ["ghp_", "A".repeat(36)].join(""),
-  githubFineGrained: ["github_pat_", "A".repeat(22)].join(""),
-  cloudflare: ["cfut_", "A".repeat(40)].join(""),
-  doppler: ["dp.ct.", "A".repeat(40)].join(""),
+  account: ["0123456789abcdef", "0123456789abcdef"].join(""),
+  factoryToken: ["tkf_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1"].join(""),
+  pbkdf2: [
+    "pbkdf2-sha256",
+    "210000",
+    "A1b2C3d4E5f6G7h8",
+    "B2c3D4e5F6g7H8i9J0k1L2m3N4",
+  ].join("$"),
+  githubClassic: ["ghp_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9"].join(""),
+  githubFineGrained: ["github_pat_", "11AbC9xY7mN2pQ8rT4vW6zK1"].join(""),
+  cloudflare: ["cfut_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9"].join(""),
+  doppler: ["dp.ct.", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1"].join(""),
   email: ["operator", "@", "private", ".test"].join(""),
 };
 
@@ -82,6 +87,37 @@ test("rejects a non-example email even when it looks like a test fixture", async
       const result = runGuard(root);
       assert.notEqual(result.status, 0, `guard unexpectedly passed:\n${result.output}`);
       assert.match(result.output, /email/i);
+    }
+  );
+});
+
+test("ignores repeated filler payloads but rejects realistic identifiers", async () => {
+  const allZeroAccount = "0".repeat(32);
+  const allZeroGitHubPat = ["github_pat_", "0".repeat(32)].join("");
+
+  await withFixture(
+    {
+      "fixtures/placeholders.txt":
+        `account=${allZeroAccount}\npat=${allZeroGitHubPat}\n`,
+    },
+    (root) => {
+      const result = runGuard(root);
+      assert.equal(result.status, 0, result.output);
+    }
+  );
+
+  const realisticAccount = "0123456789abcdef".repeat(2);
+  const realisticGitHubPat = ["github_pat_", "11AbC9xY7mN2pQ8rT4vW6zK1"].join("");
+  await withFixture(
+    {
+      "fixtures/identifiers.txt":
+        `account=${realisticAccount}\npat=${realisticGitHubPat}\n`,
+    },
+    (root) => {
+      const result = runGuard(root);
+      assert.notEqual(result.status, 0, `guard unexpectedly passed:\n${result.output}`);
+      assert.match(result.output, /account/);
+      assert.match(result.output, /githubFineGrained/);
     }
   );
 });
