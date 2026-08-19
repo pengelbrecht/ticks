@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -91,6 +94,18 @@ half-provisioned sandbox that reports itself warm is worse than a cold one.`,
 	RunE: runSandboxSetup,
 }
 
+var sandboxEnvironmentCmd = &cobra.Command{
+	Use:   "environment",
+	Short: "Run this repo's declared environment checks",
+	Long: `Run the run-start checks from [environment.commands] in .tick/runners.toml.
+
+The checks are verification only: they test the checkout's environment before
+the first wave and never ask for human action. A repository with no checks is a
+successful, explicit no-op; an unreadable config or a failing check is a stop.`,
+	Args: cobra.NoArgs,
+	RunE: runSandboxEnvironment,
+}
+
 func init() {
 	sandboxCmd.PersistentFlags().StringVar(&sandboxRoot, "root", "",
 		"checkout to read .tick/runners.toml from (default: the repo containing the working directory)")
@@ -105,6 +120,7 @@ func init() {
 	sandboxCmd.AddCommand(sandboxImageCmd)
 	sandboxCmd.AddCommand(sandboxToolchainCmd)
 	sandboxCmd.AddCommand(sandboxSetupCmd)
+	sandboxCmd.AddCommand(sandboxEnvironmentCmd)
 	rootCmd.AddCommand(sandboxCmd)
 }
 
@@ -183,4 +199,34 @@ func runSandboxSetup(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "sandbox: no [sandbox] setup in %s — nothing to warm\n", herdconfig.FileName)
 	}
 	return nil
+}
+
+func runSandboxEnvironment(cmd *cobra.Command, args []string) error {
+	root, err := sandboxCheckout()
+	if err != nil {
+		return err
+	}
+
+	_, err = sandbox.Environment(cmd.Context(), sandbox.EnvironmentOptions{
+		Root:    root,
+		Out:     cmd.OutOrStdout(),
+		Timeout: sandboxEnvironmentTimeout(),
+	})
+	if err != nil {
+		return ExitError{Code: ExitGeneric, Message: err.Error()}
+	}
+	return nil
+}
+
+func sandboxEnvironmentTimeout() time.Duration {
+	const defaultTimeout = 120 * time.Second
+	raw := os.Getenv("TICKS_PREFLIGHT_TIMEOUT")
+	if raw == "" {
+		return defaultTimeout
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return defaultTimeout
+	}
+	return time.Duration(seconds) * time.Second
 }

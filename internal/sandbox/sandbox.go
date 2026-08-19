@@ -92,7 +92,7 @@ const (
 	ExitConfig    = 2 // a required input is missing, malformed, or points at a vendor
 	ExitClone     = 3 // clone/checkout of the submitted SHA failed
 	ExitTkVersion = 4 // tk is absent or is not the version the image pins
-	ExitPreflight = 5 // a .tick/config.md Environment check failed
+	ExitPreflight = 5 // an [environment.commands] pre-flight check failed
 	// ExitSetup reports that the repository's own `[sandbox]` setup failed.
 	// It is deliberately not best effort like toolchain provisioning: a
 	// repository that declares a warm step and does not get it starts a wave

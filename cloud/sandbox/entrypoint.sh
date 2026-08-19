@@ -5,7 +5,7 @@
 # Given a repository URL, a submitted SHA and an AI Gateway base URL, it clones
 # the repo at that SHA, verifies tk, provisions anything the repository needs
 # that the image does not already carry, runs the repository's own `[sandbox]`
-# setup, runs the `.tick/config.md` Environment pre-flight, exports
+# setup, runs the `[environment.commands]` pre-flight through `tk`, exports
 # TK_ACTOR=cloud:orchestrator, and execs the headless harness on the ticks
 # skill loop (docs/design/cloud-factory.md, Phase 1).
 #
@@ -312,17 +312,17 @@ verify_tk() {
 
 run_preflight() {
 	local preflight="${TICKS_PREFLIGHT_BIN:-}"
-	if [[ -z $preflight ]]; then
-		local here
-		here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-		if [[ -x "$here/preflight.sh" ]]; then
-			preflight="$here/preflight.sh"
-		else
-			preflight="ticks-preflight"
-		fi
+	if [[ -n $preflight ]]; then
+		"$preflight" "$workdir" ||
+			die $EXIT_PREFLIGHT "environment pre-flight failed — the failing check is named above; fix it or correct .tick/runners.toml"
+		return 0
 	fi
-	"$preflight" "$workdir" ||
-		die $EXIT_PREFLIGHT "environment pre-flight failed — the failing check is named above; fix it or correct .tick/config.md"
+	# `tk` owns the runners.toml parser and the command execution. Keeping this
+	# call here, beside `tk sandbox setup`, means the entrypoint has one reader
+	# for the repository's structured run configuration; the shell never learns
+	# a second format.
+	tk sandbox environment --root "$workdir" ||
+		die $EXIT_PREFLIGHT "environment pre-flight failed — the failing check is named above; fix it or correct .tick/runners.toml"
 }
 
 # The reconcile protocol, worded once: a reboot and a clean stop both have to

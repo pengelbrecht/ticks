@@ -90,6 +90,67 @@ func TestSandboxToolchainPrintsTheDeclaredPins(t *testing.T) {
 	}
 }
 
+const environmentRunners = `version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+marker = { command = "touch $TICKS_TEST_ENV_MARKER", description = "migrated marker" }
+`
+
+func TestSandboxEnvironmentRunsMigratedChecks(t *testing.T) {
+	root := sandboxRepo(t, environmentRunners)
+	marker := filepath.Join(root, "environment-check-ran")
+	t.Setenv("TICKS_TEST_ENV_MARKER", marker)
+	out := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"sandbox", "environment", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox environment: %v\n%s", err, out.String())
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("migrated environment check did not run: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "migrated marker") {
+		t.Errorf("output does not name the migrated check:\n%s", out.String())
+	}
+}
+
+func TestSandboxEnvironmentNamesAFailingCheck(t *testing.T) {
+	root := sandboxRepo(t, `version = 2
+
+[roles.implement]
+kind = "claude"
+
+[environment.commands]
+database = { command = "false", description = "database available" }
+`)
+	out := captureCmdOutput(t)
+
+	err := ExecuteArgs([]string{"sandbox", "environment", "--root", root})
+	if err == nil {
+		t.Fatalf("a failing environment check returned nil\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "database available") {
+		t.Errorf("failure does not name the check:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "environment pre-flight red") {
+		t.Errorf("failure does not identify the red pre-flight:\n%s", out.String())
+	}
+}
+
+func TestSandboxEnvironmentReportsWhenNoChecksAreDeclared(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	out := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"sandbox", "environment", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox environment: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "no [environment.commands]") {
+		t.Errorf("empty environment declaration is not distinguishable in the log:\n%s", out.String())
+	}
+}
+
 func TestSandboxSetupRunsAndThenSkips(t *testing.T) {
 	root := sandboxRepo(t, sandboxRunners)
 	out := captureCmdOutput(t)
