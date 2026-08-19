@@ -2,7 +2,7 @@
   "id": "zjp",
   "title": "Retire ralph/swarm enum from run_event schema",
   "description": "schemas/websocket/messages.schema.json still names the deleted tk run modes (ralph, swarm-orchestrator, swarm-subagent) as run_event source values, and the enum is codegen'd into both internal/types/generated and internal/tickboard/ui/src/types/generated. Replace with substrate-shaped sources per the design doc: cloud:orchestrator, cloud:worker, harness, herdr, pi. Run pnpm codegen so Go and TS regenerate together; update project-room.ts and any fixtures referencing the old values. No producer emits run_event today, so this is a rename with no live traffic — do it before Phase 2 creates the first real producer.",
-  "notes": "2026-08-19 14:59 - runner-state: substrate=herdr kind=codex branch=tick/zjp worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-zjp workspace=w9Z base=32dccdea366a84b4cf47c8322e92c09738031b7a agent=tick-zjp pane=w9Z:p1 session=01a01a1a-a1ed-7dd2-b8d2-311997e2487b\n2026-08-19 15:02 - runner-state: RESET — worker pane closed manually before any commits; worktree/branch/manifest removed, respawning from 9ccce58a041a7706bdc179e4b3750f8637ddc3d6",
+  "notes": "2026-08-19 14:59 - runner-state: substrate=herdr kind=codex branch=tick/zjp worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-zjp workspace=w9Z base=32dccdea366a84b4cf47c8322e92c09738031b7a agent=tick-zjp pane=w9Z:p1 session=01a01a1a-a1ed-7dd2-b8d2-311997e2487b\n2026-08-19 15:02 - runner-state: RESET — worker pane closed manually before any commits; worktree/branch/manifest removed, respawning from 9ccce58a041a7706bdc179e4b3750f8637ddc3d6\n2026-08-19 15:04 - runner-state: substrate=herdr kind=codex branch=tick/zjp worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-zjp workspace=wA2 base=905ce7a28cd7130b61d74dc8e831f8e7c6b3af28 agent=tick-zjp pane=wA2:p1 session=01a01a1f-19b7-70e2-a69c-bf5addb38437",
   "status": "in_progress",
   "priority": 2,
   "type": "chore",
@@ -14,6 +14,6 @@
   "acceptance_criteria": "The old mode names appear nowhere in schemas, generated code, worker source, or fixtures. pnpm codegen:check passes. Existing cloud worker tests pass unchanged.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:18:31.18814859Z",
-  "updated_at": "2026-08-19T13:02:50.61996Z",
+  "updated_at": "2026-08-19T13:04:11.874929Z",
   "started_at": "2026-08-19T12:58:52.239774Z"
 }
