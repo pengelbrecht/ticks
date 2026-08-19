@@ -3,7 +3,7 @@
   "title": "Guard: accept RFC-reserved domains, restore example.invalid fixtures",
   "description": "Final-review finding 1. scripts/check-public-repo.mjs:107 accepts ONLY 'example.com' as an email domain. That forced xrk to rewrite pre-existing fixtures from '@example.invalid' to '@example.com' across internal/ (authority@, gate@, ticks-runner@, planning@, planning-death@ in the ticks-runner and planning test helpers).\n\nRFC 2606 reserves .invalid precisely so it can never resolve; example.com is a real, routable domain. The rewrite made those fixtures slightly WORSE, and it was the guard driving the change rather than a genuine leak. A guard that forces correct code to get worse will keep doing so.\n\nFix: accept the RFC-reserved set — example.com, example.org, example.net, and any address whose TLD is .invalid, .test, .localhost or .example — then revert the fixtures the guard forced (git diff main...HEAD will show them; they are the '.invalid' -\u003e '.com' hunks outside .tick/). Add guard unit tests: an @example.invalid address passes, a real-looking domain still fails.",
   "notes": "2026-08-19 17:39 - runner-state: substrate=herdr kind=codex branch=tick/5ut worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-5ut workspace=wAB base=b8cb15b599ed0ae18fa18b6aa6897b274158da1a agent=tick-5ut pane=wAB:p1 session=01a01aad-0ad6-7201-8e96-8a61bee39257",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -12,6 +12,7 @@
   "acceptance_criteria": "node scripts/check-public-repo.mjs exits 0 with the .invalid fixtures restored; guard unit tests cover example.invalid passing and a realistic domain failing; no allowlist entries added for these.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:38:52.437996Z",
-  "updated_at": "2026-08-19T15:39:18.059014Z",
-  "started_at": "2026-08-19T15:39:00.723543Z"
+  "updated_at": "2026-08-19T15:49:22.288882Z",
+  "closed_at": "2026-08-19T15:49:22.288882Z",
+  "closed_reason": "Completed: public-repo guard accepts the RFC-reserved domain set (example.com/org/net plus .invalid/.test/.localhost/.example TLDs) and the example.invalid fixtures the guard had forced to example.com are restored across extensions/ticks-runner and scripts; 15 guard unit tests, no allowlist entries added."
 }
