@@ -19,9 +19,9 @@ const (
 // this deterministic test vector for a committed runtime secret.
 var goldenHash = strings.Join([]string{
 	"pbkdf2-sha256",
-	"210000",
+	"100000",
 	"MDEyMzQ1Njc4OWFiY2RlZg",
-	"6O9KWco8g8BqZD9pqDkTW9f3n4-VmISPPdZFob_mVKM",
+	"u6yvHdnhWE0UXeUS3veZQy6RIRNEIDpciBhZ-gOnHxY",
 }, "$")
 
 func TestDeriveTokenHashMatchesGoldenVector(t *testing.T) {
@@ -75,19 +75,53 @@ func TestDeriveTokenHashSaltsEveryRecord(t *testing.T) {
 		if parts[0] != hashScheme {
 			t.Errorf("scheme = %q, want %q", parts[0], hashScheme)
 		}
-		if parts[1] != "210000" {
-			t.Errorf("iterations = %q, want 210000", parts[1])
+		if parts[1] != "100000" {
+			t.Errorf("iterations = %q, want 100000", parts[1])
 		}
 	}
 }
 
 func TestDeriveTokenHashRejectsCostOutsideWorkerBounds(t *testing.T) {
-	// The worker refuses a record below 100k or above 1M (src/auth.ts), so
-	// minting one would hand the operator a secret that fails closed.
-	for _, iterations := range []int{0, 99_999, 1_000_001} {
+	// The worker's floor and ceiling meet at 100,000 (src/auth.ts), so any
+	// other cost hands the operator a secret that fails closed there — and
+	// above the platform cap the edge cannot even run the derivation.
+	for _, iterations := range []int{0, 99_999, 100_001, 210_000, 1_000_001} {
 		if _, err := deriveTokenHashWithSalt(goldenToken, []byte(goldenSalt), iterations); err == nil {
 			t.Errorf("iterations=%d was accepted; the worker would reject the record", iterations)
 		}
+	}
+}
+
+// TestIterationConstantsRespectPlatformCap is the Go counterpart of the guard
+// in cloud/factory/test/auth.test.ts. Cloudflare Workers refuses PBKDF2 above
+// 100,000 iterations — crypto.subtle.deriveBits throws on the edge — so a cost
+// minted here above the cap produces a record the deployed worker can never
+// verify: every authenticated request 503s. Nothing local enforces that cap
+// (Go's pbkdf2 happily runs 210,000, and so does local workerd), so this test
+// is the enforcement.
+//
+// The bound below is a literal on purpose: comparing against
+// platformMaxIterations would let one edit raise the cap and the cost together
+// and stay green. The platform limit is not ours to raise.
+// https://developers.cloudflare.com/workers/runtime-apis/web-crypto/
+func TestIterationConstantsRespectPlatformCap(t *testing.T) {
+	const platformCap = 100_000
+
+	if platformMaxIterations != platformCap {
+		t.Errorf("platformMaxIterations = %d, want %d (Cloudflare's PBKDF2 ceiling)",
+			platformMaxIterations, platformCap)
+	}
+	if DefaultIterations > platformCap {
+		t.Errorf("DefaultIterations = %d exceeds Cloudflare's cap of %d; every record minted "+
+			"at that cost fails on the edge", DefaultIterations, platformCap)
+	}
+	if maxIterations > platformCap {
+		t.Errorf("maxIterations = %d exceeds Cloudflare's cap of %d; this package would mint "+
+			"a record the worker cannot verify", maxIterations, platformCap)
+	}
+	if DefaultIterations < minIterations {
+		t.Errorf("DefaultIterations = %d is below minIterations = %d; the mint would refuse "+
+			"its own default", DefaultIterations, minIterations)
 	}
 }
 
