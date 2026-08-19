@@ -29,14 +29,31 @@ const (
 	// hashScheme is the only record format the worker accepts.
 	hashScheme = "pbkdf2-sha256"
 
-	// DefaultIterations is the PBKDF2 cost written into new records (the
-	// OWASP figure for PBKDF2-HMAC-SHA-256).
-	DefaultIterations = 210_000
+	// platformMaxIterations is the hard ceiling Cloudflare Workers puts on
+	// PBKDF2: crypto.subtle.deriveBits THROWS on the edge above 100,000
+	// iterations. It is a platform fact, not a policy of ours — a record
+	// minted any higher makes every authenticated request a 503 against a
+	// correctly deployed factory, which is exactly how DefaultIterations =
+	// 210_000 shipped and was caught by the first live deploy. Neither local
+	// workerd nor Go's pbkdf2 enforces it, so only the guard test in
+	// token_test.go stands between a future raise and a dead deployment.
+	// Mirrors PLATFORM_MAX_ITERATIONS in cloud/factory/src/auth.ts.
+	// https://developers.cloudflare.com/workers/runtime-apis/web-crypto/
+	platformMaxIterations = 100_000
+
+	// DefaultIterations is the PBKDF2 cost written into new records. OWASP's
+	// 210k figure for PBKDF2-HMAC-SHA-256 is a *password* recommendation and
+	// is unreachable here anyway (see platformMaxIterations). Nothing is lost:
+	// the credential being stretched is not a password but tokenBytes of
+	// CSPRNG output, which no iteration count meaningfully defends.
+	DefaultIterations = 100_000
 
 	// minIterations/maxIterations are the worker's accepted bounds. A record
-	// outside them fails closed there, so refuse to mint one here.
+	// outside them fails closed there, so refuse to mint one here. The floor
+	// and the platform ceiling meet at the same number today, so a record is
+	// only ever minted at exactly 100,000 iterations.
 	minIterations = 100_000
-	maxIterations = 1_000_000
+	maxIterations = platformMaxIterations
 
 	saltBytes  = 16
 	derivedLen = 32 // 256 bits
