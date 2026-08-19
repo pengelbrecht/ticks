@@ -267,11 +267,39 @@ container. Rejected for the implementer layer, for now, on three grounds:
    deployment that wants one vendor-neutral default sets `kind = pi` in
    `runners.toml` and is done.
 
+**oh-my-pi (`omp`) as a candidate default kind.** omp
+(github.com/can1357/oh-my-pi) is a batteries-included superset of pi —
+hash-anchored edits, LSP/DAP, subagents, plan mode, hindsight memory — and
+four of its properties are specifically factory-shaped:
+
+- **Config inheritance**: on first run omp picks up rules, skills, and MCP
+  servers from `.claude`, `.codex`, `.cursor`, etc. — so the ticks skill
+  installed the normal way is loaded with zero omp-specific packaging. The
+  orchestrator sandbox image stays harness-thin.
+- **Native subagents** make omp viable as the *orchestrator* harness on the
+  `harness` substrate — which is exactly what the Phase 1 single-sandbox play
+  needs — on the vendor-neutral path. That upgrades Phase 1 from
+  "claude-first" to "omp-first" without touching the plan's shape.
+- **Multi-provider like pi**, so the Workers AI rung applies unchanged.
+- **Hindsight memory** (retain/learn/recall, per-session compression) is
+  genuinely useful for a factory whose workers are ephemeral — but it is
+  *convenience state under axiom 1*: an omp memory directory may persist
+  between runs via sandbox snapshot or R2 as an accelerator, while
+  `.tick/learnings.md` remains the durable, git-tracked, harness-neutral
+  memory. A run that loses omp's memory must lose speed, never correctness.
+
+Practical costs, stated honestly: omp enters the kind table as its own kind
+(`omp`, adapter derived from `pi-runner.md` — likely a thin delta), the
+sandbox image needs its Bun runtime, and it is a young community project —
+pin the version in the image and let the green-start probe do its job on
+upgrades. None of that changes the architecture; that's the kind table doing
+what it's for.
+
 Where programmatic *is* right: the control plane's own LLM touchpoints — the
 UC2 triage draft, and any future signal classifier — are single structured
 calls with no tools, made directly against the gateway with no harness at
 all. And the door stays open the cheap way: a matured Think/Flue-style agent
-enters as a **fourth kind** in the table — an additive experiment behind the
+enters as another kind in the table — an additive experiment behind the
 same spawn/wait/collect contract — never as a platform rewrite.
 
 ## Signal ingestion: the funnel
@@ -669,7 +697,7 @@ Collected from the use cases; each appears above in context.
 | D15 | Budget exhaustion is a clean stop: finish in-flight, run review/closeout on what's done | UC7 |
 | D16 | The factory is self-deployed into the user's Cloudflare account (`tk factory deploy`); single-tenant, secrets-not-accounts auth; ticks.sh never operates it. Data shapes stay project-namespaced so a hosted offering remains possible later, unbuilt | deployment model |
 | D17 | All cloud model traffic routes through the user's AI Gateway (Workers AI, BYOK vendors, or OpenRouter behind it): ground-truth cost telemetry feeds budget enforcement, and revoking a run's gateway token is the kill switch | model access |
-| D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi = the vendor-neutral kind); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as a fourth kind, never as a rewrite | harness choice |
+| D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi/omp = the vendor-neutral kinds; omp the candidate cloud default for its subagents, config inheritance, and memory); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as another kind, never as a rewrite | harness choice |
 
 ## What this is *not*
 
