@@ -561,5 +561,6 @@ func TestEntrypointKeepsProvisionedToolchainsInTheCacheDir(t *testing.T) {
 	}
 	rec := f.harnessRecord()
 	mustContain(t, rec, "MISE_DATA_DIR="+cache, "the version manager keeps its state in the cache")
+	mustContain(t, rec, "MISE_GLOBAL_CONFIG_FILE="+cache, "what was provisioned is recorded beside the tools")
 	mustContain(t, rec, filepath.Join(cache, "mise", "data", "shims"), "provisioned tools are on PATH")
 }

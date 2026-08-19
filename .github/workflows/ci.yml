@@ -76,6 +76,49 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # Which parts of the tree changed. Only the sandbox job needs this today: an
+  # image build is minutes and gigabytes, so unrelated PRs must not pay for one.
+  changes:
+    runs-on: ubuntu-latest
+    # The filter reads the pull request's file list through the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sandbox: ${{ steps.filter.outputs.sandbox }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Filter paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            sandbox:
+              - 'cloud/sandbox/**'
+              - '.github/workflows/ci.yml'
+
+  # The orchestrator sandbox image. Build only, never push: the operator pushes
+  # it into their own registry at `tk factory deploy` cadence (D16). This job
+  # exists because "the image builds" is the one thing the Go tests cannot
+  # prove — they check pin discipline and run the scripts, not docker.
+  sandbox:
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build the orchestrator sandbox image
+        # The same script the operator runs, so the build path is the one that
+        # is exercised. It tags with the tk version the Dockerfile pins.
+        run: cloud/sandbox/build.sh
+
+      - name: Report the image
+        run: docker image ls ticks-orchestrator
+
   worker:
     runs-on: ubuntu-latest
     env:
