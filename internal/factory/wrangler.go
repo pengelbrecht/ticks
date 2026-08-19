@@ -83,10 +83,10 @@ type wrangler struct {
 //
 // The probe runs in the caller's working directory — `--version` reads no
 // config — so no directory has to exist before the precondition is settled.
-// Local project copies are added after the PATH-based candidates, so the
-// existing global/npx preference remains stable while a repo dependency still
-// works when the caller is at the repository root rather than inside
-// cloud/factory.
+// A directly named PATH binary remains the first choice when it validates.
+// Local project copies come before the npx fallbacks because they are the
+// dependency selected by this repository (and the staged bundle's
+// dependency), while npx can report its own version without doing any work.
 func findWrangler(ctx context.Context, out io.Writer, bundleDir string) (*wrangler, string, error) {
 	startDir, err := os.Getwd()
 	if err != nil {
@@ -99,8 +99,11 @@ func findWranglerFrom(ctx context.Context, out io.Writer, bundleDir, startDir st
 	var lastErr error
 	candidates := localWranglerCandidates(bundleDir, startDir)
 	pathCandidates := make([]wranglerCandidate, 0, len(candidates)+len(wranglerCandidates))
-	pathCandidates = append(pathCandidates, wranglerCandidates...)
+	// Keep the direct PATH candidate ahead of local copies, but keep local
+	// copies ahead of npx: npx has a known false-positive --version response.
+	pathCandidates = append(pathCandidates, wranglerCandidates[0])
 	pathCandidates = append(pathCandidates, candidates...)
+	pathCandidates = append(pathCandidates, wranglerCandidates[1:]...)
 
 	for _, candidate := range pathCandidates {
 		bin, err := exec.LookPath(candidate.bin)
@@ -221,7 +224,25 @@ func (w *wrangler) probeVersion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(lastNonEmptyLine(out)), nil
+	version := strings.TrimSpace(lastNonEmptyLine(out))
+	if !isWranglerVersion(version) {
+		return "", fmt.Errorf("version probe did not identify Wrangler (got %q)", version)
+	}
+	return version, nil
+}
+
+var semverPattern = regexp.MustCompile(`(?i)(?:^|[^0-9])v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?(?:$|[^0-9])`)
+var plausibleWranglerVersionPattern = regexp.MustCompile(`(?i)(?:^|[^0-9])v?(?:3|4)\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?(?:$|[^0-9])`)
+
+func isWranglerVersion(version string) bool {
+	if version == "" || !semverPattern.MatchString(version) {
+		return false
+	}
+	// Wrangler currently reports a 3.x or 4.x version without its name. Keep
+	// accepting that form, while also allowing a future major version when the
+	// CLI identifies itself explicitly.
+	return plausibleWranglerVersionPattern.MatchString(version) ||
+		strings.Contains(strings.ToLower(version), "wrangler")
 }
 
 // requireAuth fails unless wrangler holds credentials for a Cloudflare account.
