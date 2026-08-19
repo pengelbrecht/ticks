@@ -343,6 +343,10 @@ func TestDeployPreservesBoardSyncConfig(t *testing.T) {
 
 func TestDeployWithoutWranglerNamesThePrerequisite(t *testing.T) {
 	h := newHarness(t)
+	// Keep a developer's repository-local Wrangler out of this PATH-only
+	// scenario; the resolver is intentionally allowed to find that copy.
+	restore := chdir(t, t.TempDir())
+	defer restore()
 	// An empty PATH: wrangler cannot be found.
 	t.Setenv("PATH", t.TempDir())
 
@@ -479,6 +483,10 @@ func TestDeployURLOverrideSkipsDetection(t *testing.T) {
 // that is not actually missing.
 func TestDeployResolvesWranglerThroughNpx(t *testing.T) {
 	h := newHarness(t)
+	// This scenario has only npx available. It must not accidentally use the
+	// repository's own dependency when the tests run from a checkout.
+	restore := chdir(t, t.TempDir())
+	defer restore()
 
 	// A PATH with npx but no wrangler.
 	binDir := t.TempDir()
@@ -560,6 +568,10 @@ func TestDeployResolvesWranglerFromStagedBundle(t *testing.T) {
 // prerequisite, reported as one.
 func TestDeployWithAnNpxThatCannotResolveWranglerStops(t *testing.T) {
 	h := newHarness(t)
+	// Keep this PATH-only failure scenario independent of a local install in
+	// the checkout where the tests are run.
+	restore := chdir(t, t.TempDir())
+	defer restore()
 	binDir := t.TempDir()
 	script := "#!/bin/sh\necho 'npx: could not determine executable to run' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(binDir, "npx"), []byte(script), 0o755); err != nil {
