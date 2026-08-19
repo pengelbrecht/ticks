@@ -14,7 +14,8 @@
     "63t"
   ],
   "parent": "w1z",
+  "acceptance_criteria": "A pushed epic submitted with tk cloud run completes end to end in one cloud orchestrator sandbox with the laptop closed: branches and a PR appear on the remote, gates reach Telegram and can be answered from a phone, the run cost in the runs row comes from AI Gateway telemetry, tk cloud status reports it live, tk cloud stop produces a clean stop with review and closeout still run, a killed sandbox is replaced and the run still finishes, and a second submission on the same project refuses naming the lease holder.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:17:51.47407486Z",
-  "updated_at": "2026-08-19T13:30:46.879639Z"
+  "updated_at": "2026-08-19T15:57:21.017789Z"
 }

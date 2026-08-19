@@ -1,0 +1,24 @@
+{
+  "id": "b92",
+  "title": "Final review of Phase 1 epic diff",
+  "description": "Review the integrated Phase 1 diff: lease correctness under concurrency and after crash, stop and budget enforcement living in the control plane rather than in a prompt, credential scope of the orchestrator sandbox, gateway telemetry as the cost authority, artifact streaming during the run, and the absence of any mid-run mutation path (D21). Verify against a REAL deployment, not only the test harness - Phase 0 shipped two production breaks that a fully green suite could not see.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "xp9",
+    "3q2",
+    "afj",
+    "daq",
+    "ldr",
+    "5ni",
+    "k2s",
+    "kv2"
+  ],
+  "parent": "ko8",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:57:20.922542Z",
+  "updated_at": "2026-08-19T15:57:20.922542Z"
+}

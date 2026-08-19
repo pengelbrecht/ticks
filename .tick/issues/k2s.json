@@ -1,0 +1,17 @@
+{
+  "id": "k2s",
+  "title": "AI Gateway routing and ground-truth budget telemetry",
+  "description": "D17. All cloud model traffic goes through the operator AI Gateway in their own account, tagged with run and tick ids via gateway metadata headers, so spend is attributable per run. The Workflow reads GATEWAY logs for cost, never the agent self-report - an agent can misreport, an invoice cannot - and that number is what budget enforcement acts on. Include the kill switch: revoking or rotating a run gateway token stops a wedged or adversarial agent at the credential layer. tk factory setup already has a gateway rung; this tick wires the run path to it and makes the absence of a configured gateway an actionable stop at submission, never a silent fallback to a vendor default.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "ldr"
+  ],
+  "parent": "ko8",
+  "acceptance_criteria": "A run cannot start without a configured gateway, and the error names tk factory setup; every model request carries run and tick metadata; the runs row cost comes from gateway telemetry and not from the agent; revoking the run token stops model traffic mid-run, proven by a test.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:57:07.612862Z",
+  "updated_at": "2026-08-19T15:57:07.612862Z"
+}

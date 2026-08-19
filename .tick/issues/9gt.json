@@ -1,0 +1,17 @@
+{
+  "id": "9gt",
+  "title": "Close out Phase 1: retro + plan Phase 2",
+  "description": "Retro on the Phase 1 run, fold learnings into .tick/learnings.md within the 150-line cap, verify the epic outside-in against a live cloud run, then plan the Phase 2 epic (1vn, cloud substrate fan-out) against what the single-sandbox run actually taught.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "b92"
+  ],
+  "parent": "ko8",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:57:20.97239Z",
+  "updated_at": "2026-08-19T15:57:20.97239Z"
+}
