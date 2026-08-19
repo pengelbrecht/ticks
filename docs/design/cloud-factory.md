@@ -302,6 +302,48 @@ all. And the door stays open the cheap way: a matured Think/Flue-style agent
 enters as another kind in the table — an additive experiment behind the
 same spawn/wait/collect contract — never as a platform rewrite.
 
+### Local orchestrators drive the cloud substrate too
+
+The substrate abstraction separates *who orchestrates* (harness, anywhere)
+from *how workers are dispatched* (substrate). Nothing in the cloud
+substrate's contract requires the Workflow-hosted orchestrator — and the
+design treats that as a requirement, not an accident:
+
+- **The run API is orchestrator-location-agnostic.** The same Worker
+  endpoints the Workflow-hosted orchestrator calls are exposed to the CLI as
+  `tk cloud spawn / wait / collect / reconcile`, mirroring the `tk herd` verb
+  family. An "old-fashioned" local orchestrator — Claude Code in a terminal,
+  omp, the Pi extension — sets `substrate = "cloud"` and drives worker
+  sandboxes from the laptop: local judgment, cloud hands. Five parallel
+  implementers stop costing local worktrees, CPU, or battery, and a lid-close
+  mid-wave loses only the orchestrator — the failure mode every runner is
+  already required to recover from.
+- **One lease, wherever the orchestrator sits.** On a factory-enrolled
+  project, a *local* run acquires the same RunRoom lease as a cloud run —
+  otherwise a laptop session and the 06:00 sweep collide on `.tick/`.
+  Un-enrolled projects keep the local file lease; enrollment upgrades the
+  arbiter and never installs a second one (D4 has exactly one enforcement
+  point per project).
+- **Handoff is reconcile, not a feature.** Durable state is git + `.tick/` +
+  artifacts (axiom 1), so "started locally, cloud takes over" is UC1
+  submission plus the existing reconcile protocol adopting the run's pushed
+  state — and pulling a cloud run back to the laptop is the same move in
+  reverse (acquire the lease, reconcile, continue). Neither direction needs
+  new machinery; both are tests the substrate must pass.
+- **The degenerate case stays sacred.** A fully local orchestrator on the
+  `harness` or `herdr` substrate with no cloud enrollment at all keeps
+  working, offline, forever. The factory is additive. Ticks' no-daemon,
+  works-on-a-plane story is a feature other users rely on and this design
+  never taxes it.
+
+The resulting matrix — any orchestrator location × any substrate — is the
+test of whether the abstraction held:
+
+| Orchestrator ↓ / Workers → | `harness` (subagents) | `herdr` (local CLIs) | `cloud` (sandboxes) |
+|---|---|---|---|
+| Local terminal | today | today | **`tk cloud` verbs** |
+| Cloud Workflow | **Phase 1** | (door open, not needed) | **Phase 2** |
+
 ## Signal ingestion: the funnel
 
 ```
@@ -698,6 +740,7 @@ Collected from the use cases; each appears above in context.
 | D16 | The factory is self-deployed into the user's Cloudflare account (`tk factory deploy`); single-tenant, secrets-not-accounts auth; ticks.sh never operates it. Data shapes stay project-namespaced so a hosted offering remains possible later, unbuilt | deployment model |
 | D17 | All cloud model traffic routes through the user's AI Gateway (Workers AI, BYOK vendors, or OpenRouter behind it): ground-truth cost telemetry feeds budget enforcement, and revoking a run's gateway token is the kill switch | model access |
 | D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi/omp = the vendor-neutral kinds; omp the candidate cloud default for its subagents, config inheritance, and memory); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as another kind, never as a rewrite | harness choice |
+| D19 | The cloud substrate is drivable by any orchestrator location: the run API doubles as `tk cloud spawn/wait/collect/reconcile` for local orchestrators, enrolled projects share one RunRoom lease across local and cloud runs, and handoff in either direction is submission + reconcile, never bespoke machinery | local orchestrators |
 
 ## What this is *not*
 
