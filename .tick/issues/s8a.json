@@ -1,0 +1,15 @@
+{
+  "id": "s8a",
+  "title": "tk config migrate should warn structurally, not per-key, when routing crosses kinds",
+  "description": "Follow-up qf0 identified while fixing the reader. The reader now refuses a role whose kind is not pi, but tk config migrate is unchanged: it still warns only about WHICH VALUE WON, never about WHICH READER the winning value is for, so it will merrily merge a ## Pi Orchestrator block into a claude [roles] table again and produce a config the reader then refuses.\n\nNow that the refusal exists, the migrator can cheaply emit the structural warning instead of six per-key ones: \"these keys came from a pi-only block and are being merged into a [roles] table whose kind is claude — the pi extension will refuse this config\". That turns a confusing downstream refusal into an explanation at the point of migration.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "48d",
+  "discovered_from": "qf0",
+  "acceptance_criteria": "Migrating a config.md with a Pi Orchestrator block into a runners.toml whose roles are not kind=pi emits one structural warning naming the kind mismatch and the affected reader; the per-key which-value-won warnings remain for genuine value conflicts.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T22:14:30.792717Z",
+  "updated_at": "2026-08-19T22:14:30.792717Z"
+}
