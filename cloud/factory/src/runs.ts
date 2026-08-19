@@ -36,6 +36,7 @@ import {
   insertRun,
   listRuns,
   updateRunState,
+  type DispatchReason,
   type Run,
 } from "./db";
 import type { Env } from "./index";
@@ -394,7 +395,8 @@ export async function logDispatch(
     run_id: string;
     epic: string;
     decision: string;
-    reason: "lease_held_by" | "awaiting_approval" | null;
+    /** From the closed policy vocabulary the D1 CHECK constraint enforces. */
+    reason: DispatchReason | null;
   }
 ): Promise<void> {
   await insertDispatchLog(env.DB, {

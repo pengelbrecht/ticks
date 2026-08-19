@@ -34,6 +34,7 @@ import {
   type EnrolledProject,
 } from "./db";
 import { RunRoom } from "./run-room";
+import { RunWorkflow } from "./run-workflow";
 import {
   DEFAULT_RUN_LIMIT,
   MAX_RUN_LIMIT,
@@ -326,4 +327,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-export { RunRoom };
+// workerd accepts a Durable Object class and a Workflow entrypoint as named
+// exports of the entry module; anything else named here fails at boot, not at
+// deploy (see SERVICE above).
+export { RunRoom, RunWorkflow };

@@ -19,13 +19,14 @@ describe("health route", () => {
     const res = await SELF.fetch("https://factory.example.com/health");
     const body = (await res.json()) as { bindings: Record<string, boolean> };
 
-    // RUN_WORKFLOW is bound by tick ldr; until then a deploy sees it missing
-    // here rather than in a failed submission.
+    // A deploy that lost a binding sees it here rather than in a failed
+    // submission — RUN_WORKFLOW especially, since a factory without it can
+    // record runs it could never boot.
     expect(body.bindings).toEqual({
       run_rooms: true,
       artifacts: true,
       db: true,
-      run_workflow: false,
+      run_workflow: true,
     });
   });
 
