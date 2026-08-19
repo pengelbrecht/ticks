@@ -1,0 +1,19 @@
+{
+  "id": "ko8",
+  "title": "Phase 1: single-sandbox cloud run",
+  "description": "The trojan horse (needs planning when foundations close): tk cloud run \u003cepic\u003e starts a Run Workflow that boots ONE orchestrator sandbox (omp kind, harness substrate for workers inside it), clones at the submitted SHA, runs the existing skill loop, pushes branches, parks gates in the RunRoom DO, delivers them via Telegram, enforces budget from AI Gateway. Zero new orchestration logic — proves auth, secrets, git credentials, sandbox lifecycle, budgets, and phone gates end to end. Includes RunRoom DO lease + pending store and the D1 signals/dispatch_log schema (D20).",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "after": [
+    "63t"
+  ],
+  "parent": "w1z",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:17:51.47407486Z",
+  "updated_at": "2026-08-19T11:17:51.47407486Z"
+}

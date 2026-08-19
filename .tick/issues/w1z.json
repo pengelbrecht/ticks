@@ -1,0 +1,16 @@
+{
+  "id": "w1z",
+  "title": "Cloud Factory",
+  "description": "Schedule- and event-driven agent orchestration on Cloudflare, per docs/design/cloud-factory.md. Goal: a self-deployed, headless software factory — signals (local agents, Telegram, GitHub issues/CI/PRs, webhooks, cron) become ticks, a deterministic dispatcher ignites runs, orchestrator and worker agents run in Cloudflare Sandboxes under a durable Workflow control plane, and humans stay in the loop only through gates on the operator channel. Git and .tick/ remain the source of truth; the factory is additive — fully local operation stays untouched.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "acceptance_criteria": "[A1] An epic submitted with tk cloud run completes — waves, gates, merged PR — with the operator's laptop offline from submission onward. [A2] Each signal source (Telegram message, GitHub issue label, CI failure on a factory PR, PR opened, registered webhook, cron sweep) produces or annotates exactly one tick, with dedup by external ref and a trace ID that follows the work to the PR. [A3] Run budgets are enforced from AI Gateway ground truth, not agent self-report; a budget stop is a clean stop that still runs review and closeout on completed work. [A4] A local orchestrator can drive cloud worker sandboxes through the tk cloud verb family, sharing the same lease as cloud-initiated runs. [A5] tk factory trace joins one run's story across signal, dispatch, workflow, harness log, gateway spend, and tracker layers. [A6] A project never enrolled in the factory behaves exactly as before — offline, no daemon, no cloud dependency.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:17:31.847619314Z",
+  "updated_at": "2026-08-19T11:17:31.847619314Z"
+}

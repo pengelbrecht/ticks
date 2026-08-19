@@ -1,0 +1,19 @@
+{
+  "id": "szp",
+  "title": "Phase 4: autonomous loops",
+  "description": "Needs planning: CI-failure remediation on factory-owned branches with the flake gate and strike budget in the dispatcher; read-only PR review runs with downgraded credentials (two credential grades, D11); cron sweeps with deterministic selection and Workflow-enforced budgets (D14/D15); tk factory trace / logs --follow debugging UX.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "after": [
+    "hdt"
+  ],
+  "parent": "w1z",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:17:51.560483705Z",
+  "updated_at": "2026-08-19T11:17:51.560483705Z"
+}
