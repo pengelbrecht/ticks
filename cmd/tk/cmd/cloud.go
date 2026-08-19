@@ -1,0 +1,565 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/pengelbrecht/ticks/internal/github"
+	"github.com/pengelbrecht/ticks/internal/tick"
+	"github.com/pengelbrecht/ticks/internal/ticksrc"
+)
+
+var (
+	cloudRunNotify string
+	cloudRunQueue  bool
+)
+
+// cloudHTTPClient is a package variable so command tests can exercise the
+// factory protocol without binding a loopback listener. Production calls use
+// the ordinary client with a bounded timeout.
+var cloudHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+var cloudCmd = &cobra.Command{
+	Use:   "cloud",
+	Short: "Run and inspect epics in your cloud factory",
+	Long: `Drive the cloud factory's closed command surface.
+
+The factory is self-deployed and authenticated with the factory_url and
+factory_token entries in ~/.ticksrc. There is deliberately no cloud steering
+or mutation command: stop a run, edit the tracker in a normal checkout, and
+submit it again so the new orchestrator follows the reconcile path.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Help()
+	},
+}
+
+var cloudRunCmd = &cobra.Command{
+	Use:          "run <epic>",
+	Short:        "Push the current branch and start a cloud run for an epic",
+	Args:         cobra.ExactArgs(1),
+	SilenceUsage: true,
+	RunE:         runCloudRun,
+}
+
+var cloudStopCmd = &cobra.Command{
+	Use:          "stop <run>",
+	Short:        "Request a clean stop for a live cloud run",
+	Args:         cobra.ExactArgs(1),
+	SilenceUsage: true,
+	RunE:         runCloudStop,
+}
+
+var cloudStatusCmd = &cobra.Command{
+	Use:          "status [run]",
+	Short:        "Show cloud runs and their lease or queue state",
+	Args:         cobra.MaximumNArgs(1),
+	SilenceUsage: true,
+	RunE:         runCloudStatus,
+}
+
+func init() {
+	cloudRunCmd.Flags().StringVar(&cloudRunNotify, "notify", "", "notification channel for this submission")
+	cloudRunCmd.Flags().BoolVar(&cloudRunQueue, "queue", false, "park behind the current project lease instead of refusing")
+
+	cloudCmd.AddCommand(cloudRunCmd)
+	cloudCmd.AddCommand(cloudStopCmd)
+	cloudCmd.AddCommand(cloudStatusCmd)
+	rootCmd.AddCommand(cloudCmd)
+}
+
+type cloudClient struct {
+	baseURL string
+	token   string
+	http    *http.Client
+}
+
+func newCloudClient() (*cloudClient, error) {
+	config, err := ticksrc.Load()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read factory configuration: %w", err)
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(config.Get(ticksrc.KeyFactoryURL)), "/")
+	token := strings.TrimSpace(config.Get(ticksrc.KeyFactoryToken))
+	if baseURL == "" || token == "" {
+		return nil, fmt.Errorf("no factory is configured; run 'tk factory setup' first")
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("factory endpoint is invalid; run 'tk factory setup' to configure it")
+	}
+	if cloudHTTPClient == nil {
+		cloudHTTPClient = &http.Client{Timeout: 15 * time.Second}
+	}
+	return &cloudClient{baseURL: baseURL, token: token, http: cloudHTTPClient}, nil
+}
+
+func (c *cloudClient) request(ctx context.Context, method, path string, body any) ([]byte, error) {
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("encode factory request: %w", err)
+		}
+		reader = strings.NewReader(string(encoded))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, fmt.Errorf("create factory request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("factory request %s %s failed: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if readErr != nil {
+		return nil, fmt.Errorf("read factory response: %w", readErr)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, cloudAPIError{status: resp.StatusCode, body: data}
+	}
+	return data, nil
+}
+
+type cloudAPIError struct {
+	status int
+	body   []byte
+}
+
+func (e cloudAPIError) Error() string {
+	var response struct {
+		Error  string `json:"error"`
+		Detail string `json:"detail"`
+		Reason string `json:"reason"`
+		RunID  string `json:"run_id"`
+		Holder struct {
+			RunID string `json:"run_id"`
+		} `json:"holder"`
+	}
+	_ = json.Unmarshal(e.body, &response)
+
+	holderID := response.Holder.RunID
+	if holderID == "" {
+		const prefix = "lease_held_by:"
+		if strings.HasPrefix(response.Reason, prefix) {
+			holderID = strings.TrimPrefix(response.Reason, prefix)
+		}
+	}
+	if e.status == http.StatusConflict && holderID != "" {
+		return fmt.Sprintf(
+			"cloud run refused: project lease is held by %s; rerun with --queue to park this submission",
+			holderID,
+		)
+	}
+	detail := strings.TrimSpace(response.Detail)
+	if detail == "" {
+		detail = strings.TrimSpace(response.Error)
+	}
+	if detail == "" {
+		detail = strings.TrimSpace(response.Reason)
+	}
+	if detail == "" {
+		detail = strings.TrimSpace(string(e.body))
+	}
+	if detail == "" {
+		detail = http.StatusText(e.status)
+	}
+	if response.RunID != "" {
+		detail += " (submission " + response.RunID + ")"
+	}
+	return fmt.Sprintf("factory returned HTTP %d: %s", e.status, detail)
+}
+
+type cloudRunRecord struct {
+	RunID     string `json:"run_id"`
+	Project   string `json:"project"`
+	Epic      string `json:"epic"`
+	BaseSHA   string `json:"base_sha"`
+	State     string `json:"state"`
+	StartedAt string `json:"started_at"`
+	EndedAt   string `json:"ended_at"`
+}
+
+type cloudHolder struct {
+	RunID string `json:"run_id"`
+	Epic  string `json:"epic"`
+}
+
+type cloudQueued struct {
+	RunID     string `json:"run_id"`
+	Project   string `json:"project"`
+	Epic      string `json:"epic"`
+	BaseSHA   string `json:"base_sha"`
+	BlockedBy string `json:"blocked_by"`
+}
+
+type cloudPhase struct {
+	State    string `json:"state"`
+	Workflow struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	} `json:"workflow"`
+}
+
+type cloudProjectStatus struct {
+	Project string        `json:"project"`
+	Lease   *cloudHolder  `json:"lease"`
+	Queued  []cloudQueued `json:"queued"`
+}
+
+type cloudSubmissionResponse struct {
+	Run    cloudRunRecord `json:"run"`
+	RunID  string         `json:"run_id"`
+	Queued cloudQueued    `json:"queued"`
+	Holder cloudHolder    `json:"holder"`
+}
+
+type cloudStatusResponse struct {
+	Run      cloudRunRecord       `json:"run"`
+	Phase    cloudPhase           `json:"phase"`
+	Lease    *cloudHolder         `json:"lease"`
+	Queued   []cloudQueued        `json:"queued"`
+	Runs     []cloudRunRecord     `json:"runs"`
+	Projects []cloudProjectStatus `json:"projects"`
+}
+
+func decodeCloudJSON(data []byte, into any) error {
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, into); err != nil {
+		return fmt.Errorf("decode factory response: %w", err)
+	}
+	return nil
+}
+
+func runCloudRun(cmd *cobra.Command, args []string) error {
+	client, err := newCloudClient()
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	root, err := repoRoot()
+	if err != nil {
+		return fmt.Errorf("failed to detect repo root: %w", err)
+	}
+
+	baseSHA, project, requestedBy, err := prepareCloudSubmission(cmd.Context(), root, args[0])
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+
+	submission := struct {
+		Project     string `json:"project"`
+		Epic        string `json:"epic"`
+		BaseSHA     string `json:"base_sha"`
+		RequestedBy string `json:"requested_by"`
+		Notify      string `json:"notify,omitempty"`
+		Queue       bool   `json:"queue"`
+	}{
+		Project: project, Epic: args[0], BaseSHA: baseSHA, RequestedBy: requestedBy,
+		Notify: strings.TrimSpace(cloudRunNotify), Queue: cloudRunQueue,
+	}
+
+	data, err := client.request(cmd.Context(), http.MethodPost, "/api/runs", submission)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	var response cloudSubmissionResponse
+	if err := decodeCloudJSON(data, &response); err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+
+	out := cmd.OutOrStdout()
+	switch {
+	case response.Run.RunID != "":
+		fmt.Fprintf(out, "Cloud run started: %s\n", response.Run.RunID)
+		if response.Run.State != "" {
+			fmt.Fprintf(out, "  state: %s\n", response.Run.State)
+		}
+	case response.Queued.RunID != "":
+		fmt.Fprintf(out, "Cloud run queued: %s\n", response.Queued.RunID)
+		if response.Holder.RunID != "" {
+			fmt.Fprintf(out, "  waiting for: %s\n", response.Holder.RunID)
+		}
+	default:
+		if response.RunID != "" {
+			fmt.Fprintf(out, "Cloud run started: %s\n", response.RunID)
+			break
+		}
+		return NewExitError(ExitGeneric, "factory accepted the submission but returned no run id")
+	}
+	return nil
+}
+
+func runCloudStop(cmd *cobra.Command, args []string) error {
+	client, err := newCloudClient()
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	requestedBy := cloudRequestedBy()
+	path := "/api/runs/" + url.PathEscape(args[0]) + "/stop"
+	data, err := client.request(cmd.Context(), http.MethodPost, path, map[string]string{"requested_by": requestedBy})
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	var response struct {
+		Run cloudRunRecord `json:"run"`
+	}
+	if err := decodeCloudJSON(data, &response); err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+
+	state := response.Run.State
+	if state == "" {
+		state = "stopping"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Cloud stop requested: %s (%s)\n", args[0], state)
+	return nil
+}
+
+func runCloudStatus(cmd *cobra.Command, args []string) error {
+	client, err := newCloudClient()
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	path := "/api/runs"
+	if len(args) == 1 {
+		path += "/" + url.PathEscape(args[0])
+	}
+	data, err := client.request(cmd.Context(), http.MethodGet, path, nil)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	var response cloudStatusResponse
+	if err := decodeCloudJSON(data, &response); err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+
+	if len(args) == 1 {
+		printCloudRunStatus(cmd.OutOrStdout(), response)
+		return nil
+	}
+	printCloudRunList(cmd.OutOrStdout(), response)
+	return nil
+}
+
+func printCloudRunStatus(out io.Writer, response cloudStatusResponse) {
+	run := response.Run
+	fmt.Fprintf(out, "Cloud run %s\n", run.RunID)
+	if run.Project != "" {
+		fmt.Fprintf(out, "  project: %s\n", run.Project)
+	}
+	if run.Epic != "" {
+		fmt.Fprintf(out, "  epic: %s\n", run.Epic)
+	}
+	if run.State != "" {
+		fmt.Fprintf(out, "  state: %s\n", run.State)
+	}
+	if response.Phase.Workflow.Status != "" {
+		fmt.Fprintf(out, "  workflow: %s\n", response.Phase.Workflow.Status)
+	}
+	if response.Lease != nil && response.Lease.RunID != "" {
+		fmt.Fprintf(out, "  lease: %s\n", response.Lease.RunID)
+	}
+	for _, queued := range response.Queued {
+		fmt.Fprintf(out, "  queued: %s", queued.RunID)
+		if queued.BlockedBy != "" {
+			fmt.Fprintf(out, " (blocked by %s)", queued.BlockedBy)
+		}
+		fmt.Fprintln(out)
+	}
+}
+
+func printCloudRunList(out io.Writer, response cloudStatusResponse) {
+	if len(response.Runs) == 0 && len(response.Projects) == 0 {
+		fmt.Fprintln(out, "No cloud runs.")
+		return
+	}
+	for _, run := range response.Runs {
+		fmt.Fprintf(out, "%s  %s  %s", run.RunID, run.State, run.Epic)
+		if run.Project != "" {
+			fmt.Fprintf(out, "  %s", run.Project)
+		}
+		fmt.Fprintln(out)
+	}
+	for _, project := range response.Projects {
+		if project.Lease != nil && project.Lease.RunID != "" {
+			fmt.Fprintf(out, "lease  %s  %s\n", project.Project, project.Lease.RunID)
+		}
+		for _, queued := range project.Queued {
+			fmt.Fprintf(out, "queue  %s  %s", project.Project, queued.RunID)
+			if queued.BlockedBy != "" {
+				fmt.Fprintf(out, "  blocked by %s", queued.BlockedBy)
+			}
+			fmt.Fprintln(out)
+		}
+	}
+}
+
+func cloudRequestedBy() string {
+	requestedBy, err := github.DetectOwner(nil)
+	if err != nil || strings.TrimSpace(requestedBy) == "" {
+		return "operator"
+	}
+	return strings.TrimSpace(requestedBy)
+}
+
+// prepareCloudSubmission makes the pushed SHA a real boundary. It pushes the
+// current branch, then proves that every local tick belonging to the epic is
+// tracked, clean, and present at the same SHA on origin. In particular, a
+// freshly-created untracked tick can never cause a cloud run to start.
+func prepareCloudSubmission(ctx context.Context, root, epicID string) (baseSHA, project, requestedBy string, err error) {
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	ep, err := store.Read(epicID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("cannot submit epic %q: %w", epicID, err)
+	}
+	if ep.Type != tick.TypeEpic {
+		return "", "", "", fmt.Errorf("cannot submit %q: it is not an epic", epicID)
+	}
+	allTicks, err := store.List()
+	if err != nil {
+		return "", "", "", fmt.Errorf("cannot inspect ticks for epic %q: %w", epicID, err)
+	}
+	paths := cloudEpicPaths(epicID, allTicks)
+	if len(paths) == 0 {
+		return "", "", "", fmt.Errorf("cannot submit epic %q: no tick files found", epicID)
+	}
+
+	branchOutput, err := cloudGit(ctx, root, "symbolic-ref", "--short", "HEAD")
+	if err != nil {
+		return "", "", "", fmt.Errorf("cannot submit epic %q: current checkout is not on a branch: %w", epicID, err)
+	}
+	branch := strings.TrimSpace(branchOutput)
+	if branch == "" {
+		return "", "", "", fmt.Errorf("cannot submit epic %q: current checkout has no branch", epicID)
+	}
+
+	shaOutput, err := cloudGit(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return "", "", "", fmt.Errorf("cannot determine the commit for epic %q: %w", epicID, err)
+	}
+	baseSHA = strings.TrimSpace(shaOutput)
+	if len(baseSHA) != 40 {
+		return "", "", "", fmt.Errorf("cannot submit epic %q: HEAD is not a full commit SHA", epicID)
+	}
+
+	if _, err := cloudGit(ctx, root, "push", "origin", "HEAD:refs/heads/"+branch); err != nil {
+		return "", "", "", fmt.Errorf("could not push the current branch for epic %q: %w", epicID, err)
+	}
+
+	statusOutput, err := cloudGit(ctx, root, append([]string{"status", "--porcelain=v1", "--untracked-files=all", "--"}, paths...)...)
+	if err != nil {
+		return "", "", "", fmt.Errorf("could not check whether epic %q is pushed: %w", epicID, err)
+	}
+	if strings.TrimSpace(statusOutput) != "" {
+		return "", "", "", fmt.Errorf(
+			"epic %q is not pushed: its tick files have local changes; git add and commit them, then run 'tk cloud run %s' again",
+			epicID, epicID,
+		)
+	}
+	for _, path := range paths {
+		if _, err := cloudGit(ctx, root, "ls-files", "--error-unmatch", "--", path); err != nil {
+			return "", "", "", fmt.Errorf(
+				"epic %q is not pushed: tick file %s is not committed; git add and commit it, then run 'tk cloud run %s' again",
+				epicID, path, epicID,
+			)
+		}
+	}
+
+	remoteOutput, err := cloudGit(ctx, root, "ls-remote", "origin", "refs/heads/"+branch)
+	if err != nil {
+		return "", "", "", fmt.Errorf("could not verify the pushed branch for epic %q: %w", epicID, err)
+	}
+	fields := strings.Fields(remoteOutput)
+	if len(fields) == 0 || fields[0] != baseSHA {
+		remoteSHA := "missing"
+		if len(fields) > 0 {
+			remoteSHA = fields[0]
+		}
+		return "", "", "", fmt.Errorf(
+			"epic %q is not pushed at %s: origin/%s is %s; push the current branch and retry",
+			epicID, baseSHA, branch, remoteSHA,
+		)
+	}
+	for _, path := range paths {
+		if _, err := cloudGit(ctx, root, "cat-file", "-e", baseSHA+":"+path); err != nil {
+			return "", "", "", fmt.Errorf(
+				"epic %q is not visible on origin at %s: tick file %s is missing; commit and push it, then retry",
+				epicID, baseSHA, path,
+			)
+		}
+	}
+
+	project, err = github.DetectProject(nil)
+	if err != nil {
+		return "", "", "", fmt.Errorf("cannot determine the GitHub project for epic %q: %w", epicID, err)
+	}
+	return baseSHA, project, cloudRequestedBy(), nil
+}
+
+func cloudEpicPaths(epicID string, ticks []tick.Tick) []string {
+	byID := make(map[string]tick.Tick, len(ticks))
+	for _, item := range ticks {
+		byID[item.ID] = item
+	}
+	paths := make([]string, 0)
+	for _, item := range ticks {
+		if item.ID != epicID && !cloudIsDescendant(item, epicID, byID) {
+			continue
+		}
+		paths = append(paths, filepath.ToSlash(filepath.Join(".tick", "issues", item.ID+".json")))
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func cloudIsDescendant(item tick.Tick, epicID string, byID map[string]tick.Tick) bool {
+	seen := make(map[string]bool)
+	parent := item.Parent
+	for parent != "" && !seen[parent] {
+		if parent == epicID {
+			return true
+		}
+		seen[parent] = true
+		ancestor, ok := byID[parent]
+		if !ok {
+			return false
+		}
+		parent = ancestor.Parent
+	}
+	return false
+}
+
+func cloudGit(ctx context.Context, root string, args ...string) (string, error) {
+	command := exec.CommandContext(ctx, "git", args...)
+	command.Dir = root
+	output, err := command.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), message)
+	}
+	return string(output), nil
+}
