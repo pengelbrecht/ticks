@@ -133,3 +133,52 @@ func TestMigrateReviewShouldFixNamesItsEnvironmentRemedy(t *testing.T) {
 		t.Fatalf("refusal did not name the remedy: %v", err)
 	}
 }
+
+func TestMigrateWarnsStructurallyWhenPiRoutingCrossesKinds(t *testing.T) {
+	legacy := "## Pi Orchestrator\n" +
+		"- planner_model: openai-codex/gpt-5.6-sol:high\n" +
+		"- implement_strong_model: openai-codex/gpt-5.6-sol:high\n"
+	existing := `version = 1
+
+[roles.plan]
+kind = "claude"
+model = "sonnet"
+
+[roles.implement]
+kind = "claude"
+
+[roles.implement.tiers.strong]
+model = "opus"
+`
+
+	result, err := Migrate([]byte(legacy), []byte(existing))
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	structural := make([]string, 0, 1)
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "pi extension will refuse this config") {
+			structural = append(structural, warning)
+		}
+	}
+	if len(structural) != 1 {
+		t.Fatalf("structural warnings = %d, want one:\n%s", len(structural), strings.Join(result.Warnings, "\n"))
+	}
+	for _, want := range []string{"Pi Orchestrator", "pi-only", "[roles]", `kind = "claude"`, "roles.plan", "roles.implement", "pi extension"} {
+		if !strings.Contains(structural[0], want) {
+			t.Errorf("structural warning missing %q:\n%s", want, structural[0])
+		}
+	}
+	for _, want := range []string{
+		"preserved existing roles.plan.model; legacy value was not applied",
+		"preserved existing roles.implement.tiers.strong.model; legacy value was not applied",
+	} {
+		if !strings.Contains(strings.Join(result.Warnings, "\n"), want) {
+			t.Errorf("genuine value conflict warning missing %q:\n%s", want, strings.Join(result.Warnings, "\n"))
+		}
+	}
+	if _, err := Parse(result.RunnersTOML); err != nil {
+		t.Fatalf("migrated TOML does not validate: %v\n%s", err, result.RunnersTOML)
+	}
+}
