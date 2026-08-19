@@ -1,0 +1,39 @@
+# Ticks factory worker.
+#
+# Self-deployed into the user's own Cloudflare account (D16): ticks.sh never
+# operates the factory, and this bundle never imports from or deploys with
+# cloud/worker. See docs/design/cloud-factory.md.
+name = "ticks-factory"
+main = "src/index.ts"
+# Current at merge time. DO SQLite storage and current WebSocket hibernation
+# ergonomics both need a recent date (cloud/worker is pinned at 2024-04-03 and
+# is deliberately left alone).
+compatibility_date = "2026-08-11"
+compatibility_flags = ["nodejs_compat"]
+
+# One RunRoom per active epic run (idFromName(project + epic)). Placeholder for
+# now — the dispatch lease, operator gates and reconcile alarms land in Phase 1.
+[[durable_objects.bindings]]
+name = "RUN_ROOMS"
+class_name = "RunRoom"
+
+[[migrations]]
+tag = "v1"
+# SQLite-backed storage — requires the recent compatibility_date above.
+new_sqlite_classes = ["RunRoom"]
+
+# Run artifacts: runs/<project>/<run_id>/{run.json, artifacts/<tick_id>/...}
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "ticks-factory-artifacts"
+
+# Signals, dispatch log, run index. Tables land with the phases that need them.
+# `wrangler d1 create ticks-factory` prints the database_id to paste here (see
+# README.md); the placeholder keeps local dev and the test harness working.
+[[d1_databases]]
+binding = "DB"
+database_name = "ticks-factory"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[dev]
+port = 8788
