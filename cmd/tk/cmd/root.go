@@ -595,6 +595,10 @@ func ResetFlags() {
 	factoryStatusOffline = false
 	factoryStatusCheck = false
 	factoryStatusGitHubAPI = ""
+
+	// Reset cloud flags
+	cloudRunNotify = ""
+	cloudRunQueue = false
 }
 
 // SetVersion allows main.go to set the version at initialization
