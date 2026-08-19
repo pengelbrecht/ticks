@@ -575,6 +575,14 @@ type Consumer struct {
 	Now func() time.Time
 }
 
+// PendingRegistrar is an optional channel capability for transports whose
+// durable pending store lives outside the checkout. It receives the complete
+// entry so the remote arbiter retains tick/kind/awaiting metadata rather than
+// reconstructing it from the display question.
+type PendingRegistrar interface {
+	RegisterPending(ctx context.Context, pending Pending) (MessageRef, error)
+}
+
 // NewConsumer returns a consumer over store and channel.
 func NewConsumer(store *PendingStore, channel Channel) *Consumer {
 	return &Consumer{store: store, channel: channel, Now: func() time.Time { return time.Now() }}
@@ -677,7 +685,12 @@ func (c *Consumer) Deliver(ctx context.Context) error {
 		if !p.Deliverable(now) {
 			continue
 		}
-		ref, err := c.channel.AskDeliver(ctx, p.Question)
+		var ref MessageRef
+		if registrar, ok := c.channel.(PendingRegistrar); ok {
+			ref, err = registrar.RegisterPending(ctx, p)
+		} else {
+			ref, err = c.channel.AskDeliver(ctx, p.Question)
+		}
 		if err != nil {
 			return fmt.Errorf("operator: delivering question %s: %w", p.ID, err)
 		}
@@ -711,10 +724,18 @@ func (c *Consumer) Route(ctx context.Context, ev Event) (Pending, bool, error) {
 		if p.Ref != ev.Ref || p.Resolved() {
 			continue
 		}
+		answeredBy := AnsweredByTelegram
+		if ev.AnsweredBy != "" {
+			answeredBy = ev.AnsweredBy
+		}
+		telegramUserID := c.senderID(ev)
+		if answeredBy != AnsweredByTelegram {
+			telegramUserID = ""
+		}
 		resolved, err := c.store.Resolve(p.ID, PendingResolution{
 			Outcome:        eventOutcome(p.Question, ev),
-			AnsweredBy:     AnsweredByTelegram,
-			TelegramUserID: c.senderID(ev),
+			AnsweredBy:     answeredBy,
+			TelegramUserID: telegramUserID,
 			AnsweredAt:     c.now().UTC(),
 		})
 		if err != nil {

@@ -41,6 +41,11 @@ const (
 	EnvTkVersion      = "TICKS_TK_VERSION"
 	EnvPhase          = "TICKS_PHASE"
 	EnvStopReason     = "TICKS_STOP_REASON"
+	// The RunRoom-backed operator bridge. The token is injected only into the
+	// ephemeral sandbox and is never written into the checkout.
+	EnvFactoryURL     = "TICKS_FACTORY_URL"
+	EnvFactoryToken   = "TICKS_FACTORY_TOKEN"
+	EnvFactoryProject = "TICKS_FACTORY_PROJECT"
 )
 
 // Phase is what a boot is for. The Run Workflow owns the run's lifecycle and

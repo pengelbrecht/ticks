@@ -212,6 +212,8 @@ describe("exempt paths", () => {
     expect(isAuthExempt("/api/hooks/ticks/sentry")).toBe(true);
     expect(isAuthExempt("/api/hooksrc")).toBe(false);
     expect(isAuthExempt("/api/hook")).toBe(false);
+    expect(isAuthExempt("/api/channels/telegram/webhook")).toBe(true);
+    expect(isAuthExempt("/api/channels/telegram/webhook/extra")).toBe(false);
   });
 
   it("treats everything else as authenticated", () => {

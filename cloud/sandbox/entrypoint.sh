@@ -54,6 +54,13 @@ stop_reason="${TICKS_STOP_REASON:-}"
 workdir="${TICKS_WORKDIR:-/work/repo}"
 cache_dir="${TICKS_CACHE_DIR:-/cache}"
 pinned_tk="${TICKS_TK_VERSION:-}"
+# Cloud-connected operator channel. These are optional so a sandbox can still
+# run a repository whose operator channel is local-only; when present, tk ask
+# mirrors its pending entry into the factory RunRoom and watches that DO for
+# phone or terminal answers.
+factory_url="${TICKS_FACTORY_URL:-}"
+factory_token="${TICKS_FACTORY_TOKEN:-}"
+factory_project="${TICKS_FACTORY_PROJECT:-}"
 
 require_inputs() {
 	local missing="" name
@@ -344,6 +351,9 @@ start_harness() {
 	export TK_ACTOR="$ACTOR"
 	export TICKS_RUN_ID="$run_id"
 	export TICKS_PHASE="$phase"
+	if [[ -n $factory_url ]]; then export TICKS_FACTORY_URL="$factory_url"; fi
+	if [[ -n $factory_token ]]; then export TICKS_FACTORY_TOKEN="$factory_token"; fi
+	if [[ -n $factory_project ]]; then export TICKS_FACTORY_PROJECT="$factory_project"; fi
 	cd "$workdir" || die $EXIT_CLONE "cannot enter $workdir"
 
 	local prompt

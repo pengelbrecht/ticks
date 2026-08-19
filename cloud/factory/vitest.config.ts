@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
@@ -10,7 +8,9 @@ import { defineConfig } from "vitest/config";
 // configured through `test.poolOptions.workers`); this bundle is on vitest 4 +
 // pool-workers 0.21, where the pool is a Vite plugin.
 export default defineConfig(async () => {
-  const migrationsPath = path.join(import.meta.dirname, "migrations");
+  // `import.meta.url` is standard and typed by vite/client, so the config
+  // needs no Node type definitions (this bundle does not ship @types/node).
+  const migrationsPath = new URL("./migrations", import.meta.url).pathname;
   const migrations = await readD1Migrations(migrationsPath);
 
   return {

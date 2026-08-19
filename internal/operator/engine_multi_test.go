@@ -191,3 +191,46 @@ func TestConsumerFallsBackToBoundUserID(t *testing.T) {
 		t.Errorf("telegram_user_id = %q, want the configured operator 424242", got)
 	}
 }
+
+// TestConsumerPreservesRemoteAnswerProvenance pins the cloud bridge's return
+// path: a terminal answer was arbitrated by RunRoom, so the local waiter must
+// carry that provenance through instead of relabelling it as Telegram.
+func TestConsumerPreservesRemoteAnswerProvenance(t *testing.T) {
+	store := NewPendingStore(t.TempDir())
+	channel := NewFakeChannel()
+	consumer := NewConsumer(store, channel)
+	consumer.TelegramUserID = "424242"
+
+	ref, err := channel.AskDeliver(context.Background(), Question{
+		ID:      "q1",
+		Text:    "Ship it?",
+		Options: GateOptions(),
+	})
+	if err != nil {
+		t.Fatalf("AskDeliver: %v", err)
+	}
+	if err := store.Save(Pending{ID: "q1", TickID: "abc", Kind: PendingGate, Ref: ref, Question: Question{
+		ID:      "q1",
+		Text:    "Ship it?",
+		Options: GateOptions(),
+	}}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	resolved, matched, err := consumer.Route(context.Background(), Event{
+		Kind:       EventOptionPress,
+		Ref:        ref,
+		OptionIDs:  []string{OptionApprove},
+		SenderID:   "515151",
+		AnsweredBy: AnsweredByTerminal,
+	})
+	if err != nil || !matched {
+		t.Fatalf("Route: matched=%v err=%v", matched, err)
+	}
+	if got := resolved.Resolution.AnsweredBy; got != AnsweredByTerminal {
+		t.Errorf("answered_by = %q, want terminal", got)
+	}
+	if got := resolved.Resolution.TelegramUserID; got != "" {
+		t.Errorf("telegram_user_id = %q, want it empty for terminal provenance", got)
+	}
+}

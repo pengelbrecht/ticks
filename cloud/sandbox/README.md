@@ -109,6 +109,9 @@ starts a command in a sandbox.
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
 | `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
 | `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
+| `TICKS_FACTORY_URL` | no | Factory Worker URL for the RunRoom-backed operator channel. |
+| `TICKS_FACTORY_TOKEN` | no | Ephemeral factory bearer credential used by `tk ask` to sync gates. Never written to the checkout. |
+| `TICKS_FACTORY_PROJECT` | no | Canonical `owner/repo` for the RunRoom; defaults to the checked-out Git remote when omitted. |
 | `GITHUB_TOKEN` | no | Clone/push credential, wired into a git credential helper. |
 | `TICKS_GIT_NAME`, `TICKS_GIT_EMAIL` | no | Commit identity for tracker writes. |
 | `TICKS_TK_VERSION` | baked | The tk version the image pins; the entrypoint refuses a different `tk` on PATH. |
