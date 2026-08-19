@@ -200,9 +200,13 @@ func TestSchemaNegatives(t *testing.T) {
 			wantPath: "orchestrate", wantMsg: "unknown key",
 		},
 		{
-			name:     "unknown version",
-			toml:     "version = 2\n" + validRole,
-			wantPath: "version", wantMsg: "unsupported config version 2",
+			// Below the floor. A version ABOVE the ceiling is not here on
+			// purpose: it is refused by the version gate with a single
+			// upgrade line rather than a shape error — see
+			// TestAFileNewerThanTheBinaryFailsWithOneUpgradeLine.
+			name:     "version below the floor",
+			toml:     "version = 0\n" + validRole,
+			wantPath: "version", wantMsg: "unsupported config version 0",
 		},
 	}
 

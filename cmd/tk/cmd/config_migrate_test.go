@@ -129,13 +129,19 @@ func TestConfigMigrateDryRunApplyAndIdempotency(t *testing.T) {
 			t.Errorf("migrated config.md still contains structured content %q:\n%s", removed, migratedConfig)
 		}
 	}
-	for _, preserved := range []string{"# Keep this comment and every existing key.", "version = 1", "substrate = \"harness\"", "[testing.commands]", "[evidence.commands]", "[evidence.acceptance]", "[environment.commands]", "[roles.plan]", "kind = \"pi\"", "model = \"openai-codex/gpt-5.6-sol\"", "effort = \"xhigh\""} {
+	for _, preserved := range []string{"# Keep this comment and every existing key.", "version = 2", "substrate = \"harness\"", "[testing.commands]", "[evidence.commands]", "[evidence.acceptance]", "[environment.commands]", "[roles.plan]", "kind = \"pi\"", "model = \"openai-codex/gpt-5.6-sol\"", "effort = \"xhigh\""} {
 		if !strings.Contains(string(migratedRunners), preserved) {
 			t.Errorf("migrated runners.toml is missing %q:\n%s", preserved, migratedRunners)
 		}
 	}
 	if _, err := herdconfig.Parse(migratedRunners); err != nil {
 		t.Fatalf("migrated runners.toml does not validate: %v\n%s", err, migratedRunners)
+	}
+	// The migrated file carries the command surface, so it is a version 2
+	// file and an older tk cannot read it. The operator has to be told that,
+	// and told which tk they need, before the file lands anywhere else.
+	if !strings.Contains(out.String(), "is now version 2") || !strings.Contains(out.String(), herdconfig.MinTkVersion) {
+		t.Errorf("apply did not say which tk version the migrated file requires:\n%s", out.String())
 	}
 
 	configAfterFirstApply := append([]byte(nil), migratedConfig...)

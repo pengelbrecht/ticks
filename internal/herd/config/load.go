@@ -48,6 +48,28 @@ func (v ValidationErrors) Error() string {
 	return fmt.Sprintf("%s: %d validation errors: %s", FileName, len(parts), strings.Join(parts, "; "))
 }
 
+// UnsupportedVersionError reports a file written for a newer format version
+// than this binary understands. It is returned INSTEAD OF the shape errors,
+// never alongside them: from an older binary a newer file looks like a pile
+// of unknown keys, and that is precisely the report that helps nobody. One
+// line, both versions, and the fix.
+//
+// Reproduced live on 2026-08-19: tk 0.30.0 met a migrated runners.toml and
+// died on every `tk herd` command with "57 validation errors: ...unknown
+// key", naming no cause and no fix. The `version` field existed for this the
+// whole time; nothing read it first.
+type UnsupportedVersionError struct {
+	// Found is the version the file declares, Supported the newest this
+	// binary reads ([Version]).
+	Found     int
+	Supported int
+}
+
+func (e UnsupportedVersionError) Error() string {
+	return fmt.Sprintf("%s is version %d and this tk understands version %d; upgrade tk (tk upgrade)",
+		FileName, e.Found, e.Supported)
+}
+
 var (
 	// kindPattern is the schema's Kind/Harness pattern.
 	kindPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -107,6 +129,13 @@ func Load(path string) (*Config, error) {
 // Parse parses and validates TOML bytes. It is the unit [Load] is built from
 // and the entry point tests use.
 func Parse(data []byte) (*Config, error) {
+	// The version gate comes FIRST, before shape. A file from the future is
+	// not a file with 57 typos in it, and reporting it as one leaves its
+	// reader with nothing to act on.
+	if err := checkVersion(data); err != nil {
+		return nil, err
+	}
+
 	var cfg Config
 	md, err := toml.Decode(string(data), &cfg)
 	if err != nil {
@@ -118,6 +147,32 @@ func Parse(data []byte) (*Config, error) {
 		return nil, errs
 	}
 	return &cfg, nil
+}
+
+// versionProbe decodes `version` and nothing else, so that a file full of
+// tables this binary has never heard of still yields its version. Every other
+// key lands in Undecoded(), which the probe ignores.
+type versionProbe struct {
+	Version *int `toml:"version"`
+}
+
+// checkVersion reads the declared version and refuses anything newer than
+// this binary. A file the binary can read — including one that under-declares
+// its version, which is every repo migrated before this gate shipped — passes
+// through to full validation.
+//
+// A malformed file falls through deliberately: [Parse]'s own decode reports a
+// syntax error with the parser's message, which is more useful than anything
+// this probe could say.
+func checkVersion(data []byte) error {
+	var probe versionProbe
+	if _, err := toml.Decode(string(data), &probe); err != nil {
+		return nil
+	}
+	if probe.Version == nil || *probe.Version <= Version {
+		return nil
+	}
+	return UnsupportedVersionError{Found: *probe.Version, Supported: Version}
 }
 
 // validate enforces the JSON Schema's shape rules against a decoded config.
@@ -135,8 +190,10 @@ func validate(cfg *Config, md toml.MetaData) ValidationErrors {
 		add(key, "unknown key (a typo'd key is an error, never silently ignored)")
 	}
 
-	if cfg.Version != nil && *cfg.Version != Version {
-		add("version", fmt.Sprintf("unsupported config version %d (only %d is defined)", *cfg.Version, Version))
+	// Only the floor is left to check: anything above [Version] was already
+	// refused by checkVersion with an upgrade line rather than a key list.
+	if cfg.Version != nil && (*cfg.Version < MinVersion || *cfg.Version > Version) {
+		add("version", fmt.Sprintf("unsupported config version %d (this tk understands %d through %d)", *cfg.Version, MinVersion, Version))
 	}
 
 	validateOrchestrator(cfg, md, add)

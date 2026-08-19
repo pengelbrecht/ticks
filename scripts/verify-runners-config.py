@@ -149,7 +149,7 @@ def fragment_schema(schema: dict) -> dict:
 # --------------------------------------------------------------------------
 
 COMPLETE = """
-version = 1
+version = 2
 
 [orchestrator]
 harness = "pi"
@@ -221,6 +221,19 @@ def self_test(schema: dict) -> int:
         return tomllib.loads(text)
 
     check("complete example, all five tables", tomllib.loads(COMPLETE), True)
+
+    # The version gate. A file carrying the command surface is a version 2
+    # file; a reader older than the version it declares must stop on THAT and
+    # say "upgrade", never report the keys it is too old to know. The schema
+    # can only pin the value's shape — the ordering is the loader's job
+    # (internal/herd/config.checkVersion), documented in runners-config.md.
+    check("a version newer than this schema", variant(("version = 2", "version = 3")), False, "version")
+    check("a version below the floor", variant(("version = 2", "version = 0")), False, "version")
+    check(
+        "a file migrated before the gate: command surface still declaring version 1",
+        variant(("version = 2", "version = 1")),
+        True,
+    )
 
     check(
         "unknown key in [testing]",

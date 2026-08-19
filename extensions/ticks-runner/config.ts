@@ -6,6 +6,22 @@ import { parseToml } from "./toml.ts";
 export const RUNNERS_CONFIG_FILE = ".tick/runners.toml";
 /** The markdown that carried the same sections before the TOML migration. */
 export const LEGACY_CONFIG_FILE = ".tick/config.md";
+/**
+ * The newest `runners.toml` format version this reader understands, and the
+ * oldest it still reads. Version 2 introduced the command surface
+ * (`[testing]`, `[evidence]`, `[environment]`); a file carrying any of those
+ * tables declares 2.
+ *
+ * The version is checked BEFORE shape, and a file newer than this reader is
+ * refused with one line rather than a list of the keys it is too old to know
+ * — the failure reproduced live on 2026-08-19, when a released reader met a
+ * migrated config and reported 57 unknown keys naming no cause and no fix.
+ * Kept in step with `internal/herd/config` (Version / MinVersion), so one
+ * file cannot be readable by one reader and not the other.
+ */
+export const CONFIG_VERSION = 2;
+export const MIN_CONFIG_VERSION = 1;
+
 /** Emitted once per load, never once per section or per helper. */
 export const MARKDOWN_CONFIG_DEPRECATION = `${LEGACY_CONFIG_FILE} still carries structured sections; they are deprecated and move to ${RUNNERS_CONFIG_FILE}. Run \`tk config migrate\` — Rules and narrative testing hints stay in ${LEGACY_CONFIG_FILE}.`;
 
@@ -564,9 +580,24 @@ function readCommandTable(
  */
 function configFromRunnersDocument(document: TomlTable, env: Environment, rules: string[]): RunnerConfig {
 	const errors: string[] = [];
+	// The version gate comes first, and on its own: a file from the future is
+	// not a file full of typos, and listing the keys this reader has never
+	// heard of describes the reader's age as if it were the file's mistake.
+	if (typeof document.version === "number" && document.version > CONFIG_VERSION) {
+		return failedTomlConfig([
+			`${RUNNERS_CONFIG_FILE} is version ${document.version} and this ticks runner understands version ${CONFIG_VERSION}; upgrade tk (tk upgrade)`,
+		], rules, env);
+	}
 	unknownKeys(document, ROOT_KEYS, RUNNERS_CONFIG_FILE, errors);
-	if (document.version !== undefined && document.version !== 1) {
-		errors.push(`version: unsupported config version ${JSON.stringify(document.version)} (only 1 is defined)`);
+	// Within a version this reader understands, everything else still fails
+	// closed. A file that carries the version 2 tables while still declaring
+	// version 1 is read, not refused: that is every repo migrated before the
+	// gate shipped, and `tk config migrate` is what raises it.
+	if (
+		document.version !== undefined &&
+		(typeof document.version !== "number" || document.version < MIN_CONFIG_VERSION || document.version > CONFIG_VERSION)
+	) {
+		errors.push(`version: unsupported config version ${JSON.stringify(document.version)} (this runner understands ${MIN_CONFIG_VERSION} through ${CONFIG_VERSION})`);
 	}
 	const settings = resolveSettings(readRouting(document, errors), env);
 	const testing = readCommandTable(document, "testing", "testing", errors);

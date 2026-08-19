@@ -33,6 +33,36 @@ semantic and still fails closed: **nothing outside the config file authorises
 shell**, an unresolvable mapping is a stop rather than a degradation to
 something generic, and evidence is item-scoped.
 
+## Version 2 and the old-reader gate (tick `wge`)
+
+The compatibility direction the epic designed for was *new reader, old file*
+(a current `tk` reading a legacy `config.md`). The mirror image — **old reader,
+new file** — was never tested, and it broke live on 2026-08-19: minutes after
+this repo migrated, installed `tk` 0.30.0 died on every `tk herd` command with
+`.tick/runners.toml: 57 validation errors: environment.commands: unknown key; …`.
+Nothing was wrong with fail-closed unknown keys; the reader was simply older
+than the file and had no way to say so.
+
+The rules now, enforced in both readers (`internal/herd/config`, and
+`extensions/ticks-runner/config.ts` for pi):
+
+- A file carrying `[testing]`/`[evidence]`/`[environment]` is **version 2**
+  (`config.CommandSurfaceVersion`); routing-only files stay at 1, because a
+  file an older `tk` can read should stay readable by it.
+- `version` is read **before** shape, by a probe struct that decodes nothing
+  else. Newer than the binary ⇒ one line, and only that line:
+  `.tick/runners.toml is version 2 and this tk understands version 1; upgrade tk (tk upgrade)`.
+- Inside a version the binary understands, unknown keys still fail closed —
+  the gate is about ordering, not about weakening tick `728`.
+- **Under-declaration is read, not refused.** A file with the version 2 tables
+  still saying `version = 1` is exactly what `tk config migrate` wrote in the
+  window before this shipped; refusing it would break those repos a second
+  way. `tk config migrate` raises the version instead — and does so even when
+  `config.md` has nothing left to migrate, which is the only way an
+  already-migrated repo ever gets its `version = 2`.
+- `config.MinTkVersion` names the release the migration warning tells the
+  operator to install everywhere else. Keep it in step with the CHANGELOG.
+
 ## This repo's own migration (tick `sqt`)
 
 `tk config migrate --apply` moved Testing/Closeout Evidence/Acceptance

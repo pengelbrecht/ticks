@@ -230,9 +230,9 @@ model = "haiku"
 `
 
 // docExample6 is worked example 6 from runners-config.md, transcribed
-// verbatim: routing plus the whole command surface.
+// verbatim: routing plus the whole command surface — and so a version 2 file.
 const docExample6 = `
-version = 1
+version = 2
 
 [orchestrator]
 harness = "claude"

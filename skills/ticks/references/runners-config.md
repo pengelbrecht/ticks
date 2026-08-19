@@ -38,7 +38,7 @@ That snippet checks **shape**. Three whole-file rules about commands sit outside
 ## File shape
 
 ```text
-version = 1                 # optional; only 1 is defined
+version = 2                 # optional; 1 or 2 — 2 once any command table is present
 
 [orchestrator]              # optional — preferred home for the orchestrator role
 [orchestration]             # optional — substrate selection and dispatch limits
@@ -53,6 +53,25 @@ version = 1                 # optional; only 1 is defined
 [environment]               # optional — notes; run-start pre-flight checks
 [environment.commands]      #            same shape as testing.commands
 ```
+
+### `version`, and what an older reader does with a newer file
+
+`version` is the format version the file is written for. Omitted means `1`. There are two:
+
+| Version | Introduced | A file must declare it when |
+|---|---|---|
+| 1 | the original routing config | never — it is the default |
+| 2 | the command surface | any of `[testing]`, `[evidence]`, `[environment]` is present |
+
+The field exists for exactly one job, and the job was learned the hard way. On 2026-08-19 a repo migrated to the command surface and every checkout still running the previous release broke: the older `tk` did not know the three new tables, its `additionalProperties: false` rule was working perfectly, and so every `tk herd` command died with *"57 validation errors: environment.commands: unknown key; …"* — a wall of text naming no cause and no fix. The compatibility direction everyone had designed for (a new reader reading an old file) was fine; the mirror image was not.
+
+So a reader **checks `version` before it checks shape**:
+
+- A file declaring a version the reader understands is validated exactly as before — unknown keys still fail closed, because within a known version a typo is a typo.
+- A file declaring a **newer** version is refused with one line, and nothing else is reported: `.tick/runners.toml is version 2 and this tk understands version 1; upgrade tk (tk upgrade)`. Listing the keys a reader is too old to know is never the report; it describes the reader's age as if it were the file's mistake.
+- A file that carries the version 2 tables but still declares `version = 1` is **read**, not refused. The under-declaration is the writer's mistake, and every repo migrated before this gate shipped has it; refusing would break them a second way. `tk config migrate` raises the version — it is the one command that fixes an already-migrated file — and says which `tk` release every other checkout then needs.
+
+Raise the version only when the content requires it: a routing-only file stays at 1, because a file an older `tk` can read is one it should be allowed to read.
 
 ### `[orchestrator]`
 
@@ -549,7 +568,7 @@ Compiled argv for `implement` at `strong`: `--auto --model openai/gpt-5.6-sol`. 
 Everything above is routing. This one adds the four command tables, and is the shape a repo lands in after moving `.tick/config.md`'s structured sections here. Note what is *not* in it: no `phase` key on a command (the table is the phase), and no routing key that `[roles]`/`[roles.*.tiers]` did not already have.
 
 ```toml
-version = 1
+version = 2
 
 [orchestrator]
 harness = "claude"
@@ -638,6 +657,8 @@ These are the failures a config author should expect, and where each one is caug
 | `[evidence.acceptance] A1 = 1` | The value is a command **id**, a string. |
 | `[testing.commands] Go = { … }` | Command ids are lowercase `^[a-z0-9][a-z0-9_-]*$`. |
 | `[evidence.acceptance]` twice, or `A1` twice in it | Rejected by TOML itself, before the schema — which is the point of keying the table by the item id. |
+| `version = 3` | Newer than the reader. Refused *before* shape, with one line naming both versions and `tk upgrade` — never a list of the keys this reader does not know. |
+| `version = 0` | Below the floor. The versions are 1 and 2. |
 
 ### Caught by the config loader (shape-valid, still unusable)
 
@@ -676,6 +697,7 @@ The dividing line is the same one stated under [Shape versus compatibility](#sha
 - **`effort` is not universal.** A kind may have no mechanism for it (opencode), in which case setting it is a spawn refusal, not a hint. Check [`herdr-kinds.md`](herdr-kinds.md#model-and-effort-translation) before writing an effort ladder for a kind you have not used here before, and build the ladder from `model` when there is no effort dimension.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.
 - **Keep `[roles.implement]` present.** It is the fallback for every unlisted role.
+- **Declare `version = 2` the moment a command table appears.** That single line is what turns a hard break on an older `tk` into one sentence telling its operator to upgrade. `tk config migrate` writes it for you, including for a file an earlier migration already moved.
 - **The table is the authorisation.** Put a command in `[evidence.commands]` only if close-out is the *only* phase that may run it, and never copy it into `[testing.commands]` to "also run it in a wave" — that is the ambiguity the loader refuses. Move it and say so in the diff.
 - **Name commands for what they prove, not for how they run.** The id is a stable reference an acceptance mapping and a close-out report both quote (`package-rpc`, `herd-helper-quick`), so renaming one is a contract change; rewriting the command it points at is not.
 - **Prose goes in `notes`, never in a command.** `notes` is where the caveats live — flaky suites, known-failing full runs, timing. A command string carries no commentary, and a caveat in `notes` authorises nothing.

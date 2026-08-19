@@ -8,8 +8,8 @@
   "properties": {
     "version": {
       "type": "integer",
-      "const": 1,
-      "description": "Config format version. Omitted means 1. A reader that does not recognise the value must stop rather than guess."
+      "enum": [1, 2],
+      "description": "Config format version. Omitted means 1. Version 2 introduced the command surface (`[testing]`, `[evidence]`, `[environment]`), so a file carrying any of those tables must declare 2 — that is what lets a reader too old to know them fail with one line telling its operator to upgrade, instead of reporting every key it does not recognise. A reader must therefore check this field BEFORE it checks shape, and must stop rather than guess when the value is newer than it understands. Within a version it understands, an unknown key remains an error: the gate is about ordering, not about relaxing additionalProperties."
     },
     "orchestrator": {
       "$ref": "#/$defs/Orchestrator"
