@@ -183,6 +183,77 @@ dispatch), Workers AI (models come from the configured vendors via tiers), KV
 (DO storage and D1 cover it). Lightweight means resisting every primitive we
 don't need yet.
 
+## Model access and harness choice for cloud agents
+
+Two questions hide inside "which LLM do cloud agents use," and they have
+different answers. **Model access** is which vendor/model serves a tier;
+**harness** is what drives the agentic loop. Conflating them is how factories
+end up welded to one vendor.
+
+### Model access: everything through a gateway
+
+All model traffic from every cloud agent — orchestrator, workers, the triage
+call — flows through **one gateway endpoint in the user's own Cloudflare
+account** (AI Gateway, which the self-deployed model gets for free), with the
+user's keys behind it: direct vendor keys (BYOK per provider) or an aggregator
+like OpenRouter behind the gateway for one-key-everything. Harnesses point at
+it via their base-URL override (`ANTHROPIC_BASE_URL` and equivalents — every
+supported CLI has one); pi routes natively per provider.
+
+This buys three things beyond vendor-agnosticism:
+
+- **Ground-truth cost telemetry.** Today `run_event.metrics.costUsd` trusts
+  the agent's self-report. Gateway logs are the actual spend, per run (runs
+  tag requests with run/tick IDs via gateway metadata headers), which is what
+  the Workflow's budget enforcement (D14/D15) should read. An agent can
+  misreport; a gateway invoice cannot.
+- **A kill switch at the credential layer.** The Workflow can revoke a run's
+  gateway token when a budget trips or a human hits stop — enforcement that
+  works even on a wedged or adversarial agent, consistent with the doc's rule
+  that budgets never live in prompts.
+- **Caching, rate limits, and logs** in one place, owned by the user, no
+  third-party data path unless they choose one (OpenRouter is an opt-in rung,
+  not a dependency).
+
+The tier vocabulary is unchanged (axiom 5): `.tick/runners.toml` still maps
+role → kind/model/effort; the gateway is plumbing below that table, not a new
+name in it. The green-start trap defense becomes *more* important with
+indirection — a mistyped gateway route produces exactly the cleanly-started,
+zero-work agent that the probe gate exists to catch.
+
+One honest cost note: laptop runs often ride a flat-rate subscription; cloud
+agents run on metered API keys. The gateway makes that spend visible and
+capped, but it does not make it free — this is a real adoption consideration
+and another reason budget policy is first-class rather than bolted on.
+
+### Harness: CLI-in-sandbox for implementers, programmatic only at the edges
+
+The tempting modern answer is a programmatic agent — Cloudflare's Agents
+SDK / Project Think fibers / the Flue harness work — instead of a CLI in a
+container. Rejected for the implementer layer, for now, on three grounds:
+
+1. **The sandbox is needed anyway.** Implementers require a real filesystem,
+   shell, git, and language toolchains. A Worker-resident agent would RPC into
+   that same sandbox for every tool call — a new protocol and added latency to
+   move the loop somewhere with fewer capabilities.
+2. **Rebuilding the harness is the `tk run` lesson one layer down.** Tool-use,
+   editing, context management, and sub-agents are a fast-moving target that
+   vendors continuously improve; the skill's adapters already encode their
+   mechanics. A bespoke programmatic loop starts behind and stays behind.
+3. **The pluggability already exists.** The kind×tier table (claude | codex |
+   pi) *is* the harness abstraction. **pi is the LLM-agnostic answer inside
+   the existing design**: a supported kind, multi-provider by construction,
+   and pointed at the gateway it reaches any model without new machinery. A
+   deployment that wants one vendor-neutral default sets `kind = pi` in
+   `runners.toml` and is done.
+
+Where programmatic *is* right: the control plane's own LLM touchpoints — the
+UC2 triage draft, and any future signal classifier — are single structured
+calls with no tools, made directly against the gateway with no harness at
+all. And the door stays open the cheap way: a matured Think/Flue-style agent
+enters as a **fourth kind** in the table — an additive experiment behind the
+same spawn/wait/collect contract — never as a platform rewrite.
+
 ## Signal ingestion: the funnel
 
 ```
@@ -577,6 +648,8 @@ Collected from the use cases; each appears above in context.
 | D14 | Dispatcher is deterministic, versioned policy in `.tick/config.md`; budget enforcement lives in the Workflow | UC7 |
 | D15 | Budget exhaustion is a clean stop: finish in-flight, run review/closeout on what's done | UC7 |
 | D16 | The factory is self-deployed into the user's Cloudflare account (`tk factory deploy`); single-tenant, secrets-not-accounts auth; ticks.sh never operates it. Data shapes stay project-namespaced so a hosted offering remains possible later, unbuilt | deployment model |
+| D17 | All cloud model traffic routes through the user's AI Gateway (BYOK, optionally OpenRouter behind it): ground-truth cost telemetry feeds budget enforcement, and revoking a run's gateway token is the kill switch | model access |
+| D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi = the vendor-neutral kind); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as a fourth kind, never as a rewrite | harness choice |
 
 ## What this is *not*
 
