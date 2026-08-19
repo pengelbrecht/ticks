@@ -179,9 +179,10 @@ evidence of work starting, not just process start), and **expiring liveness**
 | Board live view | Existing `ProjectRoom` DO — the orphaned `run_event` protocol finally gets producers |
 
 Deliberately **not** used at this scale: Queues (Workflow fan-out covers
-dispatch), Workers AI (models come from the configured vendors via tiers), KV
-(DO storage and D1 cover it). Lightweight means resisting every primitive we
-don't need yet.
+dispatch) and KV (DO storage and D1 cover it). Workers AI is *not* on that
+list — it's a first-class provider rung for deployments that want inference on
+the same account as the compute (see "Workers AI as a provider" below).
+Lightweight means resisting every primitive we don't need yet.
 
 ## Model access and harness choice for cloud agents
 
@@ -221,10 +222,29 @@ name in it. The green-start trap defense becomes *more* important with
 indirection — a mistyped gateway route produces exactly the cleanly-started,
 zero-work agent that the probe gate exists to catch.
 
+**Workers AI as a provider.** For a factory living in the user's Cloudflare
+account, Workers AI is not an also-ran — it's the rung where *inference bills
+to the same account, credit pool, and gateway as everything else*. Workers AI
+serves open-weight frontier models (DeepSeek-class and similar) over
+OpenAI-compatible endpoints, fronts natively through AI Gateway (so D17's
+telemetry and kill switch apply unchanged), and for a user holding Cloudflare
+credit it makes agent inference effectively pre-paid. The tier table is built
+for exactly this mix: route `economy` and `balanced` tiers to
+`workers-ai/<model>` and keep `strong` (or just the review/closeout roles) on
+a BYOK frontier vendor — the same cross-vendor-per-tier pattern this repo
+already runs locally (its own `runners.toml` routes the balanced tier to a
+different vendor than the strong tier). Harness compatibility note: Workers AI
+models speak the OpenAI-compatible shape, so they ride the **pi** kind (or any
+kind with a configurable OpenAI-style provider); the `claude` kind expects
+Anthropic-shaped APIs and stays pointed at Anthropic models. One more reason
+pi is the natural default kind for cloud workers.
+
 One honest cost note: laptop runs often ride a flat-rate subscription; cloud
 agents run on metered API keys. The gateway makes that spend visible and
 capped, but it does not make it free — this is a real adoption consideration
-and another reason budget policy is first-class rather than bolted on.
+and another reason budget policy is first-class rather than bolted on. (The
+Workers AI rung softens it substantially for anyone with Cloudflare credit:
+compute, storage, and inference all draw one pre-paid pool.)
 
 ### Harness: CLI-in-sandbox for implementers, programmatic only at the edges
 
@@ -648,7 +668,7 @@ Collected from the use cases; each appears above in context.
 | D14 | Dispatcher is deterministic, versioned policy in `.tick/config.md`; budget enforcement lives in the Workflow | UC7 |
 | D15 | Budget exhaustion is a clean stop: finish in-flight, run review/closeout on what's done | UC7 |
 | D16 | The factory is self-deployed into the user's Cloudflare account (`tk factory deploy`); single-tenant, secrets-not-accounts auth; ticks.sh never operates it. Data shapes stay project-namespaced so a hosted offering remains possible later, unbuilt | deployment model |
-| D17 | All cloud model traffic routes through the user's AI Gateway (BYOK, optionally OpenRouter behind it): ground-truth cost telemetry feeds budget enforcement, and revoking a run's gateway token is the kill switch | model access |
+| D17 | All cloud model traffic routes through the user's AI Gateway (Workers AI, BYOK vendors, or OpenRouter behind it): ground-truth cost telemetry feeds budget enforcement, and revoking a run's gateway token is the kill switch | model access |
 | D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi = the vendor-neutral kind); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as a fourth kind, never as a rewrite | harness choice |
 
 ## What this is *not*
