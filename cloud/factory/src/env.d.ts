@@ -12,8 +12,22 @@ declare namespace Cloudflare {
     RUN_ROOMS: DurableObjectNamespace<import("./run-room").RunRoom>;
     /** Run artifacts: prompts, events.jsonl, reports, diffs. */
     ARTIFACTS: R2Bucket;
-    /** Signals, dispatch log, run index. */
+    /** Signals, dispatch log, run index, project enrolment. */
     DB: D1Database;
+    /**
+     * The Run Workflow (tick ldr) each submission ignites as one instance,
+     * keyed by run id. Optional in the type — and absent from wrangler.toml —
+     * until that tick binds it: the routes fail closed with a 503 naming the
+     * binding rather than recording runs that could never boot. Typed as the
+     * structural subset src/runs.ts uses so this bundle compiles either way.
+     */
+    RUN_WORKFLOW?: import("./runs").RunWorkflowBinding;
+    /**
+     * How long a queued submission stays ignitable, in ms (D22). A wrangler
+     * `[vars]` value, so the window is a deployment decision; bounds and the
+     * default live in src/runs.ts.
+     */
+    RUN_QUEUE_TTL_MS?: string;
     /**
      * Worker secret (not a wrangler.toml binding): the salted PBKDF2 record for
      * the current factory token — `pbkdf2-sha256$<iterations>$<salt>$<key>`.

@@ -36,6 +36,14 @@ function bearer(token: string): RequestInit {
 /** Every route the worker has that is not /health and not a webhook. */
 const AUTHENTICATED_PATHS = ["/", "/api/runs", "/api/runs/run_1", "/health/detail", "/healthz"];
 
+/**
+ * An authenticated but deliberately unrouted path, so a 404 keeps meaning "the
+ * token was accepted and routing was reached". `/api/runs` used to serve that
+ * role; it is a real route now (tick daq, test/run-routes.test.ts), and these
+ * cases are about auth, not about that surface's status codes.
+ */
+const PAST_AUTH = "/api/not-a-route";
+
 describe("hash derivation", () => {
   it("stores a self-describing pbkdf2 record, not a bare digest", async () => {
     const token = mintFactoryToken();
@@ -263,13 +271,13 @@ describe("route middleware", () => {
   });
 
   it("accepts every non-health route with the token", async () => {
-    for (const path of AUTHENTICATED_PATHS) {
+    for (const path of [...AUTHENTICATED_PATHS, PAST_AUTH]) {
       const res = await SELF.fetch(`${BASE}${path}`, bearer(token));
 
-      // No route is implemented yet, so 404 is the authenticated answer — the
-      // point is that it is no longer 401.
-      expect(res.status, `${path} must accept the token`).toBe(404);
-      await expect(res.json()).resolves.toEqual({ error: "not_found" });
+      // Whatever each route answers, the point is that it is no longer the
+      // challenge — and never the 503 of an unconfigured deployment.
+      expect(res.status, `${path} must accept the token`).not.toBe(401);
+      expect(res.status, `${path} must accept the token`).not.toBe(503);
     }
   });
 
@@ -284,8 +292,8 @@ describe("route middleware", () => {
   });
 
   it("authenticates non-GET methods the same way", async () => {
-    const unauth = await SELF.fetch(`${BASE}/api/runs`, { method: "POST" });
-    const auth = await SELF.fetch(`${BASE}/api/runs`, { method: "POST", ...bearer(token) });
+    const unauth = await SELF.fetch(`${BASE}${PAST_AUTH}`, { method: "POST" });
+    const auth = await SELF.fetch(`${BASE}${PAST_AUTH}`, { method: "POST", ...bearer(token) });
 
     expect(unauth.status).toBe(401);
     expect(auth.status).toBe(404);
@@ -311,7 +319,7 @@ describe("route middleware", () => {
   it("fails closed with 503 when the deployment has no token secret", async () => {
     setSecret(undefined);
 
-    const res = await SELF.fetch(`${BASE}/api/runs`, bearer(token));
+    const res = await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token));
 
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toMatchObject({ error: "auth_not_configured" });
@@ -320,7 +328,7 @@ describe("route middleware", () => {
   it("fails closed with 503 when the token secret is unusable", async () => {
     setSecret("sha256$deadbeef");
 
-    const res = await SELF.fetch(`${BASE}/api/runs`, bearer(token));
+    const res = await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token));
 
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toMatchObject({ error: "auth_not_configured" });
@@ -371,13 +379,13 @@ describe("rotation", () => {
     const oldToken = mintFactoryToken();
     setSecret(await deriveTokenHash(oldToken));
 
-    expect((await SELF.fetch(`${BASE}/api/runs`, bearer(oldToken))).status).toBe(404);
+    expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(oldToken))).status).toBe(404);
 
     const newToken = mintFactoryToken();
     setSecret(await deriveTokenHash(newToken));
 
-    expect((await SELF.fetch(`${BASE}/api/runs`, bearer(oldToken))).status).toBe(401);
-    expect((await SELF.fetch(`${BASE}/api/runs`, bearer(newToken))).status).toBe(404);
+    expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(oldToken))).status).toBe(401);
+    expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(newToken))).status).toBe(404);
   });
 
   it("survives repeated rotations, each invalidating its predecessor", async () => {
@@ -387,9 +395,9 @@ describe("rotation", () => {
       const token = mintFactoryToken();
       setSecret(await deriveTokenHash(token));
 
-      expect((await SELF.fetch(`${BASE}/api/runs`, bearer(token))).status).toBe(404);
+      expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token))).status).toBe(404);
       if (previous !== null) {
-        expect((await SELF.fetch(`${BASE}/api/runs`, bearer(previous))).status).toBe(401);
+        expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(previous))).status).toBe(401);
       }
       previous = token;
     }
@@ -402,10 +410,10 @@ describe("rotation", () => {
     const token = mintFactoryToken();
 
     setSecret(await deriveTokenHash(token));
-    const before = await SELF.fetch(`${BASE}/api/runs`, bearer(token));
+    const before = await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token));
 
     setSecret(await deriveTokenHash(token));
-    const after = await SELF.fetch(`${BASE}/api/runs`, bearer(token));
+    const after = await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token));
 
     expect(before.status).toBe(404);
     expect(after.status).toBe(404);
@@ -416,10 +424,10 @@ describe("rotation", () => {
     setSecret(await deriveTokenHash(token));
 
     // Warm any cache that might exist, then pull the secret entirely.
-    expect((await SELF.fetch(`${BASE}/api/runs`, bearer(token))).status).toBe(404);
+    expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token))).status).toBe(404);
     setSecret(undefined);
 
-    expect((await SELF.fetch(`${BASE}/api/runs`, bearer(token))).status).toBe(503);
+    expect((await SELF.fetch(`${BASE}${PAST_AUTH}`, bearer(token))).status).toBe(503);
     await expect(isAuthConfigured(env)).resolves.toBe(false);
   });
 });

@@ -2,7 +2,13 @@ import { applyD1Migrations, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   DISPATCH_REASONS,
+  enrolProject,
+  getEnrolledProject,
   getRun,
+  listEnrolledProjects,
+  listRuns,
+  removeEnrolledProject,
+  updateRunState,
   getSignal,
   insertDispatchLog,
   insertRun,
@@ -10,6 +16,7 @@ import {
   listDispatchLogs,
   type DispatchReason,
   type DispatchLog,
+  type EnrolledProject,
   type Run,
   type Signal,
 } from "../src/db";
@@ -88,6 +95,58 @@ describe("factory D1 query layer", () => {
       "awaiting_approval",
       "strike_out",
     ]);
+  });
+
+  it("moves a run's state and lists it back", async () => {
+    const run: Run = {
+      run_id: "run-daq-state",
+      project: "ticks/state",
+      epic: "ko8",
+      base_sha: "c".repeat(40),
+      requested_by: "operator@example.com",
+      state: "starting",
+      started_at: "2026-08-19T12:00:00.000Z",
+      ended_at: null,
+      cost_usd: 0,
+    };
+    await insertRun(env.DB, run);
+
+    const stopping = await updateRunState(env.DB, run.run_id, "stopping");
+    expect(stopping).toMatchObject({ run_id: run.run_id, state: "stopping", ended_at: null });
+
+    const ended = await updateRunState(env.DB, run.run_id, "completed", "2026-08-19T13:00:00.000Z");
+    expect(ended).toMatchObject({ state: "completed", ended_at: "2026-08-19T13:00:00.000Z" });
+
+    await expect(listRuns(env.DB, { project: "ticks/state" })).resolves.toHaveLength(1);
+    await expect(listRuns(env.DB, { project: "ticks/state", state: "starting" })).resolves.toEqual(
+      []
+    );
+    // A state change for a run that does not exist is not an error, it is null.
+    await expect(updateRunState(env.DB, "run-missing", "failed")).resolves.toBeNull();
+  });
+
+  // Enrolment is a security boundary (migrations/0003): the bearer token says
+  // who the operator is, not which repositories they pointed the factory at.
+  it("round-trips project enrolment and withdraws it", async () => {
+    const project: EnrolledProject = {
+      project: "ticks/enrolled",
+      enrolled_by: "operator@example.com",
+      enrolled_at: "2026-08-19T12:00:00.000Z",
+    };
+
+    await enrolProject(env.DB, project);
+    await expect(getEnrolledProject(env.DB, project.project)).resolves.toEqual(project);
+    await expect(listEnrolledProjects(env.DB)).resolves.toContainEqual(project);
+
+    // Re-enrolling refreshes rather than failing on the primary key.
+    await enrolProject(env.DB, { ...project, enrolled_by: "telegram" });
+    await expect(getEnrolledProject(env.DB, project.project)).resolves.toMatchObject({
+      enrolled_by: "telegram",
+    });
+
+    await expect(removeEnrolledProject(env.DB, project.project)).resolves.toBe(true);
+    await expect(getEnrolledProject(env.DB, project.project)).resolves.toBeNull();
+    await expect(removeEnrolledProject(env.DB, project.project)).resolves.toBe(false);
   });
 
   it("rejects a dispatch reason outside the policy vocabulary", async () => {

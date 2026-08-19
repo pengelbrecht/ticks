@@ -13,6 +13,10 @@ internal/tickboard/ui/e2e/.wrangler.*
 # tk Claude worktrees
 .claude/worktrees/
 
+# Vitest/Vite scratch state, written at the repo root when a workspace suite is
+# run from here rather than from its own package directory.
+node_modules/
+
 # repo-wiki local ingest state
 repo-wiki/.ingest/
 repo-wiki/.comments/

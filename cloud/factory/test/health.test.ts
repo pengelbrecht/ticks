@@ -19,7 +19,14 @@ describe("health route", () => {
     const res = await SELF.fetch("https://factory.example.com/health");
     const body = (await res.json()) as { bindings: Record<string, boolean> };
 
-    expect(body.bindings).toEqual({ run_rooms: true, artifacts: true, db: true });
+    // RUN_WORKFLOW is bound by tick ldr; until then a deploy sees it missing
+    // here rather than in a failed submission.
+    expect(body.bindings).toEqual({
+      run_rooms: true,
+      artifacts: true,
+      db: true,
+      run_workflow: false,
+    });
   });
 
   it("rejects non-GET requests to /health", async () => {
@@ -34,7 +41,7 @@ describe("health route", () => {
     const token = mintFactoryToken();
     env.FACTORY_TOKEN_HASH = await deriveTokenHash(token);
     try {
-      const res = await SELF.fetch("https://factory.example.com/api/runs", {
+      const res = await SELF.fetch("https://factory.example.com/api/not-a-route", {
         headers: { Authorization: `Bearer ${token}` },
       });
 

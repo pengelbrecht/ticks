@@ -5,21 +5,24 @@ account** (decision D16 in `docs/design/cloud-factory.md`): ticks.sh never
 operates the factory, and this bundle is completely separate from
 `cloud/worker` — it never imports from it and never deploys with it.
 
-Today it does almost nothing: a health route, single-tenant bearer auth, and
-a placeholder `RunRoom` Durable Object. It is deployable from day one so later
-phases add behaviour to a live bundle instead of standing one up under
-pressure.
+It serves the operator command surface (UC1b): submit a run, stop one, ask
+what is happening, and enrol the repositories it is allowed to run. The run
+itself is owned by the Run Workflow, which boots the orchestrator sandbox and
+lives on its own tick; until that binding exists, submissions fail closed
+rather than recording runs that could never boot.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
 | `wrangler.toml` | Bindings + migrations. `compatibility_date` is recent on purpose: DO SQLite storage and current WebSocket hibernation both need it. |
-| `src/index.ts` | Worker entry. `GET /health` is open; every other route needs the bearer token, then 404s. |
+| `src/index.ts` | Worker entry: routing only — status codes, methods, body shapes. `GET /health` is open; everything else needs the bearer token. |
+| `src/runs.ts` | Submission, stop and status policy: the lease, enrolment, the queue window, the `dispatch_log` trail, and the Run Workflow seam. |
+| `src/db.ts` | Typed D1 accessors: runs, signals, dispatch log, project enrolment. |
 | `src/auth.ts` | Single-tenant bearer auth (D16) — mint, salted PBKDF2 hash, constant-time verify, route middleware. |
 | `scripts/mint-factory-token.mjs` | Operator-side mint/rotate tool for hand rotation. Imports `src/auth.ts`. `tk factory deploy` mints in Go instead — see "Mint and rotate". |
 | `migrations/` | D1 migrations, applied by `tk factory deploy` before it deploys. |
-| `src/run-room.ts` | `RunRoom` DO placeholder — the dispatch lease, operator gates and reconcile alarms land in Phase 1. |
+| `src/run-room.ts` | `RunRoom` DO — one per project: the dispatch lease, the pending-question (gate) store, the submission queue and the stop record. Reconcile alarms land later. |
 | `src/env.d.ts` | Hand-written `Cloudflare.Env` (what `wrangler types` would generate). Keep in sync with `wrangler.toml`. |
 | `test/` | vitest + `@cloudflare/vitest-pool-workers`: real workerd, bindings read from `wrangler.toml`. |
 
@@ -31,6 +34,47 @@ pnpm test          # vitest in workerd
 pnpm typecheck
 pnpm dev           # local worker on :8788
 ```
+
+## The run surface
+
+Every route below needs the bearer token. The RunRoom DO decides; `src/index.ts`
+only turns that decision into a status code.
+
+| Route | What it does |
+|---|---|
+| `POST /api/runs` | Submit `{project, epic, base_sha, requested_by, notify?, queue?, queue_ttl_ms?}`. `201` started, `409` refused naming the holding run, `202` parked (with `queue: true`), `403` project not enrolled, `503` no Run Workflow bound. |
+| `GET /api/runs` | The run index plus, for every project it mentions, that project's lease and queued submissions. Filters: `project`, `state`, `limit`. |
+| `GET /api/runs/:id` | One run: index row, Workflow step state, lease, open gates, queued submissions, stop record. |
+| `POST /api/runs/:id/stop` | A clean stop (D15): finish the in-flight tick, then review and closeout. |
+| `GET/POST /api/projects`, `DELETE /api/projects/:owner/:repo` | Project enrolment. |
+
+**The submission boundary is a pushed sha.** `base_sha` must be a full 40-hex
+commit and `project` the canonical `owner/repo` pair — remote URLs are refused
+rather than parsed, because `internal/github` already owns that parsing in Go
+and a second parser in TypeScript would be a format to keep in parity for no
+gain.
+
+**Enrolment is a security boundary, not bookkeeping.** The bearer token says
+*you are this deployment's operator*; it does not say which repositories the
+operator pointed their GitHub credential at. A submission for an unenrolled
+project is refused before the lease is asked for, so a leaked or over-shared
+token cannot aim the factory at every repo its PAT can reach.
+
+**A refused submission on a leased project names the holder** (`lease_held_by:<run>`,
+D22). With `queue: true` it parks in the DO instead, ignites when the lease
+releases, is visible to `status`, and expires on a window — `RUN_QUEUE_TTL_MS`
+in `wrangler.toml`, overridable per submission. A queue that silently ignites
+work hours later is worse than a refusal.
+
+**Stop is control-plane state, never a message.** It writes a stop record into
+the RunRoom and flips the run's index state; the Run Workflow reads that record
+at a step boundary and enforces it. A wedged or adversarial orchestrator cannot
+decline a stop it is never asked about.
+
+**Every ignition and every refusal is written to `dispatch_log`** with a reason
+from the closed policy vocabulary (`lease_held_by` for contention,
+`awaiting_approval` for an unenrolled project), so "why did this not run" is
+answerable from D1 rather than from a log line.
 
 ## Auth: secrets, not accounts
 

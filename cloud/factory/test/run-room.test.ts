@@ -7,6 +7,7 @@ import {
   MIN_LEASE_TTL_MS,
   type RunRoom,
 } from "../src/run-room";
+import { MAX_QUEUE_TTL_MS, MIN_QUEUE_TTL_MS } from "../src/runs";
 
 /**
  * One RunRoom per project (`idFromName(project)`) — the dispatch lease is
@@ -46,6 +47,7 @@ describe("RunRoom addressing and status", () => {
       object: "RunRoom",
       lease: null,
       pending: { open: 0, resolved: 0 },
+      queued: [],
     });
   });
 
@@ -532,5 +534,173 @@ describe("pending entry serialization", () => {
     // Timestamps are RFC 3339 UTC, like the Go entry's.
     expect(entry.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
     expect(entry.resolution!.answered_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+  });
+});
+
+describe("submission queue (D22)", () => {
+  const PARKED = {
+    project: "owner/repo",
+    epic: "afj",
+    base_sha: "b".repeat(40),
+    requested_by: "operator@example.com",
+    blocked_by: "run_holder",
+  };
+
+  it("parks a submission and shows it in status", async () => {
+    const stub = room("owner/repo-queue-park");
+
+    const parked = await stub.queueSubmission({ ...PARKED, run_id: "run_parked" });
+
+    expect(parked.ok).toBe(true);
+    if (!parked.ok) return;
+    expect(parked.queued).toMatchObject({
+      run_id: "run_parked",
+      epic: "afj",
+      blocked_by: "run_holder",
+    });
+    await expect(stub.listQueuedSubmissions()).resolves.toHaveLength(1);
+
+    const status = (await (await stub.fetch("https://run-room/status")).json()) as {
+      queued: { run_id: string }[];
+    };
+    expect(status.queued.map((q) => q.run_id)).toEqual(["run_parked"]);
+  });
+
+  it("keeps one parked submission per epic rather than queueing duplicates", async () => {
+    const stub = room("owner/repo-queue-dupe");
+    await stub.queueSubmission({ ...PARKED, run_id: "run_first" });
+
+    const again = await stub.queueSubmission({ ...PARKED, run_id: "run_second" });
+
+    expect(again.ok).toBe(false);
+    if (again.ok !== false || again.error !== "already_queued") throw new Error("expected a refusal");
+    expect(again.queued.run_id).toBe("run_first");
+    await expect(stub.listQueuedSubmissions()).resolves.toHaveLength(1);
+  });
+
+  it("refuses a window outside the room's bounds", async () => {
+    const stub = room("owner/repo-queue-ttl");
+
+    const refused = await stub.queueSubmission({
+      ...PARKED,
+      run_id: "run_bad_ttl",
+      ttl_ms: MAX_QUEUE_TTL_MS + 1,
+    });
+
+    expect(refused.ok).toBe(false);
+    if (refused.ok === false) expect(refused.error).toBe("invalid_request");
+  });
+
+  it("reads an expired submission as absent before any alarm deletes it", async () => {
+    const stub = room("owner/repo-queue-expiry");
+    await stub.queueSubmission({ ...PARKED, run_id: "run_expiring", ttl_ms: MIN_QUEUE_TTL_MS });
+
+    await wait(MIN_QUEUE_TTL_MS + 40);
+
+    await expect(stub.listQueuedSubmissions()).resolves.toEqual([]);
+  });
+
+  it("withdraws a parked submission on request", async () => {
+    const stub = room("owner/repo-queue-cancel");
+    await stub.queueSubmission({ ...PARKED, run_id: "run_cancelled" });
+
+    const cancelled = await stub.cancelQueuedSubmission("run_cancelled");
+
+    expect(cancelled.ok).toBe(true);
+    await expect(stub.listQueuedSubmissions()).resolves.toEqual([]);
+    const missing = await stub.cancelQueuedSubmission("run_cancelled");
+    expect(missing.ok).toBe(false);
+  });
+});
+
+// The lease and the queue share one alarm. `setAlarm` overwrites rather than
+// adding, so a second deadline that ignored the first would silently cancel it
+// — the multiplexing rule this room documents.
+describe("the alarm is multiplexed across deadlines", () => {
+  it("arms at the earliest of the lease and the queue", async () => {
+    const stub = room("owner/repo-alarm-mux");
+    const held = await stub.acquireDispatchLease({ run_id: "run_1", epic: "ko8" });
+    if (!held.ok) throw new Error("expected the acquire to win");
+
+    const parked = await stub.queueSubmission({
+      run_id: "run_parked",
+      project: "owner/repo",
+      epic: "afj",
+      base_sha: "b".repeat(40),
+      requested_by: "operator@example.com",
+      blocked_by: "run_1",
+      ttl_ms: MIN_QUEUE_TTL_MS,
+    });
+    if (!parked.ok) throw new Error("expected the park to succeed");
+
+    // The queue expires long before the lease does, so it owns the alarm.
+    expect(await scheduledAlarm(stub)).toBe(Date.parse(parked.queued.expires_at));
+    expect(Date.parse(parked.queued.expires_at)).toBeLessThan(Date.parse(held.lease.expires_at));
+  });
+
+  it("re-arms for the lease after the queue's deadline passes", async () => {
+    const stub = room("owner/repo-alarm-rearm");
+    const held = await stub.acquireDispatchLease({ run_id: "run_1", epic: "ko8" });
+    if (!held.ok) throw new Error("expected the acquire to win");
+    await stub.queueSubmission({
+      run_id: "run_parked",
+      project: "owner/repo",
+      epic: "afj",
+      base_sha: "b".repeat(40),
+      requested_by: "operator@example.com",
+      blocked_by: "run_1",
+      ttl_ms: MIN_QUEUE_TTL_MS,
+    });
+
+    await wait(MIN_QUEUE_TTL_MS + 40);
+    await runDurableObjectAlarm(stub);
+
+    // The expired submission is gone, the live lease is untouched, and the
+    // alarm now points at the lease's own deadline.
+    await expect(stub.listQueuedSubmissions()).resolves.toEqual([]);
+    await expect(stub.leaseStatus()).resolves.toMatchObject({ run_id: "run_1" });
+    expect(await scheduledAlarm(stub)).toBe(Date.parse(held.lease.expires_at));
+  });
+});
+
+describe("stop record", () => {
+  it("records a clean stop and hands it back to the Workflow", async () => {
+    const stub = room("owner/repo-stop");
+
+    const requested = await stub.requestStop({
+      run_id: "run_1",
+      requested_by: "operator@example.com",
+    });
+
+    expect(requested.ok).toBe(true);
+    if (!requested.ok) return;
+    expect(requested.already).toBe(false);
+    expect(requested.stop).toMatchObject({
+      run_id: "run_1",
+      mode: "clean",
+      requested_by: "operator@example.com",
+    });
+    await expect(stub.stopRequest("run_1")).resolves.toMatchObject({ mode: "clean" });
+    await expect(stub.stopRequest("run_2")).resolves.toBeNull();
+  });
+
+  it("is idempotent: the first stop is the stop", async () => {
+    const stub = room("owner/repo-stop-twice");
+    const first = await stub.requestStop({ run_id: "run_1", requested_by: "terminal" });
+    if (!first.ok) throw new Error("expected the stop to record");
+
+    const second = await stub.requestStop({ run_id: "run_1", requested_by: "telegram" });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.already).toBe(true);
+    expect(second.stop).toEqual(first.stop);
+  });
+
+  it("refuses a stop with no run", async () => {
+    const refused = await room("owner/repo-stop-invalid").requestStop({ run_id: "  " });
+
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error).toBe("invalid_request");
   });
 });
