@@ -114,6 +114,9 @@ configure_caches() {
 	export BUN_INSTALL_CACHE_DIR="$cache_dir/bun"
 	export MISE_DATA_DIR="$cache_dir/mise/data"
 	export MISE_CACHE_DIR="$cache_dir/mise/cache"
+	# The record of what was provisioned has to survive with the tools it
+	# describes, or a warm cache would hold tools nothing knows to activate.
+	export MISE_GLOBAL_CONFIG_FILE="$cache_dir/mise/config.toml"
 	mkdir -p "$GOMODCACHE" "$GOCACHE" "$npm_config_store_dir" "$npm_config_cache" \
 		"$XDG_CACHE_HOME" "$UV_CACHE_DIR" "$BUN_INSTALL_CACHE_DIR" \
 		"$MISE_DATA_DIR" "$MISE_CACHE_DIR" 2>/dev/null || true
@@ -230,7 +233,7 @@ repo_setup() {
 
 verify_tk() {
 	local found
-	found="$(tk version 2>/dev/null | head -1 | awk '{ print $2 }')"
+	found="$(tk version 2>/dev/null | sed -n 1p | awk '{ print $2 }')"
 	if [[ -z $found ]]; then
 		die $EXIT_TK_VERSION "tk is not on PATH — the image is broken"
 	fi

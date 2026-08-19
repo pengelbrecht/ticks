@@ -101,12 +101,12 @@ RUN set -euo pipefail; \
     rm -rf /tmp/uv.tar.gz "/tmp/uv-${uv_arch}"; \
     uv --version
 
-# Node comes from the base image; pnpm is this repo's only package manager,
-# pinned through corepack so `pnpm` resolves without a network round trip on
-# first use.
+# Node comes from the base image; pnpm is this repo's only package manager, so
+# it is installed at an exact version. Deliberately NOT corepack: the base image
+# copies node and its node_modules out of the official Node image but only
+# symlinks npm and npx, so `corepack` is not on PATH there.
 RUN set -euo pipefail; \
-    corepack enable; \
-    corepack prepare "pnpm@${PNPM_VERSION}" --activate; \
+    npm install -g "pnpm@${PNPM_VERSION}"; \
     pnpm --version
 
 RUN set -euo pipefail; \
@@ -187,8 +187,9 @@ RUN chmod 0755 /usr/local/bin/ticks-orchestrator /usr/local/bin/ticks-preflight
 
 # Green-start discipline: prove every battery answers before the image ships.
 RUN set -euo pipefail; \
-    git --version; rg --version | head -1; jq --version; cc --version | head -1; \
+    git --version; rg --version | sed -n 1p; jq --version; cc --version | sed -n 1p; \
     go version; uv --version; node --version; pnpm --version; bun --version; python3 --version; \
-    mise --version; omp --version; claude --version; \
-    tk version | head -1; \
+    mise --version; \
+    timeout 60 omp --version; timeout 60 claude --version; \
+    timeout 60 tk version | sed -n 1p; \
     bash -n /usr/local/bin/ticks-orchestrator; bash -n /usr/local/bin/ticks-preflight
