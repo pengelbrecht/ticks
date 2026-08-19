@@ -1,0 +1,19 @@
+{
+  "id": "1vn",
+  "title": "Phase 2: cloud substrate fan-out",
+  "description": "Needs planning: one worker sandbox per tick; substrate=cloud in runners.toml behind the same spawn/wait/collect/reconcile contract; tk cloud verbs so local orchestrators drive cloud workers (D19); reconcile-on-reboot; run_event producers feeding ProjectRoom; R2 artifact streaming (harness.log during the run, never export-at-exit).",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "after": [
+    "ko8"
+  ],
+  "parent": "w1z",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:17:51.495606599Z",
+  "updated_at": "2026-08-19T11:17:51.495606599Z"
+}

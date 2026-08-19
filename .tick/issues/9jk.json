@@ -1,0 +1,20 @@
+{
+  "id": "9jk",
+  "title": "Close out foundations epic: retro + plan Phase 1",
+  "description": "Retro on the foundations run; fold learnings into .tick/learnings.md; then plan the Phase 1 epic (ko8) against what deploy/setup/auth actually look like in practice.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "blocked_by": [
+    "aw5"
+  ],
+  "parent": "63t",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:18:31.309548877Z",
+  "updated_at": "2026-08-19T11:18:31.309548877Z"
+}

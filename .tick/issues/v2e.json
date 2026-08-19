@@ -1,0 +1,20 @@
+{
+  "id": "v2e",
+  "title": "tk factory setup credential walkthrough",
+  "description": "The BotFather-style first-run walk (deployment model section): checks wrangler auth, offers tk factory deploy if no deployment exists, walks the GitHub credential ladder (fine-grained repo-scoped PAT first; personal GitHub App documented as the upgrade path) and stores the choice as Worker secrets, configures the AI Gateway base URL and provider keys (Workers AI needs no key — same account), and verifies each rung with a live probe (a gateway model list call, a GitHub API call with the PAT) before moving on. Mirrors the tone and structure of tk channel setup telegram: one rung at a time, verify, then persist; secrets go to Worker secrets or ~/.ticksrc (0600), never the repo.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "blocked_by": [
+    "7c1"
+  ],
+  "parent": "63t",
+  "acceptance_criteria": "A user with a Cloudflare account, a repo, and a PAT reaches a fully configured factory through prompts alone, with each credential verified live before it is stored. tk factory status reports what is configured and whether each credential currently works, offline-safe with a flag, following the tk channel status pattern. No secret ever lands in a tracked file, enforced by a test on the persistence paths.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:18:31.26116557Z",
+  "updated_at": "2026-08-19T11:18:31.26116557Z"
+}

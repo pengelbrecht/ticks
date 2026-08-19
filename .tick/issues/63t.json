@@ -1,0 +1,16 @@
+{
+  "id": "63t",
+  "title": "Factory foundations",
+  "description": "The blocking prerequisites from docs/design/cloud-factory.md before any factory code: the self-contained cloud/factory/ worker bundle (current compatibility date, R2 binding), single-tenant secrets-not-accounts auth (D16), the tk factory deploy / tk factory setup install story, and retiring the vestigial ralph/swarm enum from the run_event schema. Deliberately excludes RunRoom, Workflows, and sandboxes — those are Phase 1.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "parent": "w1z",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:17:51.451541326Z",
+  "updated_at": "2026-08-19T11:17:51.451541326Z"
+}

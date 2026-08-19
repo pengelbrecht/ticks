@@ -1,0 +1,21 @@
+{
+  "id": "7c1",
+  "title": "tk factory deploy command",
+  "description": "New tk factory deploy: wraps wrangler against the user's own Cloudflare account (D16). Creates or reuses the D1 database and R2 bucket, applies D1 migrations, mints the factory token (per the auth tick) and pushes its hash as a Worker secret, deploys the bundle, then writes the factory URL and token to ~/.ticksrc alongside the existing TICKS_TOKEN convention. Idempotent: re-running upgrades an existing deployment in place and preserves the token unless --rotate-token. Pin the deployed bundle to the tk version (embed, as skills are embedded today) so tk upgrade can offer redeploy. Requires wrangler present and authenticated; fail with a clear message naming the missing prerequisite otherwise — a failing precondition is a stop, never a silent default.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "factory"
+  ],
+  "blocked_by": [
+    "n3e",
+    "aro"
+  ],
+  "parent": "63t",
+  "acceptance_criteria": "From a clean Cloudflare account, one command produces a working authenticated factory endpoint and a ~/.ticksrc entry, verified end to end against a real account or a documented wrangler dry-run harness. Re-running against the same account succeeds without duplicating resources. Running without wrangler installed prints an actionable error and exits nonzero.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T11:18:31.23726599Z",
+  "updated_at": "2026-08-19T11:18:31.23726599Z"
+}
