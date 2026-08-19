@@ -15,6 +15,7 @@ package factory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -132,7 +133,7 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	// Preconditions first: a missing prerequisite is a stop, and settling them
 	// before the first `create` keeps a half-provisioned account impossible.
 	// Nothing on disk is touched until they pass.
-	w, wranglerVersion, err := findWrangler(ctx, out)
+	w, wranglerVersion, err := findWrangler(ctx, out, bundleDir)
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +319,53 @@ type healthPayload struct {
 	} `json:"auth"`
 }
 
+const (
+	// A freshly pushed Worker secret can take up to roughly 30 seconds to be
+	// visible at the route. Six probes with capped exponential waits cover that
+	// window without leaving a permanently failed deploy hanging forever.
+	defaultVerifyAttempts = 6
+	defaultVerifyDelay    = 2 * time.Second
+	maxVerifyDelay        = 8 * time.Second
+)
+
+type verificationFailure struct {
+	err       error
+	retryable bool
+}
+
+func (e *verificationFailure) Error() string { return e.err.Error() }
+func (e *verificationFailure) Unwrap() error { return e.err }
+
+func verificationError(err error, retryable bool) error {
+	return &verificationFailure{err: err, retryable: retryable}
+}
+
+func isRetryableVerificationError(err error) bool {
+	var failure *verificationFailure
+	if errors.As(err, &failure) {
+		return failure.retryable
+	}
+	// Keep a future probe failure safe by treating an unclassified error as
+	// transient. The final bounded attempt still fails closed.
+	return true
+}
+
+func verificationBackoff(base time.Duration, retryNumber int) time.Duration {
+	if base <= 0 {
+		base = defaultVerifyDelay
+	}
+	if base > maxVerifyDelay {
+		base = maxVerifyDelay
+	}
+	for i := 1; i < retryNumber; i++ {
+		if base >= maxVerifyDelay/2 {
+			return maxVerifyDelay
+		}
+		base *= 2
+	}
+	return base
+}
+
 // verifyEndpoint proves the deployment actually works: /health reports the
 // token secret landed, and an authenticated request is accepted. The second
 // check is the one that matters — it is the only thing that can tell a hash
@@ -329,26 +377,34 @@ func verifyEndpoint(ctx context.Context, opts Options, url, token string) error 
 	}
 	attempts := opts.verifyAttempts
 	if attempts <= 0 {
-		attempts = 5
+		attempts = defaultVerifyAttempts
 	}
 	delay := opts.verifyDelay
 	if delay <= 0 {
-		delay = 2 * time.Second
+		delay = defaultVerifyDelay
 	}
 
 	var lastErr error
-	for attempt := 1; ; attempt++ {
+	for attempt := 1; attempt <= attempts; attempt++ {
 		lastErr = verifyOnce(ctx, client, url, token)
 		if lastErr == nil {
 			return nil
 		}
-		if attempt >= attempts {
+		if attempt >= attempts || !isRetryableVerificationError(lastErr) {
 			break
 		}
+		wait := verificationBackoff(delay, attempt)
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			return ctx.Err()
-		case <-time.After(delay):
+		case <-timer.C:
 		}
 	}
 	return fmt.Errorf(
@@ -360,22 +416,23 @@ func verifyEndpoint(ctx context.Context, opts Options, url, token string) error 
 func verifyOnce(ctx context.Context, client *http.Client, url, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/health", nil)
 	if err != nil {
-		return err
+		return verificationError(err, false)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return verificationError(err, true)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET /health returned %s", resp.Status)
+		body := readVerificationBody(resp)
+		return verificationResponseError("GET /health", resp, body)
 	}
 	var health healthPayload
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&health); err != nil {
-		return fmt.Errorf("GET /health did not return the factory's health payload: %w", err)
+		return verificationError(fmt.Errorf("GET /health did not return the factory's health payload: %w", err), true)
 	}
 	if !health.Auth.Configured {
-		return fmt.Errorf("GET /health reports auth.configured=false: the %s secret did not land", SecretName)
+		return verificationError(fmt.Errorf("GET /health reports auth.configured=false: the %s secret did not land", SecretName), true)
 	}
 
 	// Any authenticated route answers this: the worker runs auth before
@@ -383,21 +440,42 @@ func verifyOnce(ctx context.Context, client *http.Client, url, token string) err
 	// to one it did not.
 	probe, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/api/factory-deploy-check", nil)
 	if err != nil {
-		return err
+		return verificationError(err, false)
 	}
 	probe.Header.Set("Authorization", "Bearer "+token)
 	probeResp, err := client.Do(probe)
 	if err != nil {
-		return err
+		return verificationError(err, true)
 	}
 	defer probeResp.Body.Close()
+	body := readVerificationBody(probeResp)
 	switch probeResp.StatusCode {
 	case http.StatusUnauthorized:
-		return fmt.Errorf("the factory rejected the token in %s — the deployed %s does not match it",
-			ticksrc.FileName, SecretName)
+		return verificationError(fmt.Errorf("the factory rejected the token in %s — the deployed %s does not match it",
+			ticksrc.FileName, SecretName), false)
 	case http.StatusServiceUnavailable:
-		return fmt.Errorf("the factory reports its auth is not configured (503) — the %s secret did not land",
-			SecretName)
+		return verificationError(fmt.Errorf("the factory reports its auth is not configured (503) — the %s secret did not land",
+			SecretName), true)
+	}
+	if isRetryableVerificationResponse(probeResp.StatusCode, body) {
+		return verificationResponseError("the authenticated factory probe", probeResp, body)
 	}
 	return nil
+}
+
+func readVerificationBody(resp *http.Response) []byte {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	return body
+}
+
+func isRetryableVerificationResponse(status int, body []byte) bool {
+	return status == 1042 || status >= 500 || strings.Contains(strings.ToLower(string(body)), "1042")
+}
+
+func verificationResponseError(operation string, resp *http.Response, body []byte) error {
+	message := fmt.Sprintf("%s returned %s", operation, resp.Status)
+	if detail := firstLine(body); detail != "" {
+		message += ": " + detail
+	}
+	return verificationError(errors.New(message), isRetryableVerificationResponse(resp.StatusCode, body))
 }

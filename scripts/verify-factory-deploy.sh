@@ -176,6 +176,11 @@ TICKSRC="$HOME/.ticksrc"
 count_calls() { grep -c -- "$1" "$FAKE_WRANGLER_LOG" || true; }
 rc_value() { sed -n "s/^$1=//p" "$TICKSRC"; }
 
+# The resolver also checks cloud/factory/node_modules/.bin. Run the PATH-only
+# scenarios outside the checkout so a developer's local dependency cannot
+# accidentally turn “no Wrangler installed” into a different test.
+cd "$SCRATCH"
+
 # ---------------------------------------------------------------------------
 step "1. wrangler is not installed"
 # ---------------------------------------------------------------------------

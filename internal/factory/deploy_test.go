@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
@@ -23,14 +25,17 @@ import (
 // migration, the deploy, the secret, ~/.ticksrc, the authenticated probe — is
 // exercised; only the far side is simulated.
 type harness struct {
-	t          *testing.T
-	stateDir   string
-	logPath    string
-	bundleDir  string
-	ticksrc    string
-	server     *httptest.Server
-	secretHash atomic.Pointer[string]
-	authProbes atomic.Int32
+	t                   *testing.T
+	stateDir            string
+	logPath             string
+	bundleDir           string
+	ticksrc             string
+	server              *httptest.Server
+	secretHash          atomic.Pointer[string]
+	authProbes          atomic.Int32
+	propagationFailures atomic.Int32
+	propagationStatus   int
+	propagationBody     string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -51,6 +56,17 @@ func newHarness(t *testing.T) *harness {
 	// the deploy pushed, exactly as src/auth.ts does — so a deploy that wrote
 	// a hash for a different token fails the probe here too.
 	h.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.consumePropagationFailure() {
+			status := h.propagationStatus
+			if status == 0 {
+				status = http.StatusServiceUnavailable
+			}
+			w.WriteHeader(status)
+			if h.propagationBody != "" {
+				_, _ = io.WriteString(w, h.propagationBody)
+			}
+			return
+		}
 		hashPtr := h.secretHash.Load()
 		configured := hashPtr != nil && *hashPtr != ""
 		if r.URL.Path == "/health" {
@@ -94,6 +110,18 @@ func newHarness(t *testing.T) *harness {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	return h
+}
+
+func (h *harness) consumePropagationFailure() bool {
+	for {
+		remaining := h.propagationFailures.Load()
+		if remaining <= 0 {
+			return false
+		}
+		if h.propagationFailures.CompareAndSwap(remaining, remaining-1) {
+			return true
+		}
+	}
 }
 
 // syncSecret copies whatever the fake wrangler last stored into the fake
@@ -400,6 +428,37 @@ func TestDeployFailsWhenTheEndpointDoesNotAuthenticate(t *testing.T) {
 	}
 }
 
+func TestDeployToleratesSecretPropagationErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "auth not configured", status: http.StatusServiceUnavailable},
+		{name: "cloudflare edge 1042", status: http.StatusBadGateway, body: "Error 1042: edge propagation in progress"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			// Five stale-version responses require the sixth default probe. Keep
+			// the test quick while preserving the production attempt count.
+			h.propagationFailures.Store(5)
+			h.propagationStatus = tt.status
+			h.propagationBody = tt.body
+
+			opts := h.options()
+			opts.verifyDelay = time.Millisecond
+			if _, err := Deploy(context.Background(), opts); err != nil {
+				t.Fatalf("Deploy after propagation lag: %v\n%s", err, h.log())
+			}
+			if remaining := h.propagationFailures.Load(); remaining != 0 {
+				t.Fatalf("verification stopped with %d propagation responses left", remaining)
+			}
+		})
+	}
+}
+
 func TestDeployURLOverrideSkipsDetection(t *testing.T) {
 	h := newHarness(t)
 	t.Setenv("FAKE_WRANGLER_URL", "https://not-the-endpoint.example.com")
@@ -453,6 +512,46 @@ func TestDeployResolvesWranglerThroughNpx(t *testing.T) {
 	}
 	if countLines(h.logLines(), "deploy") == 0 {
 		t.Errorf("npx never reached the wrangler deploy:\n%s", h.log())
+	}
+}
+
+func TestDeployResolvesWranglerFromStagedBundle(t *testing.T) {
+	h := newHarness(t)
+
+	localBin := filepath.Join(h.bundleDir, "node_modules", ".bin")
+	if err := os.MkdirAll(localBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fake, err := filepath.Abs(filepath.Join("testdata", "fake-wrangler.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(fake, filepath.Join(localBin, "wrangler")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Shadow any real PATH candidates with failing stand-ins. The staged copy
+	// must be found directly, without relying on npx to resolve it or install it.
+	pathBin := t.TempDir()
+	for _, name := range []string{"wrangler", "npx"} {
+		if err := os.WriteFile(filepath.Join(pathBin, name), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", pathBin+string(os.PathListSeparator)+"/usr/bin:/bin")
+
+	var out bytes.Buffer
+	opts := h.options()
+	opts.Out = &out
+	result, err := Deploy(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Deploy through staged Wrangler: %v\n%s", err, h.log())
+	}
+	if result.URL != h.server.URL {
+		t.Errorf("URL = %q, want %q", result.URL, h.server.URL)
+	}
+	if !strings.Contains(out.String(), "staged bundle") {
+		t.Errorf("deploy did not report the staged Wrangler candidate:\n%s", out.String())
 	}
 }
 

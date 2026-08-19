@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -42,19 +44,22 @@ const installHint = "Install it with `pnpm add -g wrangler` (or `npm install -g 
 	"or install it in a project so `npx wrangler` resolves. Then run `wrangler login`\n" +
 	"to connect your Cloudflare account."
 
-// wranglerCandidates are the ways to invoke the CLI, in preference order. A
-// global binary is the simplest, but plenty of operators only ever run
-// `npx wrangler` — refusing to deploy for them would be a false prerequisite.
+// wranglerCandidate is one way to invoke the CLI. bin is either a command
+// resolved through PATH or an absolute path to a local project binary.
+type wranglerCandidate struct {
+	bin    string
+	prefix []string
+	label  string
+}
+
+// wranglerCandidates are the PATH-based ways to invoke the CLI. A global
+// binary is the simplest, but plenty of operators only ever run `npx wrangler`.
 //
 // Both npx forms pass the flag that means "do not install anything": tk must
 // never pull a package off the network behind the operator's back, and a
 // wrangler that is genuinely absent has to surface as the actionable stop
 // below. `--no` is current npm; `--no-install` is what older npx understands.
-var wranglerCandidates = []struct {
-	bin    string
-	prefix []string
-	label  string
-}{
+var wranglerCandidates = []wranglerCandidate{
 	{bin: "wrangler", label: "wrangler"},
 	{bin: "npx", prefix: []string{"--no", "wrangler"}, label: "npx wrangler"},
 	{bin: "npx", prefix: []string{"--no-install", "wrangler"}, label: "npx wrangler"},
@@ -78,9 +83,26 @@ type wrangler struct {
 //
 // The probe runs in the caller's working directory — `--version` reads no
 // config — so no directory has to exist before the precondition is settled.
-func findWrangler(ctx context.Context, out io.Writer) (*wrangler, string, error) {
+// Local project copies are added after the PATH-based candidates, so the
+// existing global/npx preference remains stable while a repo dependency still
+// works when the caller is at the repository root rather than inside
+// cloud/factory.
+func findWrangler(ctx context.Context, out io.Writer, bundleDir string) (*wrangler, string, error) {
+	startDir, err := os.Getwd()
+	if err != nil {
+		startDir = ""
+	}
+	return findWranglerFrom(ctx, out, bundleDir, startDir)
+}
+
+func findWranglerFrom(ctx context.Context, out io.Writer, bundleDir, startDir string) (*wrangler, string, error) {
 	var lastErr error
-	for _, candidate := range wranglerCandidates {
+	candidates := localWranglerCandidates(bundleDir, startDir)
+	pathCandidates := make([]wranglerCandidate, 0, len(candidates)+len(wranglerCandidates))
+	pathCandidates = append(pathCandidates, wranglerCandidates...)
+	pathCandidates = append(pathCandidates, candidates...)
+
+	for _, candidate := range pathCandidates {
 		bin, err := exec.LookPath(candidate.bin)
 		if err != nil {
 			lastErr = err
@@ -95,6 +117,68 @@ func findWrangler(ctx context.Context, out io.Writer) (*wrangler, string, error)
 		return w, version, nil
 	}
 	return nil, "", &PrerequisiteError{Missing: "wrangler", Detail: installHint, Err: lastErr}
+}
+
+// localWranglerCandidates checks the two project-owned copies that can exist
+// without a global install. The staged bundle preserves node_modules between
+// deploys, while the repository copy is the factory package's devDependency.
+// Both are direct executable paths: no package manager is asked to download
+// anything on the operator's behalf.
+func localWranglerCandidates(bundleDir, startDir string) []wranglerCandidate {
+	var candidates []wranglerCandidate
+	if bundleDir != "" {
+		for _, candidatePath := range []string{
+			filepath.Join(bundleDir, "node_modules", ".bin", "wrangler"),
+			filepath.Join(bundleDir, "wrangler"),
+		} {
+			path, ok := absolutePath(candidatePath)
+			if !ok {
+				continue
+			}
+			candidates = append(candidates, wranglerCandidate{
+				bin:   path,
+				label: "staged bundle Wrangler",
+			})
+		}
+	}
+
+	if path := findRepositoryFactoryWrangler(startDir); path != "" {
+		candidates = append(candidates, wranglerCandidate{
+			bin:   path,
+			label: "cloud/factory/node_modules/.bin/wrangler",
+		})
+	}
+	return candidates
+}
+
+func absolutePath(path string) (string, bool) {
+	abs, err := filepath.Abs(path)
+	return abs, err == nil
+}
+
+func findRepositoryFactoryWrangler(startDir string) string {
+	if startDir == "" {
+		return ""
+	}
+	dir, ok := absolutePath(startDir)
+	if !ok {
+		return ""
+	}
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+
+	for {
+		candidate := filepath.Join(dir, "cloud", "factory", "node_modules", ".bin", "wrangler")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // commandError carries what a failed wrangler invocation said, so callers can

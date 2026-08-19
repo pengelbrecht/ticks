@@ -230,7 +230,7 @@ func Setup(ctx context.Context, opts SetupOptions) (*SetupResult, error) {
 
 	// Rung 0 — the precondition. Nothing is asked for, and nothing is written,
 	// until there is a wrangler that can reach the operator's account.
-	w, wranglerVersion, err := findWrangler(ctx, out)
+	w, wranglerVersion, err := findWrangler(ctx, out, bundleDir)
 	if err != nil {
 		return nil, err
 	}
