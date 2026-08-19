@@ -2,6 +2,7 @@
   "id": "afj",
   "title": "RunRoom DO: dispatch lease and pending-question store",
   "description": "Replace the placeholder RunRoom with the two pieces of state that are filesystem-shaped today. (1) The dispatch lease, one per project, idFromName(project): acquire returns the holder run_id on conflict rather than blocking, release is compare-and-delete so a stale holder cannot free a newer lease, and a DO alarm expires an abandoned lease. This is the SAME lease a local run takes on an enrolled project (D19) - exactly one arbiter per project. (2) The pending-question store replacing .tick/pending plus flock, with first-wins arbitration across surfaces and an already-answered-by response to losers (D5). This tick owns src/run-room.ts and is the contract three later ticks consume, so it lands alone in its wave and gets a foundation review before dependents start.",
+  "notes": "2026-08-19 19:02 - runner-state: substrate=herdr kind=claude branch=tick/afj worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-afj workspace=wAG base=2f98b5d446d9c507be9db8d29726cbec946fe0b3 agent=tick-afj pane=wAG:p1 session=a7f24914-f147-4db7-907b-b1f3c0635c81",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -13,6 +14,6 @@
   "acceptance_criteria": "Two concurrent acquires yield one holder and one rejection naming it; a stale lease expires by alarm; compare-and-delete refuses to release a lease it does not hold; two surfaces answering one question yield one winner and an already-answered response; all covered in the vitest-pool-workers harness.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:56:33.921536Z",
-  "updated_at": "2026-08-19T17:02:34.65442Z",
+  "updated_at": "2026-08-19T17:02:43.119929Z",
   "started_at": "2026-08-19T17:02:34.654419Z"
 }
