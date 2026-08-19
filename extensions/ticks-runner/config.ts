@@ -103,6 +103,11 @@ export function extractSection(markdown: string, heading: string): string[] {
 	return body.map((line) => line.trim()).filter(Boolean);
 }
 
+function hasSection(markdown: string, heading: string): boolean {
+	const headingPattern = new RegExp(`^##+\\s+${escapeRegExp(heading)}\\s*$`, "i");
+	return markdown.split(/\r?\n/).some((line) => headingPattern.test(line.trim()));
+}
+
 function parseKeyValueBullets(lines: string[]): Record<string, string> {
 	const out: Record<string, string> = {};
 	for (const line of lines) {
@@ -219,8 +224,11 @@ function resolveSettings(routing: RoutingSettings, env: Environment): Pick<Runne
 	return { models, maxParallel, reviewShouldFix, warnings };
 }
 
-/** The `.tick/config.md` sections `.tick/runners.toml` replaces. `Rules` is not one of them. */
-const MIGRATED_SECTIONS = ["Testing", "Closeout Evidence Commands", "Acceptance Evidence", "Environment", "Pi Orchestrator"] as const;
+function hasLegacyStructuredSections(markdown: string): boolean {
+	const testingCommands = parseExecutableCommands(parseCommandLines(extractSection(markdown, "Testing"))).commands;
+	if (testingCommands.length > 0) return true;
+	return ["Closeout Evidence Commands", "Acceptance Evidence", "Environment", "Pi Orchestrator"].some((heading) => hasSection(markdown, heading));
+}
 
 /**
  * Resolve runner settings from the deprecated markdown config. This is the
@@ -263,7 +271,7 @@ export function resolveRunnerConfig(markdown: string, env: Environment = process
 		rules: extractSection(markdown, "Rules"),
 		warnings,
 		errors: [],
-		configSource: MIGRATED_SECTIONS.some((heading) => extractSection(markdown, heading).length > 0) ? "config.md" : "none",
+		configSource: hasLegacyStructuredSections(markdown) ? "config.md" : "none",
 	};
 }
 
@@ -286,8 +294,22 @@ export function loadRunnerConfig(root: string, env: Environment = process.env): 
 	if (fs.existsSync(tomlPath)) {
 		const document = readRunnersDocument(fs.readFileSync(tomlPath, "utf8"));
 		if ("error" in document) return failedTomlConfig([document.error], extractSection(markdown, "Rules"), env);
-		if (COMMAND_TABLES.some((table) => Object.prototype.hasOwnProperty.call(document.document, table))) {
-			return configFromRunnersDocument(document.document, env, extractSection(markdown, "Rules"));
+		if (Object.keys(document.document).length > 0) {
+			const structured = configFromRunnersDocument(document.document, env, extractSection(markdown, "Rules"));
+			if (COMMAND_TABLES.some((table) => Object.prototype.hasOwnProperty.call(document.document, table)) || structured.errors.length) {
+				return structured;
+			}
+			const legacy = resolveRunnerConfig(markdown, env);
+			if (legacy.configSource === "config.md") {
+				return {
+					...legacy,
+					models: { ...legacy.models, ...structured.models },
+					maxParallel: structured.maxParallel ?? legacy.maxParallel,
+					warnings: [...legacy.warnings, ...structured.warnings, MARKDOWN_CONFIG_DEPRECATION],
+					configSource: "config.md",
+				};
+			}
+			return structured;
 		}
 	}
 	const config = resolveRunnerConfig(markdown, env);
@@ -409,6 +431,14 @@ function checkCapability(table: TomlTable, at: string, errors: string[]): void {
 	}
 }
 
+function enumField(table: TomlTable, key: string, at: string, allowed: readonly string[], errors: string[]): void {
+	const value = table[key];
+	if (value === undefined) return;
+	if (typeof value !== "string" || !allowed.includes(value)) {
+		errors.push(`${at}: ${JSON.stringify(value)} is not one of ${allowed.join(", ")}`);
+	}
+}
+
 /** The `model[:effort]` string every consumer of `RunnerConfig.models` expects. */
 function capabilityLabel(role: TomlTable | undefined, variant: TomlTable | undefined): string | undefined {
 	const model = variant?.model ?? role?.model;
@@ -428,6 +458,17 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 	const orchestration = subTable(document, "orchestration", "orchestration", errors);
 	if (orchestration) {
 		unknownKeys(orchestration, ORCHESTRATION_KEYS, "orchestration", errors);
+		enumField(orchestration, "substrate", "orchestration.substrate", ["herdr", "harness", "auto"], errors);
+		enumField(orchestration, "detect", "orchestration.detect", ["env-or-socket", "env", "socket"], errors);
+		for (const key of ["socket", "worktree_branch_prefix"] as const) {
+			const value = orchestration[key];
+			if (value !== undefined && (typeof value !== "string" || !value)) {
+				errors.push(`orchestration.${key}: must not be empty`);
+			}
+		}
+		if (orchestration.full_auto !== undefined && typeof orchestration.full_auto !== "boolean") {
+			errors.push(`orchestration.full_auto: must be a boolean, got ${JSON.stringify(orchestration.full_auto)}`);
+		}
 		const maxParallel = orchestration.max_parallel;
 		if (maxParallel !== undefined) {
 			if (typeof maxParallel !== "number" || !Number.isSafeInteger(maxParallel) || maxParallel < 1) {
@@ -442,6 +483,12 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 		unknownKeys(orchestrator, ORCHESTRATOR_KEYS, "orchestrator", errors);
 		if (orchestrator.harness === undefined && orchestrator.kind === undefined) {
 			errors.push("orchestrator: at least one of `harness` or `kind` must be present");
+		}
+		for (const key of ["harness", "kind"] as const) {
+			const value = stringField(orchestrator, key, `orchestrator.${key}`, errors);
+			if (value !== undefined && !KIND_PATTERN.test(value)) {
+				errors.push(`orchestrator.${key}: ${JSON.stringify(value)} is not a lowercase identifier`);
+			}
 		}
 		checkCapability(orchestrator, "orchestrator", errors);
 	}

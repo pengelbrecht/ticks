@@ -87,6 +87,7 @@ type legacyConfig struct {
 	acceptance      []acceptanceMapping
 	pi              []piValue
 	testingKeep     []legacyLine
+	warnings        []string
 }
 
 type migrateAssignment struct {
@@ -106,8 +107,14 @@ type migrateTable struct {
 }
 
 var (
-	legacyHeadingRE    = regexp.MustCompile(`^\s*#{2,}\s+(.+?)\s*$`)
-	legacyCommandRE    = regexp.MustCompile("^(?:([^`\\r\\n]{1,500}?):\\s*)?`([^`\\r\\n]+)`([^`]*)$")
+	legacyHeadingRE = regexp.MustCompile(`^\s*#{2,}\s+(.+?)\s*$`)
+	// Keep this byte-for-byte equivalent to the TypeScript legacy reader's
+	// parseExecutableCommands matcher. Migration must never authorize a line
+	// that the runtime reader would ignore.
+	legacyCommandRE = regexp.MustCompile("^(?:([^`:\\r\\n]{1,80}?):\\s*)?`([^`\\r\\n]+)`([^`]*)$")
+	// Used only to report the old migrator's broader match. It must never feed
+	// a command table.
+	legacyPromotionRE  = regexp.MustCompile("^(?:([^`\\r\\n]{1,500}?):\\s*)?`([^`\\r\\n]+)`([^`]*)$")
 	legacyAcceptanceRE = regexp.MustCompile("^[-*+]\\s+(A[1-9][0-9]{0,2})\\s*:\\s*`([^`\\r\\n]+)`(?:\\s+([^`]*)?)?$")
 	legacyKeyValueRE   = regexp.MustCompile(`^[-*+]\s*([a-zA-Z0-9_.-]+)\s*:\s*(.+)$`)
 	tomlTableRE        = regexp.MustCompile(`^\s*\[([^\[\]]+)\]\s*(?:#.*)?$`)
@@ -150,7 +157,7 @@ func Migrate(configMD, runnersTOML []byte) (MigrationResult, error) {
 		return MigrationResult{
 			ConfigMD:    append([]byte(nil), configMD...),
 			RunnersTOML: bumped,
-			Warnings:    warnings,
+			Warnings:    append(append([]string(nil), legacy.warnings...), warnings...),
 			Changed:     !bytesEqual(runnersTOML, bumped),
 		}, nil
 	}
@@ -164,6 +171,7 @@ func Migrate(configMD, runnersTOML []byte) (MigrationResult, error) {
 		return MigrationResult{}, err
 	}
 	mergedRunners, versionWarnings := raiseConfigVersion(mergedRunners)
+	warnings = append(append([]string(nil), legacy.warnings...), warnings...)
 	warnings = append(warnings, versionWarnings...)
 	if _, err := Parse(mergedRunners); err != nil {
 		return MigrationResult{}, fmt.Errorf("migrated .tick/runners.toml does not validate: %w", err)
@@ -244,26 +252,29 @@ func parseLegacyConfig(data []byte) (legacyConfig, error) {
 
 	var err error
 	if section := parsed.sections["testing"]; section != nil {
-		commands, notes, err := parseTestingSection(section.body)
+		commands, notes, warnings, err := parseTestingSection(section.body)
 		if err != nil {
 			return parsed, err
 		}
 		parsed.commands = append(parsed.commands, commands...)
 		parsed.testingKeep = notes
+		parsed.warnings = append(parsed.warnings, warnings...)
 	}
 	if section := parsed.sections["closeout evidence commands"]; section != nil {
-		commands, err := parseStrictCommandSection(section.body, "close-out evidence", "closeout evidence")
+		commands, warnings, err := parseStrictCommandSection(section.body, "close-out evidence", "closeout evidence")
 		if err != nil {
 			return parsed, err
 		}
 		parsed.commands = append(parsed.commands, commands...)
+		parsed.warnings = append(parsed.warnings, warnings...)
 	}
 	if section := parsed.sections["environment"]; section != nil {
-		commands, err := parseStrictCommandSection(section.body, "environment", "environment")
+		commands, warnings, err := parseStrictCommandSection(section.body, "environment", "environment")
 		if err != nil {
 			return parsed, err
 		}
 		parsed.commands = append(parsed.commands, commands...)
+		parsed.warnings = append(parsed.warnings, warnings...)
 	}
 	if section := parsed.sections["acceptance evidence"]; section != nil {
 		parsed.acceptance, err = parseAcceptanceSection(section.body)
@@ -284,9 +295,10 @@ func parseLegacyConfig(data []byte) (legacyConfig, error) {
 	return parsed, nil
 }
 
-func parseTestingSection(lines []legacyLine) ([]legacyCommand, []legacyLine, error) {
+func parseTestingSection(lines []legacyLine) ([]legacyCommand, []legacyLine, []string, error) {
 	var commands []legacyCommand
 	var notes []legacyLine
+	var warnings []string
 	var pendingBlank []legacyLine
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line.text)
@@ -305,13 +317,22 @@ func parseTestingSection(lines []legacyLine) ([]legacyCommand, []legacyLine, err
 		command, ok, hasInline := parseLegacyCommand(body, line.number, line.text, "testing")
 		if ok {
 			if err := validateMigrationCommand(command, line.text); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			commands = append(commands, command)
 			continue
 		}
 		if hasInline {
-			return nil, nil, migrationLineError{line: line.number, text: line.text, msg: "testing line contains inline code that is not one isolated command"}
+			if legacyPromotionRE.MatchString(body) {
+				warnings = append(warnings, legacyPromotionWarning("Testing", line))
+				if len(notes) == 0 && len(pendingBlank) > 0 {
+					notes = append(notes, pendingBlank...)
+					pendingBlank = nil
+				}
+				notes = append(notes, line)
+				continue
+			}
+			return nil, nil, nil, migrationLineError{line: line.number, text: line.text, msg: "testing line contains inline code that is not one isolated command"}
 		}
 		// A Testing line without inline code is narrative. It stays in
 		// config.md, and is also retained as [testing].notes for TOML readers.
@@ -321,11 +342,12 @@ func parseTestingSection(lines []legacyLine) ([]legacyCommand, []legacyLine, err
 		}
 		notes = append(notes, line)
 	}
-	return commands, notes, nil
+	return commands, notes, warnings, nil
 }
 
-func parseStrictCommandSection(lines []legacyLine, sectionName, table string) ([]legacyCommand, error) {
+func parseStrictCommandSection(lines []legacyLine, sectionName, table string) ([]legacyCommand, []string, error) {
 	var commands []legacyCommand
+	var warnings []string
 	for _, line := range lines {
 		if strings.TrimSpace(line.text) == "" {
 			continue
@@ -333,14 +355,22 @@ func parseStrictCommandSection(lines []legacyLine, sectionName, table string) ([
 		body := stripMarkdownBullet(strings.TrimSpace(line.text))
 		command, ok, _ := parseLegacyCommand(body, line.number, line.text, table)
 		if !ok {
-			return nil, migrationLineError{line: line.number, text: line.text, msg: fmt.Sprintf("%s line must contain exactly one isolated inline-code command", sectionName)}
+			if legacyPromotionRE.MatchString(body) {
+				warnings = append(warnings, legacyPromotionWarning(sectionName, line))
+				continue
+			}
+			return nil, nil, migrationLineError{line: line.number, text: line.text, msg: fmt.Sprintf("%s line must contain exactly one isolated inline-code command", sectionName)}
 		}
 		if err := validateMigrationCommand(command, line.text); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		commands = append(commands, command)
 	}
-	return commands, nil
+	return commands, warnings, nil
+}
+
+func legacyPromotionWarning(section string, line legacyLine) string {
+	return fmt.Sprintf(".tick/config.md:%d: %s line was not authorized or migrated because the legacy runner ignores it; the previous migrator grammar would have authorized it: %s", line.number, section, strings.TrimSpace(line.text))
 }
 
 func parseLegacyCommand(body string, line int, source, table string) (legacyCommand, bool, bool) {
@@ -429,7 +459,7 @@ func parsePiSection(lines []legacyLine) ([]piValue, error) {
 		}
 		seen[key] = true
 		if key == "review_should_fix" {
-			return nil, migrationLineError{line: line.number, text: line.text, msg: "review_should_fix has no destination in runners.toml; it is a review policy, not routing"}
+			return nil, migrationLineError{line: line.number, text: line.text, msg: "review_should_fix has no destination in runners.toml; delete this line and set TICKS_PI_REVIEW_SHOULD_FIX=repair or record instead"}
 		}
 		if !migrationPiKeys[key] {
 			return nil, migrationLineError{line: line.number, text: line.text, msg: fmt.Sprintf("unknown Pi Orchestrator key %q; refusing to guess its TOML destination", key)}

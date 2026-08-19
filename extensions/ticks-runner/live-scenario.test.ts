@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
 import { scenarioConfig, validateScenarioDefinition } from "../../scripts/pi-ticks-live-scenario.ts";
-import { resolveRunnerConfig } from "./config.ts";
+import { resolveRunnerConfigFromToml } from "./config.ts";
 
 const script = path.resolve(import.meta.dirname, "..", "..", "scripts", "pi-ticks-live-scenario.ts");
 
@@ -12,7 +12,9 @@ test("disposable live scenario dry validation binds one explicit item without in
 	const validated = validateScenarioDefinition("openai-codex/gpt-5.6-sol:medium");
 	assert.deepEqual(validated.acceptanceIds, ["A1"]);
 	assert.deepEqual(validated.commands, ["node verify.mjs"]);
-	const config = resolveRunnerConfig(scenarioConfig(validated.model), {});
+	const config = resolveRunnerConfigFromToml(scenarioConfig(validated.model), {}, { rules: ["- Keep the disposable scenario limited to delivered.txt."] });
+	assert.equal(config.configSource, "runners.toml");
+	assert.doesNotMatch(scenarioConfig(validated.model), /## (?:Testing|Environment|Acceptance Evidence|Pi Orchestrator)/);
 	assert.equal(config.acceptanceEvidenceErrors.length, 0);
 	const packageJson = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "package.json"), "utf8"));
 	assert.ok(packageJson.files.includes("scripts/pi-ticks-live-scenario.ts"), "the published Pi package carries the real-run harness");

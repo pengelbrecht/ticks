@@ -130,6 +130,7 @@ For a tick with role R and chosen tier T:
 **Within one wave, the tier is the only per-tick routing knob.** Role comes from the tick (`tk create --role`), and the tracker only tags the *process* roles — `review` and `closeout`. Every implementation tick in a wave therefore resolves against `roles.implement`, so two same-wave ticks can only land on different kinds if they are assigned different tiers and those tiers override `kind`. That is supported and it is how the substrate's headline cross-vendor capability is exercised per tick:
 
 ```toml
+# fragment
 [roles.implement]
 kind = "codex"
 model = "gpt-5.6-luna"

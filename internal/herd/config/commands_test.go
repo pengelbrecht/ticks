@@ -42,6 +42,20 @@ func TestDocTomlBlocksLoad(t *testing.T) {
 	}
 }
 
+func TestPiRunnerTomlBlockLoads(t *testing.T) {
+	doc, err := skills.Read("ticks", "references/pi-runner.md")
+	if err != nil {
+		t.Fatalf("read pi-runner.md: %v", err)
+	}
+	blocks := tomlBlock.FindAllStringSubmatch(string(doc), -1)
+	if len(blocks) != 1 {
+		t.Fatalf("found %d toml blocks in pi-runner.md, want 1", len(blocks))
+	}
+	if _, err := Parse([]byte(blocks[0][1])); err != nil {
+		t.Fatalf("pi-runner.md TOML block does not validate: %v", err)
+	}
+}
+
 // TestCommandSurfaceParses proves worked example 6 — routing plus all four
 // command tables — loads and exposes what the doc says it does. This is the
 // shape `.tick/config.md`'s structured sections migrate into, so a repo that

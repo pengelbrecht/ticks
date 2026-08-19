@@ -94,3 +94,42 @@ func TestMigrateOnlyStripsALeadingSeparator(t *testing.T) {
 		t.Errorf("a bare separator should leave no description, got %q", got)
 	}
 }
+
+func TestMigrateUsesLegacyCommandGrammarAndReportsWouldBePromotedLines(t *testing.T) {
+	longLabel := strings.Repeat("x", 81)
+	legacy := "## Testing\n" +
+		"- Valid: `true`\n" +
+		"- Herd helper live smoke (quick: 2 workers, ~1 min): `bash scripts/verify-herd-helper.sh --quick`\n" +
+		"- " + longLabel + ": `echo too-long-label`\n"
+
+	result, err := Migrate([]byte(legacy), []byte("version = 1\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	joined := strings.Join(result.Warnings, "\n")
+	if !strings.Contains(joined, "Herd helper live smoke (quick: 2 workers, ~1 min)") || !strings.Contains(joined, longLabel) {
+		t.Fatalf("migration did not report every line the old migrator grammar would have promoted:\n%s", joined)
+	}
+	if !strings.Contains(string(result.ConfigMD), "Herd helper live smoke") || !strings.Contains(string(result.ConfigMD), longLabel) {
+		t.Fatalf("unclassifiable Testing lines were silently removed from config.md:\n%s", result.ConfigMD)
+	}
+	cfg, err := Parse(result.RunnersTOML)
+	if err != nil {
+		t.Fatalf("migrated TOML does not validate: %v\n%s", err, result.RunnersTOML)
+	}
+	if len(cfg.Testing.Commands) != 1 || cfg.Testing.Commands["valid"] == nil {
+		t.Fatalf("legacy-ignored lines became authorized TOML commands: %#v\n%s", cfg.Testing.Commands, result.RunnersTOML)
+	}
+}
+
+func TestMigrateReviewShouldFixNamesItsEnvironmentRemedy(t *testing.T) {
+	legacy := "## Pi Orchestrator\n- review_should_fix: repair\n"
+	_, err := Migrate([]byte(legacy), nil)
+	if err == nil {
+		t.Fatal("Migrate accepted review_should_fix without a TOML destination")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "delete") || !strings.Contains(message, "TICKS_PI_REVIEW_SHOULD_FIX") {
+		t.Fatalf("refusal did not name the remedy: %v", err)
+	}
+}

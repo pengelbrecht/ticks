@@ -23,6 +23,10 @@ export class TomlParseError extends Error {
 
 type Table = Record<string, unknown>;
 
+function newTable(): Table {
+	return Object.create(null) as Table;
+}
+
 const BARE_KEY = /^[A-Za-z0-9_-]+$/;
 const INTEGER = /^[+-]?[0-9](?:_?[0-9])*$/;
 const FLOAT = /^[+-]?[0-9](?:_?[0-9])*\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9]+)?$/;
@@ -35,7 +39,7 @@ function isPlainObject(value: unknown): value is Table {
 export function parseToml(source: string): Table {
 	const src = source.replace(/\r\n/g, "\n");
 	let pos = 0;
-	const root: Table = {};
+	const root = newTable();
 	/** Paths a `[header]` or an inline table has closed: neither may be reopened. */
 	const closed = new Set<string>();
 	/** Paths that already hold a value, so a later assignment is a duplicate. */
@@ -185,7 +189,7 @@ export function parseToml(source: string): Table {
 
 	function parseInlineTable(): Table {
 		pos++;
-		const table: Table = {};
+		const table = newTable();
 		for (;;) {
 			skipBlank();
 			if (pos >= src.length) fail("unterminated inline table");
@@ -199,7 +203,7 @@ export function parseToml(source: string): Table {
 			let target = table;
 			for (const part of parts.slice(0, -1)) {
 				const next = target[part];
-				if (next === undefined) target[part] = {};
+				if (next === undefined) target[part] = newTable();
 				else if (!isPlainObject(next)) fail(`cannot extend ${JSON.stringify(part)}: it is not a table`);
 				target = target[part] as Table;
 			}
@@ -223,7 +227,7 @@ export function parseToml(source: string): Table {
 			const dotted = walked.join(".");
 			const next = table[part];
 			if (next === undefined) {
-				table[part] = {};
+				table[part] = newTable();
 			} else if (!isPlainObject(next)) {
 				fail(`cannot define [${dotted}]: it is already a non-table value`);
 			} else if (closed.has(dotted) && !viaHeader) {

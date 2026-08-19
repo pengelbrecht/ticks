@@ -80,15 +80,15 @@ func runConfigMigrate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
-	if !result.Changed {
-		fmt.Fprintln(cmd.OutOrStdout(), "nothing to migrate; .tick/config.md has no legacy structured sections")
-		return nil
-	}
-
 	out := cmd.OutOrStdout()
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
+	if !result.Changed {
+		fmt.Fprintln(out, "nothing to migrate; .tick/config.md has no legacy structured sections")
+		return nil
+	}
+
 	printConfigMigrationDiff(out, ".tick/config.md", legacyData, result.ConfigMD)
 	printConfigMigrationDiff(out, ".tick/runners.toml", runnersData, result.RunnersTOML)
 
@@ -109,13 +109,95 @@ func printConfigMigrationDiff(out io.Writer, name string, before, after []byte) 
 	}
 	oldLines := diffLines(before)
 	newLines := diffLines(after)
-	fmt.Fprintf(out, "--- %s\n+++ %s\n@@ -1,%d +1,%d @@\n", name, name, len(oldLines), len(newLines))
-	for _, line := range oldLines {
-		fmt.Fprintf(out, "-%s\n", line)
+	fmt.Fprintf(out, "--- %s\n+++ %s\n", name, name)
+	for _, hunk := range diffHunks(diffOperations(oldLines, newLines)) {
+		oldCount, newCount := 0, 0
+		for _, operation := range hunk {
+			if operation.kind != '+' {
+				oldCount++
+			}
+			if operation.kind != '-' {
+				newCount++
+			}
+		}
+		fmt.Fprintf(out, "@@ -%d,%d +%d,%d @@\n", hunk[0].oldLine, oldCount, hunk[0].newLine, newCount)
+		for _, operation := range hunk {
+			fmt.Fprintf(out, "%c%s\n", operation.kind, operation.text)
+		}
 	}
-	for _, line := range newLines {
-		fmt.Fprintf(out, "+%s\n", line)
+}
+
+type configDiffOperation struct {
+	kind    byte
+	text    string
+	oldLine int
+	newLine int
+}
+
+func diffOperations(oldLines, newLines []string) []configDiffOperation {
+	lcs := make([][]int, len(oldLines)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(newLines)+1)
 	}
+	for i := len(oldLines) - 1; i >= 0; i-- {
+		for j := len(newLines) - 1; j >= 0; j-- {
+			if oldLines[i] == newLines[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else if lcs[i+1][j] >= lcs[i][j+1] {
+				lcs[i][j] = lcs[i+1][j]
+			} else {
+				lcs[i][j] = lcs[i][j+1]
+			}
+		}
+	}
+
+	operations := make([]configDiffOperation, 0, len(oldLines)+len(newLines))
+	i, j := 0, 0
+	for i < len(oldLines) || j < len(newLines) {
+		switch {
+		case i < len(oldLines) && j < len(newLines) && oldLines[i] == newLines[j]:
+			operations = append(operations, configDiffOperation{kind: ' ', text: oldLines[i], oldLine: i + 1, newLine: j + 1})
+			i++
+			j++
+		case j == len(newLines) || (i < len(oldLines) && lcs[i+1][j] >= lcs[i][j+1]):
+			operations = append(operations, configDiffOperation{kind: '-', text: oldLines[i], oldLine: i + 1, newLine: j + 1})
+			i++
+		default:
+			operations = append(operations, configDiffOperation{kind: '+', text: newLines[j], oldLine: i + 1, newLine: j + 1})
+			j++
+		}
+	}
+	return operations
+}
+
+func diffHunks(operations []configDiffOperation) [][]configDiffOperation {
+	type span struct{ start, end int }
+	spans := make([]span, 0)
+	for index, operation := range operations {
+		if operation.kind == ' ' {
+			continue
+		}
+		start := index - 3
+		if start < 0 {
+			start = 0
+		}
+		end := index + 4
+		if end > len(operations) {
+			end = len(operations)
+		}
+		if len(spans) > 0 && start <= spans[len(spans)-1].end {
+			if end > spans[len(spans)-1].end {
+				spans[len(spans)-1].end = end
+			}
+			continue
+		}
+		spans = append(spans, span{start: start, end: end})
+	}
+	hunks := make([][]configDiffOperation, 0, len(spans))
+	for _, item := range spans {
+		hunks = append(hunks, operations[item.start:item.end])
+	}
+	return hunks
 }
 
 func diffLines(data []byte) []string {
@@ -145,14 +227,16 @@ func writeMigrationFiles(configPath string, newConfig []byte, runnersPath string
 	defer os.Remove(configTemp)
 	defer os.Remove(runnersTemp)
 
-	if err := os.Rename(configTemp, configPath); err != nil {
-		return fmt.Errorf("writing %s: %w", configPath, err)
-	}
-	if err := os.Rename(runnersTemp, runnersPath); err != nil {
+	if err := renameMigrationFile(runnersTemp, runnersPath); err != nil {
 		return fmt.Errorf("writing %s: %w", runnersPath, err)
+	}
+	if err := renameMigrationFile(configTemp, configPath); err != nil {
+		return fmt.Errorf("writing %s: %w", configPath, err)
 	}
 	return nil
 }
+
+var renameMigrationFile = os.Rename
 
 func fileMode(path string, fallback os.FileMode) os.FileMode {
 	info, err := os.Stat(path)

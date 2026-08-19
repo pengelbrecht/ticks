@@ -32,7 +32,10 @@ import tomllib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "skills/ticks/references/runners-config.schema.json"
-DOC_PATH = REPO_ROOT / "skills/ticks/references/runners-config.md"
+DOC_PATHS = (
+    ("runners-config.md", REPO_ROOT / "skills/ticks/references/runners-config.md"),
+    ("pi-runner.md", REPO_ROOT / "skills/ticks/references/pi-runner.md"),
+)
 
 # The three command tables, in the order a reference is resolved.
 COMMAND_TABLES = ("testing", "evidence", "environment")
@@ -317,26 +320,30 @@ def self_test(schema: dict) -> int:
         failures += 1
         print("FAIL duplicate acceptance id was accepted")
 
-    # Every fenced TOML block in the doc must validate.
-    blocks = toml_blocks(DOC_PATH.read_text())
-    if len(blocks) < 7:
-        failures += 1
-        print(f"FAIL doc has {len(blocks)} toml blocks, want >= 7")
-    for i, block in enumerate(blocks, 1):
-        try:
-            parsed = tomllib.loads(block)
-        except tomllib.TOMLDecodeError as exc:
+    # Every fenced TOML block in the reference docs must validate. The Pi
+    # adapter has its own worked block, so it is intentionally included here
+    # rather than relying on a human to keep it in sync with the schema.
+    for doc_name, doc_path in DOC_PATHS:
+        blocks = toml_blocks(doc_path.read_text())
+        minimum = 7 if doc_name == "runners-config.md" else 1
+        if len(blocks) < minimum:
             failures += 1
-            print(f"FAIL runners-config.md toml block {i}: parse error: {exc}")
-            continue
-        fragment = block.lstrip().startswith(FRAGMENT_MARKER)
-        errors = validate(parsed, fragment_schema(schema) if fragment else schema, references=not fragment)
-        label = "fragment" if fragment else "config"
-        if errors:
-            failures += 1
-            print(f"FAIL runners-config.md toml block {i} ({label}): {'; '.join(errors)}")
-        else:
-            print(f"ok   runners-config.md toml block {i} ({label})")
+            print(f"FAIL {doc_name} has {len(blocks)} toml blocks, want >= {minimum}")
+        for i, block in enumerate(blocks, 1):
+            try:
+                parsed = tomllib.loads(block)
+            except tomllib.TOMLDecodeError as exc:
+                failures += 1
+                print(f"FAIL {doc_name} toml block {i}: parse error: {exc}")
+                continue
+            fragment = block.lstrip().startswith(FRAGMENT_MARKER)
+            errors = validate(parsed, fragment_schema(schema) if fragment else schema, references=not fragment)
+            label = "fragment" if fragment else "config"
+            if errors:
+                failures += 1
+                print(f"FAIL {doc_name} toml block {i} ({label}): {'; '.join(errors)}")
+            else:
+                print(f"ok   {doc_name} toml block {i} ({label})")
 
     return failures
 
