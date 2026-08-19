@@ -49,6 +49,12 @@ func TestDocExamplesParse(t *testing.T) {
 			roles: []string{"implement", "plan", "review", "scout"},
 		},
 		{
+			name: "example 6 routing plus command surface", toml: docExample6,
+			substrate: SubstrateAuto, detect: DetectEnvOrSocket, maxParallel: 4,
+			fullAuto: true, branchPrefix: "tick/", orchHarness: "claude",
+			roles: []string{"implement", "review"},
+		},
+		{
 			name: "tier overrides kind snippet", toml: docTierKindOverride,
 			substrate: SubstrateAuto, detect: DetectEnvOrSocket, maxParallel: 0,
 			fullAuto: true, branchPrefix: "tick/", orchHarness: "",

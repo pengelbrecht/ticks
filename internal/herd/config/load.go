@@ -59,6 +59,23 @@ var (
 	// effort belongs in `effort`, never smuggled into pi's model:thinking
 	// shorthand.
 	modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$`)
+	// commandIDPattern is the schema's CommandId pattern: the key of a command
+	// table and the value of an acceptance mapping.
+	commandIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	// acceptanceItemPattern is the schema's Acceptance.propertyNames pattern —
+	// the `A<n>` written in a tick's acceptance criteria.
+	acceptanceItemPattern = regexp.MustCompile(`^A[1-9][0-9]{0,2}$`)
+)
+
+// The schema's bounds on the command surface, kept here so a change to one is
+// visibly a change to the other.
+const (
+	maxCommandIDLen     = 64
+	maxCommandLen       = 2000
+	maxDescriptionLen   = 500
+	maxNotesLen         = 8000
+	maxCommandsPerTable = 128
+	maxAcceptanceItems  = 64
 )
 
 // LoadRepo loads `<repoRoot>/.tick/runners.toml`.
@@ -125,6 +142,7 @@ func validate(cfg *Config, md toml.MetaData) ValidationErrors {
 	validateOrchestrator(cfg, md, add)
 	validateOrchestration(cfg, md, add)
 	validateRoles(cfg, md, add)
+	validateCommands(cfg, md, add)
 
 	sort.SliceStable(errs, func(i, j int) bool { return errs[i].Path < errs[j].Path })
 	return errs
@@ -248,6 +266,136 @@ func validateRoles(cfg *Config, md toml.MetaData, add addFunc) {
 			}
 			if md.IsDefined("roles", name, "tiers", tier, "effort") {
 				checkEffort(add, tbase+".effort", variant.Effort)
+			}
+		}
+	}
+}
+
+// validateCommands enforces the schema's `[testing]`, `[evidence]` and
+// `[environment]` tables, and then the three cross-table rules the schema
+// cannot express — JSON Schema has no referential integrity, so
+// runners-config.md's "Caught by the config loader" section is normative for
+// them and this is where they are enforced. All three fail closed: an
+// unresolvable acceptance reference is a stop, never a degradation to running
+// something generic.
+func validateCommands(cfg *Config, md toml.MetaData, add addFunc) {
+	// Table name -> its commands, in the order a reference resolves.
+	type table struct {
+		name     string
+		commands Commands
+	}
+	var tables []table
+	if cfg.Testing != nil {
+		checkNotes(add, md, "testing", cfg.Testing.Notes)
+		tables = append(tables, table{"testing", cfg.Testing.Commands})
+	}
+	if cfg.Evidence != nil {
+		checkNotes(add, md, "evidence", cfg.Evidence.Notes)
+		tables = append(tables, table{"evidence", cfg.Evidence.Commands})
+	}
+	if cfg.Environment != nil {
+		checkNotes(add, md, "environment", cfg.Environment.Notes)
+		tables = append(tables, table{"environment", cfg.Environment.Commands})
+	}
+
+	// Per-table shape, plus the two whole-file uniqueness rules. Ids and
+	// command strings are each unique across all three tables: a colliding id
+	// makes an acceptance reference ambiguous, and a colliding command string
+	// makes the phase authorized to run it ambiguous — which is exactly what
+	// the markdown format's "verbatim and uniquely" was protecting.
+	idOwner := map[string]string{}
+	textOwner := map[string]string{}
+	for _, t := range tables {
+		if len(t.commands) > maxCommandsPerTable {
+			add(t.name+".commands", fmt.Sprintf("%d commands exceeds the limit of %d", len(t.commands), maxCommandsPerTable))
+		}
+		for _, id := range sortedKeys(t.commands) {
+			base := t.name + ".commands." + id
+			if !commandIDPattern.MatchString(id) || len(id) > maxCommandIDLen {
+				add(base, fmt.Sprintf("%q is not a well-formed command id (%s, at most %d characters)", id, commandIDPattern.String(), maxCommandIDLen))
+			}
+			cmd := t.commands[id]
+			if cmd == nil {
+				add(base, "must be a table")
+				continue
+			}
+			if !md.IsDefined(t.name, "commands", id, "command") {
+				add(base+".command", "required — a labelled entry with nothing to run is not a command")
+			} else {
+				checkCommandText(add, base+".command", cmd.Command)
+			}
+			if md.IsDefined(t.name, "commands", id, "description") {
+				switch {
+				case cmd.Description == "":
+					add(base+".description", "must not be empty — omit the key instead")
+				case len(cmd.Description) > maxDescriptionLen:
+					add(base+".description", fmt.Sprintf("%d characters exceeds the limit of %d", len(cmd.Description), maxDescriptionLen))
+				}
+			}
+
+			if owner, ok := idOwner[id]; ok {
+				add(base, fmt.Sprintf("command id is already defined in %s.commands — ids are unique across testing/evidence/environment, or a reference cannot say which phase it means", owner))
+			} else {
+				idOwner[id] = t.name
+			}
+			if cmd.Command == "" {
+				continue
+			}
+			if owner, ok := textOwner[cmd.Command]; ok {
+				add(base, fmt.Sprintf("command is already authorised as %s — a command belongs to exactly one phase, or a close-out-only command becomes runnable by an implementer", owner))
+			} else {
+				textOwner[cmd.Command] = base
+			}
+		}
+	}
+
+	if cfg.Evidence == nil {
+		return
+	}
+	if len(cfg.Evidence.Acceptance) > maxAcceptanceItems {
+		add("evidence.acceptance", fmt.Sprintf("%d items exceeds the limit of %d", len(cfg.Evidence.Acceptance), maxAcceptanceItems))
+	}
+	for _, item := range sortedKeys(cfg.Evidence.Acceptance) {
+		path := "evidence.acceptance." + item
+		if !acceptanceItemPattern.MatchString(item) {
+			add(path, fmt.Sprintf("%q is not a stable acceptance item id — use A<n> as written in the tick's acceptance criteria (%s)", item, acceptanceItemPattern.String()))
+		}
+		ref := cfg.Evidence.Acceptance[item]
+		if !commandIDPattern.MatchString(ref) {
+			add(path, fmt.Sprintf("%q is not a well-formed command id (%s)", ref, commandIDPattern.String()))
+			continue
+		}
+		// `[environment.commands]` is deliberately absent from this lookup: a
+		// pre-flight check is not acceptance evidence.
+		if owner := idOwner[ref]; owner != "testing" && owner != "evidence" {
+			add(path, fmt.Sprintf("%q is not a command defined in testing.commands or evidence.commands — nothing outside this file authorises shell", ref))
+		}
+	}
+}
+
+func checkNotes(add addFunc, md toml.MetaData, table, notes string) {
+	if !md.IsDefined(table, "notes") {
+		return
+	}
+	if len(notes) > maxNotesLen {
+		add(table+".notes", fmt.Sprintf("%d characters exceeds the limit of %d", len(notes), maxNotesLen))
+	}
+}
+
+// checkCommandText mirrors the schema's `Command.command`: non-empty, bounded,
+// and free of control characters. Control characters are rejected rather than
+// escaped — the markdown format's injection guard becomes a type here.
+func checkCommandText(add addFunc, path, value string) {
+	switch {
+	case value == "":
+		add(path, "must not be empty — delete the entry instead")
+	case len(value) > maxCommandLen:
+		add(path, fmt.Sprintf("%d characters exceeds the limit of %d", len(value), maxCommandLen))
+	default:
+		for _, r := range value {
+			if r < 0x20 || r == 0x7f {
+				add(path, fmt.Sprintf("contains a control character (%U) — a command is one plain shell string", r))
+				return
 			}
 		}
 	}

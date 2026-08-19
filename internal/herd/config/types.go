@@ -78,6 +78,9 @@ type Config struct {
 	Orchestrator  *Orchestrator    `toml:"orchestrator"`
 	Orchestration *Orchestration   `toml:"orchestration"`
 	Roles         map[string]*Role `toml:"roles"`
+	Testing       *Testing         `toml:"testing"`
+	Evidence      *Evidence        `toml:"evidence"`
+	Environment   *Environment     `toml:"environment"`
 }
 
 // Orchestrator records which harness/kind the config was written for. It is
@@ -119,6 +122,51 @@ type TierVariant struct {
 	Model  string   `toml:"model"`
 	Effort Effort   `toml:"effort"`
 	Args   []string `toml:"args"`
+}
+
+// Command is one executable command. Command is run verbatim — one shell
+// string, never a template and never a line that also carries prose.
+// Description is the human label the markdown format wrote before the colon;
+// it is documentation and is never executed or matched against.
+type Command struct {
+	Command     string `toml:"command"`
+	Description string `toml:"description"`
+}
+
+// Commands maps a command id to its command. A keyed table rather than a list
+// because the id is the contract: keying by it makes a duplicate id a TOML
+// parse error, and gives [Evidence.Acceptance] something stable to point at
+// that is not the command's own text.
+type Commands map[string]*Command
+
+// Testing holds the commands implementers run, plus the narrative caveats
+// that belong with them. Unlike [Evidence] these carry no phase restriction.
+type Testing struct {
+	Notes    string   `toml:"notes"`
+	Commands Commands `toml:"commands"`
+}
+
+// Evidence holds close-out-only commands and the acceptance authorization
+// table. A command defined here may run ONLY during close-out — never by an
+// implementer, a per-tick verifier, a post-wave gate, or final-review tests.
+// The table a command sits in IS its authorization: there is deliberately no
+// key that relaxes it, so a typo cannot promote a command.
+type Evidence struct {
+	Notes    string   `toml:"notes"`
+	Commands Commands `toml:"commands"`
+	// Acceptance maps an acceptance item id (`A<n>`) to the id of the one
+	// command that authorizes it, in Testing.Commands or Evidence.Commands.
+	// An item whose reference resolves to nothing is a stop: nothing outside
+	// this file authorizes shell.
+	Acceptance map[string]string `toml:"acceptance"`
+}
+
+// Environment holds the run-start pre-flight checks: commands that TEST a
+// precondition rather than asking a human about it, run once before wave 1.
+// They never authorize an acceptance item.
+type Environment struct {
+	Notes    string   `toml:"notes"`
+	Commands Commands `toml:"commands"`
 }
 
 // Substrate reports the configured substrate, defaulting to
