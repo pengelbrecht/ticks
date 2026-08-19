@@ -483,6 +483,14 @@ func TestDeployURLOverrideSkipsDetection(t *testing.T) {
 // that is not actually missing.
 func TestDeployResolvesWranglerThroughNpx(t *testing.T) {
 	h := newHarness(t)
+	fakeNpx, err := filepath.Abs(filepath.Join("testdata", "fake-npx.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeWrangler, err := filepath.Abs(filepath.Join("testdata", "fake-wrangler.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	// This scenario has only npx available. It must not accidentally use the
 	// repository's own dependency when the tests run from a checkout.
 	restore := chdir(t, t.TempDir())
@@ -490,20 +498,12 @@ func TestDeployResolvesWranglerThroughNpx(t *testing.T) {
 
 	// A PATH with npx but no wrangler.
 	binDir := t.TempDir()
-	fakeNpx, err := filepath.Abs(filepath.Join("testdata", "fake-npx.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Symlink(fakeNpx, filepath.Join(binDir, "npx")); err != nil {
 		t.Fatal(err)
 	}
 	// The npx fake forwards to the wrangler fake beside it, so both have to
 	// live in the directory PATH resolves npx from. Only "npx" is a command
 	// name, so this still leaves no `wrangler` on PATH.
-	fakeWrangler, err := filepath.Abs(filepath.Join("testdata", "fake-wrangler.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Symlink(fakeWrangler, filepath.Join(binDir, "fake-wrangler.sh")); err != nil {
 		t.Fatal(err)
 	}
