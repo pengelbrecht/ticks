@@ -43,5 +43,12 @@ database_id = "00000000-0000-0000-0000-000000000000"
 # default so the deploy command and the config name the same path.
 migrations_dir = "migrations"
 
+# How long a submission refused by a live lease stays parked before it expires
+# (D22): a queue that silently ignites work hours later is worse than a
+# refusal, so the window is short, visible to `status`, and a deployment
+# decision. Bounds and the default live in src/runs.ts.
+[vars]
+RUN_QUEUE_TTL_MS = "1800000"
+
 [dev]
 port = 8788
