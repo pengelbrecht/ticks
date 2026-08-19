@@ -2,7 +2,7 @@
   "id": "ko8",
   "title": "Phase 1: single-sandbox cloud run",
   "description": "The trojan horse (needs planning when foundations close): tk cloud run \u003cepic\u003e starts a Run Workflow that boots ONE orchestrator sandbox (omp kind, harness substrate for workers inside it), clones at the submitted SHA, runs the existing skill loop, pushes branches, parks gates in the RunRoom DO, delivers them via Telegram, enforces budget from AI Gateway. Zero new orchestration logic — proves auth, secrets, git credentials, sandbox lifecycle, budgets, and phone gates end to end. Includes RunRoom DO lease + pending store and the D1 signals/dispatch_log schema (D20).",
-  "notes": "2026-08-19 15:30 - [human] Scope expanded 2026-08-19 by human decision: terminal rung of the UC1b operator command surface (D21/D22) is Phase 1. See docs/design/cloud-factory.md UC1b.\n2026-08-19 18:16 - runner-state: substrate=herdr orchestrator=claude:orchestrator branch=epic/ko8 base=epic/63t focus-at-start=w9T. Base is epic/63t rather than main BECAUSE PR #48 (factory foundations) is green but not yet merged and Phase 1 builds directly on it. Re-point base-branch to main once #48 merges; the epic branch will fast-forward cleanly since nothing else has touched these paths.",
+  "notes": "2026-08-19 15:30 - [human] Scope expanded 2026-08-19 by human decision: terminal rung of the UC1b operator command surface (D21/D22) is Phase 1. See docs/design/cloud-factory.md UC1b.\n2026-08-19 18:16 - runner-state: substrate=herdr orchestrator=claude:orchestrator branch=epic/ko8 base=epic/63t focus-at-start=w9T. Base is epic/63t rather than main BECAUSE PR #48 (factory foundations) is green but not yet merged and Phase 1 builds directly on it. Re-point base-branch to main once #48 merges; the epic branch will fast-forward cleanly since nothing else has touched these paths.\n2026-08-19 18:26 - [human] Decision (human, 2026-08-19): ONE factory, MANY projects — the factory is scoped to a Cloudflare account, not a repo. Multi-repo was already designed in (per-project lease, project column on every D1 table, project-prefixed R2 keys), so no structural change is needed. A second factory is only for deliberate separation (billing, blast radius, credential grades) and would need per-deployment resource names, which we are NOT building. Folded into daq: project enrolment is now required, because otherwise the bearer token alone would let any holder run any repo.",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -18,5 +18,5 @@
   "base_branch": "epic/63t",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:17:51.47407486Z",
-  "updated_at": "2026-08-19T16:16:44.426926Z"
+  "updated_at": "2026-08-19T16:26:40.034346Z"
 }
