@@ -64,9 +64,18 @@ A6 = "docs-install-content"
 
 # `tk config migrate` also offered [roles.plan], [roles.scout] and [roles.review]
 # at kind = "pi", carried over from the legacy `## Pi Orchestrator` block. They
-# are deliberately NOT taken: [roles] is one shared table, this repo's
-# `implement` routing is claude/codex (the migration preserved it over the pi
-# ids, see its warnings), and a file that routes implement to claude and review
-# to pi is not a run any substrate here can execute. With no entry of their own
-# these roles resolve against [roles.implement], which is exactly what they did
-# before the migration — the move changed the file, not what a wave spawns.
+# are deliberately NOT taken: [roles] is one shared table, and this repo's
+# routing is claude/codex.
+#
+# RECORDED DECISION (human, 2026-08-19): this repo does not drive runs through
+# the pi extension. Its orchestration is the herdr substrate with claude and
+# codex workers, which is what the routing above expresses.
+#
+# Consequence, by design and not a regression: the pi extension now REFUSES a
+# role whose kind is not `pi` rather than handing claude/codex model ids to a pi
+# subprocess (tick qf0). So `/ticks-plan` and `/ticks-run` report a config error
+# here, and `tk herd` is unaffected. An earlier version of this comment claimed
+# the migration "changed the file, not what a wave spawns" — true for
+# `tk herd spawn`, false for the pi extension, which was the only consumer those
+# `## Pi Orchestrator` keys ever had. Restoring pi here means giving those roles
+# explicit `kind = "pi"` entries with pi-namespace model ids.
