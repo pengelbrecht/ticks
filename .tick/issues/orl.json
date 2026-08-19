@@ -3,7 +3,7 @@
   "title": "Sandbox pre-flight is a silent no-op for migrated repos",
   "description": "FAIL-OPEN in Phase 1s own deliverable. cloud/sandbox/preflight.sh still parses the pre-48d markdown ## Environment section of .tick/config.md. That section no longer exists in a migrated repo — the checks now live in [environment.commands] in runners.toml — so the run-start gate finds nothing to run and SILENTLY PASSES for every migrated repo.\n\nThis is precisely the parity point 3q2 predicted when it noted preflight.sh mirrors the runners single-inline-code-span rule; it was recorded on 48d and the migration did not carry it across. A pre-flight that always passes is worse than no pre-flight: it reports a green environment check on a broken environment, which is the failure mode this whole epic keeps catching in other guises.\n\nFix, same shape as 79x used: have the entrypoint ask tk for the environment checks rather than parsing config files in bash. That removes the second parser permanently instead of teaching it a second format. Include a test that a migrated repo actually RUNS its checks and that a failing check still stops the boot nonzero with the failing check named.",
   "notes": "2026-08-20 01:10 - runner-state: substrate=herdr kind=codex branch=tick/orl worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-orl workspace=wBH base=d2cdfb475aeb1838bdb5523e1723ce135db99d93 agent=tick-orl pane=wBH:p1 session=01a01c49-e3f5-74a2-811b-e01043fc10c6",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -12,6 +12,7 @@
   "acceptance_criteria": "A migrated repo running the sandbox entrypoint executes its [environment.commands] checks; a failing check exits nonzero naming the check; a repo with no environment checks is distinguishable in the log from a repo whose checks were not found; no markdown parsing remains in preflight.sh.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T23:09:40.493084Z",
-  "updated_at": "2026-08-19T23:10:08.386273Z",
-  "started_at": "2026-08-19T23:09:53.561126Z"
+  "updated_at": "2026-08-19T23:28:46.757607Z",
+  "closed_at": "2026-08-19T23:28:46.757607Z",
+  "closed_reason": "Completed: the sandbox pre-flight no longer parses markdown — the entrypoint asks the verified tk binary for the environment checks, so a migrated repo actually runs them instead of silently passing, and a failing check still stops the boot nonzero."
 }
