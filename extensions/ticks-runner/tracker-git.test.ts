@@ -20,7 +20,7 @@ function fixture(): string {
 	fs.writeFileSync(path.join(root, "source.txt"), "source\n");
 	git(root, "init", "--initial-branch=feature");
 	git(root, "config", "user.name", "Ticks Test");
-	git(root, "config", "user.email", "ticks@example.com");
+	git(root, "config", "user.email", "ticks@example.invalid");
 	git(root, "add", "-A");
 	git(root, "commit", "-m", "base");
 	return root;

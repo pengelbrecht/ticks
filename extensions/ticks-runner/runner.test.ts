@@ -116,7 +116,7 @@ if (!files.length) process.exit(7);
 	fs.writeFileSync(path.join(repo, "README.txt"), "fixture\n");
 	command(repo, "git", "init", "--initial-branch=feature");
 	command(repo, "git", "config", "user.name", "Ticks Runner Test");
-	command(repo, "git", "config", "user.email", "ticks-runner@example.com");
+	command(repo, "git", "config", "user.email", "ticks-runner@example.invalid");
 	command(repo, "git", "add", "-A");
 	command(repo, "git", "commit", "-m", "fixture base");
 	command(repo, "git", "branch", "base");

@@ -64,7 +64,7 @@ test("run, planning apply, and dashboard processes race one checkout lease and s
 	fs.writeFileSync(path.join(repo, "source.txt"), "source\n");
 	git(repo, "init", "--initial-branch=feature");
 	git(repo, "config", "user.name", "Authority Test");
-	git(repo, "config", "user.email", "authority@example.com");
+	git(repo, "config", "user.email", "authority@example.invalid");
 	git(repo, "add", "-A");
 	git(repo, "commit", "-m", "base");
 

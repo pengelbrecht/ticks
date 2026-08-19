@@ -258,7 +258,7 @@ log "tk: $TK"
 
 cd "$REPO"
 git init -q -b main .
-git config user.email "smoke@example.com"
+git config user.email "smoke@example.invalid"
 git config user.name "Herd Smoke"
 # tk init needs a GitHub remote to derive the project id. Nothing is ever
 # pushed; the URL is deliberately non-resolvable.
