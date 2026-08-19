@@ -2,6 +2,7 @@
   "id": "xrk",
   "title": "Repo-wide guard against committed secrets and operator identifiers",
   "description": "aro shipped a repo-scan test scoped to cloud/factory (no token literal, no hash record, FACTORY_TOKEN_HASH absent from wrangler.toml). This is a public repo and that guard should cover the whole tree, including .tick/ — where this run demonstrated the failure mode by writing an operator's cloud account id into committed tick notes.\n\nAdd one guard that fails CI on: high-entropy token-shaped literals (tkf_*, PBKDF2 records, GitHub PAT prefixes, Cloudflare/Doppler token prefixes), 32-hex cloud account identifiers, and non-example.com email addresses in tracked files. Scan .tick/ (issues + activity.jsonl) as well as source. Provide a narrow, documented allowlist for the pre-existing hits on main (internal/tickboard/cloud/client_test.go and .tick/issues/xps.json both carry a real operator email) rather than rewriting public history — and make the allowlist entries individually justified so it cannot become a dumping ground.\n\nWire it into .github/workflows/ci.yml. While you are in that file: there is no job covering cloud/factory at all (flagged by n3e) — add one mirroring the existing 'worker' job with working-directory cloud/factory and cache-dependency-path cloud/factory/pnpm-lock.yaml, or the whole new bundle is unguarded on main.",
+  "notes": "2026-08-19 16:07 - runner-state: substrate=herdr kind=codex branch=tick/xrk worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-xrk workspace=wA7 base=0bec89a6753d66f3c67aa1ba3a453ef195440339 agent=tick-xrk pane=wA7:p1 session=01a01a58-dee8-76f3-a4b1-e127653725ce",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "The guard fails on a deliberately planted account id, token literal, and non-example.com email in a tracked file (including one planted in a .tick/ note), and passes on the clean tree with its documented allowlist. CI runs it. A cloud/factory job exists in ci.yml and passes.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T13:57:40.884996Z",
-  "updated_at": "2026-08-19T14:06:56.657276Z",
+  "updated_at": "2026-08-19T14:07:19.725915Z",
   "started_at": "2026-08-19T14:06:56.657276Z"
 }
