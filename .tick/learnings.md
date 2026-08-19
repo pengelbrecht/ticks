@@ -3,80 +3,56 @@
 Repo-specific gotchas, Problem → Cause → Rule. Hard cap 150 lines — compact every retro.
 Cross-repo learnings go in the ticks skill (claude-runner.md promotion table), not here.
 
-## Tick authoring
-
-**Problem:** A machine-readable output field shipped with wrong semantics plus a test
-cementing the bug — the tick defined it by implementation predicate, not consumer semantics.
-**Rule:** When a tick specifies a flag/field another tool consumes, define it by the
-consumer's action (and name the consumer); let the implementation derive the predicate.
-
 ## This repo's build
 
 **Problem:** A new cobra subcommand compiles and tests green but is unreachable from the
-installed binary.
-**Cause:** `cmd/tk/main.go` has a legacy routing switch with a hard-coded case list; every
-cobra command must also be added there.
-**Rule:** Register new subcommands in BOTH `cmd/tk/cmd/*.go` (cobra) and the switch + usage
-text in `cmd/tk/main.go`. `TestLegacyDispatchCoversAllCobraCommands` (main_test.go) now fails
-on omissions — keep it passing rather than skipping it.
+installed binary. **Cause:** `cmd/tk/main.go` has a legacy routing switch with a hard-coded
+case list. **Rule:** Register new subcommands in BOTH `cmd/tk/cmd/*.go` and the switch + usage
+text in `cmd/tk/main.go`; keep `TestLegacyDispatchCoversAllCobraCommands` passing.
 
-**Problem:** In-process command tests hang or silently no-op when run after other tests.
-**Cause:** cobra state leaks across in-process executions: flag values persist, the --help
-flag value short-circuits later commands, and contexts only propagate to commands with nil ctx.
-**Rule:** Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext` (cmd/tk/cmd/root.go),
-which reset flags and handle these quirks — never call `rootCmd.Execute()` directly. When you ADD
-a persistent flag var in `cmd/tk/cmd/*.go`, also reset it in `ResetFlags()` in root.go — otherwise
-its value leaks into later in-process test executions.
+**Problem:** In-process command tests hang or silently no-op after other tests.
+**Cause:** cobra state leaks across in-process executions (flag values persist, --help
+short-circuits later commands).
+**Rule:** Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext`
+(cmd/tk/cmd/root.go), never `rootCmd.Execute()`; when you add a persistent flag var, also
+reset it in `ResetFlags()`.
 
 **Problem:** Tickboard UI changes pass `pnpm test` but don't appear in the running `tk board`.
-**Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`;
-source changes need a production build.
-**Rule:** After UI source changes, run `scripts/build-ui.sh` and commit the regenerated
-`static/` (and `ui/dist/`) so the embed is current.
+**Cause:** The Go binary embeds pre-built assets from `internal/tickboard/server/static/`.
+**Rule:** After UI source changes run `scripts/build-ui.sh` and commit the regenerated
+`static/` (and `ui/dist/`).
 
 **Problem:** CI pnpm setup fails ("No pnpm version specified") or ERR_PNPM_IGNORED_BUILDS.
-**Cause:** package.json is nested at internal/tickboard/ui/; pnpm 11 gates build scripts.
 **Rule:** Keep `package_json_file: internal/tickboard/ui/package.json` on the pnpm action and
-keep internal/tickboard/ui/pnpm-workspace.yaml committed. Workflow changes are only proven by
-an actual CI run, never by local tests.
+pnpm-workspace.yaml committed. Workflow changes are proven only by an actual CI run.
 
 **Problem:** cloud/worker's full `pnpm test` crashes workerd at boot when test files share
 the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in tick xdq).
 **Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
 "fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
 
-**Problem:** A codex herdr worker's sandbox blocks loopback sockets — httptest-based
-(fakebot) tests could not run in its worktree (DONE_WITH_CONCERNS).
-**Rule:** Route loopback-HTTP-test ticks to a claude worker, or let the integrated
-post-wave gate be the authoritative first full run.
+**Problem:** A codex worker's sandbox blocks loopback sockets and cannot resolve github.com,
+so httptest suites and `git push` fail there (recurring DONE_WITH_CONCERNS).
+**Rule:** Route loopback-HTTP ticks to a claude worker; treat the integrated post-wave gate as
+the authoritative first full run, and never let a worker push.
 
 ## Schema codegen
 
-**Problem:** A schemas/websocket change left generated code inconsistent across the repo —
-Go types updated but the UI's generated TS stale (or vice versa).
-**Cause:** Two codegen consumers: `make codegen-go` writes internal/types/generated/types.go;
-`scripts/build-ui.sh` regenerates internal/tickboard/ui/src/types/generated/websocket/*.
-**Rule:** Any schema edit must run BOTH `make codegen-go` and `scripts/build-ui.sh`, and commit
-all regenerated output together. Tick authors: spell these commands out in any tick that
-touches `schemas/` — the 4bt foundation tick omitted them and the gap surfaced only at review.
-
-**Problem:** A schema date field pulled go-jsonschema's `SerializableDate` dep into generated Go.
-**Cause:** go-jsonschema maps `format:"date"` to its own type.
-**Rule:** Date-only fields: `"type":"string"` + pattern `^\d{4}-\d{2}-\d{2}$`, never
-`format:"date"`; the regex is shape-only, so also validate with `time.Parse` in `Validate()`.
+**Problem:** A schemas/ change left generated code inconsistent — Go updated, the UI's TS stale.
+**Rule:** Any schema edit must run BOTH `make codegen-go` and `make codegen-ts` and commit all
+regenerated output together; spell these out in any tick touching `schemas/`.
 
 ## Docs & marketing copy
 
-**Problem:** A user-facing page shipped copy-pasteable `tk` commands that don't exist
-(`tk done`, `--title`, `tk ready <id>`) — caught only at epic final review.
-**Cause:** Agents writing examples guess CLI syntax from memory instead of the real cobra defs.
-**Rule:** Any tick that writes `tk` commands into docs/UI/marketing copy must verify each
-against `cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that verification step out in the tick.
+**Problem:** A user-facing page shipped copy-pasteable `tk` commands that don't exist — agents
+guess CLI syntax from memory.
+**Rule:** Any tick writing `tk` commands into docs/UI/copy must verify each against
+`cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that step out in the tick.
 
-**Problem:** A released feature (tk herd, 0.20.0) had zero README coverage — docs ticks
-enumerate the surfaces they own, never the surfaces users see.
-**Rule:** A feature epic's final docs tick must checklist README Commands table, docs/, and
---help, saying per surface "updated" or "not applicable".
+**Problem:** A released feature had zero README coverage — docs ticks enumerate the surfaces
+they own, never the surfaces users see.
+**Rule:** A feature epic's final docs tick must checklist README, docs/, and --help, saying
+per surface "updated" or "not applicable".
 
 ## Orchestration
 
@@ -86,14 +62,16 @@ tk close hours earlier: an implementer's stray git-restore wiped uncommitted .ti
 before merging any agent branch or launching agents; if an implementer touched the shared
 checkout, diff tick state against the activity log before trusting a clean tree.
 
-**Problem:** Wave-2 worktree agents branched from a base missing the just-merged wave-1
-foundation commit; one re-implemented the missing field and caused a merge conflict.
-**Cause:** Harness worktrees can be created from a stale ref rather than the orchestrator's
-current HEAD.
-**Rule:** Implementer prompts must name the prerequisite commit SHA and instruct: run
-`git merge <integration-branch>` first, then verify the SHA is an ancestor
-(`git merge-base --is-ancestor <sha> HEAD`) — never cherry-pick around it or re-implement a
-sibling tick's work. (Claude worktrees branch from session-start HEAD; see claude-runner.md.)
+**Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and
+re-implemented it, causing a conflict.
+**Rule:** Implementer prompts must name the prerequisite SHA and instruct `git merge
+<integration-branch>` first, then verify ancestry (`git merge-base --is-ancestor <sha> HEAD`).
+
+**Problem:** A codex worker self-updated (Homebrew) at spawn; the upgrade output swallowed the
+content-gate probe and the CLI exited "Please restart Codex", leaving a worktree, branch and
+workspace behind with no manifest — the retry then failed "worktree already exists".
+**Rule:** A failed `tk herd spawn` can leave partial state; tear down the worktree, branch and
+workspace before respawning. Export `HOMEBREW_NO_AUTO_UPDATE=1` for spawn loops.
 
 ## Orchestrator gates
 
@@ -104,20 +82,16 @@ pipeline. A hanging cmd test sailed through the wave gate and reached final revi
 **Rule:** Gate on the test command's own exit: run `go test` bare (or `set -o pipefail`),
 capture its status BEFORE any filter, and always give hang-prone suites an explicit
 `-timeout`. Never accept a background task's exit code without reading its output tail.
-
-## Skill docs
-
-**Problem:** Validating runners-config.md's TOML examples fails with ImportError.
-**Cause:** System python3 has no `jsonschema`; the repo carries no venv for it.
-**Rule:** Validate with `uv run --with jsonschema python …` after any edit to
-runners-config.md or its schema — every TOML block must validate.
+The same trap bites tracker mutations: `tk update … | tail -1` hid an "unknown flag" error
+and an exit 2, which I then reported as a `tk` bug that did not exist. Never pipe a mutating
+command through head/tail — check its status, then re-read state to confirm the mutation.
 
 ## Naming
 
-**Problem:** A merged tick's global config dir (`~/.ticks`/`TICKS_HOME`) was renamed mid-run
-by human interrupt — planning ignored existing conventions (`.tick/`, `TK_*`); rework.
-**Rule:** Derive new user-facing names (dirs, env vars, flags) from existing repo conventions
-in the tick description itself — name the convention, not just the name.
+**Problem:** A global config dir was renamed mid-run because planning ignored existing
+conventions (`.tick/`, `TK_*`).
+**Rule:** Derive new user-facing names from existing repo conventions in the tick description
+itself — name the convention, not just the name.
 
 **Problem:** Backticks in double-quoted `tk create -d "..."` strings were shell-substituted,
 silently corrupting stored descriptions with command output.
@@ -125,26 +99,52 @@ silently corrupting stored descriptions with command output.
 **Rule:** Single-quote (or heredoc) any tick text containing backticks, `$`, or `()`; verify
 with `tk show <id>` after bulk creation.
 
-**Problem:** A `git merge` of an implementer branch failed/half-applied (rename + go.mod staged
-in the index), then a blind `git add .tick/ && git commit` for tracker state captured the
-half-staged merge leftovers into the tracker commit — corrupting HEAD and causing add/add
-conflicts on the retry.
-**Cause:** `git add .tick/` stages .tick, but `git commit` commits the WHOLE index, including
-anything a prior failed merge left staged.
-**Rule:** Commit orchestrator tracker state as `git add .tick/ && git commit .tick/ -m "..."` —
-the pathspec on commit keeps foreign staged leftovers out, and the explicit add is REQUIRED
-because a bare pathspec commit silently skips untracked files (new tick JSONs from `tk create`
-never land; field-observed twice). And after any merge, check it actually committed
-(`git rev-parse -q --verify MERGE_HEAD` should be empty; `git status` clean) BEFORE committing
-tracker state. To recover a botched merge-commit, `git reset --hard <pre-merge-sha>` and re-merge.
+**Problem:** A half-applied merge left files staged; a blind `git add .tick/ && git commit`
+then captured those leftovers into the tracker commit, corrupting HEAD.
+**Cause:** `git commit` commits the WHOLE index, not just what you just added.
+**Rule:** Commit tracker state as `git add .tick/ && git commit .tick/ -m "..."` — the pathspec
+keeps foreign staged leftovers out, and the explicit add is REQUIRED (a bare pathspec commit
+silently skips untracked files, so new tick JSONs never land; seen twice). After any merge
+confirm it committed (`git rev-parse -q --verify MERGE_HEAD` empty) before committing tracker
+state; recover a botched one with `git reset --hard <pre-merge-sha>` and re-merge.
 
 ## TUI (internal/tui)
 
-**Problem:** Parallel view-model ticks each changed shared chrome (the view-tab strip / footer),
-so every OTHER view's teatest golden went stale at integration; and inserting a view mid-strip
-(Board at hotkey 2) shifted sibling hotkeys, making position-based golden navigation time out
-(`WaitFor` 5s) because the test landed on the wrong view.
-**Cause:** Goldens render the whole frame including shared chrome; view tab-hotkeys are positional.
+**Problem:** Parallel view-model ticks each changed shared chrome, staling every other view's
+teatest golden; inserting a view mid-strip shifted sibling hotkeys, so position-based golden
+navigation timed out on the wrong view.
 **Rule:** After integrating any view-model tick, regenerate cross-contaminated goldens
 (`go test ./internal/tui -update`) and confirm the diff is chrome-only; reach views by stable
 means, never a hardcoded hotkey digit (tab order List·Board·Roadmap·Timeline).
+
+## Cloudflare (cloud/factory)
+
+**Problem:** Auth passed 60 local tests, then 503'd on every authenticated request once
+deployed: PBKDF2 at 210k iterations. **Cause:** Cloudflare caps PBKDF2 at 100k —
+`deriveBits` THROWS above it — and local workerd does not enforce the cap.
+**Rule:** A green vitest run never proves the edge accepts a platform-limited value. Pin each
+limit as a named constant with a guard test citing it, and smoke the DEPLOYED endpoint before
+believing an auth/crypto change.
+
+**Problem:** `tk factory deploy` reported "the secret did not land" on deploys that were fine.
+**Cause:** `wrangler secret put` creates a new Worker version; propagation takes ~10-30s, and
+edge error 1042 appears meanwhile.
+**Rule:** Verify deploys with bounded retry over 503/5xx/1042 — never a single immediate probe.
+
+**Problem:** A caught exception was reported as "record is not valid", sending diagnosis after
+a format bug when the fault was crypto — while `/health` simultaneously said the record parsed.
+**Rule:** Never collapse distinct failure classes into one message. If two endpoints answer the
+same question, they must run the same check (`/health` proves a derivation, not just a parse).
+
+## Cross-language parity
+
+**Problem:** A fix landed in TypeScript only; the Go half kept minting unusable records, with
+both languages' suites green because each was internally consistent.
+**Rule:** Any constant or format crossing the Go/TS boundary needs a cross-implementation
+golden test (see `internal/factory` ↔ `cloud/factory/src/auth.ts`). It is the only check that
+catches a half-applied fix.
+
+**Problem:** `npx --no wrangler --version` exits 0 printing *npm's* version when wrangler is
+absent, so tooling resolution accepted npx and never tried the real binary.
+**Rule:** A version probe must validate WHAT answered, not just the exit code — the green-start
+trap applied to CLI discovery.

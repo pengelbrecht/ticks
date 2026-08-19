@@ -700,7 +700,7 @@ function createMockTick(overrides: Partial<{
     type: (overrides.type || 'task') as TickType,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    created_by: 'test@user.com',
+    created_by: 'test@example.com',
     owner: '',
   };
 }
@@ -720,7 +720,7 @@ function createMockTickDetail(overrides: Partial<{
     type: (overrides.type || 'task') as TickType,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    created_by: 'test@user.com',
+    created_by: 'test@example.com',
     owner: '',
     isBlocked: false,
     column: 'ready' as TickColumn,
@@ -740,7 +740,7 @@ function createMockActivity(overrides: Partial<{
     ts: overrides.ts || new Date().toISOString(),
     tick: overrides.tick || 'tick-1',
     action: overrides.action || 'update',
-    actor: overrides.actor || 'test@user.com',
+    actor: overrides.actor || 'test@example.com',
     epic: overrides.epic,
   };
 }

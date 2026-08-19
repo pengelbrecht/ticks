@@ -39,7 +39,7 @@ function makeTick(overrides: Partial<Tick> = {}): Tick {
     priority: 2,
     type: 'epic',
     owner: '',
-    created_by: 'test@user.com',
+    created_by: 'test@example.com',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...overrides,

@@ -1,0 +1,18 @@
+{
+  "id": "frf",
+  "title": "Public-repo guard rejects self-evident zero placeholders in fixtures",
+  "description": "Post-wave gate blocker from the wave-4 integration: xrk's scripts/check-public-repo.mjs exits 1 on four findings, all in v2e's test fixtures written in the same wave (cmd/tk/cmd/factory_test.go:288,294 and internal/factory/setup_test.go:32,35). The flagged values are '00000000-0000-...-0000' and 'github_p...0000' — self-evidently synthetic placeholders, not leaked material.\n\nFix in the GUARD, not by allowlisting the four sites: a value whose payload is entirely a repeated filler character (all zeros, all x) carries no information and must never be a finding, for any detector. That is a general rule that keeps working as fixtures move, whereas four allowlist entries rot immediately and train contributors to add more. Keep the allowlist strictly for genuine historical hits.\n\nAdd a guard unit test for the new rule in both directions: an all-zero account id and an all-zero github_pat pass, while a realistic random-looking one still fails.",
+  "notes": "2026-08-19 16:49 - runner-state: substrate=herdr kind=codex branch=tick/frf worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-frf workspace=wAA base=643def4de055bf58f4190dd7bbfc181e47dc52e1 agent=tick-frf pane=wAA:p1 session=01a01a7f-8f7e-7000-a839-705ce8053650",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "63t",
+  "discovered_from": "xrk",
+  "acceptance_criteria": "node scripts/check-public-repo.mjs exits 0 on the integrated tree with no new allowlist entries for these four sites; guard unit tests cover all-zero-passes and realistic-value-still-fails; the four v2e fixtures are unchanged.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T14:48:39.585834Z",
+  "updated_at": "2026-08-19T15:34:30.134653Z",
+  "closed_at": "2026-08-19T15:34:30.134653Z",
+  "closed_reason": "Completed: public-repo guard ignores repeated-filler placeholders (all-zero ids, all-zero PATs) for every detector rather than allowlisting four fixture sites, with both-direction unit tests; integrated tree passes with no new allowlist entries."
+}

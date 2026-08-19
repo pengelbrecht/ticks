@@ -237,12 +237,12 @@ Run: go test ./internal/auth/... -v" \
 
 ```bash
 tk create "Fix email parsing for plus addresses" \
-  -d "Plus addresses (user+tag@domain.com) rejected incorrectly.
+  -d "Plus addresses (user+tag@example.com) rejected incorrectly.
 
 Test cases to add:
-- \"user+newsletter@gmail.com\" -> valid
-- \"user+shop@example.org\" -> valid
-- \"user++double@test.com\" -> valid
+- \"user+newsletter@example.com\" -> valid
+- \"user+shop@example.com\" -> valid
+- \"user++double@example.com\" -> valid
 
 Current: Returns \"invalid email format\"
 Expected: All plus addresses validate

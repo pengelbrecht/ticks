@@ -238,6 +238,9 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk skills …` | Inspect/install the version-matched skill bundle embedded in this binary (see below) |
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
 | `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
+| `tk factory deploy` | Deploy the cloud factory into your own Cloudflare account (see below) |
+| `tk factory setup` | Walk the factory's credential ladder — deployment, GitHub PAT, AI Gateway — verifying each rung live (see below) |
+| `tk factory status` | Report what the factory has configured and whether each credential still works (see below) |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
 | `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
 | `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
@@ -302,6 +305,88 @@ complete workflow, references, and adapters that a skill-aware harness loads on 
 own. They're complementary, not interchangeable: use `tk snippet` for harnesses without
 skill support, and the skill (via `tk skills install` or a skill marketplace) for
 harnesses that have it.
+
+### Factory: your own cloud control plane
+
+`tk factory deploy` installs the factory worker bundled with your `tk` build into
+**your own Cloudflare account**. Ticks never operates a factory for anyone: it is a
+deployable, not a service, so the compute, the model keys, the spend, and the blast
+radius are yours (decision D16 in `docs/design/cloud-factory.md`). Cloudflare's floor
+for Durable Objects and Workflows is the paid Workers plan (~$5/mo).
+
+```bash
+pnpm add -g wrangler          # or npm install -g wrangler, or just use npx wrangler
+wrangler login                # connect your Cloudflare account
+tk factory deploy
+```
+
+One command creates or reuses the D1 database and the R2 bucket, applies the bundle's
+D1 migrations, mints a factory token, pushes only its salted hash as the Worker secret
+`FACTORY_TOKEN_HASH`, deploys the worker, and records the endpoint and token in
+`~/.ticksrc` next to the board-sync `token=` you may already have there:
+
+```
+factory_url=https://ticks-factory.<your-subdomain>.workers.dev
+factory_token=tkf_…
+factory_version=0.31.0
+```
+
+The plaintext token exists only in that file — the worker holds nothing but its hash
+and therefore cannot leak it. `~/.ticksrc` is written 0600.
+
+| Flag | Effect |
+|---|---|
+| `--rotate-token` | Mint a new token; the previous one stops working immediately |
+| `--url <url>` | Record and verify a custom endpoint, when the deploy output names none |
+| `--bundle-dir <path>` | Stage the worker bundle somewhere other than `~/.tick/factory/bundle` |
+
+Re-running is the upgrade path: resources are reused, never duplicated, and the token is
+preserved unless you rotate it. The deployed bundle is pinned to the `tk` version that
+deployed it, so after `tk upgrade` the CLI reminds you to re-run `tk factory deploy`.
+
+Missing prerequisites stop the command with the reason — no wrangler, or a wrangler that
+is not logged in — and nothing is created or written until they pass. There is no live
+Cloudflare account in CI, so the end-to-end proof runs against a documented harness:
+`bash scripts/verify-factory-deploy.sh`.
+
+#### Credentials: `tk factory setup`
+
+A deployed factory still needs credentials to do anything: a GitHub token so runs can
+clone and push, and model access so agents can think. `tk factory setup` walks that
+ladder the way `tk channel setup telegram` walks BotFather — one rung at a time,
+verified live before it is stored:
+
+```bash
+tk factory setup
+```
+
+1. **wrangler**, logged in — the precondition.
+2. **A deployment** — if `~/.ticksrc` names none, setup offers to run the deploy above
+   right there.
+3. **A GitHub credential** — a fine-grained PAT scoped to the repository, checked with a
+   real GitHub API call *and* against that repository, because a PAT that authenticates
+   but was never granted the repo is the classic silent misconfiguration. A personal
+   GitHub App (per-run installation tokens) is the documented upgrade path.
+4. **Model access** — your own AI Gateway base URL and the provider behind it, proven
+   with a model-list call through the gateway. `workers-ai` needs no key at all:
+   inference bills to the same Cloudflare account.
+
+Each answer can be passed as a flag (`--repo`, `--github-token`, `--gateway-url`,
+`--provider`, `--provider-key`) instead of typed, so the same walk is scriptable.
+
+Everything it stores goes to exactly two places: **Worker secrets** in your own
+Cloudflare account, and `~/.ticksrc` at 0600 as the mirror `tk factory status` re-checks.
+Never the repository — a test runs the whole walk inside a checkout and fails if any
+secret appears anywhere under it.
+
+```bash
+tk factory status              # live: does each credential still work?
+tk factory status --offline    # what is configured, without touching the network
+tk factory status --check      # exit nonzero when a configured credential is rejected
+```
+
+The full ladder, including the GitHub App upgrade path and how to rotate a key, is in
+[`docs/factory-credentials.md`](docs/factory-credentials.md).
 
 ### Operator channel: reach a human from an autonomous run
 

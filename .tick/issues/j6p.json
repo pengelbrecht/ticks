@@ -1,0 +1,22 @@
+{
+  "id": "j6p",
+  "title": "Scrub operator identifiers from epic branch history before push",
+  "description": "One-off, must happen before epic/63t is ever pushed. During this run the orchestrator wrote a Cloudflare account id, a Doppler workplace id, and an operator email into tick notes and .tick/activity/activity.jsonl. The current tree is redacted (placeholders), but the commits on this unpushed branch still contain the originals, and this is a public repo — a follow-up commit does not remove anything from git history.\n\nDo this only when no worker branch is still live on the epic (all tick/* merged, workers torn down), because the rewrite changes every commit id on the branch.\n\n1. Confirm the branch is still unpushed: 'git log --oneline origin/main..HEAD' and no remote ref contains HEAD.\n2. Rewrite the unpushed range replacing the three literals with the same placeholders already used in the working tree (\u003ccloudflare-account-id\u003e, \u003cdoppler-workplace-id\u003e, \u003coperator\u003e). git-filter-repo --replace-text is the clean tool; git filter-branch over main..HEAD is the fallback.\n3. Verify: 'git log -p origin/main..HEAD | grep -F \u003cliteral\u003e' returns nothing for each of the three, and the tree at HEAD is byte-identical to the pre-rewrite tree (the rewrite must change history only, never content).\n4. Leave main's history alone. Note that the operator email is ALSO present on main already, in internal/tickboard/cloud/client_test.go and .tick/issues/xps.json — pre-existing, already public, and out of scope here; it is covered by the separate repo-wide guard tick.",
+  "notes": "2026-08-19 17:50 - Scrub complete and verified. Preconditions confirmed first: branch unpushed (0 remote refs contain HEAD), and neither identifier literal appears anywhere on main, so a range-wide replacement could not disturb published history. The operator email DOES exist on main (.tick/issues/xps.json, internal/tickboard/cloud/client_test.go), so the rewrite was scoped to the three files this run polluted (.tick/issues/63t.json, .tick/issues/7c1.json, .tick/activity/activity.jsonl) rather than applied tree-wide — main's copies are deliberately untouched and remain xrk/aw5's documented allowlist entries.\n\ngit filter-branch --tree-filter over origin/main..HEAD, 64 commits rewritten.\n\nVerification:\n- HEAD tree hash before = after = 1fa69cbedf1a8f23aff7f9b8361ba04b44904dd4 — the rewrite changed history ONLY, never content.\n- 'git log -p origin/main..HEAD | grep -F' returns 0 hits for the cloudflare account id, 0 for the doppler workplace id, 0 for the operator email.\n- main's two pre-existing email occurrences still present at HEAD, unchanged.\n- 64 commits preserved; no squash, so the tick-stamped audit trail the retro mines is intact.",
+  "status": "closed",
+  "priority": 2,
+  "type": "chore",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "aw5",
+    "5ut",
+    "e1d"
+  ],
+  "parent": "63t",
+  "acceptance_criteria": "None of the three literals appear anywhere in 'git log -p origin/main..HEAD'; HEAD's tree is unchanged by the rewrite (verified by comparing tree hashes before and after); the branch pushes cleanly.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T13:57:40.833639Z",
+  "updated_at": "2026-08-19T15:50:58.570398Z",
+  "closed_at": "2026-08-19T15:50:58.570398Z",
+  "closed_reason": "Completed: operator identifiers scrubbed from 64 unpushed commits via a scoped tree-filter; verified zero occurrences of all three literals in the rewritten range, HEAD tree hash byte-identical before and after, main's pre-existing (already-public) occurrences deliberately untouched, and no commits squashed."
+}

@@ -1,0 +1,18 @@
+{
+  "id": "ldr",
+  "title": "Run Workflow: boot the orchestrator sandbox and own the run lifecycle",
+  "description": "The Cloudflare Workflow that makes a run survive everything below it. Steps: acquire context, boot ONE orchestrator sandbox from the Phase 1 image, watch it, enforce wall-clock and cost budgets, finalize (release the lease, write the runs row, stream remaining artifacts). Durable execution means the supervisor cannot be lost; the sandbox is expected to die and a fresh one is booted whose first instruction is the reconcile protocol. Budget enforcement lives HERE, never in a prompt: exhaustion is a clean stop (finish in-flight, then review and closeout), identical to the operator stop path. Harness output streams to R2 under runs/project/run_id during the run, never export-at-exit, so a crashed run leaves its logs behind.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "daq",
+    "3q2"
+  ],
+  "parent": "ko8",
+  "acceptance_criteria": "A submitted run boots a sandbox, reaches the skill loop and finalizes with a runs row; killing the sandbox mid-run causes a fresh one to be booted rather than the run failing; a budget or stop trip produces a clean stop with review and closeout still run; R2 holds harness output written during the run, verified by reading it while the run is still going.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:56:51.599838Z",
+  "updated_at": "2026-08-19T15:56:51.689706Z"
+}

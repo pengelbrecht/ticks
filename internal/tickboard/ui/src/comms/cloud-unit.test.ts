@@ -1131,7 +1131,7 @@ function createTick(overrides: Partial<Tick> = {}): Tick {
     priority: overrides.priority ?? 2,
     type: overrides.type || 'task',
     owner: overrides.owner || '',
-    created_by: overrides.created_by || 'test@user.com',
+    created_by: overrides.created_by || 'test@example.com',
     created_at: overrides.created_at || new Date().toISOString(),
     updated_at: overrides.updated_at || new Date().toISOString(),
     notes: overrides.notes,

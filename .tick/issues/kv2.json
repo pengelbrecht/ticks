@@ -1,0 +1,18 @@
+{
+  "id": "kv2",
+  "title": "Deliver run gates to Telegram through the RunRoom pending store",
+  "description": "The return arrow: a cloud run must be able to reach its human. When the orchestrator parks a question or an approval gate, it lands in the RunRoom pending store and is delivered on the channel the submission chose, reusing the existing internal/operator/telegram machinery and its paired-operator rule. Answering from the phone resolves it through the DO; tk answer from a terminal resolves the same entry, first-wins, losers told who answered (D5). Completion reports land on the same chat, threading the original message. Human verdicts keep human provenance: the --from human attestation rule and the verdict guard apply unchanged, so an approval delivered this way is still a human verdict.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "daq",
+    "afj"
+  ],
+  "parent": "ko8",
+  "acceptance_criteria": "A gate parked by a cloud run reaches Telegram and blocks the run; answering from Telegram resumes it; answering the same gate from tk answer resolves it and the other surface reports already-answered; the resulting verdict carries human provenance and passes the verdict guard; an unpaired sender is dropped at the transport.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T15:57:07.806567Z",
+  "updated_at": "2026-08-19T15:57:07.867031Z"
+}

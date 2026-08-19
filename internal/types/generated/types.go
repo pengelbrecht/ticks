@@ -846,9 +846,11 @@ type RunEventMetrics struct {
 
 type RunEventSource string
 
-const RunEventSourceRalph RunEventSource = "ralph"
-const RunEventSourceSwarmOrchestrator RunEventSource = "swarm-orchestrator"
-const RunEventSourceSwarmSubagent RunEventSource = "swarm-subagent"
+const RunEventSourceCloudOrchestrator RunEventSource = "cloud:orchestrator"
+const RunEventSourceCloudWorker RunEventSource = "cloud:worker"
+const RunEventSourceHarness RunEventSource = "harness"
+const RunEventSourceHerdr RunEventSource = "herdr"
+const RunEventSourcePi RunEventSource = "pi"
 
 // Active tool information
 type RunEventTool struct {
