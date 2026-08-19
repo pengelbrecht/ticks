@@ -452,7 +452,7 @@ step "2/7 wave: scratch repo + two live workers (one full-auto, one that must BL
 
 cd "$REPO"
 git init -q -b main .
-git config user.email "smoke@example.com"
+git config user.email "smoke@example.invalid"
 git config user.name "Herd Plugin Smoke"
 git remote add origin "https://github.com/tk-smoke/herd-plugin-smoke.git"
 echo "# herd plugin smoke scratch repo" > README.md

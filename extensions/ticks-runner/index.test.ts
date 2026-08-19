@@ -29,7 +29,7 @@ function gateFixture(type = "approval") {
 	fs.writeFileSync(path.join(repo, ".tick", "fake-runner-log.jsonl"), "");
 	command(repo, "git", "init", "--initial-branch=feature");
 	command(repo, "git", "config", "user.name", "Gate Test");
-	command(repo, "git", "config", "user.email", "gate@example.com");
+	command(repo, "git", "config", "user.email", "gate@example.invalid");
 	command(repo, "git", "add", "-A");
 	command(repo, "git", "commit", "-m", "fixture");
 	return { repo, bin };

@@ -9,6 +9,8 @@ import {
 
 const MAX_ALLOWLIST_ENTRIES = 4;
 const MIN_FILLER_PAYLOAD_LENGTH = 16;
+const RESERVED_EMAIL_DOMAINS = new Set(["example.com", "example.org", "example.net"]);
+const RESERVED_EMAIL_TLDS = new Set(["invalid", "test", "localhost", "example"]);
 
 // Keep these patterns deliberately high-confidence. Documentation examples
 // use placeholders such as tkf_... and pbkdf2-sha256$<iterations>$<salt>$<key>,
@@ -103,8 +105,12 @@ function trackedFiles(root) {
     .filter(Boolean);
 }
 
-function isExampleEmail(value) {
-  return value.slice(value.lastIndexOf("@") + 1).toLowerCase() === "example.com";
+function isReservedEmail(value) {
+  const domain = value.slice(value.lastIndexOf("@") + 1).toLowerCase();
+  if (RESERVED_EMAIL_DOMAINS.has(domain)) return true;
+
+  const tld = domain.slice(domain.lastIndexOf(".") + 1);
+  return RESERVED_EMAIL_TLDS.has(tld);
 }
 
 function isNonEmailIdentifier(value) {
@@ -188,7 +194,7 @@ export function scanTrackedFiles(root) {
         for (const match of line.matchAll(rule.pattern)) {
           const literal = match[0];
           if (isSyntheticPlaceholder(literal)) continue;
-          if (rule.kind === "email" && isExampleEmail(literal)) continue;
+          if (rule.kind === "email" && isReservedEmail(literal)) continue;
           if (rule.kind === "email" && isNonEmailIdentifier(literal)) continue;
           if (
             rule.kind === "email" &&

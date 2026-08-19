@@ -100,7 +100,7 @@ function fixture(existing = true): Fixture {
 	fs.writeFileSync(tk, `#!/bin/sh\nexec "${process.execPath}" "${fakeTkScript}" "$@"\n`, { mode: 0o755 });
 	command(repo, "git", "init", "--initial-branch=main");
 	command(repo, "git", "config", "user.name", "Planning Test");
-	command(repo, "git", "config", "user.email", "planning@example.com");
+	command(repo, "git", "config", "user.email", "planning@example.invalid");
 	command(repo, "git", "add", "-A");
 	command(repo, "git", "commit", "-m", "fixture");
 	command(repo, "git", "switch", "-c", "feature/planning");
@@ -383,7 +383,7 @@ test("true SIGKILL after real tk create recovers only its journaled marker mutat
 	fs.chmodSync(wrappedTk, 0o755);
 	command(repo, "git", "init", "--initial-branch=main");
 	command(repo, "git", "config", "user.name", "Planning Death Test");
-	command(repo, "git", "config", "user.email", "planning-death@example.com");
+	command(repo, "git", "config", "user.email", "planning-death@example.invalid");
 	command(repo, "git", "remote", "add", "origin", "https://github.com/acme/planning-death.git");
 	const baseEnv = { ...process.env, TICK_OWNER: "planning-death-test", ACTUAL_TK: actualTk };
 	let invoked = spawnSync(actualTk, ["init"], { cwd: repo, env: baseEnv, encoding: "utf8" });

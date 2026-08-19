@@ -60,7 +60,7 @@ const forbidden = {
   githubFineGrained: ["github_pat_", "11AbC9xY7mN2pQ8rT4vW6zK1"].join(""),
   cloudflare: ["cfut_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9"].join(""),
   doppler: ["dp.ct.", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1"].join(""),
-  email: ["operator", "@", "private", ".test"].join(""),
+  email: ["operator", "@", "private", ".com"].join(""),
 };
 
 test("clean tracked files and documented legacy exceptions pass", async () => {
@@ -79,8 +79,28 @@ test("clean tracked files and documented legacy exceptions pass", async () => {
   );
 });
 
-test("rejects a non-example email even when it looks like a test fixture", async () => {
-  const fixtureEmail = ["test", "@", "private", ".test"].join("");
+test("accepts RFC-reserved email domains", async () => {
+  const fixtureEmails = [
+    "user@example.com",
+    "user@example.org",
+    "user@example.net",
+    "user@example.invalid",
+    "user@service.test",
+    "user@service.localhost",
+    "user@service.example",
+  ];
+
+  await withFixture(
+    { "fixtures/reserved-emails.txt": `${fixtureEmails.join("\n")}\n` },
+    (root) => {
+      const result = runGuard(root);
+      assert.equal(result.status, 0, result.output);
+    }
+  );
+});
+
+test("rejects a realistic non-reserved email domain", async () => {
+  const fixtureEmail = ["test", "@", "private", ".com"].join("");
   await withFixture(
     { ".tick/issues/planted.json": `owner=${fixtureEmail}\n` },
     (root) => {
