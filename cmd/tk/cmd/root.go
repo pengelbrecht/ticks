@@ -602,6 +602,11 @@ func ResetFlags() {
 	// Reset cloud flags
 	cloudRunNotify = ""
 	cloudRunQueue = false
+
+	// Reset config migration flags
+	configMigrateApply = false
+	configMigrateWrite = false
+	configMigrateDryRun = false
 }
 
 // SetVersion allows main.go to set the version at initialization
