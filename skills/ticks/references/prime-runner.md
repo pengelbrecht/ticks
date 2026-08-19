@@ -26,7 +26,7 @@ So the filesystem anchor, and only that, is delegated to processes:
 **The rule: implementers are worktree processes; every other role is an RLM child.**
 
 - **Implementation ticks → `prime-agent -p --cwd <worktree>`.** One tick, one worktree, one branch needs a structural anchor, not a prompt asking for one. Never dispatch implementation work through `rlm()`.
-- **Planning scouts, the planner, per-tick reviewers, the epic final review, and close-out analysis → RLM children.** These are read-only against the controller checkout, which is where a child already is — matching the shared requirement that review and close-out never run in an implementation worktree. Here the RLM primitives are strictly better than a subprocess: composable dispatch, `agent_message` continuation into a child's intact context, bounded observation, per-child model selection, and automatic cost attribution. One scope note on close-out: the child does the *analysis* — outside-in verification reasoning, drift review, retro drafting. The orchestrator itself runs the controller-owned Acceptance Evidence commands and every `tk` transition; those never delegate to a child, per the shared close-out semantics.
+- **Planning scouts, the planner, per-tick reviewers, the epic final review, and close-out analysis → RLM children.** These are read-only against the controller checkout, which is where a child already is — matching the shared requirement that review and close-out never run in an implementation worktree. Here the RLM primitives are strictly better than a subprocess: composable dispatch, `agent_message` continuation into a child's intact context, bounded observation, per-child model selection, and automatic cost attribution. One scope note on close-out: the child does the *analysis* — outside-in verification reasoning, drift review, retro drafting. The orchestrator itself runs the controller-owned `[evidence.acceptance]` commands and every `tk` transition; those never delegate to a child, per the shared close-out semantics.
 
 Both surfaces are driven from the same REPL, so this is one program with two executors — not two orchestration styles.
 
@@ -73,7 +73,7 @@ TIERS = {
 }
 ```
 
-Keep `TIERS` in the kernel for the run and mirror it into `.tick/config.md` so a resumed run does not re-derive it. Two hard rules:
+Keep `TIERS` in the kernel for the run and mirror it into `.tick/config.md` → `Prime Orchestrator` so a resumed run does not re-derive it. Two hard rules:
 
 - **`model=` is REQUIRED on every dispatch.** Omitting it does not mean "balanced" — an RLM child silently inherits the orchestrator's model (normally frontier), and a `prime-agent` process falls back to `defaultModel` in settings. Pick a tier, resolve it, pass it.
 - **An unavailable selector hard-fails; it never degrades.** `rlm()` raises and no child is created. Validate the whole ladder before wave 1 rather than discovering it mid-wave.
@@ -171,7 +171,7 @@ Prepare `$prompt_file` from the shared implementer template before launch. Branc
 Notes on the flags that matter:
 
 - **`--cwd` is the isolation primitive.** It also determines which `AGENTS.md` and which project skills the implementer loads — Prime Agent walks up from cwd to the git root — so a worktree implementer inherits the repo's own instructions and the ticks skill without inlining them.
-- **`--autonomous-gate "<test cmd>"` is host-enforced per-tick verification.** The host runs the gate after each assistant response and refuses to let the run finish until it passes, feeding bounded failure output back for repair. Wire it to the exact command from `.tick/config.md` → Testing. It converts "the implementer says tests pass" into "the host would not have exited otherwise". **It does not replace the post-wave integrated gate**, which still runs on the merged tree.
+- **`--autonomous-gate "<test cmd>"` is host-enforced per-tick verification.** The host runs the gate after each assistant response and refuses to let the run finish until it passes, feeding bounded failure output back for repair. Wire it to the exact command from `.tick/runners.toml` → `[testing.commands]`. It converts "the implementer says tests pass" into "the host would not have exited otherwise". **It does not replace the post-wave integrated gate**, which still runs on the merged tree.
 - **Raise the autonomous limits deliberately.** They are checked in order — continuations (default 3), turns (12), tokens (**80,000, excluding cache reads**), elapsed (30 min) — and the token cap is the one most likely to bind on a real implementation tick, ending the run with `Autonomous run stopped before terminal evidence`. Set `--autonomous-max-tokens` and `--autonomous-max-turns` to match your tick sizing instead of rediscovering the defaults. `--autonomous-gate-retries` (3) and `--autonomous-gate-timeout-ms` (5 min) bound the gate itself.
 - **Value-taking `--autonomous-*` flags need `--flag value`, not `--flag=value`.**
 - **`--session-dir` per tick** gives each implementer a resumable transcript next to its worktree, and keeps two lanes from ever contending for one session file.
@@ -297,7 +297,7 @@ Never delete immediately after `agent_message.send` — a queued follow-up may n
 
 ## The boundary
 
-Prime Agent gives implementers a full IPython kernel and shell with the user's OS permissions; there is no policy or sandbox layer. Apply the shared layered defence — prompt rule, isolated cwd, orchestrator-only `tk`, and the pre-merge `git diff --name-only HEAD...<branch> -- .tick/` that actually enforces it — plus a PATH-first `tk` wrapper that permits explicit reads and logs denied writes, and a best-effort read-only `.tick/`. Put both in `.tick/config.md` → Environment so every run applies them identically.
+Prime Agent gives implementers a full IPython kernel and shell with the user's OS permissions; there is no policy or sandbox layer. Apply the shared layered defence — prompt rule, isolated cwd, orchestrator-only `tk`, and the pre-merge `git diff --name-only HEAD...<branch> -- .tick/` that actually enforces it — plus a PATH-first `tk` wrapper that permits explicit reads and logs denied writes, and a best-effort read-only `.tick/`. Put both in `.tick/runners.toml` → `[environment.commands]` so every run applies them identically.
 
 Two Prime-specific hazards deserve naming:
 
@@ -394,11 +394,11 @@ Prime Agent has a fifth destination the shared retro table does not know about: 
 
 So the shared promotion table is unchanged and binding: anything a future run needs goes to `AGENTS.md`, `docs/`, `.tick/learnings.md`, tick notes, or this file. **Mirror first, then refine** — write the durable version into the repo, then optionally add a harness entry as a convenience copy. A harness entry with no repo counterpart is a silent single point of failure. Reserve refinement for Prime-specific orchestration tactics that would otherwise be re-derived every session (tier chains that worked, a provider that throttles under fan-out, a reusable role prompt as a subagent spec), keep it small and evidence-backed, and use local scope during a run and global only when it holds across projects.
 
-## `.tick/config.md` — the `Prime Orchestrator` section
+## Run config, and the `Prime Orchestrator` section
 
-Read `.tick/config.md` fresh at run start; `Environment`, `Testing`, `Closeout Evidence Commands`, `Acceptance Evidence`, and `Rules` keep their shared meanings and safety semantics. Wire the Testing command straight into `--autonomous-gate`.
+Read the run config fresh at run start. The structured half — `[testing]`, `[evidence]`, `[evidence.acceptance]`, `[environment]` and the routing tables — is `.tick/runners.toml`, defined by [`runners-config.md`](runners-config.md); their meanings and fail-closed semantics are the shared ones and this file does not restate them. `.tick/config.md` keeps `Rules` and the narrative testing hints. Wire the `[testing.commands]` entry straight into `--autonomous-gate`.
 
-Add a `## Prime Orchestrator` section alongside the existing `## Pi Orchestrator` one. Model entries are **ordered, comma-separated failover chains**:
+**Prime's tier chains are the one thing still in markdown.** `[roles.*]` carries a single `model` per cell; Prime's ordered cross-provider failover chains have no home in the schema and do not get an invented one, so they stay in a `## Prime Orchestrator` section of `.tick/config.md` until a tick gives failover a table of its own. Everything else that block used to sit beside has moved. Model entries are **ordered, comma-separated failover chains**:
 
 ```markdown
 ## Prime Orchestrator
@@ -414,7 +414,7 @@ Add a `## Prime Orchestrator` section alongside the existing `## Pi Orchestrator
 - autonomous_max_tokens: 200000
 ```
 
-Environment overrides use the `TICKS_PRIME_` prefix (`TICKS_PRIME_PLANNER_MODELS`, `TICKS_PRIME_IMPLEMENT_BALANCED_MODELS`, `TICKS_PRIME_REVIEW_MODELS`, `TICKS_PRIME_MAX_PARALLEL`, …). Resolution is environment > markdown > runtime catalog default. Validate every configured selector against `rlm.find_models()` at run start.
+Environment overrides use the `TICKS_PRIME_` prefix (`TICKS_PRIME_PLANNER_MODELS`, `TICKS_PRIME_IMPLEMENT_BALANCED_MODELS`, `TICKS_PRIME_REVIEW_MODELS`, `TICKS_PRIME_MAX_PARALLEL`, …). Resolution is environment > this section > runtime catalog default, and `[orchestration].max_parallel` in `.tick/runners.toml` outranks a `max_parallel` written here. Validate every configured selector against `rlm.find_models()` at run start.
 
 The runtime imposes no cap on children or concurrent processes, so `max_parallel` is a cost and machine decision, not a limit the harness will enforce. Each implementer is a full OS process with its own kernel; take the lower of `tk graph`'s `max_parallel` and this setting.
 
