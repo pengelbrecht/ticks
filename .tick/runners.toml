@@ -1,6 +1,6 @@
 # Worker routing for herd-substrate epic runs. Schema:
 # skills/ticks/references/runners-config.schema.json; semantics: runners-config.md.
-version = 1
+version = 2
 
 [orchestrator]
 harness = "claude"
