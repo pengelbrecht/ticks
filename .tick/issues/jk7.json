@@ -2,6 +2,7 @@
   "id": "jk7",
   "title": "Refuse a run whose cost budget cannot be enforced",
   "description": "Final-review finding. In run-workflow.ts acquireContext, a run whose AI Gateway cost telemetry cannot be read still STARTS, bounded only by wall clock; the failure is logged and the record says cost is unknown (\"Reported, not enforced\").\n\nThe reasoning is sound as far as it goes: a telemetry outage should not take the factory down, and recording \"cost unknown\" is much better than a record that implies zero spend. The consequence is the problem — an EXPLICITLY CONFIGURED cost budget silently degrades to wall-clock-only. That is the one budget an operator sets precisely because wall clock does not bound spend on metered API keys, and the design doc names metered spend as a real adoption consideration.\n\nFix: when a cost budget is explicitly configured AND telemetry cannot be read, refuse the run with an actionable message naming the gateway problem. Proceed as today only when no cost budget was set. That keeps outage-tolerance for the common case and preserves the guarantee for the operator who asked for one. Do not make it a prompt-level check — this belongs where the other budget enforcement lives, in the Workflow.",
+  "notes": "2026-08-20 01:31 - runner-state: substrate=herdr kind=codex branch=tick/jk7 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-jk7 workspace=wBJ base=9f85e5d435511bd6216f48fe44ee2371a81b4b70 agent=tick-jk7 pane=wBJ:p1 session=01a01c5d-bc41-7872-b6b3-34d7d612cc7d",
   "status": "in_progress",
   "priority": 2,
   "type": "bug",
@@ -11,6 +12,6 @@
   "acceptance_criteria": "A run with an explicit cost budget and unreadable gateway telemetry refuses before booting a sandbox, naming the gateway failure; a run with no cost budget still starts and records cost as unknown; both paths covered by tests.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T23:31:38.354891Z",
-  "updated_at": "2026-08-19T23:31:38.423676Z",
+  "updated_at": "2026-08-19T23:31:46.911574Z",
   "started_at": "2026-08-19T23:31:38.423676Z"
 }
