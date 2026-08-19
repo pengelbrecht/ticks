@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,6 +160,58 @@ func TestConfigMigrateDryRunApplyAndIdempotency(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "nothing to migrate") {
 		t.Errorf("second apply did not report a no-op: %s", out.String())
+	}
+}
+
+func TestConfigMigrationDiffShowsContextAndOnlyChangedLines(t *testing.T) {
+	var out bytes.Buffer
+	printConfigMigrationDiff(&out, ".tick/config.md", []byte("unchanged\nold\ntrailing\n"), []byte("unchanged\nnew\ntrailing\n"))
+	text := out.String()
+	if !strings.Contains(text, " unchanged") || !strings.Contains(text, "-old") || !strings.Contains(text, "+new") {
+		t.Fatalf("diff did not contain context and changed lines:\n%s", text)
+	}
+	if strings.Contains(text, "-unchanged") || strings.Contains(text, "+unchanged") || strings.Contains(text, "-trailing") || strings.Contains(text, "+trailing") {
+		t.Fatalf("unchanged lines were rendered as deletions/additions:\n%s", text)
+	}
+}
+
+func TestConfigMigrationWritesRunnersBeforeReplacingLegacyConfig(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".tick", "config.md")
+	runnersPath := filepath.Join(root, ".tick", "runners.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("old config\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(runnersPath, []byte("old runners\n"), 0o644); err != nil {
+		t.Fatalf("write runners: %v", err)
+	}
+
+	originalRename := renameMigrationFile
+	defer func() { renameMigrationFile = originalRename }()
+	var calls []string
+	renameMigrationFile = func(oldPath, newPath string) error {
+		calls = append(calls, newPath)
+		if newPath == configPath {
+			return errors.New("simulated config rename failure")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	err := writeMigrationFiles(configPath, []byte("new config\n"), runnersPath, []byte("new runners\n"))
+	if err == nil || !strings.Contains(err.Error(), "simulated config rename failure") {
+		t.Fatalf("writeMigrationFiles error = %v, want simulated config failure", err)
+	}
+	if len(calls) != 2 || calls[0] != runnersPath || calls[1] != configPath {
+		t.Fatalf("rename order = %v, want runners.toml then config.md", calls)
+	}
+	if got, _ := os.ReadFile(configPath); string(got) != "old config\n" {
+		t.Fatalf("config.md was replaced despite the simulated failure: %q", got)
+	}
+	if got, _ := os.ReadFile(runnersPath); string(got) != "new runners\n" {
+		t.Fatalf("runners.toml was not installed before the simulated failure: %q", got)
 	}
 }
 

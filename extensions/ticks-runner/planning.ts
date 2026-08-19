@@ -1237,7 +1237,7 @@ function planningReport(result: AutomatedPlanningResult): string {
 	if (result.plan) {
 		lines.push("", "## Validated waves", "");
 		for (const wave of result.plan.waves) lines.push(`- Wave ${wave.wave}: ${wave.taskIds.join(", ")}`);
-		lines.push(`- Process review: blocked by ${result.plan.terminalClientIds.join(", ")}`, "- Process closeout: blocked by review", "- Closeout authorization: controller must map every epic acceptance item to exactly one unique command from .tick/config.md Testing or Closeout Evidence Commands under ## Acceptance Evidence.");
+		lines.push(`- Process review: blocked by ${result.plan.terminalClientIds.join(", ")}`, "- Process closeout: blocked by review", "- Closeout authorization: controller must map every epic acceptance item exactly once in [evidence.acceptance] to a unique command id from [testing.commands] or [evidence.commands].");
 	}
 	if (result.error) lines.push("", "## Error", "", result.error);
 	return `${lines.join("\n")}\n`;
@@ -1417,7 +1417,7 @@ export function formatPlanningResult(result: AutomatedPlanningResult): string {
 				lines.push(`- **${id}** — ${task.title} (P${task.priority}, ${task.type}, ${task.tier})`, `  - Files: ${task.files.map((file) => `\`${file}\``).join(", ")}`, `  - Hard blockers: ${task.blocked_by.join(", ") || "none"}${task.after?.length ? `; soft after: ${task.after.join(", ")}` : ""}`);
 			}
 		}
-		lines.push("", "### Controller-implied process skeleton", `- Review is blocked by terminal implementation tasks: ${result.plan.terminalClientIds.join(", ")}.`, "- Closeout is blocked by review. These roles were not accepted from model output.", "- Before closeout, the controller must map every epic acceptance item to exactly one unique command from `.tick/config.md` `## Testing` or `## Closeout Evidence Commands` under `## Acceptance Evidence`.");
+		lines.push("", "### Controller-implied process skeleton", `- Review is blocked by terminal implementation tasks: ${result.plan.terminalClientIds.join(", ")}.`, "- Closeout is blocked by review. These roles were not accepted from model output.", "- Before closeout, the controller must map every epic acceptance item exactly once in [evidence.acceptance] to a unique command id from [testing.commands] or [evidence.commands].");
 	}
 	if (result.apply?.status === "partial" && result.apply.partialState) {
 		lines.push("", "## Partial tracker state (recovery required)", `- Epic: ${result.apply.epicId ?? "not created"}`, `- Failed step: ${result.apply.partialState.failedStep}`, `- Error: ${result.apply.partialState.error}`, `- Mapping: \`${JSON.stringify(result.apply.clientToTick)}\``, "- Retry the same target; the controller will reuse this idempotency mapping instead of recreating tasks.");

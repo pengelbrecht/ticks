@@ -1,9 +1,19 @@
 package config
 
-// The four worked examples from skills/ticks/references/runners-config.md,
+import (
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/pengelbrecht/ticks/internal/skills"
+)
+
+// The six worked examples from skills/ticks/references/runners-config.md,
 // transcribed verbatim (comments included). TestDocExamples proves each one
 // parses, resolves and compiles exactly as the doc states; if the doc changes,
-// these strings must be re-copied from it.
+// TestDocExampleTranscriptionsMatch makes the copy stay in sync automatically.
+
+var runnersConfigTomlBlock = regexp.MustCompile("(?s)```toml\\n(.*?)```")
 
 const docExample1 = `
 version = 1
@@ -292,3 +302,27 @@ go-toolchain = { command = "which go", description = "Go toolchain on PATH" }
 pnpm = { command = "which pnpm", description = "pnpm on PATH (never npm/yarn in this repo)" }
 git-identity = { command = "git config user.email", description = "git identity configured" }
 `
+
+func TestDocExampleTranscriptionsMatch(t *testing.T) {
+	doc, err := skills.Read("ticks", "references/runners-config.md")
+	if err != nil {
+		t.Fatalf("read runners-config.md: %v", err)
+	}
+	var complete []string
+	for _, match := range runnersConfigTomlBlock.FindAllStringSubmatch(string(doc), -1) {
+		body := strings.TrimSpace(match[1])
+		if strings.HasPrefix(body, "# fragment") {
+			continue
+		}
+		complete = append(complete, body)
+	}
+	want := []string{docExample1, docExample2, docExample3, docExample4, docExample5, docExample6}
+	if len(complete) != len(want) {
+		t.Fatalf("found %d complete TOML examples, want %d", len(complete), len(want))
+	}
+	for i, expected := range want {
+		if complete[i] != strings.TrimSpace(expected) {
+			t.Errorf("docExample%d is out of sync with runners-config.md", i+1)
+		}
+	}
+}
