@@ -8,7 +8,7 @@
  */
 declare namespace Cloudflare {
   interface Env {
-    /** One RunRoom per active epic run. */
+    /** One RunRoom per project: dispatch lease + pending questions. */
     RUN_ROOMS: DurableObjectNamespace<import("./run-room").RunRoom>;
     /** Run artifacts: prompts, events.jsonl, reports, diffs. */
     ARTIFACTS: R2Bucket;

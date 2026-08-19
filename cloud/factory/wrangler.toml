@@ -11,8 +11,10 @@ main = "src/index.ts"
 compatibility_date = "2026-08-11"
 compatibility_flags = ["nodejs_compat"]
 
-# One RunRoom per active epic run (idFromName(project + epic)). Placeholder for
-# now — the dispatch lease, operator gates and reconcile alarms land in Phase 1.
+# One RunRoom per project (idFromName(project)) — the dispatch lease is per
+# project, so an epic-scoped room would hand every run its own lease and
+# arbitrate nothing (D4, D19). It owns the lease and the pending-question store
+# today; reconcile alarms and run_event fan-out land with later phases.
 [[durable_objects.bindings]]
 name = "RUN_ROOMS"
 class_name = "RunRoom"

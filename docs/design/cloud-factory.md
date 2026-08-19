@@ -88,7 +88,7 @@ a shared bot "would need a hosted relay in front of it"
   submissions, and `.tick/operators.json` already maps identities. What no
   deployment ever does is serve strangers.
 - **One factory, many projects.** The unit of deployment is the *account*, not
-  the repo: the RunRoom lease is per project (`idFromName(project + epic)`), so
+  the repo: the RunRoom lease is per project (`idFromName(project)`), so
   two repos run concurrently without contending; every D1 row carries the
   project, and R2 keys are project-prefixed. Adding a repo is enrolment, not
   deployment. Consequently the account-scoped resource names are fixed
@@ -146,7 +146,9 @@ The design separates components by *what is allowed to die*:
   retry a dead orchestrator, finalize. Workflows give durable execution with
   per-step checkpointing, so "the thing supervising the run" cannot itself be
   lost.
-- **The RunRoom DO** (one per active epic run, `idFromName(project + epic)`):
+- **The RunRoom DO** (one per project, `idFromName(project)` — the lease
+  arbitrates *between* epic runs, so an epic-scoped room would arbitrate
+  nothing):
   owns the state that is filesystem-shaped today and awkward for it — the
   dispatch lease (today: the Pi extension's checkout-scoped file lease with
   compare-and-delete semantics), pending operator questions (today:
