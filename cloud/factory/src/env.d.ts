@@ -102,9 +102,11 @@ declare namespace Cloudflare {
     /**
      * A Cloudflare API token that can read the gateway's logs (and open an
      * authenticated gateway). It is what makes `runs.cost_usd` ground truth
-     * rather than an agent's self-report (D17), so a deployment without one
-     * routes and attributes model traffic but cannot enforce the cost budget —
-     * `tk factory setup --cloudflare-api-token` is what supplies it.
+     * rather than an agent's self-report (D17). A deployment with an explicit
+     * cost budget must have this credential; without one, a run can still route
+     * and attribute model traffic when no explicit cost budget is configured,
+     * recording its cost as unknown. `tk factory setup --cloudflare-api-token`
+     * is what supplies it.
      */
     CLOUDFLARE_API_TOKEN?: string;
     /** Test/deployment override; defaults to api.cloudflare.com/client/v4. */

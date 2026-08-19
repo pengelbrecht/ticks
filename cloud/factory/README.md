@@ -154,7 +154,7 @@ issued for, and forwards to the gateway.
 | No gateway configured → submissions are refused, naming `tk factory setup` | The absence of a gateway is an actionable stop at submission, never a silent fall back to a vendor default. A base URL pointed at a vendor host is refused the same way. |
 | The route is exempt from the factory bearer token, and does not accept it | A sandbox must never hold the credential that commands the control plane. The run token can do exactly one thing. |
 | Metadata is stamped, not accepted | Any `cf-aig-*` header the caller sent is dropped first, so an agent can neither misattribute its spend nor opt out of being attributed. |
-| Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run records its cost as unknown rather than as `$0`. |
+| Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run with no explicit cost budget records its cost as unknown rather than as `$0`, while an explicit budget refuses before sandbox boot. |
 | Every boot rotates the token; a trip, a stop and finalize revoke it | The kill switch works on a wedged or adversarial orchestrator, and no run ever leaves a live credential behind. Closeout gets a fresh token — a stop must still reach review and closeout (D15). |
 
 ## Auth: secrets, not accounts

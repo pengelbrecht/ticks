@@ -94,6 +94,7 @@ describe("budget configuration", () => {
 
     expect(config.max_wall_clock_ms).toBe(DEFAULT_MAX_WALL_CLOCK_MS);
     expect(config.max_cost_usd).toBe(DEFAULT_MAX_COST_USD);
+    expect(config.cost_budget_configured).toBe(false);
     expect(config.poll_interval_ms).toBeNull();
   });
 
@@ -105,12 +106,14 @@ describe("budget configuration", () => {
 
     expect(config.max_wall_clock_ms).toBe(DEFAULT_MAX_WALL_CLOCK_MS);
     expect(config.max_cost_usd).toBe(DEFAULT_MAX_COST_USD);
+    expect(config.cost_budget_configured).toBe(false);
   });
 
   it("reads a fractional cost budget but an integral clock", () => {
     const config = runConfig({ RUN_MAX_COST_USD: "2.50", RUN_MAX_WALL_CLOCK_MS: "60000" } as never);
 
     expect(config.max_cost_usd).toBe(2.5);
+    expect(config.cost_budget_configured).toBe(true);
     expect(config.max_wall_clock_ms).toBe(60_000);
   });
 });

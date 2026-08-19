@@ -166,6 +166,7 @@ beforeEach(() => {
   sandboxes = new FakeSandboxes();
   set("SANDBOXES", sandboxes);
   set("AI_GATEWAY_BASE_URL", GATEWAY);
+  set("CLOUDFLARE_API_TOKEN", undefined);
   // A run's model traffic goes through this deployment's own gateway proxy
   // (D17), so the Workflow has to know the factory's public URL to hand a
   // gateway to a sandbox. `tk factory deploy` writes it.
@@ -176,7 +177,10 @@ beforeEach(() => {
   set("RUN_POLL_INTERVAL_MS", "25");
   set("RUN_STOP_GRACE_MS", "50");
   set("RUN_MAX_WALL_CLOCK_MS", "600000");
-  set("RUN_MAX_COST_USD", "25");
+  // No explicit cost budget by default: the harness intentionally has no
+  // Cloudflare API token, so this path must remain runnable and record unknown
+  // spend rather than refusing every test run.
+  set("RUN_MAX_COST_USD", undefined);
 });
 
 afterEach(() => {
@@ -507,13 +511,16 @@ describe("a clean stop runs review and closeout", () => {
   });
 
   it("treats a cost budget exactly like the operator stop path", async () => {
-    set("RUN_MAX_COST_USD", "1");
     const { runID, epic } = await ignite();
     const process = await firstProcess();
 
-    // Ground-truth spend lands on the index row (tick k2s wires it to gateway
-    // telemetry); the Workflow acts on the number, never on a self-report.
-    await env.DB.prepare("UPDATE runs SET cost_usd = ? WHERE run_id = ?").bind(1.5, runID).run();
+    // A last known ground-truth value remains enforceable when a later
+    // telemetry read fails. The default budget is $25 because this test does
+    // not opt into an explicit budget without a readable gateway.
+    await env.DB
+      .prepare("UPDATE runs SET cost_usd = ? WHERE run_id = ?")
+      .bind(25.5, runID)
+      .run();
 
     const closeout = await waitFor("the closeout orchestrator", async () =>
       sandboxes.phase("closeout")
@@ -656,9 +663,25 @@ describe("the run's gateway credential is the kill switch", () => {
     expect(gateway.calls).toHaveLength(0);
   });
 
+  it("refuses before boot when an explicit cost budget has no gateway telemetry", async () => {
+    set("RUN_MAX_COST_USD", "1");
+    const { runID, project } = await ignite();
+
+    const run = await settled(runID);
+    expect(run.state).toBe("failed");
+    expect(sandboxes.booted).toHaveLength(0);
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail ?? "").toMatch(/AI Gateway.*cost telemetry/i);
+    expect(record.detail ?? "").toContain("CLOUDFLARE_API_TOKEN");
+    expect(record.detail ?? "").toContain("tk factory setup");
+  });
+
   it("says in the record when gateway cost telemetry could not be read", async () => {
-    // No CLOUDFLARE_API_TOKEN in this harness: the run still runs, bounded by
-    // wall clock, and its record says the cost is unknown rather than $0.
+    // No explicit cost budget or CLOUDFLARE_API_TOKEN in this harness: the run
+    // still runs, bounded by wall clock, and its record says the cost is
+    // unknown rather than $0.
+    set("RUN_MAX_COST_USD", undefined);
     const { runID, project } = await ignite();
     (await firstProcess()).exit(0);
     await settled(runID);

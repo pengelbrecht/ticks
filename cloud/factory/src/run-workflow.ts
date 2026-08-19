@@ -130,6 +130,8 @@ const FINALIZE_RETRIES = { retries: { limit: 5, delay: 1_000, backoff: "exponent
 export type RunConfig = {
   max_wall_clock_ms: number;
   max_cost_usd: number;
+  /** Whether the deployment explicitly supplied a cost budget override. */
+  cost_budget_configured: boolean;
   stop_grace_ms: number;
   closeout_ms: number;
   /** A fixed cadence when the deployment asks for one; else the backoff above. */
@@ -164,11 +166,19 @@ function textVar(env: Env, name: keyof Env): string | null {
   return typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
 }
 
+function hasPositiveVar(env: Env, name: keyof Env, integer: boolean): boolean {
+  const raw = textVar(env, name);
+  if (raw === null) return false;
+  const parsed = Number(raw);
+  return (integer ? Number.isSafeInteger(parsed) : Number.isFinite(parsed)) && parsed > 0;
+}
+
 export function runConfig(env: Env): RunConfig {
   const poll = textVar(env, "RUN_POLL_INTERVAL_MS");
   return {
     max_wall_clock_ms: positiveVar(env, "RUN_MAX_WALL_CLOCK_MS", DEFAULT_MAX_WALL_CLOCK_MS, true),
     max_cost_usd: positiveVar(env, "RUN_MAX_COST_USD", DEFAULT_MAX_COST_USD, false),
+    cost_budget_configured: hasPositiveVar(env, "RUN_MAX_COST_USD", false),
     stop_grace_ms: positiveVar(env, "RUN_STOP_GRACE_MS", DEFAULT_STOP_GRACE_MS, true),
     closeout_ms: positiveVar(env, "RUN_CLOSEOUT_MS", DEFAULT_CLOSEOUT_MS, true),
     poll_interval_ms: poll === null ? null : positiveVar(env, "RUN_POLL_INTERVAL_MS", MIN_POLL_MS, true),
@@ -209,9 +219,9 @@ export type RunContext = {
   started_at_ms: number;
   config: RunConfig;
   /**
-   * Why gateway cost telemetry is unavailable, when it is. A run still runs —
-   * the wall-clock budget still bounds it — but the fact is recorded rather
-   * than left to look like a run that spent nothing.
+   * Why gateway cost telemetry is unavailable for a run allowed to continue
+   * without an explicit cost budget. The fact is recorded rather than left to
+   * look like a run that spent nothing.
    */
   cost_telemetry: string | null;
 };
@@ -251,20 +261,29 @@ export async function acquireContext(
   const routing = modelRoutingComplaint(env);
   if (routing !== null) return { ok: false, detail: routing };
 
-  // Reported, not enforced: a run with no readable spend still runs, bounded
-  // by wall clock, and says in its record that its cost is unknown.
+  const config = runConfig(env);
   const telemetry = await syncRunCost(env, params.run_id);
   if (!telemetry.ok) {
     console.error(
       `factory run-workflow: ${params.run_id} has no gateway cost telemetry: ${telemetry.detail}`
     );
+    if (config.cost_budget_configured) {
+      return {
+        ok: false,
+        detail:
+          "the configured cost budget cannot be enforced because AI Gateway cost telemetry " +
+          `could not be read: ${telemetry.detail}; run ` +
+          "`tk factory setup --cloudflare-api-token <token>` to configure gateway log access " +
+          "or remove RUN_MAX_COST_USD",
+      };
+    }
   }
 
   const context: RunContext = {
     repo_url: repoURL(params.project),
     gateway_base_url: runGatewayEndpoint(factoryBaseURL(env)!),
     started_at_ms: Date.now(),
-    config: runConfig(env),
+    config,
     cost_telemetry: telemetry.ok ? null : telemetry.detail,
   };
 
