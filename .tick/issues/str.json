@@ -1,0 +1,20 @@
+{
+  "id": "str",
+  "title": "Final review of the tooling-defects diff",
+  "description": "Review the four fixes together: that the boundary check still fails closed on real tracker mutations, that agent-name qualification does not break respawn prefix matching or reconcile, that the protocol policy is deliberate rather than a bumped constant, and that the dashboard change actually reaches the tail of a long roadmap.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "201",
+    "09w",
+    "5jo",
+    "3nh"
+  ],
+  "parent": "72y",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T21:13:06.346174Z",
+  "updated_at": "2026-08-19T21:13:06.346174Z"
+}

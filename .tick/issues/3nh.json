@@ -6,8 +6,9 @@
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
+  "parent": "72y",
   "acceptance_criteria": "tk herd works against herdr 0.8.2/protocol 20 with the internal/herd suite green; the fixtures are re-captured from the running server rather than hand-edited; the compatibility policy (exact pin vs supported range) is decided and documented, and a server newer than the pin fails or warns according to that policy.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T21:09:31.29909Z",
-  "updated_at": "2026-08-19T21:09:31.29909Z"
+  "updated_at": "2026-08-19T21:13:06.320715Z"
 }

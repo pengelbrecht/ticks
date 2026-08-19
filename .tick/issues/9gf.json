@@ -1,0 +1,17 @@
+{
+  "id": "9gf",
+  "title": "Close out tooling defects: retro",
+  "description": "Retro on the tooling epic; fold learnings into .tick/learnings.md within the cap. The theme to capture: all four were found by running a real multi-repo workload, not by tests.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "str"
+  ],
+  "parent": "72y",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T21:13:06.372623Z",
+  "updated_at": "2026-08-19T21:13:06.372623Z"
+}

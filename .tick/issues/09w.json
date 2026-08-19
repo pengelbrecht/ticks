@@ -6,8 +6,9 @@
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
+  "parent": "72y",
   "acceptance_criteria": "A tick that edits .tick/config.md or .tick/runners.toml and no tracker state collects as ready-to-merge; a tick that edits .tick/issues or .tick/activity still reports boundary-violation naming the files; the distinction is covered by tests.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T20:37:55.303741Z",
-  "updated_at": "2026-08-19T20:37:55.303741Z"
+  "updated_at": "2026-08-19T21:13:06.266928Z"
 }
