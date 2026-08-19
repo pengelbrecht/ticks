@@ -10,8 +10,9 @@
  * The derivation is deliberately NOT the bare, unsalted `SHA-256(token)`
  * pattern in `cloud/worker/src/auth.ts` (a ticks.sh board-sync problem on its
  * own track). Here every hash is salted and stretched with PBKDF2-HMAC-SHA-256,
- * stored in a self-describing record so the cost can be raised later without a
- * migration:
+ * stored in a self-describing record so the cost is a property of the secret
+ * rather than of the code and can move without a migration (within what the
+ * platform will run — see PLATFORM_MAX_ITERATIONS):
  *
  *     pbkdf2-sha256$<iterations>$<base64url salt>$<base64url derived key>
  *
@@ -33,19 +34,41 @@ const TOKEN_BYTES = 32;
 export const HASH_SCHEME = "pbkdf2-sha256";
 
 /**
- * PBKDF2 cost. 210k is the OWASP figure for PBKDF2-HMAC-SHA-256 and measures
- * ~13ms in workerd — acceptable per request for a personal control plane. The
- * count lives in the record, so raising it only needs a new secret.
+ * The hard ceiling Cloudflare Workers puts on PBKDF2: `crypto.subtle.deriveBits`
+ * THROWS on the edge above 100,000 iterations. This is a platform fact, not a
+ * policy of ours — a record minted any higher makes every authenticated request
+ * a 503 on a correctly deployed factory, which is exactly how this shipped and
+ * was caught by the first live deploy. Local workerd does NOT enforce it, so
+ * only the guard test in test/auth.test.ts stands between a future raise and a
+ * dead deployment.
+ *
+ * https://developers.cloudflare.com/workers/runtime-apis/web-crypto/
  */
-export const DEFAULT_ITERATIONS = 210_000;
+export const PLATFORM_MAX_ITERATIONS = 100_000;
+
+/**
+ * PBKDF2 cost. OWASP's 210k figure for PBKDF2-HMAC-SHA-256 is a *password*
+ * recommendation and is unreachable here anyway (see PLATFORM_MAX_ITERATIONS).
+ * Nothing is lost: the credential being stretched is not a password but 256
+ * bits of CSPRNG output (TOKEN_BYTES), which no iteration count meaningfully
+ * defends — stretching here only blunts an offline attack on a leaked secret
+ * whose search space is already 2^256. The cap costs this scheme nothing.
+ */
+export const DEFAULT_ITERATIONS = 100_000;
 
 /**
  * Accepted cost bounds. The floor refuses a weakened record (a downgraded or
  * fat-fingered secret must fail closed, not authenticate cheaply); the ceiling
- * stops a bad secret from turning every request into a CPU stall.
+ * stops a bad secret from turning every request into a CPU stall — and can
+ * never exceed what the platform will actually run.
+ *
+ * The platform cap and the floor meet at the same number today, so a record is
+ * only accepted at exactly 100,000 iterations. The count still lives in the
+ * record: that is what lets the bounds move later (down, or up if Cloudflare
+ * ever raises the cap) with a new secret rather than a migration.
  */
 export const MIN_ITERATIONS = 100_000;
-export const MAX_ITERATIONS = 1_000_000;
+export const MAX_ITERATIONS = PLATFORM_MAX_ITERATIONS;
 
 const SALT_BYTES = 16;
 const DERIVED_BITS = 256;
@@ -202,6 +225,19 @@ export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /**
+ * Verifies a presented token against an already-parsed record. Anything this
+ * throws came out of the runtime’s crypto, not out of the record’s shape — the
+ * middleware relies on that split to report the right fault.
+ */
+export async function verifyAgainstRecord(
+  token: string,
+  record: TokenHashRecord
+): Promise<boolean> {
+  const candidate = await deriveBits(token, record.salt, record.iterations);
+  return timingSafeEqual(candidate, record.derivedKey);
+}
+
+/**
  * Verifies a presented token against a stored record. Throws only if the
  * record itself is unusable — a wrong token resolves to `false`.
  */
@@ -209,8 +245,7 @@ export async function verifyFactoryToken(token: string, encoded: string): Promis
   const record = parseTokenHash(encoded);
   if (record === null) throw new TypeError("FACTORY_TOKEN_HASH is not a valid hash record");
 
-  const candidate = await deriveBits(token, record.salt, record.iterations);
-  return timingSafeEqual(candidate, record.derivedKey);
+  return verifyAgainstRecord(token, record);
 }
 
 /**
@@ -272,19 +307,41 @@ export async function authenticateFactoryRequest(
     return misconfigured("FACTORY_TOKEN_HASH secret is not set on this deployment");
   }
 
-  const token = extractBearerToken(request);
-  if (token === null) return unauthorized(false);
-
-  try {
-    const ok = await verifyFactoryToken(token, stored);
-    return ok ? null : unauthorized(true);
-  } catch {
-    // Only thrown for an unparseable record. Log the scheme we expect, never
-    // the stored value or the presented token.
+  // Parsing is separated from deriving so the two ways a secret can be unusable
+  // never share a diagnosis. Reporting a crypto throw as “not a valid record”
+  // is what sent the first live deploy chasing the wrong fault: /health said
+  // configured:true (the record parsed) while every request called the record
+  // invalid (deriveBits threw on an over-cap iteration count).
+  const record = parseTokenHash(stored);
+  if (record === null) {
+    // Names the secret and the scheme we expect, never the stored value.
     console.error(
       `factory auth: FACTORY_TOKEN_HASH is not a valid ${HASH_SCHEME} record; re-run the deploy`
     );
     return misconfigured(`FACTORY_TOKEN_HASH is not a valid ${HASH_SCHEME} record`);
+  }
+
+  const token = extractBearerToken(request);
+  if (token === null) return unauthorized(false);
+
+  try {
+    const ok = await verifyAgainstRecord(token, record);
+    return ok ? null : unauthorized(true);
+  } catch (error) {
+    // The record parsed; the runtime refused to run it. The iteration count is
+    // a cost parameter, not secret material, and it is the field that actually
+    // explains this failure — above PLATFORM_MAX_ITERATIONS the edge throws here.
+    const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error(
+      `factory auth: PBKDF2 derivation failed for a well-formed FACTORY_TOKEN_HASH record ` +
+        `at ${record.iterations} iterations (platform cap ${PLATFORM_MAX_ITERATIONS}); ` +
+        `re-mint the secret. Runtime said: ${reason}`
+    );
+    // The body carries only what we composed: a runtime message is not ours to
+    // hand to whoever can reach the route.
+    return misconfigured(
+      `FACTORY_TOKEN_HASH parsed but PBKDF2 derivation failed at ${record.iterations} iterations`
+    );
   }
 }
 

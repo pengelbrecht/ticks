@@ -5,6 +5,7 @@ import {
   HASH_SCHEME,
   MAX_ITERATIONS,
   MIN_ITERATIONS,
+  PLATFORM_MAX_ITERATIONS,
   TOKEN_PREFIX,
   authenticateFactoryRequest,
   deriveTokenHash,
@@ -516,5 +517,125 @@ describe("no secret material is committed to the repo", () => {
 
   it("keeps the secret out of wrangler.toml — it is a Worker secret, not a var", () => {
     expect(files["../wrangler.toml"]).not.toContain("FACTORY_TOKEN_HASH");
+  });
+});
+
+describe("Cloudflare's PBKDF2 iteration cap", () => {
+  // Cloudflare Workers refuses PBKDF2 above 100,000 iterations: on the edge,
+  // crypto.subtle.deriveBits THROWS, so a record minted any higher turns every
+  // authenticated request into a 503 on a correctly deployed factory. Local
+  // workerd does NOT enforce the cap — this suite was green on a
+  // DEFAULT_ITERATIONS of 210,000 that could not work in production, which is
+  // exactly why these assertions exist.
+  //
+  // The bound below is a literal on purpose. Asserting against
+  // PLATFORM_MAX_ITERATIONS would let one edit raise the constants and the cap
+  // together and stay green; the platform limit is not ours to raise.
+  // See https://developers.cloudflare.com/workers/runtime-apis/web-crypto/.
+  it("keeps the mint default and the accepted ceiling at or below the cap", () => {
+    expect(DEFAULT_ITERATIONS).toBeLessThanOrEqual(100_000);
+    expect(MAX_ITERATIONS).toBeLessThanOrEqual(100_000);
+    expect(PLATFORM_MAX_ITERATIONS).toBe(100_000);
+  });
+
+  it("derives and verifies at the highest cost it will ever accept", async () => {
+    const token = mintFactoryToken();
+
+    const encoded = await deriveTokenHash(token, { iterations: MAX_ITERATIONS });
+
+    await expect(verifyFactoryToken(token, encoded)).resolves.toBe(true);
+  });
+});
+
+describe("misconfiguration diagnostics", () => {
+  const original = env.FACTORY_TOKEN_HASH;
+  let token: string;
+
+  beforeEach(async () => {
+    token = mintFactoryToken();
+    setSecret(await deriveTokenHash(token));
+  });
+
+  afterEach(() => {
+    setSecret(original);
+    vi.restoreAllMocks();
+  });
+
+  /** Captures every console stream and returns the accumulating lines. */
+  function captureLogs(): string[] {
+    const collected: string[] = [];
+    for (const level of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        collected.push(args.map(String).join(" "));
+      });
+    }
+    return collected;
+  }
+
+  it("names an unparseable record as a parse failure", async () => {
+    const logged = captureLogs();
+    setSecret("sha256$deadbeef");
+
+    const res = await authenticateFactoryRequest(
+      new Request(`${BASE}/api/runs`, bearer(token)),
+      env
+    );
+    const body = (await res!.json()) as { error: string; detail: string };
+
+    expect(res!.status).toBe(503);
+    expect(body.error).toBe("auth_not_configured");
+    expect(body.detail).toContain(`not a valid ${HASH_SCHEME} record`);
+    expect(body.detail).not.toMatch(/deriv/i);
+    expect(logged.join("\n")).toMatch(/not a valid/);
+  });
+
+  // The failure that misdiagnosed this bug live: /health said configured:true
+  // (the record parsed) while every request reported the record invalid (the
+  // edge threw inside deriveBits on a 210,000-iteration record). A parse
+  // failure and a crypto failure are different faults and must read
+  // differently, or the next diagnosis chases the wrong one too.
+  it("names a crypto failure on a parseable record as a runtime failure", async () => {
+    const logged = captureLogs();
+    vi.spyOn(crypto.subtle, "deriveBits").mockRejectedValue(
+      new Error("Cannot use PBKDF2 with more than 100000 iterations.")
+    );
+
+    const res = await authenticateFactoryRequest(
+      new Request(`${BASE}/api/runs`, bearer(token)),
+      env
+    );
+    const body = (await res!.json()) as { error: string; detail: string };
+
+    expect(res!.status).toBe(503);
+    expect(body.error).toBe("auth_not_configured");
+    expect(body.detail).toMatch(/deriv/i);
+    expect(body.detail).not.toContain(`not a valid ${HASH_SCHEME} record`);
+    // The record parsed, so the diagnosis must not accuse it of being
+    // malformed — and it must carry the cost that failed.
+    expect(body.detail).toContain(String(DEFAULT_ITERATIONS));
+    expect(logged.join("\n")).toMatch(/deriv/i);
+    expect(logged.join("\n")).not.toMatch(/not a valid/);
+    // The runtime message earns its keep in the log, where the operator tails it.
+    expect(logged.join("\n")).toContain("more than 100000 iterations");
+  });
+
+  // The runtime message goes to the log; the response body — reachable by
+  // anyone who can reach the route — carries only what we composed ourselves.
+  it("keeps the raw runtime error out of the response body", async () => {
+    const logged = captureLogs();
+    const stored = env.FACTORY_TOKEN_HASH!;
+    vi.spyOn(crypto.subtle, "deriveBits").mockRejectedValue(new Error(stored));
+
+    const res = await authenticateFactoryRequest(
+      new Request(`${BASE}/api/runs`, bearer(token)),
+      env
+    );
+    const body = await res!.text();
+
+    for (const secret of [token, stored, ...stored.split("$").slice(2)]) {
+      expect(body, "response body leaked a secret").not.toContain(secret);
+    }
+    // The presented token is never part of a diagnosis on any stream.
+    for (const line of logged) expect(line).not.toContain(token);
   });
 });
