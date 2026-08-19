@@ -25,8 +25,8 @@ function makeTick(id: string, title = id): Record<string, unknown> {
     status: "open",
     priority: 2,
     type: "task",
-    owner: "sync@test.com",
-    created_by: "sync@test.com",
+    owner: "sync@example.com",
+    created_by: "sync@example.com",
     created_at: "2026-03-21T12:00:00.000Z",
     updated_at: "2026-03-21T12:00:00.000Z",
   };
@@ -56,7 +56,7 @@ async function resetDatabase(): Promise<void> {
 async function createUserToken(): Promise<{ token: string; userId: string }> {
   const userId = randomId("user");
   const tokenId = randomId("token");
-  const email = `${userId}@test.com`;
+  const email = `${userId}@example.com`;
   const passwordHash = await hashPassword("password123");
   const token = randomId("session-token");
   const tokenHash = await hashPassword(token);

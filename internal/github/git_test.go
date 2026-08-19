@@ -119,7 +119,7 @@ func setupGitRepo(t *testing.T) string {
 	}
 
 	run("init")
-	run("config", "user.email", "test@test.com")
+	run("config", "user.email", "test@example.com")
 	run("config", "user.name", "Test User")
 	return dir
 }

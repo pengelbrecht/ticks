@@ -26,7 +26,7 @@ function createRepository(name: string): { root: string; repo: string; worktree:
 	fs.mkdirSync(repo);
 	git(repo, "init", "--initial-branch=integration");
 	git(repo, "config", "user.name", "Ticks Runner Test");
-	git(repo, "config", "user.email", "ticks-runner@example.invalid");
+	git(repo, "config", "user.email", "ticks-runner@example.com");
 	fs.mkdirSync(path.join(repo, ".tick", "issues"), { recursive: true });
 	fs.writeFileSync(path.join(repo, ".tick", "issues", "zzu.json"), "{\"status\":\"in_progress\"}\n");
 	fs.writeFileSync(path.join(repo, "shared.txt"), "base\n");

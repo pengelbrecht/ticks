@@ -125,7 +125,7 @@ function setupDisposableRepo(root: string, tk: string, model: string, env: NodeJ
 	fs.mkdirSync(repo, { recursive: true });
 	run("git", ["init", "--initial-branch=main"], repo);
 	run("git", ["config", "user.name", "Ticks Live Scenario"], repo);
-	run("git", ["config", "user.email", "ticks-live@example.invalid"], repo);
+	run("git", ["config", "user.email", "ticks-live@example.com"], repo);
 	run("git", ["remote", "add", "origin", "https://github.com/ticks-live/disposable.git"], repo);
 	run(tk, ["init"], repo, env);
 	fs.writeFileSync(path.join(repo, ".tick", "config.md"), scenarioConfig(model));

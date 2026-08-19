@@ -20,13 +20,13 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 // Test user data
 const TEST_USER_1 = {
   id: "test-user-1",
-  email: "user1@test.com",
+  email: "user1@example.com",
   passwordHash: "", // Will be set after hashing
 };
 
 const TEST_USER_2 = {
   id: "test-user-2",
-  email: "user2@test.com",
+  email: "user2@example.com",
   passwordHash: "",
 };
 

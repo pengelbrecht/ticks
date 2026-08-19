@@ -795,7 +795,7 @@ func createTempGitRepo(t *testing.T) string {
 	}
 
 	// Configure git user (needed for commits)
-	cmd = exec.Command("git", "config", "user.email", "test@test.com")
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to configure git email: %v", err)
