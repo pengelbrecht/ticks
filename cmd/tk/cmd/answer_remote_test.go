@@ -63,6 +63,33 @@ func TestRemoteAnswerReportsTheTelegramWinnerForATick(t *testing.T) {
 	}
 }
 
+func TestRemoteAnswerFactoryNotFoundKeepsTheLocalNotFoundExit(t *testing.T) {
+	requests := 0
+	channel, err := telegram.NewFactoryChannel(telegram.FactoryConfig{
+		URL:     "https://factory.example.test",
+		Token:   "tkf_secret",
+		Project: "owner/repo",
+		HTTPClient: &http.Client{Transport: remoteRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			requests++
+			return remoteJSONResponse(http.StatusNotFound, `{"error":"not_found"}`), nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("NewFactoryChannel: %v", err)
+	}
+
+	err = runRemoteAnswer(&cobra.Command{}, channel, []string{"abc123", "yes"}, "abc123")
+	if GetExitCode(err) != ExitNotFound {
+		t.Fatalf("exit code = %d, want %d (not found): %v", GetExitCode(err), ExitNotFound, err)
+	}
+	if strings.Contains(err.Error(), "factory:") {
+		t.Fatalf("optional factory failure leaked into the local error: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("remote requests = %d, want one lookup", requests)
+	}
+}
+
 func remoteAnswerTestChannel(t *testing.T, pendingJSON string) (*telegram.FactoryChannel, *int) {
 	t.Helper()
 	requests := 0

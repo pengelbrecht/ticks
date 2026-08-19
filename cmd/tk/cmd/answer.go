@@ -108,7 +108,9 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 			}
 			remote, configured, remoteErr := factoryOperatorChannel(project)
 			if remoteErr != nil {
-				return answerError(cmd, NewExitError(ExitIO, "loading the factory operator channel: %v", remoteErr))
+				// The factory is an additional delivery surface. If it is absent
+				// or cannot be constructed, preserve the local not-found contract.
+				return answerError(cmd, err)
 			}
 			if configured {
 				return runRemoteAnswer(cmd, remote, args, tickID)
@@ -209,7 +211,7 @@ func runRemoteAnswer(
 ) error {
 	entries, err := channel.ListPending(commandContext(cmd), tickID)
 	if err != nil {
-		return answerError(cmd, NewExitError(ExitIO, "listing cloud questions on %s: %v", tickID, err))
+		return answerRemoteNotFound(cmd, tickID)
 	}
 	// An explicit question id is useful when a tick carries more than one gate;
 	// it may not carry the tick id in the URL filter, so make the second lookup
@@ -240,7 +242,7 @@ func runRemoteAnswer(
 	if !found && args[0] != tickID {
 		all, listErr := channel.ListPending(commandContext(cmd), "")
 		if listErr != nil {
-			return answerError(cmd, NewExitError(ExitIO, "listing cloud questions: %v", listErr))
+			return answerRemoteNotFound(cmd, tickID)
 		}
 		for _, entry := range all {
 			if entry.ID == args[0] {
@@ -250,8 +252,7 @@ func runRemoteAnswer(
 		}
 	}
 	if !found {
-		return answerError(cmd, NewExitError(ExitNotFound,
-			"no question is parked on %s (tk list --awaiting shows what is waiting)", tickID))
+		return answerRemoteNotFound(cmd, tickID)
 	}
 	if target.Resolution != nil {
 		return answerError(cmd, NewExitError(ExitNotFound,
@@ -291,10 +292,15 @@ func answerRemoteEntry(
 			return answerError(cmd, NewExitError(ExitNotFound,
 				"question %s on %s was already answered: %s", pending.ID, tickID, answerSummary(winner)))
 		}
-		return answerError(cmd, NewExitError(ExitIO, "recording the cloud answer to %s: %v", pending.ID, err))
+		return answerRemoteNotFound(cmd, tickID)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "answered %s (%s) remotely: %s\n", tickID, pending.ID, outcome.Text)
 	return nil
+}
+
+func answerRemoteNotFound(cmd *cobra.Command, tickID string) error {
+	return answerError(cmd, NewExitError(ExitNotFound,
+		"no question is parked on %s (tk list --awaiting shows what is waiting)", tickID))
 }
 
 func answerSubject(pending operator.Pending, tickID string) string {
