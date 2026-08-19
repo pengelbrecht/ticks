@@ -448,6 +448,82 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
 - **Notification is a run parameter, not config** — the requester chooses the
   channel per submission; the default comes from `.tick/operators.json`.
 
+### UC1b — Operator commands a cloud run
+
+*"The run is in the cloud, not in my terminal. I want to start one, stop one,
+and see what's going on — from wherever I am."*
+
+Three arrangements hide behind "how do I talk to the factory," and only the
+second one needs anything new:
+
+| | Operator → orchestrator | Mechanism |
+|---|---|---|
+| **Local orchestrator → cloud workers** (D19) | same terminal | typing. No transport, no delivery point. |
+| **Cloud orchestrator → cloud workers** | headless harness in a Sandbox with no reachable stdin | **this use case** |
+| **Automatic trigger → cloud orchestrator** | no operator in the loop | signal → tick → dispatcher (D1) |
+
+**The arrow is a command surface, not a conversation.** The operator does not
+chat with the orchestrator, steer it mid-tick, or inject prompts into its
+harness. One closed verb vocabulary is exposed on every transport:
+
+| Verb | Terminal | Telegram | GitHub |
+|---|---|---|---|
+| ignite | `tk cloud run <epic>` | `/run <epic>` | `/tk run` on an issue (UC3) |
+| clean stop | `tk cloud stop <run>` | `/stop` | — |
+| what is happening | `tk cloud status` | `/status` | — |
+| answer a parked question | `tk answer <id> …` | inline keyboard (ships today) | — |
+
+**Flow.**
+
+1. The operator issues a verb on any transport. Terminal commands authenticate
+   with the factory bearer token; Telegram authorizes at the transport (paired
+   operator only, UC2's rule); GitHub requires write permission (UC3's rule).
+2. The Worker resolves the verb against the RunRoom DO — the single arbiter,
+   single-threaded by construction, so three transports need no cross-transport
+   locking.
+3. `run` takes the lease and starts a Run Workflow (UC1, unchanged). `stop`
+   finishes the in-flight tick, then goes straight to review/closeout on what is
+   done. `status` reads Workflow step state plus the DO's lease and gate state.
+4. Reports and questions come back on the return arrow that already exists
+   (gates, pending entries, completion reports).
+
+**Decisions forced.**
+
+- **No mid-run mutation channel; stop-and-restart is the steering path.** There
+  is no operator inbox the orchestrator drains, no "also do X" mid-wave, no
+  free-text steer. To change what a run is doing: stop it, edit the tracker
+  from a normal checkout, `tk cloud run` again. The fresh orchestrator's first
+  instruction is the reconcile protocol, which adopts the pushed state and
+  continues — a path that must be bulletproof anyway, because it is how a dead
+  orchestrator recovers. This keeps the axiom intact rather than carving an
+  exception into it: **the tracker is read at run start, not during**, and there
+  is exactly one `.tick/` writer per project (D4). It also disposes of a
+  mechanical trap — an operator writing a tick to the default branch mid-run is
+  writing to a branch the run cannot see, since the run is pinned to `base_sha`
+  and commits to `tick-run/<epic-id>`.
+- **A clean stop is the budget stop.** `tk cloud stop` is D15's code path with a
+  human trigger instead of a spend trigger — finish the in-flight tick, run
+  review/closeout on what is done. There is no "abandon the run" verb, because
+  an abandoned run leaves merged work with no tracker state.
+- **Stop does not travel through the orchestrator.** A wedged or adversarial
+  orchestrator will not honour a message it never reads, so `stop` is enforced
+  at the Workflow and gateway-token layer (D17's kill switch), consistent with
+  budgets living in the Workflow rather than the prompt. Every other verb is
+  control-plane state the orchestrator reads at a wave boundary.
+- **Commands are parsed; free text is triaged. The split is deterministic.** On
+  Telegram, a message beginning with a registered command never reaches UC2's
+  triage model, and an *unrecognized* `/command` is an error reply — never
+  triage input, or a typo'd `/ruh pay-4` silently becomes a bug report titled
+  "ruh pay-4". Registering `/run`, `/stop`, `/status` with BotFather joins the
+  walk `tk channel setup telegram` already performs.
+- **Ignition on a leased project refuses, with an opt-in queue.** A second `run`
+  while the lease is held is rejected with the holder's run ID (UC1). Because
+  "run epic xyz" typed from a phone should not simply bounce, `--queue` (and the
+  Telegram equivalent) parks the submission in the DO and ignites it when the
+  lease releases. Queued submissions are visible to `status` and expire on a
+  configurable window — a queue that silently ignites work hours later is worse
+  than a refusal.
+
 ### UC2 — Telegram, directly
 
 *"Standing in line for coffee: I message my bot — 'the login page 500s on
@@ -813,6 +889,8 @@ Collected from the use cases; each appears above in context.
 | D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi/omp = the vendor-neutral kinds; omp the candidate cloud default for its subagents, config inheritance, and memory); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as another kind, never as a rewrite | harness choice |
 | D19 | The cloud substrate is drivable by any orchestrator location: the run API doubles as `tk cloud spawn/wait/collect/reconcile` for local orchestrators, enrolled projects share one RunRoom lease across local and cloud runs, and handoff in either direction is submission + reconcile, never bespoke machinery | local orchestrators |
 | D20 | One trace ID (`signal_id`/`run_id`/`tick_id`) threads every layer; harness output streams to R2 during the run (diagnostics), never export-at-exit; every dispatch refusal is logged with its policy reason; failure events use the named taxonomy; `tk factory trace` joins the story across layers | observability |
+| D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input | UC1b |
+| D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
 
 ## What this is *not*
 
@@ -855,11 +933,17 @@ Collected from the use cases; each appears above in context.
    `harness` substrate (subagents) inside one container. No RunRoom fan-out
    yet beyond the lease and gates. Ships the whole pipeline end to end —
    auth, secrets, git credentials, sandbox lifecycle, budget enforcement,
-   Telegram gates from a phone — with zero new orchestration logic.
+   Telegram gates from a phone — with zero new orchestration logic. The
+   terminal rung of UC1b's command surface ships here too (`run`, `stop`,
+   `status`, `--queue`), because a run you cannot stop or inspect is not
+   shippable; the Telegram and GitHub rungs of the same vocabulary arrive with
+   their transports in Phase 3.
 2. **Phase 2 — real fan-out.** Per-tick worker sandboxes; substrate `cloud` in
    `runners.toml`; reconcile-on-reboot; `run_event` producers; R2 artifacts.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
-   Telegram, `external_ref` dedup.
+   Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
+   command vocabulary (BotFather command registration, the parse-vs-triage
+   split).
 4. **Phase 4 — the loops.** UC4 CI-failure remediation (flake gate, strike
    budget), UC5 PR review (credential grades), UC7 sweeps (dispatcher policy,
    cron).

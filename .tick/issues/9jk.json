@@ -2,6 +2,7 @@
   "id": "9jk",
   "title": "Close out foundations epic: retro + plan Phase 1",
   "description": "Retro on the foundations run; fold learnings into .tick/learnings.md; then plan the Phase 1 epic (ko8) against what deploy/setup/auth actually look like in practice.",
+  "notes": "2026-08-19 15:30 - When planning Phase 1 (ko8), fold in UC1b + D21/D22 from docs/design/cloud-factory.md — the operator command surface (tk cloud run/stop/status, --queue) is Phase 1 scope, not a later addition: a cloud run you cannot stop or inspect is not shippable. Key constraints to carry into the ticks: stop is enforced at the Workflow/gateway-token layer (survives a wedged orchestrator), there is deliberately NO mid-run mutation channel (steering is stop -\u003e edit -\u003e restart via reconcile), and the tracker is read at run start only.",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -16,5 +17,5 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:18:31.309548877Z",
-  "updated_at": "2026-08-19T11:18:31.309548877Z"
+  "updated_at": "2026-08-19T13:30:46.851587Z"
 }
