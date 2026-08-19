@@ -2,7 +2,8 @@
   "id": "5ni",
   "title": "tk cloud run, stop and status: the terminal rung of the command surface",
   "description": "UC1b D21 on the CLI side, mirroring the tk herd verb family. tk cloud run \u003cepic\u003e pushes the current branch, REFUSES if the epic tick files are not on the remote (the submission boundary is a pushed SHA, D3), then POSTs to the factory with the token from ~/.ticksrc via internal/ticksrc. Flags: --notify to pick the channel per submission, --queue for D22. tk cloud stop \u003crun\u003e and tk cloud status. There is deliberately NO mid-run mutation verb and none is to be added: steering is stop, edit the tracker, run again, riding the reconcile path. Read the endpoint and token through internal/ticksrc, never bespoke file access. A missing factory config is an actionable stop naming tk factory setup.",
-  "status": "open",
+  "notes": "2026-08-19 19:36 - Seam warning (orchestrator): you share this wave with ldr and kv2, but your surface is disjoint from both — cmd/tk and internal/. Read the factory endpoint and token through internal/ticksrc (shipped in Phase 0); never hand-roll ~/.ticksrc access. Do not edit anything under cloud/factory/.",
+  "status": "in_progress",
   "priority": 2,
   "type": "feature",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,6 @@
   "acceptance_criteria": "Submitting an unpushed epic fails with an actionable error and starts nothing; a pushed epic starts a run and prints its id; stop and status work against a live run; a leased project refuses naming the holder, and --queue parks instead; no factory configured produces one clear message; all covered by tests against a fake factory endpoint.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:56:51.734574Z",
-  "updated_at": "2026-08-19T15:56:51.734574Z"
+  "updated_at": "2026-08-19T17:36:03.010969Z",
+  "started_at": "2026-08-19T17:36:03.010969Z"
 }
