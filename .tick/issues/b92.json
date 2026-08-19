@@ -14,11 +14,12 @@
     "ldr",
     "5ni",
     "k2s",
-    "kv2"
+    "kv2",
+    "79x"
   ],
   "parent": "ko8",
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:57:20.922542Z",
-  "updated_at": "2026-08-19T15:57:20.922542Z"
+  "updated_at": "2026-08-19T16:32:48.124615Z"
 }

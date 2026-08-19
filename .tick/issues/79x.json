@@ -1,0 +1,17 @@
+{
+  "id": "79x",
+  "title": "Per-repo sandbox definition in .tick/config.md",
+  "description": "The operator wants each repo to declare its own sandbox. This completes the image story: the batteries-included base covers the common set, and a repo that needs more says so in tracked config rather than forcing a factory-wide image rebuild.\n\nAdd a Sandbox section to .tick/config.md, the established runner-neutral contract for dispatched implementers:\n- image: optional custom image reference. Absent means the version-pinned base image — the 99% path declares nothing.\n- toolchain: extra tools to provision through the version manager already shipped in the base (e.g. rust 1.x), resolved on first run into the project persistent sandbox and warm thereafter.\n- setup: idempotent, cache-populating commands run once per sandbox (pnpm install --frozen-lockfile in cloud/factory, go mod download). This closes a gap named twice during Phase 0: the existing Environment section is VERIFICATION only (test, do not ask) and cannot express provisioning.\n\nSECURITY BOUNDARY, and the reason this belongs in tracked config rather than anywhere else: setup runs arbitrary shell inside a sandbox holding credentials. It must come only from the tracked, PR-reviewed repo config on the submitted SHA — never from a tick note, a model, a signal payload, or an API parameter. Same rule the design doc applies to webhook sources: adding capability is a PR, not a dashboard click.\n\nLocal runs read the same section, so a herdr worker warms identically — this must not become cloud-only config.\n\nConsider (do not assume): a repo may already carry devcontainer.json declaring much of this. Reading it as an import path is worth evaluating, but a partial implementation of a large spec is worse than a small explicit section — if you support it, state exactly which keys are honoured and ignore the rest loudly.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "3q2"
+  ],
+  "parent": "ko8",
+  "acceptance_criteria": "A repo with no Sandbox section runs on the base image unchanged; a repo declaring extra toolchain gets it provisioned on first run and cached after; setup commands run once per sandbox and are idempotent on re-run; setup is read only from the tracked config at the submitted SHA, proven by a test that a tick note or API parameter cannot inject a command; the same section warms a local herdr worker.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T16:32:48.090711Z",
+  "updated_at": "2026-08-19T16:32:48.090711Z"
+}
