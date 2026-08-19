@@ -22,10 +22,6 @@ reset it in `ResetFlags()`.
 **Rule:** After UI source changes run `scripts/build-ui.sh` and commit the regenerated
 `static/` (and `ui/dist/`).
 
-**Problem:** CI pnpm setup fails ("No pnpm version specified") or ERR_PNPM_IGNORED_BUILDS.
-**Rule:** Keep `package_json_file: internal/tickboard/ui/package.json` on the pnpm action and
-pnpm-workspace.yaml committed. Workflow changes are proven only by an actual CI run.
-
 **Problem:** cloud/worker's full `pnpm test` crashes workerd at boot when test files share
 the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in tick xdq).
 **Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
@@ -44,10 +40,8 @@ regenerated output together; spell these out in any tick touching `schemas/`.
 
 ## Docs & marketing copy
 
-**Problem:** A user-facing page shipped copy-pasteable `tk` commands that don't exist — agents
-guess CLI syntax from memory.
-**Rule:** Any tick writing `tk` commands into docs/UI/copy must verify each against
-`cmd/tk/cmd/*.go` (`Use:`/`Args:`); spell that step out in the tick.
+**Problem:** A user-facing page shipped `tk` commands that don't exist — agents guess CLI syntax.
+**Rule:** Any tick writing `tk` commands into docs must verify each against `cmd/tk/cmd/*.go`.
 
 **Problem:** A released feature had zero README coverage — docs ticks enumerate the surfaces
 they own, never the surfaces users see.
@@ -56,22 +50,27 @@ per surface "updated" or "not applicable".
 
 ## Orchestration
 
-**Problem:** A tick's close vanished — in_progress at epic close despite a successful
-tk close hours earlier: an implementer's stray git-restore wiped uncommitted .tick state.
-**Rule:** Commit .tick state immediately after every mutation batch (claim, close, note),
-before merging any agent branch or launching agents; if an implementer touched the shared
-checkout, diff tick state against the activity log before trusting a clean tree.
+**Problem:** A tick's close vanished — an implementer's stray git-restore wiped uncommitted
+.tick state hours after a successful `tk close`.
+**Rule:** Commit .tick state immediately after every mutation batch, before merging any branch or
+launching agents.
 
 **Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and
 re-implemented it, causing a conflict.
 **Rule:** Implementer prompts must name the prerequisite SHA and instruct `git merge
 <integration-branch>` first, then verify ancestry (`git merge-base --is-ancestor <sha> HEAD`).
 
-**Problem:** A codex worker self-updated (Homebrew) at spawn; the upgrade output swallowed the
-content-gate probe and the CLI exited "Please restart Codex", leaving a worktree, branch and
-workspace behind with no manifest — the retry then failed "worktree already exists".
-**Rule:** A failed `tk herd spawn` can leave partial state; tear down the worktree, branch and
-workspace before respawning. Export `HOMEBREW_NO_AUTO_UPDATE=1` for spawn loops.
+**Problem:** A codex worker self-updated at spawn; the output swallowed the content-gate probe and
+the CLI exited, leaving a worktree, branch and workspace with no manifest ("worktree already exists"
+on retry).
+**Rule:** A failed `tk herd spawn` leaves partial state — tear down worktree, branch and workspace
+before respawning. Export `HOMEBREW_NO_AUTO_UPDATE=1` for spawn loops.
+
+**Problem:** A worker returned NEEDS_CONTEXT because the orchestrator pointed it at an archived
+report under `.tick/logs/`.
+**Cause:** `.tick/logs/**` is gitignored — manifests, archived RESULT files and run state exist only
+in the main checkout, never in a worker's fresh worktree.
+**Rule:** Never reference `.tick/logs/**` in a worker prompt. Paste the content inline.
 
 ## Orchestrator gates
 
@@ -99,23 +98,12 @@ silently corrupting stored descriptions with command output.
 **Rule:** Single-quote (or heredoc) any tick text containing backticks, `$`, or `()`; verify
 with `tk show <id>` after bulk creation.
 
-**Problem:** A half-applied merge left files staged; a blind `git add .tick/ && git commit`
-then captured those leftovers into the tracker commit, corrupting HEAD.
-**Cause:** `git commit` commits the WHOLE index, not just what you just added.
-**Rule:** Commit tracker state as `git add .tick/ && git commit .tick/ -m "..."` — the pathspec
-keeps foreign staged leftovers out, and the explicit add is REQUIRED (a bare pathspec commit
-silently skips untracked files, so new tick JSONs never land; seen twice). After any merge
-confirm it committed (`git rev-parse -q --verify MERGE_HEAD` empty) before committing tracker
-state; recover a botched one with `git reset --hard <pre-merge-sha>` and re-merge.
-
-## TUI (internal/tui)
-
-**Problem:** Parallel view-model ticks each changed shared chrome, staling every other view's
-teatest golden; inserting a view mid-strip shifted sibling hotkeys, so position-based golden
-navigation timed out on the wrong view.
-**Rule:** After integrating any view-model tick, regenerate cross-contaminated goldens
-(`go test ./internal/tui -update`) and confirm the diff is chrome-only; reach views by stable
-means, never a hardcoded hotkey digit (tab order List·Board·Roadmap·Timeline).
+**Problem:** A half-applied merge left files staged; `git add .tick/ && git commit` then captured
+those leftovers into the tracker commit.
+**Cause:** `git commit` commits the WHOLE index, not just what you added.
+**Rule:** Use `git add .tick/ && git commit .tick/ -m "..."` — the pathspec excludes foreign staged
+files, and the explicit add is required (a bare pathspec commit skips untracked files, so new tick
+JSONs never land; seen twice). After any merge confirm `MERGE_HEAD` is empty before committing.
 
 ## Cloudflare (cloud/factory)
 
@@ -148,3 +136,21 @@ catches a half-applied fix.
 absent, so tooling resolution accepted npx and never tried the real binary.
 **Rule:** A version probe must validate WHAT answered, not just the exit code — the green-start
 trap applied to CLI discovery.
+
+## Parsers and migrators
+
+**Problem:** A hand-rolled TOML parser let `__proto__.command` set `Object.prototype` process-wide,
+and the key vanished from the document so the unknown-key check never saw it.
+**Cause:** Tables built with `{}` and guarded by `hasOwnProperty`, which is false for `__proto__`.
+**Rule:** Build every parsed table with `Object.create(null)`. A key that can evade the unknown-key
+check defeats fail-closed validation entirely.
+
+**Problem:** A migrator's grammar was looser than the reader's, so lines the reader had IGNORED
+(making closeout fail closed) became authorized closeout commands — silently, in this repo.
+**Rule:** A migrator must parse with the reader's grammar and report every line it would newly
+AUTHORIZE. "Never silently drop a line" needs its mirror: never silently authorize one.
+
+**Problem:** A config format bump hard-broke every older binary with a wall of unknown-key errors.
+**Rule:** A version gate cannot be retrofitted into a released binary — it only makes FUTURE
+mismatches readable. Ship the gate one release before the format that needs it, and say plainly in
+the release notes that the migration requires an upgrade.
