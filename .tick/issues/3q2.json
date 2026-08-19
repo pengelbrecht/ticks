@@ -2,7 +2,7 @@
   "id": "3q2",
   "title": "Orchestrator sandbox image and headless harness bootstrap",
   "description": "The container one cloud run boots. Define the sandbox image and its entrypoint: git plus the language toolchains the target repo needs, a pinned omp (or claude) CLI, the ticks skill installed the normal way, and an entrypoint that clones the repo at the submitted SHA, verifies the tk version, runs the .tick/config.md Environment pre-flight, exports TK_ACTOR=cloud:orchestrator, and starts the headless harness on the skill loop. Model traffic must point at the AI Gateway base URL from the environment, never a vendor default. Harness output streams continuously to stdout so the Workflow can ship it to R2 during the run, never export-at-exit. Independent of the worker-side routes, so it can land in wave 1.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,6 @@
   "acceptance_criteria": "The image builds reproducibly and its entrypoint, given a repo URL, SHA and gateway base URL, reaches the point of running the skill loop; the pre-flight failure path exits nonzero with the failing check named; harness output appears on stdout as it is produced, not at exit.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:56:17.741795Z",
-  "updated_at": "2026-08-19T15:56:17.741795Z"
+  "updated_at": "2026-08-19T16:16:44.488386Z",
+  "started_at": "2026-08-19T16:16:44.488385Z"
 }
