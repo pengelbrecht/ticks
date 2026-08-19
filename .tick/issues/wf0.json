@@ -2,6 +2,7 @@
   "id": "wf0",
   "title": "tk factory deploy: tolerate secret propagation and resolve local wrangler",
   "description": "Found by the first two live deploys against a real Cloudflare account. Both reported failure on deployments that were actually fine.\n\n1. VERIFICATION RACES SECRET PROPAGATION. Order is: wrangler deploy, then secret put (which creates a new Worker version), then verify. Propagation takes roughly 10-30s, so the verify probe hits the previous version and reports 'the FACTORY_TOKEN_HASH secret did not land'. This fires on essentially every deploy — a command that always reports failure trains the operator to ignore it. Retry the verification with bounded backoff (and treat Cloudflare edge error 1042, observed during propagation, as retryable) before declaring failure. Keep the existing 'nothing is lost, re-run it' wording for genuine failure.\n\n2. WRANGLER RESOLUTION MISSES THE REPO'S OWN COPY. There is no global wrangler in this repo; it is a devDependency of cloud/factory. Resolution tries the global binary then npx, and both fail from the repo root, so the command exits with 'a logged-in wrangler is required'. It only worked after manually putting cloud/factory/node_modules/.bin on PATH. Also probe the staged bundle dir and the repo's cloud/factory/node_modules/.bin. Keep the no-implicit-install rule.\n\nDo not weaken the fail-closed behaviour: an unverifiable deploy must still exit nonzero after the retries are exhausted.",
+  "notes": "2026-08-19 16:49 - runner-state: substrate=herdr kind=codex branch=tick/wf0 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-wf0 workspace=wA9 base=643def4de055bf58f4190dd7bbfc181e47dc52e1 agent=tick-wf0 pane=wA9:p1 session=01a01a7f-6fc7-7971-a5f1-0d4b375f70a5",
   "status": "in_progress",
   "priority": 2,
   "type": "bug",
@@ -11,6 +12,6 @@
   "acceptance_criteria": "A deploy against a real account (or a harness that simulates propagation lag by returning 503/1042 for the first N probes) verifies successfully instead of failing; exhausted retries still exit nonzero with the existing actionable message; wrangler resolves without the operator adjusting PATH when only cloud/factory has it installed; scripts/verify-factory-deploy.sh still passes all scenarios.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T14:48:39.554598Z",
-  "updated_at": "2026-08-19T14:49:04.588132Z",
+  "updated_at": "2026-08-19T14:49:33.564161Z",
   "started_at": "2026-08-19T14:49:04.588131Z"
 }
