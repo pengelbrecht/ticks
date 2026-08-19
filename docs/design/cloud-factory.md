@@ -919,6 +919,19 @@ Collected from the use cases; each appears above in context.
    command and the credential walk-through (Cloudflare account, GitHub PAT or
    App, Telegram webhook, per-source webhook secrets). This is the factory's
    install story and gates everything else.
+
+   *Deploy half shipped* (`internal/factory`, `cmd/tk/cmd/factory.go`): one
+   idempotent command provisions D1 + R2, applies `cloud/factory/migrations`,
+   mints the bearer token and pushes its hash, deploys the embedded bundle, and
+   records `factory_url` / `factory_token` / `factory_version` in `~/.ticksrc`.
+   The bundle is embedded in the tk binary the way skills are, so a deployment
+   is pinned to a tk version and `tk upgrade` points at a redeploy. wrangler is
+   resolved as a global binary or through `npx wrangler`, and every capability
+   question is answered functionally — attempt the operation, surface the API
+   error — never by parsing `wrangler whoami` scopes, which under-report what a
+   token can do. CI has no Cloudflare account, so the end-to-end evidence is
+   `scripts/verify-factory-deploy.sh` against a stateful wrangler stand-in.
+   The credential walk-through (`tk factory setup`) is still open.
 3. **Bump `compatibility_date`** (currently 2024-04-03) in the factory bundle —
    DO SQLite storage and current WebSocket hibernation ergonomics are needed.
 4. **R2 binding** in the factory bundle for run artifacts.

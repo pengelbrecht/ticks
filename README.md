@@ -238,6 +238,7 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk skills …` | Inspect/install the version-matched skill bundle embedded in this binary (see below) |
 | `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
 | `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
+| `tk factory deploy` | Deploy the cloud factory into your own Cloudflare account (see below) |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
 | `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
 | `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
@@ -302,6 +303,49 @@ complete workflow, references, and adapters that a skill-aware harness loads on 
 own. They're complementary, not interchangeable: use `tk snippet` for harnesses without
 skill support, and the skill (via `tk skills install` or a skill marketplace) for
 harnesses that have it.
+
+### Factory: your own cloud control plane
+
+`tk factory deploy` installs the factory worker bundled with your `tk` build into
+**your own Cloudflare account**. Ticks never operates a factory for anyone: it is a
+deployable, not a service, so the compute, the model keys, the spend, and the blast
+radius are yours (decision D16 in `docs/design/cloud-factory.md`). Cloudflare's floor
+for Durable Objects and Workflows is the paid Workers plan (~$5/mo).
+
+```bash
+pnpm add -g wrangler          # or npm install -g wrangler, or just use npx wrangler
+wrangler login                # connect your Cloudflare account
+tk factory deploy
+```
+
+One command creates or reuses the D1 database and the R2 bucket, applies the bundle's
+D1 migrations, mints a factory token, pushes only its salted hash as the Worker secret
+`FACTORY_TOKEN_HASH`, deploys the worker, and records the endpoint and token in
+`~/.ticksrc` next to the board-sync `token=` you may already have there:
+
+```
+factory_url=https://ticks-factory.<your-subdomain>.workers.dev
+factory_token=tkf_…
+factory_version=0.31.0
+```
+
+The plaintext token exists only in that file — the worker holds nothing but its hash
+and therefore cannot leak it. `~/.ticksrc` is written 0600.
+
+| Flag | Effect |
+|---|---|
+| `--rotate-token` | Mint a new token; the previous one stops working immediately |
+| `--url <url>` | Record and verify a custom endpoint, when the deploy output names none |
+| `--bundle-dir <path>` | Stage the worker bundle somewhere other than `~/.tick/factory/bundle` |
+
+Re-running is the upgrade path: resources are reused, never duplicated, and the token is
+preserved unless you rotate it. The deployed bundle is pinned to the `tk` version that
+deployed it, so after `tk upgrade` the CLI reminds you to re-run `tk factory deploy`.
+
+Missing prerequisites stop the command with the reason — no wrangler, or a wrangler that
+is not logged in — and nothing is created or written until they pass. There is no live
+Cloudflare account in CI, so the end-to-end proof runs against a documented harness:
+`bash scripts/verify-factory-deploy.sh`.
 
 ### Operator channel: reach a human from an autonomous run
 
