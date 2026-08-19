@@ -32,21 +32,16 @@ the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in
 **Rule:** Treat the integrated post-wave gate as the authoritative first full run; never let a
 worker push.
 
-## Schema codegen
+## Schema codegen & docs
 
 **Problem:** A schemas/ change left generated code inconsistent — Go updated, the UI's TS stale.
 **Rule:** Any schema edit must run BOTH `make codegen-go` and `make codegen-ts` and commit all
 regenerated output together; spell these out in any tick touching `schemas/`.
 
-## Docs & marketing copy
-
-**Problem:** A user-facing page shipped `tk` commands that don't exist — agents guess CLI syntax.
-**Rule:** Any tick writing `tk` commands into docs must verify each against `cmd/tk/cmd/*.go`.
-
-**Problem:** A released feature had zero README coverage — docs ticks enumerate the surfaces they
-own, never the ones users see.
-**Rule:** A feature epic's docs tick must checklist README, docs/ and --help, saying per surface
-"updated" or "not applicable".
+**Problem:** Docs shipped `tk` commands that don't exist (agents guess CLI syntax), and a released
+feature had zero README coverage — docs ticks enumerate the surfaces they own, not the ones users see.
+**Rule:** Verify every `tk` command in docs against `cmd/tk/cmd/*.go`, and make a feature epic's docs
+tick checklist README, docs/ and --help with "updated" or "not applicable" per surface.
 
 ## Orchestration
 
