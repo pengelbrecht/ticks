@@ -87,6 +87,18 @@ a shared bot "would need a hosted relay in front of it"
   shares one factory — the RunRoom lease already arbitrates concurrent
   submissions, and `.tick/operators.json` already maps identities. What no
   deployment ever does is serve strangers.
+- **One factory, many projects.** The unit of deployment is the *account*, not
+  the repo: the RunRoom lease is per project (`idFromName(project + epic)`), so
+  two repos run concurrently without contending; every D1 row carries the
+  project, and R2 keys are project-prefixed. Adding a repo is enrolment, not
+  deployment. Consequently the account-scoped resource names are fixed
+  (`ticks-factory`, `ticks-factory-artifacts`) and `~/.ticksrc` holds one
+  endpoint — a second factory in the same account is not supported and is not
+  meant to be. Deploy a second factory only for deliberate separation (billing,
+  blast radius, credential grades), which means a second Cloudflare account.
+  **Enrolment is a security boundary, not bookkeeping:** without it the bearer
+  token alone would let any holder submit any `owner/repo`, turning the factory
+  into an arbitrary-code runner for the whole of GitHub.
 - **ticks.sh is unchanged**: install script, docs, and the existing
   local-authoritative board sync. It never gains factory endpoints. (A user's
   personal factory *may* optionally host its own board sync so power users are
