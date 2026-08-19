@@ -8,11 +8,12 @@
   "type": "feature",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "3q2"
+    "3q2",
+    "glr"
   ],
   "parent": "ko8",
   "acceptance_criteria": "A repo with no Sandbox section runs on the base image unchanged; a repo declaring extra toolchain gets it provisioned on first run and cached after; setup commands run once per sandbox and are idempotent on re-run; setup is read only from the tracked config at the submitted SHA, proven by a test that a tick note or API parameter cannot inject a command; the same section warms a local herdr worker.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T16:32:48.090711Z",
-  "updated_at": "2026-08-19T16:38:53.059584Z"
+  "updated_at": "2026-08-19T16:42:18.14293Z"
 }

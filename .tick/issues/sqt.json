@@ -1,0 +1,18 @@
+{
+  "id": "sqt",
+  "title": "Migrate this repo and update the skill docs to the new shape",
+  "description": "Dogfood the migration and make the docs tell one story.\n\n1. Run tk config migrate on this repo: .tick/config.md keeps Rules and the narrative testing hints; .tick/runners.toml gains the testing, evidence, environment and orchestrator tables. Verify a real epic run still works — the herd helper reads this config on every spawn, so a mistake here breaks every future run rather than failing a test.\n2. Update the skill so it describes ONE shape: skills/ticks/SKILL.md (the .tick/config.md prerequisite section), references/agent-runner.md (Run-start: reading .tick/config.md, and the Acceptance Evidence rules), references/runners-config.md, and references/pi-runner.md. The legacy markdown path is documented as a deprecated fallback with the migration command, not as an equal alternative.\n3. The Acceptance Evidence prose in SKILL.md and agent-runner.md currently spells out verbatim-and-uniquely-matching and its fail-closed cases. Those rules describe a PARSING problem that no longer exists on the structured path — rewrite them as the schema guarantee plus the surviving semantic rule (nothing outside the config file authorises shell), rather than deleting the safety story or leaving stale mechanics in place.\n\nPer the repo docs rule, checklist every surface touched and say updated or not applicable.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "se7",
+    "jr9"
+  ],
+  "parent": "48d",
+  "acceptance_criteria": "This repo runs an epic wave green off the migrated config; no skill file describes the markdown structured sections as the current shape; the deprecated fallback is documented exactly once with the migration command; a docs surface checklist appears in the report.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T16:42:18.04661Z",
+  "updated_at": "2026-08-19T16:42:18.04661Z"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "glr",
+  "title": "Close out the config migration: retro + unblock the sandbox table",
+  "description": "Retro, fold learnings into .tick/learnings.md within the cap, then confirm ko8 tick 79x can proceed: it adds a [sandbox] table to the same schema and was deliberately sequenced after this epic so it builds on the migrated shape instead of racing it.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "wsc"
+  ],
+  "parent": "48d",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T16:42:18.111789Z",
+  "updated_at": "2026-08-19T16:42:18.111789Z"
+}
