@@ -44,6 +44,31 @@ const (
 	// KeyFactoryVersion is the tk version whose embedded bundle was last
 	// deployed, so `tk upgrade` can tell a stale factory from a current one.
 	KeyFactoryVersion = "factory_version"
+
+	// The credentials `tk factory setup` walks the operator through. Each one
+	// is pushed to the deployment as a Worker secret — write-only there — and
+	// mirrored here so `tk factory status` can re-check it live and a later
+	// setup can offer to keep it. This file is 0600 and outside any repo; the
+	// mirror never goes anywhere else (see factory.SecretSinks).
+
+	// KeyFactoryGitHubToken is the fine-grained, repo-scoped PAT the factory
+	// clones and pushes with (the first rung of the D11 credential ladder).
+	KeyFactoryGitHubToken = "factory_github_token"
+	// KeyFactoryGitHubLogin is the account the PAT authenticated as — public
+	// identity, kept so status can report whose token is installed.
+	KeyFactoryGitHubLogin = "factory_github_login"
+	// KeyFactoryGitHubRepo is the owner/repo the PAT was verified against.
+	KeyFactoryGitHubRepo = "factory_github_repo"
+
+	// KeyFactoryGatewayURL is the operator's AI Gateway base URL (D17). It is
+	// not a secret in the cryptographic sense but it carries their Cloudflare
+	// account id, so it lives here and in a Worker secret, never in the repo.
+	KeyFactoryGatewayURL = "factory_gateway_url"
+	// KeyFactoryGatewayProvider is the provider rung behind the gateway:
+	// workers-ai (no key — same account) or a BYOK vendor.
+	KeyFactoryGatewayProvider = "factory_gateway_provider"
+	// KeyFactoryGatewayKey is the provider key, empty for workers-ai.
+	KeyFactoryGatewayKey = "factory_gateway_key"
 )
 
 // fileMode is owner-only: the file holds bearer tokens.

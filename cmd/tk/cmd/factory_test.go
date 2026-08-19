@@ -240,3 +240,206 @@ func TestFactoryRedeployNoticeIsSilentWithoutTicksrc(t *testing.T) {
 		t.Errorf("notice = %q, want none when ~/.ticksrc does not exist", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// setup / status
+// ---------------------------------------------------------------------------
+
+// fakeCredentialEndpoints stands up the two services the credential rungs are
+// verified against, so `tk factory setup` runs its real probes.
+func fakeCredentialEndpoints(t *testing.T, pat, repo, gatewayKey string) (githubBase, gatewayBase string) {
+	t.Helper()
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("Authorization") != "Bearer "+pat {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "Bad credentials"})
+			return
+		}
+		switch r.URL.Path {
+		case "/user":
+			_ = json.NewEncoder(w).Encode(map[string]any{"login": "octo-user"})
+		case "/repos/" + repo:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"full_name":   repo,
+				"permissions": map[string]any{"push": true},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "Not Found"})
+		}
+	}))
+	t.Cleanup(gh.Close)
+
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/compat/models") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if gatewayKey != "" && r.Header.Get("Authorization") != "Bearer "+gatewayKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"id": "model-alpha"}}})
+	}))
+	t.Cleanup(gw.Close)
+
+	return gh.URL, gw.URL + "/v1/00000000000000000000000000000000/ticks"
+}
+
+// The acceptance path through the CLI: prompts (here, the deploy offer) plus
+// answers, and the user ends with a configured factory.
+func TestFactorySetupConfiguresEveryRung(t *testing.T) {
+	const pat = "github_pat_11EXAMPLE0000000000000000"
+	const repo = "octo-org/octo-repo"
+	var stateDir string
+	srv := fakeFactory(t, func() string { return stateDir })
+	_, stateDir = fakeWranglerOnPath(t, srv.URL)
+	home := os.Getenv("HOME")
+	githubBase, gatewayBase := fakeCredentialEndpoints(t, pat, repo, "sk-provider-key")
+
+	buf := captureChannelIO(t, "y\n")
+	err := ExecuteArgs([]string{"factory", "setup",
+		"--repo", repo,
+		"--github-token", pat,
+		"--github-api-base", githubBase,
+		"--gateway-url", gatewayBase,
+		"--provider", "anthropic",
+		"--provider-key", "sk-provider-key",
+	})
+	out := buf.String()
+	if err != nil {
+		t.Fatalf("tk factory setup: %v\n%s", err, out)
+	}
+
+	data, readErr := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	if readErr != nil {
+		t.Fatalf("~/.ticksrc was not written: %v", readErr)
+	}
+	rc := string(data)
+	for _, want := range []string{
+		"factory_url=" + srv.URL,
+		"factory_github_token=" + pat,
+		"factory_github_login=octo-user",
+		"factory_github_repo=" + repo,
+		"factory_gateway_url=" + gatewayBase,
+		"factory_gateway_provider=anthropic",
+	} {
+		if !strings.Contains(rc, want) {
+			t.Errorf("~/.ticksrc is missing %q:\n%s", want, rc)
+		}
+	}
+
+	for name, want := range map[string]string{
+		"GITHUB_TOKEN":        pat,
+		"AI_GATEWAY_BASE_URL": gatewayBase,
+		"ANTHROPIC_API_KEY":   "sk-provider-key",
+	} {
+		got, _ := os.ReadFile(filepath.Join(stateDir, "secret-"+name))
+		if string(got) != want {
+			t.Errorf("Worker secret %s = %q, want %q", name, got, want)
+		}
+	}
+
+	if !strings.Contains(out, "tk factory status") {
+		t.Errorf("setup does not point at the status command:\n%s", out)
+	}
+}
+
+// Setup stops on a rejected credential and exits nonzero.
+func TestFactorySetupExitsNonzeroOnARejectedToken(t *testing.T) {
+	const repo = "octo-org/octo-repo"
+	var stateDir string
+	srv := fakeFactory(t, func() string { return stateDir })
+	_, stateDir = fakeWranglerOnPath(t, srv.URL)
+	githubBase, gatewayBase := fakeCredentialEndpoints(t, "github_pat_right", repo, "")
+
+	buf := captureChannelIO(t, "y\n")
+	err := ExecuteArgs([]string{"factory", "setup",
+		"--repo", repo,
+		"--github-token", "github_pat_wrong",
+		"--github-api-base", githubBase,
+		"--gateway-url", gatewayBase,
+		"--provider", "workers-ai",
+	})
+	if err == nil {
+		t.Fatalf("tk factory setup accepted a rejected token:\n%s", buf.String())
+	}
+	if code := GetExitCode(err); code == ExitSuccess {
+		t.Errorf("exit code = %d, want nonzero", code)
+	}
+	if _, statErr := os.Stat(filepath.Join(stateDir, "secret-GITHUB_TOKEN")); !os.IsNotExist(statErr) {
+		t.Error("a rejected token was still pushed as a Worker secret")
+	}
+}
+
+// Status is safe to call with nothing configured, and says what to run.
+func TestFactoryStatusWithNothingConfigured(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"factory", "status"}); err != nil {
+		t.Fatalf("tk factory status: %v", err)
+	}
+	if out := buf.String(); !strings.Contains(out, "tk factory setup") {
+		t.Errorf("status does not name the command that configures a factory:\n%s", out)
+	}
+}
+
+// --offline reports configuration without touching the network; --check turns
+// a rejected credential into a nonzero exit, and its absence does not.
+func TestFactoryStatusOfflineAndCheck(t *testing.T) {
+	const repo = "octo-org/octo-repo"
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	githubBase, _ := fakeCredentialEndpoints(t, "github_pat_right", repo, "")
+	rc := strings.Join([]string{
+		"factory_github_token=github_pat_revoked",
+		"factory_github_login=octo-user",
+		"factory_github_repo=" + repo,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(home, ".ticksrc"), []byte(rc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"factory", "status", "--offline"}); err != nil {
+		t.Fatalf("tk factory status --offline: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, repo) || !strings.Contains(out, "--offline") {
+		t.Errorf("offline status does not report the configuration it read:\n%s", out)
+	}
+	if strings.Contains(out, "github_pat_revoked") {
+		t.Errorf("status printed the stored token:\n%s", out)
+	}
+
+	// Live, without --check: reported but exit 0.
+	if err := ExecuteArgs([]string{"factory", "status", "--github-api-base", githubBase}); err != nil {
+		t.Fatalf("tk factory status: %v\n%s", err, buf.String())
+	}
+
+	// Live, with --check: nonzero.
+	err := ExecuteArgs([]string{"factory", "status", "--check", "--github-api-base", githubBase})
+	if err == nil {
+		t.Fatalf("tk factory status --check returned nil for a revoked token:\n%s", buf.String())
+	}
+	if code := GetExitCode(err); code == ExitSuccess {
+		t.Errorf("exit code = %d, want nonzero", code)
+	}
+}
+
+func TestFactoryHelpMentionsSetupAndStatus(t *testing.T) {
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"factory"}); err != nil {
+		t.Fatalf("tk factory: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"setup", "status", "deploy"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tk factory does not mention %q:\n%s", want, out)
+		}
+	}
+}
