@@ -2,7 +2,7 @@
   "id": "kv2",
   "title": "Deliver run gates to Telegram through the RunRoom pending store",
   "description": "The return arrow: a cloud run must be able to reach its human. When the orchestrator parks a question or an approval gate, it lands in the RunRoom pending store and is delivered on the channel the submission chose, reusing the existing internal/operator/telegram machinery and its paired-operator rule. Answering from the phone resolves it through the DO; tk answer from a terminal resolves the same entry, first-wins, losers told who answered (D5). Completion reports land on the same chat, threading the original message. Human verdicts keep human provenance: the --from human attestation rule and the verdict guard apply unchanged, so an approval delivered this way is still a human verdict.",
-  "notes": "2026-08-19 19:36 - Seam warning (orchestrator): you share this wave with ldr and 5ni. ldr OWNS cloud/factory/wrangler.toml and the Workflow module — do not edit either. Your surface is the RunRoom pending store (already built by afj: question ids are unique-by-registration, first-wins arbitration exists, do not add a second dedup) plus internal/operator/telegram. If you must touch cloud/factory/src/index.ts, keep it minimal and additive.",
+  "notes": "2026-08-19 19:36 - Seam warning (orchestrator): you share this wave with ldr and 5ni. ldr OWNS cloud/factory/wrangler.toml and the Workflow module — do not edit either. Your surface is the RunRoom pending store (already built by afj: question ids are unique-by-registration, first-wins arbitration exists, do not add a second dedup) plus internal/operator/telegram. If you must touch cloud/factory/src/index.ts, keep it minimal and additive.\n2026-08-19 19:36 - runner-state: substrate=herdr kind=codex branch=tick/kv2 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-kv2 workspace=wAM base=16aa29d3804323f27f4f21720b5eb1c92df994c9 agent=tick-kv2 pane=wAM:p1 session=01a01b18-85f4-78a3-b32c-48ef6c480061",
   "status": "in_progress",
   "priority": 2,
   "type": "feature",
@@ -15,6 +15,6 @@
   "acceptance_criteria": "A gate parked by a cloud run reaches Telegram and blocks the run; answering from Telegram resumes it; answering the same gate from tk answer resolves it and the other surface reports already-answered; the resulting verdict carries human provenance and passes the verdict guard; an unpaired sender is dropped at the transport.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:57:07.806567Z",
-  "updated_at": "2026-08-19T17:36:03.034826Z",
+  "updated_at": "2026-08-19T17:36:32.875907Z",
   "started_at": "2026-08-19T17:36:03.034826Z"
 }
