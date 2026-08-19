@@ -485,7 +485,7 @@ export class MockCommsClient implements CommsClient {
       owner: tick.owner || updates.owner || '',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      created_by: 'mock@test.com',
+      created_by: 'mock@example.com',
       ...tick,
       ...updates,
     };

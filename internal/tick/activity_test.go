@@ -95,7 +95,7 @@ func TestLastActivityForTick_OutOfOrder(t *testing.T) {
 	t3 := base                     // middle
 
 	// Log entries out of order: middle, oldest, newest, plus an unrelated tick.
-	if err := store.LogActivity("tickX", ActivityCreate, "a@b.com", "", nil); err != nil {
+	if err := store.LogActivity("tickX", ActivityCreate, "a@example.com", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	// Write lines directly to control timestamps precisely.
@@ -198,7 +198,7 @@ func TestLastActivityForTick_NoEntriesForTick(t *testing.T) {
 	tickDir := filepath.Join(dir, ".tick")
 	store := NewStore(tickDir)
 
-	if err := store.LogActivity("other", ActivityCreate, "a@b.com", "", nil); err != nil {
+	if err := store.LogActivity("other", ActivityCreate, "a@example.com", "", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -290,7 +290,7 @@ func TestLastActivityForTicks_EmptyIDs(t *testing.T) {
 	tickDir := filepath.Join(dir, ".tick")
 	store := NewStore(tickDir)
 
-	if err := store.LogActivity("abc", ActivityCreate, "a@b.com", "", nil); err != nil {
+	if err := store.LogActivity("abc", ActivityCreate, "a@example.com", "", nil); err != nil {
 		t.Fatal(err)
 	}
 

@@ -5,13 +5,13 @@
   "status": "open",
   "priority": 2,
   "type": "task",
-  "owner": "peter@engelbrecht.dk",
+  "owner": "owner@example.com",
   "blocked_by": [
     "7pb",
     "ggs"
   ],
   "parent": "wr8",
-  "created_by": "peter@engelbrecht.dk",
+  "created_by": "owner@example.com",
   "created_at": "2026-01-26T17:35:22.884739Z",
   "updated_at": "2026-01-26T17:35:22.884739Z"
 }

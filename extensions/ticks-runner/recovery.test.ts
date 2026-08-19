@@ -31,7 +31,7 @@ function fixture(name: string) {
 	fs.writeFileSync(path.join(repo, "README.md"), "fixture\n");
 	git(repo, "init", "--initial-branch=feature");
 	git(repo, "config", "user.name", "Recovery Test");
-	git(repo, "config", "user.email", "recovery@example.invalid");
+	git(repo, "config", "user.email", "recovery@example.com");
 	git(repo, "add", "-A");
 	git(repo, "commit", "-m", "fixture base");
 	return { root, repo, stateRoot };
