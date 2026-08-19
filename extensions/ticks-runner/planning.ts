@@ -1316,8 +1316,9 @@ export async function runAutomatedPlanning(options: AutomatedPlanningOptions): P
 		return result;
 	};
 	try {
-		if (!scoutModel.model) return failed("scout_model is required in .tick/config.md or TICKS_PI_SCOUT_MODEL");
-		if (!plannerModel.model) return failed("planner_model is required in .tick/config.md or TICKS_PI_PLANNER_MODEL");
+		if (config.errors.length) return failed(`Run configuration is invalid and authorizes nothing; fix it before planning: ${config.errors.join("; ")}`);
+		if (!scoutModel.model) return failed("scout_model is required in [roles.scout] of .tick/runners.toml, .tick/config.md, or TICKS_PI_SCOUT_MODEL");
+		if (!plannerModel.model) return failed("planner_model is required in [roles.plan] of .tick/runners.toml, .tick/config.md, or TICKS_PI_PLANNER_MODEL");
 		const key = idempotencyKey(identity, options.target);
 		const recovery = apply ? readApplyState(paths.applyState, key, targetBinding(options.target), paths.stateRoot) : undefined;
 		if (recovery) {

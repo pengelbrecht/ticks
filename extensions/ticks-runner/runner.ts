@@ -945,6 +945,9 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	}
 
 	let config = loadRunnerConfig(root, env);
+	if (config.errors.length) {
+		return finish("blocked", `Run configuration is invalid and authorizes nothing; fix it before running: ${config.errors.join("; ")}`);
+	}
 	if (options.maxParallel !== undefined) {
 		if (!Number.isSafeInteger(options.maxParallel) || options.maxParallel < 1) return finish("blocked", "--max-parallel must be a positive integer");
 		config = { ...config, maxParallel: options.maxParallel };

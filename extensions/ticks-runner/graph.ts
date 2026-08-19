@@ -48,7 +48,7 @@ export type GraphResult = {
 };
 
 export type PreflightIssue = {
-	code: "needs-planning" | "missing-skeleton" | "config-warning";
+	code: "needs-planning" | "missing-skeleton" | "config-warning" | "config-error";
 	severity: "warning" | "blocking";
 	message: string;
 };
@@ -159,6 +159,11 @@ export function buildPreflight(graph: GraphResult, config: RunnerConfig): Prefli
 			severity: "blocking",
 			message: `EPIC-SKELETON needs repair; missing process ticks: ${missing.join(", ")}`,
 		});
+	}
+	for (const error of config.errors) {
+		// A config the loader could not read is a stop, never a degradation:
+		// the run would otherwise proceed on commands nobody authorized.
+		issues.push({ code: "config-error", severity: "blocking", message: `Run configuration is invalid: ${error}` });
 	}
 	for (const warning of config.warnings) {
 		issues.push({ code: "config-warning", severity: "warning", message: `Model configuration: ${warning}` });
