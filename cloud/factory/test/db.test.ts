@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { applyD1Migrations, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   DISPATCH_REASONS,
@@ -15,6 +15,23 @@ import {
 } from "../src/db";
 
 describe("factory D1 query layer", () => {
+  it("re-applies the deploy migration set without changing the schema", async () => {
+    await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+    await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+
+    const tables = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?) ORDER BY name"
+    )
+      .bind("dispatch_log", "runs", "signals")
+      .all<{ name: string }>();
+
+    expect(tables.results.map(({ name }) => name)).toEqual([
+      "dispatch_log",
+      "runs",
+      "signals",
+    ]);
+  });
+
   it("round-trips a run through the migrated D1 table", async () => {
     const run: Run = {
       run_id: "run-xp9",
