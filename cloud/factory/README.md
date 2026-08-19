@@ -69,6 +69,10 @@ unusable `FACTORY_TOKEN_HASH` is a `503 auth_not_configured`, never a pass —
 an unprovisioned factory fails closed. `GET /health` reports
 `auth: { required, configured }` so a deploy can confirm the secret landed
 without presenting a token; it never echoes the hash or any part of it.
+`configured` is proven, not assumed: health derives against the stored
+record's own salt and iteration count, so it reads `false` for a record that
+parses but that this runtime refuses to run — the contradiction (health green,
+every request 503) that made the first live failure expensive.
 
 ### Mint and rotate
 

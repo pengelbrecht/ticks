@@ -345,8 +345,74 @@ export async function authenticateFactoryRequest(
   }
 }
 
-/** Whether the deployment has a usable token hash — surfaced by `/health`. */
-export function isAuthConfigured(env: FactoryAuthEnv): boolean {
+/**
+ * The credential the health probe derives with. It is deliberately not a token
+ * and never compared against anything: the probe asks "will this runtime run
+ * this record's PBKDF2 parameters", and the answer does not depend on the input
+ * secret. Nothing about the stored record is revealed by it.
+ */
+const HEALTH_PROBE_INPUT = "factory-health-probe";
+
+/**
+ * The last *successful* derivation probe, keyed by the exact record it ran
+ * against. `/health` is unauthenticated, so re-running a full-cost PBKDF2 on
+ * every call would hand anyone who found the URL a CPU amplifier; a record's
+ * derivability is a property of the record, so one probe per record is enough.
+ *
+ * Keying on the stored string is what keeps this compatible with the module's
+ * no-caching rule: rotation changes the string, so a rotated secret is probed
+ * afresh on the next `/health` and the verdict cannot go stale. Only success is
+ * memoised — a failing record re-probes, and a failure is cheap anyway (the
+ * runtime rejects out-of-range parameters before doing any work).
+ */
+let lastGoodDerivation: string | null = null;
+
+/**
+ * Whether the deployment can actually verify a token — surfaced by `/health`.
+ *
+ * This proves a *derivation*, not just a parse. Reporting `configured` from
+ * `parseTokenHash` alone is what made the first live failure expensive:
+ * `/health` said configured:true because the record parsed, while every
+ * authenticated request returned 503 because the edge refused to run it at
+ * 210,000 iterations. Diagnosis went to the record's format; the fault was
+ * crypto. So the probe derives against the stored record's own salt and
+ * iterations and only reports true if that completes.
+ *
+ * The response this feeds stays two booleans, and the two ways to be
+ * unconfigured are told apart in the log exactly as the middleware tells them
+ * apart — a parse failure and a runtime failure must never read the same.
+ */
+export async function isAuthConfigured(env: FactoryAuthEnv): Promise<boolean> {
   const stored = env.FACTORY_TOKEN_HASH;
-  return typeof stored === "string" && parseTokenHash(stored) !== null;
+  if (typeof stored !== "string" || stored.length === 0) return false;
+
+  const record = parseTokenHash(stored);
+  if (record === null) {
+    // Names the secret and the scheme we expect, never the stored value.
+    console.error(
+      `factory health: FACTORY_TOKEN_HASH is not a valid ${HASH_SCHEME} record; ` +
+        `reporting auth.configured=false`
+    );
+    return false;
+  }
+
+  if (lastGoodDerivation === stored) return true;
+
+  try {
+    await deriveBits(HEALTH_PROBE_INPUT, record.salt, record.iterations);
+  } catch (error) {
+    // The record parsed; the runtime refused to run it. Same split, same
+    // wording as authenticateFactoryRequest, so the log reads consistently
+    // whichever surface noticed first.
+    const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error(
+      `factory health: PBKDF2 derivation failed for a well-formed FACTORY_TOKEN_HASH record ` +
+        `at ${record.iterations} iterations (platform cap ${PLATFORM_MAX_ITERATIONS}); ` +
+        `reporting auth.configured=false. Runtime said: ${reason}`
+    );
+    return false;
+  }
+
+  lastGoodDerivation = stored;
+  return true;
 }

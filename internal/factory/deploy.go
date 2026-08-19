@@ -432,7 +432,13 @@ func verifyOnce(ctx context.Context, client *http.Client, url, token string) err
 		return verificationError(fmt.Errorf("GET /health did not return the factory's health payload: %w", err), true)
 	}
 	if !health.Auth.Configured {
-		return verificationError(fmt.Errorf("GET /health reports auth.configured=false: the %s secret did not land", SecretName), true)
+		// The worker proves this with a real derivation, not a parse, so a
+		// false here means either the secret never landed or it landed in a
+		// form this deployment cannot actually verify a token against. The
+		// worker log says which; naming only one of them is what misdirected
+		// the first live diagnosis.
+		return verificationError(fmt.Errorf("GET /health reports auth.configured=false: the %s secret did not land, "+
+			"or it landed but this deployment cannot derive against it (see `wrangler tail` for which)", SecretName), true)
 	}
 
 	// Any authenticated route answers this: the worker runs auth before

@@ -420,7 +420,7 @@ describe("rotation", () => {
     setSecret(undefined);
 
     expect((await SELF.fetch(`${BASE}/api/runs`, bearer(token))).status).toBe(503);
-    expect(isAuthConfigured(env)).toBe(false);
+    await expect(isAuthConfigured(env)).resolves.toBe(false);
   });
 });
 
