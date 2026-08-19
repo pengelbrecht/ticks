@@ -1304,3 +1304,6 @@
 {"ts":"2026-08-19T14:48:39.586174Z","tick":"frf","action":"create","actor":"claude:orchestrator","epic":"63t","data":{"priority":2,"title":"Public-repo guard rejects self-evident zero placeholders in fixtures","type":"bug"}}
 {"ts":"2026-08-19T14:48:39.622375Z","tick":"aw5","action":"block","actor":"claude:orchestrator","epic":"63t","data":{"blockers":["n3e","zjp","aro","7c1","v2e","xrk","wf0","frf"],"title":"Final review of foundations epic diff"}}
 {"ts":"2026-08-19T14:48:49.06916Z","tick":"aw5","action":"block","actor":"claude:orchestrator","epic":"63t","data":{"blockers":["n3e","zjp","aro","7c1","v2e","xrk","wf0","frf","t9k"],"title":"Final review of foundations epic diff"}}
+{"ts":"2026-08-19T14:49:04.550694Z","tick":"t9k","action":"start","actor":"claude:orchestrator","epic":"63t","data":{"title":"Fix PBKDF2 iterations: 210k exceeds Cloudflare's platform cap"}}
+{"ts":"2026-08-19T14:49:04.588409Z","tick":"wf0","action":"start","actor":"claude:orchestrator","epic":"63t","data":{"title":"tk factory deploy: tolerate secret propagation and resolve local wrangler"}}
+{"ts":"2026-08-19T14:49:04.627621Z","tick":"frf","action":"start","actor":"claude:orchestrator","epic":"63t","data":{"title":"Public-repo guard rejects self-evident zero placeholders in fixtures"}}

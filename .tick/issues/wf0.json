@@ -2,7 +2,7 @@
   "id": "wf0",
   "title": "tk factory deploy: tolerate secret propagation and resolve local wrangler",
   "description": "Found by the first two live deploys against a real Cloudflare account. Both reported failure on deployments that were actually fine.\n\n1. VERIFICATION RACES SECRET PROPAGATION. Order is: wrangler deploy, then secret put (which creates a new Worker version), then verify. Propagation takes roughly 10-30s, so the verify probe hits the previous version and reports 'the FACTORY_TOKEN_HASH secret did not land'. This fires on essentially every deploy — a command that always reports failure trains the operator to ignore it. Retry the verification with bounded backoff (and treat Cloudflare edge error 1042, observed during propagation, as retryable) before declaring failure. Keep the existing 'nothing is lost, re-run it' wording for genuine failure.\n\n2. WRANGLER RESOLUTION MISSES THE REPO'S OWN COPY. There is no global wrangler in this repo; it is a devDependency of cloud/factory. Resolution tries the global binary then npx, and both fail from the repo root, so the command exits with 'a logged-in wrangler is required'. It only worked after manually putting cloud/factory/node_modules/.bin on PATH. Also probe the staged bundle dir and the repo's cloud/factory/node_modules/.bin. Keep the no-implicit-install rule.\n\nDo not weaken the fail-closed behaviour: an unverifiable deploy must still exit nonzero after the retries are exhausted.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -11,5 +11,6 @@
   "acceptance_criteria": "A deploy against a real account (or a harness that simulates propagation lag by returning 503/1042 for the first N probes) verifies successfully instead of failing; exhausted retries still exit nonzero with the existing actionable message; wrangler resolves without the operator adjusting PATH when only cloud/factory has it installed; scripts/verify-factory-deploy.sh still passes all scenarios.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T14:48:39.554598Z",
-  "updated_at": "2026-08-19T14:48:39.554598Z"
+  "updated_at": "2026-08-19T14:49:04.588132Z",
+  "started_at": "2026-08-19T14:49:04.588131Z"
 }
