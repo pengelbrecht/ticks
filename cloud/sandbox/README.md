@@ -101,7 +101,8 @@ starts a command in a sandbox.
 | `TICKS_REPO_URL` | yes | Repository to clone. |
 | `TICKS_BASE_SHA` | yes | The submitted SHA — the run's base. |
 | `TICKS_EPIC` | yes | Epic the skill loop runs. |
-| `AI_GATEWAY_BASE_URL` | yes | The operator's AI Gateway base URL — the same name `tk factory setup` stores it under. |
+| `AI_GATEWAY_BASE_URL` | yes | The gateway every model call goes through — the factory's own `/api/gateway` prefix in a cloud run, or an AI Gateway base URL directly when you are driving the image by hand. Never a vendor host. |
+| `AI_GATEWAY_TOKEN` | yes | The run's gateway credential (D17). It is the ONLY model credential in the container, and it is what every vendor key variable is set to. |
 | `TICKS_HARNESS` | no | `omp` (default) or `claude`. |
 | `TICKS_MODEL`, `TICKS_MAX_TIME` | no | Passed through to the harness. |
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
@@ -138,6 +139,17 @@ Model traffic is pointed at the gateway, never a vendor default: every vendor
 base URL a harness might reach for (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`,
 `OPENROUTER_BASE_URL`) is rewritten to the gateway, and a gateway URL pointed
 straight at a vendor host is refused.
+
+Every vendor *credential* is rewritten too — `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` are all set to
+`AI_GATEWAY_TOKEN`, whichever one a given harness happens to read. In a cloud
+run that token is minted per orchestrator boot by the Run Workflow and the
+factory exchanges it for the operator's real provider key, stamping the run and
+tick ids onto the request's gateway metadata. Two consequences worth stating:
+the operator's vendor key never enters the container, and revoking the run's
+token stops this agent's model traffic mid-run, whether or not it cooperates.
+A boot with no token is refused with exit 2 — it could not make a single model
+call.
 
 Exit codes, before the harness takes over — distinct failure classes stay
 distinct, because these are read from a log after the sandbox is gone:
@@ -185,7 +197,7 @@ docker run --rm \
   -e TICKS_BASE_SHA=<sha> \
   -e TICKS_EPIC=<epic-id> \
   -e AI_GATEWAY_BASE_URL=https://gateway.ai.cloudflare.com/v1/<account>/<gateway> \
-  -e ANTHROPIC_API_KEY=... \
+  -e AI_GATEWAY_TOKEN=<your provider key, or a run token from a factory> \
   ticks-orchestrator:<version>
 ```
 

@@ -52,6 +52,18 @@ const (
 	// Gateway base URL. It is a secret rather than a wrangler.toml var because
 	// it carries their Cloudflare account id, and this repo is public.
 	SecretGatewayBaseURL = "AI_GATEWAY_BASE_URL"
+
+	// SecretCloudflareAPIToken is the Worker secret holding a Cloudflare API
+	// token with AI Gateway read access.
+	//
+	// It is what makes a run's cost ground truth: the Run Workflow reads the
+	// gateway's own per-request logs, filtered by the run id it stamped on
+	// every request, and enforces the cost budget on that number rather than
+	// on anything the agent says about itself (D14, D17). Optional, and
+	// visibly so — a factory without one still routes and attributes model
+	// traffic, but its cost budget has nothing to act on, which `tk factory
+	// status` and the run record both say out loud rather than reporting $0.
+	SecretCloudflareAPIToken = "CLOUDFLARE_API_TOKEN"
 )
 
 // ProviderSpec is one rung of the model-access ladder: the vendor behind the
@@ -114,7 +126,13 @@ func LookupProvider(choice string) (ProviderSpec, bool) {
 // list, and TestSetupNeverWritesASecretIntoTheRepository proves it stays that
 // way by running the whole walk inside a checkout.
 func SecretSinks(configPath string) (workerSecrets []string, localFiles []string) {
-	workerSecrets = []string{SecretName, SecretGitHubToken, SecretGatewayBaseURL}
+	workerSecrets = []string{
+		SecretName,
+		SecretFactoryBaseURL,
+		SecretGitHubToken,
+		SecretGatewayBaseURL,
+		SecretCloudflareAPIToken,
+	}
 	for _, spec := range Providers {
 		if spec.NeedsKey() {
 			workerSecrets = append(workerSecrets, spec.SecretName)
@@ -154,11 +172,20 @@ type SetupOptions struct {
 	// scope check is reported as skipped rather than failing the rung.
 	Repo string
 
+	// CloudflareAPIBase overrides https://api.cloudflare.com/client/v4
+	// (tests).
+	CloudflareAPIBase string
+
 	// Answers supplied up front instead of prompted for.
 	GitHubToken string
 	GatewayURL  string
 	Provider    string
 	ProviderKey string
+	// CloudflareAPIToken enables gateway cost telemetry (D17). It is a flag
+	// rather than a prompt: it is the one rung a factory can run without, and
+	// the walk says exactly what is lost when it is absent instead of asking
+	// every operator for an API token they may not have minted yet.
+	CloudflareAPIToken string
 
 	// onSecretPut runs after every `wrangler secret put`, so the test harness
 	// can propagate a secret into its fake worker the way Cloudflare does.
@@ -185,6 +212,9 @@ type SetupResult struct {
 	GatewayURL        string
 	Provider          string
 	ProviderKeyStored bool
+	// CostTelemetry reports whether gateway cost telemetry is configured — the
+	// credential the Run Workflow reads spend with.
+	CostTelemetry bool
 	// Models is what the gateway listed during verification, if anything.
 	Models []string
 }
@@ -573,6 +603,126 @@ func setupGateway(
 
 	result.GatewayURL = gatewayURL
 	result.Provider = provider.ID
+
+	return setupCostTelemetry(ctx, w, out, client, cfg, opts, gatewayURL, result)
+}
+
+// gatewayIDs pulls the account and gateway out of a Cloudflare AI Gateway base
+// URL (https://gateway.ai.cloudflare.com/v1/<account>/<gateway>). A gateway
+// hosted anywhere else has no logs API to read, which the caller reports
+// rather than guessing at.
+func gatewayIDs(gatewayURL string) (account, gateway string, ok bool) {
+	parsed, err := url.Parse(gatewayURL)
+	if err != nil {
+		return "", "", false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) < 3 || parts[0] != "v1" {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
+}
+
+// defaultCloudflareAPIBase is Cloudflare's REST root.
+const defaultCloudflareAPIBase = "https://api.cloudflare.com/client/v4"
+
+// setupCostTelemetry settles the half of the gateway rung that makes spend
+// visible: a Cloudflare API token the factory reads the gateway's logs with.
+//
+// Optional, and loudly so. Everything else on this rung is required because
+// without it a run cannot make a model call at all; this one only decides
+// whether the cost budget has a number to act on, and a factory that silently
+// reported $0 for every run would be worse than one that says it cannot tell.
+func setupCostTelemetry(
+	ctx context.Context,
+	w *wrangler,
+	out io.Writer,
+	client *http.Client,
+	cfg *ticksrc.File,
+	opts SetupOptions,
+	gatewayURL string,
+	result *SetupResult,
+) error {
+	token := strings.TrimSpace(opts.CloudflareAPIToken)
+	if token == "" {
+		token = cfg.Get(ticksrc.KeyFactoryCloudflareAPIToken)
+	}
+	if token == "" {
+		fmt.Fprintf(out, "\nCost telemetry is not configured.\n")
+		fmt.Fprintf(out, "A run's budget is enforced on what the GATEWAY billed, never on what the\n")
+		fmt.Fprintf(out, "agent says it spent — which needs a Cloudflare API token with AI Gateway\n")
+		fmt.Fprintf(out, "read access. Without one, runs still route and attribute their model\n")
+		fmt.Fprintf(out, "traffic, but the cost budget has nothing to act on and each run records\n")
+		fmt.Fprintf(out, "its cost as unknown.\n")
+		fmt.Fprintf(out, "Add one with: tk factory setup --cloudflare-api-token <token>\n")
+		return nil
+	}
+
+	account, gateway, ok := gatewayIDs(gatewayURL)
+	if !ok {
+		return fmt.Errorf("gateway: %s does not name a Cloudflare account and gateway, so its logs cannot be read — remove --cloudflare-api-token or point the gateway at https://gateway.ai.cloudflare.com/v1/<account-id>/<gateway>", gatewayURL)
+	}
+	if err := probeGatewayLogs(ctx, client, opts.CloudflareAPIBase, account, gateway, token); err != nil {
+		return fmt.Errorf("verifying the Cloudflare API token against gateway %s: %w", gateway, err)
+	}
+
+	if err := putSecret(ctx, w, opts, SecretCloudflareAPIToken, token); err != nil {
+		return err
+	}
+	cfg.Set(ticksrc.KeyFactoryCloudflareAPIToken, token)
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%s stored as a Worker secret — run cost comes from gateway logs\n", SecretCloudflareAPIToken)
+	result.CostTelemetry = true
+	return nil
+}
+
+// probeGatewayLogs proves the token can read THIS gateway's logs, which is the
+// call the Run Workflow will make: a token that authenticates but cannot see
+// the gateway is a green start waiting to happen.
+func probeGatewayLogs(ctx context.Context, client *http.Client, apiBase, account, gateway, token string) error {
+	if apiBase == "" {
+		apiBase = defaultCloudflareAPIBase
+	}
+	endpoint := fmt.Sprintf("%s/accounts/%s/ai-gateway/gateways/%s/logs?per_page=1",
+		strings.TrimSuffix(apiBase, "/"), account, gateway)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("the token was rejected (%s) — it needs AI Gateway read access on this account", resp.Status)
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("no gateway %q in account %s", gateway, account)
+	case resp.StatusCode >= 300:
+		return fmt.Errorf("the logs API answered %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Errors  []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("the logs API answered something that is not JSON")
+	}
+	if !payload.Success {
+		message := "the API reported failure"
+		if len(payload.Errors) > 0 && payload.Errors[0].Message != "" {
+			message = payload.Errors[0].Message
+		}
+		return fmt.Errorf("the logs API refused the read: %s", message)
+	}
 	return nil
 }
 

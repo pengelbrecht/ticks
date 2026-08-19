@@ -19,7 +19,8 @@ orchestrator sandbox, watches it, enforces the budgets and finalizes — see
 | `src/index.ts` | Worker entry: routing only — status codes, methods, body shapes. `GET /health` is open; everything else needs the bearer token. |
 | `src/runs.ts` | Submission, stop and status policy: the lease, enrolment, the queue window, the `dispatch_log` trail, and the Run Workflow seam. |
 | `src/telegram.ts` | Telegram webhook filtering, RunRoom question delivery, first-wins answer rendering, and threaded reports. |
-| `src/db.ts` | Typed D1 accessors: runs, signals, dispatch log, project enrolment. |
+| `src/db.ts` | Typed D1 accessors: runs, signals, dispatch log, project enrolment, run gateway tokens. |
+| `src/gateway.ts` | The run's model path (D17): routing through the operator's AI Gateway, run/tick metadata, gateway-log cost telemetry, and the run-token kill switch. |
 | `src/auth.ts` | Single-tenant bearer auth (D16) — mint, salted PBKDF2 hash, constant-time verify, route middleware. |
 | `scripts/mint-factory-token.mjs` | Operator-side mint/rotate tool for hand rotation. Imports `src/auth.ts`. `tk factory deploy` mints in Go instead — see "Mint and rotate". |
 | `migrations/` | D1 migrations, applied by `tk factory deploy` before it deploys. |
@@ -46,7 +47,7 @@ only turns that decision into a status code.
 
 | Route | What it does |
 |---|---|
-| `POST /api/runs` | Submit `{project, epic, base_sha, requested_by, notify?, queue?, queue_ttl_ms?}`. `201` started, `409` refused naming the holding run, `202` parked (with `queue: true`), `403` project not enrolled, `503` no Run Workflow bound. |
+| `POST /api/runs` | Submit `{project, epic, base_sha, requested_by, notify?, queue?, queue_ttl_ms?}`. `201` started, `409` refused naming the holding run, `202` parked (with `queue: true`), `403` project not enrolled, `503` no Run Workflow bound **or no AI Gateway configured** (the detail names `tk factory setup`). |
 | `GET /api/runs` | The run index plus, for every project it mentions, that project's lease and queued submissions. Filters: `project`, `state`, `limit`. |
 | `GET /api/runs/:id` | One run: index row, Workflow step state, lease, open gates, queued submissions, stop record. |
 | `POST /api/runs/:id/stop` | A clean stop (D15): finish the in-flight tick, then review and closeout. |
@@ -102,9 +103,11 @@ it (`src/run-workflow.ts`):
   because another container reaches the identical answer.
 - **Budgets are enforced here, never in a prompt (D14).** `RUN_MAX_WALL_CLOCK_MS`
   and `RUN_MAX_COST_USD` are checked at every observation against the elapsed
-  time the Workflow measured and the `cost_usd` on the index row (ground truth
-  from AI Gateway telemetry, not an agent self-report). A model can be talked
-  out of a budget; a Workflow step cannot.
+  time the Workflow measured and the `cost_usd` on the index row, which is read
+  back from the gateway's own logs at every observation — not an agent
+  self-report. A model can be talked out of a budget; a Workflow step cannot.
+  And a trip does not stop at killing a process: the run's gateway token is
+  revoked, so an orchestrator that survives its own kill still cannot spend.
 - **Exhaustion is a clean stop, identical to `POST /api/runs/:id/stop` (D15).**
   Both trip the same branch: the in-flight work gets `RUN_STOP_GRACE_MS` to
   land, then a `closeout` orchestrator reconciles and runs review and closeout
@@ -136,6 +139,23 @@ a lifecycle nobody tests. `test/run-workflow.test.ts` drives the real Workflow,
 the real lease, the real D1 index and the real R2 bucket, and substitutes only
 the container: that is what lets a test kill an orchestrator mid-run and read
 the log stream while the run is still going.
+
+### The model path (D17)
+
+All cloud model traffic goes through the operator's own AI Gateway, and it gets
+there through this Worker. A sandbox is handed `<FACTORY_BASE_URL>/api/gateway`
+as its gateway and a **run gateway token** as its only model credential; the
+`/api/gateway/<provider>/...` route exchanges that token for the operator's
+provider key, stamps `cf-aig-metadata` with the run and tick ids the token was
+issued for, and forwards to the gateway.
+
+| Rule | Why |
+|---|---|
+| No gateway configured → submissions are refused, naming `tk factory setup` | The absence of a gateway is an actionable stop at submission, never a silent fall back to a vendor default. A base URL pointed at a vendor host is refused the same way. |
+| The route is exempt from the factory bearer token, and does not accept it | A sandbox must never hold the credential that commands the control plane. The run token can do exactly one thing. |
+| Metadata is stamped, not accepted | Any `cf-aig-*` header the caller sent is dropped first, so an agent can neither misattribute its spend nor opt out of being attributed. |
+| Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run records its cost as unknown rather than as `$0`. |
+| Every boot rotates the token; a trip, a stop and finalize revoke it | The kill switch works on a wedged or adversarial orchestrator, and no run ever leaves a live credential behind. Closeout gets a fresh token — a stop must still reach review and closeout (D15). |
 
 ## Auth: secrets, not accounts
 

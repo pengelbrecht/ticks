@@ -85,6 +85,17 @@ export const HEALTH_PATH = "/health";
 export const WEBHOOK_PREFIX = "/api/hooks";
 export const TELEGRAM_WEBHOOK_PATH = "/api/channels/telegram/webhook";
 
+/**
+ * The run's model path is exempt from the FACTORY bearer token, and is not
+ * unauthenticated: it carries a run-scoped gateway token instead (D17,
+ * src/gateway.ts).
+ *
+ * A sandbox must never hold the operator's token — that credential commands
+ * the whole control plane, while a run token can do exactly one thing, is
+ * scoped to one run, and dies the moment the Workflow revokes it.
+ */
+export const GATEWAY_PREFIX = "/api/gateway";
+
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
   /** Worker secret: the derived hash of the current factory token. */
@@ -258,6 +269,7 @@ export async function verifyFactoryToken(token: string, encoded: string): Promis
 export function isAuthExempt(pathname: string): boolean {
   if (pathname === HEALTH_PATH) return true;
   if (pathname === TELEGRAM_WEBHOOK_PATH) return true;
+  if (pathname === GATEWAY_PREFIX || pathname.startsWith(`${GATEWAY_PREFIX}/`)) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 

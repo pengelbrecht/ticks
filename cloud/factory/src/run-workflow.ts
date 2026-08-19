@@ -19,8 +19,10 @@
  * 2. **Budgets are enforced HERE, never in a prompt.** A model can be talked
  *    out of a budget; a Workflow step cannot (D14). Wall-clock and cost are
  *    checked at every observation, against ground truth — the elapsed time this
- *    module measured and the `cost_usd` on the index row that tick k2s feeds
- *    from AI Gateway telemetry — never against anything the agent reports.
+ *    module measured and the `cost_usd` this module reads back from AI Gateway
+ *    logs — never against anything the agent reports. And enforcement does not
+ *    stop at killing a process: a trip revokes the run's gateway token, so an
+ *    orchestrator that survives its own kill still cannot spend (D17).
  * 3. **Exhaustion is a clean stop, identical to the operator stop path
  *    (D15).** Both trip the same branch: give the in-flight work a bounded
  *    grace window, then boot a `closeout` orchestrator that reconciles and runs
@@ -48,6 +50,14 @@ import {
   type RunRecord,
 } from "./artifacts";
 import { getRun, updateRunState } from "./db";
+import {
+  factoryBaseURL,
+  issueRunToken,
+  modelRoutingComplaint,
+  revokeRunTokens,
+  runGatewayEndpoint,
+  syncRunCost,
+} from "./gateway";
 import type { Env } from "./index";
 import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS } from "./run-room";
 import { logDispatch, roomFor, type RunWorkflowParams } from "./runs";
@@ -188,9 +198,21 @@ export function renewalTtl(pollMs: number): number {
 
 export type RunContext = {
   repo_url: string;
+  /**
+   * The gateway endpoint the sandbox is pointed at: this factory's own
+   * `/api/gateway` prefix, which exchanges the run's token for the operator's
+   * provider key and stamps the run/tick metadata on the way to their AI
+   * Gateway (D17, src/gateway.ts).
+   */
   gateway_base_url: string;
   started_at_ms: number;
   config: RunConfig;
+  /**
+   * Why gateway cost telemetry is unavailable, when it is. A run still runs —
+   * the wall-clock budget still bounds it — but the fact is recorded rather
+   * than left to look like a run that spent nothing.
+   */
+  cost_telemetry: string | null;
 };
 
 export type ContextResult =
@@ -222,23 +244,27 @@ export async function acquireContext(
     };
   }
 
-  const gateway = textVar(env, "AI_GATEWAY_BASE_URL");
-  if (gateway === null) {
-    // D17: all cloud model traffic goes through the operator's own gateway.
-    // Absence is an actionable stop, never a silent fall back to a vendor.
-    return {
-      ok: false,
-      detail:
-        "no AI_GATEWAY_BASE_URL is configured — all cloud model traffic must go through " +
-        "the operator's AI Gateway; run `tk factory setup` to configure one",
-    };
+  // D17: all cloud model traffic goes through the operator's own gateway, and
+  // it gets there through this factory's proxy. Absence is an actionable stop
+  // naming the command that fixes it, never a silent fall back to a vendor.
+  const routing = modelRoutingComplaint(env);
+  if (routing !== null) return { ok: false, detail: routing };
+
+  // Reported, not enforced: a run with no readable spend still runs, bounded
+  // by wall clock, and says in its record that its cost is unknown.
+  const telemetry = await syncRunCost(env, params.run_id);
+  if (!telemetry.ok) {
+    console.error(
+      `factory run-workflow: ${params.run_id} has no gateway cost telemetry: ${telemetry.detail}`
+    );
   }
 
   const context: RunContext = {
     repo_url: repoURL(params.project),
-    gateway_base_url: gateway,
+    gateway_base_url: runGatewayEndpoint(factoryBaseURL(env)!),
     started_at_ms: Date.now(),
     config: runConfig(env),
+    cost_telemetry: telemetry.ok ? null : telemetry.detail,
   };
 
   // The run identifies itself in R2 before it does anything, so a run whose
@@ -424,8 +450,16 @@ async function detectTrip(
     };
   }
 
-  // Ground truth, not a self-report: the index row's cost is what tick k2s
-  // feeds from AI Gateway telemetry. An agent can misreport; an invoice cannot.
+  // Ground truth, not a self-report: the index row's cost is read back from AI
+  // Gateway logs at every observation. An agent can misreport; an invoice
+  // cannot — and a telemetry read that fails leaves the last known number
+  // standing rather than inventing one.
+  const spend = await syncRunCost(env, params.run_id);
+  if (!spend.ok) {
+    console.error(
+      `factory run-workflow: ${params.run_id} could not read gateway spend: ${spend.detail}`
+    );
+  }
   const run = await getRun(env.DB, params.run_id).catch(() => null);
   const cost = run?.cost_usd ?? 0;
   if (cost >= context.config.max_cost_usd) {
@@ -492,6 +526,16 @@ async function supervisePass(
     const booted = await step.do(`${options.label}:boot:${attempt}`, BOOT_RETRIES, async () => {
       const binding = sandboxBinding(env);
       if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
+      // Every boot rotates the run's gateway credential (D17). The container
+      // being replaced may still be alive somewhere; its token dies before the
+      // replacement's is live, so two orchestrators can never both spend
+      // against one run — and the token this one gets carries the run and tick
+      // ids that stamp every model request it makes.
+      const credential = await issueRunToken(env, {
+        run_id: params.run_id,
+        tick_id: params.epic,
+        attempt: boot,
+      });
       const sandbox = await binding.get(name);
       const started = await sandbox.startProcess(ORCHESTRATOR_COMMAND, {
         env: orchestratorEnv({
@@ -500,6 +544,7 @@ async function supervisePass(
           base_sha: params.base_sha,
           repo_url: context.repo_url,
           gateway_base_url: context.gateway_base_url,
+          gateway_token: credential.token,
           phase,
           ...(options.stop_reason === undefined ? {} : { stop_reason: options.stop_reason }),
           ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
@@ -552,6 +597,19 @@ async function supervisePass(
         await step.do(`${options.label}:drain:${attempt}`, OBSERVE_RETRIES, () =>
           drainAndKill(env, params, name, booted.process_id, boot, offset, seq)
         );
+        // The kill switch, at the layer that does not need the agent's
+        // cooperation (D17): whatever survived the kill cannot spend another
+        // cent, because its gateway token is dead. The closeout boot mints a
+        // fresh one — a stop must still reach review and closeout (D15).
+        const trip = seen.trip;
+        await step.do(`${options.label}:revoke:${attempt}`, OBSERVE_RETRIES, async () => {
+          const revoked = await revokeRunTokens(
+            env,
+            params.run_id,
+            trip.kind === "budget" ? `budget:${trip.budget}` : "stopped"
+          );
+          return { revoked };
+        });
         return { kind: "tripped", trip: seen.trip, boots: counter.next - 1 };
       }
 
@@ -697,9 +755,28 @@ export async function finalize(
   env: Env,
   params: RunWorkflowParams,
   outcome: RunOutcome,
-  boots: number
+  boots: number,
+  costTelemetry: string | null = null
 ): Promise<void> {
   const endedAt = new Date().toISOString();
+
+  // Model access ends when the run does, whatever else happens below. A run
+  // whose lease release fails is a delay; a run that leaves a live gateway
+  // credential behind is a container that can still spend (D17).
+  await revokeRunTokens(env, params.run_id, `finished:${outcome.state}`).catch(
+    (error: unknown) => {
+      console.error(
+        `factory run-workflow: ${params.run_id} could not revoke its gateway tokens: ${String(error)}`
+      );
+      return 0;
+    }
+  );
+
+  // One last telemetry read, so the closing record carries what the run
+  // actually spent rather than what it had spent at the last observation.
+  const finalSpend = await syncRunCost(env, params.run_id);
+  const telemetry = finalSpend.ok ? null : (costTelemetry ?? finalSpend.detail);
+
   const run = await getRun(env.DB, params.run_id);
 
   await updateRunState(env.DB, params.run_id, outcome.state, endedAt);
@@ -715,6 +792,7 @@ export async function finalize(
     state: outcome.state,
     ended_at: endedAt,
     cost_usd: run?.cost_usd ?? 0,
+    cost_source: telemetry === null ? "gateway" : `unavailable: ${telemetry}`,
     detail: outcome.detail,
     attempts: boots,
   };
@@ -789,6 +867,7 @@ export async function superviseRun(
       await finalize(env, params, outcome, 0);
       return { finalized: true };
     });
+
     return outcome;
   }
   const context = acquired.context;
@@ -845,7 +924,7 @@ export async function superviseRun(
   }
 
   await step.do("finalize", FINALIZE_RETRIES, async () => {
-    await finalize(env, params, outcome, outcome.boots);
+    await finalize(env, params, outcome, outcome.boots, context.cost_telemetry);
     return { finalized: true };
   });
   return outcome;

@@ -95,6 +95,124 @@ export async function getRun(db: D1Database, runId: string): Promise<Run | null>
     .first<Run>();
 }
 
+/**
+ * Moves a run's ground-truth cost.
+ *
+ * The number comes from AI Gateway telemetry (src/gateway.ts), never from the
+ * agent: an agent can misreport its spend, an invoice cannot, and this row is
+ * what the Run Workflow's cost budget acts on (D14, D17).
+ */
+export async function updateRunCost(
+  db: D1Database,
+  runId: string,
+  costUsd: number
+): Promise<Run | null> {
+  return db
+    .prepare(
+      `UPDATE runs
+       SET cost_usd = ?
+       WHERE run_id = ?
+       RETURNING run_id, project, epic, base_sha, requested_by, state,
+                 started_at, ended_at, cost_usd`
+    )
+    .bind(costUsd, runId)
+    .first<Run>();
+}
+
+/**
+ * One run-scoped AI Gateway credential (migrations/0004).
+ *
+ * Only the SHA-256 of the token is stored: the plaintext lives in the
+ * sandbox's environment and nowhere else. `revoked_at` is the kill switch —
+ * see src/gateway.ts.
+ */
+export interface RunGatewayToken {
+  token_hash: string;
+  run_id: string;
+  tick_id: string;
+  attempt: number;
+  issued_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+}
+
+export async function insertRunGatewayToken(
+  db: D1Database,
+  token: RunGatewayToken
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO run_gateway_token
+        (token_hash, run_id, tick_id, attempt, issued_at, revoked_at, revoked_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      token.token_hash,
+      token.run_id,
+      token.tick_id,
+      token.attempt,
+      token.issued_at,
+      token.revoked_at,
+      token.revoked_reason
+    )
+    .run();
+}
+
+/** The credential behind a presented token, or null when there is no such row. */
+export async function getRunGatewayToken(
+  db: D1Database,
+  tokenHash: string
+): Promise<RunGatewayToken | null> {
+  return db
+    .prepare(
+      `SELECT token_hash, run_id, tick_id, attempt, issued_at, revoked_at, revoked_reason
+       FROM run_gateway_token
+       WHERE token_hash = ?`
+    )
+    .bind(tokenHash)
+    .first<RunGatewayToken>();
+}
+
+export async function listRunGatewayTokens(
+  db: D1Database,
+  runId: string
+): Promise<RunGatewayToken[]> {
+  const result = await db
+    .prepare(
+      `SELECT token_hash, run_id, tick_id, attempt, issued_at, revoked_at, revoked_reason
+       FROM run_gateway_token
+       WHERE run_id = ?
+       ORDER BY attempt ASC`
+    )
+    .bind(runId)
+    .all<RunGatewayToken>();
+  return result.results;
+}
+
+/**
+ * Revokes every credential a run still holds, returning how many were live.
+ *
+ * Idempotent by design: revoking twice is not an error, because the caller is
+ * usually a Workflow step that may be retried, and a token that is already
+ * dead is exactly the state the caller wanted.
+ */
+export async function revokeRunGatewayTokens(
+  db: D1Database,
+  runId: string,
+  reason: string,
+  at: string
+): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE run_gateway_token
+       SET revoked_at = ?, revoked_reason = ?
+       WHERE run_id = ? AND revoked_at IS NULL`
+    )
+    .bind(at, reason, runId)
+    .run();
+  return result.meta.changes ?? 0;
+}
+
 export async function insertSignal(db: D1Database, signal: Signal): Promise<void> {
   await db
     .prepare(

@@ -591,10 +591,13 @@ func ResetFlags() {
 	factorySetupGatewayURL = ""
 	factorySetupProvider = ""
 	factorySetupProviderKey = ""
+	factorySetupCFAPIToken = ""
+	factorySetupCFAPIBase = ""
 	factorySetupBundleDir = ""
 	factoryStatusOffline = false
 	factoryStatusCheck = false
 	factoryStatusGitHubAPI = ""
+	factoryStatusCFAPIBase = ""
 
 	// Reset cloud flags
 	cloudRunNotify = ""

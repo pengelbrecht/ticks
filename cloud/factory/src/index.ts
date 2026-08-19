@@ -11,6 +11,8 @@
  * - GET  /api/runs         - the run index plus per-project lease and queue
  * - GET  /api/runs/:id     - one run: Workflow step state, lease, gates, queue
  * - POST /api/runs/:id/stop- a clean stop, enforced at the control plane (D15)
+ * - ANY  /api/gateway/*     - a run's model traffic, on its own run-scoped
+ *                             gateway token (D17) — never the factory token
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
  * - everything else        - requires `Authorization: Bearer <factory token>`
  *
@@ -34,6 +36,7 @@ import {
   removeEnrolledProject,
   type EnrolledProject,
 } from "./db";
+import { proxyModelRequest } from "./gateway";
 import { RunWorkflow } from "./run-workflow";
 import {
   RunRoom,
@@ -637,6 +640,13 @@ export default {
     }
 
     const segments = url.pathname.split("/").filter((segment) => segment !== "");
+
+    // A run's model path. Authenticated by the run's own gateway token, not by
+    // the operator's — a sandbox must never hold the credential that commands
+    // the control plane (D17).
+    if (segments[0] === "api" && segments[1] === "gateway") {
+      return await proxyModelRequest(env, request, segments.slice(2));
+    }
 
     if (segments[0] === "api" && segments[1] === "projects") {
       return await projectsRoute(request, env, segments.slice(2));

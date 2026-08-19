@@ -219,6 +219,17 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	}
 	fmt.Fprintf(out, "%s %s\n", SecretName, tokenVerb(rotated))
 
+	// The endpoint is known exactly here, and the Worker needs it to hand a run
+	// a gateway to route model traffic through (D17). Without it, submission
+	// refuses rather than booting an agent that cannot reach a model.
+	if err := w.putSecret(ctx, SecretFactoryBaseURL, url); err != nil {
+		return nil, fmt.Errorf("setting the %s secret: %w", SecretFactoryBaseURL, err)
+	}
+	if opts.onSecretPut != nil {
+		opts.onSecretPut()
+	}
+	fmt.Fprintf(out, "%s recorded as %s\n", SecretFactoryBaseURL, url)
+
 	if err := recordDeployment(ctx, w, opts.Version); err != nil {
 		return nil, err
 	}

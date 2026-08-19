@@ -35,6 +35,10 @@ type StatusOptions struct {
 
 	// GitHubAPIBase overrides https://api.github.com (tests, GHES).
 	GitHubAPIBase string
+
+	// CloudflareAPIBase overrides https://api.cloudflare.com/client/v4
+	// (tests).
+	CloudflareAPIBase string
 }
 
 // CredentialState is one rung's line in the report.
@@ -58,11 +62,16 @@ type StatusReport struct {
 	Deployment CredentialState
 	GitHub     CredentialState
 	Gateway    CredentialState
+	// Telemetry is the credential a run's cost is read with (D17). It is its
+	// own rung because "model traffic routes" and "spend is visible" fail
+	// separately, and a factory whose budget has nothing to act on must not
+	// look like a healthy one.
+	Telemetry CredentialState
 }
 
 // rungs returns the report's states in the order the ladder is walked.
 func (r *StatusReport) rungs() []CredentialState {
-	return []CredentialState{r.Deployment, r.GitHub, r.Gateway}
+	return []CredentialState{r.Deployment, r.GitHub, r.Gateway, r.Telemetry}
 }
 
 // Configured reports whether any rung has been walked at all.
@@ -198,6 +207,30 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 		}
 	}
 
+	// Cost telemetry: the credential the Run Workflow reads gateway spend with.
+	telemetry := cfg.Get(ticksrc.KeyFactoryCloudflareAPIToken)
+	report.Telemetry = CredentialState{Name: "cost telemetry"}
+	if telemetry != "" {
+		report.Telemetry.Configured = true
+		report.Telemetry.Summary = "Cloudflare API token — run cost comes from gateway logs"
+		account, gatewayID, ok := gatewayIDs(gateway)
+		switch {
+		case opts.Offline:
+			report.Telemetry.Detail = "not checked (--offline)"
+		case !ok:
+			report.Telemetry.Checked = true
+			report.Telemetry.Detail = "rejected: the gateway URL names no Cloudflare account and gateway to read logs from"
+		default:
+			report.Telemetry.Checked = true
+			if err := probeGatewayLogs(ctx, client, opts.CloudflareAPIBase, account, gatewayID, telemetry); err != nil {
+				report.Telemetry.Detail = "rejected: " + err.Error()
+			} else {
+				report.Telemetry.OK = true
+				report.Telemetry.Detail = "live, gateway logs readable"
+			}
+		}
+	}
+
 	return report, nil
 }
 
@@ -214,7 +247,14 @@ func (r *StatusReport) Write(w io.Writer) {
 	for _, state := range r.rungs() {
 		fmt.Fprintf(w, "\n%s\n", state.Name)
 		if !state.Configured {
-			fmt.Fprintf(w, "  state         not configured — run 'tk factory setup'\n")
+			hint := "run 'tk factory setup'"
+			if state.Name == "cost telemetry" {
+				// The one rung a factory runs without. Say what it costs, and
+				// say the flag: a budget with nothing to act on is a fact the
+				// operator should choose, not discover after a run.
+				hint = "run cost is unknown and the cost budget cannot act — add one with 'tk factory setup --cloudflare-api-token <token>'"
+			}
+			fmt.Fprintf(w, "  state         not configured — %s\n", hint)
 			continue
 		}
 		fmt.Fprintf(w, "  configured    %s\n", state.Summary)

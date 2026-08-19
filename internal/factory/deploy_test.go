@@ -219,6 +219,7 @@ func TestDeployFromCleanAccount(t *testing.T) {
 		"d1 migrations apply " + DatabaseName + " --remote",
 		"deploy",
 		"secret put " + SecretName,
+		"secret put " + SecretFactoryBaseURL,
 	} {
 		if countLines(lines, want) == 0 {
 			t.Errorf("wrangler was never called with %q:\n%s", want, h.log())
@@ -227,6 +228,22 @@ func TestDeployFromCleanAccount(t *testing.T) {
 	if h.authProbes.Load() == 0 {
 		t.Error("the deploy never made an authenticated request against the endpoint")
 	}
+
+	// The Worker has to know its own endpoint: a run's sandbox is pointed at
+	// <FACTORY_BASE_URL>/api/gateway for every model call it makes (D17), and
+	// the deploy is the one place that endpoint is known.
+	if got := h.secret(SecretFactoryBaseURL); got != h.server.URL {
+		t.Errorf("Worker secret %s = %q, want the deployed endpoint %q", SecretFactoryBaseURL, got, h.server.URL)
+	}
+}
+
+// secret returns what the fake wrangler stored for a Worker secret.
+func (h *harness) secret(name string) string {
+	data, err := os.ReadFile(filepath.Join(h.stateDir, "secret-"+name))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // Re-running upgrades in place: no duplicate resources, same token.

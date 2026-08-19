@@ -142,6 +142,12 @@ export type OrchestratorEnvInput = {
   base_sha: string;
   repo_url: string;
   gateway_base_url: string;
+  /**
+   * The run's gateway credential (D17). Scoped to this run and this boot, and
+   * revocable from the control plane while the container is still running,
+   * which is what makes it a kill switch rather than a key.
+   */
+  gateway_token: string;
   phase: OrchestratorPhase;
   stop_reason?: string;
   github_token?: string;
@@ -159,6 +165,12 @@ export type OrchestratorEnvInput = {
  * set empty: the script distinguishes "unset" from "set to nothing" for the
  * harness kind and the model, and an empty `GITHUB_TOKEN` would install a
  * credential helper that answers with no password.
+ *
+ * Note what is NOT here: no provider key. The gateway base URL points at this
+ * factory's own `/api/gateway` prefix, and the only model credential the
+ * container holds is the run token — so a leaked sandbox environment leaks
+ * something run-scoped and revocable rather than the operator's vendor key
+ * (D17).
  */
 export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, string> {
   const env: Record<string, string> = {
@@ -168,6 +180,7 @@ export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, str
     TICKS_RUN_ID: input.run_id,
     TICKS_PHASE: input.phase,
     AI_GATEWAY_BASE_URL: input.gateway_base_url,
+    AI_GATEWAY_TOKEN: input.gateway_token,
   };
   if (input.stop_reason !== undefined && input.stop_reason !== "") {
     env.TICKS_STOP_REASON = input.stop_reason;

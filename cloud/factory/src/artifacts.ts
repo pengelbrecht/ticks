@@ -80,6 +80,13 @@ export type RunRecord = {
   state: string;
   ended_at?: string;
   cost_usd?: number;
+  /**
+   * Where `cost_usd` came from: `gateway` when AI Gateway telemetry answered,
+   * `unavailable` with the reason when it could not be read (D17). Stated
+   * rather than implied, because a zero that means "nothing was spent" and a
+   * zero that means "nobody could tell" are different facts about a run.
+   */
+  cost_source?: string;
   /** Why the run ended the way it did — the stop reason, or the failure. */
   detail?: string;
   /** How many orchestrator sandboxes this run went through. */

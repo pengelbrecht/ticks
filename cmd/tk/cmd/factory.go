@@ -19,11 +19,14 @@ var (
 	factorySetupGatewayURL  string
 	factorySetupProvider    string
 	factorySetupProviderKey string
+	factorySetupCFAPIToken  string
+	factorySetupCFAPIBase   string
 	factorySetupBundleDir   string
 
 	factoryStatusOffline   bool
 	factoryStatusCheck     bool
 	factoryStatusGitHubAPI string
+	factoryStatusCFAPIBase string
 )
 
 var factoryCmd = &cobra.Command{
@@ -105,7 +108,11 @@ Setup walks four rungs and proves each one before it stores anything:
   4. model access — your own AI Gateway base URL and the provider behind it.
      Workers AI needs no key (inference bills to the same Cloudflare account);
      a BYOK provider's key is verified with a live model-list call through the
-     gateway before it is stored.
+     gateway before it is stored. --cloudflare-api-token adds the optional half
+     of this rung: a token with AI Gateway read access, which is what lets a
+     run's cost budget act on what the gateway billed instead of on what the
+     agent claims. Without it, runs still route and attribute their model
+     traffic and record their cost as unknown.
 
 Everything it stores goes to two places: a Worker secret in your own Cloudflare
 account, and ~/.ticksrc (0600) so ` + "`tk factory status`" + ` can re-check it. Nothing is
@@ -130,6 +137,9 @@ walk scriptable.`,
 			GatewayURL:    factorySetupGatewayURL,
 			Provider:      factorySetupProvider,
 			ProviderKey:   factorySetupProviderKey,
+
+			CloudflareAPIToken: factorySetupCFAPIToken,
+			CloudflareAPIBase:  factorySetupCFAPIBase,
 		})
 		if err != nil {
 			// A rung that did not verify is a stop with an explanation, never
@@ -157,8 +167,9 @@ nothing configured, status says so and exits 0. No credential is ever printed.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		report, err := factory.Status(cmd.Context(), factory.StatusOptions{
-			Offline:       factoryStatusOffline,
-			GitHubAPIBase: factoryStatusGitHubAPI,
+			Offline:           factoryStatusOffline,
+			GitHubAPIBase:     factoryStatusGitHubAPI,
+			CloudflareAPIBase: factoryStatusCFAPIBase,
 		})
 		if err != nil {
 			return NewExitError(ExitIO, "%v", err)
@@ -190,6 +201,11 @@ func init() {
 		"model provider behind the gateway: "+providerFlagHelp())
 	factorySetupCmd.Flags().StringVar(&factorySetupProviderKey, "provider-key", "",
 		"API key for a BYOK provider (prompted for when omitted; workers-ai needs none)")
+	factorySetupCmd.Flags().StringVar(&factorySetupCFAPIToken, "cloudflare-api-token", "",
+		"Cloudflare API token with AI Gateway read access — makes a run's cost gateway telemetry rather than a self-report")
+	factorySetupCmd.Flags().StringVar(&factorySetupCFAPIBase, "cloudflare-api-base", "",
+		"override the Cloudflare API root (testing)")
+	_ = factorySetupCmd.Flags().MarkHidden("cloudflare-api-base")
 	factorySetupCmd.Flags().StringVar(&factorySetupBundleDir, "bundle-dir", "",
 		"directory to stage the worker bundle in (default ~/.tick/factory/bundle)")
 	factorySetupCmd.Flags().StringVar(&factorySetupGitHubAPI, "github-api-base", "",
@@ -201,6 +217,9 @@ func init() {
 	factoryStatusCmd.Flags().StringVar(&factoryStatusGitHubAPI, "github-api-base", "",
 		"override the GitHub API root (testing)")
 	_ = factoryStatusCmd.Flags().MarkHidden("github-api-base")
+	factoryStatusCmd.Flags().StringVar(&factoryStatusCFAPIBase, "cloudflare-api-base", "",
+		"override the Cloudflare API root (testing)")
+	_ = factoryStatusCmd.Flags().MarkHidden("cloudflare-api-base")
 
 	factoryCmd.AddCommand(factoryDeployCmd)
 	factoryCmd.AddCommand(factorySetupCmd)
