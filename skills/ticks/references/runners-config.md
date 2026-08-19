@@ -149,6 +149,31 @@ Keep the tier's real meaning intact when you do this — the tier is chosen from
 
 **Args replace, they never merge.** A tier's `args` supersede the role's `args` wholesale. This is deliberate — merging two argv lists whose flags may conflict is not well-defined. It applies to `args` only: `model` and `effort` are scalars and override field-wise (above). The kind's full-auto template from `herdr-kinds.md` is prepended by the spawner and is not part of `args`.
 
+### One table, one kind per reader
+
+`[roles]` is one table and more than one program reads it. `tk herd spawn` compiles a cell into a herdr spawn of that `kind`. The **pi extension** (`extensions/ticks-runner`, the runner adapter behind `/ticks-plan` and `/ticks-run`) compiles the same cell into `pi --provider/--model/--thinking` and spawns that subprocess itself. Because `model` lives **in the kind's own namespace**, a cell only means anything to the reader that dispatches that kind: `sonnet` is a `claude` id, `gpt-5.6-luna` is a `codex` id, and neither is a name `pi --model` takes.
+
+So **one `[roles]` table cannot carry a herdr routing and a pi routing at the same time.** It carries the kind's, and a second reader may not help itself to the model string with the kind dropped.
+
+**A reader that dispatches a kind reads only cells of that kind, and fails closed on the rest.** The pi extension refuses any role or tier whose `kind` is not `pi`: it derives no model from that cell, reports the mismatch naming the cell, the kind and the model it would otherwise have passed, and blocks the run — a config it cannot read authorizes nothing, exactly as for the whole-file rules below. It does **not** quietly leave the model unset and let `pi` pick its own default; that is the same silent substitution the spawner refuses for an impossible cell.
+
+```text
+roles.implement.tiers.balanced: kind = "codex", but this runner spawns `pi` and a model
+id is in its own kind's namespace — refusing to derive implement_balanced_model =
+"gpt-5.6-luna:max" from a codex role rather than hand a codex id to `pi
+--provider/--model`. Give the role `kind = "pi"` and a pi model id, or run this epic
+through `tk herd spawn`, the reader a codex role is written for.
+```
+
+Four things follow, and each has bitten:
+
+- **This is a reader rule, not a file rule.** A `[roles]` table of `claude`/`codex` cells is a perfectly valid config; it is simply not addressed to the pi reader. The refusal names the reader, never the file's validity — see [Caught by a reader](#caught-by-a-reader-valid-for-one-kind-refused-by-another).
+- **The deprecated `## Pi Orchestrator` block is unaffected.** It named no kind because its heading was the kind; every key in it is pi routing by construction and still resolves. The refusal exists precisely because the TOML that replaced it is a *shared* table — a migration can retarget those keys to another reader without changing a single model string's meaning to the reader they were written for.
+- **`harness` does not license a kind.** Routing is `kind` (see [`[roles.<name>]`](#rolesname)); `harness = "pi"` on a `kind = "claude"` role is a documentary note on a claude cell, and the pi reader still refuses it.
+- **`TICKS_PI_*_MODEL` does not rescue a refused config.** The environment still wins over the file for an individual key, but the refusal is a config error, and a run never starts on a config that produced one. Fix the file or run the epic under the substrate its `[roles]` table is for.
+
+A repo that wants a herdr fleet of `claude`/`codex` workers **and** the pi extension's own planning and process gates cannot express both here today. It has to pick which substrate its `[roles]` table is for, and record the choice — a per-substrate routing shape is the only thing that would remove the constraint, and it does not exist yet.
+
 ### Shape versus compatibility
 
 `runners-config.schema.json` validates the **shape** of a config: that `kind`/`model` look like identifiers, that `effort` is one of the known levels, that no unknown keys are present. It cannot validate **compatibility** — whether *this* kind can run *that* model — because model families are open-ended and change with every vendor release, so enumerating them in a schema would guarantee a schema that is wrong within weeks.
@@ -269,7 +294,7 @@ That block was key/value routing config in markdown, duplicating what `[roles]` 
 Three things a migration has to do rather than copy:
 
 - **Split the effort suffix.** `openai-codex/gpt-5.6-sol:xhigh` is one markdown string but two fields here: `model = "openai-codex/gpt-5.6-sol"` and `effort = "xhigh"`. The `Model` pattern rejects `:` for exactly this reason — the `model:thinking` shorthand is what the spawner *emits*, not what the config carries.
-- **Make the kind explicit.** The markdown block named models and never a kind; the kind was implied by the heading saying *Pi*. `kind` is required on every role here, so write `kind = "pi"`.
+- **Make the kind explicit.** The markdown block named models and never a kind; the kind was implied by the heading saying *Pi*. `kind` is required on every role here, so write `kind = "pi"`. If the repo's `[roles]` already carry another kind's routing, these keys have **no home in that table**: merging them retargets the pi extension's only routing at a reader it was never written for, which is a migration failure and not a merge conflict a warning covers. See [One table, one kind per reader](#one-table-one-kind-per-reader).
 - **`max_parallel` lands in `[orchestration]`, not `[orchestrator]`.** They are different tables: `[orchestrator]` is advisory ("which harness this config was written for"), `[orchestration]` is dispatch policy.
 
 Two vocabulary notes for a reader porting the pi extension's own routing helper. Its `review` and `closeout` "tiers" are **roles** here, not tiers — the four tier names are `economy`/`balanced`/`strong`/`frontier`, and `[roles.review]`/`[roles.closeout]` is where those models belong. Its `foundation` tier is `[roles.review]` at the `frontier` tier. Neither needs a new key.
@@ -674,6 +699,16 @@ These are the failures a config author should expect, and where each one is caug
 
 See [Caught by the config loader](#caught-by-the-config-loader) for the full statement of these three rules.
 
+### Caught by a reader (valid for one kind, refused by another)
+
+These configs are valid, and valid for the reader they were written for. They are refused by a *different* reader, which is a property of the pair, not of the file — see [One table, one kind per reader](#one-table-one-kind-per-reader).
+
+| Config | Read by | Why it fails |
+|---|---|---|
+| `[roles.implement] kind = "claude", model = "sonnet"` | the pi extension | `sonnet` is a claude id; deriving `implement_*_model` from it would put it behind `pi --model` with no provider. Refused naming the cell, the kind and the model. Fine for `tk herd spawn`. |
+| `[roles.implement.tiers.balanced] kind = "codex"` under a `kind = "pi"` role | the pi extension | The tier crosses to a kind this reader does not spawn. Only that tier's key is refused; the role's other tiers still resolve. |
+| `[roles.review] kind = "claude", harness = "pi"` | the pi extension | `harness` is documentary. Routing is `kind`, and the kind is claude. |
+
 ### Caught by the spawner (shape-valid, still unroutable)
 
 | Config | Why it fails |
@@ -700,6 +735,7 @@ The dividing line is the same one stated under [Shape versus compatibility](#sha
 - **`effort` is not universal.** A kind may have no mechanism for it (opencode), in which case setting it is a spawn refusal, not a hint. Check [`herdr-kinds.md`](herdr-kinds.md#model-and-effort-translation) before writing an effort ladder for a kind you have not used here before, and build the ladder from `model` when there is no effort dimension.
 - **Tier names are the contract**, model strings are not. Any model named in a config is a local, dated choice.
 - **Keep `[roles.implement]` present.** It is the fallback for every unlisted role.
+- **Write the table for one substrate.** Every cell's `model` is in its `kind`'s namespace, so a `[roles]` table is addressed to the reader that dispatches those kinds; a second reader refuses it rather than reusing the model strings. Decide whether a repo's roles are herdr routing or pi routing, and say so in a comment — see [One table, one kind per reader](#one-table-one-kind-per-reader).
 - **Declare `version = 2` the moment a command table appears.** That single line is what turns a hard break on an older `tk` into one sentence telling its operator to upgrade. `tk config migrate` writes it for you, including for a file an earlier migration already moved.
 - **The table is the authorisation.** Put a command in `[evidence.commands]` only if close-out is the *only* phase that may run it, and never copy it into `[testing.commands]` to "also run it in a wave" — that is the ambiguity the loader refuses. Move it and say so in the diff.
 - **Name commands for what they prove, not for how they run.** The id is a stable reference an acceptance mapping and a close-out report both quote (`package-rpc`, `herd-helper-quick`), so renaming one is a contract change; rewriting the command it points at is not.

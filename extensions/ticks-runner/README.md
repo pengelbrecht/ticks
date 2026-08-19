@@ -164,6 +164,15 @@ A2 = "package-proof"
 git = { command = "git --version", description = "Git" }
 ```
 
+**Every role this extension reads must be `kind = "pi"`.** It spawns `pi` itself, and `model` lives in the kind's own namespace (`runners-config.md` → *One table, one kind per reader*), so a `kind = "claude"` role carries an id `pi --model` cannot take. A role or tier of another kind is **refused**, not read with the kind dropped: no model is derived from it, the mismatch is reported naming the cell, the kind and the model it would have passed, and the run blocks — a config this reader could not read authorizes nothing, so its command surface is empty too. Dropping the model instead would run the tick on `pi`'s own default. One `[roles]` table cannot carry a herdr routing and a pi routing at once; a repo whose roles are `claude`/`codex` is configured for `tk herd spawn`, and this extension does not run from it. `TICKS_PI_*_MODEL` still wins over the file per key, but does not un-refuse a config.
+
+```text
+roles.implement: kind = "claude", but this runner spawns `pi` and a model id is in its own
+kind's namespace — refusing to derive implement_economy_model = "haiku:low" … from a claude
+role rather than hand a claude id to `pi --provider/--model`. Give the role `kind = "pi"` and
+a pi model id, or run this epic through `tk herd spawn`, the reader a claude role is written for.
+```
+
 An absent tier resolves to its role's own model and effort. `[roles.plan]`, `[roles.scout]`, `[roles.review]` and `[roles.closeout]` do **not** resolve against `[roles.implement]` here: planning and the final process gates refuse to run on a defaulted model, so an absent role table leaves the key unset and the run blocks — the same stop the markdown path's missing `review_model`/`scout_model` line produced. (`tk herd spawn` does fall an unlisted role back to `implement`; that is right for spawning a worker and wrong for a gate that must fail closed.) Closeout alone has a fallback, and it is the planner: `closeout_model ?? planner_model`, blocking when neither is configured. A file that cannot be parsed, carries an unknown key, or maps an acceptance item to a command id no table defines is a **stop**: the run blocks and the command surface authorizes nothing — it never falls back to markdown. `review_should_fix` has no home in the schema and comes from `TICKS_PI_REVIEW_SHOULD_FIX` (default `repair`) on this path. `## Rules` stays in `.tick/config.md` on both paths.
 
 ### Deprecated: structured sections in `.tick/config.md`
