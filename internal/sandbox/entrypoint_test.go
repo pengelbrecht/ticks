@@ -564,3 +564,72 @@ func TestEntrypointKeepsProvisionedToolchainsInTheCacheDir(t *testing.T) {
 	mustContain(t, rec, "MISE_GLOBAL_CONFIG_FILE="+cache, "what was provisioned is recorded beside the tools")
 	mustContain(t, rec, filepath.Join(cache, "mise", "data", "shims"), "provisioned tools are on PATH")
 }
+
+// ---------------------------------------------------------------- phases ---
+
+// The Workflow can only talk to the image through the environment, so the boot
+// phase is a variable. A default boot runs the epic; nothing about the prompt
+// changes for the 99% path.
+func TestEntrypointDefaultsToTheRunPhase(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	if _, code := f.run(); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, EnvPhase+"="+PhaseRun, "the phase is exported for the harness")
+	if strings.Contains(rec, "reconcile protocol") {
+		t.Error("a first boot was told to reconcile")
+	}
+}
+
+// The sandbox is expected to die. The fresh one's FIRST instruction is the
+// reconcile protocol — that is the whole recovery mechanism (D20, UC1b).
+func TestEntrypointRebootsIntoTheReconcileProtocol(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvPhase] = PhaseReconcile
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, EnvPhase+"="+PhaseReconcile, "the phase is exported for the harness")
+	mustContain(t, rec, "reconcile", "the prompt names the reconcile protocol")
+	mustContain(t, rec, "manifests", "the prompt names the evidence order")
+	mustContain(t, rec, "ko8", "a reboot still runs the same epic")
+}
+
+// A budget or operator stop is a CLEAN stop: review and closeout still run, and
+// no new work starts. The Workflow decides that; the prompt only carries it.
+func TestEntrypointBootsTheCloseoutPhase(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvPhase] = PhaseCloseout
+	f.env[EnvStopReason] = "budget_exhausted: $10.00 of $10.00"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, EnvPhase+"="+PhaseCloseout, "the phase is exported for the harness")
+	mustContain(t, rec, "reconcile", "a closeout boot adopts the pushed state first")
+	mustContain(t, rec, "review", "the prompt still runs review")
+	mustContain(t, rec, "closeout", "the prompt still runs closeout")
+	mustContain(t, rec, "budget_exhausted", "the prompt carries why the run is stopping")
+	if !strings.Contains(rec, "do not start") && !strings.Contains(rec, "Do not start") {
+		t.Errorf("the closeout prompt does not forbid new work:\n%s", rec)
+	}
+}
+
+// An unknown phase is a Workflow bug, and a Workflow bug must not become a run
+// that quietly does the wrong thing.
+func TestEntrypointRefusesAnUnknownPhase(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvPhase] = "improvise"
+	out, code := f.run()
+	if code != ExitConfig {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitConfig, out)
+	}
+	mustContain(t, out, "improvise", "the refusal names the unknown phase")
+	if f.harnessStarted() {
+		t.Error("the harness started on an unknown phase")
+	}
+}

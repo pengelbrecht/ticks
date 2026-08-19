@@ -107,9 +107,29 @@ starts a command in a sandbox.
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
 | `TICKS_CACHE_DIR` | no | Cache tree, default `/cache`. |
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
+| `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
+| `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
 | `GITHUB_TOKEN` | no | Clone/push credential, wired into a git credential helper. |
 | `TICKS_GIT_NAME`, `TICKS_GIT_EMAIL` | no | Commit identity for tracker writes. |
 | `TICKS_TK_VERSION` | baked | The tk version the image pins; the entrypoint refuses a different `tk` on PATH. |
+
+## Boot phases
+
+The Run Workflow owns the run's lifecycle and can only reach this image through
+the environment, so *what a boot is for* is a variable rather than a channel the
+harness must be listening on. All three phases run the identical clone,
+pre-flight and harness path; only the prompt's first instruction differs.
+
+| `TICKS_PHASE` | When the Workflow uses it | First instruction |
+|---|---|---|
+| `run` | The first boot of a run. | Work the epic. |
+| `reconcile` | The previous orchestrator died; this sandbox is its replacement. | The reconcile protocol — evidence order manifests → git → live sandboxes — then continue the epic. |
+| `closeout` | A budget tripped or the operator asked to stop. | Reconcile, then **no new work**: collect and merge what is finished, run review and closeout on that. |
+
+An unknown phase is refused with exit 2: a control-plane bug must not become a
+run that quietly does the wrong thing with credentials. Which phase to boot is
+never the agent's decision — budget and stop enforcement live in the Workflow
+(D14/D15), never in a prompt.
 
 Model traffic is pointed at the gateway, never a vendor default: every vendor
 base URL a harness might reach for (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`,

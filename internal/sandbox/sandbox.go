@@ -39,7 +39,29 @@ const (
 	EnvCacheDir       = "TICKS_CACHE_DIR"
 	EnvRunID          = "TICKS_RUN_ID"
 	EnvTkVersion      = "TICKS_TK_VERSION"
+	EnvPhase          = "TICKS_PHASE"
+	EnvStopReason     = "TICKS_STOP_REASON"
 )
+
+// Phase is what a boot is for. The Run Workflow owns the run's lifecycle and
+// can only reach the image through the environment, so "this is a reboot after
+// the orchestrator died" and "this run is stopping cleanly" are variables
+// rather than a channel the harness has to be listening on.
+//
+// The distinction is load-bearing twice over. A reboot must reconcile before
+// it does anything else — the sandbox is expected to die, and the fresh one
+// adopts pushed state instead of redoing merged work. And a stop must still
+// reach review and closeout, because an abandoned run leaves merged work with
+// no tracker state (D15, UC1b). Neither decision is ever the agent's: budget
+// and stop enforcement live in the Workflow, never in a prompt.
+const (
+	PhaseRun       = "run"       // first boot of a run: work the epic
+	PhaseReconcile = "reconcile" // a fresh orchestrator after one died
+	PhaseCloseout  = "closeout"  // a clean stop: no new work, review and close
+)
+
+// Phases lists the accepted values of EnvPhase.
+var Phases = []string{PhaseRun, PhaseReconcile, PhaseCloseout}
 
 // Actor is what the entrypoint exports as TK_ACTOR, joining the runner-shaped
 // actor namespace so the verdict guard's human-attestation rule applies to

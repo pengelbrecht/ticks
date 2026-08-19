@@ -45,6 +45,12 @@ harness="${TICKS_HARNESS:-omp}"
 model="${TICKS_MODEL:-}"
 max_time="${TICKS_MAX_TIME:-}"
 run_id="${TICKS_RUN_ID:-unknown}"
+# What this boot is for. The Run Workflow owns the run's lifecycle and can only
+# reach this image through the environment, so "you are the replacement for an
+# orchestrator that died" and "this run is stopping cleanly" arrive as a phase,
+# not as a message the harness would have to be listening for.
+phase="${TICKS_PHASE:-run}"
+stop_reason="${TICKS_STOP_REASON:-}"
 workdir="${TICKS_WORKDIR:-/work/repo}"
 cache_dir="${TICKS_CACHE_DIR:-/cache}"
 pinned_tk="${TICKS_TK_VERSION:-}"
@@ -63,6 +69,12 @@ require_inputs() {
 	case "$harness" in
 	omp | claude) ;;
 	*) die $EXIT_CONFIG "unknown harness kind '$harness' (TICKS_HARNESS) — this image carries omp and claude" ;;
+	esac
+	# An unknown phase is a control-plane bug, and a control-plane bug must not
+	# become a run that quietly does the wrong thing with credentials.
+	case "$phase" in
+	run | reconcile | closeout) ;;
+	*) die $EXIT_CONFIG "unknown boot phase '$phase' (TICKS_PHASE) — expected run, reconcile or closeout" ;;
 	esac
 	if [[ -z $workdir || $workdir == "/" || $workdir == "$HOME" ]]; then
 		die $EXIT_CONFIG "TICKS_WORKDIR must be a dedicated directory, not '$workdir'"
@@ -258,23 +270,80 @@ run_preflight() {
 		die $EXIT_PREFLIGHT "environment pre-flight failed — the failing check is named above; fix it or correct .tick/config.md"
 }
 
-harness_prompt() {
+# The reconcile protocol, worded once: a reboot and a clean stop both have to
+# establish what actually happened before they touch anything, and they have to
+# establish it the same way.
+reconcile_instruction() {
 	cat <<PROMPT
-You are the ticks orchestrator for a cloud run. Use the ticks skill and run its
-orchestrator loop (references/agent-runner.md) for epic ${epic} in ${workdir}.
+Run the ticks skill's reconcile protocol for epic ${epic} first, before you
+touch anything: establish what actually happened from evidence, in this order —
+worker manifests, then git (branches, merges, commits), then the live sandbox
+list — and adopt that state. Do not redo work that is already merged and do not
+re-dispatch a worker that is still alive.
+PROMPT
+}
+
+# Shared tail: the facts every phase needs, stated identically so a reboot and a
+# first boot cannot drift apart on them.
+prompt_footer() {
+	cat <<PROMPT
 
 The repository is checked out at ${base_sha}, the run id is ${run_id}, and
 TK_ACTOR is already ${ACTOR} — every tracker write is attributed to the cloud
-orchestrator, so do not change it. Run continuously to the end of the epic:
-graph, EPIC-SKELETON repair, waves, spawn, wait, collect, merge, integrated
-gate, close, review, closeout. Terminal output is a diagnostic channel, never a
-result channel — results live in git and in the tracker.
+orchestrator, so do not change it. Terminal output is a diagnostic channel,
+never a result channel — results live in git and in the tracker.
 PROMPT
+}
+
+harness_prompt() {
+	case "$phase" in
+	reconcile)
+		cat <<PROMPT
+You are the ticks orchestrator for a cloud run. The orchestrator that was
+running this epic died and you are its replacement; the sandbox you are in is
+fresh. Work in ${workdir}.
+
+$(reconcile_instruction)
+
+Then continue the ticks skill's orchestrator loop
+(references/agent-runner.md) to the end of epic ${epic}: waves, spawn, wait,
+collect, merge, integrated gate, close, review, closeout.
+$(prompt_footer)
+PROMPT
+		;;
+	closeout)
+		cat <<PROMPT
+You are the ticks orchestrator for a cloud run that is STOPPING CLEANLY.
+Reason: ${stop_reason:-the operator asked for a stop}. Work in ${workdir}.
+
+$(reconcile_instruction)
+
+Then close the run out on what is already done. Do not start new work: do not
+plan or dispatch another wave, do not claim another tick, do not reopen
+anything. Collect and merge the work that is already finished, run the epic's
+review and closeout process ticks on that, and leave the tracker consistent with
+what is on the branch — an abandoned run leaves merged work with no tracker
+state, which is the one outcome a stop must never produce.
+$(prompt_footer)
+PROMPT
+		;;
+	*)
+		cat <<PROMPT
+You are the ticks orchestrator for a cloud run. Use the ticks skill and run its
+orchestrator loop (references/agent-runner.md) for epic ${epic} in ${workdir}.
+
+Run continuously to the end of the epic: graph, EPIC-SKELETON repair, waves,
+spawn, wait, collect, merge, integrated gate, close, review, closeout.
+$(prompt_footer)
+PROMPT
+		;;
+	esac
 }
 
 start_harness() {
 	export TK_ACTOR="$ACTOR"
 	export TICKS_RUN_ID="$run_id"
+	export TICKS_PHASE="$phase"
 	cd "$workdir" || die $EXIT_CLONE "cannot enter $workdir"
 
 	local prompt
@@ -299,7 +368,7 @@ start_harness() {
 }
 
 main() {
-	say "run ${run_id}: epic ${epic} at ${base_sha} (harness ${harness})"
+	say "run ${run_id}: epic ${epic} at ${base_sha} (harness ${harness}, phase ${phase})"
 	require_inputs
 	require_gateway
 	configure_model_routing

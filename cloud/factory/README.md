@@ -7,9 +7,9 @@ operates the factory, and this bundle is completely separate from
 
 It serves the operator command surface (UC1b): submit a run, stop one, ask
 what is happening, and enrol the repositories it is allowed to run. The run
-itself is owned by the Run Workflow, which boots the orchestrator sandbox and
-lives on its own tick; until that binding exists, submissions fail closed
-rather than recording runs that could never boot.
+itself is owned by the **Run Workflow** (`src/run-workflow.ts`), which boots the
+orchestrator sandbox, watches it, enforces the budgets and finalizes — see
+"The run lifecycle" below.
 
 ## Layout
 
@@ -23,6 +23,9 @@ rather than recording runs that could never boot.
 | `scripts/mint-factory-token.mjs` | Operator-side mint/rotate tool for hand rotation. Imports `src/auth.ts`. `tk factory deploy` mints in Go instead — see "Mint and rotate". |
 | `migrations/` | D1 migrations, applied by `tk factory deploy` before it deploys. |
 | `src/run-room.ts` | `RunRoom` DO — one per project: the dispatch lease, the pending-question (gate) store, the submission queue and the stop record. Reconcile alarms land later. |
+| `src/run-workflow.ts` | `RunWorkflow` — one durable instance per run: boot, watch, budgets, clean stop, finalize. Everything below it is disposable; this is not. |
+| `src/sandbox.ts` | The orchestrator sandbox seam: what a container has to be, and the environment `cloud/sandbox`'s entrypoint is started with. |
+| `src/artifacts.ts` | The R2 artifact tree, and the harness log stream written *during* the run. |
 | `src/env.d.ts` | Hand-written `Cloudflare.Env` (what `wrangler types` would generate). Keep in sync with `wrangler.toml`. |
 | `test/` | vitest + `@cloudflare/vitest-pool-workers`: real workerd, bindings read from `wrangler.toml`. |
 
@@ -73,8 +76,61 @@ decline a stop it is never asked about.
 
 **Every ignition and every refusal is written to `dispatch_log`** with a reason
 from the closed policy vocabulary (`lease_held_by` for contention,
-`awaiting_approval` for an unenrolled project), so "why did this not run" is
+`awaiting_approval` for an unenrolled project, `budget_exhausted` when a run's
+spend trips), so "why did this not run" — and "why did this stop" — is
 answerable from D1 rather than from a log line.
+
+## The run lifecycle
+
+Once a submission has the lease, `src/runs.ts` creates one Workflow instance
+whose id **is** the run id, and hands the run over. From there the Workflow owns
+it (`src/run-workflow.ts`):
+
+    context → boot → watch … watch → [clean stop → closeout] → finalize
+
+- **The sandbox is disposable, the run is not.** A dead orchestrator is a
+  reboot, not a failure: the replacement is a *fresh* container booted with
+  `TICKS_PHASE=reconcile`, whose first instruction is the reconcile protocol
+  (evidence order: worker manifests → git → live sandboxes). Boots are bounded
+  (`MAX_SANDBOX_BOOTS`), and an entrypoint exit that is a *configuration*
+  verdict — 2 config, 3 clone, 4 tk version, 5 pre-flight — is never retried,
+  because another container reaches the identical answer.
+- **Budgets are enforced here, never in a prompt (D14).** `RUN_MAX_WALL_CLOCK_MS`
+  and `RUN_MAX_COST_USD` are checked at every observation against the elapsed
+  time the Workflow measured and the `cost_usd` on the index row (ground truth
+  from AI Gateway telemetry, not an agent self-report). A model can be talked
+  out of a budget; a Workflow step cannot.
+- **Exhaustion is a clean stop, identical to `POST /api/runs/:id/stop` (D15).**
+  Both trip the same branch: the in-flight work gets `RUN_STOP_GRACE_MS` to
+  land, then a `closeout` orchestrator reconciles and runs review and closeout
+  on what is done. There is no "abandon the run" path — an abandoned run leaves
+  merged work with no tracker state.
+- **Harness output streams to R2 during the run, never at exit (D20).** The
+  crashed run is exactly the run whose logs you need. Each observation flushes
+  what the orchestrator printed since the last one as an immutable segment under
+  `runs/<project>/<run_id>/artifacts/orchestrator/harness/`, readable while the
+  run is still going; `harness.log` is a copy written at finalize, never the
+  source of truth.
+- **Finalize always runs.** Completed, stopped, failed or never-booted: the
+  lease is released, the index row reaches a terminal state, the containers are
+  destroyed and `run.json` says why. A run that ends without releasing its lease
+  wedges the project until the lease ttl expires.
+
+The observation cadence starts at 15s and backs off to 5m — fast where failures
+and first output happen, affordable across a multi-hour run within Cloudflare's
+per-instance step cap. `RUN_POLL_INTERVAL_MS` overrides it with a fixed gap.
+
+### The sandbox seam
+
+`env.SANDBOXES` is declared structurally in `src/sandbox.ts` rather than typed
+against the Cloudflare Sandbox SDK, and it is **optional**: a deployment without
+it fails each run with a message naming the binding instead of looping on boots
+that cannot happen. The reason is testability — the run lifecycle is the thing
+worth proving, and a lifecycle exercisable only by starting a real container is
+a lifecycle nobody tests. `test/run-workflow.test.ts` drives the real Workflow,
+the real lease, the real D1 index and the real R2 bucket, and substitutes only
+the container: that is what lets a test kill an orchestrator mid-run and read
+the log stream while the run is still going.
 
 ## Auth: secrets, not accounts
 
