@@ -53,7 +53,7 @@ Planning feeds the live dashboard/widget. Cards show every scout and the planner
 
 ### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous] [--compact]`
 
-**Dry-run is the default.** Without `--execute`, the command reads `.tick/config.md` and `tk graph <epic-id> --json`, reconstructs recovery state, and prints every graph wave and tick with its resolved model/tier plus deterministic branch/worktree/artifact paths. Ready work is marked `ready now`; future blocked work is explicitly marked planned-only/not-ready, including review and closeout controller-checkout routing. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
+**Dry-run is the default.** Without `--execute`, the command reads the run config (`.tick/runners.toml`, or the deprecated sections of `.tick/config.md`) and `tk graph <epic-id> --json`, reconstructs recovery state, and prints every graph wave and tick with its resolved model/tier plus deterministic branch/worktree/artifact paths. Ready work is marked `ready now`; future blocked work is explicitly marked planned-only/not-ready, including review and closeout controller-checkout routing. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
 
 ```text
 /ticks-run qfs
@@ -110,7 +110,65 @@ Controls: `Up`/`Down` navigates agents and gates and automatically scrolls the s
 
 ## Configuration
 
-The extension reads `.tick/config.md` fresh. Commands are only executable when a bullet contains exactly one Markdown inline-code span, optionally preceded by `Label:` and followed by prose:
+The structured run config lives in `.tick/runners.toml`, validated by `skills/ticks/references/runners-config.schema.json` and documented in `runners-config.md`. The extension reads it fresh on every command and prefers it whenever the file defines any of `[testing]`, `[evidence]` or `[environment]`:
+
+```toml
+[orchestration]
+max_parallel = 4
+
+[roles.plan]                       # planner_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol" # the `:thinking` suffix is split out
+effort = "xhigh"
+
+[roles.scout]                      # scout_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "low"
+
+[roles.implement]                  # implement_balanced_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "medium"
+
+[roles.implement.tiers.economy]    # implement_economy_model
+effort = "low"
+
+[roles.implement.tiers.strong]     # implement_strong_model
+effort = "high"
+
+[roles.review]                     # review_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[roles.closeout]                   # closeout_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[testing]
+notes = "Caveats that are not commands. Prose is never authority."
+
+[testing.commands]
+runner = { command = "node --test extensions/ticks-runner/*.test.ts", description = "Runner" }
+
+[evidence.commands]                # close-out only; the table IS the authorization
+package-proof = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc" }
+
+[evidence.acceptance]              # acceptance item -> command id
+A1 = "runner"
+A2 = "package-proof"
+
+[environment.commands]
+git = { command = "git --version", description = "Git" }
+```
+
+A role with no entry resolves against `[roles.implement]`, and a tier that is absent resolves to its role's own model and effort. A file that cannot be parsed, carries an unknown key, or maps an acceptance item to a command id no table defines is a **stop**: the run blocks and the command surface authorizes nothing — it never falls back to markdown. `review_should_fix` has no home in the schema and comes from `TICKS_PI_REVIEW_SHOULD_FIX` (default `repair`) on this path. `## Rules` stays in `.tick/config.md` on both paths.
+
+### Deprecated: structured sections in `.tick/config.md`
+
+A repo that has not migrated still has its structured sections parsed out of `.tick/config.md`, and each config load emits exactly one deprecation warning naming `tk config migrate`. Commands are only executable when a bullet contains exactly one Markdown inline-code span, optionally preceded by `Label:` and followed by prose:
 
 ```markdown
 ## Environment
