@@ -61,6 +61,62 @@ And one new axiom this doc introduces:
    budget gating, approval gating, and a complete audit chain (every run traces
    to a tick, every tick to a signal) without any per-signal-source logic.
 
+## Deployment model: a personal factory, not a hosted service
+
+Ticks has users beyond its author, and the factory must not turn the project
+into a service its author operates for them. Running other people's agents
+means holding their model keys, executing their code, absorbing their compute
+costs, and owning their abuse surface — none of which "for now" (or possibly
+ever) belongs on ticks.sh.
+
+The repo already made this exact call once: the operator channel uses a
+**personal Telegram bot per user** rather than a shared bot, explicitly because
+a shared bot "would need a hosted relay in front of it"
+(`docs/operator-channel.md`). The factory follows the same philosophy:
+
+- **The factory is a deployable, not a deployment.** It ships in the repo
+  (`cloud/factory/`) as a Worker + DO + Workflow + Sandbox bundle, and
+  `tk factory deploy` (a wrapper over `wrangler deploy` that creates the D1/R2
+  bindings, registers the Workflow, and sets secrets) installs it into **the
+  user's own Cloudflare account**. Their compute, their model API keys, their
+  spend, their blast radius. Cloudflare's floor for DOs/Workflows/Sandboxes is
+  the paid Workers plan (~$5/mo) — that cost lands on the user, stated up
+  front.
+- **One deployment, one operator (team-shared is fine, multi-tenant is not).**
+  A factory serves the Cloudflare account it lives in. A team sharing a repo
+  shares one factory — the RunRoom lease already arbitrates concurrent
+  submissions, and `.tick/operators.json` already maps identities. What no
+  deployment ever does is serve strangers.
+- **ticks.sh is unchanged**: install script, docs, and the existing
+  local-authoritative board sync. It never gains factory endpoints. (A user's
+  personal factory *may* optionally host its own board sync so power users are
+  fully self-contained — their `ProjectRoom`, their data.)
+- **Auth collapses to secrets, not accounts.** A single-tenant factory needs
+  no user table: `tk factory deploy` mints a bearer token into `~/.ticksrc`
+  and stores its hash as a Worker secret; webhook sources get per-source
+  shared secrets; Telegram keeps its paired-operator rule. The unsalted-SHA-256
+  problem in `cloud/worker/src/auth.ts` remains a ticks.sh (board sync) issue
+  to fix on its own track — the factory simply never builds on it.
+- **Upgrades ride the repo.** `tk factory deploy` pins the deployed bundle to
+  the `tk` version; upgrading tk offers to redeploy. No fleet of factories for
+  the project to migrate — each user redeploys on their own schedule, same as
+  any self-hosted tool.
+- **The door stays open, unbought.** Nothing hardcodes single-tenancy into
+  data shapes (DOs are already namespaced by project; R2 keys and routes carry
+  the project ID), so a hosted multi-tenant offering remains *possible* later.
+  But no isolation, billing, or quota machinery is built until that day — the
+  design refuses to pay for a service it isn't operating.
+
+One consequence worth naming: **GitHub credentials become the user's problem
+to provision, so the default must be low-friction.** The per-run installation
+tokens in D11 presuppose a GitHub App, and "create your own GitHub App" is a
+heavy first-run ask. The pragmatic ladder: start with a fine-grained PAT
+scoped to the target repo (easy, adequate for a personal factory), document
+the personal-GitHub-App upgrade path for those who want per-run token minting
+and the two credential grades enforced at the platform level. `tk factory
+setup` walks whichever rung the user picks — exactly as `tk channel setup
+telegram` walks BotFather today.
+
 ## The three-layer liveness model
 
 The design separates components by *what is allowed to die*:
@@ -392,9 +448,11 @@ Dependabot opens its weekly bump PRs."*
 **Decisions forced.**
 
 - **Two credential grades of sandbox.** UC1/UC4 sandboxes carry push-capable
-  short-lived tokens (GitHub App installation token minted per run, scoped to
-  the one repo, expiring with the run). UC5 review sandboxes carry read+comment
-  tokens. The Workflow decides the grade at boot from the use case; a sandbox
+  tokens; UC5 review sandboxes carry read+comment tokens. The gold standard is
+  per-run GitHub App installation tokens (repo-scoped, expiring with the run);
+  a personal deployment on a fine-grained PAT approximates the grades with two
+  PATs (push-scoped and read+comment) until the user upgrades to their own App
+  (see the credential ladder in the deployment model). The Workflow decides the grade at boot from the use case; a sandbox
   never holds more than its use case needs. This is the single most important
   security decision in the design — it bounds what a prompt-injected agent
   (reviewing hostile PR content!) can do to the repo at the credential layer,
@@ -513,11 +571,12 @@ Collected from the use cases; each appears above in context.
 | D8 | `external_ref` is the universal dedup key; recurring signals annotate and may escalate priority, never multiply ticks | UC3, UC6 |
 | D9 | Branch namespace (`tick/*`, `tick-run/*`) is the ownership test: drive ours to green, review theirs read-only | UC4, UC5 |
 | D10 | Flake gate + strike budget on the CI-failure loop live in the dispatcher, not the prompt | UC4 |
-| D11 | Two credential grades of sandbox: push-scoped (own work) vs read+comment (external review); per-run GitHub App installation tokens, never long-lived secrets in sandboxes | UC5 |
+| D11 | Two credential grades of sandbox: push-scoped (own work) vs read+comment (external review); never long-lived broad secrets in sandboxes. Personal deployments start on a repo-scoped fine-grained PAT; a personal GitHub App (per-run installation tokens) is the documented upgrade path | UC5, deployment model |
 | D12 | Factory reviews; humans approve external merges — verdict-guard philosophy extended to code review | UC5 |
 | D13 | Ingestion thresholds (per source) and dispatch budgets (global) are separate valves | UC6 |
 | D14 | Dispatcher is deterministic, versioned policy in `.tick/config.md`; budget enforcement lives in the Workflow | UC7 |
 | D15 | Budget exhaustion is a clean stop: finish in-flight, run review/closeout on what's done | UC7 |
+| D16 | The factory is self-deployed into the user's Cloudflare account (`tk factory deploy`); single-tenant, secrets-not-accounts auth; ticks.sh never operates it. Data shapes stay project-namespaced so a hosted offering remains possible later, unbuilt | deployment model |
 
 ## What this is *not*
 
@@ -530,17 +589,26 @@ Collected from the use cases; each appears above in context.
   wave graph. That code path was deleted once already.
 - **Not a platform UI.** The surfaces are git, `tk`, Telegram, and GitHub;
   the board stays optional observability. Headless is the product.
+- **Not a hosted service.** Nobody operates a factory for anyone else; each
+  user deploys their own (deployment model above). The project ships the
+  blueprint, not the plant.
 
 ## Prerequisites (blocking, before any factory code)
 
-1. **Replace cloud auth.** `cloud/worker/src/auth.ts` hashes passwords and
-   tokens with bare unsalted SHA-256. Either proper KDF (PBKDF2/Argon2 via
-   WebCrypto) or — better fit for a git-centric factory — GitHub OAuth for
-   humans, and factory-minted scoped tokens for agents.
-2. **Bump `compatibility_date`** (currently 2024-04-03) — DO SQLite storage
-   and current WebSocket hibernation ergonomics are needed.
-3. **Add the R2 binding** for run artifacts.
-4. **Retire the vestigial `ralph | swarm-*` enum** in the `run_event` schema in
+1. **The factory bundle is single-tenant from day one** (deployment model
+   above): minted bearer token as a Worker secret, no user table, no shared
+   endpoints on ticks.sh. This *replaces* the earlier idea of building the
+   factory on the existing cloud auth — `cloud/worker/src/auth.ts` (unsalted
+   SHA-256 for passwords and tokens) still needs fixing, but as a ticks.sh
+   board-sync issue on its own track; the factory never touches it.
+2. **`tk factory deploy` / `tk factory setup`** — the wrangler-wrapping deploy
+   command and the credential walk-through (Cloudflare account, GitHub PAT or
+   App, Telegram webhook, per-source webhook secrets). This is the factory's
+   install story and gates everything else.
+3. **Bump `compatibility_date`** (currently 2024-04-03) in the factory bundle —
+   DO SQLite storage and current WebSocket hibernation ergonomics are needed.
+4. **R2 binding** in the factory bundle for run artifacts.
+5. **Retire the vestigial `ralph | swarm-*` enum** in the `run_event` schema in
    favor of substrate-shaped sources (`cloud:orchestrator`, `cloud:worker`,
    `harness`, `herdr`, `pi`) before a producer starts emitting it for real.
 
