@@ -6,12 +6,19 @@
  * from it, never shares its auth, and never deploys with it.
  *
  * Routes:
- * - GET /health - liveness + binding presence
+ * - GET /health - liveness + binding presence (unauthenticated)
+ * - everything else - requires `Authorization: Bearer <factory token>`
  *
- * Everything else — run submission, dispatch, signals — lands in later phases.
- * See docs/design/cloud-factory.md.
+ * Auth is single-tenant "secrets not accounts" (see src/auth.ts): one minted
+ * token per deployment, only its salted PBKDF2 hash on the server. Webhook
+ * routes under /api/hooks are exempt because their callers cannot carry the
+ * operator's token; they gain per-source shared secrets in Phase 3.
+ *
+ * Run submission, dispatch and signals land in later phases. See
+ * docs/design/cloud-factory.md.
  */
 
+import { authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
 import { RunRoom } from "./run-room";
 
 /** Bindings from wrangler.toml; declared in src/env.d.ts. */
@@ -35,12 +42,26 @@ function health(env: Env): Response {
       artifacts: Boolean(env.ARTIFACTS),
       db: Boolean(env.DB),
     },
+    // Lets `tk factory deploy` confirm the token secret landed (and that a
+    // rotation took) without presenting a token. It reports only presence and
+    // validity of shape — never the hash, its salt, or any prefix of either.
+    auth: {
+      required: true,
+      configured: isAuthConfigured(env),
+    },
   });
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    // Auth runs before routing, so an unauthenticated caller cannot map the
+    // route table by telling 404 apart from 401.
+    if (!isAuthExempt(url.pathname)) {
+      const denied = await authenticateFactoryRequest(request, env);
+      if (denied !== null) return denied;
+    }
 
     if (url.pathname === "/health") {
       if (request.method !== "GET" && request.method !== "HEAD") {
