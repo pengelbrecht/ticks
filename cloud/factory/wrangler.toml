@@ -27,13 +27,19 @@ new_sqlite_classes = ["RunRoom"]
 binding = "ARTIFACTS"
 bucket_name = "ticks-factory-artifacts"
 
-# Signals, dispatch log, run index. Tables land with the phases that need them.
-# `wrangler d1 create ticks-factory` prints the database_id to paste here (see
-# README.md); the placeholder keeps local dev and the test harness working.
+# Signals, dispatch log, run index. Feature tables land with the phases that
+# need them; migrations/ holds the deployment bookkeeping that exists today.
+# `tk factory deploy` rewrites database_id in its own staged copy of this file
+# with the operator's database; the placeholder committed here keeps local dev
+# and the test harness working.
 [[d1_databases]]
 binding = "DB"
 database_name = "ticks-factory"
 database_id = "00000000-0000-0000-0000-000000000000"
+# `tk factory deploy` runs `wrangler d1 migrations apply` against this directory
+# before it deploys the bundle. Stated explicitly rather than left to wrangler's
+# default so the deploy command and the config name the same path.
+migrations_dir = "migrations"
 
 [dev]
 port = 8788

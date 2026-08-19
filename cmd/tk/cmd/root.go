@@ -580,6 +580,11 @@ func ResetFlags() {
 	skillsInstallDir = ""
 	skillsInstallForce = false
 	skillsDiffDir = ""
+
+	// Reset factory flags
+	factoryDeployRotateToken = false
+	factoryDeployURL = ""
+	factoryDeployBundleDir = ""
 }
 
 // SetVersion allows main.go to set the version at initialization
