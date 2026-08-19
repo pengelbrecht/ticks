@@ -79,10 +79,11 @@ export const HEALTH_PATH = "/health";
 /**
  * Webhook routes are exempt from bearer auth: their callers are GitHub,
  * Telegram and Sentry, which cannot carry the operator's token. They are
- * unauthenticated *today* only because no webhook route exists yet — Phase 3
- * lands them together with per-source shared secrets (UC6, D16).
+ * Telegram's webhook route is protected by its paired-user/chat binding and an
+ * optional Telegram secret header rather than the factory bearer token.
  */
 export const WEBHOOK_PREFIX = "/api/hooks";
+export const TELEGRAM_WEBHOOK_PATH = "/api/channels/telegram/webhook";
 
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
@@ -256,6 +257,7 @@ export async function verifyFactoryToken(token: string, encoded: string): Promis
  */
 export function isAuthExempt(pathname: string): boolean {
   if (pathname === HEALTH_PATH) return true;
+  if (pathname === TELEGRAM_WEBHOOK_PATH) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 

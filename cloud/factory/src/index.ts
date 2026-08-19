@@ -15,9 +15,9 @@
  * - everything else        - requires `Authorization: Bearer <factory token>`
  *
  * Auth is single-tenant "secrets not accounts" (see src/auth.ts): one minted
- * token per deployment, only its salted PBKDF2 hash on the server. Webhook
- * routes under /api/hooks are exempt because their callers cannot carry the
- * operator's token; they gain per-source shared secrets in Phase 3.
+ * token per deployment, only its salted PBKDF2 hash on the server. Telegram's
+ * webhook route is exempt because Telegram cannot carry the operator's token;
+ * the paired identities and optional webhook secret protect it instead.
  *
  * This module does HTTP and nothing else: status codes, method checks and body
  * shapes. Every decision behind them lives in src/runs.ts and the RunRoom, so
@@ -29,21 +29,41 @@
 import { authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
 import {
   enrolProject,
+  getEnrolledProject,
   listEnrolledProjects,
   removeEnrolledProject,
   type EnrolledProject,
 } from "./db";
-import { RunRoom } from "./run-room";
+import {
+  RunRoom,
+  type MessageRef,
+  type Outcome,
+  type PendingKind,
+  type Question,
+  type RegisterQuestionRequest,
+} from "./run-room";
 import {
   DEFAULT_RUN_LIMIT,
   MAX_RUN_LIMIT,
   RUN_STATES,
   listRunStatus,
   parseSubmission,
+  roomFor,
   runStatus,
   stopRun,
   submitRun,
 } from "./runs";
+import {
+  answerTelegramCallback,
+  deliverTelegramQuestion,
+  isPairedTelegramUpdate,
+  parseTelegramAnswer,
+  sendTelegramReport,
+  settleTelegramQuestion,
+  telegramCallbackText,
+  telegramConfig,
+  type TelegramWebhookUpdate,
+} from "./telegram";
 
 /** Bindings from wrangler.toml; declared in src/env.d.ts. */
 export type Env = Cloudflare.Env;
@@ -264,7 +284,13 @@ async function projectsRoute(request: Request, env: Env, path: string[]): Promis
     return Response.json({ project: record }, { status: 201 });
   }
 
-  // /api/projects/:owner/:repo — the pair is two path segments, not one.
+  // /api/projects/:owner/:repo/pending[...] and /reports are the cloud
+  // operator bridge. The pair is two path segments, not one.
+  if (path.length >= 3 && (path[2] === "pending" || path[2] === "reports")) {
+    const project = `${path[0]}/${path[1]}`;
+    if (!PROJECT_PATTERN.test(project)) return notFound();
+    return await projectOperatorRoute(request, env, project, path.slice(2));
+  }
   if (path.length !== 2) return notFound();
   if (request.method !== "DELETE") return methodNotAllowed(["DELETE"]);
 
@@ -277,6 +303,314 @@ async function projectsRoute(request: Request, env: Env, path: string[]): Promis
     );
   }
   return Response.json({ project, enrolled: false });
+}
+
+type JSONRecord = Record<string, unknown>;
+
+async function projectOperatorRoute(
+  request: Request,
+  env: Env,
+  project: string,
+  path: string[]
+): Promise<Response> {
+  // The RunRoom is per enrolled project. Refusing a missing project here keeps
+  // an authenticated token from turning the bridge into an arbitrary DO probe.
+  if ((await getEnrolledProject(env.DB, project)) === null) {
+    return Response.json(
+      { error: "project_not_enrolled", detail: `project ${project} is not enrolled` },
+      { status: 403 }
+    );
+  }
+
+  if (path[0] === "reports") {
+    if (path.length !== 1) return notFound();
+    if (request.method !== "POST") return methodNotAllowed(["POST"]);
+    const json = await readJSON(request);
+    if (!json.ok) return badRequest("the request body must be JSON");
+    const body = json.body as JSONRecord;
+    const text = body?.text;
+    if (typeof text !== "string" || text.trim() === "") return badRequest("text is required");
+    const ref = isMessageRef(body?.ref) ? body.ref : undefined;
+    try {
+      const sent = await sendTelegramReport(env, text, ref);
+      return Response.json({ ok: true, ref: sent });
+    } catch (error) {
+      console.error(`factory telegram: report delivery failed for ${project}: ${String(error)}`);
+      return Response.json(
+        { error: "telegram_unavailable", detail: "report could not be delivered" },
+        { status: 503 }
+      );
+    }
+  }
+
+  if (path[0] !== "pending") return notFound();
+  const room = roomFor(env, project);
+
+  if (path.length === 1) {
+    if (request.method === "GET") {
+      const url = new URL(request.url);
+      const tickID = url.searchParams.get("tick_id") ?? undefined;
+      const includeResolved = url.searchParams.get("include_resolved") === "true";
+      return Response.json({
+        pending: await room.listQuestions({ tick_id: tickID, include_resolved: includeResolved }),
+      });
+    }
+    if (request.method !== "POST") return methodNotAllowed(["GET", "POST"]);
+    return await registerRemoteQuestion(request, env, room);
+  }
+
+  if (path.length !== 3) return notFound();
+  const questionID = path[1];
+  const action = path[2];
+  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+  const json = await readJSON(request);
+  if (!json.ok) return badRequest("the request body must be JSON");
+  const body = json.body as JSONRecord;
+  const entry = await room.getQuestion(questionID);
+  if (entry === null) {
+    return Response.json(
+      { error: "unknown_question", detail: `no question ${questionID} is registered` },
+      { status: 404 }
+    );
+  }
+
+  if (action === "settle") {
+    const parsed = parseOutcome(body?.outcome);
+    if (!parsed.ok) return badRequest(parsed.detail);
+    try {
+      await settleTelegramQuestion(env, entry, parsed.outcome);
+      return Response.json({ ok: true, entry });
+    } catch (error) {
+      console.error(`factory telegram: settle failed for ${questionID}: ${String(error)}`);
+      return Response.json(
+        { error: "telegram_unavailable", detail: "question could not be updated" },
+        { status: 503 }
+      );
+    }
+  }
+
+  if (action !== "answer") return notFound();
+  const parsed = parseOutcome(body?.outcome);
+  if (!parsed.ok) return badRequest(parsed.detail);
+  const result = await room.answerQuestion({
+    id: questionID,
+    outcome: parsed.outcome,
+    answered_by: "terminal",
+  });
+  if (result.ok === false && result.error === "invalid_request") return badRequest(result.detail);
+  if (result.ok === false && result.error === "unknown_question") return Response.json(result, { status: 404 });
+  if (result.ok === false && result.error === "already_answered") return Response.json(result, { status: 409 });
+  try {
+    await settleTelegramQuestion(env, result.entry, parsed.outcome);
+  } catch (error) {
+    // The DO answer is durable. A later cloud waiter or a retry can settle the
+    // presentation, so do not turn a successful human answer into a failure.
+    console.error(`factory telegram: terminal settle failed for ${questionID}: ${String(error)}`);
+  }
+  return Response.json({ entry: result.entry });
+}
+
+async function registerRemoteQuestion(
+  request: Request,
+  env: Env,
+  room: DurableObjectStub<RunRoom>
+): Promise<Response> {
+  const json = await readJSON(request);
+  if (!json.ok) return badRequest("the request body must be JSON");
+  const body = json.body as JSONRecord;
+  const registration = pendingRegistration(body);
+  if (!registration.ok) return badRequest(registration.detail);
+  const result = await room.registerQuestion(registration.request);
+  if (result.ok === false && result.error === "invalid_request") return badRequest(result.detail);
+
+  const notify = typeof body.notify === "string" ? body.notify.trim() : "";
+  if (result.ok === false && result.error === "already_registered") {
+    if (notify === "telegram" && result.entry.ref === undefined) {
+      try {
+        const delivered = await deliverTelegramQuestion(env, result.entry);
+        const marked = await room.markDelivered(result.entry.id, delivered);
+        if (marked.ok) return Response.json({ entry: marked.entry });
+      } catch (error) {
+        console.error(`factory telegram: retry delivery failed for ${result.entry.id}: ${String(error)}`);
+        return Response.json(
+          { error: "telegram_unavailable", detail: "question could not be delivered" },
+          { status: 503 }
+        );
+      }
+    }
+    return Response.json(
+      { error: result.error, detail: result.detail, entry: result.entry },
+      { status: 409 }
+    );
+  }
+
+  let entry = result.entry;
+  if (notify === "telegram") {
+    try {
+      const delivered = await deliverTelegramQuestion(env, entry);
+      const marked = await room.markDelivered(entry.id, delivered);
+      if (!marked.ok) {
+        return Response.json({ error: "pending_delivery_failed", detail: marked.detail }, { status: 503 });
+      }
+      entry = marked.entry;
+    } catch (error) {
+      console.error(`factory telegram: delivery failed for ${entry.id}: ${String(error)}`);
+      return Response.json(
+        { error: "telegram_unavailable", detail: "question could not be delivered" },
+        { status: 503 }
+      );
+    }
+  }
+  return Response.json({ entry }, { status: 201 });
+}
+
+function pendingRegistration(
+  body: JSONRecord
+):
+  | { ok: true; request: RegisterQuestionRequest }
+  | { ok: false; detail: string } {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, detail: "the request body must be a JSON object" };
+  }
+  const id = body.id;
+  const kind = body.kind;
+  const question = body.question;
+  if (typeof id !== "string" || id.trim() === "") return { ok: false, detail: "id is required" };
+  if (kind !== "ask" && kind !== "gate" && kind !== "agent_relay") {
+    return { ok: false, detail: "kind must be ask, gate, or agent_relay" };
+  }
+  if (question === null || typeof question !== "object" || Array.isArray(question)) {
+    return { ok: false, detail: "question is required" };
+  }
+  const request: RegisterQuestionRequest = {
+    id: id.trim(),
+    kind: kind as PendingKind,
+    question: question as Question,
+    ...(typeof body.tick_id === "string" ? { tick_id: body.tick_id } : {}),
+    ...(typeof body.agent_target === "string" ? { agent_target: body.agent_target } : {}),
+    ...(typeof body.awaiting === "string" ? { awaiting: body.awaiting } : {}),
+    ...(typeof body.not_before === "string" ? { not_before: body.not_before } : {}),
+  };
+  return { ok: true, request };
+}
+
+function parseOutcome(
+  value: unknown
+):
+  | { ok: true; outcome: Outcome }
+  | { ok: false; detail: string } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, detail: "outcome is required" };
+  }
+  const raw = value as JSONRecord;
+  if (raw.status !== "answered" && raw.status !== "cancelled" && raw.status !== "timed_out") {
+    return { ok: false, detail: "outcome.status must be answered, cancelled, or timed_out" };
+  }
+  if (raw.text !== undefined && typeof raw.text !== "string") {
+    return { ok: false, detail: "outcome.text must be a string" };
+  }
+  if (
+    raw.option_ids !== undefined &&
+    (!Array.isArray(raw.option_ids) || raw.option_ids.some((id) => typeof id !== "string"))
+  ) {
+    return { ok: false, detail: "outcome.option_ids must be an array of strings" };
+  }
+  return {
+    ok: true,
+    outcome: {
+      status: raw.status,
+      ...(typeof raw.text === "string" ? { text: raw.text } : {}),
+      ...(Array.isArray(raw.option_ids) ? { option_ids: raw.option_ids as string[] } : {}),
+    },
+  };
+}
+
+function isMessageRef(value: unknown): value is MessageRef {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const raw = value as JSONRecord;
+  return (
+    (raw.channel_id === undefined || typeof raw.channel_id === "string") &&
+    (raw.message_id === undefined || typeof raw.message_id === "string") &&
+    ((typeof raw.channel_id === "string" && raw.channel_id !== "") ||
+      (typeof raw.message_id === "string" && raw.message_id !== ""))
+  );
+}
+
+async function telegramWebhookRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"]);
+  let config: ReturnType<typeof telegramConfig>;
+  try {
+    config = telegramConfig(env);
+  } catch (error) {
+    return Response.json({ error: "telegram_not_configured", detail: String(error) }, { status: 503 });
+  }
+  if (
+    config.webhook_secret !== undefined &&
+    request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== config.webhook_secret
+  ) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  let update: TelegramWebhookUpdate;
+  try {
+    update = (await request.json()) as TelegramWebhookUpdate;
+  } catch {
+    return badRequest("the request body must be JSON");
+  }
+  // This is deliberately before any RunRoom read or Bot API call. A stranger's
+  // update is dropped at the transport boundary, matching local Telegram mode.
+  if (!isPairedTelegramUpdate(update, { user_id: config.user_id, chat_id: config.chat_id })) {
+    return Response.json({ ok: true, dropped: true });
+  }
+
+  for (const project of await listEnrolledProjects(env.DB)) {
+    const room = roomFor(env, project.project);
+    // Include history so a losing phone press can be told which surface won,
+    // rather than receiving a generic stale-button acknowledgement.
+    for (const entry of await room.listQuestions({ include_resolved: true })) {
+      const answer = parseTelegramAnswer(update, entry);
+      if (answer === null) continue;
+      const result = await room.answerQuestion({
+        id: answer.question_id,
+        outcome: answer.outcome,
+        answered_by: "telegram",
+        telegram_user_id: config.user_id,
+      });
+      if (result.ok === true) {
+        try {
+          await settleTelegramQuestion(env, result.entry, answer.outcome);
+        } catch (error) {
+          console.error(`factory telegram: webhook settle failed for ${entry.id}: ${String(error)}`);
+        }
+        await acknowledgeTelegramCallback(env, update);
+        return Response.json({ ok: true, answered: true, project: project.project, question_id: entry.id });
+      }
+      if (result.ok === false && result.error === "already_answered") {
+        await acknowledgeTelegramCallback(env, update, telegramCallbackText(result.answered_by));
+        return Response.json({
+          ok: true,
+          answered: false,
+          already_answered: true,
+          answered_by: result.answered_by,
+        });
+      }
+    }
+  }
+
+  await acknowledgeTelegramCallback(env, update, "This question is already resolved.");
+  return Response.json({ ok: true, matched: false });
+}
+
+async function acknowledgeTelegramCallback(
+  env: Env,
+  update: TelegramWebhookUpdate,
+  text?: string
+): Promise<void> {
+  const callback = update.callback_query;
+  if (callback === undefined) return;
+  await answerTelegramCallback(env, callback.id, text).catch((error) =>
+    console.error(`factory telegram: callback acknowledgement failed: ${String(error)}`)
+  );
 }
 
 export default {
@@ -295,6 +629,10 @@ export default {
         return methodNotAllowed(["GET", "HEAD"]);
       }
       return await health(env);
+    }
+
+    if (url.pathname === "/api/channels/telegram/webhook") {
+      return await telegramWebhookRoute(request, env);
     }
 
     const segments = url.pathname.split("/").filter((segment) => segment !== "");

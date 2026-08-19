@@ -511,12 +511,28 @@ func askSettleFlow(
 // caller knows whether that is fatal (a blocking ask has nobody to ask) or
 // merely lossy (a collect can still drain answers into tick state).
 func askChannel() (operator.Channel, operator.ChannelConfig, error) {
+	if factoryOperatorEnvConfigured() {
+		remote, configured, remoteErr := factoryOperatorChannel("")
+		if remoteErr != nil {
+			return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading the factory operator channel: %v", remoteErr)
+		}
+		if configured {
+			return remote, operator.ChannelConfig{}, nil
+		}
+	}
 	config, err := operator.LoadOperatorConfig()
 	if err != nil {
 		return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading operator config: %v", err)
 	}
 	channelConfig, ok := config.Channel(channelTelegram)
 	if !ok {
+		remote, configured, remoteErr := factoryOperatorChannel("")
+		if remoteErr != nil {
+			return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading the factory operator channel: %v", remoteErr)
+		}
+		if configured {
+			return remote, operator.ChannelConfig{}, nil
+		}
 		return nil, operator.ChannelConfig{}, nil
 	}
 	channel, err := telegram.NewChannel(channelConfig)

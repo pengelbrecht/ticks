@@ -18,6 +18,7 @@ rather than recording runs that could never boot.
 | `wrangler.toml` | Bindings + migrations. `compatibility_date` is recent on purpose: DO SQLite storage and current WebSocket hibernation both need it. |
 | `src/index.ts` | Worker entry: routing only — status codes, methods, body shapes. `GET /health` is open; everything else needs the bearer token. |
 | `src/runs.ts` | Submission, stop and status policy: the lease, enrolment, the queue window, the `dispatch_log` trail, and the Run Workflow seam. |
+| `src/telegram.ts` | Telegram webhook filtering, RunRoom question delivery, first-wins answer rendering, and threaded reports. |
 | `src/db.ts` | Typed D1 accessors: runs, signals, dispatch log, project enrolment. |
 | `src/auth.ts` | Single-tenant bearer auth (D16) — mint, salted PBKDF2 hash, constant-time verify, route middleware. |
 | `scripts/mint-factory-token.mjs` | Operator-side mint/rotate tool for hand rotation. Imports `src/auth.ts`. `tk factory deploy` mints in Go instead — see "Mint and rotate". |
@@ -47,6 +48,10 @@ only turns that decision into a status code.
 | `GET /api/runs/:id` | One run: index row, Workflow step state, lease, open gates, queued submissions, stop record. |
 | `POST /api/runs/:id/stop` | A clean stop (D15): finish the in-flight tick, then review and closeout. |
 | `GET/POST /api/projects`, `DELETE /api/projects/:owner/:repo` | Project enrolment. |
+| `POST /api/projects/:owner/:repo/pending` | Register a cloud ask in the project's RunRoom; `{notify:"telegram"}` delivers it to the paired Telegram chat. |
+| `GET /api/projects/:owner/:repo/pending` | Read open pending entries; `include_resolved=true` lets the terminal report the winning surface. |
+| `POST /api/projects/:owner/:repo/pending/:id/answer` | Terminal answer. RunRoom arbitrates first-wins and returns `409` with the winner when already resolved. |
+| `POST /api/projects/:owner/:repo/reports` | Send a completion report, optionally with `ref` to reply in the originating Telegram thread. |
 
 **The submission boundary is a pushed sha.** `base_sha` must be a full 40-hex
 commit and `project` the canonical `owner/repo` pair — remote URLs are refused
@@ -104,7 +109,8 @@ not what makes it hard to guess.
 | Path | Auth |
 |---|---|
 | `GET /health` | Open — liveness has to answer before a token exists. |
-| `/api/hooks/**` | Open **today**. GitHub, Telegram and Sentry cannot carry the operator's token; Phase 3 lands these routes together with per-source shared secrets (UC6). No such route exists yet. |
+| `/api/hooks/**` | Open **today** for the future GitHub/Sentry webhook family; those sources cannot carry the operator's token and gain per-source shared secrets with Phase 3 (UC6). |
+| `POST /api/channels/telegram/webhook` | Open to Telegram; paired `TELEGRAM_USER_ID` + `TELEGRAM_CHAT_ID` filter updates at the transport, with optional `TELEGRAM_WEBHOOK_SECRET`. |
 | everything else | `Authorization: Bearer <factory token>` |
 
 Auth runs *before* routing, so an unauthenticated caller gets the same 401 for

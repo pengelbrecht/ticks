@@ -39,6 +39,11 @@ const (
 	EnvCacheDir       = "TICKS_CACHE_DIR"
 	EnvRunID          = "TICKS_RUN_ID"
 	EnvTkVersion      = "TICKS_TK_VERSION"
+	// The RunRoom-backed operator bridge. The token is injected only into the
+	// ephemeral sandbox and is never written into the checkout.
+	EnvFactoryURL     = "TICKS_FACTORY_URL"
+	EnvFactoryToken   = "TICKS_FACTORY_TOKEN"
+	EnvFactoryProject = "TICKS_FACTORY_PROJECT"
 )
 
 // Actor is what the entrypoint exports as TK_ACTOR, joining the runner-shaped

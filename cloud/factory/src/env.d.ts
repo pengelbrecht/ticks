@@ -52,5 +52,12 @@ declare namespace Cloudflare {
     ANTHROPIC_API_KEY?: string;
     OPENAI_API_KEY?: string;
     OPENROUTER_API_KEY?: string;
+    /** Personal Telegram bot and paired operator identity for webhook mode. */
+    TELEGRAM_BOT_TOKEN?: string;
+    TELEGRAM_USER_ID?: string;
+    TELEGRAM_CHAT_ID?: string;
+    TELEGRAM_WEBHOOK_SECRET?: string;
+    /** Test/deployment override; defaults to api.telegram.org. */
+    TELEGRAM_API_BASE_URL?: string;
   }
 }
