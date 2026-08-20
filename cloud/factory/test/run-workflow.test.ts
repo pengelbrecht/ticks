@@ -229,6 +229,51 @@ async function waitFor<T>(
 const runState = (runID: string) => getRun(env.DB, runID).then((run) => run?.state ?? null);
 
 /** Waits until the run reaches one of the terminal index states. */
+/** Where the stubbed Cloudflare API answers; nothing else may reach the network. */
+const LOGS_API = "https://api.cloudflare.example/client/v4";
+
+/**
+ * Stands in for the Cloudflare logs API on the global fetch, recording the
+ * filters each read sent and refusing a dotted metadata key exactly as the
+ * real API does (error 7001 over an HTTP 400).
+ */
+function stubLogsAPI(cost: number): {
+  filters: { key: string; operator: string; value: unknown[] }[][];
+  restore: () => void;
+} {
+  const filters: { key: string; operator: string; value: unknown[] }[][] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith(LOGS_API)) return original(input as RequestInfo, init);
+    const sent = JSON.parse(new URL(url).searchParams.get("filters") ?? "[]") as {
+      key: string;
+      operator: string;
+      value: unknown[];
+    }[];
+    filters.push(sent);
+    for (const filter of sent) {
+      if (!["metadata.key", "metadata.value"].includes(filter.key)) {
+        return Response.json(
+          {
+            success: false,
+            errors: [{ code: 7001, message: `Invalid enum value. received "${filter.key}"` }],
+            result: null,
+          },
+          { status: 400 }
+        );
+      }
+    }
+    const runID = String((sent[1]?.value ?? [])[0] ?? "");
+    return Response.json({
+      success: true,
+      result: [{ cost, metadata: { run_id: runID, tick_id: "ko8" } }],
+      result_info: { total_pages: 1 },
+    });
+  }) as typeof fetch;
+  return { filters, restore: () => void (globalThis.fetch = original) };
+}
+
 async function settled(runID: string) {
   return waitFor(`run ${runID} to finish`, async () => {
     const run = await getRun(env.DB, runID);
@@ -675,6 +720,41 @@ describe("the run's gateway credential is the kill switch", () => {
     expect(record.detail ?? "").toMatch(/AI Gateway.*cost telemetry/i);
     expect(record.detail ?? "").toContain("CLOUDFLARE_API_TOKEN");
     expect(record.detail ?? "").toContain("tk factory setup");
+  });
+
+  it("boots the sandbox when a configured cost budget can read its gateway telemetry", async () => {
+    // The other half of the refusal above: the guard only grounds a run whose
+    // telemetry is unreadable. With a logs API that answers, a budgeted run
+    // proceeds — and the number it acts on is the gateway's, not a zero.
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    set("RUN_MAX_COST_USD", "5");
+    const logs = stubLogsAPI(0.02);
+
+    try {
+      const { runID, project } = await ignite();
+      const process = await firstProcess();
+      expect(sandboxes.booted).toHaveLength(1);
+      process.exit(0);
+      const run = await settled(runID);
+
+      expect(run.state).toBe("completed");
+      // Every query the run made asked for metadata the way the API models it.
+      expect(logs.filters.length).toBeGreaterThan(0);
+      for (const filters of logs.filters) {
+        expect(filters.map((filter) => filter.key)).toEqual([
+          "metadata.key",
+          "metadata.value",
+        ]);
+        expect(filters[0]!.value).toEqual(["run_id"]);
+        expect(filters[1]!.value).toEqual([runID]);
+      }
+      const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+      expect(record.cost_source).toBe("gateway");
+      expect(run.cost_usd).toBeCloseTo(0.02, 10);
+    } finally {
+      logs.restore();
+    }
   });
 
   it("says in the record when gateway cost telemetry could not be read", async () => {

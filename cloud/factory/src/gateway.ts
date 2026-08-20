@@ -371,7 +371,7 @@ export async function authorizeGatewayRequest(
  * spend joinable to it: the gateway's logs can be filtered by run id, which is
  * what turns "what did this run cost" into a query rather than an estimate.
  */
-export function gatewayMetadata(token: RunGatewayToken, run: Run): Record<string, string> {
+export function gatewayMetadata(token: RunGatewayToken, run: Run): GatewayMetadata {
   return {
     run_id: token.run_id,
     tick_id: token.tick_id,
@@ -380,6 +380,21 @@ export function gatewayMetadata(token: RunGatewayToken, run: Run): Record<string
     attempt: String(token.attempt),
   };
 }
+
+/**
+ * The metadata names every proxied request is stamped with, and therefore the
+ * only names its logs can be filtered by.
+ *
+ * `gatewayMetadata` is typed as a total record over this list, so a name added
+ * to one and not the other does not compile. Querying a name outside it would
+ * match nothing at all — indistinguishable, to a budget, from a run that spent
+ * nothing.
+ */
+export const GATEWAY_METADATA_KEYS = ["run_id", "tick_id", "project", "epic", "attempt"] as const;
+
+export type GatewayMetadataKey = (typeof GATEWAY_METADATA_KEYS)[number];
+
+export type GatewayMetadata = Record<GatewayMetadataKey, string>;
 
 /** Headers a caller must never be able to set on the upstream request. */
 function sanitizedHeaders(request: Request): Headers {
@@ -499,9 +514,118 @@ type GatewayLogPage = {
   result_info?: { total_pages?: number; page?: number } | null;
 };
 
+/**
+ * The `filters[].key` enum the AI Gateway logs API documents, verbatim from
+ * Cloudflare's OpenAPI schema for
+ * GET /accounts/{account_id}/ai-gateway/gateways/{gateway_id}/logs.
+ *
+ * Metadata is two parallel columns here, not a dotted key: the API knows
+ * `metadata.key` and `metadata.value`, and answers a `metadata.run_id` filter
+ * with error 7001 ("Invalid enum value") over an HTTP 400. That 400 is not a
+ * cosmetic failure — a run with a cost budget it cannot read refuses to boot a
+ * sandbox (jk7), so an unsendable filter grounds every budgeted run.
+ *
+ * Filters are checked against this list before they are sent, so a key that
+ * leaves the enum fails at the call site naming the key, rather than as an
+ * opaque status swallowed into "cost unknown". `test/gateway.test.ts` pins the
+ * list against an independent transcription of the same schema.
+ */
+export const GATEWAY_LOG_FILTER_KEYS = [
+  "id",
+  "created_at",
+  "request_content_type",
+  "response_content_type",
+  "request_type",
+  "success",
+  "cached",
+  "provider",
+  "model",
+  "model_type",
+  "cost",
+  "tokens",
+  "tokens_in",
+  "tokens_out",
+  "duration",
+  "feedback",
+  "event_id",
+  "metadata.key",
+  "metadata.value",
+  "authentication",
+  "wholesale",
+  "compatibilityMode",
+  "dlp_action",
+  "user_agent",
+] as const;
+
+/** The comparisons that same schema allows a filter. */
+export const GATEWAY_LOG_FILTER_OPERATORS = ["eq", "neq", "contains", "lt", "gt"] as const;
+
+export type GatewayLogFilter = {
+  key: (typeof GATEWAY_LOG_FILTER_KEYS)[number];
+  operator: (typeof GATEWAY_LOG_FILTER_OPERATORS)[number];
+  value: (string | number | boolean)[];
+};
+
+/**
+ * Filters selecting the log rows one piece of request attribution owns.
+ *
+ * This is the shape the API actually accepts — `metadata.key` eq the name,
+ * `metadata.value` eq the value — and it is how run attribution and tick
+ * attribution are both asked for.
+ */
+export function metadataFilters(name: GatewayMetadataKey, value: string): GatewayLogFilter[] {
+  if (!(GATEWAY_METADATA_KEYS as readonly string[]).includes(name)) {
+    throw new Error(
+      `gateway logs: no proxied request is stamped with metadata "${name}", so filtering on it ` +
+        `would match nothing (stamped: ${GATEWAY_METADATA_KEYS.join(", ")})`
+    );
+  }
+  return [
+    { key: "metadata.key", operator: "eq", value: [name] },
+    { key: "metadata.value", operator: "eq", value: [value] },
+  ];
+}
+
+/** Serialises filters for the `filters` query parameter, refusing any the API would reject. */
+export function encodeLogFilters(filters: GatewayLogFilter[]): string {
+  for (const filter of filters) {
+    if (!(GATEWAY_LOG_FILTER_KEYS as readonly string[]).includes(filter.key)) {
+      throw new Error(
+        `gateway logs: "${filter.key}" is not a filter key the logs API accepts ` +
+          `(it accepts: ${GATEWAY_LOG_FILTER_KEYS.join(", ")})`
+      );
+    }
+    if (!(GATEWAY_LOG_FILTER_OPERATORS as readonly string[]).includes(filter.operator)) {
+      throw new Error(
+        `gateway logs: "${filter.operator}" is not a filter operator the logs API accepts ` +
+          `(it accepts: ${GATEWAY_LOG_FILTER_OPERATORS.join(", ")})`
+      );
+    }
+  }
+  return JSON.stringify(filters);
+}
+
 /** Pages of gateway logs one sync will read. Bounded: a sync is a poll, not a report. */
 const MAX_LOG_PAGES = 20;
 const LOG_PAGE_SIZE = 100;
+
+/** The API's own words for a refusal, bounded — never just its status code. */
+async function refusalDetail(response: Response): Promise<string> {
+  let body: string;
+  try {
+    body = (await response.text()).slice(0, 1024);
+  } catch {
+    return "it said nothing readable";
+  }
+  try {
+    const parsed = JSON.parse(body) as GatewayLogPage;
+    const message = parsed.errors?.[0]?.message;
+    if (typeof message === "string" && message !== "") return message;
+  } catch {
+    // Not JSON; the raw body is still the most informative thing there is.
+  }
+  return body.trim() === "" ? "it said nothing" : body.trim();
+}
 
 /**
  * What a run has actually spent, from the gateway's own logs.
@@ -541,9 +665,7 @@ export async function fetchRunSpend(
     /\/+$/,
     ""
   );
-  const filters = JSON.stringify([
-    { key: "metadata.run_id", operator: "eq", value: [runID] },
-  ]);
+  const filters = encodeLogFilters(metadataFilters("run_id", runID));
   const fetcher = options.fetcher ?? fetch;
 
   let cost = 0;
@@ -559,9 +681,14 @@ export async function fetchRunSpend(
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },
       });
       if (!response.ok) {
+        // The status alone hides WHY: a rejected filter (7001) and a revoked
+        // token both read as "cost unknown" otherwise, and a budgeted run that
+        // refuses to boot deserves the API's own sentence.
         return {
           ok: false,
-          detail: `the AI Gateway logs API answered ${response.status} for run ${runID}`,
+          detail:
+            `the AI Gateway logs API answered ${response.status} for run ${runID}: ` +
+            (await refusalDetail(response)),
         };
       }
       payload = (await response.json()) as GatewayLogPage;
