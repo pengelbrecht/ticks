@@ -2,6 +2,7 @@
   "id": "cmb",
   "title": "Orchestrator harness has a gateway but no usable model",
   "description": "Found by the first live run that reached the skill loop (run_8fc70c9b...). The container booted, cloned at the submitted SHA, passed all three environment checks from the migrated runners.toml, and started the omp harness — then sat at \"Working...\" producing no further output until stopped.\n\nCause: cloud/sandbox/entrypoint.sh exports gateway base URLs and the run token for the vendor paths (ANTHROPIC_BASE_URL=$gateway/anthropic, OPENAI_BASE_URL=$gateway/openai, OPENROUTER_BASE_URL=$gateway/openrouter) and sets ANTHROPIC_API_KEY / OPENAI_API_KEY to the RUN GATEWAY TOKEN. But:\n- TICKS_MODEL is empty (entrypoint.sh:48), so the harness is given no model to use.\n- There is no workers-ai route exported at all, even though tk factory setup --provider workers-ai is the documented no-key rung.\n- The run token authenticates to OUR worker; the worker still needs a real provider credential to forward upstream, and none is configured.\n\nSo the harness has a reachable gateway and nothing it can actually call. It does not fail — it hangs, which is worse than an error and is exactly the class of silence the green-start trap exists to catch.\n\nWork:\n1. Export a workers-ai route and select a model so the documented no-key rung actually works end to end, since that is the rung this deployment is configured for.\n2. Set TICKS_MODEL from the role/tier routing rather than leaving it empty, so the orchestrator harness runs on a configured model like every other role does.\n3. Make an unusable model configuration FAIL FAST with an actionable message at boot, not hang. Probe the gateway with a trivial completion before starting the harness — the same content-gate discipline tk herd spawn already applies to workers, for the same reason.",
+  "notes": "2026-08-20 05:23 - runner-state: substrate=herdr kind=claude branch=tick/cmb worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-cmb workspace=wBS base=bce268f754e756cb6cb89f2f6c302e4b8063bec3 agent=tick-cmb pane=wBS:p1 session=b0b6a8ce-c93a-4ad5-b526-c6ab2cfa690d",
   "status": "in_progress",
   "priority": 2,
   "type": "bug",
@@ -11,6 +12,6 @@
   "acceptance_criteria": "A run on a workers-ai-configured factory reaches the skill loop AND makes a successful model call, evidenced in the streamed harness output; a factory with no usable model configuration fails at boot with an actionable message instead of hanging; the model the orchestrator uses comes from the role/tier routing.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T03:23:15.91829Z",
-  "updated_at": "2026-08-20T03:23:45.214668Z",
+  "updated_at": "2026-08-20T03:23:56.331652Z",
   "started_at": "2026-08-20T03:23:45.214667Z"
 }
