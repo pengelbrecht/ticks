@@ -123,10 +123,37 @@ it (`src/run-workflow.ts`):
   lease is released, the index row reaches a terminal state, the containers are
   destroyed and `run.json` says why. A run that ends without releasing its lease
   wedges the project until the lease ttl expires.
+- **Completion is proved, never inferred from an exit status (D23).** A harness
+  exits 0 when it has nothing left to say, which is not the same as having done
+  something — the first run whose boot chain fully succeeded printed 271 bytes,
+  dispatched no wave, pushed no branch, left the epic's ticks open, and was
+  recorded COMPLETED and charged for. So the exit status decides only whether to
+  reboot; the terminal state is decided against the durable layer. `src/progress.ts`
+  reads the remote's branch heads before the first boot and again at the end: any
+  branch that appeared, moved or was deleted is a run that **advanced** the epic
+  (`completed`); nothing at all is a run that **stopped** without progress; and a
+  remote that could not be read is `unknown`, which leaves the run `completed`
+  and says so rather than inventing either verdict. The verdict is stamped in
+  `run_progress` (migrations/0006) and in `run.json`, and `tk cloud status <run>`
+  prints it beside the state.
 
 The observation cadence starts at 15s and backs off to 5m — fast where failures
 and first output happen, affordable across a multi-hour run within Cloudflare's
 per-instance step cap. `RUN_POLL_INTERVAL_MS` overrides it with a fixed gap.
+
+### The evidence seam
+
+Progress is read through `RepoRefs` (`src/progress.ts`) for the same reason the
+container is read through `SandboxBinding`: the finalize rule is what needs
+testing, and a rule exercisable only by pushing to a real GitHub repository is a
+rule nobody tests. A deployment gets the GitHub reader — `matching-refs/heads/`,
+authenticated with the repo-scoped PAT the factory already clones with; a test
+assigns its own to `env.REPO_REFS`. Comparison is over *all* heads rather than
+over a branch-naming convention, because naming is an adapter's choice and the
+reconcile protocol already treats git rather than a name as authoritative. The
+cost is that a human pushing an unrelated branch mid-run reads as progress —
+the forgiving direction, and the one that cannot turn a run that really did the
+work into a false negative.
 
 ### The sandbox seam
 

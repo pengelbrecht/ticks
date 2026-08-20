@@ -374,6 +374,106 @@ func TestCloudStatusNamesTheImageTheRunBooted(t *testing.T) {
 	}
 }
 
+// A run that exited 0 having changed nothing is not a completion (tick ehy).
+// The state carries the distinction and status has to make it legible, or an
+// operator resubmits an epic believing the last run advanced it.
+func TestCloudStatusDistinguishesAStoppedNoOpFromACompletion(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		switch request.Path {
+		case "/api/runs/run_noop":
+			return http.StatusOK, map[string]any{
+				"run": map[string]any{"run_id": "run_noop", "state": "stopped", "epic": "epic1"},
+				"progress": map[string]any{
+					"progress": "none",
+					"detail":   "no branch on origin changed while the run was alive",
+				},
+			}
+		case "/api/runs/run_real":
+			return http.StatusOK, map[string]any{
+				"run": map[string]any{"run_id": "run_real", "state": "completed", "epic": "epic1"},
+				"progress": map[string]any{
+					"progress": "advanced",
+					"detail":   "1 branch on origin changed while the run was alive (epic/epic1)",
+				},
+			}
+		}
+		return http.StatusNotFound, map[string]any{"error": "not_found"}
+	})
+	configureCloudFactory(t, endpoint)
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "status", "run_noop"}); err != nil {
+		t.Fatalf("cloud status run_noop: %v\n%s", err, buf.String())
+	}
+	noop := buf.String()
+	if !strings.Contains(noop, "state: stopped") {
+		t.Errorf("a run that did nothing is not reported as stopped:\n%s", noop)
+	}
+	if !strings.Contains(noop, "progress: none") {
+		t.Errorf("status does not say the run changed nothing:\n%s", noop)
+	}
+	if !strings.Contains(noop, "no branch on origin changed") {
+		t.Errorf("status does not say why the run changed nothing:\n%s", noop)
+	}
+
+	buf = captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "status", "run_real"}); err != nil {
+		t.Fatalf("cloud status run_real: %v\n%s", err, buf.String())
+	}
+	real := buf.String()
+	if !strings.Contains(real, "state: completed") || !strings.Contains(real, "progress: advanced") {
+		t.Errorf("a run that advanced the epic is not reported as such:\n%s", real)
+	}
+}
+
+// A run finalized before durable-evidence finalization existed has no verdict.
+// Silence would read as "advanced", which is the assumption this whole change
+// exists to remove.
+func TestCloudStatusSaysWhenNoProgressVerdictWasRecorded(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Path == "/api/runs/run_legacy" {
+			return http.StatusOK, map[string]any{
+				"run": map[string]any{"run_id": "run_legacy", "state": "completed", "epic": "epic1"},
+			}
+		}
+		return http.StatusNotFound, map[string]any{"error": "not_found"}
+	})
+	configureCloudFactory(t, endpoint)
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "status", "run_legacy"}); err != nil {
+		t.Fatalf("cloud status run_legacy: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "progress: unrecorded") {
+		t.Errorf("status is silent about the missing progress verdict:\n%s", buf.String())
+	}
+}
+
+// A live run has no verdict yet, and saying "unrecorded" about one still
+// working would be noise rather than a fact.
+func TestCloudStatusIsSilentAboutProgressForALiveRun(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Path == "/api/runs/run_live" {
+			return http.StatusOK, map[string]any{
+				"run": map[string]any{"run_id": "run_live", "state": "running", "epic": "epic1"},
+			}
+		}
+		return http.StatusNotFound, map[string]any{"error": "not_found"}
+	})
+	configureCloudFactory(t, endpoint)
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "status", "run_live"}); err != nil {
+		t.Fatalf("cloud status run_live: %v\n%s", err, buf.String())
+	}
+	if strings.Contains(buf.String(), "progress:") {
+		t.Errorf("status reports a progress verdict for a run still working:\n%s", buf.String())
+	}
+}
+
 // A run with no recorded image says so. Omitting the line would read as "the
 // same image as every other run", which is the assumption that cost the
 // diagnose-fix-deploy cycles this exists to prevent.

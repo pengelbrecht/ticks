@@ -49,6 +49,18 @@ declare namespace Cloudflare {
      */
     SANDBOX_IMAGE?: string;
     /**
+     * The reader the Run Workflow proves a run advanced the epic with: the
+     * remote's branch heads, before and after (tick ehy).
+     *
+     * Unset on a deployment, which reads GitHub directly. It is here for the
+     * same reason `SANDBOXES` accepts a structural seam — the finalize rule is
+     * what needs testing, and a rule exercisable only by pushing to a real
+     * repository is a rule nobody tests.
+     */
+    REPO_REFS?: import("./progress").RepoRefs;
+    /** Test/deployment override; defaults to api.github.com. */
+    GITHUB_API_BASE_URL?: string;
+    /**
      * Budget and cadence vars for the Run Workflow (wrangler `[vars]`), so
      * enforcement is a deployment decision and never a prompt. Bounds and
      * defaults live in src/run-workflow.ts, which ignores an unusable value

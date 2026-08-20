@@ -36,6 +36,15 @@
  *    unprovisioned — the lease is released, the index row reaches a terminal
  *    state, and `run.json` says why. A run that ends without releasing its
  *    lease wedges the project until the lease ttl expires.
+ * 6. **Completion is proved, never inferred from an exit status (tick ehy).**
+ *    A harness exits 0 when it has nothing left to say, which is not the same
+ *    as having done something: the first run whose boot chain fully succeeded
+ *    printed 271 bytes, dispatched no wave, pushed no branch, left the epic's
+ *    ticks open — and was recorded COMPLETED and charged for. So the exit
+ *    status only decides whether to reboot; whether the epic MOVED is decided
+ *    against the durable layer (src/progress.ts: the remote's refs, before and
+ *    after). A run that stopped without advancing anything is `stopped`, and
+ *    `completed` means the epic actually moved.
  *
  * See docs/design/cloud-factory.md (Phase 1, UC1, UC1b, D14, D15, D19, D20).
  */
@@ -49,7 +58,7 @@ import {
   writeRunRecord,
   type RunRecord,
 } from "./artifacts";
-import { getRun, updateRunState } from "./db";
+import { getRun, recordRunProgress, updateRunState } from "./db";
 import {
   factoryBaseURL,
   issueRunToken,
@@ -60,6 +69,13 @@ import {
   syncRunCost,
 } from "./gateway";
 import type { Env } from "./index";
+import {
+  compareSnapshots,
+  snapshotRefs,
+  unverifiedProgress,
+  type RefSnapshot,
+  type RunProgress,
+} from "./progress";
 import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS } from "./run-room";
 import { logDispatch, roomFor, type RunWorkflowParams } from "./runs";
 import {
@@ -225,6 +241,16 @@ export type RunContext = {
    * look like a run that spent nothing.
    */
   cost_telemetry: string | null;
+  /**
+   * The remote's branch heads as they were when the run started (tick ehy).
+   *
+   * Finalize compares this against a second read to decide whether the epic
+   * actually moved. It is taken here, before a container exists, so the
+   * baseline cannot include anything this run pushed — and a read that failed
+   * is carried as a failure, so an unreadable remote produces `unknown`
+   * rather than a comparison against nothing.
+   */
+  refs_baseline: RefSnapshot;
 };
 
 export type ContextResult =
@@ -282,12 +308,24 @@ export async function acquireContext(
     }
   }
 
+  // Before anything boots: what the remote looked like with none of this run's
+  // work on it. An unreadable remote is not a refusal — the run may still do
+  // real work, and the record will say the evidence could not be read.
+  const refs = await snapshotRefs(env, params.project);
+  if (!refs.ok) {
+    console.error(
+      `factory run-workflow: ${params.run_id} could not read the branches of ` +
+        `${params.project} before booting: ${refs.detail}`
+    );
+  }
+
   const context: RunContext = {
     repo_url: repoURL(params.project),
     gateway_base_url: runGatewayEndpoint(factoryBaseURL(env)!),
     started_at_ms: Date.now(),
     config,
     cost_telemetry: telemetry.ok ? null : telemetry.detail,
+    refs_baseline: refs,
   };
 
   // The run identifies itself in R2 before it does anything, so a run whose
@@ -785,7 +823,8 @@ export async function finalize(
   params: RunWorkflowParams,
   outcome: RunOutcome,
   boots: number,
-  costTelemetry: string | null = null
+  costTelemetry: string | null = null,
+  progress: RunProgress = unverifiedProgress("the run ended before its progress was assessed")
 ): Promise<void> {
   const endedAt = new Date().toISOString();
 
@@ -809,6 +848,19 @@ export async function finalize(
   const run = await getRun(env.DB, params.run_id);
 
   await updateRunState(env.DB, params.run_id, outcome.state, endedAt);
+  // The evidence the state was decided from, stamped beside it: an operator
+  // reading `stopped` has to be able to see whether the run stopped having done
+  // work or stopped having done nothing, without re-deriving it from a log.
+  await recordRunProgress(
+    env.DB,
+    params.run_id,
+    { progress: progress.state, detail: progress.detail },
+    endedAt
+  ).catch((error: unknown) => {
+    console.error(
+      `factory run-workflow: ${params.run_id} could not stamp its progress verdict: ${String(error)}`
+    );
+  });
 
   const record: RunRecord = {
     run_id: params.run_id,
@@ -823,6 +875,8 @@ export async function finalize(
     cost_usd: run?.cost_usd ?? 0,
     cost_source: telemetry === null ? "gateway" : `unavailable: ${telemetry}`,
     detail: outcome.detail,
+    progress: progress.state,
+    progress_detail: progress.detail,
     attempts: boots,
   };
   await writeRunRecord(env.ARTIFACTS, record);
@@ -881,6 +935,69 @@ function tripReason(trip: Trip): "budget_exhausted" | null {
 }
 
 /**
+ * What the durable layer says happened, read at the end of the run.
+ *
+ * The second half of the comparison the context opened. Deliberately its own
+ * function so it is one Workflow step: the read is a network call, and a run
+ * must not lose a finalize to a GitHub hiccup.
+ */
+export async function assessProgress(
+  env: Env,
+  params: RunWorkflowParams,
+  context: RunContext
+): Promise<RunProgress> {
+  return compareSnapshots(context.refs_baseline, await snapshotRefs(env, params.project));
+}
+
+/**
+ * The outcome the evidence supports, which is not always the one the process
+ * suggested.
+ *
+ * This is the whole point of tick ehy. A harness that exits 0 has said it has
+ * nothing more to do; it has NOT said it did anything, and only the durable
+ * layer can say that. So:
+ *
+ * - evidence of change  → `completed`. The epic moved.
+ * - no change at all    → `stopped`. Work-preserving, nothing lost, nothing
+ *                         done — and visibly different from a run that
+ *                         advanced the epic, which is what an operator needs
+ *                         to see before submitting the same epic again.
+ * - evidence unreadable → `completed`, saying so. Downgrading a run that may
+ *                         well have done the work, on the strength of a
+ *                         GitHub 503, would invent a failure exactly the way
+ *                         inferring success invents a success.
+ *
+ * Only a `completed` outcome is revisited: a stop or a failure already carries
+ * a truer reason than "nothing moved", and `run_progress` records the verdict
+ * for those runs regardless.
+ */
+export function applyProgress(outcome: RunOutcome, progress: RunProgress): RunOutcome {
+  if (outcome.state !== "completed") return outcome;
+  switch (progress.state) {
+    case "none":
+      return {
+        state: "stopped",
+        detail:
+          `the orchestrator exited 0 but the epic did not move: ${progress.detail}. ` +
+          "An exit status is not completion",
+        boots: outcome.boots,
+      };
+    case "unknown":
+      return {
+        state: "completed",
+        detail: `${outcome.detail}; progress could not be verified (${progress.detail})`,
+        boots: outcome.boots,
+      };
+    default:
+      return {
+        state: "completed",
+        detail: `${outcome.detail}; ${progress.detail}`,
+        boots: outcome.boots,
+      };
+  }
+}
+
+/**
  * The whole lifecycle, exported so it reads as one thing rather than as a class
  * body: context, work, clean stop if something tripped, finalize.
  */
@@ -892,8 +1009,11 @@ export async function superviseRun(
   const acquired = await step.do("context", CONTEXT_RETRIES, () => acquireContext(env, params));
   if (!acquired.ok) {
     const outcome: RunOutcome = { state: "failed", detail: acquired.detail, boots: 0 };
+    const never = unverifiedProgress(
+      "the run never booted an orchestrator, so nothing could have advanced the epic"
+    );
     await step.do("finalize", FINALIZE_RETRIES, async () => {
-      await finalize(env, params, outcome, 0);
+      await finalize(env, params, outcome, 0, null, never);
       return { finalized: true };
     });
 
@@ -952,8 +1072,16 @@ export async function superviseRun(
     outcome = { state: "stopped", detail: `${trip.detail}; ${closed}`, boots: closeout.boots };
   }
 
+  // Nothing above this line may call the run complete. The passes report what
+  // the PROCESS did; the durable layer reports what the RUN did, and only the
+  // second one can promote an exit into a completion (tick ehy).
+  const progress = await step.do("progress", OBSERVE_RETRIES, () =>
+    assessProgress(env, params, context)
+  );
+  outcome = applyProgress(outcome, progress);
+
   await step.do("finalize", FINALIZE_RETRIES, async () => {
-    await finalize(env, params, outcome, outcome.boots, context.cost_telemetry);
+    await finalize(env, params, outcome, outcome.boots, context.cost_telemetry, progress);
     return { finalized: true };
   });
   return outcome;

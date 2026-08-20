@@ -165,6 +165,21 @@ which this repo already specifies and field-tested under herd. Sandbox
 snapshot/restore makes warm resume cheap, but is an optimization — cold
 reconstruction from git must always work (axiom 1).
 
+**Completion is proved, not inferred (D23).** The green-start trap has an exit
+counterpart: a harness exits 0 when it has nothing left to say, which is not the
+same as having done something. The first cloud run whose boot chain fully
+succeeded produced 271 bytes — it stated the substrate it had resolved and the
+note it intended to record, then exited — and was marked COMPLETED and charged
+for, having dispatched no wave, pushed no branch and left every one of the
+epic's ticks open. So the exit status decides only whether to reboot a
+container; whether the *run* finished is decided from the durable layer, by
+comparing the remote's branch heads at run start against the heads at run end
+(`cloud/factory/src/progress.ts`). Nothing changed means the run **stopped**,
+not completed; a remote that could not be read is recorded as `unknown`, which
+is a third fact rather than a quiet version of either — the same distinction
+`run.cost_source` draws between a zero and an unknown. `tk cloud status <run>`
+prints the verdict beside the state.
+
 **Worker agents.** One sandbox per tick: clone at the epic base, branch
 `tick/<epic-id>/<tick-id>`, implement, push branch + `RESULT-<tick-id>.md`,
 exit. Collect reads *only* what survived in git — commits, the result file,
@@ -928,6 +943,7 @@ Collected from the use cases; each appears above in context.
 | D20 | One trace ID (`signal_id`/`run_id`/`tick_id`) threads every layer; harness output streams to R2 during the run (diagnostics), never export-at-exit; every dispatch refusal is logged with its policy reason; failure events use the named taxonomy; `tk factory trace` joins the story across layers | observability |
 | D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input | UC1b |
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
+| D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
 
 ## What this is *not*
 

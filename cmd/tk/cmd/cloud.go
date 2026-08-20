@@ -245,6 +245,18 @@ type cloudRunImage struct {
 	Digest string `json:"image_digest"`
 }
 
+// cloudRunProgress is what the durable layer said about a finished run:
+// whether any branch on origin actually moved while it was alive.
+//
+// It is reported because "completed" used to mean nothing more than "the
+// harness exited 0", and a run that printed a paragraph and exited was
+// therefore indistinguishable from one that dispatched a wave, merged it and
+// closed the epic. The state now distinguishes them; this line says why.
+type cloudRunProgress struct {
+	Progress string `json:"progress"`
+	Detail   string `json:"detail"`
+}
+
 type cloudStatusResponse struct {
 	Run      cloudRunRecord       `json:"run"`
 	Phase    cloudPhase           `json:"phase"`
@@ -253,6 +265,7 @@ type cloudStatusResponse struct {
 	Runs     []cloudRunRecord     `json:"runs"`
 	Projects []cloudProjectStatus `json:"projects"`
 	Image    *cloudRunImage       `json:"image"`
+	Progress *cloudRunProgress    `json:"progress"`
 }
 
 func decodeCloudJSON(data []byte, into any) error {
@@ -390,6 +403,7 @@ func printCloudRunStatus(out io.Writer, response cloudStatusResponse) {
 	if response.Phase.Workflow.Status != "" {
 		fmt.Fprintf(out, "  workflow: %s\n", response.Phase.Workflow.Status)
 	}
+	printCloudRunProgress(out, run, response.Progress)
 	switch {
 	case response.Image != nil && response.Image.Digest != "":
 		fmt.Fprintf(out, "  image: %s\n", response.Image.Digest)
@@ -408,6 +422,37 @@ func printCloudRunStatus(out io.Writer, response cloudStatusResponse) {
 			fmt.Fprintf(out, " (blocked by %s)", queued.BlockedBy)
 		}
 		fmt.Fprintln(out)
+	}
+}
+
+// printCloudRunProgress states what a finished run actually achieved.
+//
+// The distinction it carries is the one an operator needs before resubmitting
+// an epic: `completed` means the epic moved, `stopped` with `progress: none`
+// means the run ended having changed nothing at all, and `unknown` means the
+// evidence itself could not be read — which is a third fact, not a quiet
+// version of either of the other two.
+func printCloudRunProgress(out io.Writer, run cloudRunRecord, progress *cloudRunProgress) {
+	if progress == nil || strings.TrimSpace(progress.Progress) == "" {
+		// Only a finished run has a verdict to report; silence on a live one is
+		// accurate rather than missing.
+		if isFinishedCloudRun(run.State) {
+			fmt.Fprintln(out, "  progress: unrecorded (this run predates durable-evidence finalization)")
+		}
+		return
+	}
+	fmt.Fprintf(out, "  progress: %s\n", progress.Progress)
+	if detail := strings.TrimSpace(progress.Detail); detail != "" {
+		fmt.Fprintf(out, "    %s\n", detail)
+	}
+}
+
+func isFinishedCloudRun(state string) bool {
+	switch strings.TrimSpace(state) {
+	case "completed", "stopped", "failed":
+		return true
+	default:
+		return false
 	}
 }
 
