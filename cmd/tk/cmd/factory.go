@@ -72,6 +72,7 @@ Requires wrangler, logged in to your Cloudflare account:
 			RotateToken: factoryDeployRotateToken,
 			URL:         factoryDeployURL,
 			Out:         cmd.OutOrStdout(),
+			HasCommand:  hasCommand,
 		})
 		if err != nil {
 			// Every failure is a stop with an explanation the operator can
@@ -82,6 +83,7 @@ Requires wrangler, logged in to your Cloudflare account:
 
 		cmd.Printf("\nFactory ready at %s\n", result.URL)
 		cmd.Printf("  tk version:  %s\n", result.Version)
+		cmd.Printf("  image tk:    built from %s\n", result.SourceRef)
 		cmd.Printf("  credentials: %s\n", result.ConfigPath)
 		if result.Rotated {
 			cmd.Printf("  token:       rotated — anything holding the previous token must be updated\n")
@@ -129,6 +131,7 @@ walk scriptable.`,
 		_, err := factory.Setup(cmd.Context(), factory.SetupOptions{
 			Version:       Version,
 			BundleDir:     factorySetupBundleDir,
+			HasCommand:    hasCommand,
 			In:            cmd.InOrStdin(),
 			Out:           cmd.OutOrStdout(),
 			GitHubAPIBase: factorySetupGitHubAPI,
@@ -235,4 +238,26 @@ func providerFlagHelp() string {
 		ids = append(ids, spec.ID)
 	}
 	return strings.Join(ids, " | ")
+}
+
+// hasCommand reports whether this binary implements a subcommand chain, which
+// is how `tk factory deploy` proves the orchestrator image's tk will be able to
+// run the entrypoint it ships with (internal/factory/tkcommands.go).
+//
+// cobra's Find returns the deepest command it resolved plus the arguments it
+// could not. Leftovers on a command that HAS subcommands mean the chain named
+// one this binary does not have — the exact failure being gated. Leftovers on a
+// leaf are positional arguments, which is not a missing command.
+func hasCommand(chain []string) bool {
+	if len(chain) == 0 {
+		return false
+	}
+	found, rest, err := rootCmd.Find(chain)
+	if err != nil || found == nil || found == rootCmd {
+		return false
+	}
+	if len(rest) > 0 && found.HasSubCommands() {
+		return false
+	}
+	return true
 }

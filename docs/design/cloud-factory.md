@@ -948,7 +948,12 @@ Collected from the use cases; each appears above in context.
    mints the bearer token and pushes its hash, deploys the embedded bundle, and
    records `factory_url` / `factory_token` / `factory_version` in `~/.ticksrc`.
    The bundle is embedded in the tk binary the way skills are, so a deployment
-   is pinned to a tk version and `tk upgrade` points at a redeploy. wrangler is
+   is pinned to a tk version and `tk upgrade` points at a redeploy. The
+   orchestrator image is pinned the same way and to the same code: the deploy
+   rewrites the staged Dockerfile's `TK_SOURCE_REF` to its own source, and the
+   image builds tk from it, so the container's tk and the bundle it boots are
+   never a release apart (`cloud/sandbox/README.md`, "The image's tk is built
+   from the deployed source"). wrangler is
    resolved as a global binary or through `npx wrangler`, and every capability
    question is answered functionally — attempt the operation, surface the API
    error — never by parsing `wrangler whoami` scopes, which under-report what a

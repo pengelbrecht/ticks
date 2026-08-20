@@ -15,9 +15,72 @@ loop. See `docs/design/cloud-factory.md` (Phase 1).
 | `entrypoint.sh` | Installed as `/usr/local/bin/ticks-orchestrator` — the run entrypoint. |
 | `preflight.sh` | Installed as `/usr/local/bin/ticks-preflight` — the Environment pre-flight. |
 | `build.sh` | Builds and optionally pushes, tagged with the tk version the Dockerfile pins. |
+| `required-tk-commands` | Derived list of every `tk` subcommand the two scripts run. The image build asserts each one against the tk it produced. |
 
 Guarded by `internal/sandbox` (`go test ./internal/sandbox`), which runs the two
 scripts against stub harnesses and checks the Dockerfile's pin discipline.
+
+## The image's tk is built from the deployed source
+
+**This is the mechanism that keeps the container's `tk` in step with the bundle
+it boots. Read it before changing either.**
+
+The image used to install a *released* tk, pinned by version and checksum like
+every other download. That produced a chicken-and-egg the moment the entrypoint
+learned a new subcommand: an epic adds `tk sandbox …`, the entrypoint calls it,
+and the newest released tk does not have it yet — so a container booted,
+streamed its first lines and then died at exit 6 with `unknown command:
+sandbox`. The image could only ever be one release behind the bundle it boots,
+which meant an epic could not run its own work until after a release.
+
+So tk is **built from source in the image**, at a pinned ref:
+
+| Pin | What it is |
+|---|---|
+| `ARG TK_VERSION` | What the image calls itself, what it tags as, and what `TICKS_TK_VERSION` exports — the entrypoint refuses a `tk` on PATH reporting anything else. |
+| `ARG TK_SOURCE_REF` | The source that tk is built from: a release tag (`v0.32.0`) or a full commit. |
+| `ARG TK_MODULE` | The module path `go install` resolves. |
+
+`tk factory deploy` **rewrites both pins in its staged copy of the Dockerfile**
+(`factory.SetSandboxTkPins`) to the version and the source of the binary running
+the deploy — a release tag for a released tk, the stamped commit for a
+development build. The container's tk is therefore the same code as the bundle
+being deployed, by construction rather than by remembering to bump a number.
+
+What this needs, and what it costs:
+
+- **A pushed commit, not a release.** `go install` resolves `TK_SOURCE_REF`
+  through the Go module proxy, so the commit has to be reachable on GitHub. A
+  deploy from a dev build over a dirty worktree, or one with no commit stamped,
+  is a stop that says so — the image can only build a commit that exists.
+- **Build time, not a new dependency.** The Go toolchain is already one of the
+  batteries below. `GOTOOLCHAIN=local` keeps the build on the image's pinned Go,
+  so a `go` directive in `go.mod` above `ARG GO_VERSION` fails the build loudly
+  instead of silently downloading a different compiler; bump `GO_VERSION` with
+  `go.mod`.
+- **The pin is still a pin.** The module proxy verifies the ref against the
+  checksum database, which is what the `sha256sum -c` lines give the tarballs.
+
+### The subcommand gate
+
+Two checks make a too-old tk a *stop*, never a container that dies mid-run:
+
+1. **In the deploy, before anything is built.** `tk factory deploy` derives
+   every `tk` subcommand `entrypoint.sh` and `preflight.sh` invoke
+   (`factory.EntrypointTkCommands`) and asserts this binary implements each one.
+   A miss names the subcommand — ``this tk (0.31.0) has no `tk sandbox
+   environment`, but the orchestrator entrypoint this deploy would ship runs
+   it`` — and nothing is staged, built or created.
+2. **In the image build, against the tk it actually produced.** The same derived
+   list ships in the build context as `required-tk-commands`; the last tk layer
+   runs `tk <sub> --help` for every line and fails the build, naming the missing
+   subcommand, if one does not answer. A failed image build fails the deploy.
+
+The list is **derived, never hand-maintained** — a hand-maintained list is
+exactly what went stale. `TestRequiredTkCommandsFileMatchesTheEntrypoint`
+(`go test ./internal/factory`) fails when the committed file and the scripts
+drift, so teaching the entrypoint a new subcommand is a two-line change: use it,
+regenerate the file.
 
 ## One image, many projects
 
@@ -223,6 +286,8 @@ By hand, for a registry tk is not driving:
 ```sh
 ./build.sh                                  # ticks-orchestrator:<tk version>
 ./build.sh --registry registry.example.com --push
+./build.sh --tk-ref <commit>                # build the container's tk from a
+                                            # specific pushed commit
 ```
 
 The image reference is a *default*, not a constant: whatever boots a sandbox

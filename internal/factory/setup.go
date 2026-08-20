@@ -156,6 +156,10 @@ type SetupOptions struct {
 	// ConfigPath overrides the ~/.ticksrc location (tests).
 	ConfigPath string
 
+	// HasCommand is passed straight through to a deploy started from the
+	// deployment rung — see Options.HasCommand.
+	HasCommand func(chain []string) bool
+
 	// In/Out are the prompt streams. Nil means stdin/stdout.
 	In  io.Reader
 	Out io.Writer
@@ -343,6 +347,7 @@ func setupDeployment(
 			BundleDir:   bundleDir,
 			ConfigPath:  opts.ConfigPath,
 			Out:         out,
+			HasCommand:  opts.HasCommand,
 			onSecretPut: opts.onSecretPut,
 		})
 		if err != nil {

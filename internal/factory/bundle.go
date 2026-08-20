@@ -317,3 +317,65 @@ func SetDatabaseID(dir, id string) error {
 	}
 	return nil
 }
+
+// tkVersionArgPattern / tkSourceRefArgPattern match the two tk pins in the
+// image's Dockerfile: the version the image labels itself with, and the source
+// the image builds that tk from.
+var (
+	tkVersionArgPattern   = regexp.MustCompile(`(?m)^(ARG\s+TK_VERSION=)(\S*)`)
+	tkSourceRefArgPattern = regexp.MustCompile(`(?m)^(ARG\s+TK_SOURCE_REF=)(\S*)`)
+)
+
+// validTkPin is what may appear on the right of those ARGs: a version string
+// or a git ref. Everything outside this set — whitespace, quotes, newlines,
+// shell metacharacters — is rejected rather than escaped, because a value that
+// needs escaping to sit in a Dockerfile is a value that has no business
+// pinning one.
+var validTkPin = regexp.MustCompile(`^[A-Za-z0-9._+-]+$`)
+
+// SetSandboxTkPins rewrites the staged Dockerfile so the image labels itself
+// with the tk version being deployed and builds its tk from that version's
+// source.
+//
+// Same contract as SetDatabaseID: the two pins are replaced in place and the
+// rest of the file stays byte-identical, so what wrangler builds is this
+// binary's committed Dockerfile with the deploy's own answers substituted in.
+func SetSandboxTkPins(dir, version, sourceRef string) error {
+	pins := []struct {
+		arg     string
+		value   string
+		pattern *regexp.Regexp
+	}{
+		{"TK_VERSION", version, tkVersionArgPattern},
+		{"TK_SOURCE_REF", sourceRef, tkSourceRefArgPattern},
+	}
+	for _, pin := range pins {
+		if !validTkPin.MatchString(pin.value) {
+			return fmt.Errorf("%q is not a usable %s pin", pin.value, pin.arg)
+		}
+	}
+	configPath := filepath.Join(dir, sandboxDockerfileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", configPath, err)
+	}
+	var absent []string
+	for _, pin := range pins {
+		if !pin.pattern.Match(data) {
+			absent = append(absent, "ARG "+pin.arg)
+		}
+	}
+	if len(absent) > 0 {
+		return fmt.Errorf("%s declares no %s to pin", configPath, strings.Join(absent, " and no "))
+	}
+	for _, pin := range pins {
+		data = pin.pattern.ReplaceAll(data, []byte(`${1}`+pin.value))
+	}
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", configPath, err)
+	}
+	return nil
+}
+
+// sandboxDockerfileName is the image's build file inside the staged context.
+const sandboxDockerfileName = "Dockerfile"

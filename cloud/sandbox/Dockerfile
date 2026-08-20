@@ -28,9 +28,23 @@ FROM docker.io/cloudflare/sandbox:0.12.7-python@sha256:6dfa7301e69d3e5cd8e0404b9
 
 # Every version and every checksum is pinned here, so a rebuild is a diff of
 # this block. Checksums come from each project's own published sums file.
+# tk is BUILT FROM SOURCE in this image (see the tk stage below), so its two
+# pins are a label and a ref rather than a version and a checksum:
+#   TK_VERSION     what the image calls itself and what the entrypoint verifies
+#                  the tk on PATH reports.
+#   TK_SOURCE_REF  the source that tk is built from — a release tag, or a full
+#                  commit for a build that has not been released.
+# `tk factory deploy` rewrites BOTH in its staged copy of this file, to the
+# version and the source of the binary running the deploy — which is what keeps
+# the container's tk and the bundle it boots the same code.
+#
+# The defaults are the last RELEASE, which is all a plain `docker build` can
+# assume. Building an entrypoint that runs a subcommand no release has yet is
+# `./build.sh --tk-ref <pushed commit>`; without it the assertion at the end of
+# the tk block below fails the build and names what is missing.
 ARG TK_VERSION=0.31.0
-ARG TK_SHA256_AMD64=ce96bb98fc81d9b4ffb76cb8fb65cb96313be2c6cc3f8299a90402ae9a1f4ca2
-ARG TK_SHA256_ARM64=9a9710861d8c26d1de61198a14aca9d271a6e750a5a3afd3386df7639e503a1b
+ARG TK_SOURCE_REF=v0.31.0
+ARG TK_MODULE=github.com/pengelbrecht/ticks/cmd/tk
 
 ARG OMP_VERSION=17.3.8
 ARG OMP_SHA256_AMD64=efdb54f0054e80afe1c05c09f43d5ced09ce8ec8b75c3fb6b0ca5ce4805b383f
@@ -156,24 +170,56 @@ RUN set -euo pipefail; \
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
 # ---------------------------------------------------------------------------
-# tk, and the ticks skill installed the normal way: tk writes its own embedded
-# bundle into the Claude-convention skills directory, which omp inherits with
-# no omp-specific packaging.
-# ---------------------------------------------------------------------------
+# tk, BUILT FROM SOURCE at the ref the deploy pinned — not downloaded from a
+# release.
+#
+# This is the fix for a chicken-and-egg the release pin created: the entrypoint
+# below runs `tk sandbox ...`, an epic adds that subcommand, and the newest
+# released tk does not have it yet — so the image could only ever be one
+# release behind the bundle it boots, and a container booted, streamed, and
+# then died with "unknown command: sandbox". Source removes the lag entirely:
+# the image needs a PUSHED COMMIT, not a published release, and `tk factory
+# deploy` pins it to the very source the deploying binary was built from.
+#
+# The Go toolchain this needs is already here — it is one of the batteries
+# above — so the only cost is build time. The pin is still a pin: `go install`
+# resolves TK_SOURCE_REF through the module proxy and verifies it against the
+# checksum database, which is the same guarantee the sha256sum lines above give
+# the tarballs. -trimpath and the version ldflag reproduce the release build.
 RUN set -euo pipefail; \
-    case "${TARGETARCH}" in \
-      amd64) tk_arch=amd64; tk_sum="${TK_SHA256_AMD64}" ;; \
-      arm64) tk_arch=arm64; tk_sum="${TK_SHA256_ARM64}" ;; \
-      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL -o /tmp/tk.tar.gz "https://github.com/pengelbrecht/ticks/releases/download/v${TK_VERSION}/tk_${TK_VERSION}_linux_${tk_arch}.tar.gz"; \
-    echo "${tk_sum}  /tmp/tk.tar.gz" | sha256sum -c -; \
-    tar -C /tmp -xzf /tmp/tk.tar.gz tk; \
-    install -m 0755 /tmp/tk /usr/local/bin/tk; \
-    rm -f /tmp/tk /tmp/tk.tar.gz; \
+    GOTOOLCHAIN=local GOFLAGS=-trimpath GOBIN=/usr/local/bin \
+      go install -ldflags "-s -w -X main.Version=${TK_VERSION}" "${TK_MODULE}@${TK_SOURCE_REF}"; \
+    rm -rf /root/go/pkg/mod /root/.cache/go-build; \
+    test -x /usr/local/bin/tk
+
+# The ticks skill installed the normal way: tk writes its own embedded bundle
+# into the Claude-convention skills directory, which omp inherits with no
+# omp-specific packaging. It is the skill of the tk built above, so it moves
+# with the bundle rather than with the last release.
+RUN set -euo pipefail; \
     mkdir -p /root/.claude/skills; \
     tk skills install ticks --dir /root/.claude/skills/ticks; \
     test -f /root/.claude/skills/ticks/SKILL.md
+
+# The image's tk has to answer every subcommand the entrypoint runs, or the
+# container boots and then dies mid-run. The list is derived from the scripts
+# themselves (internal/factory.EntrypointTkCommands) and shipped in the build
+# context, so this assertion cannot go stale the way a hand-written one does.
+# Failing HERE fails the deploy, with the missing subcommand named.
+COPY required-tk-commands /usr/local/share/ticks/required-tk-commands
+RUN set -euo pipefail; \
+    missing=0; \
+    while read -r sub; do \
+      case "$sub" in ""|"#"*) continue ;; esac; \
+      if ! timeout 60 tk $sub --help >/dev/null 2>&1; then \
+        echo "the tk built into this image (${TK_VERSION}, from ${TK_SOURCE_REF}) has no \`tk $sub\`," >&2; \
+        echo "but the orchestrator entrypoint runs it. Build the image from a source ref that has" >&2; \
+        echo "the subcommand: ./build.sh --tk-ref <pushed commit>. \`tk factory deploy\` pins" >&2; \
+        echo "TK_SOURCE_REF to its own source for you." >&2; \
+        missing=1; \
+      fi; \
+    done < /usr/local/share/ticks/required-tk-commands; \
+    test "$missing" -eq 0
 
 # The entrypoint verifies the tk on PATH is the one this image pinned, so the
 # pin has to reach it.
