@@ -157,8 +157,8 @@ export function sandboxBinding(env: Env): SandboxBinding | null {
  * something, and the thing that would destroy it is the Workflow instance that
  * may itself have died — so an orchestrator whose supervisor is gone would bill
  * until an operator noticed. The observation loop addresses its sandbox at most
- * every RUN_POLL_MAX_MS (5 minutes), so a window several times that keeps a
- * live run awake while still putting a ceiling on a leaked one.
+ * every MAX_POLL_MS (5 minutes, src/run-workflow.ts), so a window several times
+ * that keeps a live run awake while still putting a ceiling on a leaked one.
  */
 export const SANDBOX_SLEEP_AFTER = "20m";
 

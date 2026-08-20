@@ -460,11 +460,50 @@ var urlPattern = regexp.MustCompile(`https?://[A-Za-z0-9._~%+-]+(?::[0-9]+)?(?:/
 // docsHosts are the URLs wrangler prints that are not the deployment.
 var docsHosts = []string{"developers.cloudflare.com", "dash.cloudflare.com", "workers.cloudflare.com", "github.com"}
 
+// deployedTriggersPattern marks where wrangler starts printing the
+// deployment's own endpoints.
+//
+// It matters because everything BEFORE it is not the deployment. Since the
+// bundle declares a container, `wrangler deploy` now prints a whole Docker
+// build log first, and that log is full of URLs — go.dev, github.com,
+// docs.docker.com — every one of which a scan of the raw output would happily
+// return. It did: a deploy recorded `factory_url=https://go.dev` (the Go
+// toolchain download in the image) and pushed it as FACTORY_BASE_URL.
+var deployedTriggersPattern = regexp.MustCompile(`(?i)^\s*(?:Deployed|Published)\b.*\btriggers\b`)
+
+// workersDevPattern is the fallback identity: a workers.dev host in wrangler's
+// output is this deployment, whatever banner shape the CLI used to print it.
+var workersDevPattern = regexp.MustCompile(`https://[A-Za-z0-9.-]+\.workers\.dev`)
+
 // parseDeployedURL pulls the deployment's base URL out of `wrangler deploy`
 // output. Detection is best-effort by nature — a custom route or a
 // workers_dev = false config prints something else entirely — so a caller that
 // gets "" must stop and ask for --url rather than guess.
+//
+// Guessing is the failure mode worth avoiding: an endpoint parsed out of the
+// wrong line is recorded in ~/.ticksrc and pushed as the Worker's own base URL,
+// which is where every run's sandbox is pointed for model traffic. "I could not
+// tell" is a stop the operator can fix in one flag; a confident wrong answer is
+// a deployment that looks fine and cannot run anything.
 func parseDeployedURL(out string) string {
+	lines := strings.Split(out, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !deployedTriggersPattern.MatchString(lines[i]) {
+			continue
+		}
+		if url := firstDeploymentURL(strings.Join(lines[i+1:], "\n")); url != "" {
+			return url
+		}
+		break
+	}
+	if match := workersDevPattern.FindString(out); match != "" {
+		return strings.TrimSuffix(match, "/")
+	}
+	return ""
+}
+
+// firstDeploymentURL returns the first URL in out that is not documentation.
+func firstDeploymentURL(out string) string {
 	for _, match := range urlPattern.FindAllString(out, -1) {
 		candidate := strings.TrimRight(match, ".,)")
 		scheme, rest, ok := strings.Cut(candidate, "://")
