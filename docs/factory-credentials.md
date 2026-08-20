@@ -134,6 +134,15 @@ factory has no credential for does not hang — the sandbox proves the route wit
 a one-token call before it starts the harness, and stops with what the gateway
 said.
 
+A reachable route is still not a runnable harness: each harness kind reads its
+gateway credential under a name of its own choosing — `claude` reads
+`ANTHROPIC_API_KEY`, `omp` on the `workers-ai` route reads
+`CLOUDFLARE_AI_GATEWAY_API_KEY` — so the sandbox wires the kind's own provider
+and then makes the harness itself do one round-trip before the run starts. The
+per-kind table is in [`cloud/sandbox/README.md`](../cloud/sandbox/README.md);
+none of it changes what you configure here, and all of it is the same run
+gateway token under different names.
+
 ### What a sandbox actually holds
 
 Not your provider key. A run's model traffic goes to the factory Worker's own

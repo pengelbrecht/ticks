@@ -197,6 +197,8 @@ starts a command in a sandbox.
 | `AI_GATEWAY_TOKEN` | yes | The run's gateway credential (D17). It is the ONLY model credential in the container, and it is what every vendor key variable is set to. |
 | `TICKS_HARNESS` | no | `omp` (default) or `claude`. |
 | `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
+| `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the one-token gateway probe may take (default 30). |
+| `TICKS_HARNESS_PROBE_TIMEOUT` | no | Seconds the harness's own pre-flight round-trip may take (default 120). Larger than the gateway probe's because it starts a whole agent CLI. |
 | `TICKS_MAX_TIME` | no | Passed through to the harness. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the pre-flight model probe may take, default 30. |
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
@@ -246,6 +248,62 @@ token stops this agent's model traffic mid-run, whether or not it cooperates.
 A boot with no token is refused with exit 2 — it could not make a single model
 call.
 
+### What each harness kind reads
+
+The variables above are **vendor-shaped**, which is how the `claude` kind
+consumes a gateway: it speaks the Anthropic API, reads `ANTHROPIC_BASE_URL` and
+`ANTHROPIC_API_KEY`, and needs nothing else.
+
+`omp` does not work that way, and a run found out the expensive way. It is
+cross-provider, so it resolves a **provider by name** and asks that provider for
+its own base URL and its own credential — it reads no vendor variable on the
+way. Its name for a Cloudflare AI Gateway is `cloudflare-ai-gateway`, whose
+credential variable is `CLOUDFLARE_AI_GATEWAY_API_KEY`. A container that
+exported only the vendor set therefore passed every check — environment green,
+model resolved, **model probe green** — and then died at start with
+`error: No API key found for cloudflare-ai-gateway`.
+
+So the wiring is a table, per kind. Adding a kind is an edit to this table and
+to `select_harness_route` in `entrypoint.sh`, not a rediscovery:
+
+| Kind | Gateway route | What the kind calls that provider | Credential variable | Wire shape |
+|---|---|---|---|---|
+| `claude` | `anthropic` | the vendor itself (`ANTHROPIC_BASE_URL`) | `ANTHROPIC_API_KEY` | `anthropic-messages` |
+| `omp` | `anthropic` | `anthropic` | `ANTHROPIC_API_KEY` | `anthropic-messages` |
+| `omp` | `openai` | `openai` | `OPENAI_API_KEY` | `openai-completions` |
+| `omp` | `openrouter` | `openrouter` | `OPENROUTER_API_KEY` | `openai-completions` |
+| `omp` | `workers-ai` | `cloudflare-ai-gateway` | `CLOUDFLARE_AI_GATEWAY_API_KEY` | `openai-completions` |
+
+The credential is only half of it. omp's built-in `cloudflare-ai-gateway`
+provider carries a **placeholder** base URL
+(`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/…`), so a run with a
+valid credential and no base URL would post to a literal `<account>`. The
+entrypoint therefore writes omp's own provider file — `models.yml`, in the
+directory `omp config path` reports — pinning that provider to the route the
+model probe just proved, in the wire shape that route serves, with exactly the
+one model this run uses:
+
+```yaml
+providers:
+  cloudflare-ai-gateway:
+    baseUrl: "<gateway>/workers-ai/v1"
+    api: "openai-completions"
+    apiKey: "CLOUDFLARE_AI_GATEWAY_API_KEY"
+    models:
+      - id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+```
+
+`apiKey` there is an environment **variable name**, which omp resolves per
+request: the run's gateway token stays in the environment and is never written
+to the container's filesystem. Setting `baseUrl` on the provider also contains
+every *other* model omp knows under that name — they all resolve to the run's
+gateway or not at all.
+
+The model flag is provider-qualified for the same reason
+(`cloudflare-ai-gateway/@cf/meta/…`). Handed a bare id, omp fuzzy-matches its
+own catalog and may land on a provider nothing here authorised — which is the
+other half of the failure above.
+
 ## The model, and why a boot proves it
 
 A gateway is only half the path. A harness handed a reachable gateway and no
@@ -285,6 +343,27 @@ throw the fix away. This runs before toolchain provisioning, setup and the
 pre-flight, because a run that cannot make a model call is over whether or not
 its toolchain installed.
 
+**And the harness is proved too, because the route probe cannot prove it.** That
+probe is curl holding the token; the harness resolves providers and credentials
+by its own rules, so a green route says nothing about whether the harness can
+use it. The gap is not hypothetical — a run passed the model probe and died four
+lines later looking for a credential under a name nothing had set. So after the
+per-kind wiring above is in place, the harness itself makes one bounded,
+tool-less round-trip: `Reply with the single word READY and nothing else.`
+
+**The gate is the answer, not the exit status** — the same content gate `tk herd
+spawn` applies to workers, and it earned its keep immediately. Building this,
+omp was observed exiting 0 having made three real calls that all came back with
+no assistant text ("empty stop after retry cap"), printing nothing but its own
+`Working...` progress line: exit status green, output non-empty, round-trip
+never completed. Only a word the model has to produce tells those apart. A
+non-zero exit, a timeout, or an answer without `READY` (matched case-insensitively,
+so `Ready.` passes) is exit 8, with the harness's own message quoted.
+
+Exit 8 also *says* the model probe was green, so nobody re-diagnoses the
+gateway: 7 is "the route is broken", 8 is "the route is fine and this harness
+cannot use it".
+
 Exit codes, before the harness takes over — distinct failure classes stay
 distinct, because these are read from a log after the sandbox is gone:
 
@@ -296,6 +375,7 @@ distinct, because these are read from a log after the sandbox is gone:
 | 5 | An Environment pre-flight check failed (the failing check is named). |
 | 6 | The repository's own `[sandbox]` setup failed (the failing command is named). |
 | 7 | A gateway with no usable model behind it: nothing routed, a model whose provider cannot be named, a model the chosen harness does not speak, or a gateway that refused the probe. |
+| 8 | The gateway answers and the harness cannot use it: no provider wired for the route, a credential the harness looks for under another name, or a harness round-trip that failed, timed out, or exited clean without answering. |
 | other | The harness's own exit status — the entrypoint `exec`s it. |
 
 Output streams to stdout as it is produced. The entrypoint prints directly and

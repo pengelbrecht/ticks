@@ -237,5 +237,6 @@ RUN set -euo pipefail; \
     go version; uv --version; node --version; pnpm --version; bun --version; python3 --version; \
     mise --version; \
     timeout 60 omp --version; timeout 60 claude --version; \
+    test -n "$(timeout 60 omp config path)"; \
     timeout 60 tk version | sed -n 1p; \
     bash -n /usr/local/bin/ticks-orchestrator; bash -n /usr/local/bin/ticks-preflight

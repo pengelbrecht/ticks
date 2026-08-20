@@ -53,13 +53,22 @@ const (
 	EnvModelID       = "TICKS_MODEL_ID"
 	// EnvModelProbeTimeout bounds the pre-flight model probe, in seconds.
 	EnvModelProbeTimeout = "TICKS_MODEL_PROBE_TIMEOUT"
-	EnvMaxTime           = "TICKS_MAX_TIME"
-	EnvWorkdir           = "TICKS_WORKDIR"
-	EnvCacheDir          = "TICKS_CACHE_DIR"
-	EnvRunID             = "TICKS_RUN_ID"
-	EnvTkVersion         = "TICKS_TK_VERSION"
-	EnvPhase             = "TICKS_PHASE"
-	EnvStopReason        = "TICKS_STOP_REASON"
+	// EnvHarnessProbeTimeout bounds the pre-flight HARNESS probe, in seconds.
+	// It is a bigger number than the model probe's on purpose: this one starts
+	// a whole agent CLI, not one curl.
+	EnvHarnessProbeTimeout = "TICKS_HARNESS_PROBE_TIMEOUT"
+	// EnvHarnessProbe marks the one harness invocation that is a pre-flight
+	// round-trip rather than the run itself. The container starts the same
+	// binary twice and only one of them is the orchestrator, so the difference
+	// is stated in the environment rather than inferred from argv.
+	EnvHarnessProbe = "TICKS_HARNESS_PROBE"
+	EnvMaxTime      = "TICKS_MAX_TIME"
+	EnvWorkdir      = "TICKS_WORKDIR"
+	EnvCacheDir     = "TICKS_CACHE_DIR"
+	EnvRunID        = "TICKS_RUN_ID"
+	EnvTkVersion    = "TICKS_TK_VERSION"
+	EnvPhase        = "TICKS_PHASE"
+	EnvStopReason   = "TICKS_STOP_REASON"
 	// EnvSandboxImage is the image reference the control plane says it booted.
 	// It is advisory and read-only from inside: the container cannot change
 	// what it is running, so this exists so that a repository declaring a
@@ -119,6 +128,14 @@ const (
 	// reaches the skill loop and then hangs forever on its first model call,
 	// which is exactly the green-start trap with no error to read.
 	ExitModel = 7
+	// ExitHarness reports the gap between "the gateway answers" and "the
+	// harness can call it". They are different problems with different fixes:
+	// a green model probe followed by a harness that dies at start means the
+	// route is fine and the harness's own provider wiring is not — which is
+	// how a run reached the skill loop and died with "No API key found for
+	// cloudflare-ai-gateway" while the probe had just passed. Collapsing the
+	// two into ExitModel would send an operator to look at the gateway.
+	ExitHarness = 8
 )
 
 // Script names the files the image installs into /usr/local/bin.
