@@ -44,8 +44,8 @@ tick checklist README, docs/ and --help with "updated" or "not applicable" per s
 **Rule:** Commit .tick state immediately after every mutation batch, before merging or launching.
 
 **Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and re-implemented it.
-**Rule:** Implementer prompts must name the prerequisite SHA and instruct `git merge
-<integration-branch>` first, then verify ancestry with `git merge-base --is-ancestor`.
+**Rule:** Name the prerequisite SHA in the prompt and instruct `git merge <integration-branch>`
+first, then verify ancestry with `git merge-base --is-ancestor`.
 
 **Problem:** A codex worker self-updated at spawn; the output swallowed the content-gate probe and
 the CLI exited, leaving a worktree, branch and workspace with no manifest ("worktree already exists"
