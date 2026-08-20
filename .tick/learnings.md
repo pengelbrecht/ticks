@@ -22,8 +22,8 @@ reset it in `ResetFlags()`.
 **Rule:** After UI source changes run `scripts/build-ui.sh` and commit the regenerated
 `static/` (and `ui/dist/`).
 
-**Problem:** A codex worker's sandbox blocks loopback sockets and DNS, so httptest suites and
-`git push` fail there (recurring DONE_WITH_CONCERNS).
+**Problem:** Worker sandboxes block loopback sockets and DNS, so httptest suites and `git push`
+fail there (recurring DONE_WITH_CONCERNS).
 **Rule:** Treat the integrated post-wave gate as the authoritative first full run; never let a
 worker push.
 
@@ -40,10 +40,8 @@ tick checklist README, docs/ and --help with "updated" or "not applicable" per s
 
 ## Orchestration
 
-**Problem:** A tick's close vanished — an implementer's stray git-restore wiped uncommitted
-.tick state hours after a successful `tk close`.
-**Rule:** Commit .tick state immediately after every mutation batch, before merging any branch or
-launching agents.
+**Problem:** A tick's close vanished — a stray git-restore wiped uncommitted .tick state.
+**Rule:** Commit .tick state immediately after every mutation batch, before merging or launching.
 
 **Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and re-implemented it.
 **Rule:** Implementer prompts must name the prerequisite SHA and instruct `git merge
@@ -55,11 +53,9 @@ on retry).
 **Rule:** A failed `tk herd spawn` leaves partial state — tear down worktree, branch and workspace
 before respawning. Export `HOMEBREW_NO_AUTO_UPDATE=1` for spawn loops.
 
-**Problem:** A worker returned NEEDS_CONTEXT because the orchestrator pointed it at an archived
-report under `.tick/logs/`.
-**Cause:** `.tick/logs/**` is gitignored — manifests, archived RESULT files and run state exist only
-in the main checkout, never in a worker's fresh worktree.
-**Rule:** Never reference `.tick/logs/**` in a worker prompt. Paste the content inline.
+**Problem:** A worker returned NEEDS_CONTEXT: the orchestrator pointed it at an archived report
+under `.tick/logs/`, which is gitignored and therefore invisible from a worktree.
+**Rule:** Never reference `.tick/logs/**` in a worker prompt — paste the content inline.
 
 ## Orchestrator gates
 
