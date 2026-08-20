@@ -1,8 +1,13 @@
 package factory
 
 import (
+	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The digest is read out of the container application block wrangler prints,
@@ -68,6 +73,49 @@ func TestParsePushedImageOnAnUnchangedDeploy(t *testing.T) {
 	}
 }
 
+func TestDeployOutputIdentifiesSkippedImagePush(t *testing.T) {
+	out := strings.Join([]string{
+		"Image already exists remotely, skipping push",
+		"Total Upload: 12.34 KiB / gzip: 3.21 KiB",
+		"Deployed ticks-factory triggers",
+	}, "\n")
+
+	if !deploySkippedImagePush(out) {
+		t.Fatal("deploySkippedImagePush = false, want true")
+	}
+}
+
+func TestConfirmContainerRolloutUsesApplicationDigestAfterSkippedPush(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("f", 64)
+	stateDir := t.TempDir()
+	logPath := filepath.Join(stateDir, "wrangler.log")
+	if err := os.WriteFile(filepath.Join(stateDir, "container-target"), []byte(digest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_WRANGLER_STATE", stateDir)
+	t.Setenv("FAKE_WRANGLER_LOG", logPath)
+
+	w := &wrangler{
+		bin: filepath.Join(testdataDir, "fake-wrangler.sh"),
+		dir: t.TempDir(),
+		out: io.Discard,
+	}
+	outcome, err := confirmContainerRollout(
+		context.Background(), w, io.Discard,
+		"Image already exists remotely, skipping push\n",
+		time.Second, time.Millisecond, false,
+	)
+	if err != nil {
+		t.Fatalf("confirmContainerRollout: %v", err)
+	}
+	if !outcome.Confirmed || outcome.Digest != digest {
+		t.Errorf("outcome = %+v, want confirmed digest %q", outcome, digest)
+	}
+	if !strings.Contains(outcome.Ref, ContainerAppName) {
+		t.Errorf("outcome.Ref = %q, want the application image reference", outcome.Ref)
+	}
+}
+
 func TestParsePushedImageWithNoContainerBlock(t *testing.T) {
 	out := "Total Upload: 12.34 KiB\nDeployed ticks-factory triggers\n  https://ticks-factory.example.workers.dev\n"
 	if ref, digest := parsePushedImage(out); ref != "" || digest != "" {
@@ -102,6 +150,30 @@ func TestContainerAppDigestAndSettled(t *testing.T) {
 	app.State = "degraded"
 	if app.settled() {
 		t.Error("a `degraded` application must not be treated as a finished rollout")
+	}
+}
+
+func TestContainerAppServesExpectedDigestWhileProvisioning(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("e", 64)
+	app := containerApp{
+		Name:  ContainerAppName,
+		State: "provisioning",
+		Image: "registry.cloudflare.com/acct/ticks-orchestrator@" + digest,
+	}
+
+	if !app.serves(digest) {
+		t.Error("a provisioning application with the expected digest should count as serving the new image")
+	}
+	app.State = "degraded"
+	if app.serves(digest) {
+		t.Error("a degraded application must not count as serving the expected image")
+	}
+}
+
+func TestDefaultRolloutTimeoutIncludesObservedTail(t *testing.T) {
+	const observedRollout = 5*time.Minute + 30*time.Second
+	if defaultRolloutTimeout <= observedRollout {
+		t.Errorf("defaultRolloutTimeout = %s, want more than the observed %s rollout", defaultRolloutTimeout, observedRollout)
 	}
 }
 

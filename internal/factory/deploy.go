@@ -80,7 +80,7 @@ type Options struct {
 	SkipRolloutWait bool
 
 	// rolloutTimeout/rolloutPoll bound the wait for the container application
-	// to report the pushed image (tests).
+	// to report the expected image (tests).
 	rolloutTimeout time.Duration
 	rolloutPoll    time.Duration
 
@@ -114,12 +114,13 @@ type Result struct {
 	WranglerVersion string
 	// ConfigPath is the file the credentials were written to.
 	ConfigPath string
-	// ImageRef is the digest-pinned orchestrator image this deploy pushed,
-	// empty when wrangler's output named none.
+	// ImageRef is the digest-pinned orchestrator image this deploy confirmed,
+	// resolved from the application record when an idempotent deploy skipped
+	// the image push.
 	ImageRef string
-	// ImageDigest is that image's digest — the identity a run's container
-	// boots, and the one thing that tells a fix that did not work from a fix
-	// that was never running.
+	// ImageDigest is the confirmed image's digest — the identity a run's
+	// container boots, and the one thing that tells a fix that did not work from
+	// a fix that was never running.
 	ImageDigest string
 	// RolloutConfirmed reports whether the container application was actually
 	// observed serving ImageDigest. False means the deploy is not claiming a

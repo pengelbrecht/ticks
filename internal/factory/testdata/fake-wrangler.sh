@@ -23,6 +23,8 @@
 #   FAKE_WRANGLER_ROLLOUT_LAG   how many `containers list` calls still report the
 #                         old digest before the new one appears (default 0)
 #   FAKE_WRANGLER_ROLLOUT_STUCK when non-empty, the rollout never lands
+#   FAKE_WRANGLER_NO_PUSH when non-empty, `deploy` reports that the image
+#                         already exists remotely and emits no image block
 #   FAKE_WRANGLER_NO_CONTAINER_BLOCK when non-empty, `deploy` prints no container
 #                         application block, so no digest can be read from it
 #   FAKE_WRANGLER_NO_CONTAINERS when non-empty, `containers` is an unknown
@@ -144,7 +146,9 @@ case "${1:-}" in
     # are NOT the application's; the parser has to ignore them.
     echo "#4 [internal] load metadata for docker.io/cloudflare/sandbox:0.12.7-python"
     echo "#4 resolve docker.io/cloudflare/sandbox@sha256:6666666666666666666666666666666666666666666666666666666666666666"
-    if [ -z "${FAKE_WRANGLER_NO_CONTAINER_BLOCK:-}" ]; then
+    if [ -n "${FAKE_WRANGLER_NO_PUSH:-}" ]; then
+      echo "Image already exists remotely, skipping push"
+    elif [ -z "${FAKE_WRANGLER_NO_CONTAINER_BLOCK:-}" ]; then
       printf '%s' "$new_digest" >"$FAKE_WRANGLER_STATE/container-target"
       : >"$FAKE_WRANGLER_STATE/containers-list-count"
       echo "╭ Deploy a container application"

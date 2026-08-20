@@ -926,6 +926,9 @@ func TestDeployFailsWhenTheRolloutNeverLands(t *testing.T) {
 	if rollout.Serving == rollout.Expected {
 		t.Error("the failure claims the application is serving the image it was waiting for")
 	}
+	if !strings.Contains(rollout.Reason, "different image") {
+		t.Errorf("rollout failure reason = %q, want the stale-image reason", rollout.Reason)
+	}
 
 	// The deployment itself landed, and the result still carries what it knows:
 	// the operator needs the credentials and the digest, not a rollback.
@@ -1032,5 +1035,34 @@ func TestDeployConfirmsAnUnchangedRolloutImmediately(t *testing.T) {
 	if !second.RolloutConfirmed || second.ImageDigest != first.ImageDigest {
 		t.Errorf("an unchanged re-deploy did not confirm: confirmed=%v digest=%q want %q",
 			second.RolloutConfirmed, second.ImageDigest, first.ImageDigest)
+	}
+}
+
+// The real idempotent path has no image block at all: the image already exists
+// remotely, so wrangler skips the push and prints no digest. The application
+// record is the remaining authoritative source for the digest to confirm.
+func TestDeployConfirmsAnIdempotentDeployWhenWranglerSkipsImagePush(t *testing.T) {
+	h := newHarness(t)
+
+	first, err := Deploy(context.Background(), h.rolloutOptions())
+	if err != nil {
+		t.Fatalf("first Deploy: %v\n%s", err, h.log())
+	}
+
+	t.Setenv("FAKE_WRANGLER_NO_PUSH", "1")
+	t.Setenv("FAKE_WRANGLER_SERVING_DIGEST", first.ImageDigest)
+
+	second, err := Deploy(context.Background(), h.rolloutOptions())
+	if err != nil {
+		t.Fatalf("idempotent Deploy: %v\n%s", err, h.log())
+	}
+	if !second.RolloutConfirmed {
+		t.Error("an idempotent deploy with no image push was not confirmed")
+	}
+	if second.ImageDigest != first.ImageDigest {
+		t.Errorf("ImageDigest = %q, want the application digest %q", second.ImageDigest, first.ImageDigest)
+	}
+	if !strings.Contains(second.ImageRef, ContainerAppName) {
+		t.Errorf("ImageRef = %q, want the application image reference", second.ImageRef)
 	}
 }

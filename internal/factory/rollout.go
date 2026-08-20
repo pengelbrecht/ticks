@@ -32,14 +32,19 @@ import (
 // `image` is the digest-pinned reference the application is configured with
 // and `state` is derived from live instance health (`provisioning` while any
 // instance is starting or scheduling, `degraded` when one has failed). The
-// wait converges when that reference carries the digest this deploy pushed and
-// no instance is mid-transition.
+// wait converges when that reference carries the digest this deploy should
+// serve.
+// A matching digest in `provisioning` is already the new image serving; the
+// state can lag the image record by one listing near the rollout boundary.
 //
 // What it deliberately does NOT do is report success it cannot prove. A
 // rollout that has not converged inside the bound, an application the account
-// does not list, a deploy whose output named no digest — each of those ends the
-// deploy with a message saying exactly which one it was. `--skip-rollout-wait`
-// is the escape hatch, and it says in the output that nothing was confirmed.
+// does not list, or an output that neither names a digest nor says the image
+// push was skipped — each of those ends the deploy with a message saying
+// exactly which one it was. An idempotent deploy whose push was skipped reads
+// the existing digest from the application record and confirms that instead.
+// `--skip-rollout-wait` is the escape hatch, and it says in the output that
+// nothing was confirmed.
 
 // ContainerAppName is the `[[containers]]` application the bundle declares.
 // Wrangler creates and looks the application up by exactly this name (it is
@@ -48,11 +53,12 @@ import (
 const ContainerAppName = "ticks-orchestrator"
 
 const (
-	// How long the rollout may take before the deploy stops waiting. A
-	// container rollout is a registry pull plus a placement, so minutes is
-	// the right order; an unbounded wait for something that may never happen
-	// is its own failure mode.
-	defaultRolloutTimeout = 5 * time.Minute
+	// How long the rollout may take before the deploy stops waiting. A live
+	// rollout observed in the field crossed the old five-minute bound and
+	// reported the correct digest about 30 seconds later. Ten minutes leaves
+	// bounded headroom for that observed tail without turning a stuck rollout
+	// into an unbounded deploy.
+	defaultRolloutTimeout = 10 * time.Minute
 	defaultRolloutPoll    = 5 * time.Second
 )
 
@@ -72,13 +78,21 @@ var pushedImagePattern = regexp.MustCompile(
 // digestPattern pulls the digest out of an image reference.
 var digestPattern = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
 
+// skippedImagePushPattern is the stable wrangler line for an idempotent image
+// deploy. In this path wrangler emits no container image block, so the absence
+// of a parsed digest is only recoverable when this line explicitly says that
+// no push took place. A malformed or unexpectedly quiet deploy must still fail
+// closed as it did before the rollout wait existed.
+var skippedImagePushPattern = regexp.MustCompile(`(?im)^\s*Image already exists remotely, skipping push\s*$`)
+
 // parsePushedImage returns the digest-pinned orchestrator image reference in
 // wrangler's deploy output, and its digest.
 //
 // The LAST match wins: when wrangler prints a diff for an existing
 // application, the previous image is on the `-` side and the new one on the
-// `+` side below it. Empty when the output names none, which is a "cannot
-// confirm", never a "nothing changed".
+// `+` side below it. Empty when the output names none. Callers may recover an
+// empty digest only when deploySkippedImagePush reports Wrangler's explicit
+// idempotent no-push path.
 func parsePushedImage(out string) (ref, digest string) {
 	matches := pushedImagePattern.FindAllString(out, -1)
 	if len(matches) == 0 {
@@ -86,6 +100,10 @@ func parsePushedImage(out string) (ref, digest string) {
 	}
 	ref = matches[len(matches)-1]
 	return ref, digestPattern.FindString(ref)
+}
+
+func deploySkippedImagePush(out string) bool {
+	return skippedImagePushPattern.MatchString(out)
 }
 
 // containerApp is one entry of `wrangler containers list --json`.
@@ -114,6 +132,18 @@ func (a containerApp) digest() string { return digestPattern.FindString(a.Image)
 // `degraded` from instances that have failed; `active` and `ready` are the two
 // resting states (with and without live instances).
 func (a containerApp) settled() bool { return a.State == "active" || a.State == "ready" }
+
+// serves reports whether the application is reporting the expected image. A
+// matching image in `provisioning` is useful evidence rather than a stale
+// rollout: the image has already changed, and the state can lag that record at
+// the edge of the rollout. A degraded application is not accepted even when
+// its configured image matches.
+func (a containerApp) serves(expected string) bool {
+	if expected == "" || a.digest() != expected {
+		return false
+	}
+	return a.settled() || a.State == "provisioning"
+}
 
 // listContainerApps returns the account's container applications.
 func (w *wrangler) listContainerApps(ctx context.Context) ([]containerApp, error) {
@@ -145,7 +175,7 @@ func findContainerApp(apps []containerApp, name string) (containerApp, bool) {
 }
 
 // RolloutError reports that the deploy could not prove the container
-// application is serving the image it just pushed.
+// application is serving the image it should serve.
 //
 // It is its own type because the deployment itself succeeded: the bundle is
 // uploaded, the secrets landed and ~/.ticksrc holds the credentials. What
@@ -154,8 +184,12 @@ func findContainerApp(apps []containerApp, name string) (containerApp, bool) {
 // is the green deploy that sends the operator hunting for a bug that is not
 // there.
 type RolloutError struct {
-	// Expected is the digest this deploy pushed, "" when it could not be read.
+	// Expected is the digest this deploy should serve, "" when it could not be
+	// read. An idempotent deploy gets it from the application record.
 	Expected string
+	// ExpectedFromApplication records that Expected came from the existing
+	// application record because Wrangler skipped the image push.
+	ExpectedFromApplication bool
 	// Serving is the digest the application last reported, "" when unknown.
 	Serving string
 	// Reason names which confirmation failed, in one sentence.
@@ -172,7 +206,11 @@ func (e *RolloutError) Error() string {
 	fmt.Fprintf(&b, "the factory deployed, but the %s container rollout could not be confirmed: %s",
 		ContainerAppName, e.Reason)
 	if e.Expected != "" {
-		fmt.Fprintf(&b, "\n  image this deploy pushed: %s", e.Expected)
+		label := "image this deploy pushed"
+		if e.ExpectedFromApplication {
+			label = "image the application record reports"
+		}
+		fmt.Fprintf(&b, "\n  %s: %s", label, e.Expected)
 	}
 	if e.Serving != "" {
 		fmt.Fprintf(&b, "\n  image the application reports: %s", e.Serving)
@@ -180,10 +218,14 @@ func (e *RolloutError) Error() string {
 	if e.Waited > 0 {
 		fmt.Fprintf(&b, "\n  waited: %s", e.Waited.Round(time.Second))
 	}
+	message := "the image this deploy built rather than the previous one"
+	if e.ExpectedFromApplication {
+		message = "the image this deploy expected rather than an older one"
+	}
 	b.WriteString("\n" +
 		"Nothing is lost and nothing needs undoing — the bundle, the secrets and your\n" +
 		"credentials all landed. What is not proven is that a run started NOW would boot\n" +
-		"the image this deploy built rather than the previous one, which is why this is\n" +
+		message + ", which is why this is\n" +
 		"not being reported as success.\n" +
 		"Check `wrangler containers list` until the image matches, then re-run\n" +
 		"`tk factory deploy` (it is idempotent), or deploy with --skip-rollout-wait to\n" +
@@ -196,7 +238,7 @@ func (e *RolloutError) Unwrap() error { return e.Err }
 // rolloutOutcome is what a confirmed (or deliberately skipped) rollout leaves
 // for the Result and for the operator.
 type rolloutOutcome struct {
-	// Ref is the digest-pinned image reference the deploy pushed.
+	// Ref is the digest-pinned image reference the deploy confirmed.
 	Ref string
 	// Digest is the image digest the application was confirmed to serve.
 	Digest string
@@ -205,7 +247,7 @@ type rolloutOutcome struct {
 }
 
 // confirmContainerRollout waits for the container application to report the
-// image this deploy pushed, and reports honestly when it cannot.
+// image this deploy should serve, and reports honestly when it cannot.
 func confirmContainerRollout(
 	ctx context.Context,
 	w *wrangler,
@@ -215,6 +257,7 @@ func confirmContainerRollout(
 	skip bool,
 ) (rolloutOutcome, error) {
 	ref, digest := parsePushedImage(deployOut)
+	noPush := deploySkippedImagePush(deployOut)
 	outcome := rolloutOutcome{Ref: ref, Digest: digest}
 
 	if skip {
@@ -226,7 +269,7 @@ func confirmContainerRollout(
 		return outcome, nil
 	}
 
-	if digest == "" {
+	if digest == "" && !noPush {
 		// Not a parse bug to shrug at: without the digest there is nothing to
 		// compare the application against, so the deploy cannot tell a rolled
 		// out image from a stale one — the exact condition this wait exists
@@ -244,12 +287,18 @@ func confirmContainerRollout(
 		poll = defaultRolloutPoll
 	}
 
-	fmt.Fprintf(out, "waiting for the %s container application to serve %s\n",
-		ContainerAppName, shortDigest(digest))
+	if digest == "" {
+		fmt.Fprintf(out, "wrangler skipped the image push; resolving the existing %s image from the container application\n",
+			ContainerAppName)
+	} else {
+		fmt.Fprintf(out, "waiting for the %s container application to serve %s\n",
+			ContainerAppName, shortDigest(digest))
+	}
 
 	started := time.Now()
 	deadline := started.Add(timeout)
 	var lastServing string
+	var lastState string
 	var lastErr error
 	for attempt := 1; ; attempt++ {
 		apps, err := w.listContainerApps(ctx)
@@ -264,7 +313,18 @@ func confirmContainerRollout(
 				lastErr = fmt.Errorf("the account lists no container application named %q", ContainerAppName)
 			default:
 				lastServing = app.digest()
-				if lastServing == digest && app.settled() {
+				lastState = app.State
+				if digest == "" && lastServing != "" {
+					// Wrangler intentionally omitted the image block because it did
+					// not push. The application record is the authoritative image
+					// identity for this idempotent deploy.
+					ref = app.Image
+					digest = lastServing
+					outcome.Ref = ref
+					outcome.Digest = digest
+					fmt.Fprintf(out, "  existing container image is %s; confirming it\n", shortDigest(digest))
+				}
+				if app.serves(digest) {
 					fmt.Fprintf(out, "container application %s is serving %s (%s)\n",
 						ContainerAppName, shortDigest(digest), app.State)
 					outcome.Confirmed = true
@@ -273,16 +333,21 @@ func confirmContainerRollout(
 			}
 		}
 
-		if !time.Now().Add(poll).Before(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			break
 		}
+		wait := poll
+		if remaining < wait {
+			wait = remaining
+		}
 		if attempt == 1 {
-			// One line, not one per poll: a five-minute wait must not bury
+			// One line, not one per poll: a ten-minute wait must not bury
 			// the deploy's own output.
 			fmt.Fprintf(out, "  rollout in progress; polling every %s for up to %s\n",
 				poll.Round(time.Second), timeout.Round(time.Second))
 		}
-		timer := time.NewTimer(poll)
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {
@@ -294,16 +359,25 @@ func confirmContainerRollout(
 	}
 
 	failure := &RolloutError{
-		Expected: ref,
-		Serving:  lastServing,
-		Waited:   time.Since(started),
-		Err:      lastErr,
+		Expected:                ref,
+		ExpectedFromApplication: noPush,
+		Serving:                 lastServing,
+		Waited:                  time.Since(started),
+		Err:                     lastErr,
 	}
 	switch {
 	case lastErr != nil:
 		failure.Reason = "the container application could not be read: " + lastErr.Error()
 	case lastServing == "":
-		failure.Reason = "the container application reports no digest-pinned image"
+		if noPush {
+			failure.Reason = "wrangler skipped the image push, but the container application reports no digest-pinned image"
+		} else {
+			failure.Reason = "the container application reports no digest-pinned image"
+		}
+	case lastServing == digest && lastState == "degraded":
+		failure.Reason = "the container application reports the expected image but is degraded"
+	case lastServing == digest:
+		failure.Reason = "the container application is still reporting the expected image in state " + lastState
 	default:
 		failure.Reason = "the container application is still serving a different image"
 	}
