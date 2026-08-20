@@ -1,0 +1,16 @@
+{
+  "id": "nqb",
+  "title": "AI Gateway logs per_page exceeds the API maximum of 50",
+  "description": "Found by the live run immediately after 97x fixed the filter shape — the next layer of the same untested query. cloud/factory/src/gateway.ts sets LOG_PAGE_SIZE = 100; the API caps per_page at 50 and answers 400 \"Number must be less than or equal to 50\".\n\nVerified against the real API on the operator account:\n  per_page=50 -\u003e HTTP 200\n  per_page=51 -\u003e HTTP 400\n\nFix: set LOG_PAGE_SIZE to 50 and pin it with a test asserting it is \u003c= the documented maximum, the same shape as the platform-cap guard the PBKDF2 fix uses (a named constant plus a test citing the limit). MAX_LOG_PAGES = 20 then covers 1000 log rows per run, which is the pagination budget worth stating in a comment.\n\nWhile in there: the run failed with \"cost budget cannot be enforced\" for a query bug rather than a genuine telemetry outage. Consider whether a 400 (a bug in OUR request) should be distinguished from a 5xx or network failure (a real outage) in the message, since they need different fixes from the operator — one is \"report this\", the other is \"retry or check the gateway\".",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "97x",
+  "acceptance_criteria": "The logs query uses per_page \u003c= 50 and a test fails if it is raised above the documented maximum; a run with a configured cost budget reads its telemetry and proceeds past acquireContext; a request-shape error is distinguishable from a telemetry outage in the operator-facing message.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T03:00:31.586073Z",
+  "updated_at": "2026-08-20T03:00:31.630871Z",
+  "started_at": "2026-08-20T03:00:31.630871Z"
+}
