@@ -1,0 +1,17 @@
+{
+  "id": "s7f",
+  "title": "Reconcile on orchestrator reboot: a dead orchestrator resumes from git",
+  "description": "The orchestrator sandbox is EXPECTED to die — context exhaustion, container eviction, API failure. Phase 1 boots a replacement; Phase 2 must make the replacement correct.\n\nA fresh orchestrators first instruction is the reconcile protocol, in the documented evidence order: manifests, then git, then the live sandbox list. Cold reconstruction from git + .tick/ must ALWAYS work (axiom 1); snapshot/restore is an accelerator that may make it fast, never a correctness dependency.\n\nThe rule the herd substrate learned the hard way and this must inherit: a live worker is never redispatched, whatever its branch looks like — a branch with no commits is exactly what a worker that has not committed yet looks like. Phase 1 hit this for real when a worker died mid-turn with 643 uncommitted lines and settled looking finished.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "0ds"
+  ],
+  "parent": "1vn",
+  "acceptance_criteria": "Killing the orchestrator container mid-wave leads to a fresh one that adopts live workers rather than redispatching them, resumes the wave, and finishes the run; a worker that is mid-turn with an empty branch is never redispatched; the same recovery works with the snapshot deleted, only slower.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:35:09.914934Z",
+  "updated_at": "2026-08-20T02:35:09.914934Z"
+}
