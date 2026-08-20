@@ -411,6 +411,119 @@ function sanitizedHeaders(request: Request): Headers {
   return headers;
 }
 
+// -------------------------------------------------- the workers-ai dialect ---
+
+/**
+ * The one place a provider's dialect is normalised, and why it is here.
+ *
+ * `docs/design/cloud-factory.md` used to say Workers AI models "speak the
+ * OpenAI-compatible shape", and a live run found the sentence doing more work
+ * than the endpoint supports. Workers AI's `/v1/chat/completions` requires
+ * `messages[].content` to be a **string**. omp sends OpenAI CONTENT PARTS —
+ * `[{ "type": "text", "text": "…" }]` — for user messages while sending the
+ * system message as a plain string, so a run that had passed every gate before
+ * it (boot, clone, pre-flight, model resolution, a GREEN gateway probe) died
+ * at the first real call with:
+ *
+ *   400 AiError: Bad input: oneOf at / not met, 0 matches:
+ *   Type mismatch of /messages/0/content, array not in string …
+ *
+ * The route works; the compatibility is partial. Of the three ways to close
+ * that gap, this is the one taken:
+ *
+ * - omp has no setting for it. Its provider config (`models.yml`) takes
+ *   `baseUrl`, `api`, `apiKey`, `models` and a `compat` block, and that block
+ *   has no key for the wire shape of message content — checked against the
+ *   shipped binary's compat surface, not assumed.
+ * - Swapping harnesses for this one rung would make the no-key rung the only
+ *   one that cannot run the default kind, which is a bigger claim than the bug.
+ * - Translating here is contained. Every model call already passes through
+ *   this Worker (the run token is exchanged and the metadata stamped here), so
+ *   the dialect is normalised at the one hop that already reads the request,
+ *   and the kind table stays honest: `workers-ai` remains the OpenAI-style
+ *   route, with the one documented difference handled in one function.
+ *
+ * The standing risk of any translation layer is that it silently drops what it
+ * cannot express. This one refuses instead: a non-text part (an image, audio,
+ * a file) has no string form, so the request is rejected with a message naming
+ * the message index and the part type, rather than reaching the model as a
+ * prompt with a hole in it.
+ */
+export type ContentPartsRewrite =
+  /** `body` is the rewritten JSON, or null when the request already conformed. */
+  | { ok: true; body: string | null }
+  | { ok: false; detail: string };
+
+/** The part types that have a faithful string form. */
+const TEXT_PART_TYPES = ["text", "input_text"];
+
+/**
+ * Joins the text parts of one message into the string Workers AI requires.
+ *
+ * Parts are separated by a blank line: each part is a block the harness chose
+ * to keep separate, and concatenating them edge to edge would run the last
+ * word of one into the first word of the next.
+ */
+function joinTextParts(parts: string[]): string {
+  return parts.filter((part) => part !== "").join("\n\n");
+}
+
+/**
+ * Rewrites `messages[].content` arrays into strings, or says why it cannot.
+ *
+ * Anything that is not a JSON object with a `messages` array is left exactly
+ * as it arrived — `/v1/models` and any future endpoint pass through untouched,
+ * and a malformed body earns the upstream's own error rather than this one's.
+ */
+export function stringifyContentParts(raw: string): ContentPartsRewrite {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return { ok: true, body: null };
+  }
+  if (payload === null || typeof payload !== "object") return { ok: true, body: null };
+  const messages = (payload as { messages?: unknown }).messages;
+  if (!Array.isArray(messages)) return { ok: true, body: null };
+
+  let rewrote = false;
+  for (const [index, message] of messages.entries()) {
+    if (message === null || typeof message !== "object") continue;
+    const content = (message as { content?: unknown }).content;
+    // A string is already what this route wants; null is an assistant message
+    // carrying tool calls and nothing to say, which is the caller's business.
+    if (!Array.isArray(content)) continue;
+
+    const texts: string[] = [];
+    for (const part of content) {
+      const type =
+        part !== null && typeof part === "object"
+          ? (part as { type?: unknown }).type
+          : undefined;
+      const text =
+        part !== null && typeof part === "object"
+          ? (part as { text?: unknown }).text
+          : undefined;
+      if (typeof type === "string" && TEXT_PART_TYPES.includes(type) && typeof text === "string") {
+        texts.push(text);
+        continue;
+      }
+      const named = typeof type === "string" && type !== "" ? type : "untyped";
+      return {
+        ok: false,
+        detail:
+          `the workers-ai route needs each message's content as a string, and messages[${index}] ` +
+          `carries a "${named}" part with no string form; this factory will not drop it silently, ` +
+          "so route this run at a provider that accepts OpenAI content parts (anthropic, openai, " +
+          "openrouter) or keep its prompts text-only",
+      };
+    }
+    (message as { content: unknown }).content = joinTextParts(texts);
+    rewrote = true;
+  }
+  return { ok: true, body: rewrote ? JSON.stringify(payload) : null };
+}
+
 export type ProxyOptions = {
   /** Substituted in tests; the deployment uses the global fetch. */
   fetcher?: typeof fetch;
@@ -426,6 +539,11 @@ const jsonError = (denial: GatewayDenial): Response =>
  * The response is returned as it arrives, body stream and all: a harness
  * streaming tokens must keep streaming through the proxy, or every cloud run
  * would look hung for the length of each completion.
+ *
+ * The `workers-ai` route is the one place the request body is read rather than
+ * streamed through: its endpoint takes message content as a string, not as
+ * OpenAI content parts. See `stringifyContentParts` for why the translation
+ * lives here and what it refuses to do.
  */
 export async function proxyModelRequest(
   env: Env,
@@ -475,14 +593,36 @@ export async function proxyModelRequest(
   const gatewayAuth = textVar(env.CLOUDFLARE_API_TOKEN);
   if (gatewayAuth !== null) headers.set("cf-aig-authorization", `Bearer ${gatewayAuth}`);
 
+  let body: BodyInit | null =
+    request.method === "GET" || request.method === "HEAD" ? null : request.body;
+  // Only this route, and only because its endpoint disagrees with the shape
+  // the harness sends. Buffering here costs one request body held in memory;
+  // the response is still streamed, which is the half a run's output depends on.
+  if (slug === "workers-ai" && body !== null) {
+    const raw = await request.text();
+    const rewrite = stringifyContentParts(raw);
+    if (!rewrite.ok) {
+      console.error(
+        `factory gateway: run ${authorized.run.run_id} sent the workers-ai route content ` +
+          `parts it cannot carry: ${rewrite.detail}`
+      );
+      return jsonError({
+        status: 400,
+        error: "workers_ai_content_unsupported",
+        detail: rewrite.detail,
+      });
+    }
+    body = rewrite.body ?? raw;
+  }
+
   const fetcher = options.fetcher ?? fetch;
   try {
     return await fetcher(target, {
       method: request.method,
       headers,
-      body: request.method === "GET" || request.method === "HEAD" ? null : request.body,
+      body,
       // A streaming request body must not be buffered on its way through.
-      ...(request.body === null ? {} : { duplex: "half" }),
+      ...(typeof body === "string" || body === null ? {} : { duplex: "half" }),
     } as RequestInit);
   } catch (error) {
     console.error(

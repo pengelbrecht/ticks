@@ -330,7 +330,14 @@ The namespace is a constant rather than a choice, so an id that omits it
 (`workers-ai/meta/llama-3.3-70b-instruct-fp8-fast`) still resolves — the
 entrypoint restores it. Because Workers AI has no vendor variable of its own that a
 harness knows to read — what it has is an OpenAI-compatible endpoint under
-`/v1` — a Workers AI model repoints `OPENAI_BASE_URL` at that route. The
+`/v1` — a Workers AI model repoints `OPENAI_BASE_URL` at that route. That
+endpoint is OpenAI-*compatible*, not OpenAI: it takes `messages[].content` as a
+string, while omp sends OpenAI content parts. The factory's gateway Worker
+normalises the two on the `workers-ai` route
+(`stringifyContentParts`, `cloud/factory/src/gateway.ts`) and refuses any part
+with no string form rather than dropping it, so nothing in this container has
+to know about the difference — but a `400` naming `/messages/N/content` on the
+first real call means the deployed factory predates that translation. The
 `claude` harness speaks the Anthropic API only, so pairing it with another
 provider's model is exit 7 rather than a run that cannot make one call.
 

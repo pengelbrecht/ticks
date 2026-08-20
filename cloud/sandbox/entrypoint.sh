@@ -259,6 +259,13 @@ select_model_route() {
 	openrouter) model_base_url="$gateway/openrouter" ;;
 	# Workers AI serves the OpenAI-compatible shape under /v1, which is what
 	# makes it usable by a harness with a configurable OpenAI-style provider.
+	# Compatible, not identical: that endpoint takes messages[].content as a
+	# STRING and omp sends OpenAI content parts, so the factory's gateway Worker
+	# normalises the two on this route (stringifyContentParts in
+	# cloud/factory/src/gateway.ts). Nothing in the container does that work —
+	# but a deployment whose gateway predates that fix answers this route's
+	# first real call with a 400 naming /messages/N/content, which is what to
+	# look for here.
 	workers-ai) model_base_url="$gateway/workers-ai/v1" ;;
 	esac
 
@@ -414,7 +421,9 @@ select_harness_route() {
 		workers-ai)
 			# omp has no `workers-ai` provider. It has `cloudflare-ai-gateway`,
 			# which is what this route IS, and the shape our gateway serves it
-			# in is the OpenAI-compatible one under /v1.
+			# in is the OpenAI-compatible one under /v1. omp has no setting for
+			# the wire shape of message content, so the content-parts/string
+			# difference is closed at the gateway, not here.
 			harness_provider="cloudflare-ai-gateway"
 			harness_credential_env="CLOUDFLARE_AI_GATEWAY_API_KEY"
 			harness_model_api="openai-completions"

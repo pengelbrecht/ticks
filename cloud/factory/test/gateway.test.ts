@@ -22,6 +22,7 @@ import {
   revokeRunTokens,
   runGatewayEndpoint,
   spendFailureRemedy,
+  stringifyContentParts,
   syncRunCost,
 } from "../src/gateway";
 import { submitRun } from "../src/runs";
@@ -85,13 +86,17 @@ async function liveRun(state = "running"): Promise<Run> {
 
 /** Records what the gateway was asked for, and answers as a vendor would. */
 class FakeGateway {
-  readonly calls: { url: string; headers: Headers; method: string }[] = [];
+  readonly calls: { url: string; headers: Headers; method: string; body: string | null }[] = [];
 
   readonly fetcher: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     this.calls.push({
       url: String(input),
       headers: new Headers(init?.headers ?? {}),
       method: init?.method ?? "GET",
+      // A string body is one this Worker read and rebuilt; anything else was
+      // forwarded as the stream it arrived on, which is what every route but
+      // workers-ai must keep doing.
+      body: typeof init?.body === "string" ? init.body : null,
     });
     return Response.json({ content: [{ text: "hello" }] });
   }) as unknown as typeof fetch;
@@ -249,6 +254,230 @@ describe("every model request carries run and tick metadata", () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({ error: "provider_not_configured" });
     expect(gateway.calls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------- the workers-ai dialect ---
+
+/**
+ * The shape omp actually puts on the wire, captured from the shipped binary
+ * against a recording endpoint: the system message is a plain string, the user
+ * message is an array of OpenAI content parts. Workers AI's
+ * `/v1/chat/completions` accepts only the first of those, which is what killed
+ * the furthest run yet with `Type mismatch of /messages/…/content`.
+ */
+const OMP_REQUEST = JSON.stringify({
+  model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  messages: [
+    { role: "system", content: "<system-conventions>RFC 2119</system-conventions>" },
+    { role: "user", content: [{ type: "text", text: "Reply with the single word Ready." }] },
+  ],
+  stream: true,
+});
+
+function workersAIRequest(body: string, token: string): Request {
+  return new Request(`${FACTORY}${GATEWAY_PATH_PREFIX}/workers-ai/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body,
+  });
+}
+
+const WORKERS_AI_PATH = ["workers-ai", "v1", "chat", "completions"];
+
+async function liveToken(): Promise<{ run: Run; token: string }> {
+  const run = await liveRun();
+  const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "is0", attempt: 1 });
+  return { run, token };
+}
+
+describe("the workers-ai route takes content as a string, not as parts", () => {
+  it("collapses the content parts omp sends into the string the endpoint requires", async () => {
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    const response = await proxyModelRequest(
+      env,
+      workersAIRequest(OMP_REQUEST, token),
+      WORKERS_AI_PATH,
+      { fetcher: gateway.fetcher }
+    );
+
+    expect(response.status).toBe(200);
+    expect(gateway.last.url).toBe(`${GATEWAY}/workers-ai/v1/chat/completions`);
+    const sent = JSON.parse(gateway.last.body ?? "null") as {
+      model: string;
+      stream: boolean;
+      messages: { role: string; content: unknown }[];
+    };
+    // Every message's content is a string — the whole of what Workers AI rejected.
+    for (const message of sent.messages) expect(typeof message.content).toBe("string");
+    expect(sent.messages[1]).toEqual({
+      role: "user",
+      content: "Reply with the single word Ready.",
+    });
+    // And nothing else about the request was invented or dropped.
+    expect(sent.model).toBe("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    expect(sent.stream).toBe(true);
+    expect(sent.messages[0]).toEqual({
+      role: "system",
+      content: "<system-conventions>RFC 2119</system-conventions>",
+    });
+  });
+
+  it("separates several text parts by a blank line rather than running them together", async () => {
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    await proxyModelRequest(
+      env,
+      workersAIRequest(
+        JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "first block" },
+                { type: "text", text: "second block" },
+              ],
+            },
+          ],
+        }),
+        token
+      ),
+      WORKERS_AI_PATH,
+      { fetcher: gateway.fetcher }
+    );
+
+    const sent = JSON.parse(gateway.last.body ?? "null") as { messages: { content: string }[] };
+    expect(sent.messages[0]!.content).toBe("first block\n\nsecond block");
+  });
+
+  it("refuses a part it cannot express rather than dropping it silently", async () => {
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    const response = await proxyModelRequest(
+      env,
+      workersAIRequest(
+        JSON.stringify({
+          messages: [
+            { role: "system", content: "be brief" },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "what is in this screenshot?" },
+                { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+              ],
+            },
+          ],
+        }),
+        token
+      ),
+      WORKERS_AI_PATH,
+      { fetcher: gateway.fetcher }
+    );
+
+    expect(response.status).toBe(400);
+    const failure = (await response.json()) as { error: string; detail: string };
+    expect(failure.error).toBe("workers_ai_content_unsupported");
+    // The message index and the part type, so the operator knows what was refused.
+    expect(failure.detail).toContain("messages[1]");
+    expect(failure.detail).toContain("image_url");
+    // A refusal, not a request with a hole in it.
+    expect(gateway.calls).toHaveLength(0);
+  });
+
+  it("leaves a request that already conforms exactly as it arrived", async () => {
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+    const conforming = JSON.stringify({
+      model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      messages: [{ role: "user", content: "Reply with the single word Ready." }],
+    });
+
+    await proxyModelRequest(env, workersAIRequest(conforming, token), WORKERS_AI_PATH, {
+      fetcher: gateway.fetcher,
+    });
+
+    expect(gateway.last.body).toBe(conforming);
+  });
+
+  it("normalises only this route — every other provider keeps its streamed body", async () => {
+    set("OPENAI_API_KEY", "sk-operator-openai");
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    await proxyModelRequest(
+      env,
+      new Request(`${FACTORY}${GATEWAY_PATH_PREFIX}/openai/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: OMP_REQUEST,
+      }),
+      ["openai", "v1", "chat", "completions"],
+      { fetcher: gateway.fetcher }
+    );
+
+    // Not a string: the body was forwarded as the stream it arrived on, so the
+    // OpenAI route still sees the content parts its endpoint accepts.
+    expect(gateway.last.body).toBeNull();
+  });
+});
+
+describe("what the workers-ai translation will and will not touch", () => {
+  it("passes a body that is not JSON straight through", () => {
+    expect(stringifyContentParts("not json at all")).toEqual({ ok: true, body: null });
+  });
+
+  it("passes a JSON body with no messages straight through", () => {
+    expect(stringifyContentParts(JSON.stringify({ prompt: "hello" }))).toEqual({
+      ok: true,
+      body: null,
+    });
+  });
+
+  it("leaves a null assistant content alone — that is a tool call, not a prompt", () => {
+    const body = JSON.stringify({
+      messages: [{ role: "assistant", content: null, tool_calls: [{ id: "call_1" }] }],
+    });
+    expect(stringifyContentParts(body)).toEqual({ ok: true, body: null });
+  });
+
+  it("turns an empty parts array into an empty string, not into a dropped message", () => {
+    const rewrite = stringifyContentParts(
+      JSON.stringify({ messages: [{ role: "user", content: [] }] })
+    );
+    expect(rewrite.ok).toBe(true);
+    const sent = JSON.parse((rewrite as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    expect(sent.messages).toHaveLength(1);
+    expect(sent.messages[0]).toEqual({ role: "user", content: "" });
+  });
+
+  it("accepts the responses-style input_text part name too", () => {
+    const rewrite = stringifyContentParts(
+      JSON.stringify({ messages: [{ role: "user", content: [{ type: "input_text", text: "hi" }] }] })
+    );
+    const sent = JSON.parse((rewrite as { body: string }).body) as {
+      messages: { content: string }[];
+    };
+    expect(sent.messages[0]!.content).toBe("hi");
+  });
+
+  it("names the message and the part when it refuses", () => {
+    const rewrite = stringifyContentParts(
+      JSON.stringify({
+        messages: [
+          { role: "user", content: "ok" },
+          { role: "user", content: [{ type: "input_audio", input_audio: {} }] },
+        ],
+      })
+    );
+    expect(rewrite.ok).toBe(false);
+    expect((rewrite as { detail: string }).detail).toContain("messages[1]");
+    expect((rewrite as { detail: string }).detail).toContain("input_audio");
   });
 });
 

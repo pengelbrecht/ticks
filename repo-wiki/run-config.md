@@ -115,6 +115,13 @@ consequences for anyone editing this table:
   `@` is not legal under the schema's `Model` pattern, so the config writes
   `workers-ai/meta/llama-3.3-70b-instruct-fp8-fast` and
   `cloud/sandbox/entrypoint.sh` restores the `@cf/` namespace.
+- **Workers AI is OpenAI-*compatible*, not OpenAI.** Its `/v1/chat/completions`
+  takes `messages[].content` as a string; omp sends OpenAI content parts. The
+  factory's gateway Worker normalises the two on the `workers-ai` route
+  (`stringifyContentParts` in `cloud/factory/src/gateway.ts`) and refuses a part
+  with no string form rather than dropping it. Nothing in `runners.toml` or the
+  container has to know — but a `400 … Type mismatch of /messages/N/content` on
+  a run's first real call means the deployed factory predates that translation.
 
 See `cloud/sandbox/README.md` → *The model, and why a boot proves it* for the
 boot-side half (route selection, the one-token gateway probe, exit 7).
