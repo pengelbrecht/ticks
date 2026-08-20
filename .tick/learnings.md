@@ -83,12 +83,11 @@ silently corrupting stored descriptions with command output.
 **Rule:** Single-quote (or heredoc) any tick text containing backticks, `$`, or `()`; verify
 with `tk show <id>` after bulk creation.
 
-**Problem:** A half-applied merge left files staged; `git add .tick/ && git commit` then captured
-those leftovers into the tracker commit.
-**Cause:** `git commit` commits the WHOLE index, not just what you added.
+**Problem:** A half-applied merge left files staged; `git add .tick/ && git commit` captured them
+into the tracker commit. **Cause:** `git commit` commits the WHOLE index.
 **Rule:** Use `git add .tick/ && git commit .tick/ -m "..."` — the pathspec excludes foreign staged
-files, and the explicit add is required (a bare pathspec commit skips untracked files, so new tick
-JSONs never land; seen twice). After any merge confirm `MERGE_HEAD` is empty before committing.
+files, and the explicit add is required (a bare pathspec commit skips untracked files; seen twice).
+After any merge confirm `MERGE_HEAD` is empty first.
 
 ## Cloudflare (cloud/factory)
 
