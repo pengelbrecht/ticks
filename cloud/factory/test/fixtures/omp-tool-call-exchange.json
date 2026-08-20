@@ -1,0 +1,417 @@
+{
+  "_comment": "Recorded by scripts/verify-harness-tool-execution.mjs from a real omp run. These are the requests omp puts on the wire AFTER it has executed a tool call, which is the shape cloud/factory/src/gateway.ts has to carry on the workers-ai route. Do not hand-edit: re-record by running the script.",
+  "omp_version": "omp/17.3.4",
+  "after_first_tool_result": {
+    "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "messages": [
+      {
+        "role": "system",
+        "content": "<omp system prompt, 27399 characters, redacted>"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Create tool-execution-proof.txt and commit it."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_write_proof",
+            "type": "function",
+            "function": {
+              "name": "write",
+              "arguments": "{\"i\":\"write the proof file\",\"path\":\"tool-execution-proof.txt\",\"content\":\"executed-by-the-harness\\n\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "[tool-execution-proof.txt#C4FD]\nSuccessfully wrote 24 bytes to tool-execution-proof.txt",
+        "tool_call_id": "call_write_proof"
+      }
+    ],
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "store": false,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "bash",
+          "description": "Runs commands in a persistent shell.\n\nUse ONLY for one binary or a short pipeline that computes a fact (`wc -l`, `sort | uniq -c`, `diff`).\nInline scripts, heredocs, `$(…)`, complex control flow/quoting, and non-trivial pipelines → `eval`.\n\n<instruction>\n- Set `cwd` instead of `cd`; use `env: { NAME: \"…\" }` for multiline/quote-heavy values.\n- `pty: true` only for terminal interaction (`sudo`, `ssh`).\n- Order-dependent commands use `&&` in one call; independent calls may run concurrently.\n- Internal URIs (`skill://`, `agent://`, …) auto-resolve to paths.\n- aux utils available: mkdir, wc, sort, comm, diff, uniq, base64, cmp, md5sum, sha{1,224,256,384,512}sum, b2sum, basename, dirname, readlink, realpath, touch, stat, date, mktemp, seq, yes, printenv, truncate, tac, nproc, uname, whoami, hostname, which, ps, pgrep, pkill, pidwait, top, cut, tee, tr, paste, sed, xargs, jq, rm, mv, ln, ts, sponge, ifne, isutf8, combine, errno\n- `async: true` defers a finite command's result; it does not extend `timeout`.\n</instruction>\n\n<critical>\n- NEVER use shell `grep`/`rg`; use built-in `grep`.\n- List directories with `read` and find paths with `glob`; NEVER use `ls`/`find`.\n- Avoid `head`, `tail`, and redirection: output is captured, truncated, and linked as `artifact://<id>`.\n- Services, watchers, debuggers, and REPLs MUST use `hub` (`op:\"start\"`).\n</critical>\nNo truncation footer means the displayed output is complete.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "string",
+                "description": "concise intent"
+              },
+              "command": {
+                "type": "string"
+              },
+              "env": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "timeout": {
+                "type": "number",
+                "description": "timeout in seconds; 0 disables the command deadline; nonzero values are clamped to 1-3600"
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "pty": {
+                "type": "boolean"
+              },
+              "async": {
+                "type": "boolean",
+                "description": "run in background"
+              }
+            },
+            "required": [
+              "command",
+              "i"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "write",
+          "description": "Creates or overwrites file at specified path.\n\n<conditions>\n- Creating new files explicitly required by task\n- Replacing entire file contents when editing would be more complex\n- Supports `.tar`, `.tar.gz`, `.tgz`, `.zip`, and ZIP-based `.jar`/`.war`/`.ear`/`.apk` archive entries via `archive.ext:path/inside/archive`\n- Supports SQLite row operations via `db.sqlite:table` (insert), `db.sqlite:table:key` (update with JSON content, delete with empty content)\n</conditions>\n\n<critical>\n- You SHOULD use Edit tool for modifying existing files\n- You NEVER create documentation files (*.md, README) unless explicitly requested\n- You NEVER use emojis unless requested\n</critical>",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "string",
+                "description": "concise intent"
+              },
+              "path": {
+                "type": "string",
+                "description": "file path"
+              },
+              "content": {
+                "type": "string",
+                "description": "file content"
+              }
+            },
+            "required": [
+              "path",
+              "content",
+              "i"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "max_completion_tokens": 16384
+  },
+  "after_second_tool_result": {
+    "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "messages": [
+      {
+        "role": "system",
+        "content": "<omp system prompt, 27399 characters, redacted>"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Create tool-execution-proof.txt and commit it."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_write_proof",
+            "type": "function",
+            "function": {
+              "name": "write",
+              "arguments": "{\"i\":\"write the proof file\",\"path\":\"tool-execution-proof.txt\",\"content\":\"executed-by-the-harness\\n\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "[tool-execution-proof.txt#C4FD]\nSuccessfully wrote 24 bytes to tool-execution-proof.txt",
+        "tool_call_id": "call_write_proof"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_commit_proof",
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "arguments": "{\"i\":\"commit the proof file\",\"command\":\"git add -A && git commit -m 'harness tool execution proof'\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "[main <commit>] harness tool execution proof\n 1 file changed, 1 insertion(+)\n create mode 100644 tool-execution-proof.txt\n\n\nWall time: <elapsed>",
+        "tool_call_id": "call_commit_proof"
+      }
+    ],
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "store": false,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "bash",
+          "description": "Runs commands in a persistent shell.\n\nUse ONLY for one binary or a short pipeline that computes a fact (`wc -l`, `sort | uniq -c`, `diff`).\nInline scripts, heredocs, `$(…)`, complex control flow/quoting, and non-trivial pipelines → `eval`.\n\n<instruction>\n- Set `cwd` instead of `cd`; use `env: { NAME: \"…\" }` for multiline/quote-heavy values.\n- `pty: true` only for terminal interaction (`sudo`, `ssh`).\n- Order-dependent commands use `&&` in one call; independent calls may run concurrently.\n- Internal URIs (`skill://`, `agent://`, …) auto-resolve to paths.\n- aux utils available: mkdir, wc, sort, comm, diff, uniq, base64, cmp, md5sum, sha{1,224,256,384,512}sum, b2sum, basename, dirname, readlink, realpath, touch, stat, date, mktemp, seq, yes, printenv, truncate, tac, nproc, uname, whoami, hostname, which, ps, pgrep, pkill, pidwait, top, cut, tee, tr, paste, sed, xargs, jq, rm, mv, ln, ts, sponge, ifne, isutf8, combine, errno\n- `async: true` defers a finite command's result; it does not extend `timeout`.\n</instruction>\n\n<critical>\n- NEVER use shell `grep`/`rg`; use built-in `grep`.\n- List directories with `read` and find paths with `glob`; NEVER use `ls`/`find`.\n- Avoid `head`, `tail`, and redirection: output is captured, truncated, and linked as `artifact://<id>`.\n- Services, watchers, debuggers, and REPLs MUST use `hub` (`op:\"start\"`).\n</critical>\nNo truncation footer means the displayed output is complete.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "string",
+                "description": "concise intent"
+              },
+              "command": {
+                "type": "string"
+              },
+              "env": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "timeout": {
+                "type": "number",
+                "description": "timeout in seconds; 0 disables the command deadline; nonzero values are clamped to 1-3600"
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "pty": {
+                "type": "boolean"
+              },
+              "async": {
+                "type": "boolean",
+                "description": "run in background"
+              }
+            },
+            "required": [
+              "command",
+              "i"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "write",
+          "description": "Creates or overwrites file at specified path.\n\n<conditions>\n- Creating new files explicitly required by task\n- Replacing entire file contents when editing would be more complex\n- Supports `.tar`, `.tar.gz`, `.tgz`, `.zip`, and ZIP-based `.jar`/`.war`/`.ear`/`.apk` archive entries via `archive.ext:path/inside/archive`\n- Supports SQLite row operations via `db.sqlite:table` (insert), `db.sqlite:table:key` (update with JSON content, delete with empty content)\n</conditions>\n\n<critical>\n- You SHOULD use Edit tool for modifying existing files\n- You NEVER create documentation files (*.md, README) unless explicitly requested\n- You NEVER use emojis unless requested\n</critical>",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "string",
+                "description": "concise intent"
+              },
+              "path": {
+                "type": "string",
+                "description": "file path"
+              },
+              "content": {
+                "type": "string",
+                "description": "file content"
+              }
+            },
+            "required": [
+              "path",
+              "content",
+              "i"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "max_completion_tokens": 16384
+  },
+  "scripted_responses": {
+    "write_call": [
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "call_write_proof",
+                  "type": "function",
+                  "function": {
+                    "name": "write",
+                    "arguments": ""
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\"i\":\"write the proof file\",\"path\":\"tool-execution-proof.txt\",\"content\":\"executed-by-the-harness\\n\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "tool_calls"
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        }
+      }
+    ],
+    "bash_call": [
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "call_commit_proof",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": ""
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\"i\":\"commit the proof file\",\"command\":\"git add -A && git commit -m 'harness tool execution proof'\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "tool_calls"
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-tool-execution-proof",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        }
+      }
+    ]
+  }
+}

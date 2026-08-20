@@ -305,6 +305,62 @@ The model flag is provider-qualified for the same reason
 own catalog and may land on a provider nothing here authorised — which is the
 other half of the failure above.
 
+### Does the harness execute tools, or narrate them?
+
+The first cloud run to complete a real agent turn printed `**Action taken**`
+above a `tk note 72y "runner-state: …"` line, and the note was nowhere
+afterwards. From outside the container two readings were indistinguishable: the
+harness ran the command against its ephemeral checkout and the aborted run never
+pushed, or the harness narrated a command it never ran. The second would be
+disqualifying — a coding agent that reasons well and cannot call a tool is
+worthless here — and no amount of reading the run log settles it, because a log
+is the agent's own account of itself.
+
+`scripts/verify-harness-tool-execution.mjs` settles it with a side effect that
+outlives the harness. It substitutes exactly one thing, the model: a local
+OpenAI-compatible SSE endpoint that answers with a fixed script, so the tool
+calls are deterministic rather than whatever a 70B model felt like emitting.
+Everything else is real — the real `omp` binary, the `models.yml` wiring this
+entrypoint writes, the flags this entrypoint starts the harness with, a real git
+repository. It scripts a `write` call and then a `bash` call that commits, and
+then looks at the disk and at `git log` **after omp has exited**. omp executes
+both: the file is on disk with exactly the bytes the call asked for, the commit
+exists, and the working tree is clean. Reading (b) is refuted for the harness.
+
+Two things it deliberately does not prove, because conflating them would send
+the next diagnosis to the wrong place:
+
+- **Whether a given model chooses to call a tool.** The model here is scripted.
+  A run whose model narrates `tk note …` in prose instead of emitting a
+  `tool_calls` frame is a model-quality problem on that rung, not a harness
+  defect, and it looks identical from the outside.
+- **Whether a run's tracker writes survive.** They do not: nothing in this
+  entrypoint or in the Run Workflow pushes the container's checkout, so a note
+  the orchestrator records and then stops on dies with the sandbox. That is the
+  abort path, not the harness.
+
+**What omp puts on the wire once it has executed a tool**, recorded rather than
+inferred (`cloud/factory/test/fixtures/omp-tool-call-exchange.json`, replayed by
+`cloud/factory/test/gateway-tool-calls.test.ts`):
+
+| Message | Shape |
+|---|---|
+| the assistant turn that called | `content` is an empty **string** — not `null`, not parts — beside a `tool_calls` array whose `function.arguments` is a JSON **string** |
+| the tool result | `role: "tool"`, `content` a plain **string**, addressed by `tool_call_id` |
+| the user turn, unchanged | still OpenAI content **parts** |
+
+So the `workers-ai` route's one documented difference is confined to where it
+already was. The content-parts translation collapses the user turn and leaves
+every tool field byte-identical, and tool traffic needs no second translation —
+which is a fact about this omp version, held by a recording that fails loudly
+when a new one changes it, rather than a belief about the OpenAI wire format.
+
+One frontier the recording marks and does not cross: `stringifyContentParts`
+passes a `content: null` through untouched. omp does not send one, so nothing is
+broken today; a harness that did would earn a Workers AI `400` naming
+`/messages/N/content` — the same error this README tells operators means the
+deployed factory predates the translation, which would be a false diagnosis.
+
 ## The substrate, and why a container is told
 
 A run has two independent axes: *who orchestrates* (the harness) and *how
