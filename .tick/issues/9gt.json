@@ -15,12 +15,13 @@
     "kbn",
     "97x",
     "nqb",
-    "cmb"
+    "cmb",
+    "qcm"
   ],
   "parent": "ko8",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:57:20.97239Z",
-  "updated_at": "2026-08-20T03:23:15.944622Z",
+  "updated_at": "2026-08-20T04:01:21.204409Z",
   "started_at": "2026-08-20T01:13:18.805375Z"
 }
