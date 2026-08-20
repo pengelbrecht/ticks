@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
 )
 
@@ -323,5 +324,103 @@ func TestHerdSpawnWarmsTheWorktreeFromTheSandboxTable(t *testing.T) {
 	}
 	if !strings.Contains(string(log), "warmed") {
 		t.Errorf("warm log = %q", log)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// `tk sandbox substrate`
+//
+// The container asks this the way it asks for the model: `tk` owns the
+// runners.toml parser, so the boot script never learns the format. Two lines on
+// stdout are the contract a shell parses — the resolved substrate, then the
+// runner-state note to record — and the reasoning goes to stderr, where a boot
+// log reads it.
+// ---------------------------------------------------------------------------
+
+const substrateRunners = `version = 2
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "herdr"
+max_parallel = 3
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`
+
+// captureCmdStreams keeps stdout and stderr apart: the two-line stdout is a
+// machine contract and the notes are not.
+func captureCmdStreams(t *testing.T) (*bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	var out, errBuf bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&errBuf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+	return &out, &errBuf
+}
+
+func TestSandboxSubstrateHonoursTheOverride(t *testing.T) {
+	root := sandboxRepo(t, substrateRunners)
+	t.Setenv(herdconfig.SubstrateEnvVar, string(herdconfig.SubstrateHarness))
+	out, errOut := captureCmdStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "substrate", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox substrate: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("stdout = %q, want the substrate then the note line", out.String())
+	}
+	if lines[0] != "harness" {
+		t.Errorf("resolved substrate = %q, want harness", lines[0])
+	}
+	for _, want := range []string{"runner-state: substrate=harness", "config=herdr", "source=" + herdconfig.SubstrateEnvVar} {
+		if !strings.Contains(lines[1], want) {
+			t.Errorf("note line %q missing %q", lines[1], want)
+		}
+	}
+	// The reason a reader needs and the wave width that comes with it.
+	for _, want := range []string{herdconfig.SubstrateEnvVar, "max_parallel", "3"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr missing %q:\n%s", want, errOut.String())
+		}
+	}
+}
+
+// Without an override the file decides, so a local run is untouched: this repo
+// pins herdr, and the command reports herdr as requested.
+func TestSandboxSubstrateWithoutAnOverrideReadsTheFile(t *testing.T) {
+	root := sandboxRepo(t, substrateRunners)
+	t.Setenv(herdconfig.SubstrateEnvVar, "")
+	out, _ := captureCmdStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "substrate", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox substrate: %v", err)
+	}
+	note := out.String()
+	if !strings.Contains(note, "requested=herdr") {
+		t.Errorf("stdout does not report the file's own pin:\n%s", note)
+	}
+	if strings.Contains(note, "source=") {
+		t.Errorf("a run with no override names one:\n%s", note)
+	}
+}
+
+// Fail closed: a substrate nothing can parse is a stop naming the variable, not
+// a silent fall back to the file.
+func TestSandboxSubstrateRefusesAnUnknownOverride(t *testing.T) {
+	root := sandboxRepo(t, substrateRunners)
+	t.Setenv(herdconfig.SubstrateEnvVar, "subagents")
+	captureCmdStreams(t)
+	err := ExecuteArgs([]string{"sandbox", "substrate", "--root", root})
+	if err == nil {
+		t.Fatal("an unknown override was accepted")
+	}
+	if !strings.Contains(err.Error(), herdconfig.SubstrateEnvVar) || !strings.Contains(err.Error(), "subagents") {
+		t.Errorf("error does not name the variable and its value: %v", err)
 	}
 }

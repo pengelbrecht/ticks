@@ -386,6 +386,19 @@ Herdr is **available** when either probe below succeeds, subject to `orchestrati
 
 **Do not hardcode a socket path.** Herdr's own location has moved between releases; on herdr 0.8.0 the live socket is `~/.config/herdr/herdr.sock`, and the process environment inside a herdr pane exports it as `HERDR_SOCKET_PATH`. Resolve in this order: `orchestration.socket` if set → `$HERDR_SOCKET_PATH` → `~/.config/herdr/herdr.sock`. A config that pins the wrong path does not fail loudly; it fails as a *false negative*, degrading a perfectly healthy herdr to harness dispatch — which under `substrate = "auto"` is silent. This was reproduced in the epic-`ias` smoke test: with `detect = "socket"` and a hardcoded stale default, the decision procedure returned `harness` while the same procedure against the resolved path returned `herdr`.
 
+### The `TICKS_SUBSTRATE` override
+
+**An explicit override wins over the file.** `TICKS_SUBSTRATE` (`herdr | harness | auto`) is set by whatever *boots* a run, and it replaces `[orchestration].substrate` for that run only. Everything else in this section is unchanged by it: `harness` is still terminal and still probes nothing, `herdr` still probes and still degrades explicitly, and the checkout is **read, never rewritten** — an orchestrator that edited the tracked file would change the base every worker commits against and put a config change nobody submitted into the run's diff.
+
+It exists because a pin in a tracked file is a statement about the runs a repository usually has, and one run can be somewhere else. The case that forced it: a **cloud sandbox**. A container has no herdr server and never will in Phase 1 of the cloud factory (herdr-in-the-cloud is a door deliberately left open, not a deliverable), while the same repository's local runs orchestrate through herdr and must keep doing so. The first cloud run that completed a real agent turn read the repo's `substrate = "herdr"`, correctly found no socket, and stopped — a correct agent on a configuration nobody had told about the container. The sandbox entrypoint now exports `TICKS_SUBSTRATE=harness`, and the orchestrator honours it.
+
+Two rules come with it, and both are the point:
+
+- **Fail closed.** A value that is not one of the three substrates is a stop naming the variable, never a silent fall back to the file.
+- **Say it.** An override is a deliberate choice rather than a degradation, but the run still states which substrate it resolved and why before dispatching the first worker, and records it durably: `runner-state: substrate=harness requested=harness config=herdr source=TICKS_SUBSTRATE reason=explicit-override`. The `config=` field is what lets a later reader tell configured intent from actual execution without opening the file at the run's base commit.
+
+`tk sandbox substrate` is the implementation, and it is what a boot script asks rather than parsing this file itself: two lines on stdout — the resolved substrate, then the note line — with the reasoning on stderr.
+
 ### Decision table
 
 | `substrate` | herdr available | Result |
@@ -395,6 +408,7 @@ Herdr is **available** when either probe below succeeds, subject to `orchestrati
 | `herdr` | yes | herdr orchestration. |
 | `herdr` | no | **Explicit degradation** — see below. The run continues under harness orchestration. |
 | `harness` | either | Harness orchestration, always. Herdr is not probed and not used, even inside a herdr pane. |
+| any value, with `TICKS_SUBSTRATE` set | as the override's own value dictates above | The override is the request; the file's value is reported as configured intent. Announced, never silent. |
 
 ### Explicit degradation
 

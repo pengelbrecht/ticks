@@ -93,6 +93,32 @@ to start rather than guessing a model on the repository's behalf.`,
 	RunE: runSandboxModel,
 }
 
+var sandboxSubstrateCmd = &cobra.Command{
+	Use:   "substrate",
+	Short: "Print the dispatch substrate a run on this checkout resolves",
+	Long: `Print the substrate this run dispatches workers through, and the note to record.
+
+Two lines on stdout, in this order: the resolved substrate (` + "`herdr`" + ` or
+` + "`harness`" + `), and the ` + "`runner-state:`" + ` line to record on the epic with
+` + "`tk note`" + `. Why it resolved that way — and the wave width that comes with it —
+goes to stderr, where a boot log reads it.
+
+Resolution is the decision procedure of runners-config.md, with one addition:
+$` + herdconfig.SubstrateEnvVar + ` overrides ` + "`[orchestration].substrate`" + ` for this run.
+That is how whatever BOOTS a run states the substrate that is effective where it
+actually executes — a cloud sandbox has no herdr server and never will in Phase
+1, while the same repository's local runs orchestrate through herdr. The
+checkout is read, never rewritten: the file keeps saying what the repository
+means everywhere else.
+
+An override to ` + "`harness`" + ` is terminal and probes nothing. An override to
+` + "`herdr`" + ` probes read-only exactly as a pinned ` + "`herdr`" + ` does, and degrades
+explicitly — announced and noted — when herdr is unavailable. A value that is
+not a substrate is a stop, never a silent fall back to the file.`,
+	Args: cobra.NoArgs,
+	RunE: runSandboxSubstrate,
+}
+
 var sandboxSetupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Run this repo's declared setup commands, once per checkout",
@@ -135,6 +161,7 @@ func init() {
 		"path of the warm record (default: <git-dir>/ticks/sandbox-setup)")
 	sandboxCmd.AddCommand(sandboxImageCmd)
 	sandboxCmd.AddCommand(sandboxModelCmd)
+	sandboxCmd.AddCommand(sandboxSubstrateCmd)
 	sandboxCmd.AddCommand(sandboxToolchainCmd)
 	sandboxCmd.AddCommand(sandboxSetupCmd)
 	sandboxCmd.AddCommand(sandboxEnvironmentCmd)
@@ -203,6 +230,46 @@ func runSandboxModel(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), routed.Model)
 	fmt.Fprintf(cmd.ErrOrStderr(), "note: routed by %s\n", routed.Source)
+	return nil
+}
+
+func runSandboxSubstrate(cmd *cobra.Command, args []string) error {
+	root, err := sandboxCheckout()
+	if err != nil {
+		return err
+	}
+	resolved, err := sandbox.OrchestratorSubstrate(cmd.Context(), sandbox.SubstrateOptions{
+		Root:     root,
+		Override: os.Getenv(herdconfig.SubstrateEnvVar),
+	})
+	if err != nil {
+		return ExitError{Code: ExitGeneric, Message: err.Error()}
+	}
+
+	// stdout is the machine contract: the substrate a script acts on, then the
+	// note a run records. Both, because a caller that had to derive the note
+	// itself would derive a second spelling of it.
+	fmt.Fprintln(cmd.OutOrStdout(), string(resolved.Substrate))
+	fmt.Fprintln(cmd.OutOrStdout(), resolved.NoteLine())
+
+	// stderr is the reason. The protocol requires an explicit degradation — and
+	// an explicit override — to be announced rather than discovered later in a
+	// diff, so it is printed here whether or not the caller reads it.
+	if msg := resolved.Announcement(); msg != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "note: %s\n", msg)
+	}
+	if resolved.MaxParallel > 0 {
+		// The other `[orchestration]` key a cloud boot inherits from a local
+		// pin. It is honoured, not overridden — but under the harness substrate
+		// it means concurrent subagents inside ONE sandbox rather than
+		// independent panes, which is worth saying out loud.
+		fmt.Fprintf(cmd.ErrOrStderr(), "note: wave width %d from %s [orchestration].max_parallel",
+			resolved.MaxParallel, herdconfig.FileName)
+		if resolved.Substrate == herdconfig.SubstrateHarness {
+			fmt.Fprint(cmd.ErrOrStderr(), " — under the harness substrate that is concurrent subagents in one sandbox")
+		}
+		fmt.Fprintln(cmd.ErrOrStderr())
+	}
 	return nil
 }
 

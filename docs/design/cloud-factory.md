@@ -985,7 +985,11 @@ Collected from the use cases; each appears above in context.
 
 1. **Phase 1 — the trojan horse.** `tk cloud run <epic>` (UC1) with a *single*
    sandbox: the orchestrator runs the existing skill loop using the existing
-   `harness` substrate (subagents) inside one container. No RunRoom fan-out
+   `harness` substrate (subagents) inside one container — which the container
+   is *told*, through `TICKS_SUBSTRATE`, rather than left to infer: a repo's
+   `[orchestration].substrate` pin is a statement about its local runs, and the
+   first run to complete a real agent turn correctly stopped on one
+   (`cloud/sandbox/README.md` → *The substrate, and why a container is told*). No RunRoom fan-out
    yet beyond the lease and gates. Ships the whole pipeline end to end —
    auth, secrets, git credentials, sandbox lifecycle, budget enforcement,
    Telegram gates from a phone — with zero new orchestration logic. The

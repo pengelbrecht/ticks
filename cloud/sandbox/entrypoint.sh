@@ -70,6 +70,30 @@ pinned_tk="${TICKS_TK_VERSION:-}"
 # change what it is running, so this exists to make a repository that asks for
 # a DIFFERENT image visible in the log rather than silently ignored.
 booted_image="${TICKS_SANDBOX_IMAGE:-}"
+# Which substrate dispatches this run's workers, and the default that makes a
+# cloud boot correct without any control-plane opinion.
+#
+# A repository pins `[orchestration].substrate` for the runs it usually has. For
+# a repo whose developers orchestrate through herdr that pin is `herdr` — right
+# on their machines, impossible here: a container has no herdr server, and
+# herdr-in-the-cloud is a door deliberately left open rather than a Phase 1
+# deliverable (docs/design/cloud-factory.md). The FIRST cloud run to complete a
+# real agent turn found exactly that. It booted, cloned, resolved its model,
+# made a successful model call, read the checkout's herdr pin, correctly found
+# no socket, and stopped — citing the orchestration protocol, as it should have.
+# The agent was right; nothing had told the container which substrate is
+# effective HERE.
+#
+# So the container is told, through the override `tk` and the ticks skill both
+# honour. Not by rewriting the checkout: that would change the base every worker
+# commits against and put a config change nobody submitted into the run's diff.
+# Phase 1 runs the harness substrate — the orchestrator's own subagents inside
+# one container — and the control plane can still ask for something else.
+substrate="${TICKS_SUBSTRATE:-harness}"
+# Filled in by resolve_substrate: what tk actually resolved, and the durable
+# runner-state line the run records on its epic. Empty until then.
+substrate_resolved=""
+substrate_note=""
 # Cloud-connected operator channel. These are optional so a sandbox can still
 # run a repository whose operator channel is local-only; when present, tk ask
 # mirrors its pending entry into the factory RunRoom and watches that DO for
@@ -205,6 +229,37 @@ resolve_model() {
 		die $EXIT_MODEL "no model to run on: TICKS_MODEL is unset and the checkout's .tick/runners.toml routes none for the orchestrator — set [orchestrator].model there (or a model on [roles.implement], which it falls back to). Stopping here on purpose: a harness with no model does not fail, it hangs at \"Working...\" until something kills the run."
 	fi
 	export TICKS_MODEL="$model"
+}
+
+# Which substrate dispatches this run's workers, settled once, out loud.
+#
+# `tk` owns the runners.toml parser and the substrate decision procedure, so
+# this shell asks it rather than learning either — the same delegation as
+# `tk sandbox model` and `tk sandbox setup`. Two lines come back: the resolved
+# substrate, and the `runner-state:` note the run records on its epic. The
+# reasoning goes to stderr, straight into this boot log.
+#
+# The protocol requires an explicit degradation — and an explicit override — to
+# be ANNOUNCED and noted rather than discovered later, so the resolution is
+# printed here and repeated in the harness's prompt. A silent substrate is one
+# nobody can audit after the sandbox is gone.
+resolve_substrate() {
+	# Exported before the call, not just for it: `tk` reads the override out of
+	# the environment, and so does everything the harness later spawns.
+	export TICKS_SUBSTRATE="$substrate"
+	local resolved status
+	resolved="$(tk sandbox substrate --root "$workdir")"
+	status=$?
+	if ((status != 0)); then
+		die $EXIT_CONFIG "tk could not resolve the dispatch substrate ('tk sandbox substrate' exited $status; its reason is above) — TICKS_SUBSTRATE is '${substrate}' and must be herdr, harness or auto. This is a stop: a run that does not know how it dispatches workers cannot dispatch any."
+	fi
+	substrate_resolved="$(printf '%s\n' "$resolved" | sed -n 1p | tr -d '[:space:]')"
+	substrate_note="$(printf '%s\n' "$resolved" | sed -n 2p)"
+	if [[ -z $substrate_resolved ]]; then
+		die $EXIT_CONFIG "tk resolved no dispatch substrate from TICKS_SUBSTRATE='${substrate}' and the checkout's ${workdir}/.tick/runners.toml — the image and this script disagree about 'tk sandbox substrate'"
+	fi
+	say "substrate ${substrate_resolved} (requested ${substrate} via TICKS_SUBSTRATE; the checkout's own pin is read, never rewritten)"
+	say "${substrate_note}"
 }
 
 # Which gateway route serves the routed model, and what to call the model on
@@ -796,7 +851,25 @@ PROMPT
 # Shared tail: the facts every phase needs, stated identically so a reboot and a
 # first boot cannot drift apart on them.
 prompt_footer() {
+	# What the resolved substrate means for this orchestrator, in its own words.
+	# Stated rather than left to be inferred from a config file whose pin was
+	# written for somewhere else: an orchestrator that reads the checkout and
+	# finds herdr is RIGHT to stop, and this is what tells it not to.
+	local guidance
+	if [[ $substrate_resolved == "herdr" ]]; then
+		guidance="Dispatch through herdr as references/herdr-runner.md specifies; the checkout's config is read, never rewritten."
+	else
+		guidance="The checkout's own pin is for runs where it applies; this sandbox has no herdr server. Do not probe for one, do not edit .tick/runners.toml, and do not stop over the mismatch — dispatch workers as subagents of this harness, in this container."
+	fi
 	cat <<PROMPT
+
+The dispatch substrate for this run is ${substrate_resolved}, resolved from
+TICKS_SUBSTRATE=${substrate}, which is set in this container's environment and
+overrides [orchestration].substrate in the checkout. ${guidance}
+State the resolved substrate in your own output before dispatching the first
+worker, and record it on the epic — the run-state note is:
+  ${substrate_note}
+(record it with: tk note ${epic} "<that line>").
 
 The repository is checked out at ${base_sha}, the run id is ${run_id}, and
 TK_ACTOR is already ${ACTOR} — every tracker write is attributed to the cloud
@@ -897,6 +970,9 @@ main() {
 	# pre-flight: those are the slow, expensive steps, and a run that cannot
 	# make a model call is over whether or not its toolchain installed.
 	resolve_model
+	# Config-only and cheap, settled beside the model and before the slow steps:
+	# a run that cannot say how it dispatches workers is over either way.
+	resolve_substrate
 	select_model_route
 	probe_model
 	# The gateway answers. Now prove THIS harness can reach it: the credential

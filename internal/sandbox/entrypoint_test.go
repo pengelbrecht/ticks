@@ -173,6 +173,17 @@ fi
         fi
         [ -z "${TICKS_TEST_SANDBOX_MODEL:-}" ] || printf '%s\n' "$TICKS_TEST_SANDBOX_MODEL"
         ;;
+      substrate)
+        if [ -n "${TICKS_TEST_SANDBOX_SUBSTRATE_ERROR:-}" ]; then
+          printf '%s\n' "$TICKS_TEST_SANDBOX_SUBSTRATE_ERROR" >&2
+          exit 1
+        fi
+        resolved="${TICKS_TEST_SANDBOX_SUBSTRATE:-harness}"
+        printf '%s\n' "$resolved"
+        printf 'runner-state: substrate=%s requested=%s config=herdr source=TICKS_SUBSTRATE reason=explicit-override\n' \
+          "$resolved" "${TICKS_SUBSTRATE:-unset}"
+        printf 'note: %s is set for this run, so the effective substrate is %s\n' "TICKS_SUBSTRATE" "$resolved" >&2
+        ;;
       setup) exit "${TICKS_TEST_SANDBOX_SETUP_EXIT:-0}" ;;
       environment)
         if [ -z "${TICKS_TEST_ENV_CHECK:-}" ]; then
@@ -1552,4 +1563,68 @@ func TestSandboxReadmeDocumentsThePerKindGatewayCredentials(t *testing.T) {
 		mustContain(t, readme, want, "cloud/sandbox/README.md documents what each kind reads")
 	}
 	mustContain(t, readme, "| 8 |", "the new exit class is in the exit-code table")
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch substrate
+//
+// The FIRST cloud run that completed a real agent turn died here: it read a
+// checkout pinned to `substrate = "herdr"` — right for that repository's LOCAL
+// runs — found no herdr socket in the container, and stopped, exactly as the
+// orchestration protocol says to. The agent was right. Nothing had told the
+// container that a cloud sandbox runs the harness substrate.
+// ---------------------------------------------------------------------------
+
+// TestEntrypointResolvesTheSubstrateBeforeTheHarness: the container asks tk,
+// says what it resolved and why, and hands the harness both the substrate and
+// the note to record. A cloud boot with no control-plane opinion resolves the
+// harness substrate — Phase 1's design — rather than inheriting a local pin.
+func TestEntrypointResolvesTheSubstrateBeforeTheHarness(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.tkCalls(), "sandbox substrate", "the entrypoint asks tk, not a TOML parser of its own")
+	mustContain(t, out, "substrate harness", "the boot log states the resolved substrate")
+	mustContain(t, out, "runner-state: substrate=harness", "the boot log carries the durable note line")
+
+	rec := f.harnessRecord()
+	mustContain(t, rec, EnvSubstrate+"="+string(DefaultCloudSubstrate),
+		"the harness inherits the override, so everything it spawns resolves the same substrate")
+	mustContain(t, rec, "runner-state: substrate=harness", "the prompt carries the note to record")
+	mustContain(t, rec, "tk note", "the prompt says how to record it")
+	mustContain(t, rec, "harness", "the prompt names the resolved substrate")
+}
+
+// The control plane can still ask for something else — the override is a
+// parameter, not a constant. Whatever it asks for, tk resolves it and the run
+// says so.
+func TestEntrypointPassesTheControlPlanesSubstrateThrough(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvSubstrate] = "auto"
+	f.env["TICKS_TEST_SANDBOX_SUBSTRATE"] = "herdr"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.harnessRecord(), EnvSubstrate+"=auto", "the harness sees what the control plane asked for")
+	mustContain(t, out, "substrate herdr", "the boot log states what tk actually resolved")
+}
+
+// Fail closed, and before the expensive part: a substrate tk cannot resolve is
+// a stop that names the variable, not a run that starts on a substrate nobody
+// chose.
+func TestEntrypointStopsOnAnUnresolvableSubstrate(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvSubstrate] = "subagents"
+	f.env["TICKS_TEST_SANDBOX_SUBSTRATE_ERROR"] = "TICKS_SUBSTRATE=\"subagents\" is not a substrate"
+	out, code := f.run()
+	if code != ExitConfig {
+		t.Fatalf("exit %d, want %d (a malformed input)\n%s", code, ExitConfig, out)
+	}
+	mustContain(t, out, "subagents", "the stop quotes tk's own reason")
+	if f.harnessStarted() {
+		t.Error("the harness started on an unresolved substrate")
+	}
 }

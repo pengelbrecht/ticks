@@ -97,6 +97,66 @@ model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
 		"the route was proved before the harness started")
 }
 
+// The substrate half, end to end against the real binary: a checkout whose
+// tracked config pins `substrate = "herdr"` — correct for that repository's
+// LOCAL runs — must produce a container that resolves the HARNESS substrate,
+// says so, and carries the note. This is the run that actually happened: the
+// stub cannot prove that the real decision procedure honours the override, and
+// the first cloud run to complete a turn stopped precisely here.
+func TestEntrypointResolvesTheSubstrateWithTheRealTk(t *testing.T) {
+	tk := buildRealTk(t)
+
+	f := newFixture(t, "")
+	f.routeModelThroughTheRepository(`version = 2
+
+[orchestrator]
+harness = "omp"
+model = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+[orchestration]
+substrate = "herdr"
+max_parallel = 3
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`, "")
+	delete(f.env, "TICKS_TEST_SANDBOX_MODEL")
+	if err := os.Remove(filepath.Join(f.binDir, "tk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(tk, filepath.Join(f.binDir, "tk")); err != nil {
+		t.Fatal(err)
+	}
+	f.env[EnvTkVersion] = "dev"
+
+	out, code := f.run()
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("the entrypoint hit an unknown tk subcommand:\n%s", out)
+	}
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 — a herdr pin must not stop a cloud run\n%s", code, out)
+	}
+	mustContain(t, out, "substrate harness", "the boot log states the resolved substrate")
+	mustContain(t, out, "config=herdr", "the note keeps the checkout's configured intent")
+	mustContain(t, out, "source="+EnvSubstrate, "the note names what displaced it")
+	mustContain(t, out, "wave width 3", "the other [orchestration] key a cloud boot inherits is reported, not silent")
+
+	rec := f.harnessRecord()
+	mustContain(t, rec, "runner-state: substrate=harness requested=harness config=herdr",
+		"the prompt carries the exact note the orchestrator must record")
+	mustContain(t, rec, EnvSubstrate+"=harness", "everything the harness spawns resolves the same substrate")
+
+	// The tracked file is what the workers will branch from: it still says herdr.
+	pinned, err := os.ReadFile(filepath.Join(f.workdir, ".tick", "runners.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pinned), `substrate = "herdr"`) {
+		t.Errorf("the container rewrote the checkout's tracked config:\n%s", pinned)
+	}
+}
+
 // buildRealTk builds this source's tk into the test's own temporary directory.
 func buildRealTk(t *testing.T) string {
 	t.Helper()
