@@ -1,0 +1,15 @@
+{
+  "id": "tpl",
+  "title": "A run pushes nothing until closeout, so an interrupted run loses everything",
+  "description": "THE MOST EXPENSIVE ARCHITECTURAL GAP FOUND SO FAR. Forensics on run_f15efdfb ($49.80, 4.4 hours) show it was NOT thrashing — it was productively working the whole of epic 72y across seven ticks in parallel worktrees: gm5, 201, 5jo, 5qj, 3nh, 09w and iit, editing real test files. Roughly $7 per tick of implementation.\n\nNone of it survived. The run pushed nothing, so when the container was destroyed to stop the spend, four hours of work on seven ticks vanished.\n\nD4 says tracker writes happen in the orchestrator sandbox checkout and are pushed as commits on a run branch, merged at closeout. The design even anticipates the failure: \"if the run dies permanently, its .tick/ state is on the pushed run branch — durable, recoverable, and mergeable\". That property does not hold, because nothing pushes until closeout. A run that does not REACH closeout has never pushed at all.\n\nFix: push the run branch incrementally — at minimum after each wave integrates, ideally after each tick's worker branch merges. It is the run's own branch, so pushing early costs nothing and risks nothing; the merge to the default branch still waits for closeout and the PR+CI gate. Then a killed, evicted or budget-stopped run leaves recoverable work, exactly as the design claims.\n\nTwo supporting facts from the same incident:\n- The harness output stream froze at offset 3014 for over four hours while the run was demonstrably working. From outside, productive work and a hang were indistinguishable, which is what made killing it look correct. Whatever buffers that stream must flush on a timer, not only at turn boundaries.\n- Killing the container was the only thing that stopped the spend (gyl), so the operator was forced to choose between an unstoppable run and destroying its work. With incremental push that choice stops being destructive.",
+  "status": "open",
+  "priority": 0,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "ldr",
+  "acceptance_criteria": "A run pushes its run branch incrementally as waves integrate; a run killed mid-epic leaves completed ticks recoverable on the remote; harness output flushes on a timer so a working run is distinguishable from a hung one.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T20:19:47.144804Z",
+  "updated_at": "2026-08-20T20:19:47.207771Z"
+}
