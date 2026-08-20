@@ -2,7 +2,8 @@
   "id": "z1b",
   "title": "tk factory deploy returns before the container image is serving",
   "description": "Observed repeatedly while driving live runs. tk factory deploy reports \"Factory ready\" and exits 0, but a cloud run started immediately afterwards boots the PREVIOUS container image. Waiting and re-running picks up the new one.\n\nThe tell is exact: two consecutive runs failed with byte-identical harness output (offset 2284, same error) across a deploy that had rebuilt and pushed a new image. The Worker and its bindings update promptly; the container application rollout does not, and nothing waits for it.\n\nWhy it matters beyond inconvenience: it makes a fix look like it did not work. During this epic it cost several diagnose-fix-deploy cycles where the fix WAS correct and the run was simply executing old code — the most expensive kind of false signal, because the natural response is to go looking for a second bug that does not exist.\n\nFix: after pushing the image and deploying, wait for the container application to report the new version as serving before declaring the factory ready — poll the containers/application API for the rolled-out image digest, with a bounded timeout and an honest message if it does not converge. If waiting is not possible, at minimum print the image digest the deploy expects AND make tk cloud status surface the digest a run actually booted, so the mismatch is visible rather than invisible.",
-  "status": "open",
+  "notes": "2026-08-20 14:25 - Coordinate with v6u in the same wave: you own internal/factory (deploy rollout wait); v6u owns the entrypoint/skill orchestrator signal. If you touch cloud/sandbox/entrypoint.sh keep it minimal and additive.",
+  "status": "in_progress",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "After tk factory deploy exits 0, a run started immediately boots the image that deploy built; if the rollout cannot be confirmed within a bounded wait, deploy says so explicitly rather than reporting success; the image digest a run booted is visible to the operator.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T05:31:16.178725Z",
-  "updated_at": "2026-08-20T05:31:16.178725Z"
+  "updated_at": "2026-08-20T12:25:51.366919Z",
+  "started_at": "2026-08-20T12:25:51.216278Z"
 }

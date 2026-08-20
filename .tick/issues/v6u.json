@@ -2,7 +2,8 @@
   "id": "v6u",
   "title": "Explicit orchestrator-location signal (TICKS_ORCHESTRATOR), not inference",
   "description": "Operator observation (2026-08-20), prompted by the first completed cloud run aborting on the repo-pinned herdr substrate.\n\nToday nothing tells an orchestrator WHERE it is running. The skill detects the HARNESS by capability probes (Agent tools, rlm in globals, /ticks-run registered) and resolves the SUBSTRATE by probing for a herdr socket. Neither answers \"am I a laptop or a container\", so a cloud orchestrator reads a repo config written for a laptop and does the wrong thing — exactly what eb5 is fixing case-by-case.\n\nAdd an explicit signal the entrypoint sets and both tk and the skill honour: TICKS_ORCHESTRATOR=cloud (values: local | cloud). It generalises beyond substrate:\n- substrate resolution: cloud implies harness in Phase 1, without probing for a socket that cannot exist.\n- max_parallel and other [orchestration] keys tuned for a laptop should not silently govern a container.\n- TK_ACTOR already carries cloud:orchestrator for PROVENANCE; this is the same fact available for ROUTING, so the two must agree rather than being derived separately.\n\nDesign constraints: absence means local, so nothing changes for existing users; the value is set by the sandbox entrypoint, never inferred from the environment; and a cloud orchestrator must still ANNOUNCE what it resolved and why, since the protocol requires explicit degradation to be stated rather than silent. Document it in the skill (agent-runner.md substrate section) alongside the existing probes, and note it in runners-config.md.\n\nCoordinate with eb5, which is fixing the substrate case right now — this tick is the general mechanism, and eb5 should use it rather than a one-off.",
-  "status": "open",
+  "notes": "2026-08-20 14:25 - Coordinate with z1b in the same wave: z1b owns internal/factory (deploy rollout wait); you own the entrypoint/skill signal. Both touch cloud/sandbox/entrypoint.sh — keep edits minimal and additive there. eb5 has already landed a substrate resolution in internal/sandbox/substrate.go; make that read the explicit signal rather than adding a second mechanism beside it.",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +11,6 @@
   "acceptance_criteria": "A cloud orchestrator resolves its substrate and orchestration settings from an explicit signal rather than by probing for absent local infrastructure; absence of the variable behaves exactly as today; the resolved location and its consequences appear in the run output; the skill and runners-config document it.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T10:57:22.093976Z",
-  "updated_at": "2026-08-20T10:57:22.093976Z"
+  "updated_at": "2026-08-20T12:25:51.311445Z",
+  "started_at": "2026-08-20T12:25:51.260466Z"
 }
