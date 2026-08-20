@@ -73,6 +73,17 @@ type Options struct {
 	verifyAttempts int
 	verifyDelay    time.Duration
 
+	// SkipRolloutWait accepts an unconfirmed container rollout instead of
+	// failing. It is the deliberate escape hatch for an account or a wrangler
+	// whose container listing this build cannot read: the deploy still says,
+	// in its output, that nothing was confirmed.
+	SkipRolloutWait bool
+
+	// rolloutTimeout/rolloutPoll bound the wait for the container application
+	// to report the pushed image (tests).
+	rolloutTimeout time.Duration
+	rolloutPoll    time.Duration
+
 	// onSecretPut runs after `wrangler secret put` returns, so the test
 	// harness can propagate the secret into its fake worker the way
 	// Cloudflare does for real.
@@ -103,6 +114,17 @@ type Result struct {
 	WranglerVersion string
 	// ConfigPath is the file the credentials were written to.
 	ConfigPath string
+	// ImageRef is the digest-pinned orchestrator image this deploy pushed,
+	// empty when wrangler's output named none.
+	ImageRef string
+	// ImageDigest is that image's digest — the identity a run's container
+	// boots, and the one thing that tells a fix that did not work from a fix
+	// that was never running.
+	ImageDigest string
+	// RolloutConfirmed reports whether the container application was actually
+	// observed serving ImageDigest. False means the deploy is not claiming a
+	// run started now boots this image.
+	RolloutConfirmed bool
 }
 
 // DefaultBundleDir is where the bundle is materialized: under the ticks home
@@ -350,6 +372,28 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	}
 	fmt.Fprintf(out, "verified %s/health and one authenticated request\n", url)
 
+	// The Worker is live at this point; the container application is not
+	// necessarily. `wrangler deploy` creates the container rollout and returns
+	// without waiting for it, so this is where the deploy stops being allowed
+	// to claim readiness on the strength of an exit code (see rollout.go).
+	rollout, rolloutErr := confirmContainerRollout(
+		ctx, w, out, deployOut, opts.rolloutTimeout, opts.rolloutPoll, opts.SkipRolloutWait)
+	result.ImageRef = rollout.Ref
+	result.ImageDigest = rollout.Digest
+	result.RolloutConfirmed = rollout.Confirmed
+	if rolloutErr != nil {
+		return result, rolloutErr
+	}
+
+	// Recorded only once the application actually reports it, so the row a run
+	// stamps itself with is the image the deployment was PROVEN to serve
+	// rather than the one the deploy hoped for.
+	if rollout.Confirmed {
+		if err := recordDeploymentImage(ctx, w, rollout.Ref, rollout.Digest); err != nil {
+			return result, err
+		}
+	}
+
 	return result, nil
 }
 
@@ -386,6 +430,11 @@ func shortSHA(sha string) string {
 // is a bug rather than an escaping problem worth solving.
 var sqlSafe = regexp.MustCompile(`^[A-Za-z0-9._:+-]*$`)
 
+// imageRefSafe is the same guard widened by the two characters an image
+// reference needs — a registry path and the `@digest` separator — and nothing
+// else. A value outside it is a bug, not an escaping problem to solve.
+var imageRefSafe = regexp.MustCompile(`^[A-Za-z0-9._:+/@-]*$`)
+
 // recordDeployment stores the deployed identity in D1, so a live factory can
 // answer "which tk version and which bundle are you running?" without trusting
 // the operator's local ~/.ticksrc.
@@ -405,6 +454,30 @@ func recordDeployment(ctx context.Context, w *wrangler, version string) error {
 		version, sha, stamp)
 	if err := w.execute(ctx, DatabaseName, sql); err != nil {
 		return fmt.Errorf("recording the deployed version in D1: %w", err)
+	}
+	return nil
+}
+
+// recordDeploymentImage stores the orchestrator image the container
+// application was confirmed to serve, so the Worker can stamp each run it
+// starts with the image that run boots — which is what makes `tk cloud status`
+// able to answer "was my fix even running?" without the operator having to
+// hold two deploys in their head.
+func recordDeploymentImage(ctx context.Context, w *wrangler, ref, digest string) error {
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	for _, v := range []string{ref, digest, stamp} {
+		if !imageRefSafe.MatchString(v) {
+			return fmt.Errorf("refusing to record container image metadata containing %q", v)
+		}
+	}
+	sql := fmt.Sprintf(
+		"INSERT INTO factory_deployment_image (id, image_ref, image_digest, confirmed_at) "+
+			"VALUES (1, '%s', '%s', '%s') "+
+			"ON CONFLICT(id) DO UPDATE SET image_ref=excluded.image_ref, "+
+			"image_digest=excluded.image_digest, confirmed_at=excluded.confirmed_at",
+		ref, digest, stamp)
+	if err := w.execute(ctx, DatabaseName, sql); err != nil {
+		return fmt.Errorf("recording the rolled-out orchestrator image in D1: %w", err)
 	}
 	return nil
 }

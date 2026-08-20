@@ -837,3 +837,200 @@ func TestDeployRefusesWithoutACommandSet(t *testing.T) {
 		t.Fatal("Deploy ran with no way to check its own command set")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The container rollout (tick z1b).
+//
+// `wrangler deploy` creates the container rollout and returns without waiting
+// for it, so a green deploy used to be compatible with a factory still serving
+// the previous image — and a run started immediately afterwards booted the old
+// code. These cover the wait that closes that gap and, just as importantly,
+// what the deploy says when it cannot close it.
+// ---------------------------------------------------------------------------
+
+// rolloutOptions is h.options() with a wait short enough for a test.
+func (h *harness) rolloutOptions() Options {
+	opts := h.options()
+	opts.rolloutTimeout = 2 * time.Second
+	opts.rolloutPoll = time.Millisecond
+	return opts
+}
+
+func TestDeployWaitsForTheContainerRolloutToServeTheNewImage(t *testing.T) {
+	h := newHarness(t)
+	// The application reports the previous image for the first three listings,
+	// which is exactly the window that used to be invisible.
+	t.Setenv("FAKE_WRANGLER_ROLLOUT_LAG", "3")
+
+	result, err := Deploy(context.Background(), h.rolloutOptions())
+	if err != nil {
+		t.Fatalf("Deploy: %v\nwrangler calls:\n%s", err, h.log())
+	}
+
+	if !result.RolloutConfirmed {
+		t.Error("Deploy returned success without confirming the container rollout")
+	}
+	wantDigest := "sha256:" + strings.Repeat("2", 64)
+	if result.ImageDigest != wantDigest {
+		t.Errorf("ImageDigest = %q, want the pushed digest %q", result.ImageDigest, wantDigest)
+	}
+	if !strings.Contains(result.ImageRef, ContainerAppName) {
+		t.Errorf("ImageRef = %q, want the orchestrator image reference", result.ImageRef)
+	}
+
+	if n := countLines(h.logLines(), "containers list"); n < 4 {
+		t.Errorf("the deploy polled the container application %d times, want it to keep asking "+
+			"until the new digest appeared:\n%s", n, h.log())
+	}
+
+	// The confirmed image is recorded server-side, so the Worker can stamp the
+	// runs it starts with the image they boot.
+	execLog := h.execLog()
+	if !strings.Contains(execLog, "factory_deployment_image") || !strings.Contains(execLog, wantDigest) {
+		t.Errorf("the confirmed image was not recorded in D1:\n%s", execLog)
+	}
+}
+
+// execLog returns the SQL the fake wrangler was asked to execute.
+func (h *harness) execLog() string {
+	data, err := os.ReadFile(filepath.Join(h.stateDir, "execute.log"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// The whole point: a rollout that never lands must not exit 0. A green deploy
+// in front of a stale container is what made a correct fix look broken.
+func TestDeployFailsWhenTheRolloutNeverLands(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("FAKE_WRANGLER_ROLLOUT_STUCK", "1")
+
+	var out bytes.Buffer
+	opts := h.rolloutOptions()
+	opts.rolloutTimeout = 30 * time.Millisecond
+	opts.Out = &out
+
+	result, err := Deploy(context.Background(), opts)
+	if err == nil {
+		t.Fatalf("Deploy reported success while the container application still served the old image\n%s", out.String())
+	}
+	var rollout *RolloutError
+	if !errors.As(err, &rollout) {
+		t.Fatalf("Deploy error = %T (%v), want a *RolloutError", err, err)
+	}
+	if rollout.Expected == "" || rollout.Serving == "" {
+		t.Errorf("the failure names expected=%q serving=%q; both digests have to be in the message",
+			rollout.Expected, rollout.Serving)
+	}
+	if rollout.Serving == rollout.Expected {
+		t.Error("the failure claims the application is serving the image it was waiting for")
+	}
+
+	// The deployment itself landed, and the result still carries what it knows:
+	// the operator needs the credentials and the digest, not a rollback.
+	if result == nil || result.URL == "" {
+		t.Fatal("Deploy dropped its result on an unconfirmed rollout; the credentials still landed")
+	}
+	if result.RolloutConfirmed {
+		t.Error("RolloutConfirmed = true on a rollout that never landed")
+	}
+	if result.ImageDigest == "" {
+		t.Error("the result does not carry the digest the deploy pushed, so the operator cannot compare")
+	}
+
+	// Nothing may record an image the application never reported.
+	if strings.Contains(h.execLog(), "factory_deployment_image") {
+		t.Errorf("an unconfirmed image was recorded in D1:\n%s", h.execLog())
+	}
+}
+
+// A wrangler whose container listing this build cannot read is still a "cannot
+// confirm", not a success.
+func TestDeployFailsWhenTheContainerApplicationCannotBeRead(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("FAKE_WRANGLER_NO_CONTAINERS", "1")
+
+	opts := h.rolloutOptions()
+	opts.rolloutTimeout = 30 * time.Millisecond
+	if _, err := Deploy(context.Background(), opts); err == nil {
+		t.Fatal("Deploy reported success without being able to read the container application")
+	} else if !strings.Contains(err.Error(), "could not be confirmed") {
+		t.Errorf("error does not say the rollout was unconfirmed: %v", err)
+	}
+}
+
+func TestDeployFailsWhenTheAccountDoesNotListTheApplication(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("FAKE_WRANGLER_NO_SUCH_APP", "1")
+
+	opts := h.rolloutOptions()
+	opts.rolloutTimeout = 30 * time.Millisecond
+	if _, err := Deploy(context.Background(), opts); err == nil {
+		t.Fatal("Deploy reported success while the account lists no orchestrator application")
+	} else if !strings.Contains(err.Error(), ContainerAppName) {
+		t.Errorf("error does not name the missing application: %v", err)
+	}
+}
+
+// A deploy whose output names no digest has nothing to compare, which is the
+// same "cannot confirm" — never a silent pass.
+func TestDeployFailsWhenNoImageDigestCanBeRead(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("FAKE_WRANGLER_NO_CONTAINER_BLOCK", "1")
+
+	if _, err := Deploy(context.Background(), h.rolloutOptions()); err == nil {
+		t.Fatal("Deploy reported success without a digest to confirm against")
+	} else if !strings.Contains(err.Error(), "no digest-pinned") {
+		t.Errorf("error does not say the digest could not be read: %v", err)
+	}
+}
+
+// The escape hatch exists, and it says out loud that nothing was confirmed.
+func TestDeploySkipRolloutWaitSaysNothingWasConfirmed(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("FAKE_WRANGLER_ROLLOUT_STUCK", "1")
+
+	var out bytes.Buffer
+	opts := h.rolloutOptions()
+	opts.Out = &out
+	opts.SkipRolloutWait = true
+
+	result, err := Deploy(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Deploy with --skip-rollout-wait: %v", err)
+	}
+	if result.RolloutConfirmed {
+		t.Error("RolloutConfirmed = true when the wait was skipped")
+	}
+	if !strings.Contains(out.String(), "NOT confirmed") {
+		t.Errorf("the skipped wait is not reported in the output:\n%s", out.String())
+	}
+	if n := countLines(h.logLines(), "containers list"); n != 0 {
+		t.Errorf("the container application was polled %d times despite --skip-rollout-wait", n)
+	}
+}
+
+// A re-deploy that changes nothing still confirms: wrangler prints the image
+// the application is already on, and the wait converges on the first look.
+func TestDeployConfirmsAnUnchangedRolloutImmediately(t *testing.T) {
+	h := newHarness(t)
+
+	first, err := Deploy(context.Background(), h.rolloutOptions())
+	if err != nil {
+		t.Fatalf("first Deploy: %v\n%s", err, h.log())
+	}
+	// The second deploy pushes nothing new: the application is already serving
+	// what the deploy names.
+	t.Setenv("FAKE_WRANGLER_SERVING_DIGEST", first.ImageDigest)
+	t.Setenv("FAKE_WRANGLER_PUSH_DIGEST", first.ImageDigest)
+
+	second, err := Deploy(context.Background(), h.rolloutOptions())
+	if err != nil {
+		t.Fatalf("second Deploy: %v\n%s", err, h.log())
+	}
+	if !second.RolloutConfirmed || second.ImageDigest != first.ImageDigest {
+		t.Errorf("an unchanged re-deploy did not confirm: confirmed=%v digest=%q want %q",
+			second.RolloutConfirmed, second.ImageDigest, first.ImageDigest)
+	}
+}

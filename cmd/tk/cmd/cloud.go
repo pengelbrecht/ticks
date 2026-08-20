@@ -233,6 +233,18 @@ type cloudSubmissionResponse struct {
 	Holder cloudHolder    `json:"holder"`
 }
 
+// cloudRunImage is the orchestrator container image a run booted.
+//
+// It is reported because a container rollout is asynchronous: the Worker
+// updates promptly, the container application does not, and a run started in
+// that window executes the previous image. Without this line two runs with
+// identical output across a deploy read as "the fix did not work" when the fix
+// was simply never running.
+type cloudRunImage struct {
+	Ref    string `json:"image_ref"`
+	Digest string `json:"image_digest"`
+}
+
 type cloudStatusResponse struct {
 	Run      cloudRunRecord       `json:"run"`
 	Phase    cloudPhase           `json:"phase"`
@@ -240,6 +252,7 @@ type cloudStatusResponse struct {
 	Queued   []cloudQueued        `json:"queued"`
 	Runs     []cloudRunRecord     `json:"runs"`
 	Projects []cloudProjectStatus `json:"projects"`
+	Image    *cloudRunImage       `json:"image"`
 }
 
 func decodeCloudJSON(data []byte, into any) error {
@@ -376,6 +389,15 @@ func printCloudRunStatus(out io.Writer, response cloudStatusResponse) {
 	}
 	if response.Phase.Workflow.Status != "" {
 		fmt.Fprintf(out, "  workflow: %s\n", response.Phase.Workflow.Status)
+	}
+	switch {
+	case response.Image != nil && response.Image.Digest != "":
+		fmt.Fprintf(out, "  image: %s\n", response.Image.Digest)
+	default:
+		// Said rather than omitted: "unrecorded" is what a run that started
+		// before a deploy confirmed a rollout looks like, and silence there
+		// reads as "same image as everything else".
+		fmt.Fprintf(out, "  image: unrecorded (no deploy has confirmed a container rollout for this factory)\n")
 	}
 	if response.Lease != nil && response.Lease.RunID != "" {
 		fmt.Fprintf(out, "  lease: %s\n", response.Lease.RunID)

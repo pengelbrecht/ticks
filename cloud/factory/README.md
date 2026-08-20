@@ -254,6 +254,18 @@ result by calling `/health` — which must report the `sandboxes` binding — an
 making one authenticated request. Re-running upgrades in place and keeps the
 token unless `--rotate-token` is passed.
 
+The last step is the container rollout, and it is the one `wrangler deploy` does
+not perform: wrangler builds the image, pushes it, asks Cloudflare to roll it
+out and returns as soon as the rollout has been *created*, so the Worker goes
+live while the container application is still serving the previous image and a
+run started in that window boots the old code. `tk factory deploy` polls
+`wrangler containers list --json` until the `ticks-orchestrator` application
+reports the digest it just pushed, and exits nonzero naming both digests if it
+cannot confirm that (`--skip-rollout-wait` opts out and says so). The confirmed
+digest lands in `factory_deployment_image`, and each run is stamped with it in
+`run_image` as it ignites, which is what `tk cloud status <run>` reports as the
+image that run booted.
+
 Three prerequisites, each a stop with its own message rather than a deploy that
 half-works: a logged-in **wrangler**, a running **Docker** (the image), and
 **pnpm** (the Worker imports the Sandbox SDK, so the staged bundle is installed

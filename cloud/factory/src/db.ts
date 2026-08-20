@@ -33,6 +33,18 @@ export interface Run {
   cost_usd: number;
 }
 
+/**
+ * The orchestrator container image a deployment serves, or that one run booted.
+ *
+ * Written by `tk factory deploy` only once the container application actually
+ * reported the image (migrations/0005), so a row here is a rollout that
+ * happened rather than one that was requested.
+ */
+export interface DeploymentImage {
+  image_ref: string;
+  image_digest: string;
+}
+
 export interface Signal {
   signal_id: string;
   source: string;
@@ -79,6 +91,47 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
  * — a half-written run is worse than no run, because the id can never be used
  * again and the retry hits the primary key instead of the real fault.
  */
+/**
+ * The image the deployment's container application was last CONFIRMED serving,
+ * or null when no deploy has confirmed one yet.
+ *
+ * Null is a real answer, not an error: a factory deployed before this row
+ * existed, or one deployed with the rollout wait skipped, has nothing honest to
+ * report here — and reporting nothing beats reporting the image the deploy
+ * merely hoped for.
+ */
+export async function getDeploymentImage(db: D1Database): Promise<DeploymentImage | null> {
+  return db
+    .prepare("SELECT image_ref, image_digest FROM factory_deployment_image WHERE id = 1")
+    .first<DeploymentImage>();
+}
+
+/** Stamps the image a run booted, so it stays true after the next deploy. */
+export async function insertRunImage(
+  db: D1Database,
+  runId: string,
+  image: DeploymentImage,
+  recordedAt: string
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO run_image (run_id, image_ref, image_digest, recorded_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(run_id) DO UPDATE SET image_ref=excluded.image_ref,
+         image_digest=excluded.image_digest, recorded_at=excluded.recorded_at`
+    )
+    .bind(runId, image.image_ref, image.image_digest, recordedAt)
+    .run();
+}
+
+/** The image one run booted, or null when the run predates the stamp. */
+export async function getRunImage(db: D1Database, runId: string): Promise<DeploymentImage | null> {
+  return db
+    .prepare("SELECT image_ref, image_digest FROM run_image WHERE run_id = ?")
+    .bind(runId)
+    .first<DeploymentImage>();
+}
+
 export async function deleteRun(db: D1Database, runId: string): Promise<void> {
   await db.prepare("DELETE FROM runs WHERE run_id = ?").bind(runId).run();
 }
