@@ -490,8 +490,14 @@ export function stringifyContentParts(raw: string): ContentPartsRewrite {
   for (const [index, message] of messages.entries()) {
     if (message === null || typeof message !== "object") continue;
     const content = (message as { content?: unknown }).content;
-    // A string is already what this route wants; null is an assistant message
-    // carrying tool calls and nothing to say, which is the caller's business.
+    // A string is already what this route wants; Workers AI has no null string
+    // value, so an assistant message carrying tool calls and nothing to say is
+    // represented as an empty string on the wire.
+    if (content === null) {
+      (message as { content: unknown }).content = "";
+      rewrote = true;
+      continue;
+    }
     if (!Array.isArray(content)) continue;
 
     const texts: string[] = [];

@@ -437,11 +437,20 @@ describe("what the workers-ai translation will and will not touch", () => {
     });
   });
 
-  it("leaves a null assistant content alone — that is a tool call, not a prompt", () => {
+  it("turns null assistant content into an empty string for Workers AI", () => {
     const body = JSON.stringify({
       messages: [{ role: "assistant", content: null, tool_calls: [{ id: "call_1" }] }],
     });
-    expect(stringifyContentParts(body)).toEqual({ ok: true, body: null });
+    const rewrite = stringifyContentParts(body);
+    expect(rewrite.ok).toBe(true);
+    const sent = JSON.parse((rewrite as { body: string }).body) as {
+      messages: { role: string; content: unknown; tool_calls: unknown[] }[];
+    };
+    expect(sent.messages[0]).toEqual({
+      role: "assistant",
+      content: "",
+      tool_calls: [{ id: "call_1" }],
+    });
   });
 
   it("turns an empty parts array into an empty string, not into a dropped message", () => {

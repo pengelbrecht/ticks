@@ -355,11 +355,12 @@ every tool field byte-identical, and tool traffic needs no second translation â€
 which is a fact about this omp version, held by a recording that fails loudly
 when a new one changes it, rather than a belief about the OpenAI wire format.
 
-One frontier the recording marks and does not cross: `stringifyContentParts`
-passes a `content: null` through untouched. omp does not send one, so nothing is
-broken today; a harness that did would earn a Workers AI `400` naming
-`/messages/N/content` â€” the same error this README tells operators means the
-deployed factory predates the translation, which would be a false diagnosis.
+The recording does not exercise `content: null`: omp does not send one. The
+translation still normalises a null assistant content to an empty string before
+forwarding it, so a harness using that shape does not earn a Workers AI `400`.
+A `400` naming `/messages/N/content` on the first real call still means the
+deployed factory predates the translation, which is the diagnosis this README
+gives operators for that error.
 
 ## The substrate, and why a container is told
 
