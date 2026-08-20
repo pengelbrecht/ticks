@@ -114,7 +114,13 @@ means everywhere else.
 An override to ` + "`harness`" + ` is terminal and probes nothing. An override to
 ` + "`herdr`" + ` probes read-only exactly as a pinned ` + "`herdr`" + ` does, and degrades
 explicitly — announced and noted — when herdr is unavailable. A value that is
-not a substrate is a stop, never a silent fall back to the file.`,
+not a substrate is a stop, never a silent fall back to the file.
+
+Every resolution is stated on stderr, in one of two registers. A pinned
+` + "`herdr`" + ` that cannot be had is loud: an assertion the environment refused.
+` + "`auto`" + ` finding no herdr is quiet: that is what ` + "`auto`" + ` asks for, and a
+repository that announced a degradation on every ordinary run would teach its
+operator to ignore the one that matters.`,
 	Args: cobra.NoArgs,
 	RunE: runSandboxSubstrate,
 }
@@ -252,12 +258,12 @@ func runSandboxSubstrate(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(cmd.OutOrStdout(), string(resolved.Substrate))
 	fmt.Fprintln(cmd.OutOrStdout(), resolved.NoteLine())
 
-	// stderr is the reason. The protocol requires an explicit degradation — and
-	// an explicit override — to be announced rather than discovered later in a
-	// diff, so it is printed here whether or not the caller reads it.
-	if msg := resolved.Announcement(); msg != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "note: %s\n", msg)
-	}
+	// stderr is the reason, and there is always one. A degradation or an
+	// override is stated loudly because the protocol requires it; the ordinary
+	// paths state themselves quietly, because a boot log is the only record an
+	// ephemeral sandbox leaves and "harness" with no explanation beside it is
+	// indistinguishable from a run that never looked.
+	fmt.Fprintf(cmd.ErrOrStderr(), "note: %s\n", resolved.Resolution())
 	if resolved.MaxParallel > 0 {
 		// The other `[orchestration]` key a cloud boot inherits from a local
 		// pin. It is honoured, not overridden — but under the harness substrate

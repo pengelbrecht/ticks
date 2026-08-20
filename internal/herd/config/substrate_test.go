@@ -66,10 +66,10 @@ func TestSubstrateDecisionTable(t *testing.T) {
 			wantNote: "runner-state: substrate=herdr requested=auto",
 		},
 		{
-			name:      "cell 2: auto + unavailable -> harness, silent",
+			name:      "cell 2: auto + unavailable -> harness, quietly",
 			substrate: "auto", available: false,
 			wantSubstrate: SubstrateHarness, wantProbed: true,
-			wantNote: "runner-state: substrate=harness requested=auto",
+			wantNote: "runner-state: substrate=harness requested=auto reason=auto-no-herdr",
 		},
 		{
 			name:      "cell 3: herdr + available -> herdr",
@@ -480,5 +480,99 @@ func TestDecideIsDecideOverrideWithNoOverride(t *testing.T) {
 	}
 	if strings.Contains(plain.NoteLine(), "source=") {
 		t.Errorf("a run with no override names one: %q", plain.NoteLine())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Loud versus quiet
+//
+// Two different runs end on harness dispatch with no herdr in sight, and they
+// are not the same event. `substrate = "auto"` finding no herdr is auto doing
+// exactly what it is for — the skill's original mode, a local session with no
+// herdr running, which the design doc calls the degenerate case that must stay
+// sacred. `substrate = "herdr"` finding no herdr is an assertion the
+// environment refused, and the protocol requires it to be stated loudly.
+//
+// Both must be SAID — a resolution nobody stated is one nobody can audit — but
+// a repository that announces a degradation on every ordinary run has taught
+// its operator to ignore the announcement that matters.
+// ---------------------------------------------------------------------------
+
+// TestAutoFallbackIsQuietButNotSilent: auto with no herdr states what it
+// resolved once, in a neutral register, and never reaches the loud channel.
+func TestAutoFallbackIsQuietButNotSilent(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"auto\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	d := Decide(context.Background(), cfg, &fakeProber{socketErr: errors.New("no such file or directory")})
+
+	if d.Substrate != SubstrateHarness || d.Degraded {
+		t.Fatalf("substrate=%q degraded=%v, want harness/false", d.Substrate, d.Degraded)
+	}
+	if d.Announcement() != "" {
+		t.Errorf("the loud channel fired for an ordinary auto fallback:\n  %s", d.Announcement())
+	}
+	msg := d.Resolution()
+	if msg == "" {
+		t.Fatal("auto resolved a substrate and said nothing at all — a resolution nobody stated is one nobody can audit")
+	}
+	// Quiet means neutral, not vague: it still names what was probed.
+	for _, want := range []string{`substrate = "auto"`, EnvVar + " is unset", string(SubstrateHarness)} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("quiet resolution missing %q:\n  %s", want, msg)
+		}
+	}
+	// And it must not read as a failure: no degradation vocabulary, and none of
+	// the consequences paragraph that belongs to a broken assertion.
+	for _, unwanted := range []string{"degrad", "Falling back", "Cross-vendor role routing"} {
+		if strings.Contains(msg, unwanted) {
+			t.Errorf("the ordinary path reads as a failure (%q):\n  %s", unwanted, msg)
+		}
+	}
+}
+
+// TestPinnedHerdrStaysLoudAndSaysHowToFixIt: the assertion the environment
+// refused keeps every bit of its volume, and now names the config that would
+// have made the same run ordinary.
+func TestPinnedHerdrStaysLoudAndSaysHowToFixIt(t *testing.T) {
+	cfg, err := Parse([]byte(docExample2)) // substrate = "herdr"
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	d := Decide(context.Background(), cfg, &fakeProber{socketErr: errors.New("no such file or directory")})
+
+	if !d.Degraded {
+		t.Fatal("a pinned herdr with no herdr must degrade explicitly")
+	}
+	if d.Resolution() != d.Announcement() {
+		t.Errorf("the loud case says two different things:\n  %s\n  %s", d.Resolution(), d.Announcement())
+	}
+	msg := d.Announcement()
+	for _, want := range []string{"Cross-vendor role routing", `substrate = "auto"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("degradation missing %q:\n  %s", want, msg)
+		}
+	}
+}
+
+// TestEveryCellStatesItsResolution: whatever the decision, a run has something
+// to say about it. This is what stops the quiet register from becoming silence.
+func TestEveryCellStatesItsResolution(t *testing.T) {
+	for _, substrate := range []string{"auto", "herdr", "harness"} {
+		for _, available := range []bool{true, false} {
+			cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"" + substrate + "\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			d := Decide(context.Background(), cfg, &fakeProber{socketOK: available, socketErr: errors.New("connection refused")})
+			if d.Resolution() == "" {
+				t.Errorf("substrate=%q available=%v resolved %q and said nothing", substrate, available, d.Substrate)
+			}
+			if !strings.Contains(d.Resolution(), string(d.Substrate)) {
+				t.Errorf("substrate=%q available=%v: the statement does not name the substrate it resolved: %q",
+					substrate, available, d.Resolution())
+			}
+		}
 	}
 }
