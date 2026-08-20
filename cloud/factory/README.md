@@ -162,6 +162,7 @@ issued for, and forwards to the gateway.
 | Metadata is stamped, not accepted | Any `cf-aig-*` header the caller sent is dropped first, so an agent can neither misattribute its spend nor opt out of being attributed. |
 | Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run with no explicit cost budget records its cost as unknown rather than as `$0`, while an explicit budget refuses before sandbox boot. |
 | Every boot rotates the token; a trip, a stop and finalize revoke it | The kill switch works on a wedged or adversarial orchestrator, and no run ever leaves a live credential behind. Closeout gets a fresh token — a stop must still reach review and closeout (D15). |
+| The `workers-ai` route rewrites `messages[].content` from OpenAI content parts to a string | Workers AI's `/v1/chat/completions` is OpenAI-*compatible*, not OpenAI: it takes content as a string, while omp sends parts. Every model call already passes through here, so the one documented dialect difference is normalised at the one hop that already reads the request. A part with no string form (an image, audio, a file) is refused with a 400 naming the message and the part — a translation layer that silently dropped it would reach the model as a prompt with a hole in it. |
 
 ## Auth: secrets, not accounts
 

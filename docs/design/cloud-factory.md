@@ -257,10 +257,24 @@ for exactly this mix: route `economy` and `balanced` tiers to
 a BYOK frontier vendor — the same cross-vendor-per-tier pattern this repo
 already runs locally (its own `runners.toml` routes the balanced tier to a
 different vendor than the strong tier). Harness compatibility note: Workers AI
-models speak the OpenAI-compatible shape, so they ride the **pi** kind (or any
-kind with a configurable OpenAI-style provider); the `claude` kind expects
-Anthropic-shaped APIs and stays pointed at Anthropic models. One more reason
-pi is the natural default kind for cloud workers.
+serves an OpenAI-*compatible* endpoint, which is not the same as an OpenAI one,
+and the difference is load-bearing. Its `/v1/chat/completions` takes
+`messages[].content` as a **string**; omp sends OpenAI CONTENT PARTS
+(`[{"type":"text","text":"…"}]`) for user messages, and the first live run to
+reach the skill loop over this route died on exactly that
+(`Bad input: … Type mismatch of /messages/0/content, array not in string`).
+So the route does ride the **pi** kind (or any kind with a configurable
+OpenAI-style provider) — but only because the factory's own gateway Worker
+normalises content parts into a string on the `workers-ai` route, in
+`stringifyContentParts` (`cloud/factory/src/gateway.ts`), and refuses any part
+with no string form rather than dropping it. Read "OpenAI-compatible" here as
+"OpenAI-shaped, with one documented difference handled at the proxy" — a
+harness that sends anything richer than text through this rung will meet that
+refusal, not a silent truncation. The `claude` kind expects Anthropic-shaped
+APIs and stays pointed at Anthropic models. pi is still the natural default
+kind for cloud workers; picking a default MODEL for it is a harness-compat
+question as much as a capability one (see the Workers AI default-model tick),
+because the rung's wire shape is part of what the harness has to speak.
 
 One honest cost note: laptop runs often ride a flat-rate subscription; cloud
 agents run on metered API keys. The gateway makes that spend visible and
