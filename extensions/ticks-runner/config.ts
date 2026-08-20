@@ -351,7 +351,11 @@ const TIER_NAMES = ["economy", "balanced", "strong", "frontier"];
 const EFFORTS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const COMMAND_KEYS = ["command", "description"];
 const KIND_PATTERN = /^[a-z][a-z0-9_-]*$/;
-const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.+-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$/;
+// A segment may lead with `@`: every Workers AI model id is
+// `@cf/<vendor>/<name>`, so its provider-qualified form is
+// `workers-ai/@cf/openai/gpt-oss-120b`. Leading a segment is the only position
+// `@` is legal in — inside one it is still malformed.
+const MODEL_PATTERN = /^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(?:\/@?[A-Za-z0-9][A-Za-z0-9_.+-]*)*$/;
 const COMMAND_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 const ACCEPTANCE_ITEM_PATTERN = /^A[1-9][0-9]{0,2}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
@@ -426,7 +430,7 @@ function stringField(parent: TomlTable, key: string, at: string, errors: string[
 function checkCapability(table: TomlTable, at: string, errors: string[]): void {
 	const model = stringField(table, "model", `${at}.model`, errors);
 	if (model !== undefined && !MODEL_PATTERN.test(model)) {
-		errors.push(`${at}.model: ${JSON.stringify(model)} is not a model id (a ':' belongs in \`effort\`, not in the model)`);
+		errors.push(`${at}.model: ${JSON.stringify(model)} is not a model id matching ${MODEL_PATTERN.source} (a ':' belongs in \`effort\`, not in the model; a '@' may only lead a segment, as in workers-ai/@cf/openai/gpt-oss-120b)`);
 	}
 	const effort = stringField(table, "effort", `${at}.effort`, errors);
 	if (effort !== undefined && !EFFORTS.includes(effort)) {

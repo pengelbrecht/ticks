@@ -43,8 +43,8 @@
     "Model": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$",
-      "description": "Model identifier in the *kind's own* namespace: a claude alias or full name (`opus`, `claude-fable-5`) for kind claude, an OpenAI model id (`gpt-5.6-luna`) for kind codex, a cross-provider `<provider>/<model>` id (`openai-codex/gpt-5.6-sol`) for kind pi. The spawner compiles this into the kind's native model flag (see herdr-kinds.md, 'Model and effort translation'). Shape only: model families are open-ended, so this schema cannot enumerate them and does NOT check that the model belongs to the kind — that is a spawn-time compatibility check the orchestrator must fail closed on. A `:` is deliberately rejected: effort belongs in `effort`, not smuggled into pi's `model:thinking` shorthand."
+      "pattern": "^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(/@?[A-Za-z0-9][A-Za-z0-9_.+-]*)*$",
+      "description": "Model identifier in the *kind's own* namespace: a claude alias or full name (`opus`, `claude-fable-5`) for kind claude, an OpenAI model id (`gpt-5.6-luna`) for kind codex, a cross-provider `<provider>/<model>` id (`openai-codex/gpt-5.6-sol`) for kind pi. The spawner compiles this into the kind's native model flag (see herdr-kinds.md, 'Model and effort translation'). Shape only: model families are open-ended, so this schema cannot enumerate them and does NOT check that the model belongs to the kind — that is a spawn-time compatibility check the orchestrator must fail closed on. A `:` is deliberately rejected: effort belongs in `effort`, not smuggled into pi's `model:thinking` shorthand. A segment may lead with `@`, because a provider namespace can be part of the id itself: every Workers AI model is `@cf/<vendor>/<name>`, so its qualified form here is `workers-ai/@cf/openai/gpt-oss-120b`. `@` is legal only in that position — leading a segment — never inside one, so `a@b` is still malformed."
     },
     "Effort": {
       "type": "string",

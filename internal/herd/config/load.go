@@ -79,8 +79,12 @@ var (
 	rolePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 	// modelPattern is the schema's Model pattern. `:` is deliberately absent:
 	// effort belongs in `effort`, never smuggled into pi's model:thinking
-	// shorthand.
-	modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$`)
+	// shorthand. A segment may LEAD with `@` because a provider namespace can
+	// be part of the id: every Workers AI model is `@cf/<vendor>/<name>`, so
+	// the qualified form is `workers-ai/@cf/openai/gpt-oss-120b`. That is the
+	// only position `@` is legal in — inside a segment it is still malformed,
+	// so the pattern stays a constraint rather than becoming permissive.
+	modelPattern = regexp.MustCompile(`^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(/@?[A-Za-z0-9][A-Za-z0-9_.+-]*)*$`)
 	// commandIDPattern is the schema's CommandId pattern: the key of a command
 	// table and the value of an acceptance mapping.
 	commandIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)

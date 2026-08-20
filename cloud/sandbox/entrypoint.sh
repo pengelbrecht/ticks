@@ -228,10 +228,10 @@ select_model_route() {
 		;;
 	esac
 
-	# Workers AI model ids live in the `@cf/<vendor>/<name>` namespace, and
-	# `@` is not a legal character in a runners.toml model id — the routing
-	# schema rejects it. The namespace is a constant, not a choice, so the
-	# config writes `workers-ai/meta/llama-…` and it is restored here.
+	# Workers AI model ids live in the `@cf/<vendor>/<name>` namespace. The
+	# routing schema can spell it (`workers-ai/@cf/meta/llama-…`), which is the
+	# form to prefer; the namespace is a constant rather than a choice, so an
+	# id that omits it still resolves and is restored here.
 	if [[ $model_provider == "workers-ai" && $rest != @* ]]; then
 		rest="@cf/$rest"
 	fi

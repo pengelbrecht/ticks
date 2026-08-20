@@ -84,7 +84,7 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 |---|---|---|
 | `harness` | string | Runner adapter that plays orchestrator: `claude`, `codex`, `pi`, `prime` (see the matching `<harness>-runner.md`). |
 | `kind` | string | herdr kind to use if the orchestrator itself is ever spawned into a pane. |
-| `model` | string | Model id in that kind's namespace, e.g. `opus`. |
+| `model` | string | Model id in that kind's namespace, e.g. `opus`. See [Model id shape](#model-id-shape). |
 | `effort` | enum | Reasoning effort for the orchestrating model, e.g. `high`. |
 | `args` | array of strings | Escape-hatch native args for that kind, appended after the compiled model/effort flags. |
 
@@ -106,7 +106,7 @@ Keys are role names matching `^[a-z][a-z0-9_-]*$`. Well-known roles: `plan`, `sc
 | Key | Type | Meaning |
 |---|---|---|
 | `kind` | string, required | herdr kind to spawn for this role — the harness dimension. |
-| `model` | string | Model id **in that kind's namespace** (`opus`; `gpt-5.6-luna`; `openai-codex/gpt-5.6-sol`). Omitted means the kind's own default. Compiled into the kind's native model flag. |
+| `model` | string | Model id **in that kind's namespace** (`opus`; `gpt-5.6-luna`; `openai-codex/gpt-5.6-sol`; `workers-ai/@cf/openai/gpt-oss-120b`). Omitted means the kind's own default. Compiled into the kind's native model flag. See [Model id shape](#model-id-shape). |
 | `effort` | `off` \| `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | Reasoning/thinking effort, kind-neutral. Omitted means the kind's own default. Compiled into the kind's native mechanism. |
 | `args` | array of strings | Escape hatch for anything the two dimensions do not express. Passed verbatim after `--` in `herdr agent start`, **appended last — after the kind's computed per-spawn extras and the compiled model/effort flags**. One argv element per entry — never a pre-joined shell string. |
 | `harness` | string | Documentary note of the corresponding runner adapter. Routing uses `kind`. |
@@ -176,6 +176,23 @@ Four things follow, and each has bitten:
 - **`TICKS_PI_*_MODEL` does not rescue a refused config.** The environment still wins over the file for an individual key, but the refusal is a config error, and a run never starts on a config that produced one. Fix the file or run the epic under the substrate its `[roles]` table is for.
 
 A repo that wants a herdr fleet of `claude`/`codex` workers **and** the pi extension's own planning and process gates cannot express both here today. It has to pick which substrate its `[roles]` table is for, and record the choice — a per-substrate routing shape is the only thing that would remove the constraint, and it does not exist yet.
+
+### Model id shape
+
+A model id is one or more `/`-separated segments:
+
+```text
+model     ::= segment ( "/" segment )*
+segment   ::= "@"? [A-Za-z0-9] [A-Za-z0-9_.+-]*
+```
+
+as the `Model` pattern `^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(/@?[A-Za-z0-9][A-Za-z0-9_.+-]*)*$`. That covers a bare alias (`opus`), a vendor id (`gpt-5.6-luna`), a cross-provider id (`openai-codex/gpt-5.6-sol`) and a provider namespace carried inside the id itself.
+
+**A segment may lead with `@`.** Some namespaces are part of the model id, not decoration a config invents: **every** Workers AI model is `@cf/<vendor>/<name>`, so the provider-qualified form is `workers-ai/@cf/openai/gpt-oss-120b` and a repo routed at Workers AI has no other way to name its model. `@` is legal in that one position and nowhere else — `workers-ai/cf@openai/…` and `workers-ai/@/…` are both rejected, so the id stays a real constraint rather than a string with a hole in it.
+
+**A `:` is still rejected.** Effort is its own key; pi's `model:thinking` shorthand is what the spawner *emits*, never what the config carries.
+
+The pattern is enforced in four places that must agree — `runners-config.schema.json`, the Go loader (`internal/herd/config`), the Python reference validator (`scripts/verify-runners-config.py`, which reads the schema) and the pi extension (`extensions/ticks-runner/config.ts`) — because a file that one reader accepts and another rejects is worse than a file both refuse.
 
 ### Shape versus compatibility
 
@@ -751,6 +768,9 @@ These are the failures a config author should expect, and where each one is caug
 | `effort = 3` | Effort is a string, not an integer. |
 | `model = "sonnet:high"` | `:` is rejected in `model`. Pi's `model:thinking` shorthand is what the spawner *emits*, not what the config carries — put the level in `effort`. |
 | `model = ""` | Empty model. Omit the key to mean "the kind's default". |
+| `model = "workers-ai/cf@openai/gpt-oss-120b"` | `@` may only **lead** a segment, never sit inside one. |
+| `model = "workers-ai/@/gpt-oss-120b"` | `@` is a namespace prefix on a segment, not a segment. |
+| `model = "workers-ai//@cf/openai/gpt-oss-120b"` | An empty segment. Nothing about `@` relaxes the rest of the grammar. |
 | `[roles.implement.tiers.strong]` with no keys | A tier must set at least one of `kind`/`model`/`effort`/`args`. |
 | `[roles.implement] models = "opus"` | `additionalProperties: false` — a typo'd key is an error, never a silently ignored one. |
 | `[roles.implement.tiers.turbo]` | Not one of the four tier names. |
