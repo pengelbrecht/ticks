@@ -4,7 +4,7 @@ version = 2
 
 [orchestrator]
 harness = "claude"
-model = "workers-ai/@cf/openai/gpt-oss-120b"
+model = "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813"
 
 # `auto`, not a `herdr` pin. A pin asserts "herdr is reachable for every run of
 # this repository", and this repository is driven three ways: a local harness in
