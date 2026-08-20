@@ -1,0 +1,16 @@
+{
+  "id": "eb5",
+  "title": "Cloud sandbox must run the harness substrate, not the repo-pinned herdr",
+  "description": "Found by the FIRST cloud run that completed a real agent turn (run_f5e3cb50...). The orchestrator booted, cloned, resolved its model, made a successful model call, read .tick/runners.toml, found substrate = \"herdr\", correctly discovered there is no herdr socket in a container, and aborted — citing the orchestration protocol and recording the runner-state note in the documented format. The agent behaved exactly right; the configuration is what is wrong.\n\nPhase 1s design says the orchestrator runs the skill loop \"using the existing harness substrate (subagents) inside one container\". A cloud sandbox has no herdr server and never will in Phase 1 — herdr-in-the-cloud is listed as a deliberately open door, not a Phase 1 deliverable. But nothing tells the container that: it reads the repos runners.toml, which is pinned to herdr for LOCAL runs, and stops.\n\nFix: the sandbox entrypoint must make the harness substrate the effective one for a cloud orchestrator, without editing the checkout (the repos local pin must keep working for local runs). Prefer the mechanism the skill already documents for this — an explicit substrate override the orchestrator honours — over rewriting the tracked file. Whatever the mechanism, the run must SAY which substrate it resolved and why, since the protocol requires explicit degradation to be announced and noted rather than silent.\n\nNote this is the same class as the pre-flight bug orl fixed: a cloud path inheriting a local assumption. Worth checking whether any other [orchestration] key has the same problem — max_parallel in a single-sandbox Phase 1 run, for instance.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "ho3",
+  "acceptance_criteria": "A cloud run resolves the harness substrate and proceeds to dispatch work rather than aborting; the local repo keeps substrate = herdr and local runs are unaffected; the resolved substrate and the reason appear in the run output and in a tracker note.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T10:40:50.115467Z",
+  "updated_at": "2026-08-20T10:40:50.195698Z",
+  "started_at": "2026-08-20T10:40:50.195698Z"
+}
