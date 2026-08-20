@@ -1618,3 +1618,4 @@
 {"ts":"2026-08-20T13:22:00.59804Z","tick":"5qj","action":"create","actor":"claude:orchestrator","epic":"72y","data":{"priority":2,"title":"cloud/factory vitest emits a wall of workerd hung-context exceptions","type":"bug"}}
 {"ts":"2026-08-20T13:22:00.631813Z","tick":"9gt","action":"block","actor":"claude:orchestrator","epic":"ko8","data":{"blockers":["b92","jk7","ho3","zpc","kbn","97x","nqb","cmb","qcm","oaq","z1b","is0","eb5","v6u","xrz","o4i"],"title":"Close out Phase 1: retro + plan Phase 2"}}
 {"ts":"2026-08-20T13:22:00.663556Z","tick":"str","action":"block","actor":"claude:orchestrator","epic":"72y","data":{"blockers":["201","09w","5jo","3nh","iit","gm5","5qj"],"title":"Final review of the tooling-defects diff"}}
+{"ts":"2026-08-20T13:22:19.631212Z","tick":"o4i","action":"start","actor":"claude:orchestrator","epic":"ko8","data":{"title":"Treat content: null as empty string on the workers-ai route"}}
