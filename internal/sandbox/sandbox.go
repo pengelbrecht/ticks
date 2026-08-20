@@ -20,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/pengelbrecht/ticks/internal/herd/config"
 )
 
 // Env names the entrypoint's inputs. They are TICKS_-prefixed like the rest of
@@ -62,13 +64,21 @@ const (
 	// binary twice and only one of them is the orchestrator, so the difference
 	// is stated in the environment rather than inferred from argv.
 	EnvHarnessProbe = "TICKS_HARNESS_PROBE"
-	EnvMaxTime      = "TICKS_MAX_TIME"
-	EnvWorkdir      = "TICKS_WORKDIR"
-	EnvCacheDir     = "TICKS_CACHE_DIR"
-	EnvRunID        = "TICKS_RUN_ID"
-	EnvTkVersion    = "TICKS_TK_VERSION"
-	EnvPhase        = "TICKS_PHASE"
-	EnvStopReason   = "TICKS_STOP_REASON"
+	// EnvSubstrate is the explicit dispatch-substrate override the container
+	// runs under. It is the same spelling the reader uses
+	// ([config.SubstrateEnvVar]) rather than a second one: the entrypoint
+	// exports it, `tk sandbox substrate` resolves it, and the harness and
+	// everything it spawns inherit it. A cloud sandbox has no herdr server, so
+	// a repository whose tracked config pins herdr for its LOCAL runs is told
+	// the effective substrate here instead of having its checkout rewritten.
+	EnvSubstrate  = config.SubstrateEnvVar
+	EnvMaxTime    = "TICKS_MAX_TIME"
+	EnvWorkdir    = "TICKS_WORKDIR"
+	EnvCacheDir   = "TICKS_CACHE_DIR"
+	EnvRunID      = "TICKS_RUN_ID"
+	EnvTkVersion  = "TICKS_TK_VERSION"
+	EnvPhase      = "TICKS_PHASE"
+	EnvStopReason = "TICKS_STOP_REASON"
 	// EnvSandboxImage is the image reference the control plane says it booted.
 	// It is advisory and read-only from inside: the container cannot change
 	// what it is running, so this exists so that a repository declaring a

@@ -340,3 +340,145 @@ func boolStr(b bool) string {
 	}
 	return "no"
 }
+
+// ---------------------------------------------------------------------------
+// Explicit substrate override
+//
+// The cloud sandbox found this gap the expensive way: a container booted, read
+// a repository whose `[orchestration].substrate` is pinned to herdr for LOCAL
+// runs, correctly found no herdr socket, and had nowhere to be told that a
+// harness substrate was the intended one. The override is how whatever boots a
+// run says which substrate is effective there, without editing the tracked
+// file the local runs depend on.
+// ---------------------------------------------------------------------------
+
+// TestOverrideWinsOverTheFile: the override is the requested substrate, the
+// file's value is reported as configured intent, and `harness` is as terminal
+// through an override as it is in the file — no probe runs.
+func TestOverrideWinsOverTheFile(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"herdr\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o, err := ParseOverride("harness", SubstrateEnvVar)
+	if err != nil {
+		t.Fatalf("ParseOverride: %v", err)
+	}
+	p := &fakeProber{}
+	d := DecideOverride(context.Background(), cfg, p, o)
+
+	if d.Substrate != SubstrateHarness {
+		t.Errorf("Substrate = %q, want harness", d.Substrate)
+	}
+	if d.Requested != SubstrateHarness {
+		t.Errorf("Requested = %q, want harness (the override IS the request)", d.Requested)
+	}
+	if d.Configured != SubstrateHerdr {
+		t.Errorf("Configured = %q, want herdr (what the file still says)", d.Configured)
+	}
+	if d.Probed || p.envCalls != 0 || p.socketCalls != 0 {
+		t.Errorf("an override to harness probed anyway (env=%d socket=%d)", p.envCalls, p.socketCalls)
+	}
+	if d.Degraded {
+		t.Error("an override is a deliberate choice, never a degradation")
+	}
+	want := "runner-state: substrate=harness requested=harness config=herdr source=" + SubstrateEnvVar + " reason=explicit-override"
+	if got := d.NoteLine(); got != want {
+		t.Errorf("NoteLine = %q, want %q", got, want)
+	}
+	msg := d.Announcement()
+	for _, want := range []string{SubstrateEnvVar, "harness", `substrate = "herdr"`, FileName, "Cross-vendor role routing"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("announcement missing %q:\n  %s", want, msg)
+		}
+	}
+}
+
+// TestOverrideToHerdrStillDegradesExplicitly: an override does not suspend the
+// explicit-degradation rule. Asking for herdr where there is none degrades and
+// says so, exactly as the file's own pin does.
+func TestOverrideToHerdrStillDegradesExplicitly(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"harness\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o, err := ParseOverride("herdr", SubstrateEnvVar)
+	if err != nil {
+		t.Fatalf("ParseOverride: %v", err)
+	}
+	d := DecideOverride(context.Background(), cfg, &fakeProber{}, o)
+
+	if d.Substrate != SubstrateHarness || !d.Degraded {
+		t.Fatalf("substrate=%q degraded=%v, want harness/true", d.Substrate, d.Degraded)
+	}
+	if !d.Probed {
+		t.Error("an override to herdr must probe: availability is what decides")
+	}
+	want := "runner-state: substrate=harness requested=herdr config=harness source=" + SubstrateEnvVar + " reason=herdr-unavailable"
+	if got := d.NoteLine(); got != want {
+		t.Errorf("NoteLine = %q, want %q", got, want)
+	}
+	if !strings.Contains(d.Announcement(), "herdr is unavailable") {
+		t.Errorf("announcement does not state the degradation:\n  %s", d.Announcement())
+	}
+}
+
+// TestParseOverride: an empty value is "no override", and an unknown one is a
+// stop. A value a reader cannot parse authorises nothing — the same fail-closed
+// rule the config file itself gets.
+func TestParseOverride(t *testing.T) {
+	t.Run("empty is no override", func(t *testing.T) {
+		o, err := ParseOverride("", SubstrateEnvVar)
+		if err != nil {
+			t.Fatalf("ParseOverride: %v", err)
+		}
+		if o.Substrate != "" {
+			t.Fatalf("Substrate = %q, want none", o.Substrate)
+		}
+		// Whitespace only is the same thing: a variable set to nothing.
+		if o, err := ParseOverride("  \n", SubstrateEnvVar); err != nil || o.Substrate != "" {
+			t.Fatalf("ParseOverride(blank) = %+v, %v", o, err)
+		}
+	})
+
+	t.Run("the three legal values parse", func(t *testing.T) {
+		for _, want := range []Substrate{SubstrateHerdr, SubstrateHarness, SubstrateAuto} {
+			o, err := ParseOverride(string(want), SubstrateEnvVar)
+			if err != nil {
+				t.Fatalf("ParseOverride(%q): %v", want, err)
+			}
+			if o.Substrate != want || o.Source != SubstrateEnvVar {
+				t.Fatalf("ParseOverride(%q) = %+v", want, o)
+			}
+		}
+	})
+
+	t.Run("an unknown value is refused", func(t *testing.T) {
+		_, err := ParseOverride("subagents", SubstrateEnvVar)
+		if err == nil {
+			t.Fatal("ParseOverride accepted an unknown substrate")
+		}
+		for _, want := range []string{SubstrateEnvVar, "subagents", "herdr", "harness", "auto"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error missing %q: %v", want, err)
+			}
+		}
+	})
+}
+
+// TestDecideIsDecideOverrideWithNoOverride keeps the two entry points from
+// drifting: everything the decision table pins goes through the same code.
+func TestDecideIsDecideOverrideWithNoOverride(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"herdr\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	plain := Decide(context.Background(), cfg, &fakeProber{})
+	overridden := DecideOverride(context.Background(), cfg, &fakeProber{}, Override{})
+	if plain.NoteLine() != overridden.NoteLine() || plain.Substrate != overridden.Substrate {
+		t.Fatalf("Decide = %q, DecideOverride with no override = %q", plain.NoteLine(), overridden.NoteLine())
+	}
+	if strings.Contains(plain.NoteLine(), "source=") {
+		t.Errorf("a run with no override names one: %q", plain.NoteLine())
+	}
+}

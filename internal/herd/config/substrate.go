@@ -137,12 +137,68 @@ func (d DefaultProber) ProbeSocket(ctx context.Context, socketPath string) Probe
 	return ProbeResult{Name: ProbeSocket, Ran: true, OK: true, Detail: "answered at " + socketPath}
 }
 
+// SubstrateEnvVar is the environment variable that overrides the configured
+// substrate for one run. It is how whatever BOOTS a run states the substrate
+// that is effective where the run actually executes, without editing the
+// tracked config the repository's other runs depend on.
+//
+// The case it exists for: a cloud sandbox. `.tick/runners.toml` pins
+// `substrate = "herdr"` because that is right for local runs on a machine with
+// a herdr server; a container has no herdr server and never will in Phase 1.
+// The container is told so through this variable rather than by rewriting the
+// checkout, which would change the file every worker then commits against.
+const SubstrateEnvVar = "TICKS_SUBSTRATE"
+
+// Override is an explicit substrate choice supplied from outside the checkout.
+// The zero value means "no override" — the file decides, as it always has.
+//
+// An override is a deliberate choice, never a degradation, and it does not
+// suspend any of the decision procedure's other rules: an override to `herdr`
+// still probes, and still degrades explicitly when herdr is unavailable.
+type Override struct {
+	// Substrate is the overriding value, or "" when there is no override.
+	Substrate Substrate
+	// Source names where it came from, for the announcement and the note —
+	// [SubstrateEnvVar] for the environment. An override with no source is
+	// unattributable, which is the one thing a run-state note must never be.
+	Source string
+}
+
+// ParseOverride parses one override value from source, fail-closed.
+//
+// An empty or blank value is no override and no error: the variable is simply
+// not set. Anything that is not one of the three substrate values is refused
+// rather than ignored — a substrate a reader cannot parse authorises nothing,
+// and silently falling back to the file is how a run ends up on a substrate
+// nobody asked for.
+func ParseOverride(value, source string) (Override, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return Override{}, nil
+	}
+	switch s := Substrate(trimmed); s {
+	case SubstrateHerdr, SubstrateHarness, SubstrateAuto:
+		return Override{Substrate: s, Source: source}, nil
+	default:
+		return Override{}, fmt.Errorf("%s=%q is not a substrate: expected %q, %q or %q",
+			source, trimmed, SubstrateHerdr, SubstrateHarness, SubstrateAuto)
+	}
+}
+
 // Decision is the outcome of the substrate decision procedure: which
 // substrate orchestrates this run, and everything the caller needs to
 // announce and durably note it.
 type Decision struct {
-	// Requested is the configured substrate (auto when unset).
+	// Requested is the substrate this run asked for: the override when one is
+	// in force, otherwise the configured value (auto when unset).
 	Requested Substrate
+	// Configured is what the checkout's own config says, whether or not an
+	// override displaced it. Kept so a note can report configured intent and
+	// actual execution side by side.
+	Configured Substrate
+	// Override is the explicit override in force, or the zero value when the
+	// file decided on its own.
+	Override Override
 	// Substrate is the effective substrate: herdr or harness, never auto.
 	Substrate Substrate
 	// Detect is the probe policy that applied.
@@ -188,16 +244,32 @@ type Decision struct {
 // cfg may be nil ("no .tick/runners.toml"), which means substrate auto,
 // detect env-or-socket. p may be nil, which means [DefaultProber].
 func Decide(ctx context.Context, cfg *Config, p Prober) Decision {
+	return DecideOverride(ctx, cfg, p, Override{})
+}
+
+// DecideOverride runs the same procedure with an explicit [Override] in force.
+//
+// The override supplies the REQUEST — nothing else. Every other rule holds
+// unchanged: `harness` is still terminal and still forbids probing, `herdr`
+// still probes and still degrades explicitly when herdr is unavailable, and
+// the configured value is still reported so a reader can tell what the
+// repository asked for from what this run actually did.
+func DecideOverride(ctx context.Context, cfg *Config, p Prober, o Override) Decision {
 	if p == nil {
 		p = DefaultProber{}
 	}
 
 	d := Decision{
 		Requested:       cfg.Substrate(),
+		Configured:      cfg.Substrate(),
+		Override:        o,
 		Detect:          cfg.Detect(),
 		Env:             ProbeResult{Name: ProbeEnv},
 		Socket:          ProbeResult{Name: ProbeSocket},
 		FallbackHarness: cfg.OrchestratorHarness(),
+	}
+	if o.Substrate != "" {
+		d.Requested = o.Substrate
 	}
 
 	// Config first. `harness` is a deliberate choice, not a degradation, and
@@ -289,9 +361,35 @@ func expandHome(path string) (string, error) {
 // auto/unavailable and herdr/available are silent, and substrate = "harness"
 // is a deliberate choice that needs no announcement.
 func (d Decision) Announcement() string {
-	if !d.Degraded {
-		return ""
+	switch {
+	case d.Override.Substrate != "" && d.Degraded:
+		// Both facts, in the order they happened: what displaced the file, and
+		// then what the probes did with it.
+		return d.overrideAnnouncement() + " " + d.degradedAnnouncement()
+	case d.Override.Substrate != "":
+		return d.overrideAnnouncement()
+	case d.Degraded:
+		return d.degradedAnnouncement()
 	}
+	return ""
+}
+
+// overrideAnnouncement states which substrate an override put in force, what
+// the checkout asked for instead, and — when the effective substrate is
+// harness — the same consequences a degradation names. An override is not a
+// degradation, but the run still has to SAY what it resolved and why: a
+// substrate nobody announced is one nobody can audit afterwards.
+func (d Decision) overrideAnnouncement() string {
+	msg := fmt.Sprintf(
+		"%s=%s is set for this run, so the effective substrate is %s; %s requests substrate = %q, which stands for runs where it applies (the checkout is not modified).",
+		d.Override.Source, string(d.Override.Substrate), string(d.Substrate), FileName, string(d.Configured))
+	if d.Substrate == SubstrateHarness && !d.Degraded {
+		msg += " " + harnessConsequences
+	}
+	return msg
+}
+
+func (d Decision) degradedAnnouncement() string {
 	adapter := d.FallbackHarness
 	if adapter == "" {
 		adapter = "the active"
@@ -306,21 +404,37 @@ func (d Decision) Announcement() string {
 	if why == "" {
 		why = "no availability probe succeeded"
 	}
+	source := FileName
+	if d.Override.Substrate != "" {
+		source = d.Override.Source
+	}
 	return fmt.Sprintf(
-		"%s requests substrate = %q, but herdr is unavailable (%s). Falling back to harness orchestration via %s adapter for this run. "+
-			"Cross-vendor role routing in [roles] will not apply — every worker runs on the orchestrating harness, "+
-			"branch naming follows the harness adapter rather than worktree_branch_prefix, and workers no longer outlive the orchestrator.",
-		FileName, string(d.Requested), why, adapter)
+		"%s requests substrate = %q, but herdr is unavailable (%s). Falling back to harness orchestration via %s adapter for this run. %s",
+		source, string(d.Requested), why, adapter, harnessConsequences)
 }
+
+// harnessConsequences is what running on harness dispatch costs a run whose
+// [roles] table was written for herdr. Stated once, because a degradation and
+// an override arrive at the same place and must describe it identically.
+const harnessConsequences = "Cross-vendor role routing in [roles] will not apply — every worker runs on the orchestrating harness, " +
+	"branch naming follows the harness adapter rather than worktree_branch_prefix, and workers no longer outlive the orchestrator."
 
 // NoteLine returns the durable one-liner to record where the run is recorded
 // (a `tk note` on the epic), so a later reader can tell configured intent
 // from actual execution.
 func (d Decision) NoteLine() string {
 	line := fmt.Sprintf("runner-state: substrate=%s requested=%s", string(d.Substrate), string(d.Requested))
+	if d.Override.Substrate != "" {
+		// Configured intent and its source, so a later reader can tell a
+		// container that was TOLD its substrate from a repository that pinned
+		// one — without opening the file at the run's base commit.
+		line += fmt.Sprintf(" config=%s source=%s", string(d.Configured), d.Override.Source)
+	}
 	switch {
 	case d.Degraded:
 		line += " reason=herdr-unavailable"
+	case d.Override.Substrate != "":
+		line += " reason=explicit-override"
 	case !d.Probed:
 		line += " reason=config-terminal"
 	}

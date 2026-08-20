@@ -21,6 +21,7 @@ func TestEntrypointTkCommandsAreDerivedFromTheScripts(t *testing.T) {
 		"sandbox image",
 		"sandbox model",
 		"sandbox setup",
+		"sandbox substrate",
 		"sandbox toolchain",
 		"version",
 	}

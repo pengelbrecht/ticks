@@ -199,6 +199,7 @@ starts a command in a sandbox.
 | `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the one-token gateway probe may take (default 30). |
 | `TICKS_HARNESS_PROBE_TIMEOUT` | no | Seconds the harness's own pre-flight round-trip may take (default 120). Larger than the gateway probe's because it starts a whole agent CLI. |
+| `TICKS_SUBSTRATE` | no | The dispatch substrate this run uses: `harness` (default), `herdr` or `auto`. It **overrides** `[orchestration].substrate` in the checkout, which a repository pins for its LOCAL runs; the checkout is read, never rewritten. A value that is not a substrate is exit 2. See *The substrate, and why a container is told* below. |
 | `TICKS_MAX_TIME` | no | Passed through to the harness. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the pre-flight model probe may take, default 30. |
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
@@ -303,6 +304,51 @@ The model flag is provider-qualified for the same reason
 (`cloudflare-ai-gateway/@cf/meta/…`). Handed a bare id, omp fuzzy-matches its
 own catalog and may land on a provider nothing here authorised — which is the
 other half of the failure above.
+
+## The substrate, and why a container is told
+
+A run has two independent axes: *who orchestrates* (the harness) and *how
+workers are dispatched* (the substrate). The second one is what a container
+cannot infer.
+
+A repository pins `[orchestration].substrate` for the runs it usually has. For a
+repo whose developers orchestrate through herdr, that pin is `herdr` — correct
+on their machines, impossible here: a sandbox has no herdr server, and
+herdr-in-the-cloud is a door deliberately left open rather than a Phase 1
+deliverable. The first cloud run that completed a real agent turn found exactly
+that. It booted, cloned, resolved its model, made a successful model call, read
+the checkout's herdr pin, correctly discovered there was no socket to dial, and
+stopped — citing the orchestration protocol and recording the runner-state note
+in the documented format. The agent behaved exactly right; the configuration was
+what was wrong.
+
+So the container is **told**, through `TICKS_SUBSTRATE`, which the entrypoint
+defaults to `harness` — Phase 1's design: the existing harness substrate
+(subagents) inside one container. Three properties matter:
+
+- **The checkout is not edited.** Rewriting `.tick/runners.toml` inside the
+  container would change the base every worker commits against and put a config
+  change nobody submitted into the run's diff. The pin keeps working for local
+  runs; the override applies to this run only.
+- **`tk` resolves it, not this shell.** `tk sandbox substrate --root <checkout>`
+  prints the resolved substrate and the `runner-state:` note line on stdout, and
+  its reasoning on stderr. The entrypoint has one reader for the repository's
+  structured config; the shell never learns a second format.
+- **Nothing is silent.** The boot log states the resolved substrate and the note
+  line, and the harness prompt carries both plus the instruction to record the
+  note on the epic. An override is a deliberate choice rather than a
+  degradation, but a substrate nobody announced is one nobody can audit once the
+  sandbox is gone.
+
+`TICKS_SUBSTRATE=herdr` is honoured too, and gets the documented explicit
+degradation: the probes run, find nothing, and the run continues under harness
+dispatch saying so. A value that is not one of the three substrates is exit 2 —
+fail closed, never a silent fall back to the file.
+
+The other `[orchestration]` key a cloud boot inherits, `max_parallel`, is
+honoured as-is: under the harness substrate it is concurrent subagents inside
+this one sandbox rather than independent panes. The resolution prints it for the
+same reason it prints everything else.
 
 ## The model, and why a boot proves it
 

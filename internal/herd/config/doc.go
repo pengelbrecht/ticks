@@ -8,7 +8,10 @@
 //  1. What does this repo's config say? — [Load] / [LoadRepo] parse the file
 //     and enforce the schema's shape in Go.
 //  2. Which worker serves this role at this tier? — [Config.Resolve].
-//  3. Which substrate orchestrates the run? — [Decide].
+//  3. Which substrate orchestrates the run? — [Decide], or
+//     [DecideOverride] when whatever booted the run states the substrate
+//     explicitly (a cloud sandbox has no herdr server to probe for; see
+//     [SubstrateEnvVar]).
 //
 // The file also carries the run's command surface — [Testing], [Evidence]
 // (close-out only, with its acceptance authorization table) and
