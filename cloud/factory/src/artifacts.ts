@@ -89,6 +89,16 @@ export type RunRecord = {
   cost_source?: string;
   /** Why the run ended the way it did — the stop reason, or the failure. */
   detail?: string;
+  /**
+   * What the durable layer said: `advanced`, `none`, or `unknown` (tick ehy).
+   *
+   * The state says how the run ended; this says whether anything happened. A
+   * harness that exits 0 having pushed nothing is a run that STOPPED, and this
+   * field is the evidence that verdict was reached from — never the exit code.
+   */
+  progress?: string;
+  /** Which branches moved, or why the remote could not be read. */
+  progress_detail?: string;
   /** How many orchestrator sandboxes this run went through. */
   attempts?: number;
 };

@@ -132,6 +132,47 @@ export async function getRunImage(db: D1Database, runId: string): Promise<Deploy
     .first<DeploymentImage>();
 }
 
+/**
+ * What the durable layer said about a run when it ended (migrations/0006).
+ *
+ * Separate from the run's state because the two answer different questions: the
+ * state is how the run ended, this is whether anything happened. Conflating
+ * them is what let a harness's exit status stand in for completion (tick ehy).
+ */
+export interface RunProgressRecord {
+  progress: string;
+  detail: string;
+}
+
+/** Stamps the durable-evidence verdict a run finalized on. */
+export async function recordRunProgress(
+  db: D1Database,
+  runId: string,
+  progress: RunProgressRecord,
+  recordedAt: string
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO run_progress (run_id, progress, detail, recorded_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(run_id) DO UPDATE SET progress=excluded.progress,
+         detail=excluded.detail, recorded_at=excluded.recorded_at`
+    )
+    .bind(runId, progress.progress, progress.detail, recordedAt)
+    .run();
+}
+
+/** The verdict one run ended on, or null for a run that predates the stamp. */
+export async function getRunProgress(
+  db: D1Database,
+  runId: string
+): Promise<RunProgressRecord | null> {
+  return db
+    .prepare("SELECT progress, detail FROM run_progress WHERE run_id = ?")
+    .bind(runId)
+    .first<RunProgressRecord>();
+}
+
 export async function deleteRun(db: D1Database, runId: string): Promise<void> {
   await db.prepare("DELETE FROM runs WHERE run_id = ?").bind(runId).run();
 }

@@ -7,8 +7,9 @@ import {
   reconcileKey,
   type RunRecord,
 } from "../src/artifacts";
-import { getRun, listDispatchLogs, listRunGatewayTokens } from "../src/db";
+import { getRun, getRunProgress, listDispatchLogs, listRunGatewayTokens } from "../src/db";
 import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
+import type { RepoRefs } from "../src/progress";
 import { MAX_SANDBOX_BOOTS } from "../src/run-workflow";
 import { roomFor, startRun, stopRun } from "../src/runs";
 import {
@@ -146,6 +147,39 @@ class FakeSandboxes implements SandboxBinding {
   }
 }
 
+// -------------------------------------------------------------- the remote ---
+
+/**
+ * The durable layer, faked: the branch heads a run's work would land on.
+ *
+ * Nothing else in this file can stand in for it. A fake sandbox exiting 0 is
+ * exactly the run tick ehy is about — the boot chain worked, the harness had
+ * nothing to say, and NOTHING HAPPENED — so a test that wants a `completed`
+ * run has to push something here, the same way a real orchestrator would.
+ */
+class FakeRepo implements RepoRefs {
+  refs: Record<string, string> = { main: BASE_SHA };
+  /** Set to make the remote unreadable, as a GitHub outage would. */
+  unreadable: string | null = null;
+  reads = 0;
+
+  async list(): Promise<Record<string, string>> {
+    this.reads += 1;
+    if (this.unreadable !== null) throw new Error(this.unreadable);
+    return { ...this.refs };
+  }
+
+  /** What an orchestrator that did work leaves behind. */
+  push(branch: string, sha: string): void {
+    this.refs[branch] = sha;
+  }
+
+  /** Merging the epic branch and cleaning it up. */
+  deleteBranch(branch: string): void {
+    delete this.refs[branch];
+  }
+}
+
 // ------------------------------------------------------------------ harness ---
 
 const GATEWAY = "https://gateway.ai.cloudflare.com/v1/account/ticks";
@@ -154,6 +188,7 @@ const PROJECT = "example-org/example-repo";
 const BASE_SHA = "a".repeat(40);
 
 let sandboxes: FakeSandboxes;
+let repo: FakeRepo;
 const saved: Record<string, unknown> = {};
 
 /** Overrides a binding for one test, remembering what to put back. */
@@ -165,6 +200,10 @@ function set(name: string, value: unknown): void {
 beforeEach(() => {
   sandboxes = new FakeSandboxes();
   set("SANDBOXES", sandboxes);
+  // The remote a run's progress is proved against. It starts where the
+  // submission did, so a run that pushes nothing has moved nothing.
+  repo = new FakeRepo();
+  set("REPO_REFS", repo);
   set("AI_GATEWAY_BASE_URL", GATEWAY);
   set("CLOUDFLARE_API_TOKEN", undefined);
   // A run's model traffic goes through this deployment's own gateway proxy
@@ -310,6 +349,20 @@ async function settled(runID: string) {
   });
 }
 
+/** The SHA an orchestrator's pushed work lands at. */
+const PUSHED_SHA = "b".repeat(40);
+
+/**
+ * What a run that actually did something leaves on the remote.
+ *
+ * Called before the harness exits in every test that expects `completed`: since
+ * tick ehy the exit status alone cannot say the epic moved, so a test asserting
+ * completion has to supply the evidence that says it.
+ */
+function orchestratorPushedWork(epic = "ko8"): void {
+  repo.push(`epic/${epic}`, PUSHED_SHA);
+}
+
 /** Waits until a sandbox has been booted and started the orchestrator. */
 async function firstProcess(): Promise<FakeProcess> {
   return waitFor("the orchestrator to start", async () =>
@@ -345,6 +398,7 @@ describe("boot and finalize", () => {
     await waitFor("the run to be running", async () => (await runState(runID)) === "running");
 
     process.say("orchestrator: wave 1\n");
+    orchestratorPushedWork(epic);
     process.exit(0);
 
     const run = await settled(runID);
@@ -401,6 +455,126 @@ describe("boot and finalize", () => {
 
     process.exit(0);
     await settled(runID);
+  });
+});
+
+describe("exit 0 is not completion (tick ehy)", () => {
+  // The run this comes from: everything booted, the model probe was green, the
+  // HARNESS probe was green, the skill loop started — and the orchestrator then
+  // produced 271 bytes stating the substrate it had resolved and the note it
+  // intended to record, and exited. The Workflow marked it COMPLETED and
+  // charged $0.22. No wave, no branch, no note, and the epic still had every
+  // one of its open ticks.
+  it("records a harness that exited 0 having pushed nothing as stopped, not completed", async () => {
+    const { runID, project } = await ignite();
+    const process = await firstProcess();
+
+    process.say(
+      "The dispatch substrate for this run is subagents.\n" +
+        'I will record: run-state: substrate=subagents\n'
+    );
+    process.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.state).toBe("stopped");
+    expect(record.progress).toBe("none");
+    // The record has to say WHY it is not a completion, or the next operator
+    // reads "stopped" and assumes a budget trip.
+    expect(record.detail ?? "").toMatch(/exit status is not completion/i);
+    expect(record.progress_detail ?? "").toMatch(/no branch on origin changed/i);
+  });
+
+  it("still reports completed for a run that actually advanced the epic", async () => {
+    const { runID, project, epic } = await ignite();
+    const process = await firstProcess();
+
+    // The durable layer, not the terminal: a branch on origin that was not
+    // there when the run started.
+    repo.push(`epic/${epic}`, PUSHED_SHA);
+    process.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.progress).toBe("advanced");
+    expect(record.progress_detail ?? "").toContain(`epic/${epic}`);
+  });
+
+  it("counts an epic branch that was merged and cleaned up as progress", async () => {
+    // A run whose last act is merging its epic branch and deleting it leaves a
+    // remote with FEWER branches than it found. That is the successful ending.
+    const { runID, epic } = await ignite();
+    repo.push(`epic/${epic}`, PUSHED_SHA);
+    const before = await runState(runID);
+    expect(before).not.toBeNull();
+
+    const process = await firstProcess();
+    repo.deleteBranch(`epic/${epic}`);
+    process.exit(0);
+
+    expect((await settled(runID)).state).toBe("completed");
+  });
+
+  // A GitHub outage must not invent a failure any more than an exit code may
+  // invent a success. The run stays completed and the record says the evidence
+  // could not be read — the same distinction `cost_source` draws.
+  it("does not downgrade a run whose evidence could not be read, and says so", async () => {
+    const { runID, project } = await ignite();
+    const process = await firstProcess();
+
+    repo.unreadable = "GitHub answered HTTP 503 for the branch listing";
+    process.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.progress).toBe("unknown");
+    expect(record.detail ?? "").toMatch(/could not be verified/i);
+    expect(record.progress_detail ?? "").toContain("503");
+  });
+
+  // `tk cloud status <run>` reads this row. Two `stopped` runs — one that
+  // pushed a wave before its budget tripped and one that did nothing at all —
+  // are the same word without it.
+  it("stamps the verdict in D1 so tk cloud status can show the distinction", async () => {
+    const noop = await ignite();
+    (await firstProcess()).exit(0);
+    await settled(noop.runID);
+    expect(await getRunProgress(env.DB, noop.runID)).toMatchObject({ progress: "none" });
+
+    sandboxes = new FakeSandboxes();
+    set("SANDBOXES", sandboxes);
+    repo = new FakeRepo();
+    set("REPO_REFS", repo);
+
+    const real = await ignite();
+    const process = await firstProcess();
+    repo.push(`epic/${real.epic}`, PUSHED_SHA);
+    process.exit(0);
+    await settled(real.runID);
+    expect(await getRunProgress(env.DB, real.runID)).toMatchObject({ progress: "advanced" });
+  });
+
+  // A stop is already a truthful state; the verdict rides along so an operator
+  // can tell a stop that preserved work from a stop that had none to preserve.
+  it("records the verdict for a clean stop without changing its state", async () => {
+    const { runID, epic } = await ignite();
+    await firstProcess();
+    await stopRun(env, runID, "operator");
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    repo.push(`epic/${epic}`, PUSHED_SHA);
+    closeout.exit(0);
+
+    expect((await settled(runID)).state).toBe("stopped");
+    expect(await getRunProgress(env.DB, runID)).toMatchObject({ progress: "advanced" });
   });
 });
 
@@ -472,6 +646,7 @@ describe("a dead orchestrator is replaced, not the end of the run", () => {
     expect(process.env.TICKS_RUN_ID).toBe(runID);
     expect(process.env.TICKS_BASE_SHA).toBe(BASE_SHA);
 
+    orchestratorPushedWork();
     process.exit(0);
     const run = await settled(runID);
     expect(run.state).toBe("completed");
@@ -500,6 +675,7 @@ describe("a dead orchestrator is replaced, not the end of the run", () => {
     expect(record.previous).toEqual({ state: "failed", exit_code: 1 });
     expect(record.detail).toContain("exited 1");
 
+    orchestratorPushedWork();
     replacement.exit(0);
     expect((await settled(runID)).state).toBe("completed");
   });
@@ -763,6 +939,7 @@ describe("the run's gateway credential is the kill switch", () => {
       const { runID, project } = await ignite();
       const process = await firstProcess();
       expect(sandboxes.booted).toHaveLength(1);
+      orchestratorPushedWork();
       process.exit(0);
       const run = await settled(runID);
 

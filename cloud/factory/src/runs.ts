@@ -39,9 +39,11 @@ import {
   insertRunImage,
   listRuns,
   updateRunState,
+  getRunProgress,
   type DeploymentImage,
   type DispatchReason,
   type Run,
+  type RunProgressRecord,
 } from "./db";
 import { modelRoutingComplaint } from "./gateway";
 import type { Env } from "./index";
@@ -664,6 +666,17 @@ export type RunStatus = {
    * running", and that difference is invisible from the run's output alone.
    */
   image: DeploymentImage | null;
+  /**
+   * What the durable layer said when the run ended, or null for a live run (or
+   * one that predates the stamp).
+   *
+   * Reported beside the state because the state alone cannot answer the
+   * question an operator actually has after a run: did anything happen? A
+   * `stopped` run that pushed a wave and a `stopped` run that printed a
+   * paragraph and exited read identically without it — and it was that second
+   * shape being called `completed` that this exists to make visible (tick ehy).
+   */
+  progress: RunProgressRecord | null;
 };
 
 /** Everything `tk cloud status <run>` shows: index row, Workflow step state, lease, gates, queue. */
@@ -672,12 +685,13 @@ export async function runStatus(env: Env, runID: string): Promise<RunStatus | nu
   if (run === null) return null;
 
   const room = roomFor(env, run.project);
-  const [lease, queued, gates, stop, image] = await Promise.all([
+  const [lease, queued, gates, stop, image, progress] = await Promise.all([
     room.leaseStatus(),
     room.listQueuedSubmissions(),
     room.listQuestions(),
     room.stopRequest(runID),
     getRunImage(env.DB, runID),
+    getRunProgress(env.DB, runID),
   ]);
 
   return {
@@ -688,6 +702,7 @@ export async function runStatus(env: Env, runID: string): Promise<RunStatus | nu
     gates,
     stop,
     image,
+    progress,
   };
 }
 
