@@ -115,6 +115,9 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps({
                 "status": "ok",
                 "service": "ticks-factory",
+                # The deploy refuses a deployment with no container binding,
+                # so the stand-in has to report one the way a real one does.
+                "bindings": {"sandboxes": True},
                 "auth": {"required": True, "configured": bool(record)},
             }).encode()
             self.send_response(200)
@@ -156,6 +159,11 @@ ENDPOINT="http://127.0.0.1:$(cat "$PORT_FILE")"
 BIN="$SCRATCH/bin"
 mkdir -p "$BIN"
 ln -s "$REPO_ROOT/internal/factory/testdata/fake-wrangler.sh" "$BIN/wrangler"
+# Every deploy also needs a container engine (the orchestrator image) and a
+# package manager (the Worker's runtime dependency on the Sandbox SDK). Both
+# are stand-ins here for the same reason wrangler is.
+ln -s "$REPO_ROOT/internal/factory/testdata/fake-docker.sh" "$BIN/docker"
+ln -s "$REPO_ROOT/internal/factory/testdata/fake-pnpm.sh" "$BIN/pnpm"
 
 # A second PATH entry offering only `npx`, for the operators whose entire
 # wrangler installation is `npx wrangler`.
@@ -163,6 +171,8 @@ NPXBIN="$SCRATCH/npx-bin"
 mkdir -p "$NPXBIN"
 ln -s "$REPO_ROOT/internal/factory/testdata/fake-npx.sh" "$NPXBIN/npx"
 ln -s "$REPO_ROOT/internal/factory/testdata/fake-wrangler.sh" "$NPXBIN/fake-wrangler.sh"
+ln -s "$REPO_ROOT/internal/factory/testdata/fake-docker.sh" "$NPXBIN/docker"
+ln -s "$REPO_ROOT/internal/factory/testdata/fake-pnpm.sh" "$NPXBIN/pnpm"
 
 export HOME="$SCRATCH/home"
 mkdir -p "$HOME"

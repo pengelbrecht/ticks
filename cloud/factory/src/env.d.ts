@@ -29,15 +29,19 @@ declare namespace Cloudflare {
      * The orchestrator sandboxes a run boots — one per run in Phase 1, one per
      * tick from Phase 2 (see cloud/sandbox).
      *
-     * Declared as the structural seam src/sandbox.ts defines rather than as the
-     * Sandbox SDK's own type, for the reason stated there: the run lifecycle is
-     * what needs testing, and a lifecycle exercisable only by starting a real
-     * container is a lifecycle nobody tests. Optional because a deployment
-     * without it is a broken deploy that must say so at the point of use — the
-     * Workflow fails the run naming this binding rather than looping on boots
-     * that cannot happen.
+     * On a deployment this is the Durable Object namespace `[[containers]]`
+     * binds the Sandbox SDK's own class to; in a test it is the structural seam
+     * src/sandbox.ts defines. Both, because the run lifecycle is what needs
+     * testing and a lifecycle exercisable only by starting a real container is
+     * a lifecycle nobody tests — `sandboxBinding()` is what tells them apart
+     * and puts the SDK behind the seam. Optional because a deployment without
+     * it is a broken deploy that must say so at the point of use: the Workflow
+     * fails the run naming this binding rather than looping on boots that
+     * cannot happen.
      */
-    SANDBOXES?: import("./sandbox").SandboxBinding;
+    SANDBOXES?:
+      | import("./sandbox").SandboxBinding
+      | import("./sandbox").SandboxNamespace;
     /**
      * Image reference a run boots, for a deployment that pushed the
      * orchestrator image into its own registry. Unset uses the bundled

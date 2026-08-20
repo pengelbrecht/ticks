@@ -18,6 +18,8 @@
  * `tk factory setup` to the container.
  */
 
+import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
+
 import type { Env } from "./index";
 
 // -------------------------------------------------------------- the image ---
@@ -142,7 +144,166 @@ export interface SandboxBinding {
  */
 export function sandboxBinding(env: Env): SandboxBinding | null {
   const binding = env.SANDBOXES;
-  return binding === undefined || binding === null ? null : binding;
+  if (binding === undefined || binding === null) return null;
+  return isSandboxNamespace(binding) ? sdkSandboxBinding(binding) : binding;
+}
+
+// ------------------------------------------------------- the SDK adapter ---
+
+/**
+ * How long a sandbox may go unaddressed before the platform stops it.
+ *
+ * Not `keepAlive`. A container that never sleeps has to be destroyed by
+ * something, and the thing that would destroy it is the Workflow instance that
+ * may itself have died — so an orchestrator whose supervisor is gone would bill
+ * until an operator noticed. The observation loop addresses its sandbox at most
+ * every MAX_POLL_MS (5 minutes, src/run-workflow.ts), so a window several times
+ * that keeps a live run awake while still putting a ceiling on a leaked one.
+ */
+export const SANDBOX_SLEEP_AFTER = "20m";
+
+/**
+ * The command modifier that puts one boot's whole output in one buffer.
+ *
+ * `getProcessLogs` returns stdout and stderr as two independently growing
+ * strings, and the seam's cursor is a single offset — resuming into a
+ * concatenation of two growing buffers re-emits and misaligns. The entrypoint
+ * already streams everything it has to say to stdout, so the redirect makes
+ * that true of the harness's stderr as well, and one cursor stays correct.
+ */
+const MERGE_STDERR = " 2>&1";
+
+/**
+ * The subset of the Sandbox SDK's sandbox this adapter uses.
+ *
+ * Declared structurally, like `SandboxBinding` above and `RunWorkflowBinding`
+ * in src/runs.ts: the mapping from the SDK's process model to the seam's is the
+ * thing worth testing, and a test that can only run it by starting a container
+ * is a test nobody runs.
+ */
+export type SdkSandbox = {
+  startProcess(
+    command: string,
+    options?: { env?: Record<string, string>; autoCleanup?: boolean }
+  ): Promise<SdkProcess>;
+  getProcess(id: string): Promise<SdkProcess | null>;
+  getProcessLogs(id: string): Promise<{ stdout: string; stderr: string }>;
+  killProcess(id: string): Promise<void>;
+  destroy(): Promise<void>;
+};
+
+/** What the SDK reports about one process. */
+export type SdkProcess = {
+  id: string;
+  status: string;
+  exitCode?: number | null;
+};
+
+/** The Durable Object namespace `[[containers]]` binds the Sandbox class to. */
+export type SandboxNamespace = DurableObjectNamespace<Sandbox>;
+
+/**
+ * Whether this binding is the deployment's Durable Object namespace rather
+ * than a fake assigned to `env.SANDBOXES` by a test.
+ *
+ * `idFromName` is the discriminator because it is what a namespace has and the
+ * seam does not: the seam's `get` takes a name, the namespace's takes an id.
+ */
+export function isSandboxNamespace(
+  binding: SandboxBinding | SandboxNamespace
+): binding is SandboxNamespace {
+  return typeof (binding as { idFromName?: unknown }).idFromName === "function";
+}
+
+/**
+ * The deployment's binding: the SDK's `getSandbox` behind the seam's five
+ * methods.
+ *
+ * `options.image` is accepted and ignored here, because a container's image is
+ * fixed by the `[[containers]]` application the Durable Object class belongs to
+ * — there is one image per class, chosen at deploy time. The Workflow still
+ * passes it, and still tells the container which image it got
+ * (`TICKS_SANDBOX_IMAGE`), so a repository that declares a different one is
+ * reported by the entrypoint instead of silently ignored.
+ */
+export function sdkSandboxBinding(namespace: SandboxNamespace): SandboxBinding {
+  return {
+    async get(name: string): Promise<OrchestratorSandbox> {
+      return adaptSandbox(getSandbox(namespace, name, { sleepAfter: SANDBOX_SLEEP_AFTER }));
+    },
+  };
+}
+
+/** One SDK sandbox, behind the five methods the supervision loop uses. */
+export function adaptSandbox(sandbox: SdkSandbox): OrchestratorSandbox {
+  return {
+    async startProcess(command, options) {
+      // autoCleanup: false — the default erases a process record as soon as it
+      // exits, and the exit status IS the run's verdict (a terminal code ends
+      // the run; anything else reboots). A record that deletes itself before
+      // the next observation turns every finished orchestrator into "gone".
+      const started = await sandbox.startProcess(command + MERGE_STDERR, {
+        env: options.env,
+        autoCleanup: false,
+      });
+      return processView(started);
+    },
+    async getProcess(id) {
+      const view = await sandbox.getProcess(id);
+      return view === null || view === undefined ? null : processView(view);
+    },
+    async readOutput(id, offset) {
+      const logs = await sandbox.getProcessLogs(id);
+      const text = logs.stdout ?? "";
+      if ((logs.stderr ?? "") !== "") {
+        // Unreachable while the redirect above holds. If it ever does not, this
+        // says so rather than dropping the output silently.
+        console.error(
+          `factory sandbox: process ${id} wrote ${logs.stderr.length} bytes to stderr, ` +
+            "which the merged-output contract says cannot happen"
+        );
+      }
+      // A cursor past the end is a buffer that was reset under us. Resuming
+      // from the new end loses what was dropped; resuming from zero would
+      // re-stream a run's whole log into fresh R2 segments, which is worse.
+      const start = Math.min(offset, text.length);
+      return { text: text.slice(start), offset: text.length };
+    },
+    async killProcess(id) {
+      await sandbox.killProcess(id);
+    },
+    async destroy() {
+      await sandbox.destroy();
+    },
+  };
+}
+
+/** The SDK's process record, in the seam's shape. */
+function processView(process: SdkProcess): SandboxProcessView {
+  return {
+    id: process.id,
+    state: processState(process.status),
+    exit_code: process.exitCode === undefined ? null : process.exitCode,
+  };
+}
+
+/**
+ * The SDK's status vocabulary, mapped onto the seam's.
+ *
+ * `killed` and `error` land on `failed` deliberately: the supervision loop's
+ * question is "is this orchestrator still working", and every one of them
+ * answers no in a way that is not a clean completion.
+ */
+function processState(status: string): SandboxProcessState {
+  switch (status) {
+    case "starting":
+    case "running":
+      return "running";
+    case "completed":
+      return "completed";
+    default:
+      return "failed";
+  }
 }
 
 /** The sandbox name a run's containers are addressed by. */

@@ -210,6 +210,16 @@ nonzero with each failing check named.
 
 ## Build and run
 
+`tk factory deploy` is what builds and pushes this image in the normal case: it
+stages this directory next to the factory bundle (`~/.tick/factory/sandbox`),
+and wrangler builds it from the `[[containers]]` declaration in
+`cloud/factory/wrangler.toml` and pushes it to the operator's own managed
+registry before the Worker is uploaded. A deploy with no working Docker is a
+stop with that message — a Worker bound to an image that was never built is a
+factory that refuses every run.
+
+By hand, for a registry tk is not driving:
+
 ```sh
 ./build.sh                                  # ticks-orchestrator:<tk version>
 ./build.sh --registry registry.example.com --push
