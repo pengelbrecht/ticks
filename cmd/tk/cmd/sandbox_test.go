@@ -424,3 +424,70 @@ func TestSandboxSubstrateRefusesAnUnknownOverride(t *testing.T) {
 		t.Errorf("error does not name the variable and its value: %v", err)
 	}
 }
+
+// The two ways a run ends up on subagents with no herdr, told apart on the
+// channel a boot log actually reads. `auto` finding nothing is the ordinary
+// path — stated, not announced — and a pin that cannot be satisfied is loud and
+// says what to write instead.
+func TestSandboxSubstrateStatesTheOrdinaryPathQuietly(t *testing.T) {
+	root := sandboxRepo(t, `version = 2
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "auto"
+socket = "/tmp/no-such-herdr.sock"
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`)
+	t.Setenv(herdconfig.SubstrateEnvVar, "")
+	t.Setenv(herdconfig.EnvVar, "")
+	out, errOut := captureCmdStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "substrate", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox substrate: %v", err)
+	}
+	if !strings.Contains(out.String(), "reason=auto-no-herdr") {
+		t.Errorf("the durable note does not distinguish the ordinary path:\n%s", out.String())
+	}
+	if !strings.Contains(errOut.String(), `substrate = "auto"`) {
+		t.Errorf("the resolution was not stated at all:\n%s", errOut.String())
+	}
+	for _, unwanted := range []string{"Falling back", "Cross-vendor role routing"} {
+		if strings.Contains(errOut.String(), unwanted) {
+			t.Errorf("the ordinary path was announced as a degradation (%q):\n%s", unwanted, errOut.String())
+		}
+	}
+}
+
+func TestSandboxSubstrateStaysLoudForAnUnsatisfiablePin(t *testing.T) {
+	root := sandboxRepo(t, `version = 2
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "herdr"
+socket = "/tmp/no-such-herdr.sock"
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`)
+	t.Setenv(herdconfig.SubstrateEnvVar, "")
+	t.Setenv(herdconfig.EnvVar, "")
+	out, errOut := captureCmdStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "substrate", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox substrate: %v", err)
+	}
+	if !strings.Contains(out.String(), "reason=herdr-unavailable") {
+		t.Errorf("the durable note does not record the refused assertion:\n%s", out.String())
+	}
+	for _, want := range []string{"Falling back", `substrate = "auto"`} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr missing %q — the loud case must say what went wrong and what to write instead:\n%s", want, errOut.String())
+		}
+	}
+}

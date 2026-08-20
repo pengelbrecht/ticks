@@ -6,8 +6,15 @@ version = 2
 harness = "claude"
 model = "workers-ai/@cf/openai/gpt-oss-120b"
 
+# `auto`, not a `herdr` pin. A pin asserts "herdr is reachable for every run of
+# this repository", and this repository is driven three ways: a local harness in
+# herdr panes, a local harness with no herdr running (the skill's original mode,
+# subagents), and a cloud sandbox that has no herdr server. `auto` probes and
+# resolves all three correctly. The pin made the second announce a broken
+# assertion every run and made the third stop outright — which is how the first
+# cloud run of this repo to complete a real agent turn ended.
 [orchestration]
-substrate = "herdr"
+substrate = "auto"
 max_parallel = 3
 
 [roles.implement]

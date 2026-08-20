@@ -403,12 +403,30 @@ Two rules come with it, and both are the point:
 
 | `substrate` | herdr available | Result |
 |---|---|---|
-| `auto` (default) | yes | herdr orchestration. Silent — no announcement needed. |
-| `auto` | no | Harness orchestration via the active `<harness>-runner.md` adapter. Silent. |
-| `herdr` | yes | herdr orchestration. |
-| `herdr` | no | **Explicit degradation** — see below. The run continues under harness orchestration. |
-| `harness` | either | Harness orchestration, always. Herdr is not probed and not used, even inside a herdr pane. |
+| `auto` (default) | yes | herdr orchestration. State it once, quietly. |
+| `auto` | no | Harness orchestration via the active `<harness>-runner.md` adapter. State it once, quietly — this is `auto` working, not a fallback from anything. |
+| `herdr` | yes | herdr orchestration. State it once, quietly. |
+| `herdr` | no | **Explicit degradation** — see below. Loud. The run continues under harness orchestration. |
+| `harness` | either | Harness orchestration, always. Herdr is not probed and not used, even inside a herdr pane. State it once, quietly. |
 | any value, with `TICKS_SUBSTRATE` set | as the override's own value dictates above | The override is the request; the file's value is reported as configured intent. Announced, never silent. |
+
+### Two registers: state everything, announce one thing
+
+**Every run states the substrate it resolved, once, before dispatching its first worker.** Not because something went wrong — because a substrate nobody stated is one nobody can audit afterwards, and `harness` with no reason beside it is indistinguishable from a run that never looked. In a cloud sandbox the boot log is the only record that survives the container.
+
+**One case is announced rather than stated: `substrate = "herdr"` with no herdr.** That is an assertion the environment refused, and it is loud on purpose.
+
+The distinction is the whole point, and getting it wrong costs more than the noise. A repository that pins `herdr` when some of its runs are driven without herdr announces a degradation on *every ordinary run* — and an operator who reads a degradation every day has been trained to ignore the one that matters. Conversely, a run that resolves `harness` and says nothing at all leaves a reader unable to tell "there was no herdr here" from "nobody asked".
+
+| | Register | What it says |
+|---|---|---|
+| `auto` resolving either substrate | quiet | what was asked for, what the probes found, what is dispatching |
+| `harness` (terminal) | quiet | the config asked for subagents; herdr was not probed |
+| `herdr` resolving herdr | quiet | the pin held |
+| `herdr` with no herdr | **loud** | the degradation below, plus the setting that would have made this run ordinary |
+| any value with `TICKS_SUBSTRATE` set | **loud** | a substrate the checkout did not ask for |
+
+`tk sandbox substrate` implements both registers: the resolved substrate and the `runner-state:` note on stdout, the statement — quiet or loud — on stderr. The note distinguishes them too: `reason=auto-no-herdr` is the ordinary path, `reason=herdr-unavailable` is the refused assertion.
 
 ### Explicit degradation
 
@@ -424,7 +442,21 @@ Three consequences of the fallback are worth stating to the user when they matte
 - Branch naming follows the harness adapter, not `worktree_branch_prefix`.
 - Workers no longer outlive the orchestrator; harness subagents are child processes.
 
-`substrate = "harness"` is *not* a degradation: it is a deliberate choice and needs no announcement.
+`substrate = "harness"` is *not* a degradation: it is a deliberate choice. State it quietly like any other resolution; do not announce it.
+
+### Pin, or `auto`?
+
+`substrate = "herdr"` is an **assertion**: *herdr is reachable for every run of this repository*. Write it only when that is true. `auto` is a **policy**: *use herdr when it is there*. Most repositories mean the policy.
+
+The same repository is commonly driven three ways, and only one of them has herdr:
+
+1. a local harness in herdr panes — herdr;
+2. a local harness with **no herdr running**, dispatching its own subagents — the skill's original mode, which predates herdr and which the cloud-factory design calls the degenerate case that must stay sacred and work offline forever;
+3. a cloud sandbox, where there is no herdr server and will not be one in Phase 1.
+
+Cases 2 and 3 are the same situation reached from different directions, and `auto` resolves both correctly by probing. A pin makes case 2 announce a broken assertion on every run and makes case 3 stop outright — which is exactly what happened to the first cloud run of this repository that completed a real agent turn.
+
+**There is deliberately no "where am I running" signal, and adding one would be a mistake.** It was proposed after that cloud run and rejected on enumeration. Five things vary independently: the orchestrator's harness (probed per session), the orchestrator's *location* (laptop or container), whether the orchestrator sits inside a herdr pane (`HERDR_ENV`, which is a probe *input* to availability and not a config axis), the worker substrate, and each role's worker kind. `auto` already resolves the substrate correctly in every in-scope case — in a pane, outside a pane with herdr running, outside a pane without it, and in a container — so a location variable would answer a question nothing asks. Worse, it would answer it *wrongly* for a supported configuration: a **local** orchestrator driving **cloud** workers (`tk cloud spawn/wait/collect/reconcile`, D19 in the cloud-factory design) is local judgment with cloud hands, and a signal keyed on "am I in the cloud" smears the two axes together. What genuinely cannot be probed — "herdr is reachable but should not be used here" — is what `TICKS_SUBSTRATE` is for; explicit always beats a probe.
 
 ## Worked examples
 
@@ -793,7 +825,7 @@ These are the failures a config author should expect, and where each one is caug
 | `go = { description = "…" }` | `command` is required — a labelled entry with nothing to run is not a command. |
 | `go = "go test -short ./..."` | A command is a table, not a bare string. One shape, so a consumer never branches. |
 | `go = { command = "" }` | Empty command. Delete the entry instead. |
-| `go = { command = "which go rm -rf /" }` | Control characters are rejected in `command`, not escaped. |
+| `go = { command = "which go\u0000rm -rf /" }` | Control characters are rejected in `command`, not escaped. |
 | `[evidence.acceptance] A0 = "go"`, `Item1 = "go"` | Item ids are `A<n>`, `n` ≥ 1. |
 | `[evidence.acceptance] A1 = 1` | The value is a command **id**, a string. |
 | `[testing.commands] Go = { … }` | Command ids are lowercase `^[a-z0-9][a-z0-9_-]*$`. |

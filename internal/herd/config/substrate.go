@@ -354,12 +354,21 @@ func expandHome(path string) (string, error) {
 	return filepath.Join(home, filepath.FromSlash(strings.TrimPrefix(path, "~/"))), nil
 }
 
-// Announcement returns the text the orchestrator must state to the user
-// before dispatching the first worker, or "" when nothing needs announcing.
+// Announcement returns the text the orchestrator must state LOUDLY before
+// dispatching the first worker, or "" when nothing needs that register.
 //
-// Only the explicit-degradation cell produces text. auto/available,
-// auto/unavailable and herdr/available are silent, and substrate = "harness"
-// is a deliberate choice that needs no announcement.
+// Only two things earn it: an explicit degradation (an assertion the
+// environment refused) and an explicit override (a substrate the checkout did
+// not ask for). Everything else resolved exactly what the config asked for, and
+// says so through [Decision.Resolution] instead.
+//
+// The distinction is the point, not a nicety. A repository that pins
+// `substrate = "herdr"` when its runs are sometimes driven without herdr — a
+// local session with no herdr server, the skill's original mode and the
+// degenerate case the cloud-factory design calls sacred — announces a
+// degradation on every ordinary run, and an operator who reads that every day
+// has been trained to ignore the announcement that matters. The fix for such a
+// repository is `substrate = "auto"`, which is why the degradation names it.
 func (d Decision) Announcement() string {
 	switch {
 	case d.Override.Substrate != "" && d.Degraded:
@@ -408,9 +417,74 @@ func (d Decision) degradedAnnouncement() string {
 	if d.Override.Substrate != "" {
 		source = d.Override.Source
 	}
-	return fmt.Sprintf(
+	msg := fmt.Sprintf(
 		"%s requests substrate = %q, but herdr is unavailable (%s). Falling back to harness orchestration via %s adapter for this run. %s",
 		source, string(d.Requested), why, adapter, harnessConsequences)
+	if d.Override.Substrate == "" {
+		// The pin is an assertion — "herdr is reachable for every run of this
+		// repository" — and the environment just refused it. A repository whose
+		// runs are not all alike is asserting something it does not mean, so
+		// the loud message says what to write instead of only what went wrong.
+		msg += fmt.Sprintf(
+			" If this repository is sometimes driven without herdr, substrate = %q is the truthful setting: it uses herdr when it is there and dispatches subagents when it is not, without calling either one a failure.",
+			string(SubstrateAuto))
+	}
+	return msg
+}
+
+// Resolution returns the one thing every run says about the substrate it
+// resolved. It is never empty: a resolution nobody stated is one nobody can
+// audit after the fact, and that is as true of the ordinary path as of the
+// broken one.
+//
+// The register is what differs. When something must be stated loudly this IS
+// [Decision.Announcement] — the same words, so a caller printing both does not
+// say it twice. Otherwise it is a quiet sentence: what was asked for, what was
+// probed, what is dispatching. No degradation vocabulary and no consequences
+// paragraph, because nothing was degraded and nothing was substituted.
+func (d Decision) Resolution() string {
+	if msg := d.Announcement(); msg != "" {
+		return msg
+	}
+	switch {
+	case !d.Probed:
+		return fmt.Sprintf(
+			"%s requests substrate = %q: workers are dispatched as subagents of the orchestrating harness, and herdr is not probed for.",
+			FileName, string(d.Requested))
+	case d.Available:
+		return fmt.Sprintf(
+			"%s requests substrate = %q and herdr answered (%s): workers are dispatched as herdr panes.",
+			FileName, string(d.Requested), d.availabilityDetail())
+	default:
+		// The ordinary case this method exists for: `auto` is a policy — use
+		// herdr when it is there — and finding it absent is that policy
+		// working, not a fallback from anything.
+		return fmt.Sprintf(
+			"%s requests substrate = %q and no herdr is running (%s): workers are dispatched as subagents of the orchestrating harness, which is what %q asks for.",
+			FileName, string(d.Requested), d.probeDetail(), string(SubstrateAuto))
+	}
+}
+
+// availabilityDetail names the probe that found herdr.
+func (d Decision) availabilityDetail() string {
+	for _, r := range []ProbeResult{d.Env, d.Socket} {
+		if r.Ran && r.OK {
+			return r.String()
+		}
+	}
+	return "an availability probe succeeded"
+}
+
+// probeDetail names the probes that did not.
+func (d Decision) probeDetail() string {
+	reasons := make([]string, 0, len(d.FailedProbes))
+	for _, r := range d.FailedProbes {
+		reasons = append(reasons, r.Detail)
+	}
+	if len(reasons) == 0 {
+		return "no availability probe succeeded"
+	}
+	return strings.Join(reasons, ", ")
 }
 
 // harnessConsequences is what running on harness dispatch costs a run whose
@@ -437,6 +511,12 @@ func (d Decision) NoteLine() string {
 		line += " reason=explicit-override"
 	case !d.Probed:
 		line += " reason=config-terminal"
+	case d.Probed && !d.Available:
+		// Distinct from `herdr-unavailable` on purpose. Both ran on subagents
+		// with no herdr in sight; one is a policy working and the other is an
+		// assertion that failed, and a reader grepping run-state notes months
+		// later has only this line to tell them apart.
+		line += " reason=auto-no-herdr"
 	}
 	return line
 }
