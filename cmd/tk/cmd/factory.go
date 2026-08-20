@@ -53,11 +53,13 @@ migrations, pushes the hash of your factory token as a Worker secret, deploys
 the worker, and records the endpoint and token in ~/.ticksrc alongside the
 existing board-sync token.
 
-It then waits for the orchestrator container application to report the image it
-just pushed. ` + "`wrangler deploy`" + ` creates that rollout and returns without waiting
+It then waits for the orchestrator container application to report the image this
+deploy should serve. When ` + "`wrangler deploy`" + ` skips an unchanged image push,
+the existing application record supplies that digest; a real rollout is still
+waited for when a new image was pushed. ` + "`wrangler deploy`" + ` creates that rollout and returns without waiting
 for it, so without this wait a run started immediately after a green deploy can
 still boot the PREVIOUS container image — which makes a correct fix look like it
-did not work. If the rollout cannot be confirmed within a few minutes the deploy
+did not work. If the rollout cannot be confirmed within the bounded wait the deploy
 says so and exits nonzero rather than reporting success; --skip-rollout-wait
 accepts the unconfirmed state deliberately.
 
