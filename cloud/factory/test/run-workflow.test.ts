@@ -237,7 +237,18 @@ const LOGS_API = "https://api.cloudflare.example/client/v4";
  * filters each read sent and refusing a dotted metadata key exactly as the
  * real API does (error 7001 over an HTTP 400).
  */
-function stubLogsAPI(cost: number): {
+/**
+ * The AI Gateway logs API, refusing what it really refuses.
+ *
+ * It rejects a filter key outside its enum AND a `per_page` above 50 — both
+ * are 400s that grounded a budgeted live run, and a stub that answered 200 to
+ * either is what let them ship. `refuse` forces a status for the tests that
+ * care what the operator is told, rather than whether the query was accepted.
+ */
+function stubLogsAPI(
+  cost: number,
+  refuse?: { status: number; message: string }
+): {
   filters: { key: string; operator: string; value: unknown[] }[][];
   restore: () => void;
 } {
@@ -263,6 +274,23 @@ function stubLogsAPI(cost: number): {
           { status: 400 }
         );
       }
+    }
+    const perPage = Number(new URL(url).searchParams.get("per_page") ?? "0");
+    if (perPage > 50) {
+      return Response.json(
+        {
+          success: false,
+          errors: [{ code: 7003, message: "Number must be less than or equal to 50" }],
+          result: null,
+        },
+        { status: 400 }
+      );
+    }
+    if (refuse !== undefined) {
+      return Response.json(
+        { success: false, errors: [{ message: refuse.message }], result: null },
+        { status: refuse.status }
+      );
     }
     const runID = String((sent[1]?.value ?? [])[0] ?? "");
     return Response.json({
@@ -752,6 +780,53 @@ describe("the run's gateway credential is the kill switch", () => {
       const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
       expect(record.cost_source).toBe("gateway");
       expect(run.cost_usd).toBeCloseTo(0.02, 10);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("tells the operator to report a rejected query, not to configure what is configured", async () => {
+    // The live run this came from was told "run `tk factory setup
+    // --cloudflare-api-token`" for a 400 caused by our own query shape — the
+    // credential was already there, and no amount of setup would have helped.
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    set("RUN_MAX_COST_USD", "1");
+    const logs = stubLogsAPI(0, { status: 400, message: "Number must be less than or equal to 50" });
+
+    try {
+      const { runID, project } = await ignite();
+      const run = await settled(runID);
+      expect(run.state).toBe("failed");
+      expect(sandboxes.booted).toHaveLength(0);
+
+      const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+      const detail = record.detail ?? "";
+      expect(detail).toContain("400");
+      expect(detail).toContain("Number must be less than or equal to 50");
+      expect(detail).toMatch(/report/i);
+      // The remedy for a missing credential is the wrong advice here.
+      expect(detail).not.toContain("tk factory setup --cloudflare-api-token");
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("tells the operator to retry when the logs API is down, not to report a bug", async () => {
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    set("RUN_MAX_COST_USD", "1");
+    const logs = stubLogsAPI(0, { status: 503, message: "service unavailable" });
+
+    try {
+      const { runID, project } = await ignite();
+      const run = await settled(runID);
+      expect(run.state).toBe("failed");
+
+      const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+      const detail = record.detail ?? "";
+      expect(detail).toContain("503");
+      expect(detail).toMatch(/retry/i);
     } finally {
       logs.restore();
     }
