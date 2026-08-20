@@ -142,6 +142,24 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	}
 	fmt.Fprintf(out, "%s %s, authenticated\n", w.label, wranglerVersion)
 
+	// The orchestrator sandbox is a container image, and wrangler builds and
+	// pushes it into the operator's own registry as part of the deploy. Both
+	// halves are checked here, before anything is created: a Worker deployed
+	// with a container binding whose image never got built is a factory that
+	// refuses every run, with a message pointing at the very command that
+	// produced it.
+	dockerVersion, err := requireDocker(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "%s %s, daemon reachable\n", dockerBinary(), dockerVersion)
+
+	pm, pmVersion, err := findPackageManager(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "%s %s\n", pm.label, pmVersion)
+
 	// Everything from here runs in the bundle directory.
 	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
 		return nil, fmt.Errorf("preparing %s: %w", bundleDir, err)
@@ -168,6 +186,24 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	fmt.Fprintf(out, "bundle %s (tk %s) staged in %s\n", shortSHA(BundleSHA()), opts.Version, bundleDir)
+
+	// The image's build context is staged as a sibling of the bundle, because
+	// that is what makes the `[[containers]]` image path in the committed
+	// wrangler.toml (`../sandbox/Dockerfile`) resolve to the same tree here as
+	// it does in the repository.
+	sandboxDir := SandboxDir(bundleDir)
+	if err := MaterializeSandbox(sandboxDir); err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "orchestrator image context staged in %s\n", sandboxDir)
+
+	// The Worker imports the Cloudflare Sandbox SDK to run a container, so the
+	// staged bundle is installed before it is deployed. Local work, done before
+	// the first `create`: a deploy that cannot bundle must not have provisioned
+	// half an account first.
+	if err := pm.installDependencies(ctx, bundleDir); err != nil {
+		return nil, err
+	}
 
 	databaseID, createdDB, err := w.ensureDatabase(ctx, DatabaseName)
 	if err != nil {
@@ -323,8 +359,14 @@ func recordDeployment(ctx context.Context, w *wrangler, version string) error {
 
 // healthPayload is the slice of GET /health this command reads.
 type healthPayload struct {
-	Status string `json:"status"`
-	Auth   struct {
+	Status   string `json:"status"`
+	Bindings struct {
+		// The container binding. A deployment without it records runs it can
+		// never boot, so the deploy that produced it has to fail rather than
+		// report success and leave the refusal for the first submission.
+		Sandboxes bool `json:"sandboxes"`
+	} `json:"bindings"`
+	Auth struct {
 		Required   bool `json:"required"`
 		Configured bool `json:"configured"`
 	} `json:"auth"`
@@ -441,6 +483,17 @@ func verifyOnce(ctx context.Context, client *http.Client, url, token string) err
 	var health healthPayload
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&health); err != nil {
 		return verificationError(fmt.Errorf("GET /health did not return the factory's health payload: %w", err), true)
+	}
+	if !health.Bindings.Sandboxes {
+		// Retryable: a fresh Worker version can take a moment to serve. If it
+		// is still false at the last attempt, the deploy failed — the alternative
+		// is a green deploy in front of a factory that refuses every run with a
+		// message naming this very command as the remedy.
+		return verificationError(fmt.Errorf(
+			"GET /health reports bindings.sandboxes=false: the deployed Worker has no container "+
+				"binding, so every run would be refused. Check that `wrangler deploy` built and "+
+				"pushed the orchestrator image, and that Containers are available on this "+
+				"Cloudflare account"), true)
 	}
 	if !health.Auth.Configured {
 		// The worker proves this with a real derivation, not a parse, so a

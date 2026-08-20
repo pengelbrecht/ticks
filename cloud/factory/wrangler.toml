@@ -24,6 +24,42 @@ tag = "v1"
 # SQLite-backed storage — requires the recent compatibility_date above.
 new_sqlite_classes = ["RunRoom"]
 
+# The orchestrator sandbox a run boots (cloud/sandbox, Phase 1). The binding is
+# a Durable Object binding because that is what a container IS on this platform:
+# one Durable Object per container, addressed by name, whose class is the
+# Sandbox SDK's — re-exported from src/index.ts and put behind the seam in
+# src/sandbox.ts. Without this block the control plane refuses every run, which
+# is exactly what a deployment that "only" forgot to declare a container looks
+# like from the outside.
+[[durable_objects.bindings]]
+name = "SANDBOXES"
+class_name = "Sandbox"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Sandbox"]
+
+# The container application the Sandbox class runs. `image` is a path to the
+# Dockerfile of cloud/sandbox, which is why `tk factory deploy` stages that tree
+# next to the bundle it deploys from: the same relative path has to be true in
+# this repository and in the staged copy. Wrangler builds it and pushes it to
+# the operator's own managed registry before it uploads the Worker (D16 — the
+# factory runs in the operator's account or not at all), so a deploy without a
+# working Docker is a stop, not a Worker that refuses every run.
+[[containers]]
+class_name = "Sandbox"
+name = "ticks-orchestrator"
+image = "../sandbox/Dockerfile"
+# Phase 1 boots one container per run. The headroom is for the overlap a reboot
+# creates (the replacement is addressed before the dead one is destroyed) and
+# for a second project's run holding its own lease. Raising it is a deployment
+# decision bounded by the account's container limits, not a code change.
+max_instances = 3
+# standard-3: 2 vCPU, 8 GiB memory, 16 GB disk. Disk is the binding constraint —
+# the batteries-included image is multi-GB before a checkout, a module cache or
+# a node_modules tree exists.
+instance_type = "standard-3"
+
 # Run artifacts: runs/<project>/<run_id>/{run.json, artifacts/<tick_id>/...}
 [[r2_buckets]]
 binding = "ARTIFACTS"

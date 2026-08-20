@@ -19,6 +19,20 @@ import (
 // bundleRoot is the prefix the embedded FS uses for the factory tree.
 const bundleRoot = "cloud/factory"
 
+// sandboxRoot is the prefix the embedded FS uses for the orchestrator image's
+// build context.
+const sandboxRoot = "cloud/sandbox"
+
+// SandboxDirName is the directory the image context is staged in, as a sibling
+// of the bundle directory.
+//
+// A sibling and not a subdirectory because wrangler.toml's `[[containers]]`
+// image path has to resolve identically in this repository and in the staged
+// copy: `cloud/factory` next to `cloud/sandbox` there, `<...>/bundle` next to
+// `<...>/sandbox` here. One relative path, true in both places, so the
+// committed config is the deployed config.
+const SandboxDirName = "sandbox"
+
 // placeholderDatabaseID is the database_id committed in wrangler.toml. It
 // keeps `wrangler dev` and the vitest harness working out of the box; a real
 // deploy replaces it with the id of the operator's own D1 database.
@@ -59,6 +73,10 @@ var (
 	pathsOnce sync.Once
 	pathsList []string
 	pathsErr  error
+
+	sandboxPathsOnce sync.Once
+	sandboxPathsList []string
+	sandboxPathsErr  error
 
 	shaOnce  sync.Once
 	shaValue string
@@ -101,6 +119,81 @@ func ReadBundleFile(p string) ([]byte, error) {
 	return ticks.FactoryFS().ReadFile(path.Join(bundleRoot, p))
 }
 
+// SandboxPaths returns every file in the embedded orchestrator image context,
+// as slash-separated paths relative to cloud/sandbox, sorted.
+func SandboxPaths() []string {
+	sandboxPathsOnce.Do(func() {
+		fsys := ticks.SandboxFS()
+		err := fs.WalkDir(fsys, sandboxRoot, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, relErr := filepath.Rel(sandboxRoot, p)
+			if relErr != nil {
+				return relErr
+			}
+			sandboxPathsList = append(sandboxPathsList, filepath.ToSlash(rel))
+			return nil
+		})
+		if err != nil {
+			// Unreachable: the tree is embedded at compile time.
+			sandboxPathsErr = err
+			return
+		}
+		sort.Strings(sandboxPathsList)
+	})
+	if sandboxPathsErr != nil {
+		return nil
+	}
+	return append([]string(nil), sandboxPathsList...)
+}
+
+// ReadSandboxFile returns the contents of one embedded image-context file.
+func ReadSandboxFile(p string) ([]byte, error) {
+	return ticks.SandboxFS().ReadFile(path.Join(sandboxRoot, p))
+}
+
+// SandboxDir is where the image context is staged for a given bundle
+// directory: its sibling, per SandboxDirName.
+func SandboxDir(bundleDir string) string {
+	return filepath.Join(filepath.Dir(filepath.Clean(bundleDir)), SandboxDirName)
+}
+
+// MaterializeSandbox writes the embedded image context to dir.
+//
+// Same contract as Materialize: every file tk owns is rewritten and anything
+// tk wrote before and no longer ships is removed, so what Docker builds is
+// exactly this binary's image and the tk version the deployment is pinned to
+// means something about the container too.
+func MaterializeSandbox(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("preparing orchestrator image directory: %w", err)
+	}
+
+	owned := make(map[string]bool)
+	for _, p := range SandboxPaths() {
+		data, err := ReadSandboxFile(p)
+		if err != nil {
+			return fmt.Errorf("reading the embedded orchestrator image context: %w", err)
+		}
+		dest := filepath.Join(dir, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return fmt.Errorf("preparing %s: %w", filepath.Dir(dest), err)
+		}
+		// The Dockerfile chmods the scripts it installs, so the staged copies
+		// do not need the executable bit — which //go:embed drops anyway.
+		if err := os.WriteFile(dest, data, 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", dest, err)
+		}
+		owned[filepath.ToSlash(p)] = true
+	}
+
+	return pruneStale(dir, owned)
+}
+
 // BundleSHA is a content hash over the whole embedded bundle: every path and
 // its bytes, in sorted order. It identifies the deployed code independently of
 // the tk version string, so a factory deployed from a dev build is still
@@ -115,6 +208,18 @@ func BundleSHA() string {
 				continue
 			}
 			fmt.Fprintf(h, "%s\n%d\n", p, len(data))
+			h.Write(data)
+		}
+		// The orchestrator image is part of what a deploy installs, so a
+		// Dockerfile change has to change this hash: a factory whose recorded
+		// bundle sha is unchanged while the container it boots is different
+		// would make the deployment record a lie.
+		for _, p := range SandboxPaths() {
+			data, err := ReadSandboxFile(p)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(h, "%s/%s\n%d\n", SandboxDirName, p, len(data))
 			h.Write(data)
 		}
 		shaValue = hex.EncodeToString(h.Sum(nil))

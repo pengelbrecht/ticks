@@ -95,6 +95,11 @@ async function health(env: Env): Promise<Response> {
       // The Run Workflow is bound by tick ldr; until then every submission
       // fails closed, and this is where a deploy sees why.
       run_workflow: Boolean(env.RUN_WORKFLOW),
+      // The orchestrator container. A deployment without it records runs that
+      // can never boot, so `tk factory deploy` fails on a false here rather
+      // than leaving a factory that refuses every run with a correct message
+      // pointing at a remedy that would not have fixed it.
+      sandboxes: Boolean(env.SANDBOXES),
     },
     // Lets `tk factory deploy` confirm the token secret landed (and that a
     // rotation took) without presenting a token. `configured` is proven by a
@@ -679,3 +684,10 @@ export default {
 // exports of the entry module; anything else named here fails at boot, not at
 // deploy (see SERVICE above).
 export { RunRoom, RunWorkflow };
+
+// The Sandbox SDK's own Durable Object class, which the `[[containers]]`
+// application in wrangler.toml attaches the orchestrator image to and the
+// SANDBOXES binding addresses. It is re-exported rather than subclassed: the
+// class IS the container's control plane, and everything this factory wants
+// from it lives behind the seam in src/sandbox.ts.
+export { Sandbox } from "@cloudflare/sandbox";

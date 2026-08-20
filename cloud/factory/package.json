@@ -19,5 +19,8 @@
     "vite": "^8.2.1",
     "vitest": "^4.1.10",
     "wrangler": "^4.123.0"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "0.12.7"
   }
 }

@@ -321,17 +321,21 @@ harnesses that have it.
 **your own Cloudflare account**. Ticks never operates a factory for anyone: it is a
 deployable, not a service, so the compute, the model keys, the spend, and the blast
 radius are yours (decision D16 in `docs/design/cloud-factory.md`). Cloudflare's floor
-for Durable Objects and Workflows is the paid Workers plan (~$5/mo).
+for Durable Objects, Workflows and Containers is the paid Workers plan (~$5/mo);
+container compute is billed on top of it, per second a sandbox is running.
 
 ```bash
 pnpm add -g wrangler          # or npm install -g wrangler, or just use npx wrangler
 wrangler login                # connect your Cloudflare account
+# Docker (Docker Desktop, OrbStack, colima, …) must be running: a run boots an
+# orchestrator container, and the deploy builds and pushes that image.
 tk factory deploy
 ```
 
 One command creates or reuses the D1 database and the R2 bucket, applies the bundle's
-D1 migrations, mints a factory token, pushes only its salted hash as the Worker secret
-`FACTORY_TOKEN_HASH`, deploys the worker, and records the endpoint and token in
+D1 migrations, builds and pushes the orchestrator container image into your own
+Cloudflare registry, mints a factory token, pushes only its salted hash as the Worker
+secret `FACTORY_TOKEN_HASH`, deploys the worker, and records the endpoint and token in
 `~/.ticksrc` next to the board-sync `token=` you may already have there:
 
 ```

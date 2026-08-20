@@ -130,10 +130,16 @@ per-instance step cap. `RUN_POLL_INTERVAL_MS` overrides it with a fixed gap.
 
 ### The sandbox seam
 
-`env.SANDBOXES` is declared structurally in `src/sandbox.ts` rather than typed
-against the Cloudflare Sandbox SDK, and it is **optional**: a deployment without
-it fails each run with a message naming the binding instead of looping on boots
-that cannot happen. The reason is testability — the run lifecycle is the thing
+`wrangler.toml` binds `SANDBOXES` to the Cloudflare Sandbox SDK's own Durable
+Object class (re-exported from `src/index.ts`), and a `[[containers]]`
+application attaches the orchestrator image (`cloud/sandbox`) to that class. On
+a deployment the binding is therefore a Durable Object namespace;
+`sandboxBinding()` in `src/sandbox.ts` is what puts the SDK's `getSandbox`
+behind the seam's five methods, and what accepts a fake in its place.
+
+The seam itself is declared structurally rather than typed against the SDK, and
+it is **optional**: a deployment without it fails each run with a message naming
+the binding instead of looping on boots that cannot happen. The reason is testability — the run lifecycle is the thing
 worth proving, and a lifecycle exercisable only by starting a real container is
 a lifecycle nobody tests. `test/run-workflow.test.ts` drives the real Workflow,
 the real lease, the real D1 index and the real R2 bucket, and substitutes only
@@ -233,19 +239,30 @@ whose embedded copy of this directory it uploaded (D16, "upgrades ride the repo"
 ```sh
 pnpm add -g wrangler   # or npm install -g wrangler — `npx wrangler` also works
 wrangler login
+# Docker (or another engine wrangler can drive) must be running: the deploy
+# builds the orchestrator container image and pushes it to your own registry.
 tk factory deploy
 ```
 
 It creates or reuses `ticks-factory` (D1) and `ticks-factory-artifacts` (R2),
-rewrites `database_id` in its own staged copy of `wrangler.toml`, applies
+rewrites `database_id` in its own staged copy of `wrangler.toml`, installs the
+bundle's runtime dependencies, builds and pushes the orchestrator image, applies
 `migrations/`, deploys, pushes `FACTORY_TOKEN_HASH`, writes `factory_url` /
 `factory_token` / `factory_version` into `~/.ticksrc`, and then proves the
-result by calling `/health` and making one authenticated request. Re-running
-upgrades in place and keeps the token unless `--rotate-token` is passed.
+result by calling `/health` — which must report the `sandboxes` binding — and
+making one authenticated request. Re-running upgrades in place and keeps the
+token unless `--rotate-token` is passed.
 
-The bundle is staged in `~/.tick/factory/bundle` (override with `--bundle-dir`);
-that directory is tk's, rewritten on every deploy, and is where to look to see
-exactly what was uploaded. The Go side of the deploy lives in
+Three prerequisites, each a stop with its own message rather than a deploy that
+half-works: a logged-in **wrangler**, a running **Docker** (the image), and
+**pnpm** (the Worker imports the Sandbox SDK, so the staged bundle is installed
+from the embedded lockfile before it is bundled).
+
+The bundle is staged in `~/.tick/factory/bundle` (override with `--bundle-dir`)
+and the image's build context beside it in `~/.tick/factory/sandbox`, so the
+`[[containers]]` image path (`../sandbox/Dockerfile`) means the same thing there
+as it does in this repository. Both directories are tk's, rewritten on every
+deploy, and are where to look to see exactly what was uploaded. The Go side of the deploy lives in
 `internal/factory`; `scripts/verify-factory-deploy.sh` exercises it end to end
 against a stateful wrangler stand-in, since CI has no Cloudflare account.
 
@@ -254,10 +271,11 @@ against a stateful wrangler stand-in, since CI has no Cloudflare account.
 The same steps, for a deployment tk is not driving:
 
 ```sh
+pnpm install --prod --frozen-lockfile     # the Worker imports @cloudflare/sandbox
 npx wrangler r2 bucket create ticks-factory-artifacts
 npx wrangler d1 create ticks-factory      # paste the printed database_id into wrangler.toml
 npx wrangler d1 migrations apply ticks-factory --remote
-npx wrangler deploy
+npx wrangler deploy                       # builds and pushes ../sandbox as the container image
 pnpm mint-token --hash-only | npx wrangler secret put FACTORY_TOKEN_HASH
 curl https://ticks-factory.<your-subdomain>.workers.dev/health   # auth.configured: true
 ```

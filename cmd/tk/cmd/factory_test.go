@@ -29,16 +29,27 @@ func fakeWranglerOnPath(t *testing.T, endpoint string) (home string, stateDir st
 	t.Setenv("FAKE_WRANGLER_LOG", filepath.Join(stateDir, "wrangler.log"))
 	t.Setenv("FAKE_WRANGLER_URL", endpoint)
 
-	fake, err := filepath.Abs(filepath.Join("..", "..", "..", "internal", "factory", "testdata", "fake-wrangler.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(fake); err != nil {
-		t.Fatalf("wrangler fake not found: %v", err)
-	}
+	// A deploy shells out to three operator-side tools: wrangler, a container
+	// engine for the orchestrator image, and pnpm for the Worker's runtime
+	// dependency. All three are the stand-ins — a test that used the real
+	// docker would build an image, and one that used the real pnpm would
+	// install from the network.
 	binDir := t.TempDir()
-	if err := os.Symlink(fake, filepath.Join(binDir, "wrangler")); err != nil {
-		t.Fatal(err)
+	for name, script := range map[string]string{
+		"wrangler": "fake-wrangler.sh",
+		"docker":   "fake-docker.sh",
+		"pnpm":     "fake-pnpm.sh",
+	} {
+		fake, err := filepath.Abs(filepath.Join("..", "..", "..", "internal", "factory", "testdata", script))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(fake); err != nil {
+			t.Fatalf("%s not found: %v", script, err)
+		}
+		if err := os.Symlink(fake, filepath.Join(binDir, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return home, stateDir
@@ -55,7 +66,9 @@ func fakeFactory(t *testing.T, stateDir func() string) *httptest.Server {
 		if r.URL.Path == "/health" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "ok",
-				"auth":   map[string]any{"required": true, "configured": configured},
+				// The deploy refuses a deployment with no container binding.
+				"bindings": map[string]any{"sandboxes": true},
+				"auth":     map[string]any{"required": true, "configured": configured},
 			})
 			return
 		}

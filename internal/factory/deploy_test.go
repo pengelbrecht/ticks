@@ -36,6 +36,9 @@ type harness struct {
 	propagationFailures atomic.Int32
 	propagationStatus   int
 	propagationBody     string
+	// noSandboxBinding makes /health report a deployment with no container
+	// binding — the shape the live factory had before this was declared.
+	noSandboxBinding atomic.Bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -71,9 +74,10 @@ func newHarness(t *testing.T) *harness {
 		configured := hashPtr != nil && *hashPtr != ""
 		if r.URL.Path == "/health" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"status":  "ok",
-				"service": "ticks-factory",
-				"auth":    map[string]any{"required": true, "configured": configured},
+				"status":   "ok",
+				"service":  "ticks-factory",
+				"bindings": map[string]any{"sandboxes": !h.noSandboxBinding.Load()},
+				"auth":     map[string]any{"required": true, "configured": configured},
 			})
 			return
 		}
@@ -99,17 +103,46 @@ func newHarness(t *testing.T) *harness {
 	t.Setenv("FAKE_WRANGLER_LOG", h.logPath)
 	t.Setenv("FAKE_WRANGLER_URL", h.server.URL)
 
+	// wrangler, the container engine and the package manager are all shelled
+	// out to by a deploy, so all three are faked: a test that used the real
+	// docker or the real pnpm would build an image and hit the network.
 	binDir := t.TempDir()
-	fake, err := filepath.Abs(filepath.Join("testdata", "fake-wrangler.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(fake, filepath.Join(binDir, "wrangler")); err != nil {
-		t.Fatal(err)
+	for name, script := range map[string]string{
+		"wrangler": "fake-wrangler.sh",
+		"docker":   "fake-docker.sh",
+		"pnpm":     "fake-pnpm.sh",
+	} {
+		linkFake(t, binDir, name, script)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(dockerEnvVar, "")
 
 	return h
+}
+
+// testdataDir is resolved at package initialization, before any test chdirs.
+// Resolving "testdata" later would silently produce a dangling symlink in a
+// test that moved the working directory, and a dangling symlink is not a
+// command — which surfaces as "Docker is not installed" rather than as the
+// test's own bug.
+var testdataDir = mustAbs("testdata")
+
+func mustAbs(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		panic(err)
+	}
+	return abs
+}
+
+// linkFake symlinks one of the testdata stand-ins into dir under a command
+// name. Tests that build their own PATH use it for the tools every deploy
+// needs regardless of which wrangler it resolves.
+func linkFake(t *testing.T, dir, name, script string) {
+	t.Helper()
+	if err := os.Symlink(filepath.Join(testdataDir, script), filepath.Join(dir, name)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (h *harness) consumePropagationFailure() bool {
@@ -524,6 +557,9 @@ func TestDeployResolvesWranglerThroughNpx(t *testing.T) {
 	if err := os.Symlink(fakeWrangler, filepath.Join(binDir, "fake-wrangler.sh")); err != nil {
 		t.Fatal(err)
 	}
+	// Docker and pnpm are needed by every deploy, whichever wrangler it finds.
+	linkFake(t, binDir, "docker", "fake-docker.sh")
+	linkFake(t, binDir, "pnpm", "fake-pnpm.sh")
 	// The shell fakes need the standard utilities; what matters here is that
 	// the harness's `wrangler` directory is gone from PATH.
 	t.Setenv("PATH", binDir+":/usr/bin:/bin")
@@ -563,6 +599,8 @@ func TestDeployResolvesWranglerFromStagedBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	linkFake(t, pathBin, "docker", "fake-docker.sh")
+	linkFake(t, pathBin, "pnpm", "fake-pnpm.sh")
 	t.Setenv("PATH", pathBin+string(os.PathListSeparator)+"/usr/bin:/bin")
 
 	var out bytes.Buffer
@@ -606,5 +644,128 @@ func TestDeployWithAnNpxThatCannotResolveWranglerStops(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "npx wrangler") {
 		t.Errorf("the error does not mention the npx path as an option: %v", err)
+	}
+}
+
+// The image the container binding points at has to exist before the Worker
+// that boots it is uploaded, and the Worker's runtime dependency has to be
+// installed before wrangler can bundle it. Both are staged work, and both must
+// happen before the deploy — not after it, and not never.
+func TestDeployStagesTheImageAndInstallsBeforeDeploying(t *testing.T) {
+	h := newHarness(t)
+
+	if _, err := Deploy(context.Background(), h.options()); err != nil {
+		t.Fatalf("Deploy: %v\n%s", err, h.log())
+	}
+
+	sandboxDir := SandboxDir(h.bundleDir)
+	if _, err := os.Stat(filepath.Join(sandboxDir, "Dockerfile")); err != nil {
+		t.Errorf("the orchestrator image context was not staged in %s: %v", sandboxDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(h.bundleDir, "node_modules")); err != nil {
+		t.Errorf("the bundle's runtime dependencies were never installed: %v", err)
+	}
+
+	lines := h.logLines()
+	install, deploy := -1, -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "pnpm install") && install == -1 {
+			install = i
+		}
+		if line == "deploy" && deploy == -1 {
+			deploy = i
+		}
+	}
+	if install == -1 {
+		t.Fatalf("the deploy never installed the bundle:\n%s", h.log())
+	}
+	if !strings.Contains(lines[install], "--frozen-lockfile") {
+		t.Errorf("the install did not use the bundle's lockfile: %q", lines[install])
+	}
+	if deploy == -1 || install > deploy {
+		t.Errorf("the install did not run before `wrangler deploy`:\n%s", h.log())
+	}
+}
+
+// A stopped Docker and an absent Docker are different problems with different
+// remedies, and a deploy that collapses them sends the operator to the wrong
+// one. Neither may create anything first.
+func TestDeployStopsWhenTheDockerDaemonIsNotRunning(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv("FAKE_DOCKER_DOWN", "1")
+
+	_, err := Deploy(context.Background(), h.options())
+
+	var prerequisite *PrerequisiteError
+	if !errors.As(err, &prerequisite) {
+		t.Fatalf("Deploy error = %v, want a PrerequisiteError", err)
+	}
+	if !strings.Contains(prerequisite.Missing, "daemon") {
+		t.Errorf("the stop names %q, not the daemon", prerequisite.Missing)
+	}
+	for _, forbidden := range []string{"d1 create", "r2 bucket create", "deploy"} {
+		if countLines(h.logLines(), forbidden) != 0 {
+			t.Errorf("the deploy ran %q after the prerequisite failed:\n%s", forbidden, h.log())
+		}
+	}
+}
+
+func TestDeployStopsWhenDockerIsNotInstalled(t *testing.T) {
+	h := newHarness(t)
+	// Not "remove docker from PATH": the fakes need the standard utilities,
+	// and wrangler's own override is the honest way to point at a binary that
+	// is not there.
+	t.Setenv(dockerEnvVar, "tk-test-no-such-container-engine")
+
+	_, err := Deploy(context.Background(), h.options())
+
+	var prerequisite *PrerequisiteError
+	if !errors.As(err, &prerequisite) {
+		t.Fatalf("Deploy error = %v, want a PrerequisiteError", err)
+	}
+	if !strings.Contains(prerequisite.Error(), "cloud/sandbox") {
+		t.Errorf("the stop does not say what the image is for:\n%s", prerequisite.Error())
+	}
+	if countLines(h.logLines(), "deploy") != 0 {
+		t.Errorf("a factory was deployed with no image to boot:\n%s", h.log())
+	}
+}
+
+func TestDeployStopsWhenThePackageManagerIsMissing(t *testing.T) {
+	h := newHarness(t)
+	// A PATH holding every tool but pnpm.
+	binDir := t.TempDir()
+	linkFake(t, binDir, "wrangler", "fake-wrangler.sh")
+	linkFake(t, binDir, "docker", "fake-docker.sh")
+	t.Setenv("PATH", binDir+":/usr/bin:/bin")
+
+	_, err := Deploy(context.Background(), h.options())
+
+	var prerequisite *PrerequisiteError
+	if !errors.As(err, &prerequisite) {
+		t.Fatalf("Deploy error = %v, want a PrerequisiteError", err)
+	}
+	if !strings.Contains(prerequisite.Missing, "pnpm") {
+		t.Errorf("the stop names %q, not pnpm", prerequisite.Missing)
+	}
+}
+
+// The whole point of the tick: a deployed Worker with no container binding is
+// a factory that refuses every run. The deploy that produced it must say so,
+// rather than reporting success and leaving the discovery to a submission.
+func TestDeployFailsWhenHealthReportsNoContainerBinding(t *testing.T) {
+	h := newHarness(t)
+	h.noSandboxBinding.Store(true)
+	opts := h.options()
+	opts.verifyAttempts = 1
+	opts.verifyDelay = time.Millisecond
+
+	_, err := Deploy(context.Background(), opts)
+
+	if err == nil {
+		t.Fatal("the deploy reported success with no container binding on the deployment")
+	}
+	if !strings.Contains(err.Error(), "sandboxes") {
+		t.Errorf("the failure does not name the missing binding: %v", err)
 	}
 }
