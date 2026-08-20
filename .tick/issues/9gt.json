@@ -10,12 +10,13 @@
   "blocked_by": [
     "b92",
     "jk7",
-    "ho3"
+    "ho3",
+    "zpc"
   ],
   "parent": "ko8",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:57:20.97239Z",
-  "updated_at": "2026-08-20T01:14:18.05482Z",
+  "updated_at": "2026-08-20T02:02:38.619556Z",
   "started_at": "2026-08-20T01:13:18.805375Z"
 }
