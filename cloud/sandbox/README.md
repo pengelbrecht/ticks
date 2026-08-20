@@ -266,10 +266,11 @@ name in it. Nothing routed anywhere is exit 7 naming the file to edit.
 `anthropic/…`, `openai/…`, `openrouter/…`) selects the gateway route; a bare
 `claude-…`/alias or `gpt-…` id is recognised as its vendor's. Anything else is
 exit 7: guessing a route is how a container calls something nothing authorised.
-Workers AI ids live in the `@cf/<vendor>/<name>` namespace and `@` is not legal
-in a routing-config model id, so the config writes
-`workers-ai/meta/llama-3.3-70b-instruct-fp8-fast` and the entrypoint restores
-the namespace. Because Workers AI has no vendor variable of its own that a
+Workers AI ids live in the `@cf/<vendor>/<name>` namespace, which the routing
+schema can spell: write `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`.
+The namespace is a constant rather than a choice, so an id that omits it
+(`workers-ai/meta/llama-3.3-70b-instruct-fp8-fast`) still resolves — the
+entrypoint restores it. Because Workers AI has no vendor variable of its own that a
 harness knows to read — what it has is an OpenAI-compatible endpoint under
 `/v1` — a Workers AI model repoints `OPENAI_BASE_URL` at that route. The
 `claude` harness speaks the Anthropic API only, so pairing it with another

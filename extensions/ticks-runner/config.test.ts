@@ -754,3 +754,29 @@ test("[sandbox] fails closed on an unknown key, a malformed image, an unpinned t
 		assert.deepEqual(config.testCommands, [], "a refused config authorizes nothing");
 	}
 });
+
+// Every Workers AI model id lives in the `@cf/<vendor>/<name>` namespace, so
+// the provider-qualified id `[orchestrator].model` carries is
+// `workers-ai/@cf/openai/gpt-oss-120b`. The model grammar allows `@` exactly
+// where Workers AI puts it — leading a path segment — and this reader has to
+// agree with the JSON Schema, the Go loader and the Python validator, or one
+// file is valid for one reader and not another.
+test("a Workers AI model id validates, and `@` inside a segment still does not", () => {
+	const routing = (model: string) =>
+		`version = 2\n\n[orchestrator]\nharness = "pi"\nkind = "pi"\nmodel = "${model}"\n\n[roles.implement]\nkind = "pi"\nmodel = "${model}"\n`;
+
+	const accepted = resolveRunnerConfigFromToml(routing("workers-ai/@cf/openai/gpt-oss-120b"), {}, { rules: [] });
+	assert.deepEqual(accepted.errors, []);
+
+	for (const malformed of [
+		"workers-ai/cf@openai/gpt-oss-120b",
+		"workers-ai/@/gpt-oss-120b",
+		"workers-ai//@cf/openai/gpt-oss-120b",
+	]) {
+		const rejected = resolveRunnerConfigFromToml(routing(malformed), {}, { rules: [] });
+		assert.ok(
+			rejected.errors.some((error) => error.includes("orchestrator.model") && error.includes("is not a model id")),
+			`${malformed} must be rejected, got ${JSON.stringify(rejected.errors)}`,
+		);
+	}
+});

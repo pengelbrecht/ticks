@@ -224,6 +224,22 @@ go-toolchain = { command = "which go", description = "Go toolchain on PATH" }
 
 
 
+# The orchestrator's model line, as it appears in COMPLETE — the anchor the
+# model-id cases rewrite. `[orchestrator]` is the key the acceptance criteria
+# names, and the same line text also appears under `[roles.implement]`, so the
+# replacement has to carry the table with it.
+ORCHESTRATOR_MODEL = 'kind = "pi"\nmodel = "openai-codex/gpt-5.6-sol"\neffort = "xhigh"'
+
+
+def orchestrator_model(model: str) -> str:
+    """The orchestrator's three routing lines, rewritten to name `model`."""
+    return f'kind = "pi"\nmodel = "{model}"\neffort = "xhigh"'
+
+
+# A real Workers AI id, confirmed live against the operator account.
+WORKERS_AI_ORCHESTRATOR = orchestrator_model("workers-ai/@cf/openai/gpt-oss-120b")
+
+
 def self_test(schema: dict) -> int:
     failures = 0
 
@@ -269,6 +285,39 @@ def self_test(schema: dict) -> int:
         True,
     )
 
+    # Workers AI model ids carry a namespace sigil — every one begins `@cf/`
+    # (`@cf/openai/gpt-oss-120b`), so the qualified id the sandbox entrypoint
+    # expects is `workers-ai/@cf/openai/gpt-oss-120b`. `@` is legal only where
+    # Workers AI actually puts it: leading a path segment, never inside one.
+    check(
+        "a Workers AI model id on the orchestrator",
+        variant((ORCHESTRATOR_MODEL, WORKERS_AI_ORCHESTRATOR)),
+        True,
+    )
+    check(
+        "a Workers AI model id on a role",
+        variant(('kind = "pi"\nmodel = "openai-codex/gpt-5.6-sol"\neffort = "medium"',
+                 'kind = "pi"\nmodel = "workers-ai/@cf/openai/gpt-oss-120b"\neffort = "medium"')),
+        True,
+    )
+    check(
+        "@ inside a segment rather than leading one",
+        variant((ORCHESTRATOR_MODEL, orchestrator_model("workers-ai/cf@openai/gpt-oss-120b"))),
+        False,
+        "orchestrator.model: ",
+    )
+    check(
+        "@ leading a segment that is otherwise empty",
+        variant((ORCHESTRATOR_MODEL, orchestrator_model("workers-ai/@/gpt-oss-120b"))),
+        False,
+        "orchestrator.model: ",
+    )
+    check(
+        "a model id that is malformed for the reasons it always was",
+        variant((ORCHESTRATOR_MODEL, orchestrator_model("workers-ai//@cf/openai/gpt-oss-120b"))),
+        False,
+        "orchestrator.model: ",
+    )
     check(
         "unknown key in [testing]",
         variant(("[testing]\nnotes =", '[testing]\nnotez = "typo"\nnotes =')),

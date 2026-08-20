@@ -1050,7 +1050,28 @@ func TestEntrypointRunsWorkersAIThroughTheOpenAICompatibleRoute(t *testing.T) {
 		"the OpenAI-style provider points at the route serving the model")
 	mustContain(t, rec, "TICKS_MODEL_PROVIDER=workers-ai", "the provider decision is recorded")
 	mustContain(t, rec, "TICKS_MODEL_ID=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-		"the @cf namespace the routing schema cannot spell is restored")
+		"an id that omits the constant @cf namespace still has it restored")
+	mustContain(t, f.probeCalls(), testGatewayURL+"/workers-ai/v1/chat/completions",
+		"the probe went to the workers-ai route")
+}
+
+// The routing schema can now spell `@cf/`, so a config may name a Workers AI
+// model in full. The entrypoint must pass that id through untouched rather
+// than prefix a namespace it already carries.
+func TestEntrypointKeepsAnExplicitWorkersAINamespace(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/openai/gpt-oss-120b"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "TICKS_MODEL_ID=@cf/openai/gpt-oss-120b",
+		"the id the config wrote reaches the harness with exactly one @cf/")
+	if strings.Contains(rec, "@cf/@cf/") {
+		t.Errorf("the namespace was prefixed onto an id that already carried it:\n%s", rec)
+	}
+	mustContain(t, rec, "TICKS_MODEL_PROVIDER=workers-ai", "the provider decision is recorded")
 	mustContain(t, f.probeCalls(), testGatewayURL+"/workers-ai/v1/chat/completions",
 		"the probe went to the workers-ai route")
 }
