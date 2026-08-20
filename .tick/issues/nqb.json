@@ -3,7 +3,7 @@
   "title": "AI Gateway logs per_page exceeds the API maximum of 50",
   "description": "Found by the live run immediately after 97x fixed the filter shape — the next layer of the same untested query. cloud/factory/src/gateway.ts sets LOG_PAGE_SIZE = 100; the API caps per_page at 50 and answers 400 \"Number must be less than or equal to 50\".\n\nVerified against the real API on the operator account:\n  per_page=50 -\u003e HTTP 200\n  per_page=51 -\u003e HTTP 400\n\nFix: set LOG_PAGE_SIZE to 50 and pin it with a test asserting it is \u003c= the documented maximum, the same shape as the platform-cap guard the PBKDF2 fix uses (a named constant plus a test citing the limit). MAX_LOG_PAGES = 20 then covers 1000 log rows per run, which is the pagination budget worth stating in a comment.\n\nWhile in there: the run failed with \"cost budget cannot be enforced\" for a query bug rather than a genuine telemetry outage. Consider whether a 400 (a bug in OUR request) should be distinguished from a 5xx or network failure (a real outage) in the message, since they need different fixes from the operator — one is \"report this\", the other is \"retry or check the gateway\".",
   "notes": "2026-08-20 05:01 - runner-state: substrate=herdr kind=claude branch=tick/nqb worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-nqb workspace=wBR base=263df58c3c08443eb75793ff8b1421bdfa5c6119 agent=tick-nqb pane=wBR:p1 session=83c357cb-34c9-4997-82ad-59dad02fab91",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -12,6 +12,7 @@
   "acceptance_criteria": "The logs query uses per_page \u003c= 50 and a test fails if it is raised above the documented maximum; a run with a configured cost budget reads its telemetry and proceeds past acquireContext; a request-shape error is distinguishable from a telemetry outage in the operator-facing message.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T03:00:31.586073Z",
-  "updated_at": "2026-08-20T03:01:05.825529Z",
-  "started_at": "2026-08-20T03:00:31.630871Z"
+  "updated_at": "2026-08-20T03:08:09.785672Z",
+  "closed_at": "2026-08-20T03:08:09.785672Z",
+  "closed_reason": "Completed: the AI Gateway logs query uses per_page at the API's documented maximum of 50, pinned by a named constant and a test that fails if it is raised, and a request-shape error is now distinguishable from a telemetry outage in the operator-facing message."
 }
