@@ -4,6 +4,7 @@ version = 2
 
 [orchestrator]
 harness = "claude"
+model = "workers-ai/@cf/openai/gpt-oss-120b"
 
 [orchestration]
 substrate = "herdr"
