@@ -1,0 +1,16 @@
+{
+  "id": "is0",
+  "title": "omp and Workers AI disagree on the OpenAI request shape (content: array vs string)",
+  "description": "The furthest a live run has reached. Everything before this is now proven working: container boot, clone, 3/3 pre-flight from migrated config, model resolution, omp provider wiring, and a GREEN gateway model probe. oaqs harness-level probe then caught this before the run rather than letting it hang.\n\n  400 AiError: Bad input: oneOf at / not met, 0 matches: required properties at / are prompt,\n  Type mismatch of /messages/0/content, array not in string,\n  Type mismatch of /messages/1/content, string not in array ...\n\nomp sends OpenAI CONTENT-PARTS (messages[].content as an array of typed parts); Workers AIs OpenAI-compatible endpoint requires content to be a STRING. It also offers alternative shapes (prompt, input, requests) that omp does not use.\n\nThis tests a design assumption and finds it only partly true: docs/design/cloud-factory.md says Workers AI models \"speak the OpenAI-compatible shape, so they ride the pi kind\". The route works — the probe proves it — but the compatibility is not complete for a harness that sends content parts.\n\nOptions, to be evaluated rather than assumed (say which you chose and why):\n1. TRANSLATE AT THE GATEWAY PROXY. The factory already proxies model traffic through its own Worker (that is where the run token is exchanged and metadata stamped), so it is the natural place to normalise content-parts to a string for the workers-ai route. Contained, and it keeps the kind table honest. Risk: a translation layer that silently drops non-text parts.\n2. CONFIGURE OMP TO SEND PLAIN STRINGS, if it has such a setting. Cheapest if it exists; check before assuming.\n3. USE A DIFFERENT ORCHESTRATOR HARNESS for the Workers AI rung, and record that omp needs a BYOK provider.\n\nWhatever is chosen, update the claim in docs/design/cloud-factory.md — \"OpenAI-compatible\" is doing more work in that sentence than the endpoint actually supports, and the next person will believe it. Pair with y45: harness compatibility is part of choosing a default model, not separate from it.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "oaq",
+  "acceptance_criteria": "A cloud run reaches the skill loop and completes a model call through the Workers AI route, evidenced in the streamed harness output; the chosen approach is documented; the design doc no longer overstates OpenAI compatibility.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T05:37:22.015734Z",
+  "updated_at": "2026-08-20T05:37:22.097876Z",
+  "started_at": "2026-08-20T05:37:22.097875Z"
+}
