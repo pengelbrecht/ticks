@@ -31,6 +31,7 @@ type fixture struct {
 	headSHA  string
 	mise     string // the version-manager stub's recording
 	tkRecord string // the tk stub's recording of `tk sandbox ...` calls
+	binDir   string // the stub bin directory at the front of PATH
 }
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -160,6 +161,7 @@ esac
 		record:   record,
 		mise:     mise,
 		tkRecord: filepath.Join(root, "tk-record"),
+		binDir:   binDir,
 		firstSHA: first, headSHA: head,
 	}
 	f.env = map[string]string{

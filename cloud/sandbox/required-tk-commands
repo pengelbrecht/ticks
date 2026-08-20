@@ -1,0 +1,14 @@
+# Every `tk` subcommand entrypoint.sh and preflight.sh invoke, one per line.
+#
+# DERIVED, not maintained by hand: it is exactly what
+# factory.EntrypointTkCommands() reads out of those two scripts, and
+# TestRequiredTkCommandsFileMatchesTheEntrypoint fails the build when the two
+# drift. It exists as a file because the image build reads it too — the last
+# layer of the Dockerfile runs every line against the tk it just built, so an
+# image whose tk predates one of these fails to build instead of booting a
+# container that dies mid-run with "unknown command".
+sandbox environment
+sandbox image
+sandbox setup
+sandbox toolchain
+version

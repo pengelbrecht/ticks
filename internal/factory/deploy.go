@@ -44,6 +44,18 @@ type Options struct {
 	// RotateToken mints a new bearer token instead of reusing the stored one.
 	RotateToken bool
 
+	// HasCommand reports whether this tk implements a subcommand chain
+	// ({"sandbox", "environment"}). The orchestrator image builds its tk from
+	// this binary's own source, so this is what proves the container will be
+	// able to run the entrypoint it ships with — before a multi-minute image
+	// build, and with the missing subcommand named. Required: a deploy that
+	// cannot ask is a deploy that cannot check.
+	HasCommand func(chain []string) bool
+
+	// SourceRef overrides the ref the image builds tk from (tests). Empty
+	// means the source this binary was built from, per [SourceRef].
+	SourceRef string
+
 	// URL overrides the endpoint instead of reading it from wrangler's deploy
 	// output. Needed when the Worker is served from a custom route, where
 	// there is nothing to detect.
@@ -77,6 +89,8 @@ type Result struct {
 	Rotated bool
 	// Version is the tk version the deployment is pinned to.
 	Version string
+	// SourceRef is the ref the orchestrator image built its tk from.
+	SourceRef string
 	// BundleSHA identifies the deployed bundle's contents.
 	BundleSHA string
 	// DatabaseID is the D1 database the deployment is bound to.
@@ -120,6 +134,23 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	}
 	if opts.Version == "" {
 		return nil, fmt.Errorf("factory deploy: no tk version to pin the deployment to")
+	}
+
+	// Before anything else — before a prerequisite probe, before a byte is
+	// written, before a container image is built — prove this binary can
+	// actually run the entrypoint it would ship.
+	//
+	// The image builds its tk from this binary's source, so "does this tk have
+	// `tk sandbox environment`?" and "will the container's tk have it?" are the
+	// same question. Asking it here turns a container that boots, streams, and
+	// dies at exit 6 into a stop that names the subcommand.
+	if opts.HasCommand == nil {
+		return nil, fmt.Errorf(
+			"factory deploy: this build did not supply its command set, so the orchestrator\n" +
+				"image's tk cannot be checked against the entrypoint it would ship")
+	}
+	if err := verifyEntrypointTkCommands(opts.Version, opts.HasCommand); err != nil {
+		return nil, err
 	}
 
 	bundleDir := opts.BundleDir
@@ -191,11 +222,31 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	// that is what makes the `[[containers]]` image path in the committed
 	// wrangler.toml (`../sandbox/Dockerfile`) resolve to the same tree here as
 	// it does in the repository.
+	// The ref the image builds its tk from — resolved here, after the
+	// prerequisite probes (a missing wrangler is a more useful thing to be told
+	// about first) and still before anything is created in the account. A dev
+	// build over a dirty worktree, or one with no commit stamped at all, stops:
+	// the image can only build a commit that exists.
+	sourceRef := opts.SourceRef
+	if sourceRef == "" {
+		if sourceRef, err = SourceRef(opts.Version); err != nil {
+			return nil, err
+		}
+	}
+
 	sandboxDir := SandboxDir(bundleDir)
 	if err := MaterializeSandbox(sandboxDir); err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(out, "orchestrator image context staged in %s\n", sandboxDir)
+	// The image's two tk pins are the deploy's answers, not the committed
+	// defaults: the container's tk is built from this binary's source and
+	// labelled with this binary's version, which is what keeps it in step with
+	// the bundle it boots.
+	if err := SetSandboxTkPins(sandboxDir, opts.Version, sourceRef); err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "orchestrator image context staged in %s (tk %s built from %s)\n",
+		sandboxDir, opts.Version, sourceRef)
 
 	// The Worker imports the Cloudflare Sandbox SDK to run a container, so the
 	// staged bundle is installed before it is deployed. Local work, done before
@@ -285,6 +336,7 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		Token:           token,
 		Rotated:         rotated,
 		Version:         opts.Version,
+		SourceRef:       sourceRef,
 		BundleSHA:       BundleSHA(),
 		DatabaseID:      databaseID,
 		CreatedDatabase: createdDB,

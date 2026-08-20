@@ -66,6 +66,7 @@ func FactoryFS() embed.FS {
 //
 //go:embed cloud/sandbox/Dockerfile cloud/sandbox/entrypoint.sh cloud/sandbox/preflight.sh
 //go:embed cloud/sandbox/build.sh cloud/sandbox/README.md
+//go:embed cloud/sandbox/required-tk-commands
 var sandboxFS embed.FS
 
 // SandboxFS returns the embedded orchestrator image context. Paths inside it

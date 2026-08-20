@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/pengelbrecht/ticks/internal/factory"
 )
 
 // fakeWranglerOnPath puts internal/factory's wrangler stand-in at the front of
@@ -20,6 +22,14 @@ func fakeWranglerOnPath(t *testing.T, endpoint string) (home string, stateDir st
 	if runtime.GOOS == "windows" {
 		t.Skip("the wrangler fake is a POSIX shell script")
 	}
+
+	// A `go test` binary carries no VCS stamp, so this binary looks like a dev
+	// build with no commit — and the deploy refuses one, because the
+	// orchestrator image builds its tk from source and can only build a commit
+	// that exists. A released version is what an operator actually runs.
+	restore := Version
+	SetVersion("1.2.3")
+	t.Cleanup(func() { SetVersion(restore) })
 
 	home = t.TempDir()
 	stateDir = t.TempDir()
@@ -453,6 +463,49 @@ func TestFactoryHelpMentionsSetupAndStatus(t *testing.T) {
 	for _, want := range []string{"setup", "status", "deploy"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("tk factory does not mention %q:\n%s", want, out)
+		}
+	}
+}
+
+// hasCommand is what `tk factory deploy` answers the image/entrypoint gate
+// with, so it has to distinguish a missing subcommand from a positional
+// argument. Getting that wrong either lets a stale image through or blocks a
+// correct deploy.
+func TestHasCommandResolvesSubcommandChains(t *testing.T) {
+	for _, tc := range []struct {
+		chain []string
+		want  bool
+	}{
+		{[]string{"version"}, true},
+		{[]string{"sandbox"}, true},
+		{[]string{"sandbox", "environment"}, true},
+		{[]string{"sandbox", "setup"}, true},
+		{[]string{"sandbox", "image"}, true},
+		{[]string{"sandbox", "toolchain"}, true},
+		{[]string{"sandbox", "nosuchthing"}, false},
+		{[]string{"nosuchcommand"}, false},
+		{nil, false},
+	} {
+		if got := hasCommand(tc.chain); got != tc.want {
+			t.Errorf("hasCommand(%q) = %v, want %v", tc.chain, got, tc.want)
+		}
+	}
+}
+
+// Every subcommand the orchestrator entrypoint runs has to exist in this
+// binary, or `tk factory deploy` would ship an image that boots and then dies
+// mid-run. This is that assertion, run against the real command tree.
+func TestThisTkCanRunTheOrchestratorEntrypoint(t *testing.T) {
+	commands, err := factory.EntrypointTkCommands()
+	if err != nil {
+		t.Fatalf("EntrypointTkCommands: %v", err)
+	}
+	if len(commands) == 0 {
+		t.Fatal("the scanner found no tk invocation in the entrypoint")
+	}
+	for _, c := range commands {
+		if !hasCommand(strings.Fields(c)) {
+			t.Errorf("the entrypoint runs `tk %s`, which this tk does not have", c)
 		}
 	}
 }

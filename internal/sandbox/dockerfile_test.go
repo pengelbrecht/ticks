@@ -64,7 +64,11 @@ func TestDockerfilePinsEveryVersionArg(t *testing.T) {
 // next to its version, so a moved or replaced artifact fails the build.
 func TestDockerfileChecksumsEveryDownload(t *testing.T) {
 	df := readDockerfile(t)
-	for _, want := range []string{"TK_SHA256", "OMP_SHA256", "GO_SHA256", "UV_SHA256", "BUN_SHA256", "MISE_SHA256"} {
+	// tk is absent from this list on purpose: it is built from source at a
+	// pinned ref rather than downloaded, and the Go module proxy's checksum
+	// database is what verifies it. TestDockerfileBuildsTkFromPinnedSource
+	// covers that half.
+	for _, want := range []string{"OMP_SHA256", "GO_SHA256", "UV_SHA256", "BUN_SHA256", "MISE_SHA256"} {
 		if !regexp.MustCompile(`(?m)^ARG\s+` + want + `[A-Z0-9_]*=\S+`).MatchString(df) {
 			t.Errorf("no pinned %s checksum ARG", want)
 		}
@@ -181,5 +185,65 @@ func TestDefaultImageIsTaggedWithThePinnedTkVersion(t *testing.T) {
 	}
 	if want := ImageName + ":" + version; ref != want {
 		t.Errorf("DefaultImage() = %q, want %q", ref, want)
+	}
+}
+
+// The chicken-and-egg this image used to have: it pinned a RELEASED tk, the
+// entrypoint runs `tk sandbox ...`, and the epic that added that subcommand
+// could not boot its own work until after a release. Building from source at a
+// pinned ref removes the lag — the image needs a pushed commit, not a release.
+func TestDockerfileBuildsTkFromPinnedSource(t *testing.T) {
+	df := readDockerfile(t)
+
+	if strings.Contains(df, "releases/download") && strings.Contains(df, "tk_${TK_VERSION}") {
+		t.Error("the image still downloads a released tk; it must build the deployed source")
+	}
+	if !regexp.MustCompile(`(?m)^ARG\s+TK_SOURCE_REF=\S+`).MatchString(df) {
+		t.Error("the image does not pin the tk source ref it builds from")
+	}
+	if !strings.Contains(df, "go install") || !strings.Contains(df, "${TK_MODULE}@${TK_SOURCE_REF}") {
+		t.Error("the image does not build tk from ${TK_MODULE}@${TK_SOURCE_REF}")
+	}
+	// The label the entrypoint verifies has to come from the same build, or
+	// verify_tk fails on an image that is otherwise correct.
+	if !strings.Contains(df, "-X main.Version=${TK_VERSION}") {
+		t.Error("the tk built into the image is not stamped with the pinned version")
+	}
+}
+
+// A tk that cannot run the entrypoint must fail the IMAGE BUILD — which fails
+// the deploy — rather than produce a container that boots, streams, and dies
+// mid-run. The list is derived from the scripts, so it cannot go stale.
+func TestDockerfileAssertsItsTkCanRunTheEntrypoint(t *testing.T) {
+	df := readDockerfile(t)
+
+	if !strings.Contains(df, factory.RequiredTkCommandsFile) {
+		t.Fatalf("the image never reads %s, so nothing checks its tk against the entrypoint",
+			factory.RequiredTkCommandsFile)
+	}
+	if !strings.Contains(df, "tk $sub --help") {
+		t.Error("the image does not run each required subcommand against the tk it built")
+	}
+	if !strings.Contains(df, "has no \\`tk $sub\\`") {
+		t.Error("the image build failure does not name the missing subcommand")
+	}
+}
+
+// Every command the run scripts invoke is in the list the image asserts.
+func TestRequiredTkCommandsCoverTheEntrypoint(t *testing.T) {
+	commands, err := factory.EntrypointTkCommands()
+	if err != nil {
+		t.Fatalf("EntrypointTkCommands: %v", err)
+	}
+	for _, want := range []string{"sandbox environment", "sandbox setup", "version"} {
+		found := false
+		for _, c := range commands {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("the entrypoint runs `tk %s` but the scanner did not see it: %q", want, commands)
+		}
 	}
 }

@@ -170,10 +170,14 @@ func (h *harness) syncSecret() {
 
 func (h *harness) options() Options {
 	return Options{
-		Version:     "1.2.3",
-		BundleDir:   h.bundleDir,
-		ConfigPath:  h.ticksrc,
-		Out:         io.Discard,
+		Version:    "1.2.3",
+		BundleDir:  h.bundleDir,
+		ConfigPath: h.ticksrc,
+		Out:        io.Discard,
+		// A complete tk: the gate that keeps the image's tk in step with the
+		// entrypoint has its own tests, and every other deploy test wants to
+		// get past it.
+		HasCommand:  func([]string) bool { return true },
 		onSecretPut: h.syncSecret,
 	}
 }
@@ -767,5 +771,69 @@ func TestDeployFailsWhenHealthReportsNoContainerBinding(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "sandboxes") {
 		t.Errorf("the failure does not name the missing binding: %v", err)
+	}
+}
+
+// The image builds its tk from the deploying binary's own source, so the pins
+// wrangler builds with are the deploy's answers — not whatever the committed
+// Dockerfile happened to say last release. That is the whole mechanism keeping
+// the container's tk in step with the bundle it boots.
+func TestDeployPinsTheImagesTkToItsOwnSource(t *testing.T) {
+	h := newHarness(t)
+
+	result, err := Deploy(context.Background(), h.options())
+	if err != nil {
+		t.Fatalf("Deploy: %v\n%s", err, h.log())
+	}
+	if result.SourceRef != "v1.2.3" {
+		t.Errorf("Result.SourceRef = %q, want the deploying version's tag", result.SourceRef)
+	}
+
+	data, err := os.ReadFile(filepath.Join(SandboxDir(h.bundleDir), "Dockerfile"))
+	if err != nil {
+		t.Fatalf("staged Dockerfile: %v", err)
+	}
+	for _, want := range []string{"\nARG TK_VERSION=1.2.3\n", "\nARG TK_SOURCE_REF=v1.2.3\n"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the staged Dockerfile does not carry %q:\n%s", strings.TrimSpace(want), data)
+		}
+	}
+}
+
+// The failure this replaces: a deploy that succeeded, then a container that
+// booted, streamed, and died at exit 6 with "unknown command: sandbox". It has
+// to be a stop that names the subcommand — and it has to happen before the
+// account is touched, because a half-provisioned account is worse than no
+// deploy at all.
+func TestDeployStopsWhenThisTkCannotRunTheEntrypoint(t *testing.T) {
+	h := newHarness(t)
+	opts := h.options()
+	opts.HasCommand = func(chain []string) bool {
+		return !(len(chain) > 0 && chain[0] == "sandbox")
+	}
+
+	_, err := Deploy(context.Background(), opts)
+
+	var missing *MissingTkCommandsError
+	if !errors.As(err, &missing) {
+		t.Fatalf("Deploy did not stop on a tk that cannot run the entrypoint: %v", err)
+	}
+	if !strings.Contains(err.Error(), "`tk sandbox environment`") {
+		t.Errorf("the stop does not name a missing subcommand: %v", err)
+	}
+	if lines := h.logLines(); len(lines) != 0 {
+		t.Errorf("the deploy ran wrangler before checking its own tk:\n%s", h.log())
+	}
+}
+
+// A deploy that cannot ask what this tk implements must not quietly skip the
+// check — that is how the stale pin survived a release in the first place.
+func TestDeployRefusesWithoutACommandSet(t *testing.T) {
+	h := newHarness(t)
+	opts := h.options()
+	opts.HasCommand = nil
+
+	if _, err := Deploy(context.Background(), opts); err == nil {
+		t.Fatal("Deploy ran with no way to check its own command set")
 	}
 }

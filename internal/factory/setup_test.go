@@ -173,6 +173,7 @@ func (h *setupHarness) options(stdin string) SetupOptions {
 		GitHubAPIBase:     h.github.base(),
 		CloudflareAPIBase: h.cloudflare.base(),
 		Repo:              testRepo,
+		HasCommand:        func([]string) bool { return true },
 		onSecretPut:       h.syncSecret,
 	}
 }
