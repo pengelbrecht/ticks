@@ -22,11 +22,6 @@ reset it in `ResetFlags()`.
 **Rule:** After UI source changes run `scripts/build-ui.sh` and commit the regenerated
 `static/` (and `ui/dist/`).
 
-**Problem:** cloud/worker's full `pnpm test` crashes workerd at boot when test files share
-the runtime (vitest-pool-workers/Node-24 incompatibility; stale tests tracked in tick xdq).
-**Rule:** Verify worker changes with `npx vitest run test/<file>.test.ts` in isolation; never
-"fix" the boot crash by mocking. Full-suite health belongs to tick xdq.
-
 **Problem:** A codex worker's sandbox blocks loopback sockets and DNS, so httptest suites and
 `git push` fail there (recurring DONE_WITH_CONCERNS).
 **Rule:** Treat the integrated post-wave gate as the authoritative first full run; never let a
@@ -35,7 +30,7 @@ worker push.
 ## Schema codegen & docs
 
 **Problem:** A schemas/ change left generated code inconsistent — Go updated, the UI's TS stale.
-**Rule:** Any schema edit must run BOTH `make codegen-go` and `make codegen-ts` and commit all
+**Rule:** Any schema edit must run BOTH `make codegen-go` and `make codegen-ts` and commit the
 regenerated output together; spell these out in any tick touching `schemas/`.
 
 **Problem:** Docs shipped `tk` commands that don't exist (agents guess CLI syntax), and a released
@@ -101,12 +96,23 @@ JSONs never land; seen twice). After any merge confirm `MERGE_HEAD` is empty bef
 
 ## Cloudflare (cloud/factory)
 
-**Problem:** Auth passed 60 local tests, then 503'd on every authenticated request once
-deployed: PBKDF2 at 210k iterations. **Cause:** Cloudflare caps PBKDF2 at 100k —
-`deriveBits` THROWS above it — and local workerd does not enforce the cap.
-**Rule:** A green vitest run never proves the edge accepts a platform-limited value. Pin each
-limit as a named constant with a guard test citing it, and smoke the DEPLOYED endpoint before
-believing an auth/crypto change.
+**Problem:** A vitest case that ignited a factory run and never ended it kept the Workflow
+supervising; the NEXT test file in the shared workerd runtime then timed out. It passed alone and
+broke five unrelated cases when three files ran together.
+**Rule:** End every run a factory test starts (`process.exit(0); await settled(runID)`), and run more
+than one factory test file before believing a green.
+
+**Problem:** The sandbox image pinned a released `tk` that predated the `tk sandbox` subcommand the
+entrypoint needed — a container booted, streamed, then died at exit 6.
+**Rule:** The image builds `tk` from source at the deploying commit (`TK_SOURCE_REF`), so it cannot
+drift from the bundle it boots. Consequence: `go install` needs a PUSHED commit, so a branch push is
+a prerequisite of the image build.
+
+**Problem:** Auth passed 60 local tests then 503'd on every request once deployed: PBKDF2 at 210k.
+**Cause:** Cloudflare caps PBKDF2 at 100k (`deriveBits` THROWS above it) and local workerd does not
+enforce the cap.
+**Rule:** A green vitest run never proves the edge accepts a platform-limited value. Pin each limit
+as a named constant with a guard test, and smoke the DEPLOYED endpoint.
 
 **Problem:** `tk factory deploy` reported "the secret did not land" on deploys that were fine.
 **Cause:** `wrangler secret put` creates a new Worker version; propagation takes ~10-30s, and
