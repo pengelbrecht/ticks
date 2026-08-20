@@ -158,6 +158,16 @@ func TestDockerfileShipsTheCommonToolchain(t *testing.T) {
 	}
 }
 
+// The entrypoint asks omp where its provider config lives rather than assuming
+// a path — so the image has to prove the pinned omp answers that question, the
+// same way it proves its tk answers every `tk sandbox …` the entrypoint runs.
+func TestDockerfileProvesOmpAnswersWhereItsConfigLives(t *testing.T) {
+	df := readDockerfile(t)
+	if !strings.Contains(df, "omp config path") {
+		t.Error("the image never checks `omp config path`, which the entrypoint runs to place omp's provider config")
+	}
+}
+
 // The version manager is the escape hatch for a repository whose toolchain is
 // outside that set — provisioned at run time into the project's cache, never a
 // factory-wide rebuild.

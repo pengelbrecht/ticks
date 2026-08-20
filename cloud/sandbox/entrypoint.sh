@@ -30,6 +30,11 @@ readonly EXIT_SETUP=6
 # the worst outcome this image can produce: a harness that starts cleanly,
 # reaches the skill loop and then hangs forever on its first model call.
 readonly EXIT_MODEL=7
+# A gateway that answers and a harness that cannot use it are different
+# problems with different fixes, so they are different codes. The run that
+# forced this one had a GREEN model probe and then died at start with "No API
+# key found for cloudflare-ai-gateway": the route was never the fault.
+readonly EXIT_HARNESS=8
 
 say() { printf '%s: %s\n' "$ME" "$*"; }
 warn() { printf '%s: warning: %s\n' "$ME" "$*"; }
@@ -75,6 +80,9 @@ factory_project="${TICKS_FACTORY_PROJECT:-}"
 # How long the pre-flight model probe may take before it is a failure. Bounded
 # by construction: an unbounded probe for a hang is itself a hang.
 probe_timeout="${TICKS_MODEL_PROBE_TIMEOUT:-30}"
+# The same bound for the harness's own round-trip. Larger, because this one
+# starts a whole agent CLI rather than one curl.
+harness_probe_timeout="${TICKS_HARNESS_PROBE_TIMEOUT:-120}"
 
 # Filled in by select_model_route: which gateway route serves the routed model,
 # the id in that provider's own namespace, and the base URL the probe and the
@@ -82,6 +90,14 @@ probe_timeout="${TICKS_MODEL_PROBE_TIMEOUT:-30}"
 model_provider=""
 model_id=""
 model_base_url=""
+
+# Filled in by select_harness_route: the per-kind half of the same decision —
+# what THIS harness calls that route, which variable it reads the credential
+# out of, which wire shape it should speak, and the model string to hand it.
+harness_provider=""
+harness_credential_env=""
+harness_model_api=""
+harness_model_selector=""
 
 require_inputs() {
 	local missing="" name
@@ -331,6 +347,245 @@ The harness would have started and hung on this same call, so the boot stops her
   status: $status
   body: ${body:-<empty>}
 This is a stop, not a warning: the harness would have started, reached the skill loop and hung on its first call. Configure the provider behind the gateway with 'tk factory setup', or route [orchestrator].model in .tick/runners.toml at a model that provider serves."
+}
+
+# ---------------------------------------------------------------------------
+# The per-kind half of the gateway wiring
+#
+# `configure_model_routing` above sets VENDOR-shaped variables — ANTHROPIC_*,
+# OPENAI_*, OPENROUTER_*, WORKERS_AI_BASE_URL — because that is how the claude
+# kind consumes a gateway: it speaks one vendor's API, reads that vendor's two
+# variables, and needs nothing else.
+#
+# omp does not work that way, and a run found out the expensive way. It is
+# cross-provider, so it resolves a PROVIDER BY NAME and asks that provider for
+# its own base URL and its own credential; it reads no vendor variable on the
+# way. Its name for a Cloudflare AI Gateway is `cloudflare-ai-gateway`, and the
+# credential variable that provider reads is CLOUDFLARE_AI_GATEWAY_API_KEY. A
+# container that exported only the vendor set therefore passed every check
+# above — environment green, model resolved, model probe GREEN — and then died
+# at start with:
+#
+#   error: No API key found for cloudflare-ai-gateway.
+#
+# So the wiring is a table, per kind, stated once here. A fifth kind is an edit
+# to this table plus a row in cloud/sandbox/README.md: say what the kind calls
+# each gateway route, which variable carries the credential, and what wire
+# shape it should speak. It is deliberately not a lookup done at start time
+# from something the kind prints — the point is that the knowledge is written
+# down where the next person adding a kind will read it.
+#
+#   kind    | gateway route | the kind's provider name | credential variable
+#   --------+---------------+--------------------------+------------------------------
+#   claude  | anthropic     | (the vendor itself)      | ANTHROPIC_API_KEY
+#   omp     | anthropic     | anthropic                | ANTHROPIC_API_KEY
+#   omp     | openai        | openai                   | OPENAI_API_KEY
+#   omp     | openrouter    | openrouter               | OPENROUTER_API_KEY
+#   omp     | workers-ai    | cloudflare-ai-gateway    | CLOUDFLARE_AI_GATEWAY_API_KEY
+# ---------------------------------------------------------------------------
+select_harness_route() {
+	case "$harness" in
+	claude)
+		# claude speaks the Anthropic API and reads ANTHROPIC_BASE_URL /
+		# ANTHROPIC_API_KEY, both already exported. select_model_route has
+		# already refused any non-Anthropic model for this kind.
+		harness_provider="anthropic"
+		harness_credential_env="ANTHROPIC_API_KEY"
+		harness_model_api="anthropic-messages"
+		harness_model_selector="$model_id"
+		;;
+	omp)
+		case "$model_provider" in
+		anthropic)
+			harness_provider="anthropic"
+			harness_credential_env="ANTHROPIC_API_KEY"
+			harness_model_api="anthropic-messages"
+			;;
+		openai)
+			harness_provider="openai"
+			harness_credential_env="OPENAI_API_KEY"
+			harness_model_api="openai-completions"
+			;;
+		openrouter)
+			harness_provider="openrouter"
+			harness_credential_env="OPENROUTER_API_KEY"
+			harness_model_api="openai-completions"
+			;;
+		workers-ai)
+			# omp has no `workers-ai` provider. It has `cloudflare-ai-gateway`,
+			# which is what this route IS, and the shape our gateway serves it
+			# in is the OpenAI-compatible one under /v1.
+			harness_provider="cloudflare-ai-gateway"
+			harness_credential_env="CLOUDFLARE_AI_GATEWAY_API_KEY"
+			harness_model_api="openai-completions"
+			;;
+		*)
+			die $EXIT_HARNESS "no omp provider is wired for the gateway route '$model_provider' — add it to the kind table in this script and to cloud/sandbox/README.md rather than letting omp pick a provider nothing authorised"
+			;;
+		esac
+		# Provider-qualified, always. Handed a bare id, omp fuzzy-matches its
+		# own catalog and may land on a provider it has no credential for —
+		# which is the other half of the failure above: the id `@cf/…` resolved
+		# to `cloudflare-ai-gateway` because omp's catalog says so, not because
+		# anything here asked for it.
+		harness_model_selector="$harness_provider/$model_id"
+		;;
+	esac
+
+	# The run's gateway token, under the name THIS kind reads it by. Same token,
+	# same revocability as every vendor variable above.
+	export "$harness_credential_env=$gateway_token"
+	say "harness $harness calls the $model_provider route its '$harness_provider' provider, credentialled by \$$harness_credential_env"
+}
+
+# Where omp keeps its model/provider config. Asked of omp rather than assumed:
+# it is the same delegation as `tk sandbox model` — the tool that owns the
+# format is the one that says where the file lives.
+omp_config_dir() {
+	local dir
+	dir="$(omp config path 2>/dev/null | sed -n 1p | tr -d '[:space:]')"
+	[[ -n $dir ]] || dir="${HOME:-/root}/.omp/agent"
+	printf '%s\n' "$dir"
+}
+
+# Pin omp's provider to the route this boot just proved.
+#
+# The credential variable alone is not enough. omp's built-in
+# `cloudflare-ai-gateway` provider carries a PLACEHOLDER base URL
+# (`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/…`), so a run with
+# a valid credential and no base URL would post to a literal `<account>`. The
+# provider's base URL, wire shape and model list therefore come from here, from
+# the same decision the model probe verified.
+#
+# `apiKey:` is the NAME of an environment variable, which omp resolves per
+# request — the run's token stays in the environment and is never written to
+# the container's filesystem.
+configure_omp_provider() {
+	local dir file
+	dir="$(omp_config_dir)"
+	mkdir -p "$dir" || die $EXIT_HARNESS "cannot create omp's config directory $dir"
+	file="$dir/models.yml"
+	cat >"$file" <<-YAML || die $EXIT_HARNESS "cannot write omp's provider config at $file"
+		# Written by ${ME} at boot, and rewritten on every boot. Do not edit.
+		#
+		# One provider, one model: the route this run's model probe proved. Setting
+		# baseUrl here also contains every OTHER model omp knows under this provider
+		# name — they all resolve to the run's gateway or not at all.
+		#
+		# apiKey is an environment VARIABLE NAME, resolved by omp per request. The
+		# run's gateway token is never written to disk.
+		providers:
+		  ${harness_provider}:
+		    baseUrl: "${model_base_url}"
+		    api: "${harness_model_api}"
+		    apiKey: "${harness_credential_env}"
+		    models:
+		      - id: "${model_id}"
+		        name: "${model} through this run's gateway"
+	YAML
+	say "omp provider '$harness_provider' pinned to ${model_base_url#*://} in $file"
+}
+
+configure_harness_provider() {
+	case "$harness" in
+	omp) configure_omp_provider ;;
+	# claude reads ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY out of the
+	# environment and has no provider file to write.
+	claude) ;;
+	esac
+}
+
+# Run one command under a wall-clock bound when the image has `timeout`, which
+# it does; a host without it (a developer running the script directly) still
+# gets the harness's own bound where the kind has one.
+bounded() {
+	local seconds="$1"
+	shift
+	if command -v timeout >/dev/null 2>&1; then
+		timeout "$seconds" "$@"
+		return $?
+	fi
+	"$@"
+}
+
+# Prove the HARNESS can call the model, not just that the gateway answers.
+#
+# probe_model above proves the route. It cannot prove this: it is curl holding
+# the token, and the harness resolves providers and credentials by its own
+# rules. The gap is not hypothetical — a run passed the model probe and died
+# four lines later because the harness looked for a credential under a name
+# nothing had set. So the harness itself makes one bounded, tool-less
+# round-trip here, through its own provider resolution, before the run starts.
+#
+# The gate is the ANSWER, not the exit status — the rule the herd spawner
+# already applies to workers, and it earns its keep here immediately. Building
+# this, omp was observed exiting 0 having made three real calls that all came
+# back with no assistant text ("empty stop after retry cap"), printing nothing
+# but its own "Working..." progress line. Exit status and non-empty output both
+# said green; the run would have started and done nothing. A word only a
+# completed round-trip can produce is what tells those apart.
+#
+# What it costs: one small model call per boot. What it buys: a credential
+# under the wrong name, a provider pointed at a placeholder URL, a model id the
+# harness resolves elsewhere, and a model that answers nothing all arrive as a
+# message with an exit code instead of as a dead or idle container.
+probe_harness() {
+	local dir answer status cmd=()
+	dir="$(mktemp -d "${TMPDIR:-/tmp}/ticks-harness-probe.XXXXXX" 2>/dev/null)" ||
+		die $EXIT_HARNESS "cannot create a scratch directory for the harness probe"
+	local want="READY"
+	local prompt="Reply with the single word ${want} and nothing else."
+
+	case "$harness" in
+	omp)
+		# Everything optional is off: this proves the model call, and loading
+		# the checkout's skills, rules and extensions would prove other things
+		# slowly. --max-time is omp's own bound; `bounded` is the backstop for
+		# a harness that never reaches its own timer.
+		cmd=(omp -p "$prompt" --mode text --no-session --no-tools --no-lsp
+			--no-skills --no-rules --no-extensions
+			--max-time "$harness_probe_timeout" --model "$harness_model_selector")
+		;;
+	claude)
+		cmd=(claude -p "$prompt" --dangerously-skip-permissions --model "$model_id")
+		;;
+	esac
+
+	# Marked, so the container's two invocations of the same binary are told
+	# apart by anything reading them — including this script's own tests.
+	export TICKS_HARNESS_PROBE=1
+	answer="$(cd "$dir" && bounded "$harness_probe_timeout" "${cmd[@]}" </dev/null 2>&1)"
+	status=$?
+	unset TICKS_HARNESS_PROBE
+	rm -rf "$dir"
+	answer="$(printf '%s' "$answer" | tail -c 600)"
+
+	if ((status == 124)); then
+		die $EXIT_HARNESS "the $harness harness did not finish a one-word round-trip within ${harness_probe_timeout}s.
+  provider: $harness_provider (gateway route $model_provider at ${model_base_url#*://})
+  model: $harness_model_selector
+  output: ${answer:-<none>}
+The gateway itself answered the model probe above, so this is the harness hanging on its own first call — exactly what starting it would have produced, minus the message."
+	fi
+	if ((status != 0)); then
+		die $EXIT_HARNESS "the $harness harness could not make a model call through the gateway (exit $status).
+  provider: $harness_provider (gateway route $model_provider at ${model_base_url#*://})
+  model: $harness_model_selector
+  credential variable: $harness_credential_env
+  output: ${answer:-<none>}
+The model probe above was GREEN, so the gateway and the route are fine and this is the harness's own provider wiring. Its message is quoted verbatim above; the kind table in this script and in cloud/sandbox/README.md is what fixes it."
+	fi
+	# Case-insensitively, because "Ready." is a model complying and a gate that
+	# fails on it is a gate that cries wolf.
+	if [[ ${answer^^} != *"$want"* ]]; then
+		die $EXIT_HARNESS "the $harness harness exited 0 without answering the probe.
+  provider: $harness_provider (gateway route $model_provider at ${model_base_url#*://})
+  model: $harness_model_selector
+  asked for: $want
+  said: ${answer:-<nothing>}
+This is the green-start trap, and it is why the gate is the answer rather than the exit status: a clean exit with no completed round-trip is a run that begins and does nothing. Seen for real from a model that returned an empty stop on every retry — check that '$model_id' is a model this route actually serves and that it can hold a conversation."
+	fi
+	say "harness probe green: $harness answered '$want' through its '$harness_provider' provider"
 }
 
 # Caches are convenience state (axiom 1): they live in the sandbox filesystem,
@@ -599,13 +854,16 @@ start_harness() {
 	prompt="$(harness_prompt)"
 	local cmd=()
 	case "$harness" in
-	# The id in the provider's own namespace, not the routed string: the base
-	# URL above already selects the provider, so the model flag carries what
-	# that provider calls it.
+	# The selector select_harness_route built and probe_harness just proved,
+	# not the routed string and not a bare id: omp resolves a provider by name,
+	# so the provider it should use is stated rather than left to a fuzzy match
+	# over its own catalog.
 	omp)
-		cmd=(omp -p "$prompt" --auto-approve --mode text --model "$model_id")
+		cmd=(omp -p "$prompt" --auto-approve --mode text --model "$harness_model_selector")
 		[[ -z $max_time ]] || cmd+=(--max-time "$max_time")
 		;;
+	# claude speaks one vendor's API, so its model flag carries the vendor's
+	# own id and the base URL variable selects the route.
 	claude)
 		cmd=(claude -p "$prompt" --dangerously-skip-permissions --model "$model_id")
 		;;
@@ -632,6 +890,11 @@ main() {
 	resolve_model
 	select_model_route
 	probe_model
+	# The gateway answers. Now prove THIS harness can reach it: the credential
+	# it reads, the provider it names, and one real round-trip through both.
+	select_harness_route
+	configure_harness_provider
+	probe_harness
 	provision_toolchain
 	repo_setup
 	run_preflight

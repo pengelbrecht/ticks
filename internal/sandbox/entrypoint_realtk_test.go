@@ -89,8 +89,10 @@ model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
 	rec := f.harnessRecord()
 	mustContain(t, rec, "TICKS_MODEL=workers-ai/meta/llama-3.3-70b-instruct-fp8-fast",
 		"the real tk resolved the orchestrator's model from the role/tier table")
-	mustContain(t, rec, "ARG=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-		"the harness runs on the routed model")
+	mustContain(t, rec, "TICKS_MODEL_ID=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the id in the provider's own namespace is what the route was proved with")
+	mustContain(t, rec, "ARG=cloudflare-ai-gateway/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the harness runs on the routed model, through the provider omp names for that route")
 	mustContain(t, f.probeCalls(), "/workers-ai/v1/chat/completions",
 		"the route was proved before the harness started")
 }

@@ -32,7 +32,9 @@ type fixture struct {
 	mise     string // the version-manager stub's recording
 	tkRecord string // the tk stub's recording of `tk sandbox ...` calls
 	curlRec  string // the curl stub's recording of the model probe
+	probeRec string // the harness stub's recording of the pre-flight round-trip
 	binDir   string // the stub bin directory at the front of PATH
+	home     string // the container HOME the harness reads its config out of
 }
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -49,6 +51,20 @@ func git(t *testing.T, dir string, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// harnessStubPreamble answers the two calls the container makes on a harness
+// binary before the run itself: `omp config path`, and the pre-flight
+// round-trip. A stub that overrides the fixture's harness has to answer them
+// too, or it silently becomes a test of the probe.
+const harnessStubPreamble = `if [ "$1" = "config" ] && [ "$2" = "path" ]; then
+  printf '%s\n' "$HOME/.omp/agent"
+  exit 0
+fi
+if [ -n "${TICKS_HARNESS_PROBE:-}" ]; then
+  printf 'READY\n'
+  exit 0
+fi
+`
 
 func writeStub(t *testing.T, path, body string) {
 	t.Helper()
@@ -102,7 +118,26 @@ func newFixtureWithFiles(t *testing.T, environment string, files map[string]stri
 	head := git(t, source, "rev-parse", "HEAD")
 
 	record := filepath.Join(root, "harness-record")
-	harness := `{
+	// The harness stub answers three different calls, because the container
+	// makes three: `omp config path` (where does omp keep its provider
+	// config), the pre-flight round-trip (marked by TICKS_HARNESS_PROBE), and
+	// the run itself. Recording the probe separately is what keeps
+	// harnessStarted() meaning "the run began" rather than "the binary ran".
+	harness := `if [ "$1" = "config" ] && [ "$2" = "path" ]; then
+  printf '%s\n' "$HOME/.omp/agent"
+  exit 0
+fi
+if [ -n "${TICKS_HARNESS_PROBE:-}" ]; then
+  {
+    printf 'CWD=%s\n' "$PWD"
+    printf 'BIN=%s\n' "$(basename "$0")"
+    for a in "$@"; do printf 'ARG=%s\n' "$a"; done
+    env
+  } >> "$TICKS_TEST_HARNESS_PROBE_RECORD"
+  printf '%s\n' "${TICKS_TEST_HARNESS_PROBE_ANSWER-READY}"
+  exit "${TICKS_TEST_HARNESS_PROBE_EXIT:-0}"
+fi
+{
   printf 'CWD=%s\n' "$PWD"
   printf 'BIN=%s\n' "$(basename "$0")"
   for a in "$@"; do printf 'ARG=%s\n' "$a"; done
@@ -195,27 +230,30 @@ printf '%s' "${TICKS_TEST_CURL_STATUS:-200}"
 		mise:     mise,
 		tkRecord: filepath.Join(root, "tk-record"),
 		curlRec:  filepath.Join(root, "curl-record"),
+		probeRec: filepath.Join(root, "harness-probe-record"),
 		binDir:   binDir,
+		home:     filepath.Join(root, "home"),
 		firstSHA: first, headSHA: head,
 	}
 	f.env = map[string]string{
-		"PATH":                   binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME":                   filepath.Join(root, "home"),
-		"XDG_CONFIG_HOME":        filepath.Join(root, "home", ".config"),
-		EnvRepoURL:               source,
-		EnvBaseSHA:               head,
-		EnvEpic:                  "ko8",
-		EnvGatewayBaseURL:        testGatewayURL,
-		EnvGatewayToken:          testGatewayToken,
-		EnvWorkdir:               f.workdir,
-		EnvCacheDir:              filepath.Join(root, "cache"),
-		EnvTkVersion:             "0.31.0",
-		EnvRunID:                 "run_test",
-		"TICKS_TEST_RECORD":      record,
-		"TICKS_TEST_MISE_RECORD": mise,
-		"TICKS_TEST_TK_RECORD":   f.tkRecord,
-		"TICKS_TEST_TK_VERSION":  "0.31.0",
-		"TICKS_TEST_CURL_RECORD": f.curlRec,
+		"PATH":                            binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"HOME":                            filepath.Join(root, "home"),
+		"XDG_CONFIG_HOME":                 filepath.Join(root, "home", ".config"),
+		EnvRepoURL:                        source,
+		EnvBaseSHA:                        head,
+		EnvEpic:                           "ko8",
+		EnvGatewayBaseURL:                 testGatewayURL,
+		EnvGatewayToken:                   testGatewayToken,
+		EnvWorkdir:                        f.workdir,
+		EnvCacheDir:                       filepath.Join(root, "cache"),
+		EnvTkVersion:                      "0.31.0",
+		EnvRunID:                          "run_test",
+		"TICKS_TEST_RECORD":               record,
+		"TICKS_TEST_MISE_RECORD":          mise,
+		"TICKS_TEST_TK_RECORD":            f.tkRecord,
+		"TICKS_TEST_TK_VERSION":           "0.31.0",
+		"TICKS_TEST_CURL_RECORD":          f.curlRec,
+		"TICKS_TEST_HARNESS_PROBE_RECORD": f.probeRec,
 		// The control plane's model, which is what a factory with RUN_MODEL
 		// set hands the container. Tests that exercise the repository's own
 		// role/tier routing delete it.
@@ -267,6 +305,28 @@ func (f *fixture) harnessRecord() string {
 func (f *fixture) tkCalls() string {
 	f.t.Helper()
 	b, err := os.ReadFile(f.tkRecord)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// harnessProbeCalls returns what the harness stub saw on the pre-flight
+// round-trip, empty when the entrypoint never probed the harness.
+func (f *fixture) harnessProbeCalls() string {
+	f.t.Helper()
+	b, err := os.ReadFile(f.probeRec)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// ompProviderConfig returns the provider file the entrypoint wrote for omp,
+// empty when it wrote none.
+func (f *fixture) ompProviderConfig() string {
+	f.t.Helper()
+	b, err := os.ReadFile(filepath.Join(f.home, ".omp", "agent", "models.yml"))
 	if err != nil {
 		return ""
 	}
@@ -595,7 +655,7 @@ func TestEntrypointStreamsHarnessOutputDuringTheRun(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	gate := filepath.Join(f.root, "gate")
 	f.env["TICKS_TEST_GATE"] = gate
-	writeStub(t, filepath.Join(f.root, "bin", "omp"), `echo "harness: started"
+	writeStub(t, filepath.Join(f.root, "bin", "omp"), harnessStubPreamble+`echo "harness: started"
 while [ ! -f "$TICKS_TEST_GATE" ]; do sleep 0.05; done
 echo "harness: finished"
 `)
@@ -653,7 +713,7 @@ echo "harness: finished"
 // to tell a finished run from a crashed one.
 func TestEntrypointPropagatesTheHarnessExitStatus(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
-	writeStub(t, filepath.Join(f.root, "bin", "omp"), "exit 42\n")
+	writeStub(t, filepath.Join(f.root, "bin", "omp"), harnessStubPreamble+"exit 42\n")
 	out, code := f.run()
 	if code != 42 {
 		t.Fatalf("exit %d, want 42\n%s", code, out)
@@ -995,8 +1055,10 @@ kind = "claude"
 	rec := f.harnessRecord()
 	mustContain(t, rec, "TICKS_MODEL=workers-ai/meta/llama-3.3-70b-instruct-fp8-fast",
 		"the routed model is exported")
-	mustContain(t, rec, "ARG=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-		"the harness is given the id in the provider's own namespace")
+	mustContain(t, rec, "TICKS_MODEL_ID=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the id in the provider's own namespace is recorded")
+	mustContain(t, rec, "ARG=cloudflare-ai-gateway/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the harness is given that id through the provider it names for the route")
 }
 
 // The control plane's model is an operator override, not something the
@@ -1196,4 +1258,298 @@ func TestEntrypointStopsWhenTheGatewayNeverAnswersTheProbe(t *testing.T) {
 	if f.harnessStarted() {
 		t.Error("the harness started against a gateway that never answered")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// The per-kind half of the gateway wiring.
+//
+// A run got further than any before it and still died: environment green,
+// model resolved, model probe GREEN, and then
+//
+//	error: No API key found for cloudflare-ai-gateway.
+//
+// The container exported the VENDOR-shaped variables the claude kind reads.
+// omp reads none of them — it resolves a provider by name and asks that
+// provider for its own credential and its own base URL. Every test below
+// asserts one half of that: the credential is under the name the kind reads,
+// the provider points at the route the probe proved, and the harness itself is
+// made to prove it before the run starts.
+// ---------------------------------------------------------------------------
+
+// The credential, under omp's own name for it.
+func TestEntrypointGivesOmpTheGatewayCredentialUnderItsOwnProviderName(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.harnessRecord(), "CLOUDFLARE_AI_GATEWAY_API_KEY="+testGatewayToken,
+		"omp names the gateway route `cloudflare-ai-gateway` and reads that provider's own credential")
+}
+
+// The provider, pointed at the route the model probe just proved. omp's
+// built-in entry for this provider carries a PLACEHOLDER base URL, so a
+// credential with no base URL would post to a literal `<account>`.
+func TestEntrypointPinsTheOmpProviderToTheProvedRoute(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	config := f.ompProviderConfig()
+	if config == "" {
+		t.Fatal("the entrypoint wrote omp no provider config, so omp would resolve the route from its own catalog")
+	}
+	for _, want := range []string{
+		"cloudflare-ai-gateway:",
+		`baseUrl: "` + testGatewayURL + `/workers-ai/v1"`,
+		`api: "openai-completions"`,
+		`apiKey: "CLOUDFLARE_AI_GATEWAY_API_KEY"`,
+		`- id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"`,
+	} {
+		mustContain(t, config, want, "the provider config states the route the probe proved")
+	}
+	if strings.Contains(config, "<account>") || strings.Contains(config, "<gateway>") {
+		t.Errorf("the provider config kept a placeholder base URL:\n%s", config)
+	}
+}
+
+// `apiKey` in that file is an environment VARIABLE NAME, which omp resolves per
+// request. The run's token is the one thing that must not land on disk.
+func TestEntrypointKeepsTheRunTokenOutOfTheOmpProviderConfig(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	if _, code := f.run(); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if config := f.ompProviderConfig(); strings.Contains(config, testGatewayToken) {
+		t.Errorf("the run's gateway token was written to omp's config file:\n%s", config)
+	}
+}
+
+// Handed a bare id, omp fuzzy-matches its own catalog — which is how `@cf/…`
+// resolved to a provider nothing here had authorised. The provider is named.
+func TestEntrypointHandsOmpAProviderQualifiedModel(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.harnessRecord(), "ARG=cloudflare-ai-gateway/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the model flag names the provider omp should resolve it through")
+}
+
+// An Anthropic-routed omp run uses omp's `anthropic` provider and the Anthropic
+// wire shape — the same table, a different row.
+func TestEntrypointRoutesAnAnthropicOmpRunAtTheAnthropicProvider(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	out, code := f.run() // the fixture's default model is claude-fable-5
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	config := f.ompProviderConfig()
+	for _, want := range []string{
+		"anthropic:",
+		`baseUrl: "` + testGatewayURL + `/anthropic"`,
+		`api: "anthropic-messages"`,
+		`apiKey: "ANTHROPIC_API_KEY"`,
+		`- id: "claude-fable-5"`,
+	} {
+		mustContain(t, config, want, "the anthropic row of the kind table")
+	}
+	mustContain(t, f.harnessRecord(), "ARG=anthropic/claude-fable-5",
+		"the model flag names the provider for this route too")
+}
+
+// The claude kind consumes a gateway through the vendor variables and has no
+// provider file — stating that is the point of a table.
+func TestEntrypointWritesNoProviderConfigForTheClaudeHarness(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "claude"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	if config := f.ompProviderConfig(); config != "" {
+		t.Errorf("the claude harness got an omp provider config:\n%s", config)
+	}
+	mustContain(t, f.harnessRecord(), "ARG=claude-fable-5",
+		"claude takes the vendor's own id, not a provider-qualified selector")
+}
+
+// ---------------------------------------------------------------------------
+// The harness probe: the gap the model probe cannot close.
+//
+// probe_model proves the GATEWAY answers. It is curl holding the token, so it
+// cannot prove the HARNESS can call it — which is exactly the run that died
+// four lines after a green probe.
+// ---------------------------------------------------------------------------
+
+func TestEntrypointProvesTheHarnessCanCallTheGatewayBeforeStartingIt(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	probe := f.harnessProbeCalls()
+	if probe == "" {
+		t.Fatal("the run started without the harness ever having made a model call")
+	}
+	mustContain(t, probe, "ARG=cloudflare-ai-gateway/@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the probe exercises the same selector the run will use")
+	mustContain(t, probe, "CLOUDFLARE_AI_GATEWAY_API_KEY="+testGatewayToken,
+		"the probe exercises the same credential the run will use")
+	mustContain(t, out, "harness probe green",
+		"the successful round-trip is evidence in the run's own streamed output")
+}
+
+// The failure that forced this tick: the harness starts and dies. It must be a
+// pre-flight stop with its own code, not the run's exit status.
+func TestEntrypointStopsWhenTheHarnessCannotCallTheGateway(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+	f.env["TICKS_TEST_HARNESS_PROBE_EXIT"] = "1"
+	f.env["TICKS_TEST_HARNESS_PROBE_ANSWER"] = "error: No API key found for cloudflare-ai-gateway."
+	out, code := f.run()
+	if code != ExitHarness {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitHarness, out)
+	}
+	mustContain(t, out, "No API key found for cloudflare-ai-gateway",
+		"the harness's own message is quoted verbatim rather than summarised")
+	mustContain(t, out, "CLOUDFLARE_AI_GATEWAY_API_KEY",
+		"the stop names the variable the harness reads")
+	mustContain(t, out, "model probe above was GREEN",
+		"the stop says the gateway is not the fault, so nobody re-diagnoses the route")
+	if f.harnessStarted() {
+		t.Error("the run started on a harness that cannot make a model call")
+	}
+}
+
+// A harness that exits 0 saying nothing is the green-start trap: the run would
+// have begun and done nothing.
+func TestEntrypointStopsWhenTheHarnessProbeAnswersNothing(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_HARNESS_PROBE_ANSWER"] = ""
+	out, code := f.run()
+	if code != ExitHarness {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitHarness, out)
+	}
+	mustContain(t, out, "without answering the probe", "the stop says what was missing")
+	if f.harnessStarted() {
+		t.Error("the run started on a harness that answered nothing")
+	}
+}
+
+// The gate is the ANSWER, not the exit status. Observed for real while building
+// this: omp exited 0 having made three calls that all came back with no
+// assistant text, printing only its own progress line. Exit status and
+// non-empty output both said green.
+func TestEntrypointStopsWhenTheHarnessExitsCleanWithoutCompletingARoundTrip(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_HARNESS_PROBE_ANSWER"] = "Working..."
+	out, code := f.run()
+	if code != ExitHarness {
+		t.Fatalf("exit %d, want %d — a progress line is not an answer\n%s", code, ExitHarness, out)
+	}
+	mustContain(t, out, "green-start trap", "the stop names the class")
+	mustContain(t, out, "Working...", "the stop quotes what the harness did say")
+	if f.harnessStarted() {
+		t.Error("the run started on a harness that never completed a round-trip")
+	}
+}
+
+// "Ready." is a model complying. A gate that fails on it cries wolf.
+func TestEntrypointAcceptsTheProbeAnswerInAnyCase(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_HARNESS_PROBE_ANSWER"] = "Ready."
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, out, "harness probe green", "a compliant answer in another case still passes")
+}
+
+// The two probes are two classes, and a reader of a dead sandbox's log has only
+// the exit code to tell them apart.
+func TestEntrypointKeepsTheHarnessFailureDistinctFromTheGatewayFailure(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_CURL_STATUS"] = "503"
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d (a refused gateway is not a harness failure)\n%s", code, ExitModel, out)
+	}
+	if f.harnessProbeCalls() != "" {
+		t.Error("the harness was probed after the gateway had already refused the route")
+	}
+}
+
+// The claude kind is probed too — the check is about harnesses, not about omp.
+func TestEntrypointProvesTheClaudeHarnessToo(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "claude"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	probe := f.harnessProbeCalls()
+	if probe == "" {
+		t.Fatal("the claude harness started without ever having made a model call")
+	}
+	mustContain(t, probe, "BIN=claude", "the probe ran the kind this boot will start")
+	mustContain(t, probe, "ANTHROPIC_API_KEY="+testGatewayToken,
+		"claude's credential is the run's gateway token, same as the run's")
+}
+
+// The probe runs before provisioning and setup for the same reason the model
+// probe does: a run that cannot make a model call is over either way, and those
+// are the slow steps.
+func TestEntrypointProbesTheHarnessBeforeTheSlowSteps(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_HARNESS_PROBE_EXIT"] = "1"
+	out, code := f.run()
+	if code != ExitHarness {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitHarness, out)
+	}
+	if calls := f.tkCalls(); strings.Contains(calls, "sandbox setup") || strings.Contains(calls, "sandbox environment") {
+		t.Errorf("the entrypoint ran the repository's setup and pre-flight for a run that could not start:\n%s", calls)
+	}
+}
+
+// The probe is bounded: a probe for a hang that itself hangs is the hang.
+func TestEntrypointBoundsTheHarnessProbe(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarnessProbeTimeout] = "7"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.harnessProbeCalls(), "ARG=--max-time",
+		"the omp probe carries the harness's own wall-clock bound")
+	mustContain(t, f.harnessProbeCalls(), "ARG=7", "the bound is the configured one")
+}
+
+// The kind table is per-kind knowledge, so it is written down where the next
+// person adding a kind will look — beside the claude/omp gateway wiring.
+func TestSandboxReadmeDocumentsThePerKindGatewayCredentials(t *testing.T) {
+	p, err := Path("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(b)
+	for _, want := range []string{
+		"CLOUDFLARE_AI_GATEWAY_API_KEY",
+		"cloudflare-ai-gateway",
+		"models.yml",
+	} {
+		mustContain(t, readme, want, "cloud/sandbox/README.md documents what each kind reads")
+	}
+	mustContain(t, readme, "| 8 |", "the new exit class is in the exit-code table")
 }
