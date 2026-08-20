@@ -147,5 +147,5 @@ AUTHORIZE. "Never silently drop a line" needs its mirror: never silently authori
 
 **Problem:** A config format bump hard-broke every older binary with a wall of unknown-key errors.
 **Rule:** A version gate cannot be retrofitted into a released binary — it only makes FUTURE
-mismatches readable. Ship the gate one release before the format that needs it, and say plainly in
-the release notes that the migration requires an upgrade.
+mismatches readable. Ship the gate one release before the format needs it, and say in the release
+notes that migrating requires an upgrade.
