@@ -139,11 +139,12 @@ access. It is what the Run Workflow reads your gateway's own per-request logs
 with, filtered by the run id it stamped, and that number — not anything the
 agent reports — is what `runs.cost_usd` holds and what the cost budget acts on.
 
-Without it the factory still routes and attributes model traffic, but the cost
-budget has nothing to act on: `tk factory status` reports the rung as not
-configured, and each run's `run.json` records its cost as unknown rather than as
-`$0`. Setup proves the token with a live read of that gateway's logs before
-storing it.
+Without it the factory still routes and attributes model traffic when no
+explicit `RUN_MAX_COST_USD` is configured: `tk factory status` reports the rung
+as not configured, and each run's `run.json` records its cost as unknown rather
+than as `$0`. If an explicit cost budget is configured, the Workflow refuses
+the run before sandbox boot because it cannot enforce that budget. Setup proves
+the token with a live read of that gateway's logs before storing it.
 
 ## Checking it later
 
