@@ -3,7 +3,7 @@
   "title": "Rollout wait fails the idempotent deploy: no push means no digest to compare",
   "description": "Found on the first re-deploy after z1b landed. z1b is working — it correctly refused a deploy whose rollout had not converged, which is exactly the false-success bug it was written to kill. But it fails the IDEMPOTENT path, which is the common case after the first deploy:\n\n  Error: the factory deployed, but the ticks-orchestrator container rollout could not be confirmed:\n  wranglers deploy output named no digest-pinned ticks-orchestrator image, so there is nothing to\n  compare the application against\n\nCause, confirmed in the deploy log: when the image is unchanged wrangler prints \"Image already exists remotely, skipping push\" and emits NO digest line. z1b reads the digest out of wranglers output, finds none, and reports a failure. So a deploy that changes nothing — the safest deploy there is — reports a rollout it cannot confirm.\n\nFix: when no image was pushed, the image is by definition already the one the application should be serving. Resolve the expected digest another way rather than giving up: read it from the staged bundle or from the application record and compare, or treat \"nothing pushed\" as already-converged after verifying the application is not mid-transition. Do NOT weaken the case z1b exists for — a deploy that DID push and did not converge must still fail.\n\nSecond finding from the same session, worth folding in: the 5m poll bound expired roughly one poll before the rollout converged (the application reported state=provisioning with the new digest within ~30s of the timeout). The bound is close to reality rather than generous — consider raising it, and consider that state=provisioning with the CORRECT digest already means the new image is serving.",
   "notes": "2026-08-20 15:48 - runner-state: substrate=herdr kind=codex branch=tick/z7h worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-z7h workspace=wC9 base=04d4e93e9e54853fd4228338f16dcc59d9ccf02f agent=tick-z7h pane=wC9:p1 session=01a01f6e-2a14-7d92-a8b9-0a947dab099c",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -12,6 +12,7 @@
   "acceptance_criteria": "A deploy that pushes nothing confirms the rollout instead of failing; a deploy that pushes and does not converge still fails nonzero naming the reason; the poll bound is justified against an observed rollout rather than guessed.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T13:48:24.021527Z",
-  "updated_at": "2026-08-20T13:48:36.14425Z",
-  "started_at": "2026-08-20T13:48:24.081808Z"
+  "updated_at": "2026-08-20T15:12:32.550825Z",
+  "closed_at": "2026-08-20T15:12:32.550825Z",
+  "closed_reason": "Completed: a deploy that pushes nothing now confirms the rollout from the staged bundle or application record instead of failing for want of a digest wrangler never printed, while a deploy that did push and did not converge still fails nonzero naming the reason."
 }
