@@ -498,9 +498,68 @@ export async function proxyModelRequest(
 
 // ---------------------------------------------------------- the telemetry ---
 
+/**
+ * Why a spend read failed, because the three need opposite actions from an
+ * operator and a bare "cost unknown" tells them apart from nothing.
+ *
+ * A live budgeted run was grounded by a `per_page` of 100 — a bug in the query
+ * on this side — and was told to configure a Cloudflare API token it already
+ * had. A rejected request is not an outage: retrying never fixes it, and no
+ * setup command does either.
+ */
+export type SpendFailureKind =
+  /** Telemetry was never wired up (or its credential is refused): operator config. */
+  | "not_configured"
+  /** The API refused the query this factory sent (4xx): a bug here. */
+  | "request_rejected"
+  /** The API errored (5xx) or could not be reached: a real outage. */
+  | "unavailable";
+
 export type SpendResult =
   | { ok: true; cost_usd: number; requests: number }
-  | { ok: false; detail: string };
+  | { ok: false; kind: SpendFailureKind; detail: string };
+
+/**
+ * What the operator should actually do about each kind, in one sentence.
+ *
+ * Kept next to the classification rather than at the call site so every
+ * consumer — the Workflow's pre-boot refusal, the run record — gives the same
+ * advice for the same failure.
+ */
+export function spendFailureRemedy(kind: SpendFailureKind): string {
+  switch (kind) {
+    case "not_configured":
+      return (
+        "run `tk factory setup --cloudflare-api-token <token>` to configure gateway log " +
+        "access, or remove RUN_MAX_COST_USD to run without a cost budget"
+      );
+    case "request_rejected":
+      return (
+        "the AI Gateway logs API rejected the query this factory sent, so this is a bug " +
+        "here rather than an outage — retrying and reconfiguring will both fail the same " +
+        "way; please report it with the API's message above"
+      );
+    case "unavailable":
+      return (
+        "the AI Gateway logs API is erroring or unreachable — check the gateway and " +
+        "Cloudflare's status, then retry the run"
+      );
+  }
+}
+
+/**
+ * Which kind an HTTP status from the logs API is.
+ *
+ * 401/403 are a credential the operator supplies, not a malformed query, so
+ * they get the configuration remedy; 408/429 are transient and retryable
+ * despite being 4xx. Everything else in 4xx is the request's own shape.
+ */
+function spendFailureKind(status: number): SpendFailureKind {
+  if (status === 401 || status === 403) return "not_configured";
+  if (status === 408 || status === 429) return "unavailable";
+  if (status >= 400 && status < 500) return "request_rejected";
+  return "unavailable";
+}
 
 type GatewayLogEntry = {
   cost?: number | null;
@@ -605,9 +664,28 @@ export function encodeLogFilters(filters: GatewayLogFilter[]): string {
   return JSON.stringify(filters);
 }
 
-/** Pages of gateway logs one sync will read. Bounded: a sync is a poll, not a report. */
-const MAX_LOG_PAGES = 20;
-const LOG_PAGE_SIZE = 100;
+/**
+ * The largest `per_page` the AI Gateway logs API accepts, from Cloudflare's
+ * OpenAPI schema for the same logs endpoint the filter enum above comes from.
+ * This is the API's limit, not a policy of ours: asking for 51 answers HTTP 400
+ * "Number must be less than or equal to 50", which is exactly how a 100 shipped
+ * and grounded every budgeted run — a run whose cost budget cannot be read
+ * refuses to boot a sandbox (jk7). Verified against the live API: 50 -> 200,
+ * 51 -> 400. Only the guard test in test/gateway.test.ts stands between a
+ * future raise and a dead deployment.
+ */
+export const GATEWAY_LOG_MAX_PAGE_SIZE = 50;
+
+/**
+ * Pages of gateway logs one sync will read, and rows per page. Bounded: a sync
+ * is a poll, not a report.
+ *
+ * 20 x 50 = 1000 log rows per read, which is the pagination budget one
+ * observation window covers. A run that makes more model calls than that
+ * between two syncs undercounts its own spend until the next read catches up.
+ */
+export const MAX_LOG_PAGES = 20;
+export const LOG_PAGE_SIZE = GATEWAY_LOG_MAX_PAGE_SIZE;
 
 /** The API's own words for a refusal, bounded — never just its status code. */
 async function refusalDetail(response: Response): Promise<string> {
@@ -641,11 +719,12 @@ export async function fetchRunSpend(
   options: ProxyOptions = {}
 ): Promise<SpendResult> {
   const config = gatewayConfig(env);
-  if (!config.ok) return { ok: false, detail: config.detail };
+  if (!config.ok) return { ok: false, kind: "not_configured", detail: config.detail };
   const { account_id: account, gateway_id: gateway } = config.config;
   if (account === null || gateway === null) {
     return {
       ok: false,
+      kind: "not_configured",
       detail:
         `AI_GATEWAY_BASE_URL (${config.config.base_url}) does not name a Cloudflare account and ` +
         "gateway, so its logs cannot be read; run `tk factory setup`",
@@ -655,6 +734,7 @@ export async function fetchRunSpend(
   if (token === null) {
     return {
       ok: false,
+      kind: "not_configured",
       detail:
         "no CLOUDFLARE_API_TOKEN is configured, so gateway spend cannot be read — run " +
         "`tk factory setup --cloudflare-api-token <token>` to enable cost telemetry",
@@ -683,22 +763,39 @@ export async function fetchRunSpend(
       if (!response.ok) {
         // The status alone hides WHY: a rejected filter (7001) and a revoked
         // token both read as "cost unknown" otherwise, and a budgeted run that
-        // refuses to boot deserves the API's own sentence.
+        // refuses to boot deserves the API's own sentence — and the kind, so
+        // "our query is wrong" is not read as "the gateway is down".
+        const kind = spendFailureKind(response.status);
+        const what =
+          kind === "request_rejected"
+            ? "rejected this factory's own logs query with"
+            : "answered";
         return {
           ok: false,
+          kind,
           detail:
-            `the AI Gateway logs API answered ${response.status} for run ${runID}: ` +
+            `the AI Gateway logs API ${what} ${response.status} for run ${runID}: ` +
             (await refusalDetail(response)),
         };
       }
       payload = (await response.json()) as GatewayLogPage;
     } catch (error) {
-      return { ok: false, detail: `the AI Gateway logs API could not be reached: ${String(error)}` };
+      return {
+        ok: false,
+        kind: "unavailable",
+        detail: `the AI Gateway logs API could not be reached: ${String(error)}`,
+      };
     }
 
     if (payload.success === false) {
       const message = payload.errors?.[0]?.message ?? "the API reported failure";
-      return { ok: false, detail: `the AI Gateway logs API refused the read: ${message}` };
+      // A 200 body that says `success: false` is the API refusing what it was
+      // asked for, not failing to serve it.
+      return {
+        ok: false,
+        kind: "request_rejected",
+        detail: `the AI Gateway logs API refused this factory's own logs query: ${message}`,
+      };
     }
 
     const entries = payload.result ?? [];

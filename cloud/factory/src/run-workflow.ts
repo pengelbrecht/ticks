@@ -56,6 +56,7 @@ import {
   modelRoutingComplaint,
   revokeRunTokens,
   runGatewayEndpoint,
+  spendFailureRemedy,
   syncRunCost,
 } from "./gateway";
 import type { Env } from "./index";
@@ -268,13 +269,15 @@ export async function acquireContext(
       `factory run-workflow: ${params.run_id} has no gateway cost telemetry: ${telemetry.detail}`
     );
     if (config.cost_budget_configured) {
+      // Which failure it was decides what the operator should do: a query this
+      // factory got wrong is a bug report, a 5xx is a retry, and a missing
+      // credential is a setup command. One message for all three sent a live
+      // run's operator to reconfigure a token that was already correct.
       return {
         ok: false,
         detail:
           "the configured cost budget cannot be enforced because AI Gateway cost telemetry " +
-          `could not be read: ${telemetry.detail}; run ` +
-          "`tk factory setup --cloudflare-api-token <token>` to configure gateway log access " +
-          "or remove RUN_MAX_COST_USD",
+          `could not be read: ${telemetry.detail}; ${spendFailureRemedy(telemetry.kind)}`,
       };
     }
   }

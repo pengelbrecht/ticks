@@ -6,8 +6,11 @@ import { getRun, insertRun, type Run } from "../src/db";
 import {
   GATEWAY_LOG_FILTER_KEYS,
   GATEWAY_LOG_FILTER_OPERATORS,
+  GATEWAY_LOG_MAX_PAGE_SIZE,
   GATEWAY_METADATA_KEYS,
   GATEWAY_PATH_PREFIX,
+  LOG_PAGE_SIZE,
+  MAX_LOG_PAGES,
   encodeLogFilters,
   fetchRunSpend,
   gatewayConfig,
@@ -18,6 +21,7 @@ import {
   proxyModelRequest,
   revokeRunTokens,
   runGatewayEndpoint,
+  spendFailureRemedy,
   syncRunCost,
 } from "../src/gateway";
 import { submitRun } from "../src/runs";
@@ -406,6 +410,14 @@ const DOCUMENTED_FILTER_KEYS = [
 
 const DOCUMENTED_FILTER_OPERATORS = ["eq", "neq", "contains", "lt", "gt"];
 
+/**
+ * The `per_page` ceiling the same schema documents, transcribed independently
+ * of the source like the enum above. Confirmed against the live API on the
+ * operator's own gateway: per_page=50 answers 200, per_page=51 answers 400
+ * "Number must be less than or equal to 50".
+ */
+const DOCUMENTED_MAX_PER_PAGE = 50;
+
 type SentFilter = { key: string; operator: string; value: unknown[] };
 
 /** The filters a logs URL carries, as the API would parse them. */
@@ -445,6 +457,17 @@ function fakeLogs(pages: Record<string, unknown>[][]): {
         );
       }
     }
+    const perPage = Number(new URL(url).searchParams.get("per_page") ?? "0");
+    if (perPage > DOCUMENTED_MAX_PER_PAGE) {
+      return Response.json(
+        {
+          success: false,
+          errors: [{ code: 7003, message: "Number must be less than or equal to 50" }],
+          result: null,
+        },
+        { status: 400 }
+      );
+    }
     const page = Number(new URL(url).searchParams.get("page") ?? "1");
     const result = pages[page - 1] ?? [];
     return Response.json({ success: true, result, result_info: { total_pages: pages.length } });
@@ -482,12 +505,12 @@ describe("the runs row cost is gateway telemetry, not a self-report", () => {
   it("pages until the gateway runs out of records", async () => {
     const run = await liveRun();
     const page = (cost: number) =>
-      Array.from({ length: 100 }, () => ({ cost, metadata: { run_id: run.run_id } }));
+      Array.from({ length: LOG_PAGE_SIZE }, () => ({ cost, metadata: { run_id: run.run_id } }));
     const logs = fakeLogs([page(0.01), page(0.02)]);
 
     const spend = await fetchRunSpend(env, run.run_id, { fetcher: logs.fetcher });
-    expect(spend.ok && spend.requests).toBe(200);
-    expect(spend.ok && spend.cost_usd).toBeCloseTo(3, 10);
+    expect(spend.ok && spend.requests).toBe(LOG_PAGE_SIZE * 2);
+    expect(spend.ok && spend.cost_usd).toBeCloseTo(LOG_PAGE_SIZE * 0.03, 10);
   });
 
   it("reports an unreadable telemetry read instead of guessing a number", async () => {
@@ -565,6 +588,33 @@ describe("the gateway logs query is pinned to the shape the API documents", () =
     );
   });
 
+  // The bound below is a literal on purpose, the same way the PBKDF2 cap guard
+  // in test/auth.test.ts is: asserting against GATEWAY_LOG_MAX_PAGE_SIZE would
+  // let one edit raise the request and the "maximum" together and stay green.
+  // The API's limit is not ours to raise.
+  it("asks for no more rows per page than the API's documented maximum", async () => {
+    expect(LOG_PAGE_SIZE).toBeLessThanOrEqual(50);
+    expect(GATEWAY_LOG_MAX_PAGE_SIZE).toBe(50);
+
+    // ...and the number actually put on the wire is that one, not a constant
+    // the query forgot to use.
+    const run = await liveRun();
+    const logs = fakeLogs([[]]);
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: logs.fetcher });
+
+    expect(spend.ok).toBe(true);
+    const perPage = Number(new URL(logs.urls[0]!).searchParams.get("per_page"));
+    expect(perPage).toBe(LOG_PAGE_SIZE);
+    expect(perPage).toBeLessThanOrEqual(50);
+  });
+
+  it("states the pagination budget one spend read covers", () => {
+    // 20 pages of 50 rows: 1000 log rows per sync. A run that outspends that
+    // in one observation window undercounts, so the numbers are stated rather
+    // than left to be multiplied out of two unrelated constants.
+    expect(MAX_LOG_PAGES * LOG_PAGE_SIZE).toBe(1000);
+  });
+
   it("surfaces the API's own refusal when a filter is rejected, rather than a bare status", async () => {
     const run = await liveRun();
     const refusing = (async () =>
@@ -581,5 +631,81 @@ describe("the gateway logs query is pinned to the shape the API documents", () =
     expect(spend.ok).toBe(false);
     expect(spend.ok === false && spend.detail).toContain("400");
     expect(spend.ok === false && spend.detail).toContain("Invalid enum value");
+  });
+});
+
+describe("a bug in our own query is not an outage", () => {
+  // The live run that found this could not tell the two apart: a 400 caused by
+  // a per_page of 100 read exactly like a gateway that was down, and the
+  // operator was told to configure a credential that was already configured.
+  // They need opposite actions — one is "report this", the other "retry".
+  it("names a rejected request as a rejected request, and says retrying will not help", async () => {
+    const run = await liveRun();
+    const rejecting = (async () =>
+      Response.json(
+        {
+          success: false,
+          errors: [{ code: 7003, message: "Number must be less than or equal to 50" }],
+          result: null,
+        },
+        { status: 400 }
+      )) as unknown as typeof fetch;
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: rejecting });
+
+    expect(spend.ok).toBe(false);
+    expect(spend.ok === false && spend.kind).toBe("request_rejected");
+    expect(spend.ok === false && spend.detail).toContain("400");
+    expect(spend.ok === false && spend.detail).toContain("Number must be less than or equal to 50");
+    expect(spendFailureRemedy("request_rejected")).toMatch(/report/i);
+    expect(spendFailureRemedy("request_rejected")).not.toMatch(/tk factory setup/);
+  });
+
+  it("names a 5xx as an outage", async () => {
+    const run = await liveRun();
+    const down = (async () =>
+      new Response("bad gateway", { status: 502 })) as unknown as typeof fetch;
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: down });
+
+    expect(spend.ok).toBe(false);
+    expect(spend.ok === false && spend.kind).toBe("unavailable");
+    expect(spend.ok === false && spend.detail).toContain("502");
+    expect(spendFailureRemedy("unavailable")).toMatch(/retry/i);
+  });
+
+  it("names an unreachable API as an outage", async () => {
+    const run = await liveRun();
+    const offline = (async () => {
+      throw new TypeError("network error");
+    }) as unknown as typeof fetch;
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: offline });
+
+    expect(spend.ok).toBe(false);
+    expect(spend.ok === false && spend.kind).toBe("unavailable");
+  });
+
+  it("names a missing credential as a configuration gap, and says which command fixes it", async () => {
+    set("CLOUDFLARE_API_TOKEN", undefined);
+    const run = await liveRun();
+
+    const spend = await fetchRunSpend(env, run.run_id);
+
+    expect(spend.ok).toBe(false);
+    expect(spend.ok === false && spend.kind).toBe("not_configured");
+    expect(spendFailureRemedy("not_configured")).toContain("tk factory setup");
+  });
+
+  it("gives a rejected credential the credential's remedy, not the bug report", async () => {
+    const run = await liveRun();
+    const refusing = (async () =>
+      new Response("Invalid API token", { status: 403 })) as unknown as typeof fetch;
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: refusing });
+
+    expect(spend.ok).toBe(false);
+    expect(spend.ok === false && spend.kind).toBe("not_configured");
+    expect(spend.ok === false && spend.detail).toContain("403");
   });
 });
