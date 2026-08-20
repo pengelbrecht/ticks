@@ -1,0 +1,16 @@
+{
+  "id": "97x",
+  "title": "AI Gateway logs filter shape is wrong: metadata.run_id is not a valid key",
+  "description": "Found by a LIVE cloud run, and it is the concern k2s itself flagged as unverified (\"the AI Gateway logs API query shape\"). Two real runs failed on it:\n\n  run_665216641434494d81e07a7ec7220551 — no CLOUDFLARE_API_TOKEN configured (fixed by setting the secret)\n  run_b66d8db41a9e4405b5729a8f64017b47 — \"the AI Gateway logs API answered 400\"\n\nReproduced against the real API and the cause is exact. cloud/factory/src/gateway.ts:544 builds:\n  [{\"key\":\"metadata.run_id\",\"operator\":\"eq\",\"value\":[runID]}]\nand the API rejects it:\n  7001 Invalid enum value. Expected id | created_at | ... | metadata.key | metadata.value | ... , received \"metadata.run_id\"\n\nThe API models metadata as two separate filters, not a dotted key. VERIFIED WORKING shape (HTTP 200 against the operator account):\n  [{\"key\":\"metadata.key\",\"operator\":\"eq\",\"value\":[\"run_id\"]},\n   {\"key\":\"metadata.value\",\"operator\":\"eq\",\"value\":[\"\u003crun id\u003e\"]}]\n\nFix that query. While there, check the same assumption anywhere else metadata is queried (tick attribution as well as run attribution), and add a test that pins the filter shape against the documented enum so a future API change fails loudly rather than as a 400 swallowed into \"cost unknown\".\n\nNote the failure mode this produced is CORRECT behaviour from jk7: a configured cost budget that cannot be enforced refuses the run before booting a sandbox. That guard is doing its job — the query underneath it is what is broken.",
+  "status": "in_progress",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "k2s",
+  "acceptance_criteria": "A run with a configured cost budget reads its gateway telemetry and proceeds to boot a sandbox; the filter shape is pinned by a test; querying an unknown metadata key fails loudly rather than being swallowed.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:43:19.46184Z",
+  "updated_at": "2026-08-20T02:43:19.507617Z",
+  "started_at": "2026-08-20T02:43:19.507617Z"
+}
