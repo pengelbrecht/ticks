@@ -39,14 +39,27 @@ const (
 	// the request's gateway metadata, and can revoke this token mid-run.
 	EnvGatewayToken = "AI_GATEWAY_TOKEN"
 	EnvHarness      = "TICKS_HARNESS"
-	EnvModel        = "TICKS_MODEL"
-	EnvMaxTime      = "TICKS_MAX_TIME"
-	EnvWorkdir      = "TICKS_WORKDIR"
-	EnvCacheDir     = "TICKS_CACHE_DIR"
-	EnvRunID        = "TICKS_RUN_ID"
-	EnvTkVersion    = "TICKS_TK_VERSION"
-	EnvPhase        = "TICKS_PHASE"
-	EnvStopReason   = "TICKS_STOP_REASON"
+	// EnvModel is the model the harness runs on. The control plane may set it;
+	// when it does not, the entrypoint fills it from the checkout's own
+	// role/tier routing, and a boot with neither is refused rather than
+	// started — a harness with no model hangs instead of failing.
+	EnvModel = "TICKS_MODEL"
+	// EnvModelProvider and EnvModelID are what the entrypoint DERIVED from the
+	// routed model: which gateway route serves it, and the id in that
+	// provider's own namespace (the `@cf/…` Workers AI id, the bare Anthropic
+	// name). Exported so the harness's environment records the decision the
+	// probe verified, rather than leaving it implicit in a base URL.
+	EnvModelProvider = "TICKS_MODEL_PROVIDER"
+	EnvModelID       = "TICKS_MODEL_ID"
+	// EnvModelProbeTimeout bounds the pre-flight model probe, in seconds.
+	EnvModelProbeTimeout = "TICKS_MODEL_PROBE_TIMEOUT"
+	EnvMaxTime           = "TICKS_MAX_TIME"
+	EnvWorkdir           = "TICKS_WORKDIR"
+	EnvCacheDir          = "TICKS_CACHE_DIR"
+	EnvRunID             = "TICKS_RUN_ID"
+	EnvTkVersion         = "TICKS_TK_VERSION"
+	EnvPhase             = "TICKS_PHASE"
+	EnvStopReason        = "TICKS_STOP_REASON"
 	// EnvSandboxImage is the image reference the control plane says it booted.
 	// It is advisory and read-only from inside: the container cannot change
 	// what it is running, so this exists so that a repository declaring a
@@ -98,6 +111,14 @@ const (
 	// repository that declares a warm step and does not get it starts a wave
 	// in which every worker fails the same way, at model prices.
 	ExitSetup = 6
+	// ExitModel reports that the container has a gateway and no model it can
+	// actually call: nothing routed, a model whose provider cannot be named, a
+	// model the chosen harness does not speak, or a gateway that refused a
+	// one-token probe. It is its own class because the alternative is the
+	// worst failure this image can produce — a harness that starts cleanly,
+	// reaches the skill loop and then hangs forever on its first model call,
+	// which is exactly the green-start trap with no error to read.
+	ExitModel = 7
 )
 
 // Script names the files the image installs into /usr/local/bin.

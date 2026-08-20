@@ -19,6 +19,7 @@ func TestEntrypointTkCommandsAreDerivedFromTheScripts(t *testing.T) {
 	want := []string{
 		"sandbox environment",
 		"sandbox image",
+		"sandbox model",
 		"sandbox setup",
 		"sandbox toolchain",
 		"version",

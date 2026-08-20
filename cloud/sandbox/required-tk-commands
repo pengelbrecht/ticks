@@ -9,6 +9,7 @@
 # container that dies mid-run with "unknown command".
 sandbox environment
 sandbox image
+sandbox model
 sandbox setup
 sandbox toolchain
 version

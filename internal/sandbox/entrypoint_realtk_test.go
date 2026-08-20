@@ -47,6 +47,54 @@ func TestEntrypointReachesTheSkillLoopWithTheRealTk(t *testing.T) {
 	mustContain(t, rec, "ticks", "the prompt names the skill")
 }
 
+// The model half of the same lesson: `tk sandbox model` is a command the
+// entrypoint runs, so a stub answering it proves delegation and nothing about
+// whether the real tk can read a routed model out of a committed config. This
+// runs the whole path — commit routing, clone at that SHA, ask the real tk,
+// probe the route, start the harness on the model it named.
+func TestEntrypointRoutesTheModelWithTheRealTk(t *testing.T) {
+	tk := buildRealTk(t)
+
+	f := newFixture(t, "")
+	f.routeModelThroughTheRepository(`version = 2
+
+[orchestrator]
+harness = "omp"
+kind = "pi"
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+
+[roles.implement.tiers.frontier]
+model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+`, "")
+	// Nothing must answer for the real binary, including the stub's own hint.
+	delete(f.env, "TICKS_TEST_SANDBOX_MODEL")
+	if err := os.Remove(filepath.Join(f.binDir, "tk")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(tk, filepath.Join(f.binDir, "tk")); err != nil {
+		t.Fatal(err)
+	}
+	f.env[EnvTkVersion] = "dev"
+
+	out, code := f.run()
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("the entrypoint hit an unknown tk subcommand:\n%s", out)
+	}
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "TICKS_MODEL=workers-ai/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the real tk resolved the orchestrator's model from the role/tier table")
+	mustContain(t, rec, "ARG=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the harness runs on the routed model")
+	mustContain(t, f.probeCalls(), "/workers-ai/v1/chat/completions",
+		"the route was proved before the harness started")
+}
+
 // buildRealTk builds this source's tk into the test's own temporary directory.
 func buildRealTk(t *testing.T) string {
 	t.Helper()

@@ -86,3 +86,35 @@ Guarded by `internal/herd/config/repoconfig_test.go` (the migration is a no-op
 on this repo's own files; every role×tier cell resolves and compiles) and
 `internal/skills/runconfig_docs_test.go` (no skill file presents the markdown
 sections as current; the fallback has exactly one home).
+
+## `[orchestrator].model` has a reader now (tick `cmb`)
+
+`[orchestrator]` was advisory when it was written — "which harness/kind this
+config was intended for", used for the degradation announcement and nothing
+else. The cloud sandbox gave its `model` cell a consumer: a container boots a
+harness, and a harness handed no model does not fail, it hangs at "Working..."
+forever. `tk sandbox model` is what reads it:
+
+1. `[orchestrator].model`;
+2. else `Resolve("orchestrator", frontier)` — which falls through to
+   `[roles.implement]` like any other unnamed role, so a repository that never
+   thought about cloud runs still routes one.
+
+Nothing routed prints nothing and exits 0; the *boot script* is what refuses,
+because "no model" is a run-start decision, not a config-read one. Two
+consequences for anyone editing this table:
+
+- The `frontier` tier is the orchestrator's cell. A `[roles.implement.tiers.frontier]`
+  variant now changes what a cloud orchestrator runs on, not just what a
+  frontier-tier implementer gets.
+- **Model ids for cloud runs must be provider-qualified** (`workers-ai/…`,
+  `anthropic/…`, `openai/…`, `openrouter/…`) unless they are recognisably one
+  vendor's (`claude-…`, an alias, `gpt-…`). The prefix picks the AI Gateway
+  route; an id with no derivable provider stops the boot rather than guessing.
+  Workers AI ids are the awkward case: the real id is `@cf/<vendor>/<name>` and
+  `@` is not legal under the schema's `Model` pattern, so the config writes
+  `workers-ai/meta/llama-3.3-70b-instruct-fp8-fast` and
+  `cloud/sandbox/entrypoint.sh` restores the `@cf/` namespace.
+
+See `cloud/sandbox/README.md` → *The model, and why a boot proves it* for the
+boot-side half (route selection, the one-token gateway probe, exit 7).
