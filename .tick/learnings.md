@@ -40,9 +40,6 @@ tick checklist README, docs/ and --help with "updated" or "not applicable" per s
 
 ## Orchestration
 
-**Problem:** A tick's close vanished — a stray git-restore wiped uncommitted .tick state.
-**Rule:** Commit .tick state immediately after every mutation batch, before merging or launching.
-
 **Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and re-implemented it.
 **Rule:** Name the prerequisite SHA in the prompt and instruct `git merge <integration-branch>`
 first, then verify ancestry with `git merge-base --is-ancestor`.
@@ -87,7 +84,8 @@ with `tk show <id>` after bulk creation.
 into the tracker commit. **Cause:** `git commit` commits the WHOLE index.
 **Rule:** Use `git add .tick/ && git commit .tick/ -m "..."` — the pathspec excludes foreign staged
 files, and the explicit add is required (a bare pathspec commit skips untracked files; seen twice).
-After any merge confirm `MERGE_HEAD` is empty first.
+After any merge confirm `MERGE_HEAD` is empty first. Commit tracker state immediately after every
+mutation batch: a stray implementer git-restore has wiped uncommitted `.tick/` state before.
 
 ## Cloudflare (cloud/factory)
 
