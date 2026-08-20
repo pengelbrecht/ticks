@@ -342,3 +342,17 @@ func (c *Config) OrchestratorHarness() string {
 	}
 	return c.Orchestrator.Harness
 }
+
+// OrchestratorModel reports `orchestrator.model`, or "" when unset. It is
+// nil-safe.
+//
+// The orchestrator's own routing entry: a cloud run boots a harness that has
+// to be given a model like every other role, and this is the cell that says
+// which. Empty is not a default — it means the caller must fall back to the
+// role/tier table ([Config.Resolve]) rather than substitute something.
+func (c *Config) OrchestratorModel() string {
+	if c == nil || c.Orchestrator == nil {
+		return ""
+	}
+	return c.Orchestrator.Model
+}

@@ -115,6 +115,25 @@ The tier vocabulary in `.tick/runners.toml` is unchanged by any of this: the
 gateway is plumbing below the role → kind/model/effort table, not a new name
 in it.
 
+What the provider rung *does* decide is how a cloud run spells its model ids.
+A cloud orchestrator's model is routed like every other role's — from
+`[orchestrator].model`, falling back to the role/tier table — and the id is
+provider-qualified so the sandbox knows which gateway route serves it:
+
+```toml
+[orchestrator]
+harness = "omp"
+kind = "pi"
+model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+```
+
+Workers AI's own ids live in the `@cf/<vendor>/<name>` namespace; `@` is not a
+legal character in a routing-config model id, so the namespace is left off here
+and restored by the sandbox. A run whose model is served by a provider this
+factory has no credential for does not hang — the sandbox proves the route with
+a one-token call before it starts the harness, and stops with what the gateway
+said.
+
 ### What a sandbox actually holds
 
 Not your provider key. A run's model traffic goes to the factory Worker's own

@@ -31,6 +31,7 @@ type fixture struct {
 	headSHA  string
 	mise     string // the version-manager stub's recording
 	tkRecord string // the tk stub's recording of `tk sandbox ...` calls
+	curlRec  string // the curl stub's recording of the model probe
 	binDir   string // the stub bin directory at the front of PATH
 }
 
@@ -130,6 +131,13 @@ func newFixtureWithFiles(t *testing.T, environment string, files map[string]stri
     case "$2" in
       toolchain) [ -z "${TICKS_TEST_SANDBOX_TOOLCHAIN:-}" ] || printf '%s\n' $TICKS_TEST_SANDBOX_TOOLCHAIN ;;
       image) [ -z "${TICKS_TEST_SANDBOX_IMAGE_DECLARED:-}" ] || printf '%s\n' "$TICKS_TEST_SANDBOX_IMAGE_DECLARED" ;;
+      model)
+        if [ -n "${TICKS_TEST_SANDBOX_MODEL_ERROR:-}" ]; then
+          printf '%s\n' "$TICKS_TEST_SANDBOX_MODEL_ERROR" >&2
+          exit 1
+        fi
+        [ -z "${TICKS_TEST_SANDBOX_MODEL:-}" ] || printf '%s\n' "$TICKS_TEST_SANDBOX_MODEL"
+        ;;
       setup) exit "${TICKS_TEST_SANDBOX_SETUP_EXIT:-0}" ;;
       environment)
         if [ -z "${TICKS_TEST_ENV_CHECK:-}" ]; then
@@ -154,6 +162,31 @@ func newFixtureWithFiles(t *testing.T, environment string, files map[string]stri
   *) exit 0 ;;
 esac
 `)
+	// The model probe is a real HTTP call in a container and a stub here: the
+	// entrypoint's job is to make one bounded request and act on its status,
+	// and a worker sandbox has no loopback socket to serve a real one from.
+	writeStub(t, filepath.Join(binDir, "curl"), `out=""
+url=""
+data=""
+prev=""
+for a in "$@"; do
+  case "$prev" in
+    -o) out="$a" ;;
+    --data) data="$a" ;;
+  esac
+  case "$a" in
+    http*) url="$a" ;;
+  esac
+  prev="$a"
+done
+{
+  printf 'URL=%s\n' "$url"
+  printf 'DATA=%s\n' "$data"
+  for a in "$@"; do printf 'ARG=%s\n' "$a"; done
+} >> "$TICKS_TEST_CURL_RECORD"
+[ -z "$out" ] || printf '%s' "${TICKS_TEST_CURL_BODY:-{\"ok\":true}}" > "$out"
+printf '%s' "${TICKS_TEST_CURL_STATUS:-200}"
+`)
 
 	f := &fixture{
 		t: t, root: root, source: source,
@@ -161,6 +194,7 @@ esac
 		record:   record,
 		mise:     mise,
 		tkRecord: filepath.Join(root, "tk-record"),
+		curlRec:  filepath.Join(root, "curl-record"),
 		binDir:   binDir,
 		firstSHA: first, headSHA: head,
 	}
@@ -181,6 +215,11 @@ esac
 		"TICKS_TEST_MISE_RECORD": mise,
 		"TICKS_TEST_TK_RECORD":   f.tkRecord,
 		"TICKS_TEST_TK_VERSION":  "0.31.0",
+		"TICKS_TEST_CURL_RECORD": f.curlRec,
+		// The control plane's model, which is what a factory with RUN_MODEL
+		// set hands the container. Tests that exercise the repository's own
+		// role/tier routing delete it.
+		EnvModel: "claude-fable-5",
 	}
 	return f
 }
@@ -232,6 +271,38 @@ func (f *fixture) tkCalls() string {
 		return ""
 	}
 	return string(b)
+}
+
+// probeCalls returns what the curl stub was asked to send, empty when the
+// entrypoint never probed.
+func (f *fixture) probeCalls() string {
+	f.t.Helper()
+	b, err := os.ReadFile(f.curlRec)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// routeModelThroughTheRepository takes the control plane's model away and
+// commits a runners.toml routing the orchestrator instead, so `tk sandbox
+// model` is what answers. The stub tk is told the same value: this fixture
+// isolates the entrypoint's DELEGATION, exactly as it does for image,
+// toolchain and setup — what tk reads out of the file is proved against the
+// real implementation in model_test.go and by the real-tk entrypoint test.
+func (f *fixture) routeModelThroughTheRepository(runners, model string) {
+	f.t.Helper()
+	if err := os.WriteFile(filepath.Join(f.source, ".tick", "runners.toml"), []byte(runners), 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+	git(f.t, f.source, "add", "-A")
+	git(f.t, f.source, "commit", "-q", "-m", "route the orchestrator")
+	f.headSHA = git(f.t, f.source, "rev-parse", "HEAD")
+	f.env[EnvBaseSHA] = f.headSHA
+	delete(f.env, EnvModel)
+	if model != "" {
+		f.env["TICKS_TEST_SANDBOX_MODEL"] = model
+	}
 }
 
 // addMigratedEnvironment adds the structured run config to the submitted
@@ -494,7 +565,7 @@ func TestEntrypointPointsToolchainCachesAtTheCacheDir(t *testing.T) {
 func TestEntrypointRunsTheClaudeHarnessWhenAsked(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	f.env[EnvHarness] = "claude"
-	f.env[EnvModel] = "some-model"
+	f.env[EnvModel] = "anthropic/claude-fable-5"
 	out, code := f.run()
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
@@ -502,7 +573,9 @@ func TestEntrypointRunsTheClaudeHarnessWhenAsked(t *testing.T) {
 	rec := f.harnessRecord()
 	mustContain(t, rec, "BIN=claude", "the requested harness runs")
 	mustContain(t, rec, "ARG=-p", "the harness runs headless")
-	mustContain(t, rec, "ARG=some-model", "the model selection is passed through")
+	// The provider qualifier selected the route; what reaches --model is the
+	// id Anthropic itself knows.
+	mustContain(t, rec, "ARG=claude-fable-5", "the model selection is passed through")
 }
 
 func TestEntrypointRefusesAnUnknownHarness(t *testing.T) {
@@ -877,5 +950,229 @@ func TestEntrypointReportsAnImageItCouldNotHonour(t *testing.T) {
 	mustContain(t, out, "ticks-orchestrator:0.31.0", "the warning names the booted image")
 	if !f.harnessStarted() {
 		t.Error("a declared image the control plane did not boot stopped the run")
+	}
+}
+
+// --------------------------------------------------------------- the model ---
+//
+// The tick these close: a container booted, cloned, passed its pre-flight,
+// started the harness — and then sat at "Working..." forever, because it had a
+// reachable gateway and no model it could call. Every test below asserts the
+// same property from a different side: an unusable model configuration must
+// produce a message, not silence.
+
+// The documented no-key rung has to have a route, or a factory configured for
+// it has a gateway it cannot address.
+func TestEntrypointExportsTheWorkersAIRoute(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	if _, code := f.run(); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	mustContain(t, f.harnessRecord(), "WORKERS_AI_BASE_URL="+testGatewayURL+"/workers-ai",
+		"the workers-ai route is exported like every other provider's")
+}
+
+// Routing is config: the model comes out of the checkout's role/tier table,
+// through the one component that owns the runners.toml format.
+func TestEntrypointRoutesTheOrchestratorModelFromTheRepository(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.routeModelThroughTheRepository(`version = 2
+
+[orchestrator]
+harness = "omp"
+kind = "pi"
+model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+
+[roles.implement]
+kind = "claude"
+`, "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast")
+
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.tkCalls(), "sandbox model", "the entrypoint asked tk for the routed model")
+	rec := f.harnessRecord()
+	mustContain(t, rec, "TICKS_MODEL=workers-ai/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the routed model is exported")
+	mustContain(t, rec, "ARG=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the harness is given the id in the provider's own namespace")
+}
+
+// The control plane's model is an operator override, not something the
+// repository's config quietly wins over.
+func TestEntrypointPrefersTheControlPlanesModel(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_MODEL"] = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.harnessRecord(), "TICKS_MODEL=claude-fable-5", "TICKS_MODEL wins")
+	if strings.Contains(f.tkCalls(), "sandbox model") {
+		t.Errorf("the entrypoint asked the repository for a model it had already been given:\n%s", f.tkCalls())
+	}
+}
+
+// The heart of the tick: no model anywhere is a stop with a message, never a
+// harness that starts and hangs.
+func TestEntrypointStopsWhenNothingRoutesAModel(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.routeModelThroughTheRepository(`version = 2
+
+[roles.implement]
+kind = "claude"
+`, "")
+
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitModel, out)
+	}
+	mustContain(t, out, "no model to run on", "the stop says what is wrong")
+	mustContain(t, out, "runners.toml", "the stop names the file that fixes it")
+	mustContain(t, out, "hangs", "the stop says why silence is not an option")
+	if f.harnessStarted() {
+		t.Error("the harness started with no model — the exact hang this tick closes")
+	}
+}
+
+// A Workers AI model rides the OpenAI-compatible route, because that is the
+// shape a cross-provider harness can be pointed at.
+func TestEntrypointRunsWorkersAIThroughTheOpenAICompatibleRoute(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "OPENAI_BASE_URL="+testGatewayURL+"/workers-ai/v1",
+		"the OpenAI-style provider points at the route serving the model")
+	mustContain(t, rec, "TICKS_MODEL_PROVIDER=workers-ai", "the provider decision is recorded")
+	mustContain(t, rec, "TICKS_MODEL_ID=@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+		"the @cf namespace the routing schema cannot spell is restored")
+	mustContain(t, f.probeCalls(), testGatewayURL+"/workers-ai/v1/chat/completions",
+		"the probe went to the workers-ai route")
+}
+
+// An Anthropic model keeps the Anthropic route and the Anthropic wire shape.
+func TestEntrypointProbesAnthropicOnItsOwnRoute(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	probe := f.probeCalls()
+	mustContain(t, probe, testGatewayURL+"/anthropic/v1/messages", "the probe used the messages endpoint")
+	mustContain(t, probe, "anthropic-version", "the probe sent the Anthropic version header")
+	mustContain(t, probe, `"model":"claude-fable-5"`, "the probe asked for the routed model")
+	mustContain(t, f.harnessRecord(), "OPENAI_BASE_URL="+testGatewayURL+"/openai",
+		"an Anthropic run leaves the other vendor routes where they were")
+}
+
+// The content gate: one bounded call proves the route before the harness is
+// handed it, and its result is in the streamed output.
+func TestEntrypointProbesTheGatewayBeforeStartingTheHarness(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	if f.probeCalls() == "" {
+		t.Fatal("the harness started without the model route being proved")
+	}
+	mustContain(t, out, "model probe green", "the successful call is evidence in the run's own output")
+	mustContain(t, f.probeCalls(), "--max-time", "the probe for a hang is itself bounded")
+}
+
+// A gateway that refuses is an error at boot, quoting what it said — the
+// refusals name `tk factory setup` themselves, so collapsing them would throw
+// away the fix.
+func TestEntrypointStopsWhenTheModelProbeIsRefused(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_CURL_STATUS"] = "503"
+	f.env["TICKS_TEST_CURL_BODY"] =
+		`{"error":"provider_not_configured","detail":"this factory has no CLOUDFLARE_API_TOKEN behind its gateway; run ` + "`tk factory setup`" + `"}`
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitModel, out)
+	}
+	mustContain(t, out, "503", "the stop carries the status")
+	mustContain(t, out, "provider_not_configured", "the stop quotes what the gateway said")
+	mustContain(t, out, "tk factory setup", "the gateway's own remedy survives")
+	if f.harnessStarted() {
+		t.Error("the harness started on a route the gateway refused")
+	}
+}
+
+// The claude CLI speaks one vendor's API. Pointing it elsewhere is a run that
+// cannot make a single call, so it never starts.
+func TestEntrypointRefusesANonAnthropicModelOnTheClaudeHarness(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "claude"
+	f.env[EnvModel] = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitModel, out)
+	}
+	mustContain(t, out, "workers-ai", "the refusal names the provider")
+	mustContain(t, out, "TICKS_HARNESS=omp", "the refusal names a way out")
+	if f.harnessStarted() {
+		t.Error("the claude harness started on a non-Anthropic model")
+	}
+}
+
+// A model whose provider cannot be named has no route, and guessing one is how
+// a container ends up calling something nothing authorised.
+func TestEntrypointRefusesAModelWithNoKnownProvider(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvModel] = "some-model-7b"
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitModel, out)
+	}
+	mustContain(t, out, "some-model-7b", "the refusal names the model")
+	mustContain(t, out, "workers-ai/", "the refusal shows how to qualify it")
+	if f.harnessStarted() {
+		t.Error("the harness started on a model with no route")
+	}
+}
+
+// "This config is broken" and "this config routes no model" need opposite
+// actions from an operator, so they never share a message.
+func TestEntrypointDistinguishesABrokenConfigFromAMissingModel(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.routeModelThroughTheRepository("version = 2\n\n[roles.implement]\nkind = \"claude\"\n", "")
+	f.env["TICKS_TEST_SANDBOX_MODEL_ERROR"] = ".tick/runners.toml: roles.implement: unknown key \"nope\""
+
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitModel, out)
+	}
+	mustContain(t, out, "could not read", "the stop says the config is unreadable")
+	mustContain(t, out, "not a missing model", "the two classes are told apart")
+	if strings.Contains(out, "no model to run on") {
+		t.Errorf("a broken config was reported as a missing model:\n%s", out)
+	}
+	if f.harnessStarted() {
+		t.Error("the harness started on a config tk could not read")
+	}
+}
+
+// No HTTP answer at all is a different investigation from a status code, and
+// it is the failure mode closest to the hang this tick closes.
+func TestEntrypointStopsWhenTheGatewayNeverAnswersTheProbe(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_CURL_STATUS"] = "000"
+	f.env[EnvModelProbeTimeout] = "3"
+	out, code := f.run()
+	if code != ExitModel {
+		t.Fatalf("exit %d, want %d\n%s", code, ExitModel, out)
+	}
+	mustContain(t, out, "did not answer", "the stop names the silence")
+	mustContain(t, out, "3s", "the stop names the bound it waited")
+	mustContain(t, f.probeCalls(), "--max-time", "the probe honoured the configured bound")
+	if f.harnessStarted() {
+		t.Error("the harness started against a gateway that never answered")
 	}
 }

@@ -77,6 +77,22 @@ here and are not printed.`,
 	RunE: runSandboxToolchain,
 }
 
+var sandboxModelCmd = &cobra.Command{
+	Use:   "model",
+	Short: "Print the model this repo routes the orchestrator to",
+	Long: `Print the model a cloud orchestrator booting on this checkout runs on.
+
+That is ` + "`orchestrator.model`" + ` when the repository sets one, else the role/tier
+table resolved for role ` + "`orchestrator`" + ` at the frontier tier — which falls back
+to ` + "`roles.implement`" + ` like any other role the config does not name.
+
+Nothing is printed when the config routes no model. That is not a default: a
+harness handed no model does not fail, it hangs, so whatever boots one refuses
+to start rather than guessing a model on the repository's behalf.`,
+	Args: cobra.NoArgs,
+	RunE: runSandboxModel,
+}
+
 var sandboxSetupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Run this repo's declared setup commands, once per checkout",
@@ -118,6 +134,7 @@ func init() {
 	sandboxSetupCmd.Flags().StringVar(&sandboxStamp, "stamp", "",
 		"path of the warm record (default: <git-dir>/ticks/sandbox-setup)")
 	sandboxCmd.AddCommand(sandboxImageCmd)
+	sandboxCmd.AddCommand(sandboxModelCmd)
 	sandboxCmd.AddCommand(sandboxToolchainCmd)
 	sandboxCmd.AddCommand(sandboxSetupCmd)
 	sandboxCmd.AddCommand(sandboxEnvironmentCmd)
@@ -163,6 +180,29 @@ func runSandboxImage(cmd *cobra.Command, args []string) error {
 		// behind their back.
 		fmt.Fprintf(cmd.ErrOrStderr(), "note: %s declares this image; whatever boots the sandbox must pass it\n", root)
 	}
+	return nil
+}
+
+func runSandboxModel(cmd *cobra.Command, args []string) error {
+	root, err := sandboxCheckout()
+	if err != nil {
+		return err
+	}
+	routed, err := sandbox.OrchestratorModel(root)
+	if err != nil {
+		return ExitError{Code: ExitGeneric, Message: err.Error()}
+	}
+	if routed.Model == "" {
+		// Silence on stdout is the answer a caller parses; the reason goes to
+		// stderr, so a boot log says WHY there is no model rather than only
+		// that there is none.
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"note: %s routes no model for the orchestrator — set [orchestrator].model, or a model on the role it falls back to ([roles.implement])\n",
+			herdconfig.FileName)
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), routed.Model)
+	fmt.Fprintf(cmd.ErrOrStderr(), "note: routed by %s\n", routed.Source)
 	return nil
 }
 

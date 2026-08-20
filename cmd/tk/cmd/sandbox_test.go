@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,90 @@ func TestSandboxToolchainPrintsTheDeclaredPins(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out2.String()); got != "" {
 		t.Errorf("output = %q, want nothing for a repo that declares no extra toolchain", got)
+	}
+}
+
+const unroutedRunners = `version = 2
+
+[roles.implement]
+kind = "claude"
+`
+
+const orchestratorModelRunners = `version = 2
+
+[orchestrator]
+harness = "omp"
+kind = "pi"
+model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`
+
+// captureSandboxStreams keeps stdout and stderr apart, which these tests need:
+// the routed model goes to stdout because a boot script parses it, and the
+// cell it came from goes to stderr because a human reads it.
+func captureSandboxStreams(t *testing.T) (stdout, stderr *bytes.Buffer) {
+	t.Helper()
+	var out, err bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&err)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+	return &out, &err
+}
+
+// `tk sandbox model` is what the entrypoint asks after its clone, so that the
+// container never learns to parse routing config itself.
+func TestSandboxModelPrintsTheRoutedOrchestratorModel(t *testing.T) {
+	root := sandboxRepo(t, orchestratorModelRunners)
+	out, notes := captureSandboxStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "model", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox model: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast" {
+		t.Errorf("model = %q, want the orchestrator table's", got)
+	}
+	if !strings.Contains(notes.String(), "orchestrator.model") {
+		t.Errorf("the note does not name the cell the model came from:\n%s", notes.String())
+	}
+}
+
+// No orchestrator model: the role/tier table answers, exactly as it does for
+// every other role.
+func TestSandboxModelFallsBackToTheRoleTable(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	out, notes := captureSandboxStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "model", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox model: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "sonnet" {
+		t.Errorf("model = %q, want the implement role's", got)
+	}
+	if !strings.Contains(notes.String(), "roles.implement.model") {
+		t.Errorf("the note does not name the cell the model came from:\n%s", notes.String())
+	}
+}
+
+// Nothing routed prints nothing to stdout — the caller's parse must not see a
+// substituted default — and succeeds, because refusing to boot is the boot
+// script's decision, not this command's.
+func TestSandboxModelIsSilentWhenNothingIsRouted(t *testing.T) {
+	root := sandboxRepo(t, unroutedRunners)
+	out, notes := captureSandboxStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "model", "--root", root}); err != nil {
+		t.Fatalf("tk sandbox model: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "" {
+		t.Errorf("stdout = %q, want nothing a boot script could mistake for a model", got)
+	}
+	// Silent to a parser, not to a human: the reason is what turns a refused
+	// boot into something an operator can fix.
+	if !strings.Contains(notes.String(), "routes no model") {
+		t.Errorf("nothing said why there is no model:\n%s", notes.String())
 	}
 }
 

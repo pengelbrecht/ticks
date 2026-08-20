@@ -26,6 +26,10 @@ readonly EXIT_CLONE=3
 readonly EXIT_TK_VERSION=4
 readonly EXIT_PREFLIGHT=5
 readonly EXIT_SETUP=6
+# A gateway with no model behind it. Its own class because the alternative is
+# the worst outcome this image can produce: a harness that starts cleanly,
+# reaches the skill loop and then hangs forever on its first model call.
+readonly EXIT_MODEL=7
 
 say() { printf '%s: %s\n' "$ME" "$*"; }
 warn() { printf '%s: warning: %s\n' "$ME" "$*"; }
@@ -68,6 +72,16 @@ booted_image="${TICKS_SANDBOX_IMAGE:-}"
 factory_url="${TICKS_FACTORY_URL:-}"
 factory_token="${TICKS_FACTORY_TOKEN:-}"
 factory_project="${TICKS_FACTORY_PROJECT:-}"
+# How long the pre-flight model probe may take before it is a failure. Bounded
+# by construction: an unbounded probe for a hang is itself a hang.
+probe_timeout="${TICKS_MODEL_PROBE_TIMEOUT:-30}"
+
+# Filled in by select_model_route: which gateway route serves the routed model,
+# the id in that provider's own namespace, and the base URL the probe and the
+# harness both use. Empty until then — nothing may read them earlier.
+model_provider=""
+model_id=""
+model_base_url=""
 
 require_inputs() {
 	local missing="" name
@@ -130,6 +144,12 @@ configure_model_routing() {
 	export ANTHROPIC_BASE_URL="$gateway/anthropic"
 	export OPENAI_BASE_URL="$gateway/openai"
 	export OPENROUTER_BASE_URL="$gateway/openrouter"
+	# Workers AI is a route like the others, and it is the one the documented
+	# no-key rung uses: inference bills to the operator's own Cloudflare
+	# account, so a factory with no vendor key still has something to call.
+	# Leaving it out is how a workers-ai deployment ended up with a reachable
+	# gateway and no reachable model.
+	export WORKERS_AI_BASE_URL="$gateway/workers-ai"
 	# Every vendor credential is the run's gateway token, not the operator's
 	# key: the gateway exchanges it, stamps the run and tick ids on the
 	# request, and stops answering the moment the run's token is revoked.
@@ -140,6 +160,177 @@ configure_model_routing() {
 	export OPENAI_API_KEY="$gateway_token"
 	export OPENROUTER_API_KEY="$gateway_token"
 	say "model traffic routed through the AI Gateway at ${gateway#*://} on this run's token"
+}
+
+# The model the harness runs on, from the same role/tier routing every other
+# role uses. `tk` owns the runners.toml parser, so this shell asks it rather
+# than learning the format — the same delegation as `tk sandbox setup`.
+#
+# The control plane's TICKS_MODEL wins when it sets one: an operator pinning
+# RUN_MODEL on the factory is overriding the repository on purpose. Neither is
+# a stop, because a harness handed no model does not fail — it hangs.
+resolve_model() {
+	if [[ -n $model ]]; then
+		say "model $model (from the control plane)"
+	else
+		# Declared before the assignment on purpose: `local x=$(...)` reports
+		# local's status, not the command's, and swallowing tk's exit here
+		# would turn "this config is broken" into "this config routes nothing".
+		local routed status
+		routed="$(tk sandbox model --root "$workdir")"
+		status=$?
+		if ((status != 0)); then
+			die $EXIT_MODEL "tk could not read the checkout's routing config ('tk sandbox model' exited $status; its reason is above) — fix .tick/runners.toml at the submitted SHA. This is a broken config, not a missing model."
+		fi
+		model="$(printf '%s\n' "$routed" | sed -n 1p | tr -d '[:space:]')"
+		[[ -z $model ]] || say "model $model (from the repository's role/tier routing)"
+	fi
+	if [[ -z $model ]]; then
+		die $EXIT_MODEL "no model to run on: TICKS_MODEL is unset and the checkout's .tick/runners.toml routes none for the orchestrator — set [orchestrator].model there (or a model on [roles.implement], which it falls back to). Stopping here on purpose: a harness with no model does not fail, it hangs at \"Working...\" until something kills the run."
+	fi
+	export TICKS_MODEL="$model"
+}
+
+# Which gateway route serves the routed model, and what to call the model on
+# it. The provider is part of the routing decision, not a guess made per
+# request: an id whose provider cannot be named is a stop, because the
+# alternative is a harness that picks a default and calls a route nothing
+# authorised.
+select_model_route() {
+	local rest
+	case "$model" in
+	anthropic/*)
+		model_provider="anthropic"
+		rest="${model#*/}"
+		;;
+	openai/*)
+		model_provider="openai"
+		rest="${model#*/}"
+		;;
+	openrouter/*)
+		model_provider="openrouter"
+		rest="${model#*/}"
+		;;
+	workers-ai/*)
+		model_provider="workers-ai"
+		rest="${model#*/}"
+		;;
+	claude-* | opus | sonnet | haiku | fable)
+		model_provider="anthropic"
+		rest="$model"
+		;;
+	gpt-* | o1-* | o3-* | o4-*)
+		model_provider="openai"
+		rest="$model"
+		;;
+	*)
+		die $EXIT_MODEL "cannot tell which provider serves the model '$model', so there is no gateway route to send it to — qualify it with one of workers-ai/…, anthropic/…, openai/… or openrouter/… in [orchestrator].model"
+		;;
+	esac
+
+	# Workers AI model ids live in the `@cf/<vendor>/<name>` namespace, and
+	# `@` is not a legal character in a runners.toml model id — the routing
+	# schema rejects it. The namespace is a constant, not a choice, so the
+	# config writes `workers-ai/meta/llama-…` and it is restored here.
+	if [[ $model_provider == "workers-ai" && $rest != @* ]]; then
+		rest="@cf/$rest"
+	fi
+	model_id="$rest"
+
+	case "$model_provider" in
+	anthropic) model_base_url="$gateway/anthropic" ;;
+	openai) model_base_url="$gateway/openai" ;;
+	openrouter) model_base_url="$gateway/openrouter" ;;
+	# Workers AI serves the OpenAI-compatible shape under /v1, which is what
+	# makes it usable by a harness with a configurable OpenAI-style provider.
+	workers-ai) model_base_url="$gateway/workers-ai/v1" ;;
+	esac
+
+	# The claude CLI speaks the Anthropic API and nothing else. Pointing it at
+	# another provider's route is not a degraded run, it is a run that cannot
+	# make one call, so it is refused here rather than discovered at "Working...".
+	if [[ $harness == "claude" && $model_provider != "anthropic" ]]; then
+		die $EXIT_MODEL "the claude harness speaks the Anthropic API, but '$model' is served by $model_provider — route the orchestrator to an Anthropic model, or set TICKS_HARNESS=omp, which is cross-provider"
+	fi
+
+	# Workers AI has no vendor variable of its own that any harness knows to
+	# read; what it has is an OpenAI-compatible endpoint. So when the routed
+	# model is served by Workers AI, the OpenAI-style provider the harness
+	# configures IS that route — otherwise the container carries a route
+	# nothing can address, which is precisely the bug this path closes.
+	if [[ $model_provider == "workers-ai" ]]; then
+		export OPENAI_BASE_URL="$model_base_url"
+	fi
+
+	export TICKS_MODEL_PROVIDER="$model_provider"
+	export TICKS_MODEL_ID="$model_id"
+	say "model route $model_provider -> ${model_base_url#*://} as $model_id"
+}
+
+# Prove the route before the harness gets it: one bounded, one-token completion
+# through the gateway, with the run's own credential.
+#
+# This is the content gate `tk herd spawn` applies to workers, for the same
+# reason. A misconfigured model does not announce itself — the harness starts,
+# prints its banner, reaches the skill loop and then waits on a call that will
+# never answer. A probe converts that silence into a message with a status code
+# in it, at the cost of one trivial request per boot.
+probe_model() {
+	if ! command -v curl >/dev/null 2>&1; then
+		die $EXIT_MODEL "no curl in the container, so the model route cannot be proved before the harness starts — the image is broken"
+	fi
+
+	local url payload body status curl_error
+	# Body and curl's own diagnostics go to separate files: -o truncates its
+	# target, so appending stderr to the same path would eat the response.
+	local out="${TMPDIR:-/tmp}/ticks-model-probe.$$"
+	local err="$out.err"
+	payload="$(printf '{"model":"%s","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}' "$model_id")"
+	if [[ $model_provider == "anthropic" ]]; then
+		url="$model_base_url/v1/messages"
+		status="$(curl -sS -o "$out" -w '%{http_code}' --max-time "$probe_timeout" \
+			-X POST "$url" \
+			-H 'content-type: application/json' \
+			-H 'anthropic-version: 2023-06-01' \
+			-H "x-api-key: $gateway_token" \
+			--data "$payload" 2>"$err")"
+	else
+		url="$model_base_url/chat/completions"
+		status="$(curl -sS -o "$out" -w '%{http_code}' --max-time "$probe_timeout" \
+			-X POST "$url" \
+			-H 'content-type: application/json' \
+			-H "authorization: Bearer $gateway_token" \
+			--data "$payload" 2>"$err")"
+	fi
+	body="$(head -c 400 "$out" 2>/dev/null)"
+	curl_error="$(head -c 200 "$err" 2>/dev/null)"
+	rm -f "$out" "$err"
+
+	case "$status" in
+	2*)
+		say "model probe green: $model_id answered a one-token request through the gateway (HTTP $status)"
+		return 0
+		;;
+	"" | 000)
+		# No HTTP answer at all: a timeout, DNS, or a refused connection.
+		# Distinct from a status, and it needs the opposite investigation.
+		die $EXIT_MODEL "the gateway did not answer a one-token request within ${probe_timeout}s.
+  POST $url
+  model: $model_id (provider $model_provider, routed from '$model')
+  curl: ${curl_error:-no diagnostic}
+The harness would have started and hung on this same call, so the boot stops here. Check that AI_GATEWAY_BASE_URL is reachable from the sandbox and that the factory is deployed."
+		;;
+	esac
+	# The gateway's own refusals name the command that fixes them, so the body
+	# is quoted rather than summarised: collapsing "this factory has no key for
+	# workers-ai" and "that model does not exist" into one message would leave
+	# an operator diagnosing from source.
+	die $EXIT_MODEL "the routed model could not answer a one-token request through the gateway.
+  POST $url
+  model: $model_id (provider $model_provider, routed from '$model')
+  status: $status
+  body: ${body:-<empty>}
+This is a stop, not a warning: the harness would have started, reached the skill loop and hung on its first call. Configure the provider behind the gateway with 'tk factory setup', or route [orchestrator].model in .tick/runners.toml at a model that provider serves."
 }
 
 # Caches are convenience state (axiom 1): they live in the sandbox filesystem,
@@ -408,14 +599,15 @@ start_harness() {
 	prompt="$(harness_prompt)"
 	local cmd=()
 	case "$harness" in
+	# The id in the provider's own namespace, not the routed string: the base
+	# URL above already selects the provider, so the model flag carries what
+	# that provider calls it.
 	omp)
-		cmd=(omp -p "$prompt" --auto-approve --mode text)
-		[[ -z $model ]] || cmd+=(--model "$model")
+		cmd=(omp -p "$prompt" --auto-approve --mode text --model "$model_id")
 		[[ -z $max_time ]] || cmd+=(--max-time "$max_time")
 		;;
 	claude)
-		cmd=(claude -p "$prompt" --dangerously-skip-permissions)
-		[[ -z $model ]] || cmd+=(--model "$model")
+		cmd=(claude -p "$prompt" --dangerously-skip-permissions --model "$model_id")
 		;;
 	esac
 
@@ -434,6 +626,12 @@ main() {
 	clone_at_sha
 	cd "$workdir" || die $EXIT_CLONE "cannot enter $workdir"
 	verify_tk
+	# The model is settled and proved BEFORE provisioning, setup and the
+	# pre-flight: those are the slow, expensive steps, and a run that cannot
+	# make a model call is over whether or not its toolchain installed.
+	resolve_model
+	select_model_route
+	probe_model
 	provision_toolchain
 	repo_setup
 	run_preflight

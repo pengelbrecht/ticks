@@ -196,7 +196,9 @@ starts a command in a sandbox.
 | `AI_GATEWAY_BASE_URL` | yes | The gateway every model call goes through — the factory's own `/api/gateway` prefix in a cloud run, or an AI Gateway base URL directly when you are driving the image by hand. Never a vendor host. |
 | `AI_GATEWAY_TOKEN` | yes | The run's gateway credential (D17). It is the ONLY model credential in the container, and it is what every vendor key variable is set to. |
 | `TICKS_HARNESS` | no | `omp` (default) or `claude`. |
-| `TICKS_MODEL`, `TICKS_MAX_TIME` | no | Passed through to the harness. |
+| `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
+| `TICKS_MAX_TIME` | no | Passed through to the harness. |
+| `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the pre-flight model probe may take, default 30. |
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
 | `TICKS_CACHE_DIR` | no | Cache tree, default `/cache`. |
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
@@ -244,6 +246,44 @@ token stops this agent's model traffic mid-run, whether or not it cooperates.
 A boot with no token is refused with exit 2 — it could not make a single model
 call.
 
+## The model, and why a boot proves it
+
+A gateway is only half the path. A harness handed a reachable gateway and no
+model does not fail — it starts, reaches the skill loop, and hangs at
+"Working..." on a call that never resolves. Silence is the worst failure this
+image can produce, so three things happen before the harness is started.
+
+**The model comes from routing.** `TICKS_MODEL` wins when the control plane
+sets one (`RUN_MODEL` on the factory, an operator override on purpose).
+Otherwise the entrypoint asks the checkout through `tk sandbox model`, which
+reads `[orchestrator].model` from `.tick/runners.toml`, and failing that
+resolves role `orchestrator` at the `frontier` tier — falling back to
+`[roles.implement]` like any other unnamed role. The orchestrator is routed by
+the same table as every other role; the gateway is plumbing below it, not a new
+name in it. Nothing routed anywhere is exit 7 naming the file to edit.
+
+**The provider is part of the model id.** A qualified id (`workers-ai/…`,
+`anthropic/…`, `openai/…`, `openrouter/…`) selects the gateway route; a bare
+`claude-…`/alias or `gpt-…` id is recognised as its vendor's. Anything else is
+exit 7: guessing a route is how a container calls something nothing authorised.
+Workers AI ids live in the `@cf/<vendor>/<name>` namespace and `@` is not legal
+in a routing-config model id, so the config writes
+`workers-ai/meta/llama-3.3-70b-instruct-fp8-fast` and the entrypoint restores
+the namespace. Because Workers AI has no vendor variable of its own that a
+harness knows to read — what it has is an OpenAI-compatible endpoint under
+`/v1` — a Workers AI model repoints `OPENAI_BASE_URL` at that route. The
+`claude` harness speaks the Anthropic API only, so pairing it with another
+provider's model is exit 7 rather than a run that cannot make one call.
+
+**The route is proved, not assumed.** One bounded, one-token completion goes
+through the gateway with the run's own credential before the harness starts —
+the same content gate `tk herd spawn` applies to workers, for the same reason.
+A refusal is quoted verbatim with its status: the factory's own gateway errors
+name `tk factory setup` themselves, and collapsing them into one message would
+throw the fix away. This runs before toolchain provisioning, setup and the
+pre-flight, because a run that cannot make a model call is over whether or not
+its toolchain installed.
+
 Exit codes, before the harness takes over — distinct failure classes stay
 distinct, because these are read from a log after the sandbox is gone:
 
@@ -254,6 +294,7 @@ distinct, because these are read from a log after the sandbox is gone:
 | 4 | `tk` is absent, or is not the version the image pins. |
 | 5 | An Environment pre-flight check failed (the failing check is named). |
 | 6 | The repository's own `[sandbox]` setup failed (the failing command is named). |
+| 7 | A gateway with no usable model behind it: nothing routed, a model whose provider cannot be named, a model the chosen harness does not speak, or a gateway that refused the probe. |
 | other | The harness's own exit status — the entrypoint `exec`s it. |
 
 Output streams to stdout as it is produced. The entrypoint prints directly and
