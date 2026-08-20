@@ -286,7 +286,8 @@ const LOGS_API = "https://api.cloudflare.example/client/v4";
  */
 function stubLogsAPI(
   cost: number,
-  refuse?: { status: number; message: string }
+  refuse?: { status: number; message: string },
+  calls = 1
 ): {
   filters: { key: string; operator: string; value: unknown[] }[][];
   restore: () => void;
@@ -332,10 +333,18 @@ function stubLogsAPI(
       );
     }
     const runID = String((sent[1]?.value ?? [])[0] ?? "");
+    const page = Number(new URL(url).searchParams.get("page") ?? "1");
+    const rows = Math.max(0, Math.min(perPage, calls - (page - 1) * perPage));
     return Response.json({
       success: true,
-      result: [{ cost, metadata: { run_id: runID, tick_id: "ko8" } }],
-      result_info: { total_pages: 1 },
+      result: Array.from({ length: rows }, () => ({
+        cost,
+        metadata: { run_id: runID, tick_id: "ko8" },
+      })),
+      // The API's real result_info: count/page/per_page/total_count, and no
+      // `total_pages`. A stub that invented that field let a read stop after
+      // one page and report 6% of a run's spend as its total.
+      result_info: { count: rows, page, per_page: perPage, total_count: calls },
     });
   }) as typeof fetch;
   return { filters, restore: () => void (globalThis.fetch = original) };
@@ -957,6 +966,43 @@ describe("the run's gateway credential is the kill switch", () => {
       const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
       expect(record.cost_source).toBe("gateway");
       expect(run.cost_usd).toBeCloseTo(0.02, 10);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("trips a cost budget on a run whose spend spans many log pages", async () => {
+    // The run that found this made 887 model calls for $49.31 against a $25
+    // budget, and kept going: only the first page of 50 was ever counted, so
+    // the recorded cost was $2.98 and no budget could trip. The stub answers
+    // as the API does — 50 rows a page, no `total_pages` — and the budget has
+    // to act on the whole of it.
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    set("RUN_MAX_COST_USD", "25");
+    const logs = stubLogsAPI(0.0556, undefined, 887);
+
+    try {
+      const { runID, epic } = await ignite();
+      const process = await firstProcess();
+
+      const closeout = await waitFor("the closeout orchestrator", async () =>
+        sandboxes.phase("closeout")
+      );
+      expect(process.killed).toBe(true);
+      // The COST budget specifically: a wall-clock trip would satisfy a looser
+      // pattern while the undercount sailed on underneath it.
+      expect(closeout.env.TICKS_STOP_REASON ?? "").toMatch(/cost budget/i);
+
+      closeout.exit(0);
+      const run = await settled(runID);
+      expect(run.state).toBe("stopped");
+      // The whole invoice, not one page of it.
+      expect(run.cost_usd).toBeCloseTo(887 * 0.0556, 6);
+      expect(run.cost_usd).toBeGreaterThan(25);
+
+      const log = await listDispatchLogs(env.DB, runID, epic);
+      expect(log.some((entry) => entry.reason === "budget_exhausted")).toBe(true);
     } finally {
       logs.restore();
     }
