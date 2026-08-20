@@ -973,6 +973,14 @@ Collected from the use cases; each appears above in context.
    error — never by parsing `wrangler whoami` scopes, which under-report what a
    token can do. CI has no Cloudflare account, so the end-to-end evidence is
    `scripts/verify-factory-deploy.sh` against a stateful wrangler stand-in.
+   The deploy's last step is the container rollout, which `wrangler deploy`
+   creates and does not wait for: it polls `wrangler containers list --json`
+   until the `ticks-orchestrator` application reports the digest this deploy
+   pushed, and fails with that comparison spelled out rather than reporting a
+   readiness it cannot prove — a green deploy in front of a stale container is
+   what makes a correct fix look broken. The confirmed digest is recorded in
+   `factory_deployment_image` and stamped onto each run (`run_image`), so
+   `tk cloud status <run>` names the image that run booted.
    The credential walk-through (`tk factory setup`) is still open.
 3. **Bump `compatibility_date`** (currently 2024-04-03) in the factory bundle —
    DO SQLite storage and current WebSocket hibernation ergonomics are needed.

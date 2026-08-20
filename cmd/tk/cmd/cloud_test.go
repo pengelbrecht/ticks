@@ -347,3 +347,53 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// The image a run booted is the difference between "the fix did not work" and
+// "the fix was never running" (tick z1b). A single-run status has to say which
+// container the run executed.
+func TestCloudStatusNamesTheImageTheRunBooted(t *testing.T) {
+	setupCloudRepo(t, true)
+	digest := "sha256:" + strings.Repeat("b", 64)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method == http.MethodGet && request.Path == "/api/runs/run_live" {
+			return http.StatusOK, map[string]any{
+				"run":   map[string]any{"run_id": "run_live", "state": "running", "epic": "epic1"},
+				"image": map[string]any{"image_ref": "registry.example.com/acct/ticks-orchestrator@" + digest, "image_digest": digest},
+			}
+		}
+		return http.StatusNotFound, map[string]any{"error": "not_found"}
+	})
+	configureCloudFactory(t, endpoint)
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "status", "run_live"}); err != nil {
+		t.Fatalf("cloud status run_live: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), digest) {
+		t.Errorf("status does not name the image the run booted:\n%s", buf.String())
+	}
+}
+
+// A run with no recorded image says so. Omitting the line would read as "the
+// same image as every other run", which is the assumption that cost the
+// diagnose-fix-deploy cycles this exists to prevent.
+func TestCloudStatusSaysWhenNoImageWasRecorded(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method == http.MethodGet && request.Path == "/api/runs/run_old" {
+			return http.StatusOK, map[string]any{
+				"run": map[string]any{"run_id": "run_old", "state": "completed", "epic": "epic1"},
+			}
+		}
+		return http.StatusNotFound, map[string]any{"error": "not_found"}
+	})
+	configureCloudFactory(t, endpoint)
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "status", "run_old"}); err != nil {
+		t.Fatalf("cloud status run_old: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "image: unrecorded") {
+		t.Errorf("status is silent about the missing image:\n%s", buf.String())
+	}
+}

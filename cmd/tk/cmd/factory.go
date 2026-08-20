@@ -12,6 +12,7 @@ var (
 	factoryDeployRotateToken bool
 	factoryDeployURL         string
 	factoryDeployBundleDir   string
+	factoryDeploySkipRollout bool
 
 	factorySetupRepo        string
 	factorySetupGitHubToken string
@@ -52,6 +53,14 @@ migrations, pushes the hash of your factory token as a Worker secret, deploys
 the worker, and records the endpoint and token in ~/.ticksrc alongside the
 existing board-sync token.
 
+It then waits for the orchestrator container application to report the image it
+just pushed. ` + "`wrangler deploy`" + ` creates that rollout and returns without waiting
+for it, so without this wait a run started immediately after a green deploy can
+still boot the PREVIOUS container image — which makes a correct fix look like it
+did not work. If the rollout cannot be confirmed within a few minutes the deploy
+says so and exits nonzero rather than reporting success; --skip-rollout-wait
+accepts the unconfirmed state deliberately.
+
 Re-running upgrades the deployment in place: nothing is duplicated and your
 token is preserved unless you pass --rotate-token. The deployed bundle is
 pinned to this tk version, so after ` + "`tk upgrade`" + ` you re-run this command to
@@ -67,12 +76,13 @@ Requires wrangler, logged in to your Cloudflare account:
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := factory.Deploy(cmd.Context(), factory.Options{
-			Version:     Version,
-			BundleDir:   factoryDeployBundleDir,
-			RotateToken: factoryDeployRotateToken,
-			URL:         factoryDeployURL,
-			Out:         cmd.OutOrStdout(),
-			HasCommand:  hasCommand,
+			Version:         Version,
+			BundleDir:       factoryDeployBundleDir,
+			RotateToken:     factoryDeployRotateToken,
+			URL:             factoryDeployURL,
+			Out:             cmd.OutOrStdout(),
+			HasCommand:      hasCommand,
+			SkipRolloutWait: factoryDeploySkipRollout,
 		})
 		if err != nil {
 			// Every failure is a stop with an explanation the operator can
@@ -81,9 +91,24 @@ Requires wrangler, logged in to your Cloudflare account:
 			return NewExitError(ExitGeneric, "%v", err)
 		}
 
-		cmd.Printf("\nFactory ready at %s\n", result.URL)
+		// "Ready" is a claim about what a run started now would boot, so it is
+		// only made when the container rollout was actually confirmed. An
+		// unconfirmed one reaches here only through --skip-rollout-wait, and it
+		// says so where the operator reads the verdict rather than only in the
+		// progress above.
+		if result.RolloutConfirmed {
+			cmd.Printf("\nFactory ready at %s\n", result.URL)
+		} else {
+			cmd.Printf("\nFactory deployed at %s — container rollout NOT confirmed\n", result.URL)
+		}
 		cmd.Printf("  tk version:  %s\n", result.Version)
 		cmd.Printf("  image tk:    built from %s\n", result.SourceRef)
+		if result.ImageDigest != "" {
+			cmd.Printf("  image:       %s\n", result.ImageDigest)
+		}
+		if !result.RolloutConfirmed {
+			cmd.Printf("  rollout:     unconfirmed — a run started now may still boot the previous image\n")
+		}
 		cmd.Printf("  credentials: %s\n", result.ConfigPath)
 		if result.Rotated {
 			cmd.Printf("  token:       rotated — anything holding the previous token must be updated\n")
@@ -193,6 +218,9 @@ func init() {
 		"factory endpoint to record and verify, when wrangler's output does not name one (custom routes)")
 	factoryDeployCmd.Flags().StringVar(&factoryDeployBundleDir, "bundle-dir", "",
 		"directory to stage the worker bundle in (default ~/.tick/factory/bundle)")
+	factoryDeployCmd.Flags().BoolVar(&factoryDeploySkipRollout, "skip-rollout-wait", false,
+		"do not wait for the orchestrator container application to serve the pushed image "+
+			"(the deploy then reports the rollout as unconfirmed)")
 
 	factorySetupCmd.Flags().StringVar(&factorySetupRepo, "repo", "",
 		"owner/name the GitHub credential must reach (default: this checkout's origin remote)")

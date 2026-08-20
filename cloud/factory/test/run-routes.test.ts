@@ -721,3 +721,97 @@ describe("request validation", () => {
     expect(res.status).toBe(404);
   });
 });
+
+/**
+ * The image a run booted (tick z1b).
+ *
+ * A container rollout is asynchronous: `wrangler deploy` creates it and
+ * returns, so the Worker can be new while the container application still
+ * serves the previous image. `tk factory deploy` now waits for that rollout and
+ * records the image it confirmed; a run stamps itself with that image at
+ * ignition so the operator can tell a fix that did not work from a fix that was
+ * never running.
+ */
+describe("a run records the orchestrator image it booted", () => {
+  const DIGEST = `sha256:${"b".repeat(64)}`;
+  const REF = `registry.cloudflare.com/acct/ticks-orchestrator@${DIGEST}`;
+
+  async function confirmDeployedImage(ref: string, digest: string): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO factory_deployment_image (id, image_ref, image_digest, confirmed_at)
+       VALUES (1, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET image_ref=excluded.image_ref,
+         image_digest=excluded.image_digest, confirmed_at=excluded.confirmed_at`
+    )
+      .bind(ref, digest, new Date().toISOString())
+      .run();
+  }
+
+  afterEach(async () => {
+    await env.DB.prepare("DELETE FROM factory_deployment_image").run();
+  });
+
+  it("reports the confirmed image on the run's status", async () => {
+    await confirmDeployedImage(REF, DIGEST);
+    const project = await enrolled("image-stamped");
+
+    const started = await post("/api/runs", submission(project));
+    expect(started.status).toBe(201);
+    const runID = ((await started.json()) as { run: { run_id: string } }).run.run_id;
+
+    const status = await get(`/api/runs/${runID}`);
+    expect(status.status).toBe(200);
+    const body = (await status.json()) as { image: { image_ref: string; image_digest: string } | null };
+    expect(body.image).toEqual({ image_ref: REF, image_digest: DIGEST });
+  });
+
+  it("keeps a finished run's image after the deployment moves to a new one", async () => {
+    await confirmDeployedImage(REF, DIGEST);
+    const project = await enrolled("image-frozen");
+
+    const started = await post("/api/runs", submission(project));
+    const runID = ((await started.json()) as { run: { run_id: string } }).run.run_id;
+
+    // The next deploy rolls a new image out. What the run above booted must not
+    // move with it — that is the whole reason the stamp is per run.
+    const nextDigest = `sha256:${"c".repeat(64)}`;
+    await confirmDeployedImage(`registry.cloudflare.com/acct/ticks-orchestrator@${nextDigest}`, nextDigest);
+
+    const status = await get(`/api/runs/${runID}`);
+    const body = (await status.json()) as { image: { image_digest: string } | null };
+    expect(body.image?.image_digest).toBe(DIGEST);
+  });
+
+  it("reports no image for a factory whose rollout was never confirmed", async () => {
+    const project = await enrolled("image-unconfirmed");
+
+    const started = await post("/api/runs", submission(project));
+    expect(started.status).toBe(201);
+    const runID = ((await started.json()) as { run: { run_id: string } }).run.run_id;
+
+    const status = await get(`/api/runs/${runID}`);
+    const body = (await status.json()) as { image: unknown };
+    expect(body.image).toBeNull();
+  });
+
+  it("still ignites when the image cannot be recorded", async () => {
+    await confirmDeployedImage(REF, DIGEST);
+    const project = await enrolled("image-unwritable");
+    // The stamp is observability: a run that ignited must not be undone
+    // because a bookkeeping row could not be written.
+    await env.DB.prepare("DROP TABLE run_image").run();
+    try {
+      const started = await post("/api/runs", submission(project));
+      expect(started.status).toBe(201);
+    } finally {
+      await env.DB.prepare(
+        `CREATE TABLE IF NOT EXISTS run_image (
+           run_id       TEXT PRIMARY KEY,
+           image_ref    TEXT NOT NULL,
+           image_digest TEXT NOT NULL,
+           recorded_at  TEXT NOT NULL
+         )`
+      ).run();
+    }
+  });
+});

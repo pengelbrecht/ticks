@@ -347,11 +347,23 @@ factory_version=0.31.0
 The plaintext token exists only in that file — the worker holds nothing but its hash
 and therefore cannot leak it. `~/.ticksrc` is written 0600.
 
+The last thing the deploy does is wait for the **container rollout**. `wrangler deploy`
+builds and pushes the orchestrator image, asks Cloudflare to roll it out, and returns
+without waiting for it — so the Worker and its bindings go live while the container
+application is still serving the *previous* image, and a run started in that window
+executes the old code. That is not merely slow: it makes a correct fix look like it did
+not work. So `tk factory deploy` polls the container application until it reports the
+digest this deploy pushed, prints that digest, and exits nonzero with an explanation if
+it cannot confirm it (`--skip-rollout-wait` accepts the unconfirmed state deliberately).
+The confirmed image is recorded server-side and stamped onto every run, so
+`tk cloud status <run>` names the image that run actually booted.
+
 | Flag | Effect |
 |---|---|
 | `--rotate-token` | Mint a new token; the previous one stops working immediately |
 | `--url <url>` | Record and verify a custom endpoint, when the deploy output names none |
 | `--bundle-dir <path>` | Stage the worker bundle somewhere other than `~/.tick/factory/bundle` |
+| `--skip-rollout-wait` | Do not wait for the container application to serve the pushed image; the deploy then reports the rollout as unconfirmed |
 
 Re-running is the upgrade path: resources are reused, never duplicated, and the token is
 preserved unless you rotate it. The deployed bundle is pinned to the `tk` version that

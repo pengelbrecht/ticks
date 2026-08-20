@@ -30,12 +30,16 @@
 
 import {
   deleteRun,
+  getDeploymentImage,
   getEnrolledProject,
   getRun,
+  getRunImage,
   insertDispatchLog,
   insertRun,
+  insertRunImage,
   listRuns,
   updateRunState,
+  type DeploymentImage,
   type DispatchReason,
   type Run,
 } from "./db";
@@ -360,6 +364,16 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
     throw error;
   }
 
+  // Stamp the orchestrator image this run boots, after the instance exists so
+  // an undone ignition leaves nothing behind.
+  //
+  // The image is a deployment-level fact — one image per container class,
+  // chosen at deploy time — but it is recorded PER RUN because that is the only
+  // form that stays true. The next deploy moves the deployment's image; what a
+  // finished run booted must not move with it, or the one question this answers
+  // ("was my fix even running?") becomes unanswerable the moment it matters.
+  await stampRunImage(env, run.run_id);
+
   await logDispatch(env, {
     run_id: run.run_id,
     epic: run.epic,
@@ -368,6 +382,23 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
   });
 
   return { run, workflow: { id: instance.id, status: await instanceStatus(instance) } };
+}
+
+/**
+ * Records which orchestrator image the run boots, best effort.
+ *
+ * Never fatal: the stamp is observability, and a run that ignited must not be
+ * undone because a bookkeeping row could not be written. A factory deployed
+ * before the rollout wait existed simply has nothing to stamp.
+ */
+async function stampRunImage(env: Env, runID: string): Promise<void> {
+  try {
+    const image = await getDeploymentImage(env.DB);
+    if (image === null) return;
+    await insertRunImage(env.DB, runID, image, new Date().toISOString());
+  } catch (error) {
+    console.error(`factory runs: recording the image for run ${runID} failed: ${String(error)}`);
+  }
 }
 
 async function instanceStatus(instance: RunWorkflowInstance): Promise<string> {
@@ -626,6 +657,13 @@ export type RunStatus = {
   queued: QueuedSubmission[];
   gates: PendingEntry[];
   stop: StopRequest | null;
+  /**
+   * The orchestrator container image this run booted, or null for a run that
+   * started before any deploy confirmed one. It is here because the image is
+   * the difference between "the fix did not work" and "the fix was never
+   * running", and that difference is invisible from the run's output alone.
+   */
+  image: DeploymentImage | null;
 };
 
 /** Everything `tk cloud status <run>` shows: index row, Workflow step state, lease, gates, queue. */
@@ -634,11 +672,12 @@ export async function runStatus(env: Env, runID: string): Promise<RunStatus | nu
   if (run === null) return null;
 
   const room = roomFor(env, run.project);
-  const [lease, queued, gates, stop] = await Promise.all([
+  const [lease, queued, gates, stop, image] = await Promise.all([
     room.leaseStatus(),
     room.listQueuedSubmissions(),
     room.listQuestions(),
     room.stopRequest(runID),
+    getRunImage(env.DB, runID),
   ]);
 
   return {
@@ -648,6 +687,7 @@ export async function runStatus(env: Env, runID: string): Promise<RunStatus | nu
     queued,
     gates,
     stop,
+    image,
   };
 }
 
