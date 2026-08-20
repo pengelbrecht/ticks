@@ -2,6 +2,7 @@
   "id": "oaq",
   "title": "omp needs its own provider credential for the gateway (cloudflare-ai-gateway)",
   "description": "The layer after cmb, found by a live run that got further than any before it (run_005301a2..., exit 1, 2284 bytes of harness output).\n\nWhat now works: the container boots, clones, passes 3/3 environment checks, resolves the model from [orchestrator].model, and the pre-flight MODEL PROBE SUCCEEDS through the gateway. So gateway routing and Workers AI selection are both correct.\n\nWhat fails: omp itself refuses to start.\n  error: No API key found for cloudflare-ai-gateway.\n  Use /login, set an API key environment variable, or create /root/.omp/agent/agent.db\n\ncloud/sandbox/entrypoint.sh exports VENDOR-shaped variables — ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY, OPENAI_BASE_URL/OPENAI_API_KEY, OPENROUTER_BASE_URL, WORKERS_AI_BASE_URL — because that is how the claude and codex kinds consume a gateway. omp does not use those: it names the provider cloudflare-ai-gateway and wants that providers own credential.\n\nWork:\n1. Determine what omp actually reads for a cloudflare-ai-gateway provider — an env var, or a provider entry in its config/agent.db — and configure it from the entrypoint with the run gateway token. Read omps own docs or source rather than guessing; a wrong guess here produces exactly this failure again.\n2. The probe must catch this class. It currently proves the GATEWAY answers, not that THE HARNESS can call it, so a probe-passes-then-harness-dies gap remains. Extend it to a harness-level check, or state in the report why that is not feasible.\n3. Note for the kind table: this is per-kind knowledge. Whatever omp needs belongs beside the claude/codex gateway wiring, documented as such, so adding a fourth kind is a known edit rather than a rediscovery.",
+  "notes": "2026-08-20 06:28 - runner-state: substrate=herdr kind=claude branch=tick/oaq worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-oaq workspace=wBV base=06db06a24df935d9896e68419656bf7551e98758 agent=tick-oaq pane=wBV:p1 session=6d948b7a-3318-4a83-95a2-c828572206ce",
   "status": "in_progress",
   "priority": 2,
   "type": "bug",
@@ -11,6 +12,6 @@
   "acceptance_criteria": "A cloud run starts the omp harness and it makes a successful model call through the gateway, evidenced in the streamed harness output; a missing harness credential is caught by a pre-flight check rather than by the harness dying after start; the per-kind gateway credential wiring is documented.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T04:28:10.810598Z",
-  "updated_at": "2026-08-20T04:28:10.856354Z",
+  "updated_at": "2026-08-20T04:28:57.130014Z",
   "started_at": "2026-08-20T04:28:10.856353Z"
 }
