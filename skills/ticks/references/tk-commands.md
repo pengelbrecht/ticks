@@ -141,6 +141,11 @@ the orchestrator's restraint:
 - A claim beyond the width is refused with **exit 8**, naming the width, its source and the
   ticks holding the slots. Refused is not failed — retry the claim when a slot frees.
 - `tk herd spawn` applies the same gate before it dials herdr, so a refusal costs zero dials.
+- `tk herd spawn` also refuses with **exit 9** when the run dispatches through a substrate it
+  does not serve — `[orchestration].substrate = "cloud"`, or `$TICKS_SUBSTRATE=cloud`. The
+  workers are containers there, so a herdr pane would be a second worker on a branch one of
+  them is already pushing to. Set `TICKS_SUBSTRATE=herdr` (or `auto`) for the run if a local
+  herdr worker is genuinely what you want; the checkout is read, never rewritten.
 - Nothing else is gated: closing, releasing and every other field edit stay open while a wave
   is full, and the TUI/board (human surfaces) are not gated at all.
 - No `[orchestration].max_parallel` means no cap. `tk graph --json` → `dispatch` reports the

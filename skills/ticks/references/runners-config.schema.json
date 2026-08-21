@@ -84,9 +84,9 @@
       "properties": {
         "substrate": {
           "type": "string",
-          "enum": ["herdr", "harness", "auto"],
+          "enum": ["herdr", "harness", "auto", "cloud"],
           "default": "auto",
-          "description": "Which dispatch substrate to use. `herdr`: spawn workers as herdr panes/worktrees; if herdr is unavailable, state the degradation to the user and fall back to harness orchestration rather than failing the run. `harness`: always use the harness's native subagent adapter, even inside a herdr pane. `auto` (default): use herdr when available, otherwise the harness adapter, without prompting. Availability is defined by orchestration.detect."
+          "description": "Which dispatch substrate to use. `herdr`: spawn workers as herdr panes/worktrees; if herdr is unavailable, state the degradation to the user and fall back to harness orchestration rather than failing the run. `harness`: always use the harness's native subagent adapter, even inside a herdr pane. `auto` (default): use herdr when available, otherwise the harness adapter, without prompting. Availability is defined by orchestration.detect. `cloud`: dispatch one cloud sandbox per tick through the run API of the cloud factory the project is enrolled with — workers are containers, so no worktree, pane or local branch appears for a tick until its container pushes one, and `tk herd spawn` refuses rather than starting a second worker on a tick. Like `harness` it is terminal: herdr is never probed, because a herdr server on the orchestrator's own machine cannot change where the workers run. It says nothing about where the ORCHESTRATOR sits — a local session driving cloud workers is a supported shape, not an accident — and `TICKS_SUBSTRATE` overrides it for one run in either direction, which is how a worker container running ON this substrate resolves `harness` for itself without contradicting the file."
         },
         "detect": {
           "type": "string",

@@ -536,3 +536,157 @@ func TestHerdSpawnFlagsResetBetweenExecutions(t *testing.T) {
 		t.Errorf("herdSpawnRole = %q, want the default restored", herdSpawnRole)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// The substrate gate
+//
+// `tk herd spawn` is the herdr substrate's dispatch verb. Until the Substrate
+// enum had a `cloud` value it could not tell that a repository dispatches
+// somewhere else, so it did what it always does: created a worktree, a pane and
+// a local branch for a tick a cloud container may already be working — the
+// declared substrate and the actual substrate disagreeing with nothing to
+// reconcile them. It now refuses, with its own exit code and the two ways out.
+// ---------------------------------------------------------------------------
+
+const cloudRunners = `version = 1
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "cloud"
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`
+
+// TestHerdSpawnRefusesUnderCloudSubstrate pins the refusal, its exit code, and
+// that it costs zero herdr calls — the same fail-closed shape as a routing
+// refusal, for the same reason: a refusal must leave no half-made workspace.
+func TestHerdSpawnRefusesUnderCloudSubstrate(t *testing.T) {
+	setupSpawnRepo(t, cloudRunners)
+	srv := newSpawnFakeHerd(t)
+
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
+	if err == nil {
+		t.Fatal("herd spawn under substrate = \"cloud\" returned nil error")
+	}
+	if code := GetExitCode(err); code != ExitWrongSubstrate {
+		t.Errorf("exit code = %d, want %d (wrong substrate): %v", code, ExitWrongSubstrate, err)
+	}
+	msg := err.Error()
+	// The message is the contract: what the repository declared, why this verb
+	// is not the one, and the override that reconciles it for this run.
+	for _, want := range []string{".tick/runners.toml", `substrate = "cloud"`, "tk herd spawn", "TICKS_SUBSTRATE=herdr", "a1w"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal %q missing %q", msg, want)
+		}
+	}
+	if srv.Dials() != 0 {
+		t.Errorf("dials = %d, want 0 — a substrate refusal must cost zero herdr calls", srv.Dials())
+	}
+	if _, err := os.Stat(filepath.Join(state.RelPath("gy1", "a1w"))); err == nil {
+		t.Error("a refused spawn wrote a manifest")
+	}
+}
+
+// TestHerdSpawnCloudRefusalIsReconciledByTheOverride is the other half of the
+// decision, and the half that keeps the refusal from being a dead end. An
+// operator who really does want a local herdr worker on a cloud repository says
+// so the same way a container says the reverse — through TICKS_SUBSTRATE, which
+// states what is effective HERE and never rewrites the checkout.
+func TestHerdSpawnCloudRefusalIsReconciledByTheOverride(t *testing.T) {
+	dir, _ := setupSpawnRepo(t, cloudRunners)
+	srv := newSpawnFakeHerd(t)
+	t.Setenv("TICKS_SUBSTRATE", "herdr")
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()}); err != nil {
+		t.Fatalf("TICKS_SUBSTRATE=herdr did not reconcile the cloud pin: %v", err)
+	}
+	if !strings.Contains(buf.String(), "tick/a1w") {
+		t.Errorf("spawn output does not name the branch: %q", buf.String())
+	}
+	// The checkout is read, never rewritten: the file still says cloud.
+	body, err := os.ReadFile(filepath.Join(dir, ".tick", "runners.toml"))
+	if err != nil {
+		t.Fatalf("read runners.toml: %v", err)
+	}
+	if !strings.Contains(string(body), `substrate = "cloud"`) {
+		t.Errorf("the override rewrote the checkout's config:\n%s", body)
+	}
+}
+
+// TestHerdSpawnRefusesWhenTheOverrideAsksForCloud pins the mirror case: a
+// repository that says nothing about its substrate, told for this run that its
+// workers are cloud sandboxes. The refusal must name the ENVIRONMENT as the
+// source, or an operator goes looking in a file that never mentioned cloud.
+func TestHerdSpawnRefusesWhenTheOverrideAsksForCloud(t *testing.T) {
+	setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+	t.Setenv("TICKS_SUBSTRATE", "cloud")
+
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
+	if err == nil {
+		t.Fatal("herd spawn with TICKS_SUBSTRATE=cloud returned nil error")
+	}
+	if code := GetExitCode(err); code != ExitWrongSubstrate {
+		t.Errorf("exit code = %d, want %d (wrong substrate): %v", code, ExitWrongSubstrate, err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "TICKS_SUBSTRATE=cloud") {
+		t.Errorf("refusal %q does not name the environment as the source", msg)
+	}
+	if srv.Dials() != 0 {
+		t.Errorf("dials = %d, want 0", srv.Dials())
+	}
+}
+
+// TestHerdSpawnUnparseableOverrideIsAStop keeps the fail-closed rule on the
+// dispatch path too: a substrate nobody can parse authorises nothing, and
+// falling back to the file is how a run ends up on a substrate nobody asked
+// for.
+func TestHerdSpawnUnparseableOverrideIsAStop(t *testing.T) {
+	setupSpawnRepo(t, validRunners)
+	srv := newSpawnFakeHerd(t)
+	t.Setenv("TICKS_SUBSTRATE", "lambda")
+
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
+	if err == nil {
+		t.Fatal("herd spawn with an unparseable TICKS_SUBSTRATE returned nil error")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "lambda") || !strings.Contains(msg, "TICKS_SUBSTRATE") {
+		t.Errorf("refusal %q does not name the variable and its value", msg)
+	}
+	if srv.Dials() != 0 {
+		t.Errorf("dials = %d, want 0", srv.Dials())
+	}
+}
+
+// TestHerdSpawnStillSpawnsUnderTheOtherSubstrates is the deliberate limit of
+// the gate. `harness` and `auto` are NOT refused: neither has a tk dispatch
+// verb of its own, so `tk herd spawn` on such a repository is an operator
+// choosing herdr for this worker, not two substrates racing for one branch.
+func TestHerdSpawnStillSpawnsUnderTheOtherSubstrates(t *testing.T) {
+	for _, substrate := range []string{"auto", "harness", "herdr"} {
+		t.Run(substrate, func(t *testing.T) {
+			setupSpawnRepo(t, `version = 1
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "`+substrate+`"
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`)
+			srv := newSpawnFakeHerd(t)
+			captureCmdOutput(t)
+			if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()}); err != nil {
+				t.Fatalf("substrate = %q refused a spawn: %v", substrate, err)
+			}
+		})
+	}
+}

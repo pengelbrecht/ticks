@@ -441,8 +441,8 @@ func TestParseOverride(t *testing.T) {
 		}
 	})
 
-	t.Run("the three legal values parse", func(t *testing.T) {
-		for _, want := range []Substrate{SubstrateHerdr, SubstrateHarness, SubstrateAuto} {
+	t.Run("every substrate parses", func(t *testing.T) {
+		for _, want := range Substrates {
 			o, err := ParseOverride(string(want), SubstrateEnvVar)
 			if err != nil {
 				t.Fatalf("ParseOverride(%q): %v", want, err)
@@ -458,7 +458,7 @@ func TestParseOverride(t *testing.T) {
 		if err == nil {
 			t.Fatal("ParseOverride accepted an unknown substrate")
 		}
-		for _, want := range []string{SubstrateEnvVar, "subagents", "herdr", "harness", "auto"} {
+		for _, want := range []string{SubstrateEnvVar, "subagents", "herdr", "harness", "auto", "cloud"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("error missing %q: %v", want, err)
 			}
@@ -559,7 +559,7 @@ func TestPinnedHerdrStaysLoudAndSaysHowToFixIt(t *testing.T) {
 // TestEveryCellStatesItsResolution: whatever the decision, a run has something
 // to say about it. This is what stops the quiet register from becoming silence.
 func TestEveryCellStatesItsResolution(t *testing.T) {
-	for _, substrate := range []string{"auto", "herdr", "harness"} {
+	for _, substrate := range []string{"auto", "herdr", "harness", "cloud"} {
 		for _, available := range []bool{true, false} {
 			cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"" + substrate + "\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
 			if err != nil {
