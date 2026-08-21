@@ -225,6 +225,12 @@ has moved. Merging it to the default branch still waits for closeout and the
 PR + CI gate — the incremental push is to the run's *own* branch, so it costs
 nothing and risks nothing.
 
+The branch also descends from `TICKS_BASE_SHA`, which is whatever branch the
+operator submitted from — so a run submitted from an epic branch that was ahead
+of the default branch carries that epic's commits into its own closeout PR. The
+body for that PR comes from `tk cloud pr-body`, which enumerates every commit
+the run did not create, above the ones it did.
+
 It exists because the property the design claimed was not true. D4 says a run's
 tracker state is on a pushed run branch and is therefore "durable, recoverable,
 and mergeable" if the run dies. Nothing pushed until closeout, so a run that

@@ -625,6 +625,10 @@ func ResetFlags() {
 	cloudTraceTools = false
 	cloudTraceCache = false
 	cloudLogsTail = 0
+	cloudPRBodyHead = ""
+	cloudPRBodyBase = ""
+	cloudPRBodyRunBase = ""
+	cloudPRBodyEpic = ""
 
 	// Reset config migration flags
 	configMigrateApply = false
