@@ -1,0 +1,13 @@
+{
+  "id": "fw6",
+  "title": "Factory refuses any provider that is not Workers AI unless explicitly opted in",
+  "description": "The gateway module accepts anthropic, openai and openrouter alongside workers-ai. Only Workers AI is billed on the Cloudflare invoice, which is where the operator credit lives; the other three are billed by the vendor in real cash. Nothing today prevents a config change or a typo from silently moving every run off credit-funded Workers AI onto a cash-billed vendor. Make workers-ai the only provider the factory will route to unless an explicit opt-in var names another, and state the billing consequence in the refusal message. Related: h4n guards the other direction (the gateway billing mode).",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T06:59:50.513253Z",
+  "updated_at": "2026-08-21T06:59:50.513253Z"
+}
