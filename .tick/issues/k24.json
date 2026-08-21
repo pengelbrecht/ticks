@@ -2,12 +2,14 @@
   "id": "k24",
   "title": "Budgets and stop are not enforced mid-batch on the cloud-wave path",
   "description": "From b6e gap 4, and it is the one with teeth. The hard-stop killcheck runs BETWEEN batches, not while one is in flight: dispatchWave has no cancellation seam through its spawn-wait-collect-teardown cycle. So an operator hard stop, or a budget trip, waits for the current batch of up to max_instances containers to finish before anything reacts.\n\nThis repo has already paid for the general version of this lesson twice — cts (a budget that could not trip) and gyl (a kill switch a reboot undid) — and the same money is now spendable through a window nobody watches. Give dispatchWave a cancellation seam and check on it, rather than only at batch boundaries.\n\nb6e also notes, correctly, that the PRE-EXISTING orchestrator path has the identical untested gap: no test asserts stop-before-first-boot or stop-between-reboot-attempts. It declined to add a timing-dependent test rather than add a flaky one, which was the right call — but the assertion is still missing on both paths, so this tick owns finding a non-racy way to make it (a synchronization seam the suite does not have anywhere yet).",
-  "status": "open",
+  "notes": "2026-08-21 22:18 - Seam (wave 5, three wide with ddv and bne). You own cloud/factory/src/worker-dispatch.ts and the batch loop in run-workflow.ts that calls it. ddv owns internal/herd/config; bne owns run_event producers. Treat the cancellation seam as the deliverable, not a nice-to-have — this is the third time this epic has met the same shape (cts: a budget that could not trip; gyl: a revocation the next boot undid; now a stop that waits for a batch), and the pattern each time is that enforcement existed somewhere that could not act in time. The pre-existing orchestrator path has the same untested assertion, so whatever synchronisation seam you find should serve both.",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T19:36:09.833827Z",
-  "updated_at": "2026-08-21T19:36:09.833827Z"
+  "updated_at": "2026-08-21T20:18:17.254006Z",
+  "started_at": "2026-08-21T20:18:17.254006Z"
 }

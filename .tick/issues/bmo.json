@@ -9,11 +9,12 @@
   "blocked_by": [
     "0ds",
     "tap",
-    "b6e"
+    "b6e",
+    "ddv"
   ],
   "parent": "1vn",
   "acceptance_criteria": "A local orchestrator with substrate = cloud runs a wave in cloud containers and integrates it; the same run refuses when a cloud run holds the lease, naming the holder; a project with no cloud enrolment still runs fully offline on the herdr substrate.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T02:34:44.005258Z",
-  "updated_at": "2026-08-21T17:43:04.243957Z"
+  "updated_at": "2026-08-21T20:18:17.162418Z"
 }
