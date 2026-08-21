@@ -583,6 +583,14 @@ harness. One closed verb vocabulary is exposed on every transport:
 | what is happening | `tk cloud status` | `/status` | — |
 | answer a parked question | `tk answer <id> …` | inline keyboard (ships today) | — |
 
+Reading a run is a separate axis from commanding one, and the two must not be
+counted together:
+
+| Observation (read-only) | Terminal | Record it reads |
+|---|---|---|
+| what the container printed | `tk cloud logs <run>` | the harness stream in R2 (D20) |
+| what the model said and decided | `tk cloud trace <run>` | AI Gateway logs, filtered on `metadata.run_id` (D17) |
+
 **Flow.**
 
 1. The operator issues a verb on any transport. Terminal commands authenticate
@@ -611,6 +619,19 @@ harness. One closed verb vocabulary is exposed on every transport:
   mechanical trap — an operator writing a tick to the default branch mid-run is
   writing to a branch the run cannot see, since the run is pinned to `base_sha`
   and commits to `tick-run/<epic-id>`.
+- **Observation is not command; `logs` and `trace` do not widen the vocabulary.**
+  D21 fixes the operator-to-orchestrator COMMAND vocabulary at `run`, `stop`,
+  `status` and `answer`. `tk cloud logs` and `tk cloud trace` are read-only
+  observation: they read records a run has already written — R2 harness output
+  and AI Gateway logs — and there is no path from either to the orchestrator.
+  Nothing is delivered, no state is mutated, and a wedged orchestrator answers
+  them exactly as well as a healthy one, because it is not consulted. So the
+  count of `tk cloud` subcommands is not the count of D21's verbs, and it is
+  said here explicitly so the next reader does not conclude otherwise (tick
+  l4l). The two are deliberately separate commands rather than one: a harness
+  that crashed and a model that decided badly are different failures with
+  different evidence, and a single command with two answers to "what happened"
+  serves neither.
 - **A clean stop is the budget stop.** `tk cloud stop` is D15's code path with a
   human trigger instead of a spend trigger — finish the in-flight tick, run
   review/closeout on what is done. There is no "abandon the run" verb, because
@@ -976,12 +997,42 @@ Three rules keep it useful rather than voluminous:
   troubleshooting session starts from a known failure mode, and new incidents
   that fit no name are themselves a signal (the taxonomy grows by documented
   incident, as it always has here).
-- **`tk factory trace <tick|run>` is the debugging UX.** One command pulls
-  the joined story across all six layers for one ID — signal → dispatch
-  decision → workflow steps → harness log tail → gateway spend → tracker
-  notes — because a headless factory's operator debugs from the same terminal
-  the factory freed them from. `tk factory logs --follow <run>` tails a live
-  run (R2 stream + `wrangler tail` under the hood).
+- **Two commands read the two records; a joined view comes later.** The
+  layers above produce two different kinds of evidence for one run, and they
+  are read by two commands rather than one, because a harness that crashed and
+  a model that decided badly are different failures:
+
+  - `tk cloud logs <run>` — the harness stream in R2: what the container
+    printed. Readable mid-run (that is why the stream is segments), bounded
+    from the END with the bound stated, since the tail is what a run being
+    debugged is read for.
+  - `tk cloud trace <run>` — the model conversation from AI Gateway, filtered
+    on the `run_id` the proxy stamps: message roles, tool calls and their
+    arguments, tokens in/out and cached per call, cost per call. `--call N`
+    dumps one exchange in full, `--tools` lists just the tool calls, `--cache`
+    is the per-call prefix-cache table, `--json` the raw rows.
+
+  Two things about `trace` are not obvious and cost real time when guessed at.
+  **Responses are streamed**, so a logged response body carries
+  `choices[0].message.content: null` and `tool_calls: null` — reading it and
+  concluding the model emitted nothing is wrong. What the model said is
+  reconstructed from the assistant messages inside each REQUEST body,
+  deduplicated across calls: an agentic harness replays the whole conversation
+  every call, so call N's request holds every turn up to N-1. And **the prefix
+  cache is only measurable from `usage_metadata.input_cached_tokens`** on the
+  log row, which is what makes `--cache` the answer to "is caching actually
+  hitting" (tick l8z) — per call, because one changed token near the head of
+  the prompt invalidates the prefix and an average hides exactly that swing.
+
+  `trace` reads the operator's own gateway directly with the Cloudflare API
+  token `tk factory setup --cloudflare-api-token` installs, so it works
+  against a factory whose Worker is wedged. A factory without that token
+  routes and attributes model traffic but has no trace and no cost budget;
+  the refusal says so and names the remedy, because "no trace" must not read
+  as "no factory". The joined story across all six layers for one ID — signal
+  → dispatch decision → workflow steps → harness log → gateway spend →
+  tracker notes — is still the destination, and `--follow` for a live tail
+  with it.
 - **Redact at the front door, retain by tier.** Secrets never enter any log
   (webhook payloads are digested, tokens are IDs); harness logs and events
   are the user's own code in their own account and are kept verbatim.
@@ -1015,7 +1066,7 @@ Collected from the use cases; each appears above in context.
 | D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi/omp = the vendor-neutral kinds; omp the candidate cloud default for its subagents, config inheritance, and memory); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as another kind, never as a rewrite | harness choice |
 | D19 | The cloud substrate is drivable by any orchestrator location: the run API doubles as `tk cloud spawn/wait/collect/reconcile` for local orchestrators, enrolled projects share one RunRoom lease across local and cloud runs, and handoff in either direction is submission + reconcile, never bespoke machinery | local orchestrators |
 | D20 | One trace ID (`signal_id`/`run_id`/`tick_id`) threads every layer; harness output streams to R2 during the run (diagnostics), never export-at-exit; every dispatch refusal is logged with its policy reason; failure events use the named taxonomy; `tk factory trace` joins the story across layers | observability |
-| D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input | UC1b |
+| D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input. Read-only observation (`tk cloud status`/`logs`/`trace`) is a separate axis and does not widen this vocabulary: it reads records the run already wrote and cannot reach the orchestrator at all | UC1b |
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
 | D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
 | D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The gateway's response cache stays off — an agentic loop never repeats a request | model access |

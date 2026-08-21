@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -335,16 +336,46 @@ func TestCloudWithoutFactoryConfigurationNamesSetup(t *testing.T) {
 	}
 }
 
+// D21 fixes the operator-to-orchestrator COMMAND vocabulary at run, stop,
+// status and answer: no chat, no prompt injection, no mid-run mutation channel.
+// Steering is stop -> edit the tracker -> run again.
+//
+// Observation is a different thing and does not widen that vocabulary. `logs`
+// reads what the container printed and `trace` reads what the model said; both
+// are read-only records of a run that has already happened (or is happening),
+// and neither can tell an orchestrator to do anything. The split is pinned here
+// rather than left implicit, because a reader counting subcommands would
+// otherwise conclude D21 had been violated (tick l4l).
 func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
-	want := map[string]bool{"run": true, "stop": true, "status": true}
-	commands := cloudCmd.Commands()
-	if len(commands) != len(want) {
-		t.Fatalf("cloud commands = %d, want exactly %d", len(commands), len(want))
-	}
-	for _, command := range commands {
-		if !want[command.Name()] {
-			t.Errorf("unexpected cloud command %q", command.Name())
+	steering := map[string]bool{"run": true, "stop": true}
+	observation := map[string]bool{"status": true, "logs": true, "trace": true}
+
+	for _, command := range cloudCmd.Commands() {
+		name := command.Name()
+		if !steering[name] && !observation[name] {
+			t.Errorf("unexpected cloud command %q: it is neither a D21 verb nor a read-only observation", name)
 		}
+		if observation[name] && !strings.Contains(command.Long, "D21") {
+			// Said in the help text, not just in a design doc: the next reader
+			// of `tk cloud --help` counts five subcommands against a
+			// four-verb vocabulary and needs the answer where they are looking.
+			t.Errorf("cloud %s does not say why a read-only command does not widen D21's vocabulary", name)
+		}
+	}
+	if len(cloudCmd.Commands()) != len(steering)+len(observation) {
+		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()), len(steering)+len(observation))
+	}
+
+	// The mutating half of the surface is exactly D21's verbs, and stays so.
+	mutating := []string{}
+	for _, command := range cloudCmd.Commands() {
+		if steering[command.Name()] {
+			mutating = append(mutating, command.Name())
+		}
+	}
+	sort.Strings(mutating)
+	if strings.Join(mutating, ",") != "run,stop" {
+		t.Fatalf("the mutating cloud vocabulary is %v; D21 fixes it at run and stop (answer lives on tk answer)", mutating)
 	}
 }
 

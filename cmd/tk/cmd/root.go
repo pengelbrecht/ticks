@@ -610,6 +610,11 @@ func ResetFlags() {
 	cloudRunNotify = ""
 	cloudRunQueue = false
 	cloudStopNow = false
+	cloudTraceJSON = false
+	cloudTraceCall = 0
+	cloudTraceTools = false
+	cloudTraceCache = false
+	cloudLogsTail = 0
 
 	// Reset config migration flags
 	configMigrateApply = false
