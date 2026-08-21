@@ -81,6 +81,30 @@ declare namespace Cloudflare {
      * directly. A seam for the same reason `REPO_CONFIG` is one.
      */
     WORKER_COLLECTOR?: import("./worker-collect").WorkerCollector;
+    /**
+     * Where the RunRoom forwards a run's `run_event` stream (tick bne).
+     *
+     * Unset on a deployment that reports to a board, which posts to
+     * `BOARD_BASE_URL` directly. A seam for the same reason
+     * `WORKER_COLLECTOR` is one — and the one that lets a test prove the
+     * load-bearing claim: a run whose every event is dropped still completes
+     * and still collects.
+     */
+    RUN_EVENTS?: import("./run-events").RunEventSink;
+    /**
+     * The ticks.sh board (or a self-hosted one) this factory reports a live
+     * run to, and the board token it authenticates with (tick bne).
+     *
+     * BOTH are optional and neither is a dependency: a factory is
+     * self-deployed into the operator's own account (D16) and runs identically
+     * with no board at all. Absent, run events are recorded on the RunRoom's
+     * own tail and go nowhere else — the stream is observability, so losing it
+     * costs the run nothing. `BOARD_BASE_URL` is a wrangler `[vars]` value;
+     * `BOARD_TOKEN` is a Worker secret (`wrangler secret put BOARD_TOKEN`),
+     * because it is a credential for someone else's service.
+     */
+    BOARD_BASE_URL?: string;
+    BOARD_TOKEN?: string;
     /** Test/deployment override; defaults to api.github.com. */
     GITHUB_API_BASE_URL?: string;
     /**

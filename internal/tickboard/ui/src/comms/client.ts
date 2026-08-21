@@ -7,6 +7,7 @@ import type { Tick } from '../types/tick.js';
 import type {
   TickEvent,
   ConnectionEvent,
+  RunEvent,
   TickCreate,
   TickUpdate,
   ConnectionInfo,
@@ -21,6 +22,7 @@ import type {
 
 export type TickEventHandler = (event: TickEvent) => void;
 export type ConnectionEventHandler = (event: ConnectionEvent) => void;
+export type RunEventHandler = (event: RunEvent) => void;
 
 /** Unsubscribe function returned by event subscriptions */
 export type Unsubscribe = () => void;
@@ -68,6 +70,15 @@ export interface CommsClient {
    * @returns Unsubscribe function
    */
   onConnection(handler: ConnectionEventHandler): Unsubscribe;
+
+  /**
+   * Subscribe to live run events (tick bne). Optional: only transports that
+   * carry the `run_event` protocol implement it, and a board whose transport
+   * does not simply never shows a live run — the stream is observability, so
+   * its absence costs nothing.
+   * @returns Unsubscribe function
+   */
+  onRun?(handler: RunEventHandler): Unsubscribe;
 
   // ===========================================================================
   // Write Operations (Client → Server)

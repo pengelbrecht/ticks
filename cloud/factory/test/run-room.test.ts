@@ -48,6 +48,7 @@ describe("RunRoom addressing and status", () => {
       lease: null,
       pending: { open: 0, resolved: 0 },
       queued: [],
+      recent_events: [],
     });
   });
 

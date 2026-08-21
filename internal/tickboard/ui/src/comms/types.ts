@@ -4,6 +4,7 @@
  */
 
 import type { Tick } from '../types/tick.js';
+import type { RunEventMessage } from '../types/generated/websocket/messages.js';
 
 // =============================================================================
 // Tick Events
@@ -67,11 +68,30 @@ export type ConnectionEvent =
   | ConnectionErrorEvent;
 
 // =============================================================================
+// Run Events
+// =============================================================================
+
+/**
+ * A live `run_event` arrived from the transport (tick bne).
+ *
+ * Kept a category of its own rather than folded into `TickEvent` on purpose:
+ * a run event is OBSERVABILITY and must never reach the tick store. A run
+ * dispatching a tick is not the tick changing, and a board that let one become
+ * the other would be treating a badge as evidence.
+ */
+export interface RunEventReceivedEvent {
+  type: 'run:event';
+  message: RunEventMessage;
+}
+
+export type RunEvent = RunEventReceivedEvent;
+
+// =============================================================================
 // Unified Event Type
 // =============================================================================
 
 /** All possible communication events */
-export type CommsEvent = TickEvent | ConnectionEvent;
+export type CommsEvent = TickEvent | ConnectionEvent | RunEvent;
 
 // =============================================================================
 // Write Operation Types

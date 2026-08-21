@@ -205,7 +205,7 @@ evidence of work starting, not just process start), and **expiring liveness**
 | Telegram 25s long-poll | Worker webhook route |
 | `defer_until`, escalation timeouts, `target_date` approach | DO alarms / scheduled tasks |
 | Morning sweeps, budget windows | Cron triggers |
-| Board live view | Existing `ProjectRoom` DO — the orphaned `run_event` protocol finally gets producers |
+| Board live view | Existing `ProjectRoom` DO — the `run_event` protocol got its first producers in tick bne |
 
 Deliberately **not** used at this scale: Queues (Workflow fan-out covers
 dispatch) and KV (DO storage and D1 cover it). Workers AI is *not* on that
@@ -232,11 +232,18 @@ supported CLI has one); pi routes natively per provider.
 
 This buys three things beyond vendor-agnosticism:
 
-- **Ground-truth cost telemetry.** Today `run_event.metrics.costUsd` trusts
-  the agent's self-report. Gateway logs are the actual spend, per run (runs
-  tag requests with run/tick IDs via gateway metadata headers), which is what
-  the Workflow's budget enforcement (D14/D15) should read. An agent can
+- **Ground-truth cost telemetry.** `run_event.metrics.costUsd` used to be
+  whatever the agent said it was. Gateway logs are the actual spend, per run
+  (runs tag requests with run/tick IDs via gateway metadata headers), which is
+  what the Workflow's budget enforcement (D14/D15) reads. An agent can
   misreport; a gateway invoice cannot.
+
+  *As built (tick bne):* the only way a cost reaches the stream is
+  `gatewayMetrics()`, which takes gateway.ts's `SpendResult` and nothing else
+  — no builder accepts a bare number, so an agent's claimed cost has no
+  parameter to enter through, and per-tick worker events carry no metrics at
+  all. A telemetry read that failed publishes NO cost rather than a zero:
+  unknown and free are different facts about a run.
 - **A kill switch at the credential layer.** The Workflow can revoke a run's
   gateway token when a budget trips or a human hits stop — enforcement that
   works even on a wedged or adversarial agent, consistent with the doc's rule
@@ -548,9 +555,19 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
    `TK_ACTOR=cloud:orchestrator`, then start the headless harness on the skill
    loop.
 5. Waves execute in worker sandboxes. The orchestrator emits `run_event`
-   messages (the protocol in `schemas/websocket/messages.schema.json`, today
-   orphaned) to the RunRoom, which forwards to `ProjectRoom` — the board shows
-   the run live, from anywhere.
+   messages (the protocol in `schemas/websocket/messages.schema.json`) to the
+   RunRoom, which forwards to `ProjectRoom` — the board shows the run live,
+   from anywhere.
+
+   *As built (tick bne):* `src/run-events.ts` builds the messages, the Run
+   Workflow emits them (`epic-started` before anything boots, `task-started`
+   per tick before its container is dispatched, `task-completed` carrying the
+   COLLECT verdict, `epic-completed` at finalize before the index row goes
+   terminal), and `RunRoom.publishRunEvents` forwards them to the board's
+   `POST /api/projects/:project/run-events`. Every step of that path is best
+   effort and cannot throw: the board is observability, so a run whose events
+   are all dropped completes and collects identically. An unconfigured board
+   (`BOARD_BASE_URL`/`BOARD_TOKEN` unset) is the default, not a degraded mode.
 6. Review and closeout process ticks run (EPIC-SKELETON, unchanged). The epic
    branch becomes a PR. Telegram: *"pay-4 complete: 6 ticks, 4 merged clean, 1
    DONE_WITH_CONCERNS (see note), PR #212. Cost $4.31."*

@@ -35,6 +35,8 @@ export type {
   ConnectionDisconnectedEvent,
   ConnectionLocalStatusEvent,
   ConnectionErrorEvent,
+  RunEvent,
+  RunEventReceivedEvent,
   CommsEvent,
   // Write operation types
   TickCreate,
@@ -54,6 +56,7 @@ export type {
   CommsClient,
   TickEventHandler,
   ConnectionEventHandler,
+  RunEventHandler,
   Unsubscribe,
 } from './client.js';
 
