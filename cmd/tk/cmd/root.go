@@ -535,6 +535,11 @@ func ResetFlags() {
 	sandboxStamp = ""
 	sandboxTkVerRaw = ""
 	sandboxDeclaredOnly = false
+	sandboxModelRole = ""
+	sandboxModelTier = ""
+	sandboxPromptTick = ""
+	sandboxPromptBranch = ""
+	sandboxPromptBase = ""
 
 	// Reset herd reconcile flags
 	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false

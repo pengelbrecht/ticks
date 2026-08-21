@@ -225,11 +225,22 @@ RUN set -euo pipefail; \
 # pin has to reach it.
 ENV TICKS_TK_VERSION=${TK_VERSION}
 
-# The run entrypoint. Not the container ENTRYPOINT: the Cloudflare sandbox
-# server keeps that, and the Workflow starts this command inside the sandbox.
+# The run entrypoints. Not the container ENTRYPOINT: the Cloudflare sandbox
+# server keeps that, and the control plane starts one of these inside the
+# running sandbox.
+#
+# TWO of them, because on Cloudflare an image belongs to the containers
+# application rather than to a boot (tick x3v): one image serves both roles and
+# is told which it is playing by WHICH of these is started. ticks-orchestrator
+# works an epic; ticks-worker works one tick and pushes its branch and report.
+# common.sh is the role-neutral half both source — it is a library, not an
+# entrypoint, so it goes under share/ rather than bin/.
 COPY entrypoint.sh /usr/local/bin/ticks-orchestrator
+COPY worker.sh /usr/local/bin/ticks-worker
 COPY preflight.sh /usr/local/bin/ticks-preflight
-RUN chmod 0755 /usr/local/bin/ticks-orchestrator /usr/local/bin/ticks-preflight
+COPY common.sh /usr/local/share/ticks/common.sh
+RUN chmod 0755 /usr/local/bin/ticks-orchestrator /usr/local/bin/ticks-worker /usr/local/bin/ticks-preflight \
+    && chmod 0644 /usr/local/share/ticks/common.sh
 
 # Green-start discipline: prove every battery answers before the image ships.
 RUN set -euo pipefail; \
@@ -239,4 +250,6 @@ RUN set -euo pipefail; \
     timeout 60 omp --version; timeout 60 claude --version; \
     test -n "$(timeout 60 omp config path)"; \
     timeout 60 tk version | sed -n 1p; \
-    bash -n /usr/local/bin/ticks-orchestrator; bash -n /usr/local/bin/ticks-preflight
+    bash -n /usr/local/bin/ticks-orchestrator; bash -n /usr/local/bin/ticks-worker; \
+    bash -n /usr/local/bin/ticks-preflight; bash -n /usr/local/share/ticks/common.sh; \
+    /usr/local/bin/ticks-worker --probe | grep -q "ticks-worker-probe-ok"

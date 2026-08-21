@@ -1,0 +1,494 @@
+#!/usr/bin/env bash
+#
+# ticks-worker — the run entrypoint of a PER-TICK WORKER sandbox.
+#
+# One container, one tick: clone at the epic base, branch `tick/<epic>/<tick>`,
+# run the harness on that tick, commit and push the branch plus
+# `RESULT-<tick>.md`, exit with a code that says which class of thing happened
+# (docs/design/cloud-factory.md, "Worker agents"; tick tap).
+#
+# It is the container-side half of cloud/factory/src/worker-dispatch.ts. That
+# module boots the sandbox, probes it, confirms dispatch, waits, collects from
+# git and tears it down; it deliberately does not invent what the container
+# runs. This script is what it runs.
+#
+# ONE IMAGE, TWO ROLES. On Cloudflare an image belongs to the containers
+# application rather than to a boot (tick x3v), so a worker container is the
+# same image as the orchestrator container and has to be TOLD which role it is
+# playing. It is told by which entrypoint the control plane starts inside it:
+# `ticks-orchestrator` (entrypoint.sh) works an epic, `ticks-worker` (this
+# script) works one tick. Everything role-neutral between "the container
+# booted" and "the harness can make a model call" is sourced from common.sh, so
+# a fix to the gateway wiring cannot land in one role and miss the other.
+#
+# THE PROBE MARKER IS DEFINED HERE. `worker-dispatch.ts` runs a green-start
+# probe whose gate is the CONTENT of the output, not the exit code, and content
+# it has to check for is content this script has to promise. `ticks-worker
+# --probe` is that promise: it proves the container's essentials answer and
+# prints WORKER_PROBE_MARKER. Nothing in the dispatcher guesses at it — the
+# constant travels through internal/sandbox (Go), cloud/factory/src/worker-boot.ts
+# (TypeScript) and the shared fixture that pins the three together.
+#
+# WHY IT DOES NOT `exec` THE HARNESS. The orchestrator entrypoint execs, so the
+# harness's exit status is the run's. A worker cannot: its whole contract is
+# what it does AFTER the harness stops — commit the report, push the branch,
+# and turn "the agent exited 0 having done nothing" into an exit code somebody
+# can act on. The durable layer is the only channel (`worker-collect.ts` reads
+# git and nothing else), so the last thing this container does is make sure the
+# durable layer has something in it.
+set -uo pipefail
+
+readonly ME="ticks-worker"
+readonly ACTOR="cloud:worker"
+
+# The role-neutral half of this boot — exit codes, say/warn/die, the gateway and
+# model wiring, the harness probe, caches, the clone, toolchain provisioning,
+# `[sandbox]` setup and the environment pre-flight — is shared with the
+# orchestrator entrypoint and lives in common.sh.
+#
+# Resolved beside this script first, which is what the repository's tests run,
+# then from where the image installs it. TICKS_SANDBOX_COMMON overrides both.
+_ticks_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_ticks_common=""
+for _candidate in "${TICKS_SANDBOX_COMMON:-}" "$_ticks_here/common.sh" /usr/local/share/ticks/common.sh; do
+	[[ -n $_candidate && -r $_candidate ]] || continue
+	_ticks_common="$_candidate"
+	break
+done
+if [[ -z $_ticks_common ]]; then
+	printf '%s: cannot find common.sh — the image is broken\n' "$ME" >&2
+	exit 2
+fi
+# shellcheck source=common.sh
+. "$_ticks_common"
+unset _ticks_here _ticks_common _candidate
+
+# ---------------------------------------------------------------------------
+# The probe marker
+#
+# The word `worker-dispatch.ts` looks for in the probe's stdout before it will
+# count this container as launched. It is a fixed string with no version, date
+# or id in it, because the check is `output.includes(expect)` on both sides and
+# anything varying would make the two halves drift.
+# ---------------------------------------------------------------------------
+readonly WORKER_PROBE_MARKER="ticks-worker-probe-ok"
+
+# ---------------------------------------------------------------------------
+# Exit codes this role adds to common.sh's 2-8
+#
+# The classes a worker can end in that an orchestrator cannot. Each is a
+# different thing to do about it, which is the whole reason they are not one
+# code: a container that could not push has LOST work and must be retried; a
+# container that pushed a report and no work is the green-start trap's exit
+# counterpart (D23) and needs the tick looked at, not the container.
+# ---------------------------------------------------------------------------
+# Commits exist and origin would not take them. The worst outcome this script
+# can produce, because the work is real and now lives only in a container that
+# is about to be destroyed.
+readonly EXIT_PUSH=9
+# The branch and the report reached origin, and the harness committed nothing.
+# Not a crash: the harness exited 0 having done nothing, which is exactly the
+# failure the design says completion must be PROVED against rather than
+# inferred from an exit status.
+readonly EXIT_NO_WORK=10
+# The harness failed, ran out of time, or exited without writing its report.
+# All three are the agent not fulfilling its contract, and the report is half
+# of that contract: a tick whose only account of itself was written by this
+# script is not a tick that reported. Whatever it did commit was still pushed
+# first — this code describes the agent, never the durability.
+readonly EXIT_AGENT=11
+
+# ---------------------------------------------------------------------------
+# Inputs this role adds to common.sh's
+# ---------------------------------------------------------------------------
+# The one tick this container implements. Its own input rather than something
+# derived, because a worker sandbox with no tick has nothing to do and must say
+# so at boot instead of running an orchestrator prompt by accident.
+tick_id="${TICKS_TICK:-}"
+# How long the harness may run before this script stops waiting for it and
+# pushes what there is, in seconds; 0 leaves it unbounded. It exists because
+# the dispatcher's own wait timeout ends in `teardownWorker` KILLING the
+# container — and a killed container pushes nothing. A worker that bounds
+# itself just under the dispatcher's bound converts a hung agent into a pushed
+# branch plus a report, which is the difference between a lost tick and a
+# legible one. `worker-boot.ts` derives the value from the wave's wait timeout
+# so the two bounds cannot drift.
+harness_timeout="${TICKS_WORKER_TIMEOUT:-0}"
+# Whether this worker runs the repository's own `[sandbox]` setup.
+#
+# This is the performance question for the whole per-tick design, and it is a
+# switch rather than a decision because the measurement (tick kuf) says so:
+# fan-out per-sandbox time degrades 3.74x at N=5 and ALL of that is dependency
+# install, not the image pull. `always` is the default and the correct one — a
+# worker that cannot run the repository's tests cannot implement a tick — but a
+# wave of ticks that touch no dependencies can be dispatched with `skip` and
+# pay none of it. Either way the elapsed cost is printed, so the next person
+# tuning this reads a number from a boot log instead of re-deriving it.
+setup_mode="${TICKS_WORKER_SETUP:-always}"
+
+# Filled in by adopt_worker_branch: the branch this tick's commits land on and
+# the branch collect reads, and how many commits an earlier attempt had already
+# pushed to it. Empty until the checkout exists.
+worker_branch=""
+worker_branch_inherited=0
+# Filled in by main: the report path relative to the checkout root.
+result_path=""
+
+git_identity_name="ticks worker"
+git_identity_email="ticks-worker@ticks.invalid"
+
+# A worker implements; it does not plan waves or review epics. So it resolves
+# the `implement` cell of the repository's role/tier table, not the
+# orchestrator's frontier cell — routing a per-tick container at the
+# orchestrator's model is a silent multiple on every wave's bill.
+model_role="implement"
+model_role_hint="[roles.implement].model"
+
+require_inputs() {
+	require_common_inputs
+	if [[ -z $tick_id ]]; then
+		die $EXIT_CONFIG "no TICKS_TICK — a worker container implements exactly one tick and cannot be told which one; the dispatcher sets this when it boots the sandbox"
+	fi
+	if [[ ! $tick_id =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+		die $EXIT_CONFIG "TICKS_TICK is not a tick id: '$tick_id'"
+	fi
+	case "$setup_mode" in
+	always | skip) ;;
+	*) die $EXIT_CONFIG "unknown TICKS_WORKER_SETUP '$setup_mode' — expected always or skip" ;;
+	esac
+	if [[ ! $harness_timeout =~ ^[0-9]+$ ]]; then
+		die $EXIT_CONFIG "TICKS_WORKER_TIMEOUT is not a number of seconds: '$harness_timeout'"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# The probe
+#
+# Trivial work, run BEFORE any real work is dispatched, whose CONTENT is the
+# gate. It answers one question — is this container a working ticks worker? —
+# with the things a worker cannot do without: tk, git, and the harness binary
+# it was asked for. It deliberately makes no model call: the dispatcher runs
+# this once per sandbox in a wave, and the model round-trip is already proved
+# at boot by common.sh's `probe_harness` at the point where a failure has a
+# route to blame.
+#
+# It prints the marker LAST, so a probe that dies halfway prints diagnosis and
+# no marker rather than a marker followed by a failure.
+# ---------------------------------------------------------------------------
+run_probe() {
+	local failed=0 tk_version="" git_version=""
+	tk_version="$(tk version 2>/dev/null | sed -n 1p | awk '{ print $2 }')"
+	if [[ -z $tk_version ]]; then
+		warn "tk is not on PATH or printed no version"
+		failed=1
+	fi
+	git_version="$(git --version 2>/dev/null | sed -n 1p)"
+	if [[ -z $git_version ]]; then
+		warn "git is not on PATH"
+		failed=1
+	fi
+	if ! command -v "$harness" >/dev/null 2>&1; then
+		warn "the harness '$harness' is not on PATH — this image carries omp and claude"
+		failed=1
+	fi
+	if ((failed != 0)); then
+		printf '%s: probe red: this container cannot run a tick\n' "$ME" >&2
+		return 1
+	fi
+	# One line, marker included, so a reader (and the dispatcher) gets the
+	# facts and the gate together.
+	say "$WORKER_PROBE_MARKER tick=${tick_id:-unset} tk=${tk_version} harness=${harness} ${git_version}"
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# The branch
+#
+# `tick/<epic>/<tick>` — the name `worker-collect.ts` compares against the epic
+# base and reads the report out of. It is derived here and nowhere else; the
+# dispatcher is told the name rather than inventing a second spelling of it.
+#
+# A branch already on origin is an EARLIER ATTEMPT at this same tick, and it is
+# adopted rather than started over — the same rule the orchestrator's run
+# branch follows, for the same reason: collect explicitly still looks for a
+# prior attempt's pushed work, so overwriting it would destroy the evidence
+# this substrate promises to keep. Adoption is only correct when the pushed
+# branch descends from THIS boot's base; a branch from another base belongs to
+# a run at another base, is left untouched, and this attempt pushes beside it.
+# ---------------------------------------------------------------------------
+worker_branch_name() {
+	printf 'tick/%s/%s\n' "$epic" "$tick_id"
+}
+
+adopt_worker_branch() {
+	local remote_head
+	worker_branch="$(worker_branch_name)"
+	if git -C "$workdir" fetch -q origin "+refs/heads/${worker_branch}:refs/remotes/origin/${worker_branch}" 2>/dev/null &&
+		remote_head="$(git -C "$workdir" rev-parse --verify -q "refs/remotes/origin/${worker_branch}")" &&
+		[[ -n $remote_head ]]; then
+		if git -C "$workdir" merge-base --is-ancestor "$base_sha" "$remote_head" 2>/dev/null; then
+			git -C "$workdir" checkout -q -B "$worker_branch" "$remote_head" ||
+				die $EXIT_CLONE "cannot continue the pushed worker branch ${worker_branch} at ${remote_head}"
+			worker_branch_inherited="$(git -C "$workdir" rev-list --count "${base_sha}..HEAD" 2>/dev/null)" ||
+				worker_branch_inherited=0
+			say "adopted ${worker_branch} from origin: ${worker_branch_inherited} commit(s) an earlier attempt at ${tick_id} pushed, on top of ${base_sha}"
+			return 0
+		fi
+		worker_branch="${worker_branch}-${run_id}"
+		warn "origin already has tick/${epic}/${tick_id} from an attempt at a different base; leaving it untouched and pushing this attempt to ${worker_branch} instead"
+	fi
+	git -C "$workdir" checkout -q -B "$worker_branch" HEAD ||
+		die $EXIT_CLONE "cannot create the worker branch ${worker_branch}"
+	say "worker branch ${worker_branch} at ${base_sha}"
+}
+
+# The repository's own `[sandbox]` setup, timed and skippable — see setup_mode.
+worker_repo_setup() {
+	if [[ $setup_mode == "skip" ]]; then
+		warn "TICKS_WORKER_SETUP=skip: this worker does NOT run the repository's [sandbox] setup, so anything its tests need from a dependency install is missing"
+		return 0
+	fi
+	local started elapsed
+	started=$SECONDS
+	repo_setup
+	elapsed=$((SECONDS - started))
+	# kuf measured fan-out's 3.74x degradation at N=5 entirely inside this
+	# step. Printing the number per boot is what turns that from a measurement
+	# somebody has to remember into one every wave's logs restate.
+	say "repository setup took ${elapsed}s (this is the step per-tick fan-out pays N times; TICKS_WORKER_SETUP=skip opts a wave out of it)"
+}
+
+# ---------------------------------------------------------------------------
+# The prompt
+#
+# Rendered by `tk` out of the checkout at the base SHA, from the same template
+# `tk herd spawn` gives a herdr worker (internal/herd/spawn.BuildPrompt). One
+# template, so a container-per-tick substrate and a herdr-pane substrate cannot
+# hand the same tick two different jobs — the same reason `worker-collect.ts`
+# is a port of `internal/herd/collect` rather than a second opinion about what
+# "ready to merge" means.
+#
+# The shell never learns the tracker format for the same reason it never learns
+# runners.toml: `tk` owns it, and it is running in the checkout.
+# ---------------------------------------------------------------------------
+# Sets `prompt_text` rather than printing, because `die` inside a command
+# substitution kills the SUBSHELL and nothing else: a `prompt="$(build)"` that
+# refused would have printed its refusal and then started the harness on an
+# empty prompt anyway. Same trap as the `local x=$(...)` one common.sh warns
+# about in resolve_model, one level further out.
+prompt_text=""
+build_worker_prompt() {
+	local status
+	prompt_text="$(tk sandbox worker-prompt --root "$workdir" --tick "$tick_id" --branch "$worker_branch" --base "$base_sha")"
+	status=$?
+	if ((status != 0)); then
+		die $EXIT_CONFIG "tk could not build the worker prompt for ${tick_id} ('tk sandbox worker-prompt' exited $status; its reason is above) — the tick has to exist in the checkout at ${base_sha}"
+	fi
+	if [[ -z $prompt_text ]]; then
+		die $EXIT_CONFIG "tk built an empty worker prompt for ${tick_id} — refusing to start a harness with nothing to do"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# The harness
+#
+# Foreground, not exec'd, and bounded when the caller bounded it: everything
+# this script exists to do happens after it returns.
+# ---------------------------------------------------------------------------
+run_harness() {
+	local prompt="$1" status
+	export TK_ACTOR="$ACTOR"
+	export TICKS_RUN_ID="$run_id"
+	export TICKS_TICK="$tick_id"
+	export TICKS_WORKER_BRANCH="$worker_branch"
+	if [[ -n $factory_url ]]; then export TICKS_FACTORY_URL="$factory_url"; fi
+	if [[ -n $factory_token ]]; then export TICKS_FACTORY_TOKEN="$factory_token"; fi
+	if [[ -n $factory_project ]]; then export TICKS_FACTORY_PROJECT="$factory_project"; fi
+	cd "$workdir" || die $EXIT_CLONE "cannot enter $workdir"
+
+	local cmd=()
+	case "$harness" in
+	omp)
+		cmd=(omp -p "$prompt" --auto-approve --mode text --model "$harness_model_selector")
+		[[ -z $max_time ]] || cmd+=(--max-time "$max_time")
+		;;
+	claude)
+		cmd=(claude -p "$prompt" --dangerously-skip-permissions --model "$model_id")
+		;;
+	esac
+
+	say "starting the $harness harness on tick ${tick_id} (branch ${worker_branch})"
+	if ((harness_timeout > 0)); then
+		bounded "$harness_timeout" "${cmd[@]}" </dev/null
+		status=$?
+		if ((status == 124)); then
+			warn "the harness did not finish within ${harness_timeout}s; stopping it here so this container still pushes what it has"
+		fi
+	else
+		"${cmd[@]}" </dev/null
+		status=$?
+	fi
+	say "the $harness harness exited $status"
+	return $status
+}
+
+# ---------------------------------------------------------------------------
+# The report
+#
+# `RESULT-<tick>.md` is the only channel a worker has, and in this substrate it
+# has to be COMMITTED: the container is destroyed and collect reads the file
+# off the pushed branch through GitHub, not out of a worktree the way `tk herd
+# collect` does. The agent is told not to commit it (that is the herdr-shaped
+# instruction it shares with every other worker); this script commits it, as
+# its own commit, with an explicit pathspec so a stray staged file cannot ride
+# along (`.tick/learnings.md`, "Naming and tracker hygiene").
+#
+# The agent's own words are never rewritten — in particular its `STATUS:` line
+# is left exactly where it put it, because that line is the verdict and a
+# container editing it would be a container reporting on the agent's behalf.
+# What this adds is a header of facts the agent could not know: what its own
+# exit status was, how many commits it actually made, and what it left
+# uncommitted.
+# ---------------------------------------------------------------------------
+work_commits() {
+	local count
+	count="$(git -C "$workdir" rev-list --count "${base_sha}..HEAD" 2>/dev/null)" || count=0
+	printf '%s\n' "${count:-0}"
+}
+
+uncommitted_files() {
+	local count
+	count="$(git -C "$workdir" status --porcelain 2>/dev/null | grep -c -v "^?? ${result_path}$")" || count=0
+	printf '%s\n' "${count:-0}"
+}
+
+write_fallback_report() {
+	local status="$1"
+	cat >"$workdir/$result_path" <<-REPORT
+		# ${tick_id}
+
+		The harness exited ${status} without writing ${result_path}. This report was
+		written by ${ME} so the tick's outcome reaches the durable layer at all — an
+		absent report is indistinguishable from a container that never ran.
+
+		Nothing here is the agent's own account of the work; there is none.
+
+		STATUS: BLOCKED — the harness exited ${status} and wrote no report; re-dispatch this tick
+	REPORT
+	warn "the harness wrote no ${result_path}; ${ME} wrote one recording that"
+}
+
+prepend_container_facts() {
+	local status="$1" commits="$2" dirty="$3" tmp="$workdir/$result_path.ticks-worker"
+	{
+		printf '<!-- %s: container facts, prepended after the harness exited. The\n' "$ME"
+		printf 'agent'"'"'s report, including its STATUS line, is unchanged below. -->\n\n'
+		printf '_%s: branch `%s`, base `%s`, harness `%s` exited %s, %s work commit(s), %s uncommitted path(s)._\n\n' \
+			"$ME" "$worker_branch" "$base_sha" "$harness" "$status" "$commits" "$dirty"
+		cat "$workdir/$result_path"
+	} >"$tmp" && mv "$tmp" "$workdir/$result_path" || {
+		rm -f "$tmp"
+		warn "could not annotate ${result_path}; pushing the agent's report as it stands"
+	}
+}
+
+commit_report() {
+	if ! git -C "$workdir" add -- "$result_path"; then
+		warn "could not stage ${result_path}"
+		return 1
+	fi
+	if git -C "$workdir" diff --cached --quiet -- "$result_path"; then
+		say "${result_path} is already committed on ${worker_branch}"
+		return 0
+	fi
+	git -C "$workdir" commit -q -m "tick ${tick_id}: worker report" -- "$result_path" || {
+		warn "could not commit ${result_path}"
+		return 1
+	}
+	say "committed ${result_path}"
+	return 0
+}
+
+# Fast-forward only. This branch is the worker's to own, and it was adopted
+# rather than reset precisely so the push is a fast-forward; a rejection here
+# means something else moved it, and forcing over that would destroy work this
+# substrate promised to keep.
+push_branch() {
+	local out
+	out="$(git -C "$workdir" push origin "HEAD:refs/heads/${worker_branch}" 2>&1)"
+	if (($? != 0)); then
+		warn "$out"
+		return 1
+	fi
+	say "pushed ${worker_branch} to origin"
+	return 0
+}
+
+main() {
+	if [[ ${1:-} == "--probe" ]]; then
+		harness="${TICKS_HARNESS:-omp}"
+		run_probe
+		exit $?
+	fi
+
+	say "worker ${run_id}: tick ${tick_id:-<unset>} of epic ${epic} at ${base_sha} (harness ${harness})"
+	require_inputs
+	result_path="RESULT-${tick_id}.md"
+	require_gateway
+	configure_model_routing
+	configure_caches
+	clone_at_sha
+	adopt_worker_branch
+	cd "$workdir" || die $EXIT_CLONE "cannot enter $workdir"
+	verify_tk
+	# Settled and proved BEFORE the slow, expensive steps, exactly as the
+	# orchestrator does it: a container that cannot make a model call is over
+	# whether or not its toolchain installed.
+	resolve_model
+	select_model_route
+	probe_model
+	select_harness_route
+	configure_harness_provider
+	probe_harness
+	provision_toolchain
+	worker_repo_setup
+	run_preflight
+
+	build_worker_prompt
+	run_harness "$prompt_text"
+	local harness_status=$?
+
+	# From here on nothing may stop this script early: whatever happened, the
+	# durable layer gets the branch and the report.
+	local commits dirty reported=1
+	commits="$(work_commits)"
+	dirty="$(uncommitted_files)"
+	if [[ ! -f $workdir/$result_path ]]; then
+		write_fallback_report "$harness_status"
+		reported=0
+	fi
+	prepend_container_facts "$harness_status" "$commits" "$dirty"
+	commit_report
+	local pushed=0
+	push_branch || pushed=1
+
+	say "tick ${tick_id}: ${commits} work commit(s), ${dirty} uncommitted path(s), harness exit ${harness_status}"
+
+	# Precedence, worst first. A push that failed means the work exists only in
+	# a container about to be destroyed, which outranks anything the agent did;
+	# a failed harness outranks "it committed nothing", because the exit status
+	# already says why it committed nothing.
+	if ((pushed != 0)); then
+		die $EXIT_PUSH "could not push ${worker_branch} to origin — this tick's work exists ONLY in this container and dies with it. The reason git gave is above."
+	fi
+	if ((harness_status != 0 || reported == 0)); then
+		exit $EXIT_AGENT
+	fi
+	if ((commits == 0)); then
+		warn "the harness exited 0 and committed nothing to ${worker_branch}; the report is on origin and the tick is not implemented"
+		exit $EXIT_NO_WORK
+	fi
+	exit 0
+}
+
+main "$@"

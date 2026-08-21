@@ -179,9 +179,18 @@ const (
 	ExitHarness = 8
 )
 
-// Script names the files the image installs into /usr/local/bin.
+// Script names the files the image installs.
+//
+// One image plays two roles (tick x3v): entrypoint.sh is the orchestrator's
+// run entrypoint and worker.sh is a per-tick worker's, and CommonScript is the
+// role-neutral half both source — the gateway and model wiring, the harness
+// probe, caches, the clone, provisioning, setup and the pre-flight. It is a
+// library rather than a third entrypoint, and it is sourced rather than copied
+// so a fix to any of that cannot land in one role and miss the other.
 const (
 	EntrypointScript = "entrypoint.sh"
+	WorkerScript     = "worker.sh"
+	CommonScript     = "common.sh"
 	PreflightScript  = "preflight.sh"
 	DockerfileName   = "Dockerfile"
 )

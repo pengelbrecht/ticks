@@ -23,6 +23,10 @@ func TestEntrypointTkCommandsAreDerivedFromTheScripts(t *testing.T) {
 		"sandbox setup",
 		"sandbox substrate",
 		"sandbox toolchain",
+		// The worker entrypoint's own delegation: the job one per-tick
+		// container is given comes from the tracker in the checkout, read by
+		// tk rather than by the shell (tick tap).
+		"sandbox worker-prompt",
 		"version",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
