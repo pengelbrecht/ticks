@@ -684,6 +684,177 @@ counted together:
   configurable window — a queue that silently ignites work hours later is worse
   than a refusal.
 
+### UC1c — Two epics at once, on one repo
+
+*"The factory has been running `pay-4` all evening. I also want `auth-9` moving.
+Same repo. Can it?"*
+
+**Today: no, deliberately.** The dispatch lease is one per project — `runs.ts`
+takes `RUN_ROOMS.idFromName(project)` and the room keeps a single-row
+`dispatch_lease` — so a second submission is refused naming the holder
+(`lease_held_by:<run>`), or parks with `--queue` (D22). That is D4 enforced at
+ignition: exactly one `.tick/` writer per project.
+
+D4 is right about **tracker writes** and too wide as a limit on **runs**. A
+factory that can only ever run one epic at a time is a serial machine, and the
+question is whether the exclusive thing can be narrowed from *the project* to
+*the tracker mutation*. It can — but not for free, and the price is paid in
+places that have no machinery yet. What follows is verified rather than
+assumed; the reproductions are in `repo-wiki/concurrent-epics.md`.
+
+#### What actually conflicts
+
+Two epics touch disjoint sets of tick files, and `.tick/` is a directory of
+per-tick JSON with a field-level merge driver. Most of the tracker is therefore
+not contended at all:
+
+| Surface | Two epics at once | Why |
+|---|---|---|
+| `.tick/issues/<id>.json`, different ids | no conflict | different files; git has nothing to merge |
+| `.tick/pending/<qid>.json` | no conflict | question ids are unique by registration |
+| `.tick/activity/activity.jsonl` | clean **where the driver runs** | `tick-activity` unions on `(ts, tick, action, actor)` and sorts |
+| `.tick/issues/<id>.json`, **same id** | fails closed, illegibly | ids are minted against one checkout (`internal/tick/id.go` asks `exists` about the local tree), so two runs can mint one 3-char id for two different ticks. git presents this as add/add with an empty base; the driver cannot parse it and exits non-zero, so git records a conflict instead of fusing two unrelated ticks through the field merge. Pinned by `TestMergeFileRefusesAddAdd`. The operator, however, sees `failed to read base: unexpected end of JSON input` and a usage dump — neither the collision nor the fix |
+| a tick claimed by both runs | not reachable by dispatch | a tick has one parent; each run dispatches its own epic's subtree. A tick shared as a cross-epic `--blocked-by` is *read* by both and closed by one — the merge driver's monotonic status rank already handles that |
+| `.tick/learnings.md` | conflicts, and dangerously | the retro **compacts** the file (rewrite under a 150-line cap), so two closeouts rewrite the same lines with no driver; a careless resolution silently drops the other epic's rules |
+| `.tick/config.md`, `.tick/runners.toml`, `CHANGELOG.md` | ordinary text conflicts | shared prose, resolvable, and already expected between two ticks in one wave |
+| `tick-run/<epic>`, `tick/<epic>/<tick>` | no conflict | separate refs, epic-namespaced, pushed independently; git updates refs atomically per ref |
+| merge into the default branch | **the serialisation point** | below |
+
+**The merge drivers are local git config, and GitHub does not have them.** This
+is the finding that decides the shape. `merge=tick` and `merge=tick-activity`
+resolve to commands in `.git/config`, installed by `tk init` in a checkout;
+GitHub's server-side merge runs neither. Verified: two branches appending
+different lines to `activity.jsonl` merge clean with the driver and conflict
+without it. Serial epics never hit this — the second branches off the first's
+merge, so only one side has touched the tail. Two concurrent epics both append
+from a shared base, so **every second concurrent epic PR conflicts on
+`activity.jsonl` on the server** and has to be resolved in a checkout that has
+the driver. Nothing is corrupted; a step that is invisible today becomes
+mandatory, and it is mandatory on the human's path, not the run's.
+
+So the honest inventory is: the tracker is *nearly* concurrency-safe by
+construction, and the three things that are not — id minting, the compacted
+`learnings.md`, and the driverless server-side merge — are all at **closeout**,
+not during the run.
+
+#### Lease granularity
+
+| Option | What it gives | What it costs |
+|---|---|---|
+| **A. Project-exclusive** (today) | D4 with no reasoning required; one writer, one PR, one Telegram thread | a serial factory |
+| **B. Per-epic lease + a narrow tracker-write lease** | concurrent runs; the commit to `.tick/` serialised globally | the lease has to be taken across a *container's* git operations, which the control plane cannot see or fence. Rebuilds a distributed write lock over git — the thing git already solved |
+| **C. Per-epic lease + per-run branch, merged at closeout** | concurrent runs; contention handled by the tool built for it | the closeout seams above become load-bearing, and the merge into the default branch still serialises |
+
+**C is the shape**, because it is what the run already does: each run commits to
+`tick-run/<epic-id>`, pushes it continuously, and merges at closeout behind the
+PR + CI gate. Concurrency does not need a new mechanism, only permission — and
+the seams closed.
+
+The correct restatement of D4 is therefore: **what must be exclusive is the
+merge of tracker state into the default branch, not the run.** That is already
+serialised by something outside the factory — GitHub merges one PR at a time
+into one branch, and this repo's rule requires green CI on each — so the second
+epic's PR rebases onto the first and re-runs CI. That is the cost, and it is a
+CI run, not a lock.
+
+#### Decision: serial by default, as policy rather than as an axiom
+
+Concurrency stays **off**, with the cap expressed as a number that defaults to
+today's behaviour instead of as a property of the architecture:
+
+- The RunRoom lease becomes an **N-slot lease** — the same compare-and-delete
+  release, the same alarm expiry, the same refusal naming the holders, with
+  `slots` instead of a single row. `N = 1` is today's refusal, byte for byte.
+- `N` comes from `[orchestration].max_concurrent_runs` in the project's
+  `.tick/runners.toml`, **default 1**, read by the dispatcher at submission.
+  It is dispatch policy, so it lives in versioned config and is enforced in the
+  control plane, never in a prompt (D14) — the same rule `max_parallel` now
+  follows on the claim path.
+- A second ceiling is the deployment's: `max_instances = 3` in the factory's
+  `wrangler.toml` bounds concurrent containers **across all projects**, and the
+  headroom above one run exists for the overlap a reboot creates. A factory-wide
+  `FACTORY_MAX_CONCURRENT_RUNS` refuses at submission with a logged dispatch
+  reason (D20) rather than letting a container start fail minutes later. The
+  arithmetic a cap has to respect is `sum over runs (1 orchestrator +
+  max_parallel workers)`: `max_parallel` is per epic, so two concurrent epics
+  multiply the wave width as well as the orchestrators.
+
+**Why not raise the default now.** Every seam that concurrency stresses is at
+closeout, which is exactly where a run is least supervised: the operator is
+asleep, and a botched `learnings.md` compaction or a silently dropped tick is
+discovered days later. A collision would also be rare enough to be untested in
+practice — 3-char ids and a retro that usually works — which is the profile of
+a bug that lands once, in the dark, on the tracker itself. Serial costs latency;
+concurrent-before-the-seams costs correctness on the one file that records what
+the factory did.
+
+**What becomes possible when the default rises**, and what stays serialised:
+two epics ignite, run and push independently, ask questions independently, and
+report independently. Their merges into the default branch remain one at a time,
+their `.tick/` conflicts are resolved by the drivers in a checkout that has
+them, and the second PR pays a CI re-run.
+
+#### Prerequisites (each a tick, none large)
+
+1. **Tick ids survive concurrent minting.** Either mint with a per-run
+   discriminator, or teach the driver to *name* the collision: an add/add on
+   `.tick/issues/<id>.json` should say "two runs minted `<id>` for different
+   ticks; rename one" instead of a JSON parse error. Failing closed is already
+   proven; being legible is not.
+2. **The retro appends, or merges, but does not blind-rewrite.** Compaction on a
+   concurrent branch must reconcile against the base it forked from — or move
+   compaction out of closeout and into a periodic, single-writer pass.
+3. **The driverless server-side merge is handled once, not per incident.**
+   Either the closeout rebases the run branch onto the default branch (in the
+   container, where the drivers are installed) before opening the PR, or a CI
+   job resolves `.tick/` conflicts with `tk merge-file` / `tk merge-activity`.
+4. **The N-slot lease**, with `[orchestration].max_concurrent_runs` (default 1)
+   and the factory-wide ceiling above it.
+5. **`status` shows the project's slots**, not a boolean: which runs hold them,
+   which submissions are queued behind them, and the two caps that produced the
+   number.
+
+#### Telegram across concurrent epics
+
+Gates carry run/tick/epic identity, and the machine path is already
+epic-agnostic in the right way:
+
+- **Buttons are unambiguous, and stay so.** Callback data is `q:<question-id>:<n>`
+  (or `r:<message-id>:<n>` for ids too long for Telegram's 64-byte limit), and
+  the webhook resolves it against the RunRoom entry with that id. Two epics in
+  one project change nothing: a press names one question.
+- **Reply-to is unambiguous, and becomes the common path.** In a group with bot
+  privacy mode on — the recommended configuration for topics — the bot only sees
+  commands and replies to its own messages, so a free-text answer is
+  reply-scoped by construction.
+- **The bare-text rules hold for N epics as written**, because they count *open
+  questions*, not projects: exactly one open question anywhere resolves it, two
+  or more must refuse and list the candidates. What must change is the list —
+  candidates are named by **project + epic + tick**, since "two open questions"
+  in one project is now a normal state rather than a sign of two repos.
+- **A topic is a project, not an epic.** Forum topics are created at enrolment
+  and are the project's durable identity; an epic is transient, and per-epic
+  topics would churn the sidebar and leave project-scoped traffic — UC2 triage
+  drafts, dispatcher refusals, budget alerts — with no topic to land in. Epic
+  identity belongs in the message text, which every gate, report and completion
+  must carry anyway for a shared chat to be legible at all.
+
+**Decisions forced.**
+
+- **What is exclusive is the tracker's merge into the default branch, not the
+  project.** D4 stands as a rule about writers; it stops being a rule about runs.
+- **Concurrency is a number with a default of 1.** Shipping the slot lease
+  without raising the default is the whole point: the refusal stays exactly as
+  it is today, and turning it on later is a config change against seams that
+  have been closed on purpose rather than a re-argument of this section.
+- **The caps live with the dispatcher.** Per-project in versioned config,
+  factory-wide in the deployment, both enforced at submission with a logged
+  reason — never in a prompt, and never discovered when a container fails to
+  start.
+- **Telegram needs legibility, not new arbitration.** Ids already disambiguate
+  the machine path; epic identity in the message text and in the refusal list is
+  what the human needs.
+
 ### UC2 — Telegram, directly
 
 *"Standing in line for coffee: I message my bot — 'the login page 500s on
@@ -1083,6 +1254,7 @@ Collected from the use cases; each appears above in context.
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
 | D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
 | D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
+| D25 | Two epics at once on one repo is a policy question, not an architectural one: what must be exclusive is the tracker's merge into the DEFAULT BRANCH, not the run, so the project lease becomes an N-slot lease with `[orchestration].max_concurrent_runs` (default 1 — today's refusal, unchanged) under a factory-wide ceiling bounded by `max_instances`. Concurrency stays off until the three closeout seams close: ids are minted per checkout, the retro compacts `.tick/learnings.md` by rewrite, and GitHub's server-side merge has none of the tick merge drivers. Telegram needs legibility (project + epic + tick on every gate, report and refusal list), not new arbitration — button and reply-to answers are already id-scoped | UC1c |
 
 ## What this is *not*
 

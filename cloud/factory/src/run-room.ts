@@ -35,6 +35,14 @@
  * lease and arbitrate nothing. See docs/design/cloud-factory.md ("The RunRoom
  * DO", D4, D5, D19).
  *
+ * The single row is a *policy* of one concurrent run per project, not a fact
+ * about the tracker: two epics touch disjoint tick files, and what genuinely
+ * has to be serialised is the merge of tracker state into the default branch
+ * (D25, UC1c). The designed shape when that changes is an N-slot lease —
+ * same compare-and-delete release, same alarm expiry, same refusal naming the
+ * holders — with N from `[orchestration].max_concurrent_runs`, defaulting to
+ * 1 so this file's behaviour is unchanged until a project opts in.
+ *
  * Reconcile alarms and `run_event` fan-out to the board's ProjectRoom are
  * later phases. The DO alarm is multiplexed: `#armAlarm` takes the earliest of
  * the lease deadline and the queue's expiries, and every handler re-arms for
