@@ -30,6 +30,29 @@ Read the current mode from the gateway object:
 Cloudflare unified Workers AI and AI Gateway billing on 2026-08-07, so any
 reasoning about this that predates that changelog entry is wrong.
 
+## Confirmed against the operator's account (2026-08-21)
+
+Dashboard evidence, since none of this is readable with the factory's token:
+
+- **Workers AI is a covered product.** The Startup Program credit explicitly caps
+  Workers AI at $50,000 and R2 at $10,000 — a cap is only stated for something
+  that is covered. **AI Gateway is excluded** ("temporarily not covered").
+- **Cloudflare classifies our traffic as Workers AI, not as AI Gateway.** The
+  Workers AI usage dashboard attributes it to `@cf/deepseek-ai/deepseek-v4-pro-0813`:
+  4.54M Neurons, 46.73M input tokens. At published Neuron rates that is ~$49.9,
+  which matches the $49.80 the gateway logs reported to within rounding. So the
+  gateway `cost` field is not a private estimate — it is the real Workers AI
+  charge, and routing through a gateway did not reclassify it.
+- **It had not reached billable usage yet.** Mid-cycle, the account showed
+  $0.28 total (Container Memory, R2) with **no Workers AI product family at all**
+  in the filter list, and the credit read $9,999.91 of $10,000 with 0% used.
+  Do not read "not in billable usage" as "not charged": usage lands there on a
+  lag, and the cycle had not closed.
+
+Consequence for anyone reading a cost number here: **the Workers AI dashboard is
+the reconciliation point, not the billing page.** Compare gateway-log cost against
+Neurons there; the billing page only catches up at cycle close.
+
 ## What the credit does not cover
 
 Only Workers AI reaches the Cloudflare invoice at all. The other three
