@@ -2,12 +2,14 @@
   "id": "l4l",
   "title": "tk cloud trace: read a run's model conversation, tool calls and cache stats",
   "description": "There is no way to see what a cloud run actually said or decided. tk factory has deploy/setup/status and tk cloud has run/stop/status; none of them reads a conversation, and D1 deliberately holds control-plane state only (runs, signals, dispatch_log, run_gateway_token, run_image, run_progress) — no messages.\n\nThe data already exists and is complete. AI Gateway keeps every proxied call, filterable by metadata.run_id, and serves full bodies from two detail endpoints: GET /ai-gateway/gateways/{gw}/logs/{id}/request returns the whole message array, and .../response returns choices, tool_calls and usage. Each log row also carries usage_metadata.input_cached_tokens, which is the only way to measure whether prefix caching is actually hitting — the l8z acceptance criterion. Proven by hand on run_62c289d1: 20 calls, 999,040 input tokens, 446,208 cached, and per-call rates swinging between 92 percent and 0 percent.\n\nTwo different things want two commands, so do not conflate them:\n- tk cloud logs \u003crun\u003e — the harness stdout/stderr already streamed to R2, which is what the container printed.\n- tk cloud trace \u003crun\u003e — the model conversation: message roles, tool calls and their arguments, tokens in/out and cached per call, cost per call.\n\nSuggested flags for trace: --json for the raw rows, --call N to dump one exchange in full, --tools for just the tool calls, --cache for the per-call cache table that answers the caching question at a glance.\n\nNote the constraint: D21 fixes the operator-to-orchestrator COMMAND vocabulary at run/stop/status/answer. These are read-only observation commands and do not steer a run, so they do not widen that vocabulary — but say so explicitly in the design doc when this lands, or the next reader will think D21 was violated.",
-  "status": "open",
+  "notes": "2026-08-21 14:37 - Seam: wave 1 with kji and uzx, who both edit cloud/factory/src/run-workflow.ts — stay out of it. You own new files under cmd/tk/cmd plus whatever reader they need. A working prototype of the whole data path is in this session's scratch: it pages /ai-gateway/gateways/{gw}/logs filtered on metadata.key=run_id and metadata.value=\u003crun\u003e, then reads /logs/{id}/request and /logs/{id}/response. THE TRAP, which cost real time: responses are streamed, so choices[0].message on the RESPONSE is empty (content null, tool_calls null) — reconstruct what the model did from the assistant messages inside each REQUEST body, deduplicated across calls. Reading the response and concluding the model emitted nothing is wrong. Cached tokens come from usage_metadata.input_cached_tokens.",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T09:44:29.003001Z",
-  "updated_at": "2026-08-21T09:44:29.003001Z"
+  "updated_at": "2026-08-21T12:37:09.64107Z",
+  "started_at": "2026-08-21T12:37:09.564866Z"
 }
