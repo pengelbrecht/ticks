@@ -7,11 +7,13 @@
   "type": "feature",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "0ds"
+    "0ds",
+    "tap",
+    "b6e"
   ],
   "parent": "1vn",
   "acceptance_criteria": "A cloud run appears live on the board with per-tick state from anywhere; the emitted source values are the substrate-shaped ones; a run whose events are dropped still completes and still collects correctly, proving the stream is observability rather than control.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T02:35:09.939408Z",
-  "updated_at": "2026-08-20T02:35:09.939408Z"
+  "updated_at": "2026-08-21T17:43:04.288596Z"
 }

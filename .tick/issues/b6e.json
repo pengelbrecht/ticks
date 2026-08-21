@@ -6,8 +6,11 @@
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "tap"
+  ],
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T17:42:36.896511Z",
-  "updated_at": "2026-08-21T17:42:36.896511Z"
+  "updated_at": "2026-08-21T17:43:04.220939Z"
 }
