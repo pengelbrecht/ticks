@@ -112,6 +112,28 @@ class FakeGateway {
   }
 }
 
+/**
+ * The operator's gateway, stubbed on the global fetch.
+ *
+ * `proxyModelRequest` takes an injected fetcher, but a request that arrives
+ * through `SELF.fetch` goes through the deployment's own routing and reaches
+ * the global one — which is exactly why a route-level test needs this and the
+ * unit-level ones do not.
+ */
+function stubUpstream(): { calls: string[]; restore: () => void } {
+  const calls: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.startsWith(GATEWAY)) {
+      calls.push(url);
+      return Response.json({ content: [{ text: "hello" }] });
+    }
+    return original(input as RequestInfo, init);
+  }) as unknown as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
 function modelRequest(body = '{"model":"claude","messages":[]}', headers: HeadersInit = {}): Request {
   return new Request(`${FACTORY}${GATEWAY_PATH_PREFIX}/anthropic/v1/messages`, {
     method: "POST",
@@ -520,6 +542,42 @@ describe("revoking a run's token stops its model traffic", () => {
     // Nothing reached the gateway: the refusal is at the credential layer, so
     // it works on an agent that never reads a message it is sent.
     expect(gateway.calls).toHaveLength(1);
+  });
+
+  it("refuses on the very next request through the deployed route, not just the proxy call", async () => {
+    // The unit above proves the function refuses. This one proves the ROUTE
+    // does — the same entry a sandbox's model traffic actually arrives on —
+    // because the live failure tick gyl came from looked exactly like a proxy
+    // that had cached, or never re-read, the credential it was handed.
+    const run = await liveRun();
+    const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "ko8", attempt: 1 });
+    const upstream = stubUpstream();
+
+    try {
+      const before = await SELF.fetch(`${FACTORY}${GATEWAY_PATH_PREFIX}/anthropic/v1/messages`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: '{"model":"claude","messages":[]}',
+      });
+      expect(before.status).toBe(200);
+      expect(upstream.calls).toHaveLength(1);
+
+      // Mid-run, with the same credential in the same container: the operator
+      // pulls the switch.
+      expect(await revokeRunTokens(env, run.run_id, "stopped:hard:operator")).toBe(1);
+
+      const after = await SELF.fetch(`${FACTORY}${GATEWAY_PATH_PREFIX}/anthropic/v1/messages`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: '{"model":"claude","messages":[]}',
+      });
+      expect(after.status).toBe(403);
+      await expect(after.json()).resolves.toMatchObject({ error: "run_token_revoked" });
+      // The next request, not the next minute: nothing more reached upstream.
+      expect(upstream.calls).toHaveLength(1);
+    } finally {
+      upstream.restore();
+    }
   });
 
   it("rotates on re-issue: the previous boot's token is dead before the next one is live", async () => {

@@ -117,7 +117,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Cloud Runs:")
 	fmt.Println("  tk cloud run <epic>           Push the current branch and start a cloud run")
-	fmt.Println("  tk cloud stop <run>           Request a clean stop")
+	fmt.Println("  tk cloud stop <run>           Request a clean stop (--now to revoke the gateway credential immediately)")
 	fmt.Println("  tk cloud status               Show cloud runs, leases and queued submissions")
 	fmt.Println()
 	fmt.Println("Skill Bundle:")

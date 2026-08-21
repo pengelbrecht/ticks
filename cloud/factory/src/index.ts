@@ -45,6 +45,7 @@ import {
   type PendingKind,
   type Question,
   type RegisterQuestionRequest,
+  type StopMode,
 } from "./run-room";
 import {
   DEFAULT_RUN_LIMIT,
@@ -231,11 +232,35 @@ async function runRoute(runID: string, env: Env): Promise<Response> {
   return Response.json(status);
 }
 
+/**
+ * Which stop the caller asked for.
+ *
+ * `mode` is the field; `now: true` is the same request spelled the way the CLI
+ * flag reads (`tk cloud stop --now`). Anything else is refused rather than
+ * quietly downgraded to a clean stop — an operator reaching for the kill
+ * switch must never be answered by the stop that does not stop (tick gyl).
+ */
+function stopMode(body: unknown): { ok: true; mode: StopMode } | { ok: false; detail: string } {
+  const record = (body as Record<string, unknown> | null) ?? {};
+  const mode = record.mode;
+  if (mode === undefined || mode === null) {
+    return { ok: true, mode: record.now === true ? "hard" : "clean" };
+  }
+  if (mode === "clean" || mode === "hard") return { ok: true, mode };
+  return {
+    ok: false,
+    detail: `stop mode must be "clean" or "hard", not ${JSON.stringify(mode)}`,
+  };
+}
+
 async function stopRoute(request: Request, runID: string, env: Env): Promise<Response> {
   const json = await readJSON(request);
   if (!json.ok) return badRequest("the request body must be JSON");
 
-  const result = await stopRun(env, runID, attribution(json.body));
+  const mode = stopMode(json.body);
+  if (!mode.ok) return badRequest(mode.detail);
+
+  const result = await stopRun(env, runID, attribution(json.body), mode.mode);
   switch (result.outcome) {
     case "stopping":
       return Response.json({
@@ -243,6 +268,10 @@ async function stopRoute(request: Request, runID: string, env: Env): Promise<Res
         stop: result.stop,
         already_stopping: result.already,
         workflow_notified: result.workflow_notified,
+        // What was performed, not what was asked for: a hard stop that found
+        // nothing live to revoke still says so.
+        mode: result.mode,
+        tokens_revoked: result.tokens_revoked,
       });
     case "unknown_run":
       return Response.json({ error: "unknown_run", detail: `no run ${runID}` }, { status: 404 });

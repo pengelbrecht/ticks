@@ -497,3 +497,52 @@ func TestCloudStatusSaysWhenNoImageWasRecorded(t *testing.T) {
 		t.Errorf("status is silent about the missing image:\n%s", buf.String())
 	}
 }
+
+// TestCloudStopNowAsksForAHardStopAndSaysWhichItPerformed pins tick gyl's
+// operator-facing half: `--now` must reach the factory as a hard stop, and the
+// output must say which stop happened rather than leaving an operator to
+// assume the one they asked for is the one they got.
+func TestCloudStopNowAsksForAHardStopAndSaysWhichItPerformed(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, requests := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method == http.MethodPost && request.Path == "/api/runs/run_live/stop" {
+			mode, _ := request.Body["mode"].(string)
+			return http.StatusOK, map[string]any{
+				"run":            map[string]any{"run_id": "run_live", "state": "stopping"},
+				"mode":           mode,
+				"tokens_revoked": 1,
+			}
+		}
+		return http.StatusNotFound, map[string]any{"error": "not_found"}
+	})
+	configureCloudFactory(t, endpoint)
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"cloud", "stop", "run_live", "--now"}); err != nil {
+		t.Fatalf("cloud stop --now: %v\n%s", err, buf.String())
+	}
+	if got := (*requests)[0].Body["mode"]; got != "hard" {
+		t.Fatalf("stop mode = %#v, want hard", got)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "hard stop") {
+		t.Fatalf("--now output does not say a hard stop was performed:\n%s", out)
+	}
+	if !strings.Contains(out, "gateway credentials revoked: 1") {
+		t.Fatalf("--now output does not report the revocation:\n%s", out)
+	}
+
+	// The default is still the clean stop, and says so — including how to ask
+	// for the other one.
+	buf.Reset()
+	if err := ExecuteArgs([]string{"cloud", "stop", "run_live"}); err != nil {
+		t.Fatalf("cloud stop: %v\n%s", err, buf.String())
+	}
+	if got := (*requests)[1].Body["mode"]; got != "clean" {
+		t.Fatalf("default stop mode = %#v, want clean", got)
+	}
+	clean := buf.String()
+	if !strings.Contains(clean, "clean stop") || !strings.Contains(clean, "--now") {
+		t.Fatalf("clean stop output does not name the hard variant:\n%s", clean)
+	}
+}

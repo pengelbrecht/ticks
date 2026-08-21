@@ -884,6 +884,94 @@ describe("the run's gateway credential is the kill switch", () => {
     expect((await settled(runID)).state).toBe("stopped");
   });
 
+  it("kills the credential before the grace window when a budget trips, not after it", async () => {
+    // Tick gyl's second defect. Finishing in-flight work is right for an
+    // ordinary stop and wrong for a run that is already over its allowance:
+    // the grace window is time the runaway spends. So a budget trip revokes
+    // FIRST, and the drain happens on a container that can no longer spend.
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    set("RUN_MAX_COST_USD", "1");
+    // Wide enough that "before" and "after" the grace window are not the same
+    // instant — the whole point of the assertion below.
+    set("RUN_STOP_GRACE_MS", "3000");
+    const logs = stubLogsAPI(9.99, undefined, 50);
+
+    try {
+      const { runID } = await ignite();
+      const process = await firstProcess();
+      const token = process.env.AI_GATEWAY_TOKEN!;
+      const gateway = fakeGateway();
+      expect((await modelCall(token, gateway.fetcher)).status).toBe(200);
+
+      // The budget trips. The credential dies while the orchestrator is still
+      // running, inside the window it would otherwise have kept spending in.
+      await waitFor("the run's credential to be revoked", async () => {
+        const tokens = await listRunGatewayTokens(env.DB, runID);
+        return tokens.length > 0 && tokens.every((entry) => entry.revoked_at !== null);
+      });
+      expect(process.killed).toBe(false);
+      const refused = await modelCall(token, gateway.fetcher);
+      expect(refused.status).toBe(403);
+      await expect(refused.json()).resolves.toMatchObject({ error: "run_token_revoked" });
+      expect(gateway.calls).toHaveLength(1);
+
+      // The unwind still happens: a stop must reach review and closeout (D15),
+      // and a budget trip leaves no stop record, so closeout is credentialled.
+      const closeout = await waitFor("the closeout orchestrator", async () =>
+        sandboxes.phase("closeout")
+      );
+      closeout.exit(0);
+      expect((await settled(runID)).state).toBe("stopped");
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("does not re-credential a run under a hard stop, in any pass", async () => {
+    // The defect that made the kill switch decorative on a live run: revoking
+    // a token stopped nothing, because the supervisor minted a replacement at
+    // the next boot — and the closeout pass, which enforces no budgets, did
+    // not read stop records at all. Only deleting the container application
+    // halted the spend. A hard stop is a durable refusal to mint.
+    const { runID } = await ignite();
+    const work = await firstProcess();
+    const gateway = fakeGateway();
+
+    // A clean stop first, exactly as the incident went: the run unwinds into
+    // closeout and is credentialled again, and the spend continues.
+    await stopRun(env, runID, "operator");
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    const closeoutToken = closeout.env.AI_GATEWAY_TOKEN!;
+    expect(closeoutToken).not.toBe(work.env.AI_GATEWAY_TOKEN);
+    expect((await modelCall(closeoutToken, gateway.fetcher)).status).toBe(200);
+
+    // Now the operator pulls the switch.
+    const stop = await stopRun(env, runID, "operator", "hard");
+    expect(stop.outcome).toBe("stopping");
+    if (stop.outcome === "stopping") {
+      expect(stop.mode).toBe("hard");
+      expect(stop.tokens_revoked).toBe(1);
+    }
+    expect((await modelCall(closeoutToken, gateway.fetcher)).status).toBe(403);
+
+    // And the container dies of it, the way a harness handed 403s does. The
+    // supervisor must NOT answer that with a fresh container and a fresh
+    // credential.
+    sandboxes.booted.at(-1)!.vanished = true;
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+    expect(sandboxes.booted).toHaveLength(2);
+    const tokens = await listRunGatewayTokens(env.DB, runID);
+    expect(tokens).toHaveLength(2);
+    expect(tokens.every((entry) => entry.revoked_at !== null)).toBe(true);
+    // Two model calls in the whole run, both before the switch was pulled.
+    expect(gateway.calls).toHaveLength(1);
+  });
+
   it("rotates the credential on every boot, so a dead container cannot spend", async () => {
     const { runID } = await ignite();
     const first = await firstProcess();
