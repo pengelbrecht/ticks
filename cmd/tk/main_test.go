@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -35,15 +37,15 @@ func TestCLIWorkflow(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	out, code := captureStdout(func() int {
 		return run([]string{"tk", "create", "Test", "tick", "-t", "bug", "--json"})
 	})
 	if code != exitSuccess {
-		t.Fatalf("expected create exit %d, got %d", exitSuccess, code)
+		t.Fatalf("expected create exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 	var created map[string]any
 	if err := json.Unmarshal([]byte(out), &created); err != nil {
@@ -61,7 +63,7 @@ func TestCLIWorkflow(t *testing.T) {
 		return run([]string{"tk", "show", "--json", id})
 	})
 	if code != exitSuccess {
-		t.Fatalf("expected show exit %d, got %d", exitSuccess, code)
+		t.Fatalf("expected show exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 	var shown map[string]any
 	if err := json.Unmarshal([]byte(showOut), &shown); err != nil {
@@ -75,7 +77,7 @@ func TestCLIWorkflow(t *testing.T) {
 		return run([]string{"tk", "list", "--json"})
 	})
 	if code != exitSuccess {
-		t.Fatalf("expected list exit %d, got %d", exitSuccess, code)
+		t.Fatalf("expected list exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 	if !bytes.Contains([]byte(listOut), []byte(id)) {
 		t.Fatalf("expected list to include id %s", id)
@@ -86,21 +88,94 @@ func TestCLIWorkflow(t *testing.T) {
 	}
 }
 
+// captureStdout runs fn with os.Stdout and os.Stderr redirected to pipes and
+// returns what fn wrote to stdout, together with its exit code.
+//
+// Stderr is captured rather than left on the terminal so exitInfo can put the
+// reason a command failed into the assertion that noticed the exit code. A bare
+// "got 2" reads like a usage regression no matter what actually went wrong —
+// which is how an inherited TK_ACTOR once sent a reader hunting a merge bug
+// that did not exist.
+//
+// Both pipes are drained by goroutines. Reading only after fn returns deadlocks
+// as soon as a command writes more than the 64 KiB pipe buffer, and a hang is
+// the kind of failure a loaded machine finds first.
 func captureStdout(fn func() int) (string, int) {
-	orig := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+	origOut, origErr := os.Stdout, os.Stderr
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		panic("captureStdout: stdout pipe: " + err.Error())
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		panic("captureStdout: stderr pipe: " + err.Error())
+	}
+	os.Stdout, os.Stderr = outW, errW
+	outDone, errDone := drainPipe(outR), drainPipe(errR)
 
 	code := fn()
-	_ = w.Close()
-	os.Stdout = orig
 
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
-	_ = r.Close()
+	_ = outW.Close()
+	_ = errW.Close()
+	os.Stdout, os.Stderr = origOut, origErr
 
-	return buf.String(), code
+	stdout := <-outDone
+	lastStderr = <-errDone
+	return stdout, code
 }
+
+// drainPipe reads r to EOF in a goroutine and delivers the result.
+func drainPipe(r *os.File) <-chan string {
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		_ = r.Close()
+		done <- buf.String()
+	}()
+	return done
+}
+
+// lastStderr is what the most recent captureStdout or runCLI call saw on
+// stderr. Both helpers assign it, so an exitInfo can never report a reason from
+// an unrelated earlier command. Tests in this package run sequentially — they
+// chdir into a temp repo — so a single slot is enough.
+var lastStderr string
+
+// runCLI executes argv in-process without capturing stdout, for the setup steps
+// whose output no assertion reads. It clears the stderr slot so a following
+// exitInfo reports only what it can vouch for.
+func runCLI(args []string) int {
+	lastStderr = ""
+	return run(args)
+}
+
+// exitInfo renders an exit code together with the reason the command gave:
+//
+//	expected approve exit 0, got 2 (actor "cloud:orchestrator" is a runner, ...)
+//
+// Use it in every exit-code assertion. The code alone names a category — 2 is
+// "usage" — and says nothing about which of the several usage failures a
+// command can report actually happened.
+func exitInfo(code int) string {
+	msg := strings.TrimSpace(lastStderr)
+	if msg == "" {
+		return strconv.Itoa(code)
+	}
+	// cobra prints the command's whole usage block after a RunE failure. The
+	// reason is what precedes it; the flag list only buries the assertion.
+	if i := strings.Index(msg, "\nUsage:"); i >= 0 {
+		msg = strings.TrimSpace(msg[:i])
+	}
+	msg = strings.ReplaceAll(msg, "\n", "; ")
+	if len(msg) > maxExitReason {
+		msg = msg[:maxExitReason] + "..."
+	}
+	return fmt.Sprintf("%d (%s)", code, msg)
+}
+
+// maxExitReason bounds how much stderr exitInfo quotes.
+const maxExitReason = 300
 
 func runGit(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
@@ -131,8 +206,8 @@ func TestApproveCommand(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("no_id_returns_usage_error", func(t *testing.T) {
@@ -140,7 +215,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve"})
 		})
 		if code != exitUsage {
-			t.Errorf("expected exit code %d, got %d", exitUsage, code)
+			t.Errorf("expected exit code %d, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -149,7 +224,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", "zzz"})
 		})
 		if code != exitNotFound {
-			t.Errorf("expected exit code %d, got %d", exitNotFound, code)
+			t.Errorf("expected exit code %d, got %s", exitNotFound, exitInfo(code))
 		}
 	})
 
@@ -172,7 +247,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id})
 		})
 		if code != exitUsage {
-			t.Errorf("expected exit code %d for not awaiting tick, got %d", exitUsage, code)
+			t.Errorf("expected exit code %d for not awaiting tick, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -211,7 +286,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -271,7 +346,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -309,7 +384,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -350,7 +425,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -386,7 +461,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -422,7 +497,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -458,7 +533,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -499,7 +574,7 @@ func TestApproveCommand(t *testing.T) {
 			return run([]string{"tk", "approve", id, "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected approve exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected approve exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -534,8 +609,8 @@ func TestRejectCommand(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("no_id_returns_usage_error", func(t *testing.T) {
@@ -543,7 +618,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject"})
 		})
 		if code != exitUsage {
-			t.Errorf("expected exit code %d, got %d", exitUsage, code)
+			t.Errorf("expected exit code %d, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -552,7 +627,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", "zzz"})
 		})
 		if code != exitNotFound {
-			t.Errorf("expected exit code %d, got %d", exitNotFound, code)
+			t.Errorf("expected exit code %d, got %s", exitNotFound, exitInfo(code))
 		}
 	})
 
@@ -571,7 +646,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id})
 		})
 		if code != exitUsage {
-			t.Errorf("expected exit code %d for not awaiting tick, got %d", exitUsage, code)
+			t.Errorf("expected exit code %d for not awaiting tick, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -600,7 +675,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -644,7 +719,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -679,7 +754,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -714,7 +789,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -750,7 +825,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -792,7 +867,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -834,7 +909,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -872,7 +947,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Please fix the error handling", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -909,7 +984,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var result map[string]any
@@ -946,7 +1021,7 @@ func TestRejectCommand(t *testing.T) {
 			return run([]string{"tk", "reject", id, "Test rejection feedback", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected reject exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected reject exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		// Verify JSON output format
@@ -987,8 +1062,8 @@ func TestNoteFromFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("note_default_no_prefix", func(t *testing.T) {
@@ -1003,9 +1078,9 @@ func TestNoteFromFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Add note with default --from (agent)
-		code = run([]string{"tk", "note", id, "Agent note here"})
+		code = runCLI([]string{"tk", "note", id, "Agent note here"})
 		if code != exitSuccess {
-			t.Fatalf("expected note exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected note exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		// Read tick and check notes
@@ -1035,9 +1110,9 @@ func TestNoteFromFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Add note with explicit --from agent
-		code = run([]string{"tk", "note", id, "Explicit agent note", "--from", "agent"})
+		code = runCLI([]string{"tk", "note", id, "Explicit agent note", "--from", "agent"})
 		if code != exitSuccess {
-			t.Fatalf("expected note exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected note exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		// Read tick and check notes
@@ -1067,9 +1142,9 @@ func TestNoteFromFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Add note with --from human
-		code = run([]string{"tk", "note", id, "Human feedback here", "--from", "human"})
+		code = runCLI([]string{"tk", "note", id, "Human feedback here", "--from", "human"})
 		if code != exitSuccess {
-			t.Fatalf("expected note exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected note exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		// Read tick and check notes
@@ -1099,9 +1174,9 @@ func TestNoteFromFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Add note with invalid --from value
-		code = run([]string{"tk", "note", id, "Some note", "--from", "invalid"})
+		code = runCLI([]string{"tk", "note", id, "Some note", "--from", "invalid"})
 		if code != exitUsage {
-			t.Errorf("expected exit %d for invalid --from, got %d", exitUsage, code)
+			t.Errorf("expected exit %d for invalid --from, got %s", exitUsage, exitInfo(code))
 		}
 	})
 }
@@ -1129,8 +1204,8 @@ func TestUpdateRequiresFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("set_requires_approval", func(t *testing.T) {
@@ -1149,7 +1224,7 @@ func TestUpdateRequiresFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--requires", "approval", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1175,7 +1250,7 @@ func TestUpdateRequiresFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--requires", "review", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1201,7 +1276,7 @@ func TestUpdateRequiresFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--requires", "content", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1231,7 +1306,7 @@ func TestUpdateRequiresFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--requires=", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1253,9 +1328,9 @@ func TestUpdateRequiresFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Try invalid value
-		code = run([]string{"tk", "update", id, "--requires", "invalid"})
+		code = runCLI([]string{"tk", "update", id, "--requires", "invalid"})
 		if code != exitUsage {
-			t.Errorf("expected exit %d for invalid requires value, got %d", exitUsage, code)
+			t.Errorf("expected exit %d for invalid requires value, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -1275,7 +1350,7 @@ func TestUpdateRequiresFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "-r", "approval", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1309,8 +1384,8 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("set_awaiting_work", func(t *testing.T) {
@@ -1328,7 +1403,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "work", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1353,7 +1428,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "approval", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1378,7 +1453,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "input", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1403,7 +1478,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "review", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1428,7 +1503,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "content", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1453,7 +1528,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "escalation", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1478,7 +1553,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting", "checkpoint", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1508,7 +1583,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--awaiting=", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1530,9 +1605,9 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Try invalid value
-		code = run([]string{"tk", "update", id, "--awaiting", "invalid"})
+		code = runCLI([]string{"tk", "update", id, "--awaiting", "invalid"})
 		if code != exitUsage {
-			t.Errorf("expected exit %d for invalid awaiting value, got %d", exitUsage, code)
+			t.Errorf("expected exit %d for invalid awaiting value, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -1552,7 +1627,7 @@ func TestUpdateAwaitingFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "-a", "work", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1586,8 +1661,8 @@ func TestUpdateVerdictFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("verdict_approved_closes_awaiting_approval", func(t *testing.T) {
@@ -1606,7 +1681,7 @@ func TestUpdateVerdictFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--verdict", "approved", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1636,7 +1711,7 @@ func TestUpdateVerdictFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--verdict", "rejected", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1666,7 +1741,7 @@ func TestUpdateVerdictFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--verdict", "approved", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1693,7 +1768,7 @@ func TestUpdateVerdictFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--verdict", "rejected", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1716,9 +1791,9 @@ func TestUpdateVerdictFlag(t *testing.T) {
 		id := created["id"].(string)
 
 		// Try invalid value
-		code = run([]string{"tk", "update", id, "--verdict", "invalid"})
+		code = runCLI([]string{"tk", "update", id, "--verdict", "invalid"})
 		if code != exitUsage {
-			t.Errorf("expected exit %d for invalid verdict value, got %d", exitUsage, code)
+			t.Errorf("expected exit %d for invalid verdict value, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -1738,7 +1813,7 @@ func TestUpdateVerdictFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "-v", "approved", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1767,7 +1842,7 @@ func TestUpdateVerdictFlag(t *testing.T) {
 			return run([]string{"tk", "update", id, "--verdict", "approved", "--json"})
 		})
 		if code != exitSuccess {
-			t.Fatalf("expected update exit %d, got %d", exitSuccess, code)
+			t.Fatalf("expected update exit %d, got %s", exitSuccess, exitInfo(code))
 		}
 
 		var updated map[string]any
@@ -1806,8 +1881,8 @@ func TestCreateRequiresFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("create_with_requires_approval", func(t *testing.T) {
@@ -1867,9 +1942,9 @@ func TestCreateRequiresFlag(t *testing.T) {
 	})
 
 	t.Run("invalid_requires_value_fails", func(t *testing.T) {
-		code := run([]string{"tk", "create", "Test invalid requires", "--requires", "invalid"})
+		code := runCLI([]string{"tk", "create", "Test invalid requires", "--requires", "invalid"})
 		if code != exitUsage {
-			t.Errorf("expected exit %d for invalid requires value, got %d", exitUsage, code)
+			t.Errorf("expected exit %d for invalid requires value, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -1911,8 +1986,8 @@ func TestCreateAwaitingFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("create_with_awaiting_work", func(t *testing.T) {
@@ -2028,9 +2103,9 @@ func TestCreateAwaitingFlag(t *testing.T) {
 	})
 
 	t.Run("invalid_awaiting_value_fails", func(t *testing.T) {
-		code := run([]string{"tk", "create", "Test invalid awaiting", "--awaiting", "invalid"})
+		code := runCLI([]string{"tk", "create", "Test invalid awaiting", "--awaiting", "invalid"})
 		if code != exitUsage {
-			t.Errorf("expected exit %d for invalid awaiting value, got %d", exitUsage, code)
+			t.Errorf("expected exit %d for invalid awaiting value, got %s", exitUsage, exitInfo(code))
 		}
 	})
 
@@ -2073,8 +2148,8 @@ func TestManualFlagDeprecation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	t.Run("create_with_manual_sets_awaiting_work_not_manual", func(t *testing.T) {
@@ -2114,7 +2189,7 @@ func TestManualFlagDeprecation(t *testing.T) {
 		id := created["id"].(string)
 
 		// Update with --manual=true
-		code = run([]string{"tk", "update", id, "--manual=true"})
+		code = runCLI([]string{"tk", "update", id, "--manual=true"})
 		if code != exitSuccess {
 			t.Fatalf("failed to update tick: exit %d", code)
 		}
@@ -2150,7 +2225,7 @@ func TestManualFlagDeprecation(t *testing.T) {
 		id := created["id"].(string)
 
 		// Update with --manual=false (should clear awaiting)
-		code = run([]string{"tk", "update", id, "--manual=false"})
+		code = runCLI([]string{"tk", "update", id, "--manual=false"})
 		if code != exitSuccess {
 			t.Fatalf("failed to update tick: exit %d", code)
 		}
@@ -2197,8 +2272,8 @@ func TestListAwaitingFilter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	// Create ticks with different awaiting states
@@ -2389,8 +2464,8 @@ func TestReadyAwaitingFilter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
 
-	if code := run([]string{"tk", "init"}); code != exitSuccess {
-		t.Fatalf("expected init exit %d, got %d", exitSuccess, code)
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
 	}
 
 	// Create ticks with different awaiting states
