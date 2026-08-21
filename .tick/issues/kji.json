@@ -1,0 +1,13 @@
+{
+  "id": "kji",
+  "title": "Wave width is read from config, logged, then ignored under the harness substrate",
+  "description": "Measured on run_62c289d1. The boot log states \"wave width 3 from .tick/runners.toml [orchestration].max_parallel — under the harness substrate that is concurrent subagents in one sandbox\", and .tick/runners.toml does set max_parallel = 3. The orchestrator then created seven worktrees (09w 201 3nh 5jo 5qj gm5 iit) and reported \"All 7 implementers dispatched. Now blocking on their completion.\" So the limit is parsed and echoed but never enforced on the dispatch path.\n\nConsequences beyond the obvious: concurrent burn is more than double what the operator configured, which is most of why a 45-minute run exhausted its budget; and seven implementers with divergent contexts share one x-session-affinity key, which is a plausible cause of the erratic prefix-cache misses seen in the same run (per-call hit rate swinging between 92 percent and 0 percent).\n\nEnforcement has to be on the dispatch path, not in the prompt — a width a model can talk itself out of is not a width. Add a test that a wave of N ticks with max_parallel = k never has more than k implementers in flight.",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T10:33:56.093187Z",
+  "updated_at": "2026-08-21T10:33:56.093187Z"
+}

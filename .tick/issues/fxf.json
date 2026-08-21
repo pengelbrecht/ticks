@@ -1,0 +1,13 @@
+{
+  "id": "fxf",
+  "title": "One session-affinity key for N concurrent subagents may defeat prefix caching",
+  "description": "l8z stamps x-session-affinity with the run id, which was right for a single orchestrator loop and is measurably working: run_62c289d1 cached 7,154,176 of 10,954,464 input tokens, 65 percent, against zero on the pre-l8z runaway. But under the harness substrate a run is one orchestrator PLUS N implementer subagents, all sharing the run token and therefore all sharing one affinity key. Their contexts diverge completely, so they compete for one model instance prefix cache, and the per-call hit rate in that run swung between 92 percent and 0 percent with several near-total misses on large prompts.\n\nInvestigate before changing anything: the bodies are in the AI Gateway logs, so diff two consecutive requests around a miss and find the bytes that varied. If the cause is cross-subagent interference rather than a varying prefix, the fix is an affinity key per conversation rather than per run — which must stay derived by the factory, never caller-supplied, for the reason l8z gives. Quantify the headroom too: at 65 percent this run paid 5.95 against a modelled 15.08 uncached, so the remaining misses are worth real money.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T10:33:56.176957Z",
+  "updated_at": "2026-08-21T10:33:56.176957Z"
+}
