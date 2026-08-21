@@ -10,13 +10,18 @@ import {
   writeHarnessSegment,
 } from "../src/artifacts";
 import {
+  BUDGET_POLL_HEADROOM,
   DEFAULT_MAX_COST_USD,
   DEFAULT_MAX_WALL_CLOCK_MS,
   MAX_POLL_MS,
   MIN_POLL_MS,
+  earliestDeadline,
   pollDelay,
   renewalTtl,
   runConfig,
+  spendSample,
+  type RunConfig,
+  type SpendSample,
 } from "../src/run-workflow";
 import {
   DEFAULT_SANDBOX_IMAGE,
@@ -140,6 +145,221 @@ describe("observation cadence", () => {
     for (const poll of [1, MIN_POLL_MS, MAX_POLL_MS]) {
       expect(renewalTtl(poll)).toBeGreaterThan(poll);
     }
+  });
+});
+
+/**
+ * A budget is only as tight as the cadence that samples it. `detectTrip` runs
+ * on an observation and nowhere else, so whatever a run burns during a sleep
+ * is spent unwatched — and the backoff stretches that sleep to five minutes
+ * exactly on the long, expensive runs where it costs the most.
+ *
+ * These walk the real loop's arithmetic: the same `pollDelay` the supervision
+ * loop calls, fed by the same `spendSample` fold, with `cadence: null` standing
+ * in for the old behaviour so the regression is pinned next to its fix.
+ */
+describe("budget-aware cadence", () => {
+  const MINUTE = 60_000;
+
+  /**
+   * Replays the supervision loop's sleep/observe alternation against a run
+   * burning at a constant rate, and reports what it cost to notice the trip.
+   */
+  function simulate(
+    config: RunConfig,
+    options: { rate_usd_per_ms: number; started_at_ms: number; budget_aware: boolean }
+  ): { overshoot_usd: number; overshoot_ms: number; looks: number } {
+    let now = options.started_at_ms;
+    let cost = 0;
+    let spend: SpendSample | null = null;
+
+    for (let look = 0; look < config.max_observations; look++) {
+      const pollMs = pollDelay(
+        config,
+        look,
+        options.budget_aware
+          ? {
+              now_ms: now,
+              deadline_ms: options.started_at_ms + config.max_wall_clock_ms,
+              spend,
+            }
+          : null
+      );
+      now += pollMs;
+      cost += pollMs * options.rate_usd_per_ms;
+
+      const elapsed = now - options.started_at_ms;
+      const tripped = cost >= config.max_cost_usd || elapsed >= config.max_wall_clock_ms;
+      if (tripped) {
+        return {
+          overshoot_usd: Math.max(0, cost - config.max_cost_usd),
+          overshoot_ms: Math.max(0, elapsed - config.max_wall_clock_ms),
+          looks: look + 1,
+        };
+      }
+      spend = spendSample(spend, cost, now);
+    }
+    throw new Error("the run never crossed a budget within its observation allowance");
+  }
+
+  it("does not overshoot a cost ceiling by a full backed-off poll", () => {
+    // run_62c289d1's shape: a $5 ceiling, spend recorded correctly at $5.86,
+    // the run still `running` with no trip. Accounting was right, cadence was
+    // not — $10.30/hour is the rate that turns one 300s sleep into that $0.86.
+    const config = runConfig({ RUN_MAX_COST_USD: "5", RUN_MAX_WALL_CLOCK_MS: "21600000" } as never);
+    const rate = 10.3 / (60 * MINUTE);
+
+    const before = simulate(config, { rate_usd_per_ms: rate, started_at_ms: 0, budget_aware: false });
+    const after = simulate(config, { rate_usd_per_ms: rate, started_at_ms: 0, budget_aware: true });
+
+    // How far a crossing lands into the sleep it happens in is luck, so the
+    // defect is stated as the window rather than one sampled number: the old
+    // cadence can spend anything up to a full 300s ceiling unwatched, and did.
+    const window = MAX_POLL_MS * rate;
+    expect(before.overshoot_usd).toBeGreaterThan(MIN_POLL_MS * rate);
+    expect(before.overshoot_usd).toBeLessThanOrEqual(window);
+
+    // The bound: one FAST poll's worth of burn, not one backed-off poll's —
+    // the same window narrowed by MAX_POLL_MS / MIN_POLL_MS, twenty-fold.
+    expect(after.overshoot_usd).toBeLessThanOrEqual(MIN_POLL_MS * rate);
+    expect(after.overshoot_usd).toBeLessThan(before.overshoot_usd);
+  });
+
+  it("pays only a handful of extra looks for the tighter approach", () => {
+    // Halving the headroom each look means the tightening is logarithmic, so
+    // it cannot exhaust MAX_OBSERVATIONS and turn a budget trip into the
+    // wrong kind of stop ("ran out of looks" is a clean stop, not a breach).
+    const config = runConfig({ RUN_MAX_COST_USD: "5", RUN_MAX_WALL_CLOCK_MS: "21600000" } as never);
+    const rate = 10.3 / (60 * MINUTE);
+
+    const before = simulate(config, { rate_usd_per_ms: rate, started_at_ms: 0, budget_aware: false });
+    const after = simulate(config, { rate_usd_per_ms: rate, started_at_ms: 0, budget_aware: true });
+
+    expect(after.looks - before.looks).toBeLessThanOrEqual(10);
+    expect(after.looks).toBeLessThan(config.max_observations);
+  });
+
+  it("stops the sleep at the wall-clock deadline instead of past it", () => {
+    // run a1f87597: a 45-minute ceiling crossed at 11:29:52, the token revoked
+    // at 11:31:59 — two minutes of unwatched run, because the crossing landed
+    // partway through a sleep. The clock needs no projection, so this is exact.
+    const config = runConfig({ RUN_MAX_WALL_CLOCK_MS: String(45 * MINUTE) } as never);
+    const rate = 0.5 / (60 * MINUTE);
+
+    const before = simulate(config, { rate_usd_per_ms: rate, started_at_ms: 0, budget_aware: false });
+    const after = simulate(config, { rate_usd_per_ms: rate, started_at_ms: 0, budget_aware: true });
+
+    expect(before.overshoot_ms).toBeGreaterThan(0);
+    expect(after.overshoot_ms).toBe(0);
+  });
+
+  it("caps a sleep at the headroom the observed burn rate would spend", () => {
+    const config = runConfig({ RUN_MAX_COST_USD: "5" } as never);
+    const rate = 1 / MINUTE; // a dollar a minute
+    const spend: SpendSample = { cost_usd: 4, at_ms: 0, rate_usd_per_ms: rate };
+
+    // $1 of headroom at $1/minute is a minute away; half of that is the cap,
+    // and it wins over the 300s the backoff wanted at this look.
+    expect(pollDelay(config, 99, { now_ms: 0, deadline_ms: null, spend })).toBe(
+      MINUTE * BUDGET_POLL_HEADROOM
+    );
+  });
+
+  it("leaves the backoff alone while a run is nowhere near its ceiling", () => {
+    const config = runConfig({ RUN_MAX_COST_USD: "25" } as never);
+    const spend: SpendSample = { cost_usd: 1, at_ms: 0, rate_usd_per_ms: 3 / (60 * MINUTE) };
+
+    // The tightening is for the last stretch. A run three dollars an hour into
+    // a $25 ceiling still gets the cadence a multi-hour run can afford.
+    expect(pollDelay(config, 99, { now_ms: 0, deadline_ms: null, spend })).toBe(MAX_POLL_MS);
+  });
+
+  it("looks immediately once a reading is already at or past the ceiling", () => {
+    const config = runConfig({ RUN_MAX_COST_USD: "5" } as never);
+    const spend: SpendSample = { cost_usd: 5.86, at_ms: 0, rate_usd_per_ms: null };
+
+    // No rate needed: the next look is the one that trips, and every
+    // millisecond until it is unwatched spend.
+    expect(pollDelay(config, 99, { now_ms: 0, deadline_ms: null, spend })).toBe(MIN_POLL_MS);
+  });
+
+  it("never shortens below the fast cadence, or lengthens anything", () => {
+    const config = runConfig({ RUN_MAX_COST_USD: "5" } as never);
+    const spend: SpendSample = { cost_usd: 4.99, at_ms: 0, rate_usd_per_ms: 1 / MINUTE };
+
+    // A cap of ~0.3s is real but useless: polling faster than MIN_POLL_MS
+    // burns the observation allowance the run needs to reach its own trip.
+    expect(pollDelay(config, 99, { now_ms: 0, deadline_ms: null, spend })).toBe(MIN_POLL_MS);
+    // And the first look, where the backoff is already at the floor, cannot be
+    // stretched by a cadence that has nothing to say.
+    expect(pollDelay(config, 0, { now_ms: 0, deadline_ms: 10 ** 12, spend: null })).toBe(
+      MIN_POLL_MS
+    );
+  });
+
+  it("caps a deployment's fixed interval too, without overriding a fast one", () => {
+    // A fixed 300s cadence has the same defect as the backoff's ceiling.
+    const slow = runConfig({ RUN_POLL_INTERVAL_MS: "300000", RUN_MAX_COST_USD: "5" } as never);
+    const spend: SpendSample = { cost_usd: 4.5, at_ms: 0, rate_usd_per_ms: 1 / MINUTE };
+    expect(pollDelay(slow, 0, { now_ms: 0, deadline_ms: null, spend })).toBe(
+      30_000 * BUDGET_POLL_HEADROOM
+    );
+
+    // But an operator who asked for a one-second cadence gets one second: the
+    // floor may never make a poll SLOWER than the interval that was configured.
+    const fast = runConfig({ RUN_POLL_INTERVAL_MS: "1000", RUN_MAX_COST_USD: "5" } as never);
+    expect(pollDelay(fast, 0, { now_ms: 0, deadline_ms: null, spend })).toBe(1000);
+    expect(pollDelay(fast, 0, { now_ms: 0, deadline_ms: 1, spend: null })).toBe(1000);
+  });
+});
+
+describe("the spend sample the cadence is derived from", () => {
+  it("measures the recent gap, not the average since the run started", () => {
+    // A run that idles through boot and then burns hard has an average that
+    // badly understates what the next five minutes will cost.
+    let spend = spendSample(null, 0, 0);
+    spend = spendSample(spend, 0, 600_000); // ten quiet minutes
+    spend = spendSample(spend, 2, 660_000); // then $2 in one
+
+    expect(spend!.cost_usd).toBe(2);
+    expect(spend!.rate_usd_per_ms).toBeCloseTo(2 / 60_000, 12);
+  });
+
+  it("keeps the last known rate through a gap that read no new spend", () => {
+    // Gateway logs land in batches, so a look can read the same total twice.
+    // Forgetting the rate there would reopen the window to the full backoff
+    // at the exact moment the previous look said money was moving.
+    let spend = spendSample(null, 1, 0);
+    spend = spendSample(spend, 3, 60_000);
+    const rate = spend!.rate_usd_per_ms;
+    spend = spendSample(spend, 3, 120_000);
+
+    expect(spend!.rate_usd_per_ms).toBe(rate);
+  });
+
+  it("treats a missing reading as missing, never as zero", () => {
+    // A pass that does not enforce budgets reads no cost at all. Folding that
+    // in as $0 would tell the cadence the run had stopped spending.
+    const spend = spendSample(null, 2, 0);
+    expect(spendSample(spend, null, 60_000)).toBe(spend);
+  });
+
+  it("never reports a negative rate when a reading goes backwards", () => {
+    // syncRunCost refuses to lower a recorded total, but the sample must not
+    // depend on that: a negative rate would compute a negative cap.
+    let spend = spendSample(null, 5, 0);
+    spend = spendSample(spend, 4, 60_000);
+    expect(spend!.rate_usd_per_ms).toBeNull();
+  });
+});
+
+describe("the deadline a sleep may not run past", () => {
+  it("takes whichever of the run and pass windows arrives first", () => {
+    expect(earliestDeadline(100, 50)).toBe(50);
+    expect(earliestDeadline(50, 100)).toBe(50);
+    expect(earliestDeadline(null, 50)).toBe(50);
+    expect(earliestDeadline(50, null)).toBe(50);
+    expect(earliestDeadline(null, null)).toBeNull();
   });
 });
 
