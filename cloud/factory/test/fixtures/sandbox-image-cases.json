@@ -1,0 +1,88 @@
+{
+  "why": [
+    "The control plane reads `[sandbox].image` out of a repository's tracked",
+    "`.tick/runners.toml` so it can boot what the repository declares (tick x3v).",
+    "That makes this Worker a SECOND reader of a format whose first reader is Go,",
+    "and a half-applied format fix is invisible when each side is internally",
+    "consistent — so both read these cases and must agree on every one.",
+    "cloud/factory/test/repo-config.test.ts runs them through the Worker's reader;",
+    "internal/sandbox/image_parity_test.go runs them through tk's.",
+    "`image` is what a correct reader returns; `refused` means neither reader may",
+    "return anything at all — the declaration is unusable and saying so is the",
+    "only safe answer."
+  ],
+  "cases": [
+    {
+      "name": "no sandbox table",
+      "why": "The 99% path: nothing declared, so the version-pinned base image stands.",
+      "toml": "version = 2\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": null
+    },
+    {
+      "name": "sandbox table without an image",
+      "why": "A repository that extends the base image rather than replacing it.",
+      "toml": "version = 2\n\n[sandbox]\ntoolchain = [\"rust@1.90.0\"]\nsetup = [\n  { command = \"cargo fetch\", description = \"warm the cargo cache\" },\n]\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": null
+    },
+    {
+      "name": "a declared image",
+      "why": "The escape hatch itself.",
+      "toml": "version = 2\n\n[sandbox]\nimage = \"registry.example.com/acme/ticks-orchestrator:0.32.0\"\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": "registry.example.com/acme/ticks-orchestrator:0.32.0"
+    },
+    {
+      "name": "a digest-pinned image",
+      "why": "The strongest form the schema's pattern allows.",
+      "toml": "version = 2\n\n[sandbox]\nimage = \"ticks-orchestrator:0.32.0@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": "ticks-orchestrator:0.32.0@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    {
+      "name": "a declaration written as a dotted key",
+      "why": "Legal TOML for the same table, so a reader that only looks for a [sandbox] header would miss it.",
+      "toml": "version = 2\nsandbox.image = \"registry.example.com/acme/ticks-orchestrator:0.32.0\"\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": "registry.example.com/acme/ticks-orchestrator:0.32.0"
+    },
+    {
+      "name": "a declaration written as an inline table",
+      "why": "Same table again, third spelling.",
+      "toml": "version = 2\nsandbox = { image = \"registry.example.com/acme/ticks-orchestrator:0.32.0\" }\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": "registry.example.com/acme/ticks-orchestrator:0.32.0"
+    },
+    {
+      "name": "an image inside another table's multi-line string",
+      "why": "The reason this is parsed rather than scanned: notes are free text, and a line-oriented reader would boot whatever a note happened to spell.",
+      "toml": "version = 2\n\n[testing]\nnotes = \"\"\"\nwhen the sandbox is wrong, try:\n[sandbox]\nimage = \"not-an-image-anyone-declared\"\n\"\"\"\n\n[testing.commands]\ngo = { command = \"go test ./...\", description = \"Go\" }\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": null
+    },
+    {
+      "name": "a commented-out declaration",
+      "why": "A comment is documentation, not a declaration.",
+      "toml": "version = 2\n\n[sandbox]\n# image = \"registry.example.com/acme/ticks-orchestrator:0.32.0\"\ntoolchain = [\"go@1.24.11\"]\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": null
+    },
+    {
+      "name": "a literal-string declaration with a trailing comment",
+      "why": "Both readers have to end the value at the quote, not at the newline.",
+      "toml": "version = 2\n\n[sandbox]\nimage = 'registry.example.com/acme/ticks-orchestrator:0.32.0' # pinned by hand\n\n[roles.implement]\nkind = \"claude\"\n",
+      "image": "registry.example.com/acme/ticks-orchestrator:0.32.0"
+    },
+    {
+      "name": "an empty image",
+      "why": "Absent means the base image; empty means the writer meant something and did not say it.",
+      "toml": "version = 2\n\n[sandbox]\nimage = \"\"\n\n[roles.implement]\nkind = \"claude\"\n",
+      "refused": true
+    },
+    {
+      "name": "a reference that is not a reference",
+      "why": "An image reference is a name, never a place to hide a shell fragment.",
+      "toml": "version = 2\n\n[sandbox]\nimage = \"orchestrator; rm -rf /\"\n\n[roles.implement]\nkind = \"claude\"\n",
+      "refused": true
+    },
+    {
+      "name": "an image that is not a string",
+      "why": "A typed value the schema does not allow is a refusal, not a coercion.",
+      "toml": "version = 2\n\n[sandbox]\nimage = 32\n\n[roles.implement]\nkind = \"claude\"\n",
+      "refused": true
+    }
+  ]
+}

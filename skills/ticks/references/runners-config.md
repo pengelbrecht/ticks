@@ -290,7 +290,7 @@ setup = [
 
 | Key | Meaning |
 |---|---|
-| `image` | Image reference the sandbox boots. Absent means the version-pinned base image. `tk sandbox image` prints the resolved reference; `--declared-only` prints one only when the repo declares it. |
+| `image` | Image reference the sandbox boots. Absent means the version-pinned base image. `tk sandbox image` prints the resolved reference; `--declared-only` prints one only when the repo declares it. In a cloud run the control plane reads this key at the submitted SHA and boots it; a deployment that does not serve that image fails the run naming both references rather than booting the base, and the container refuses a boot that is not what this file declares. |
 | `toolchain` | Extra `tool@version` pins provisioned through the version manager the base image already ships, into the project's persistent cache — resolved on first run, warm after. The version is required: an unpinned tool makes the warm sandbox and the cold one different environments. Ecosystem pins the image reads on its own (`go.mod`, `package.json`'s `packageManager`, `.node-version`, `.tool-versions`) do **not** belong here. |
 | `setup` | Idempotent, cache-populating commands run once per sandbox, in order, after the checkout and before the harness starts. An array, not a keyed table: order is the contract and nothing refers to a setup command by id. |
 
@@ -317,9 +317,13 @@ One implementation serves both substrates, so a local worker warms identically t
 | A tool may be pinned once. | `["rust@1.90.0", "rust@1.91.0"]` is an ambiguous sandbox; the version manager would silently pick one. |
 | Unknown keys are errors, as everywhere else in this file. | A typo'd key in the one table that runs shell before any worker exists must fail closed, not be ignored. |
 
-### What is not implemented yet
+### How a declared `image` is honoured
 
-`image` is validated, resolved and reported, but **the control plane does not yet boot a declared image**: it chooses one before it has a checkout to read, so honouring `sandbox.image` needs a read of the tracked config at the submitted SHA before boot. Until then the container is told which image it actually got (`TICKS_SANDBOX_IMAGE`) and the entrypoint prints a warning naming both references, so a declared image is never silently ignored. `toolchain` and `setup` are honoured on both substrates today.
+The control plane reads this file at the **submitted SHA** — never from the submission, because an image is arbitrary code and the container holds the run's credentials — and boots what it declares. A declaration this deployment cannot serve **fails the run**, naming both references and both remedies, rather than booting the base image: on the Cloudflare substrate an image belongs to the container application built at deploy time, so honouring one means the operator deployed a factory serving it.
+
+The container is the backstop, and it is the reader that cannot be skipped: the entrypoint compares this file's declaration — read by `tk`, in the checkout — against the image it was told it got (`TICKS_SANDBOX_IMAGE`) and refuses the boot with exit 6 when they differ. So a control plane that could not read this file (a GitHub outage; `[[sandbox.setup]]` array-of-tables syntax, which its reader refuses) boots the deployment's own image and the container ends the run legibly, rather than a wave provisioning and spending in an image the repository did not ask for.
+
+`toolchain` and `setup` are honoured on both substrates.
 
 ## The deprecated markdown path
 

@@ -45,21 +45,93 @@ export type OrchestratorPhase = "run" | "reconcile" | "closeout";
 export const DEFAULT_SANDBOX_IMAGE = "ticks-orchestrator";
 
 /**
- * The image this deployment boots a run in.
+ * The image this deployment's container application serves.
  *
- * A deployment-level knob, not a per-run one: the control plane picks an image
- * BEFORE it has a checkout, so it cannot yet read the `[sandbox].image` a
- * repository declares in its tracked config at the submitted SHA. What it can
- * do — and does — is tell the container which image it got, so a repository
- * asking for a different one is reported in the boot log instead of being
- * silently ignored (`TICKS_SANDBOX_IMAGE`, and the entrypoint's warning).
- * Honouring a declared image is the remaining half of that seam.
+ * A deployment-level fact, and on this substrate a deploy-time one: an image
+ * belongs to the `[[containers]]` application a Durable Object class is bound
+ * to, built and digest-pinned by `tk factory deploy` (internal/factory/
+ * rollout.go). Nothing at run time can make a container run something else.
+ *
+ * `SANDBOX_IMAGE` is therefore how a deployment SAYS which image it serves,
+ * for an operator who pushed their own into their own registry — and since
+ * tick x3v it is load-bearing rather than descriptive: it is what a
+ * repository's declared `[sandbox].image` is honoured against.
  */
-export function sandboxImage(env: Env): string {
+export function deploymentImage(env: Env): string {
   const configured = env.SANDBOX_IMAGE;
   return typeof configured === "string" && configured.trim() !== ""
     ? configured.trim()
     : DEFAULT_SANDBOX_IMAGE;
+}
+
+/** The image a boot asks for, and whether the repository chose it. */
+export type ImageResolution =
+  | { ok: true; image: string; source: "declared" | "base" }
+  | { ok: false; detail: string };
+
+/**
+ * The image a run boots: the one its repository declares, else the base.
+ *
+ * The escape hatch `[sandbox].image` has always been parsed and validated;
+ * this is where it becomes behaviour (tick x3v). Two of the three rules are
+ * unremarkable — a declaration is booted, an absent one leaves the
+ * version-pinned base standing. The third is the one that matters: a declared
+ * image this deployment cannot serve REFUSES the run, naming both references
+ * and both remedies, because the alternative is a container that quietly is
+ * not the one the repository asked for and a wave that fails somewhere far
+ * from the cause.
+ *
+ * "Cannot serve" rather than "cannot pull" is the honest phrasing on this
+ * substrate: the image is fixed by the deploy, so an image the deployment does
+ * not serve is one this run has no way to obtain. The comparison is exact
+ * after an implicit `:latest` — a digest or a tag that differs is a different
+ * image, and confirming one this deployment is not running is not something a
+ * string comparison can do.
+ */
+export function resolveSandboxImage(input: {
+  declared: string | null;
+  deployment: string;
+  at?: string;
+}): ImageResolution {
+  const { declared, deployment } = input;
+  if (declared === null) return { ok: true, image: deployment, source: "base" };
+  if (sameImageReference(declared, deployment)) {
+    // The repository's own spelling, not the deployment's: it is what the
+    // container compares against its tracked config, and an equal-but-
+    // differently-spelled reference would read there as a mismatch.
+    return { ok: true, image: declared, source: "declared" };
+  }
+  const at = input.at === undefined ? "the submitted commit" : input.at;
+  return {
+    ok: false,
+    detail:
+      `the repository declares the sandbox image ${declared} in .tick/runners.toml at ${at}, ` +
+      `and this deployment's container application serves ${deployment}. A container's image ` +
+      "is fixed when the factory is deployed, so the declared image cannot be pulled for this " +
+      `run — deploy a factory whose orchestrator image is ${declared} (build and push it, then ` +
+      "name it in SANDBOX_IMAGE), or remove [sandbox].image to boot the version-pinned base",
+  };
+}
+
+/**
+ * Whether two references name the same image.
+ *
+ * Only the implicit `latest` is normalised. A reference carrying a digest and
+ * one without it are NOT the same: the digest is the stronger claim, and a
+ * deployment that cannot prove it is serving that digest has not earned a
+ * boot on it.
+ */
+export function sameImageReference(a: string, b: string): boolean {
+  return withImplicitTag(a) === withImplicitTag(b);
+}
+
+function withImplicitTag(reference: string): string {
+  const trimmed = reference.trim();
+  if (trimmed.includes("@")) return trimmed;
+  // A colon in the last path segment is a tag; anywhere earlier it is a
+  // registry port, which is not one.
+  const lastSegment = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  return lastSegment.includes(":") ? trimmed : `${trimmed}:latest`;
 }
 
 /** The command the sandbox runs. It is on PATH in the Phase 1 image. */
@@ -219,12 +291,14 @@ export function isSandboxNamespace(
  * The deployment's binding: the SDK's `getSandbox` behind the seam's five
  * methods.
  *
- * `options.image` is accepted and ignored here, because a container's image is
+ * `options.image` is accepted and not passed on, because a container's image is
  * fixed by the `[[containers]]` application the Durable Object class belongs to
- * — there is one image per class, chosen at deploy time. The Workflow still
- * passes it, and still tells the container which image it got
- * (`TICKS_SANDBOX_IMAGE`), so a repository that declares a different one is
- * reported by the entrypoint instead of silently ignored.
+ * — there is one image per class, chosen at deploy time. That is not the same
+ * as ignoring it: a boot only ever asks for an image this deployment serves,
+ * because `resolveSandboxImage` refuses the run otherwise, and the container is
+ * told which image it got (`TICKS_SANDBOX_IMAGE`) so its own reader can refuse
+ * a boot that is not what the repository declared. A substrate that CAN pull
+ * per-boot (D19) implements this seam by honouring the parameter.
  */
 export function sdkSandboxBinding(namespace: SandboxNamespace): SandboxBinding {
   return {
@@ -336,10 +410,11 @@ export type OrchestratorEnvInput = {
   workdir?: string;
   cache_dir?: string;
   /**
-   * The image the control plane booted. Advisory and one-way: the container
-   * cannot change what it is running, so this exists so that a repository
-   * declaring a different `[sandbox].image` is visible in the log rather than
-   * silently ignored.
+   * The image the control plane booted. One-way — the container cannot change
+   * what it is running — but not advisory: the entrypoint compares it against
+   * the `[sandbox].image` its checkout declares, through the reader that owns
+   * the format, and refuses the boot when they differ. That is the backstop
+   * under a control-plane read that could not reach the tracked config.
    */
   sandbox_image?: string;
 };

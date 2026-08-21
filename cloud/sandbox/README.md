@@ -135,7 +135,7 @@ skill's `references/runners-config.md`, *The sandbox a run gets*:
 
 | Key | What this image does with it |
 |---|---|
-| `image` | **Not honoured here yet.** The control plane picks an image before it has a checkout to read one from. The entrypoint compares what the repo declares against `TICKS_SANDBOX_IMAGE` and warns, naming both, so a declared image is never silently ignored. |
+| `image` | **Booted by the control plane**, which reads this file at the submitted SHA before it starts a container (`cloud/factory/src/repo-config.ts`). The entrypoint is the backstop: it compares what the repo declares against `TICKS_SANDBOX_IMAGE` and **refuses the boot** (exit 6) when they differ, because provisioning and spending in an image the repository did not ask for fails later and less legibly. A boot with no `TICKS_SANDBOX_IMAGE` at all — the image driven by hand — warns instead, having nothing to compare against. |
 | `toolchain` | Provisioned with the ecosystem pins above, through `mise`, into `TICKS_CACHE_DIR`. |
 | `setup` | Run by `tk sandbox setup` after the checkout and before the harness — idempotent, cache-populating commands (`pnpm install --frozen-lockfile`, `go mod download`). A failure ends the boot with exit 6. |
 
@@ -207,7 +207,7 @@ starts a command in a sandbox.
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
 | `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
 | `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
-| `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Advisory: reported, and compared against a repository's declared `[sandbox].image` so a mismatch is a warning rather than silence. |
+| `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Reported, and compared against a repository's declared `[sandbox].image`: a mismatch ends the boot with exit 6 rather than running a wave in an image nobody asked for. Unset (a hand-driven boot) means the comparison cannot be made, which is a warning. |
 | `TICKS_KEEPER_INTERVAL` | no | Seconds between run-keeper passes — one push of the run branch when it has moved, one heartbeat — default 60. `0` turns the keeper off, which means nothing this run commits reaches origin until it chooses to push. See *The run branch, and why it is pushed continuously*. |
 | `TICKS_RUN_BRANCH` | derived | **Output, not input.** The branch this run's commits land on (`tick-run/<epic>`), exported so the orchestrator and everything it spawns name the same branch. Setting it has no effect; the entrypoint derives it. |
 | `TICKS_FACTORY_URL` | no | Factory Worker URL for the RunRoom-backed operator channel. |
@@ -538,7 +538,7 @@ distinct, because these are read from a log after the sandbox is gone:
 | 3 | Clone or checkout of the submitted SHA failed. |
 | 4 | `tk` is absent, or is not the version the image pins. |
 | 5 | An Environment pre-flight check failed (the failing check is named). |
-| 6 | The repository's own `[sandbox]` setup failed (the failing command is named). |
+| 6 | The repository's own `[sandbox]` declaration was not satisfied: a setup command failed (the failing command is named), or this container is not the `[sandbox].image` the checkout declares (both references are named). |
 | 7 | A gateway with no usable model behind it: nothing routed, a model whose provider cannot be named, a model the chosen harness does not speak, or a gateway that refused the probe. |
 | 8 | The gateway answers and the harness cannot use it: no provider wired for the route, a credential the harness looks for under another name, or a harness round-trip that failed, timed out, or exited clean without answering. |
 | other | The harness's own exit status — the entrypoint `exec`s it. |

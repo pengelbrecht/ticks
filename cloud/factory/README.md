@@ -100,8 +100,21 @@ it (`src/run-workflow.ts`):
   `TICKS_PHASE=reconcile`, whose first instruction is the reconcile protocol
   (evidence order: worker manifests → git → live sandboxes). Boots are bounded
   (`MAX_SANDBOX_BOOTS`), and an entrypoint exit that is a *configuration*
-  verdict — 2 config, 3 clone, 4 tk version, 5 pre-flight — is never retried,
-  because another container reaches the identical answer.
+  verdict — 2 config, 3 clone, 4 tk version, 5 pre-flight, 6 `[sandbox]` — is
+  never retried, because another container reaches the identical answer.
+- **Which image it boots is the repository's call when it makes one.** Before
+  any container exists, the Workflow reads the tracked `.tick/runners.toml` at
+  the submitted SHA (`src/repo-config.ts`) and boots the `[sandbox].image` it
+  declares; a repository that declares none gets this deployment's own. The
+  declaration comes from the PR-reviewed file and never from a submission —
+  an image is arbitrary code, and the container holds the run's credentials.
+  A declared image this deployment cannot serve **fails the run** naming both
+  references rather than booting the base: an image belongs to the
+  `[[containers]]` application built at deploy time, so honouring one means
+  deploying a factory that serves it and naming it in `SANDBOX_IMAGE`. The
+  read is best effort — a Worker that refused every run on a GitHub hiccup
+  would be worse than the silence it replaced — and the container is the
+  backstop: it refuses a boot that is not what its checkout declares.
 - **Budgets are enforced here, never in a prompt (D14).** `RUN_MAX_WALL_CLOCK_MS`
   and `RUN_MAX_COST_USD` are checked at every observation against the elapsed
   time the Workflow measured and the `cost_usd` on the index row, which is read

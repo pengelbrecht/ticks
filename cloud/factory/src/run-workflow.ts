@@ -76,14 +76,16 @@ import {
   type RefSnapshot,
   type RunProgress,
 } from "./progress";
+import { readDeclaredSandboxImage } from "./repo-config";
 import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS } from "./run-room";
 import { logDispatch, roomFor, type RunWorkflowParams } from "./runs";
 import {
+  deploymentImage,
   isTerminalExit,
   orchestratorEnv,
   repoURL,
+  resolveSandboxImage,
   sandboxBinding,
-  sandboxImage,
   sandboxName,
   ORCHESTRATOR_COMMAND,
   type OrchestratorPhase,
@@ -442,6 +444,16 @@ export type RunContext = {
    * rather than a comparison against nothing.
    */
   refs_baseline: RefSnapshot;
+  /**
+   * The image this run's containers boot: the `[sandbox].image` its repository
+   * declares at the submitted SHA, else this deployment's own (tick x3v).
+   *
+   * Resolved once, before any container or credential exists, because a
+   * declared image this deployment cannot serve is a configuration verdict —
+   * a reboot reaches the identical answer, and the run should never have been
+   * started.
+   */
+  sandbox_image: string;
 };
 
 export type ContextResult =
@@ -515,6 +527,28 @@ export async function acquireContext(
     );
   }
 
+  // Which image this run boots, decided before a container exists (tick x3v).
+  //
+  // The declaration lives in the repository's tracked config at the submitted
+  // SHA — never in a submission parameter, because an image is arbitrary code
+  // and this container holds the run's credentials. The read is best effort:
+  // its parser is a second reader of a Go-owned format, so a file it cannot
+  // read leaves the base image standing and the entrypoint's own check — made
+  // with the authoritative reader — refuses the boot if that was wrong.
+  const declared = await readDeclaredSandboxImage(env, params.project, params.base_sha);
+  if (declared.unread !== null) {
+    console.error(
+      `factory run-workflow: ${params.run_id} booted this deployment's image because ` +
+        `${declared.unread}; the container checks its own checkout`
+    );
+  }
+  const image = resolveSandboxImage({
+    declared: declared.image,
+    deployment: deploymentImage(env),
+    at: params.base_sha,
+  });
+  if (!image.ok) return { ok: false, detail: image.detail };
+
   const context: RunContext = {
     repo_url: repoURL(params.project),
     gateway_base_url: runGatewayEndpoint(factoryBaseURL(env)!),
@@ -522,6 +556,7 @@ export async function acquireContext(
     config,
     cost_telemetry: telemetry.ok ? null : telemetry.detail,
     refs_baseline: refs,
+    sandbox_image: image.image,
   };
 
   // The run identifies itself in R2 before it does anything, so a run whose
@@ -907,10 +942,12 @@ async function supervisePass(
         attempt: boot,
       });
       // The image is a parameter of the boot, not a constant of the call site
-      // (tick 3q2's seam). The container is told which one it got, so a
-      // repository whose tracked config asks for another is reported by the
-      // entrypoint rather than silently ignored.
-      const image = sandboxImage(env);
+      // (tick 3q2's seam), and since tick x3v the value can be the
+      // repository's own: `acquireContext` resolved it from the tracked config
+      // at the submitted SHA, and refused the run outright if this deployment
+      // could not serve it. The container is told which image it got, so its
+      // own reader can refuse a boot that is not what the repository declared.
+      const image = context.sandbox_image;
       const sandbox = await binding.get(name, { image });
       const started = await sandbox.startProcess(ORCHESTRATOR_COMMAND, {
         env: orchestratorEnv({

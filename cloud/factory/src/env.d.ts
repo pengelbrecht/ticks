@@ -43,9 +43,14 @@ declare namespace Cloudflare {
       | import("./sandbox").SandboxBinding
       | import("./sandbox").SandboxNamespace;
     /**
-     * Image reference a run boots, for a deployment that pushed the
-     * orchestrator image into its own registry. Unset uses the bundled
-     * default (`DEFAULT_SANDBOX_IMAGE`).
+     * The orchestrator image this deployment's container application serves,
+     * for a deployment that pushed it into its own registry. Unset means the
+     * bundled default (`DEFAULT_SANDBOX_IMAGE`).
+     *
+     * Load-bearing since tick x3v: a repository that declares
+     * `[sandbox].image` boots that image, and this is what "does this
+     * deployment serve it?" is answered against. A run whose repository
+     * declares something else is refused rather than booted on the base.
      */
     SANDBOX_IMAGE?: string;
     /**
@@ -58,6 +63,15 @@ declare namespace Cloudflare {
      * repository is a rule nobody tests.
      */
     REPO_REFS?: import("./progress").RepoRefs;
+    /**
+     * The reader the Run Workflow resolves a repository's declared sandbox
+     * image with: its tracked `.tick/runners.toml` at the submitted SHA
+     * (tick x3v).
+     *
+     * Unset on a deployment, which reads GitHub's contents API directly. A
+     * seam for the same reason `REPO_REFS` is one.
+     */
+    REPO_CONFIG?: import("./repo-config").RepoConfigReader;
     /** Test/deployment override; defaults to api.github.com. */
     GITHUB_API_BASE_URL?: string;
     /**

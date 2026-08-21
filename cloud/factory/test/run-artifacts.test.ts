@@ -25,9 +25,9 @@ import {
 } from "../src/run-workflow";
 import {
   DEFAULT_SANDBOX_IMAGE,
+  deploymentImage,
   isTerminalExit,
   orchestratorEnv,
-  sandboxImage,
   sandboxName,
 } from "../src/sandbox";
 import { parseSubmission } from "../src/runs";
@@ -492,14 +492,14 @@ describe("the image contract", () => {
 
 describe("the per-repo sandbox declaration", () => {
   it("boots the bundled image unless the deployment pushed its own", () => {
-    expect(sandboxImage({} as never)).toBe(DEFAULT_SANDBOX_IMAGE);
-    expect(sandboxImage({ SANDBOX_IMAGE: "  " } as never)).toBe(DEFAULT_SANDBOX_IMAGE);
-    expect(sandboxImage({ SANDBOX_IMAGE: "registry.example.com/acme/orchestrator:2.0.0" } as never)).toBe(
+    expect(deploymentImage({} as never)).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(deploymentImage({ SANDBOX_IMAGE: "  " } as never)).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(deploymentImage({ SANDBOX_IMAGE: "registry.example.com/acme/orchestrator:2.0.0" } as never)).toBe(
       "registry.example.com/acme/orchestrator:2.0.0"
     );
   });
 
-  it("tells the container which image it got, so a repo asking for another is not ignored silently", () => {
+  it("tells the container which image it got, so its own reader can refuse a boot the repo did not ask for", () => {
     const built = orchestratorEnv({
       run_id: "run_a",
       epic: "ko8",

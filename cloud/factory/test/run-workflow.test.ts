@@ -10,6 +10,7 @@ import {
 import { enrolProject, getRun, getRunProgress, listDispatchLogs, listRunGatewayTokens } from "../src/db";
 import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import type { RepoRefs } from "../src/progress";
+import type { RepoConfigReader } from "../src/repo-config";
 import { MAX_SANDBOX_BOOTS } from "../src/run-workflow";
 import { roomFor, runStatus, startRun, stopRun, submitRun } from "../src/runs";
 import {
@@ -180,6 +181,34 @@ class FakeRepo implements RepoRefs {
   }
 }
 
+/**
+ * The repository's tracked config, faked: what `[sandbox]` a run's checkout
+ * declares at the submitted SHA.
+ *
+ * The control plane reads this BEFORE it boots anything, because the image a
+ * repository declares is the image the run has to get (tick x3v) — and a
+ * declaration cannot be read out of a container that is already running the
+ * wrong one.
+ */
+class FakeRepoConfig implements RepoConfigReader {
+  /** The file's text, or null for a repository that tracks none. */
+  source: string | null = null;
+  /** Set to make the file unreadable, as a GitHub outage would. */
+  unreadable: string | null = null;
+  readonly asked: { project: string; ref: string }[] = [];
+
+  async read(project: string, ref: string): Promise<string | null> {
+    this.asked.push({ project, ref });
+    if (this.unreadable !== null) throw new Error(this.unreadable);
+    return this.source;
+  }
+
+  /** What a repository pinning its own orchestrator image tracks. */
+  declare(image: string): void {
+    this.source = `version = 2\n\n[sandbox]\nimage = "${image}"\n`;
+  }
+}
+
 // ------------------------------------------------------------------ harness ---
 
 const GATEWAY = "https://gateway.ai.cloudflare.com/v1/account/ticks";
@@ -189,6 +218,7 @@ const BASE_SHA = "a".repeat(40);
 
 let sandboxes: FakeSandboxes;
 let repo: FakeRepo;
+let repoConfig: FakeRepoConfig;
 const saved: Record<string, unknown> = {};
 
 /** Overrides a binding for one test, remembering what to put back. */
@@ -204,6 +234,11 @@ beforeEach(() => {
   // submission did, so a run that pushes nothing has moved nothing.
   repo = new FakeRepo();
   set("REPO_REFS", repo);
+  // The checkout's own `[sandbox]` declaration. It declares nothing by
+  // default, which is the 99% path: the deployment's image stands.
+  repoConfig = new FakeRepoConfig();
+  set("REPO_CONFIG", repoConfig);
+  set("SANDBOX_IMAGE", undefined);
   set("AI_GATEWAY_BASE_URL", GATEWAY);
   set("CLOUDFLARE_API_TOKEN", undefined);
   // A run's model traffic goes through this deployment's own gateway proxy
@@ -448,6 +483,77 @@ describe("boot and finalize", () => {
 
     // Let the run finish: an ignited run left alive keeps supervising, and a
     // shared workerd runtime is what the next test file has to run in.
+    process.exit(0);
+    await settled(runID);
+  });
+
+  // The escape hatch, working (tick x3v). A repository that pins its own image
+  // in its tracked config gets that image — read from the checkout at the
+  // submitted SHA, never from the submission, because an image is arbitrary
+  // code and this container holds the run's credentials.
+  it("boots the image the repository declares at the submitted SHA", async () => {
+    const declared = "registry.example.com/acme/ticks-orchestrator:0.32.0";
+    // The deployment that serves it: on this substrate an image belongs to the
+    // container application, so honouring a declaration means the operator
+    // deployed a factory running it.
+    set("SANDBOX_IMAGE", declared);
+    repoConfig.declare(declared);
+
+    const { runID, project } = await ignite();
+    const process = await firstProcess();
+
+    expect(sandboxes.requestedImages[0]).toBe(declared);
+    expect(process.env.TICKS_SANDBOX_IMAGE).toBe(declared);
+    // Read from the tracked file at the run's own base commit, not at a branch
+    // head that may have moved since the submission.
+    expect(repoConfig.asked[0]).toEqual({ project, ref: BASE_SHA });
+
+    process.exit(0);
+    await settled(runID);
+  });
+
+  // The third clause of the tick, and the one that costs money to get wrong: a
+  // declared image this deployment cannot serve must END the run, before a
+  // container exists and before a credential is minted, rather than booting
+  // the base image and letting a wave fail somewhere far from the cause.
+  it("fails the run with an actionable error when the declared image cannot be booted", async () => {
+    repoConfig.declare("registry.example.com/acme/ticks-orchestrator:0.32.0");
+
+    const { runID, project, room } = await ignite();
+    const run = await settled(runID);
+
+    expect(run.state).toBe("failed");
+    // Nothing was booted and nothing was credentialled: the refusal is the
+    // whole run.
+    expect(sandboxes.booted).toHaveLength(0);
+    expect(await listRunGatewayTokens(env.DB, runID)).toHaveLength(0);
+    // And the project is not left wedged behind a lease it never used.
+    expect(await room.leaseStatus()).toBeNull();
+
+    // What an operator reads back: both references, where the declaration
+    // lives, and both ways out.
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.state).toBe("failed");
+    expect(record.detail).toContain("registry.example.com/acme/ticks-orchestrator:0.32.0");
+    expect(record.detail).toContain(DEFAULT_SANDBOX_IMAGE);
+    expect(record.detail).toContain(".tick/runners.toml");
+    expect(record.detail).toContain("remove [sandbox].image");
+  });
+
+  // A GitHub hiccup must not fail every run: the control plane's reader is a
+  // second reader of a Go-owned format, so an answer it could not get leaves
+  // the deployment's image standing — and the container, which reads the
+  // tracked config with the authoritative reader, refuses the boot if that was
+  // the wrong call.
+  it("boots this deployment's image when the tracked config cannot be read", async () => {
+    repoConfig.unreadable = "GitHub answered HTTP 503";
+
+    const { runID } = await ignite();
+    const process = await firstProcess();
+
+    expect(sandboxes.requestedImages[0]).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(process.env.TICKS_SANDBOX_IMAGE).toBe(DEFAULT_SANDBOX_IMAGE);
+
     process.exit(0);
     await settled(runID);
   });
