@@ -105,6 +105,41 @@ row, or `prompt_tokens_details.cached_tokens` in the response body. Nothing in D
 carries it. **Never read the row's `cached` field for this** — that is the
 response cache, permanently false here.
 
+## Publishing a cached rate is not delivering one (2026-08-21, tick y45)
+
+Six of the sixteen tool-capable models on this account publish a
+`per M cached input tokens` price. Probed with a byte-identical 22.5k-token
+prefix over six rounds, they do not behave alike, and the price list gives no
+hint which is which:
+
+| Model | Cached rate | Post-warm hits |
+|---|---:|:---:|
+| `deepseek-v4-flash-0731` | $0.014 | 23/23 |
+| `kimi-k2.7-code` | $0.19 | 23/23 |
+| `kimi-k2.6` | $0.16 | 18/18 |
+| `deepseek-v4-pro-0813` | $0.044 | 12/24 |
+| `glm-5.2` | $0.26 | 5/24 |
+| `qwen3.8-27b` | $0.05 | **0/27** |
+
+Three consequences for anyone pricing a run here:
+
+- **A published cached rate is not a discount you will receive.** `qwen3.8-27b`
+  advertises $0.05/M and billed 27 of 27 post-warm calls at its $0.45/M list
+  rate. Model the cache from a probe, never from the rate card.
+- **A reported cache is not a billed cache.** `gemma-4-26b-a4b-it` returns
+  `cached_tokens` at ~100% of the prompt while its Neurons do not move. Score
+  the Neurons, not the field — the same trap as the log row's `cached` boolean,
+  one level down.
+- **`result_info.total_count` on `/ai/models/search` is not a page bound.** It
+  reported 291 against a real 64; it counts the platform catalog, not the
+  account's slice. Page until a short page proves exhaustion.
+
+The conversion is confirmed live rather than quoted: USD predicted from the
+published per-token prices matched `neurons x $0.011 / 1000` to within 0.66%
+worst case across sixteen models, and exactly on ten of them. Harness:
+`scripts/bench_workers_ai_models.py`; full comparison and the per-role/tier
+recommendation in `docs/workers-ai-model-selection.md`.
+
 ## What `x-session-affinity` does and does not buy
 
 The header routes a session's calls toward one model instance, which is where a

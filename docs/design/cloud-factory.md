@@ -351,11 +351,22 @@ normalises content parts into a string on the `workers-ai` route, in
 with no string form rather than dropping it. Read "OpenAI-compatible" here as
 "OpenAI-shaped, with one documented difference handled at the proxy" — a
 harness that sends anything richer than text through this rung will meet that
-refusal, not a silent truncation. The `claude` kind expects Anthropic-shaped
-APIs and stays pointed at Anthropic models. pi is still the natural default
-kind for cloud workers; picking a default MODEL for it is a harness-compat
-question as much as a capability one (see the Workers AI default-model tick),
-because the rung's wire shape is part of what the harness has to speak.
+refusal, not a silent truncation. **Dated correction (2026-08-21, tick y45):**
+the account's OpenAI-compatible endpoint now accepts content parts on all
+sixteen tool-capable models — the array shape was probed live against every one
+of them and every one returned 200. The failure above was real when it
+happened; the platform moved. `stringifyContentParts` **stays** anyway: it is
+now belt-and-braces rather than load-bearing, it fails closed on a part with no
+string form, and this epic has twice been burned by taking one dated
+observation of platform behaviour as a standing guarantee — which cuts in both
+directions. The `claude` kind expects Anthropic-shaped APIs and stays pointed
+at Anthropic models. pi is still the natural default kind for cloud workers;
+picking a default MODEL for it is a harness-compat question as much as a
+capability one — that choice is now made and measured in
+[`workers-ai-model-selection.md`](../workers-ai-model-selection.md), which
+prices every model the account serves per completed tick and recommends a model
+per role and tier — because the rung's wire shape is part of what the harness
+has to speak.
 
 One honest cost note: laptop runs often ride a flat-rate subscription; cloud
 agents run on metered API keys. The gateway makes that spend visible and
