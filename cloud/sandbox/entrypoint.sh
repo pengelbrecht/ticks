@@ -1018,7 +1018,12 @@ each worker branch as it merges, each wave as it integrates, and tracker state
 immediately after every mutation batch — and do not wait for closeout to make
 work durable. Keep working on this branch: do not create a second integration
 branch, and do not push to the default branch yourself; merging ${run_branch}
-is closeout's job, through the PR and CI gate.
+is closeout's job, through the PR and CI gate. Build that PR's body with
+'tk cloud pr-body' (it reads this container's environment) and open the PR with
+it: this branch descends from the SHA the run was submitted at, so when that
+submission came off a branch already ahead of the default branch, merging the
+PR lands those commits too — the body is what makes that cargo visible instead
+of silent.
 PROMPT
 }
 

@@ -428,6 +428,8 @@ Before closing the epic, run the **Epic-close retro** (see below). Write the ret
 
 **Integration status.** The completion report must state the epic branch's integration status: *merged*, *awaiting PR*, or *awaiting human*. For repos with CI, the default is a PR + CI gate before merging to the default branch; configure the requirement in `.tick/config.md` → Rules so every agent prompt inherits it.
 
+**Say what the PR carries.** A branch is not only what the run put on it: it also holds everything that was already on the branch it started from. When the run began from a branch ahead of the default branch, its PR merges that work too — on this PR's CI gate rather than its own, and without whatever PR owns it being approved. So the PR body enumerates the commits the run did not create. In a cloud run, `tk cloud pr-body` writes that body from the container's environment (`tk cloud pr-body | gh pr create --base main --head "$TICKS_RUN_BRANCH" --title "epic <id>: cloud run" --body-file -`); elsewhere, `git log --oneline <default-branch>..<the SHA the branch started from>` is the same list, and a PR carrying nothing should say so rather than say nothing.
+
 ---
 
 ## Epic-close retro

@@ -554,6 +554,19 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
   run has committed something, so the ref comparison that decides whether a run
   advanced anything stays honest. Merging to the default branch is unchanged —
   it still waits for closeout and the PR + CI gate.
+- **A closeout PR names the commits it did not create.** The run branch
+  descends from the SHA the run was submitted at, which is whatever branch the
+  operator was standing on. A run submitted from an epic branch that is ahead
+  of the default branch therefore carries that epic into its own PR, and
+  merging it lands those commits on the default branch under *this* run's CI
+  gate rather than their own — it happened once, and the carried epic's PR was
+  recorded merged by a PR nobody opened for it. `tk cloud pr-body` builds the
+  closeout PR body and lists that cargo (`<merge target>..<submitted sha>`)
+  above the run's own commits, under a heading saying what merging it does; a
+  PR carrying nothing says so positively. It fails rather than reporting a
+  clean PR when the checkout cannot resolve the merge target: the sandbox's
+  shallow clone can see one ref, and a body that certified every PR as clean
+  because it could not look would be worse than none.
 - **Notification is a run parameter, not config** — the requester chooses the
   channel per submission; the default comes from `.tick/operators.json`.
 

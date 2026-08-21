@@ -441,6 +441,31 @@ tk factory status --check      # exit nonzero when a configured credential is re
 The full ladder, including the GitHub App upgrade path and how to rotate a key, is in
 [`docs/factory-credentials.md`](docs/factory-credentials.md).
 
+### Merging a cloud run: `tk cloud pr-body`
+
+A run is submitted from whatever branch you were standing on, and its run branch
+descends from that SHA. If that branch was already ahead of the default branch,
+the run's closeout PR carries those commits too: merging it lands a second epic
+on `main` on *this* PR's CI gate, with no approval of its own. That has happened
+— a PR nobody merged was recorded merged, because all of its commits arrived
+inside someone else's.
+
+`tk cloud pr-body` writes the closeout PR body and names that cargo:
+
+```bash
+tk cloud pr-body | gh pr create --base main --head "$TICKS_RUN_BRANCH" \
+    --title "epic <id>: cloud run" --body-file -
+```
+
+Commits in the diff the run did not create are listed first, under a heading
+saying what merging them does; the run's own commits follow. A PR that carries
+nothing says so positively — silence would be indistinguishable from not having
+looked, which is also why a checkout that cannot resolve the merge target (a
+sandbox's shallow clone, before it fetches) is an error rather than a clean
+report. Inside a run the defaults come from the container's environment
+(`TICKS_RUN_BRANCH`, `TICKS_BASE_SHA`, `TICKS_EPIC`); elsewhere `--head`,
+`--run-base`, `--base` and `--epic` name them.
+
 ### Operator channel: reach a human from an autonomous run
 
 `tk channel` pairs a personal Telegram bot with this machine so an autonomous run can

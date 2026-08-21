@@ -349,21 +349,26 @@ func TestCloudWithoutFactoryConfigurationNamesSetup(t *testing.T) {
 func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	steering := map[string]bool{"run": true, "stop": true}
 	observation := map[string]bool{"status": true, "logs": true, "trace": true}
+	// The third kind: reads the checkout it is run in, prints, and touches no
+	// factory at all. `pr-body` composes a closeout PR body from git — it
+	// neither commands a run nor reads one, so it is outside D21 rather than an
+	// addition to it. It still has to say so in its own help.
+	local := map[string]bool{"pr-body": true}
 
 	for _, command := range cloudCmd.Commands() {
 		name := command.Name()
-		if !steering[name] && !observation[name] {
-			t.Errorf("unexpected cloud command %q: it is neither a D21 verb nor a read-only observation", name)
+		if !steering[name] && !observation[name] && !local[name] {
+			t.Errorf("unexpected cloud command %q: it is neither a D21 verb, a read-only observation, nor a local git read", name)
 		}
-		if observation[name] && !strings.Contains(command.Long, "D21") {
+		if (observation[name] || local[name]) && !strings.Contains(command.Long, "D21") {
 			// Said in the help text, not just in a design doc: the next reader
-			// of `tk cloud --help` counts five subcommands against a
-			// four-verb vocabulary and needs the answer where they are looking.
-			t.Errorf("cloud %s does not say why a read-only command does not widen D21's vocabulary", name)
+			// of `tk cloud --help` counts the subcommands against a four-verb
+			// vocabulary and needs the answer where they are looking.
+			t.Errorf("cloud %s does not say why a non-steering command does not widen D21's vocabulary", name)
 		}
 	}
-	if len(cloudCmd.Commands()) != len(steering)+len(observation) {
-		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()), len(steering)+len(observation))
+	if len(cloudCmd.Commands()) != len(steering)+len(observation)+len(local) {
+		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()), len(steering)+len(observation)+len(local))
 	}
 
 	// The mutating half of the surface is exactly D21's verbs, and stays so.
