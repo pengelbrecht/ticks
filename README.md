@@ -92,6 +92,17 @@ irm https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.ps1 | iex
 go install github.com/pengelbrecht/ticks/cmd/tk@latest
 ```
 
+Working *on* ticks rather than installing it? Build the dev binary instead —
+it goes to `./bin/tk` and leaves your machine-wide `tk` alone:
+
+```bash
+make build && ./bin/tk --help
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#building) for why, and for the explicit
+opt-in (`TK_ALLOW_MACHINE_INSTALL=1 make install`) needed to replace the
+machine-wide binary.
+
 ### Skill (Claude Code / Codex)
 
 The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan and orchestrate epics.

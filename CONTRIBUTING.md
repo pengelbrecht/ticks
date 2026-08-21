@@ -8,8 +8,34 @@ Thanks for wanting to contribute! Here's what you need to know.
 2. **Create a branch** for your changes
 3. **Make your changes** - write tests if adding functionality
 4. **Run the tests**: `go test ./...`
-5. **Smoke test it** - actually run `tk` and verify it works
+5. **Build and smoke test it**: `make build`, then run `./bin/tk` and verify it works
 6. **Open a PR** with a clear description of what you did
+
+## Building
+
+```bash
+make build     # writes ./bin/tk (gitignored)
+./bin/tk --help
+```
+
+**Dev builds go to `./bin/tk`. Never build over the machine-wide binary.**
+
+`~/.local/bin/tk` (or wherever you installed `tk`) is shared by every shell —
+and, if you work with coding agents, by every agent running on the machine. It
+may also be carrying a hand-applied local patch. Running `go build -o
+~/.local/bin/tk ./cmd/tk` from a clean tree silently reverts that patch and
+swaps the binary out from under everything else mid-run. That has broken
+`tk herd` for other agents once already.
+
+Replacing the machine-wide binary is a release action, so you have to ask for
+it explicitly:
+
+```bash
+TK_ALLOW_MACHINE_INSTALL=1 make install
+```
+
+Without that variable, `make install` refuses and points you back at
+`make build`. Override the destination with `INSTALL_DIR=...` if you need to.
 
 ## AI-Generated Code
 
