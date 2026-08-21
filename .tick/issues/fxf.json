@@ -2,12 +2,14 @@
   "id": "fxf",
   "title": "One session-affinity key for N concurrent subagents may defeat prefix caching",
   "description": "l8z stamps x-session-affinity with the run id, which was right for a single orchestrator loop and is measurably working: run_62c289d1 cached 7,154,176 of 10,954,464 input tokens, 65 percent, against zero on the pre-l8z runaway. But under the harness substrate a run is one orchestrator PLUS N implementer subagents, all sharing the run token and therefore all sharing one affinity key. Their contexts diverge completely, so they compete for one model instance prefix cache, and the per-call hit rate in that run swung between 92 percent and 0 percent with several near-total misses on large prompts.\n\nInvestigate before changing anything: the bodies are in the AI Gateway logs, so diff two consecutive requests around a miss and find the bytes that varied. If the cause is cross-subagent interference rather than a varying prefix, the fix is an affinity key per conversation rather than per run — which must stay derived by the factory, never caller-supplied, for the reason l8z gives. Quantify the headroom too: at 65 percent this run paid 5.95 against a modelled 15.08 uncached, so the remaining misses are worth real money.",
-  "status": "open",
+  "notes": "2026-08-21 17:29 - Seam (wave 3, three wide with kuf and x3v). You own cloud/factory/src/gateway.ts affinity headers only. kuf owns benchmarking, x3v the image boot path.\n\nInvestigate before changing anything — tk cloud trace landed this wave and is the tool for it: pull two consecutive request bodies around a cache miss and diff them to find the bytes that varied. Real data from run_62c289d1: 65.3 percent overall (7,154,176 of 10,954,464 input tokens cached) but per-call swinging 92, 61, 29, 73, 1, 79, 81, 0, 71 percent, with three near-total misses on large prompts. The suspicion in the tick is cross-subagent interference — one run id shared by an orchestrator plus N implementers with divergent contexts — but l8z also warns the HARNESS may inject something varying ahead of our prompt, which this repo does not control. Distinguish those two before writing code; the fix differs. Whatever key you choose stays factory-derived, never caller-supplied. Worth quantifying: at 65 percent that run paid $5.95 against a modelled $15.08 uncached, and a cached input token costs 0.004 neurons against 0.120 — see repo-wiki/cloud-factory-billing.md.",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T10:33:56.176957Z",
-  "updated_at": "2026-08-21T10:33:56.176957Z"
+  "updated_at": "2026-08-21T15:29:58.321572Z",
+  "started_at": "2026-08-21T15:29:58.321571Z"
 }
