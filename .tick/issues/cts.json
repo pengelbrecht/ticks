@@ -3,7 +3,7 @@
   "title": "CRITICAL: cost budget reads only the first page, so budgets never trip",
   "description": "FOUND BY A RUNAWAY RUN THAT COST \\$49.31 AGAINST A \\$25 BUDGET. Budget enforcement is effectively disabled for any run exceeding 50 model calls.\n\nEvidence from run_f15efdfb79a84bda9914e92a39395f3d:\n  recorded cost_usd  \\$2.98\n  actual gateway     \\$49.31 across 887 calls, 45.7M input tokens\n  configured budget  RUN_MAX_COST_USD = 25\nThe run passed its budget nearly 2x and kept going for ~4.4 hours until stopped by hand.\n\nROOT CAUSE, reproduced against the live API. gateway.ts pagination:\n    const totalPages = payload.result_info?.total_pages ?? 1;\n    if (entries.length \u003c LOG_PAGE_SIZE || page \u003e= totalPages) break;\nThe AI Gateway logs API does NOT return total_pages. Its result_info is:\n    {\"count\": 50, \"page\": 1, \"per_page\": 50, \"total_count\": 845}\nSo total_pages is undefined, defaults to 1, and `page \u003e= 1` breaks on the FIRST iteration every time. Exactly one page — 50 entries — is ever counted. \\$2.98 of \\$49.31 is 6%, which is 50/845.\n\nFIX: derive the page count from total_count and per_page, or simply keep paging while entries.length === LOG_PAGE_SIZE. Do not trust a field the API does not send. Add a test that pins the real result_info shape (no total_pages) and asserts more than one page is fetched — the existing tests must have used a fixture that invented total_pages, which is why this passed.\n\nALSO FIX THE CLASS, not just the line: MAX_LOG_PAGES=20 x 50 caps counting at 1000 calls, and this run made 887. A long run will silently under-count again once it passes 1000. Either page until exhausted, or treat hitting the cap as a telemetry FAILURE (which jk7 already makes a refusal) rather than as a complete total — an under-count that looks like a total is exactly what made this cost money.\n\nWORTH CHECKING WHILE THERE: the same undercount feeds runs.cost_usd, so every cost figure this factory has ever reported is low by the same mechanism.",
   "notes": "2026-08-20 22:09 - runner-state: substrate=herdr kind=claude branch=tick/cts worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-cts workspace=wCD base=8380d10eb720ebfd280f2966d7da8652e4e30479 agent=tick-cts pane=wCD:p1 session=51ec5f29-7de2-444e-8fb2-49fb5a08c3e1",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 0,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -12,6 +12,7 @@
   "acceptance_criteria": "A run with more than 50 model calls reports its true gateway spend; a cost budget trips at the configured amount, proven against a fixture with the REAL result_info shape; hitting the page cap is treated as a telemetry failure rather than a total; a regression test pins the no-total_pages response.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T20:09:29.876288Z",
-  "updated_at": "2026-08-20T20:09:43.000222Z",
-  "started_at": "2026-08-20T20:09:29.944927Z"
+  "updated_at": "2026-08-21T06:48:44.856178Z",
+  "closed_at": "2026-08-21T06:48:44.856178Z",
+  "closed_reason": "Completed: the gateway cost query pages until exhausted instead of trusting a total_pages field the API never sends — the bug that let a run bill $49.80 against a $25 budget while reporting $2.98 — and hitting the page cap is now a telemetry failure rather than a total."
 }
