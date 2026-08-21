@@ -136,6 +136,30 @@ export const MIN_POLL_MS = 15_000;
 export const MAX_POLL_MS = 300_000;
 const POLL_BACKOFF = 1.25;
 
+/**
+ * How much of the remaining cost headroom one sleep may be projected to spend.
+ *
+ * `detectTrip` only runs on an observation, so whatever a run burns during a
+ * sleep is spent unwatched — the backoff above widens that window to five
+ * minutes exactly when a run is long-lived and expensive, which is when it
+ * matters. Measured on run_62c289d1: `RUN_MAX_COST_USD` was 5, `syncRunCost`
+ * recorded 5.86 correctly, and the run was still `running` with no trip. The
+ * accounting was right; the cadence was not.
+ *
+ * So the sleep before each look is capped at the time the *observed* burn rate
+ * says it would take to spend this fraction of what is left. The remaining
+ * headroom halves each look as the ceiling nears, until the cap reaches
+ * `MIN_POLL_MS` and the overshoot is bounded by one fast poll's worth of spend
+ * rather than one backed-off poll's worth. It costs a handful of extra looks,
+ * and only in the last stretch before a trip.
+ *
+ * The wall clock rides the same cadence and so overshot the same way — on
+ * run a1f87597 a 45-minute ceiling was crossed at 11:29:52 and the token was
+ * revoked at 11:31:59, two minutes late because the crossing happened partway
+ * through a sleep. That one needs no projection: see `deadlineCap`.
+ */
+export const BUDGET_POLL_HEADROOM = 0.5;
+
 /** Retry policies. Named so the intent survives the config literal. */
 const CONTEXT_RETRIES = { retries: { limit: 3, delay: 1_000, backoff: "exponential" } } as const;
 const BOOT_RETRIES = { retries: { limit: 2, delay: 2_000, backoff: "exponential" } } as const;
@@ -205,10 +229,119 @@ export function runConfig(env: Env): RunConfig {
   };
 }
 
-/** The gap before observation `n` (0-based) of a boot. */
-export function pollDelay(config: RunConfig, n: number): number {
+/**
+ * What one observation learned about spend, carried to the next sleep.
+ *
+ * The rate is measured across the most recent gap rather than averaged over
+ * the run: a run that idles through boot and then burns hard has an average
+ * that badly understates what the next five minutes will cost.
+ */
+export type SpendSample = {
+  cost_usd: number;
+  at_ms: number;
+  /** Dollars per millisecond across the most recent gap; null until one shows spend. */
+  rate_usd_per_ms: number | null;
+};
+
+/**
+ * Folds an observation's spend reading into the running sample.
+ *
+ * An observation that read no cost at all (budgets not enforced on this pass,
+ * or a look that tripped before the read) leaves the previous sample standing:
+ * a missing reading is not a reading of zero.
+ */
+export function spendSample(
+  previous: SpendSample | null,
+  cost_usd: number | null,
+  at_ms: number
+): SpendSample | null {
+  if (cost_usd === null) return previous;
+  const carried = previous === null ? null : previous.rate_usd_per_ms;
+  if (previous === null || at_ms <= previous.at_ms) {
+    return { cost_usd, at_ms, rate_usd_per_ms: carried };
+  }
+  const spent = cost_usd - previous.cost_usd;
+  // A quiet gap is not evidence the run stopped spending — gateway logs land in
+  // batches, so a look can read the same total twice — which is why the last
+  // observed rate stands rather than the window reopening to the full backoff.
+  const measured = spent > 0 ? spent / (at_ms - previous.at_ms) : null;
+  return { cost_usd, at_ms, rate_usd_per_ms: measured ?? carried };
+}
+
+/**
+ * What the next sleep must respect beyond the backoff.
+ *
+ * Both budgets are sampled on the same cadence, so both overshoot by whatever
+ * the sleep costs — and they are bounded differently because they are known
+ * differently. The wall clock is known exactly, so the sleep simply stops at
+ * the deadline. Spend is only ever projected, so it gets the headroom rule.
+ */
+export type Cadence = {
+  /** Now, on the same clock as `deadline_ms` — the last checkpointed reading. */
+  now_ms: number;
+  /** The earliest deadline in force (run wall clock, pass window), or null. */
+  deadline_ms: number | null;
+  /** The last observation's spend reading, or null before the first one. */
+  spend: SpendSample | null;
+};
+
+/** The first of two absolute deadlines to arrive, when either exists. */
+export function earliestDeadline(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.min(a, b);
+}
+
+/** The backoff the cadence starts from, before any budget caps it. */
+function baseDelay(config: RunConfig, n: number): number {
   if (config.poll_interval_ms !== null) return config.poll_interval_ms;
   return Math.min(Math.round(MIN_POLL_MS * POLL_BACKOFF ** n), MAX_POLL_MS);
+}
+
+/** Never sleep past a deadline: the look that trips should be the next one. */
+function deadlineCap(cadence: Cadence): number | null {
+  if (cadence.deadline_ms === null) return null;
+  return cadence.deadline_ms - cadence.now_ms;
+}
+
+/**
+ * Never sleep through more than `BUDGET_POLL_HEADROOM` of what is left.
+ *
+ * With no rate yet there is nothing to project from and the backoff stands —
+ * a run that has not been seen spending is not the run this bounds.
+ */
+function spendCap(config: RunConfig, spend: SpendSample | null): number | null {
+  if (spend === null) return null;
+  const remaining = config.max_cost_usd - spend.cost_usd;
+  // Already at or over the ceiling: the next look is the one that trips, and
+  // every millisecond until it is unwatched spend.
+  if (remaining <= 0) return MIN_POLL_MS;
+  const rate = spend.rate_usd_per_ms;
+  if (rate === null || !(rate > 0)) return null;
+  return (remaining / rate) * BUDGET_POLL_HEADROOM;
+}
+
+/**
+ * The gap before observation `n` (0-based) of a boot.
+ *
+ * Without a cadence this is the bare backoff — the pre-sleep lease renewal
+ * asks for exactly that. With one, the backoff is the ceiling and the budgets
+ * only ever shorten it, never below the fast cadence (or below a deliberately
+ * tiny fixed interval, which is already faster than that floor).
+ */
+export function pollDelay(config: RunConfig, n: number, cadence: Cadence | null = null): number {
+  const base = baseDelay(config, n);
+  if (cadence === null) return base;
+
+  const caps: number[] = [];
+  const deadline = deadlineCap(cadence);
+  if (deadline !== null) caps.push(deadline);
+  const spend = spendCap(config, cadence.spend);
+  if (spend !== null) caps.push(spend);
+  if (caps.length === 0) return base;
+
+  const floor = Math.min(base, MIN_POLL_MS);
+  return Math.max(floor, Math.min(base, Math.round(Math.min(...caps))));
 }
 
 /**
@@ -378,6 +511,13 @@ type Observation = {
   seq: number;
   trip: Trip | null;
   at_ms: number;
+  /**
+   * The spend this look read back, or null when it read none — a pass that
+   * does not enforce budgets, or a look that tripped before the read. It feeds
+   * the next sleep's cost cap, so a missing reading must stay distinguishable
+   * from a reading of zero.
+   */
+  cost_usd: number | null;
 };
 
 type ObserveInput = {
@@ -412,6 +552,7 @@ export async function observe(env: Env, input: ObserveInput): Promise<Observatio
       seq: input.seq,
       trip: null,
       at_ms: Date.now(),
+      cost_usd: null,
     };
   }
   const sandbox = await binding.get(input.sandbox);
@@ -461,17 +602,21 @@ export async function observe(env: Env, input: ObserveInput): Promise<Observatio
   const view = await sandbox.getProcess(input.process_id).catch(() => null);
   const at = Date.now();
 
-  const trip = input.enforce_budgets
+  const checked = input.enforce_budgets
     ? await detectTrip(env, input, at, leaseLost)
-    : ((await hardStopTrip(env, input)) ?? passDeadlineTrip(input, at));
+    : {
+        trip: (await hardStopTrip(env, input)) ?? passDeadlineTrip(input, at),
+        cost_usd: null,
+      };
 
   return {
     process: view === null ? "gone" : view.state,
     exit_code: view === null ? null : view.exit_code,
     offset,
     seq,
-    trip,
+    trip: checked.trip,
     at_ms: at,
+    cost_usd: checked.cost_usd,
   };
 }
 
@@ -516,19 +661,25 @@ async function hardStopRecord(
   return { requested_by: stop.requested_by, requested_at: stop.requested_at };
 }
 
+/** What one budget check learned: whether to trip, and the spend it read. */
+type TripCheck = { trip: Trip | null; cost_usd: number | null };
+
 /**
  * The stop and budget check.
  *
  * The operator's stop wins over a budget: it is the more specific intent, and
  * both end in the same clean stop anyway, so the only thing that differs is
  * what the closeout orchestrator and the dispatch log are told.
+ *
+ * It also reports the spend it read, because the cadence that decides when
+ * this next runs is derived from it — see `pollDelay`.
  */
 async function detectTrip(
   env: Env,
   input: ObserveInput,
   at: number,
   leaseLost: boolean
-): Promise<Trip | null> {
+): Promise<TripCheck> {
   const { params, context } = input;
 
   const stop = await roomFor(env, params.project)
@@ -537,9 +688,12 @@ async function detectTrip(
   if (stop !== null) {
     const hard = stop.mode === "hard";
     return {
-      kind: "stop",
-      hard,
-      detail: `a ${hard ? "hard" : "clean"} stop was requested by ${stop.requested_by} at ${stop.requested_at}`,
+      trip: {
+        kind: "stop",
+        hard,
+        detail: `a ${hard ? "hard" : "clean"} stop was requested by ${stop.requested_by} at ${stop.requested_at}`,
+      },
+      cost_usd: null,
     };
   }
 
@@ -548,18 +702,24 @@ async function detectTrip(
     // (D4), so this run stops rather than racing the new holder — and it stops
     // spending immediately, because the other holder is the one doing the work
     // now.
-    return { kind: "stop", hard: true, detail: "the dispatch lease was lost to another run" };
+    return {
+      trip: { kind: "stop", hard: true, detail: "the dispatch lease was lost to another run" },
+      cost_usd: null,
+    };
   }
 
   const elapsed = at - context.started_at_ms;
   if (elapsed >= context.config.max_wall_clock_ms) {
     return {
-      kind: "budget",
-      budget: "wall_clock",
-      hard: true,
-      detail:
-        `the wall-clock budget is exhausted: ${Math.round(elapsed / 1000)}s of ` +
-        `${Math.round(context.config.max_wall_clock_ms / 1000)}s`,
+      trip: {
+        kind: "budget",
+        budget: "wall_clock",
+        hard: true,
+        detail:
+          `the wall-clock budget is exhausted: ${Math.round(elapsed / 1000)}s of ` +
+          `${Math.round(context.config.max_wall_clock_ms / 1000)}s`,
+      },
+      cost_usd: null,
     };
   }
 
@@ -577,14 +737,17 @@ async function detectTrip(
   const cost = run?.cost_usd ?? 0;
   if (cost >= context.config.max_cost_usd) {
     return {
-      kind: "budget",
-      budget: "cost",
-      hard: true,
-      detail: `the cost budget is exhausted: $${cost.toFixed(2)} of $${context.config.max_cost_usd.toFixed(2)}`,
+      trip: {
+        kind: "budget",
+        budget: "cost",
+        hard: true,
+        detail: `the cost budget is exhausted: $${cost.toFixed(2)} of $${context.config.max_cost_usd.toFixed(2)}`,
+      },
+      cost_usd: cost,
     };
   }
 
-  return null;
+  return { trip: null, cost_usd: cost };
 }
 
 // ------------------------------------------------------------ the passes ---
@@ -739,6 +902,13 @@ async function supervisePass(
 
     const deadline =
       options.pass_max_ms === null ? null : booted.at_ms + options.pass_max_ms;
+    // Every absolute deadline a sleep on this pass must not run past: the run's
+    // wall clock while budgets are enforced, this pass's own window otherwise.
+    // Whichever comes first is the one the cadence stops at.
+    const cadenceDeadline = earliestDeadline(
+      options.enforce_budgets ? context.started_at_ms + context.config.max_wall_clock_ms : null,
+      deadline
+    );
 
     let offset = 0;
     let seq = 1;
@@ -746,9 +916,18 @@ async function supervisePass(
     // otherwise: falling out of the loop with this unchanged means the
     // orchestrator is still ALIVE, which is a different problem from a dead one.
     let ending: "dead" | "exhausted" = "exhausted";
+    // What the last look knew about spend, and when it knew it. Both come from
+    // checkpointed step results, never a live `Date.now()`, so a replayed
+    // Workflow recomputes the identical cadence.
+    let spend: SpendSample | null = null;
+    let lastAt = booted.at_ms;
 
     for (let look = 0; look < context.config.max_observations; look++) {
-      const pollMs = pollDelay(context.config, look);
+      const pollMs = pollDelay(context.config, look, {
+        now_ms: lastAt,
+        deadline_ms: cadenceDeadline,
+        spend,
+      });
       await step.sleep(`${options.label}:wait:${attempt}:${look}`, pollMs);
 
       const seen = await step.do(
@@ -770,6 +949,8 @@ async function supervisePass(
       );
       offset = seen.offset;
       seq = seen.seq;
+      spend = spendSample(spend, seen.cost_usd, seen.at_ms);
+      lastAt = seen.at_ms;
 
       if (seen.trip !== null) {
         const trip = seen.trip;
