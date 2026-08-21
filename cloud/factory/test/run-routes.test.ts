@@ -84,6 +84,7 @@ beforeAll(async () => {
 afterAll(() => {
   if (originalHash === undefined) delete env.FACTORY_TOKEN_HASH;
   else env.FACTORY_TOKEN_HASH = originalHash;
+  delete env.GATEWAY_ALLOWED_PROVIDERS;
   if (originalGateway === undefined) delete env.AI_GATEWAY_BASE_URL;
   else env.AI_GATEWAY_BASE_URL = originalGateway;
   if (originalFactoryURL === undefined) delete env.FACTORY_BASE_URL;
@@ -98,6 +99,9 @@ beforeEach(() => {
   // configured (D17), so a harness that submits runs is a harness with one.
   env.AI_GATEWAY_BASE_URL = "https://gateway.ai.cloudflare.com/v1/account/ticks";
   env.FACTORY_BASE_URL = BASE;
+  // The hard-stop cases make a model call on the anthropic route, which a
+  // default factory refuses on billing grounds (tick fw6) — this one opted in.
+  env.GATEWAY_ALLOWED_PROVIDERS = "anthropic";
 });
 
 afterEach(() => {

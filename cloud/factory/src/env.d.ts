@@ -111,6 +111,17 @@ declare namespace Cloudflare {
     GITHUB_TOKEN?: string;
     /** The operator's AI Gateway base URL — all model traffic goes through it. */
     AI_GATEWAY_BASE_URL?: string;
+    /**
+     * Which providers this deployment will route (wrangler `[vars]`), as a
+     * comma or whitespace separated list of gateway slugs.
+     *
+     * Unset — the default — routes `workers-ai` only, because that is the one
+     * rung billed to the operator's own Cloudflare account rather than by a
+     * vendor in cash. Naming `anthropic`, `openai` or `openrouter` here is the
+     * deployment saying it accepts that spend; a configured key is not, and
+     * never opens a route on its own. See src/gateway.ts.
+     */
+    GATEWAY_ALLOWED_PROVIDERS?: string;
     /** Provider key behind the gateway; absent for the Workers AI rung. */
     ANTHROPIC_API_KEY?: string;
     OPENAI_API_KEY?: string;

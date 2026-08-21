@@ -193,6 +193,7 @@ issued for, and forwards to the gateway.
 | Rule | Why |
 |---|---|
 | No gateway configured → submissions are refused, naming `tk factory setup` | The absence of a gateway is an actionable stop at submission, never a silent fall back to a vendor default. A base URL pointed at a vendor host is refused the same way. |
+| Only `workers-ai` is routed unless `GATEWAY_ALLOWED_PROVIDERS` names another | Workers AI bills to the operator's own Cloudflare account — the invoice their credit is on — while `anthropic`, `openai` and `openrouter` bill by the vendor in cash, and from this hop down the two are indistinguishable. A cash-billed route is refused with a 403 stating which invoice it would land on, so a mistyped or edited model id stops here instead of moving every run's spend onto a card. The opt-in is a wrangler `[vars]` list and a redeploy; a configured key is deliberately not one. |
 | The route is exempt from the factory bearer token, and does not accept it | A sandbox must never hold the credential that commands the control plane. The run token can do exactly one thing. |
 | Metadata is stamped, not accepted | Any `cf-aig-*` header the caller sent is dropped first, so an agent can neither misattribute its spend nor opt out of being attributed. |
 | Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run with no explicit cost budget records its cost as unknown rather than as `$0`, while an explicit budget refuses before sandbox boot. |

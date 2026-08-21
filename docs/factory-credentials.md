@@ -111,6 +111,26 @@ provider that call must succeed with your key; for `workers-ai` there is no key
 to present from your laptop — the Worker calls it with the account's own
 credentials — so the check proves the gateway is reachable and stores no key.
 
+**A BYOK key is not permission to spend it.** The factory routes `workers-ai`
+and nothing else unless the deployment says otherwise: that rung bills to the
+same Cloudflare account the Worker runs in, where an operator's credit sits,
+while the other three bill by the vendor in real cash. Every other route is
+refused with a 403 (`provider_not_opted_in`) that states which invoice it would
+land on — so a mistyped or edited model id stops at the gateway instead of
+quietly moving a run's spend onto a card. Opting in is a wrangler `[vars]` entry
+in `cloud/factory/wrangler.toml`, followed by a redeploy:
+
+```toml
+[vars]
+GATEWAY_ALLOWED_PROVIDERS = "anthropic"
+```
+
+The value is a comma or whitespace separated list of slugs from the table above;
+`workers-ai` is always routed and never needs naming, and an entry that is not a
+slug is logged and ignored rather than guessed at. `tk factory setup` deliberately
+does not write it — a credential stored once should not open a cash-billed route
+for every run that follows.
+
 The tier vocabulary in `.tick/runners.toml` is unchanged by any of this: the
 gateway is plumbing below the role → kind/model/effort table, not a new name
 in it.
