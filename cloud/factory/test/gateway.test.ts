@@ -708,9 +708,47 @@ function fakeLogs(pages: Record<string, unknown>[][]): {
     }
     const page = Number(new URL(url).searchParams.get("page") ?? "1");
     const result = pages[page - 1] ?? [];
-    return Response.json({ success: true, result, result_info: { total_pages: pages.length } });
+    return Response.json({ success: true, result, result_info: liveResultInfo(page, result.length, total(pages)) });
   }) as unknown as typeof fetch;
   return { fetcher, urls };
+}
+
+/** Rows across every page a fake holds, which is what `total_count` reports. */
+function total(pages: Record<string, unknown>[][]): number {
+  return pages.reduce((sum, entries) => sum + entries.length, 0);
+}
+
+/**
+ * The `result_info` the AI Gateway logs API really sends, transcribed from a
+ * live response for a run of 845 rows:
+ *
+ *     {"count": 50, "page": 1, "per_page": 50, "total_count": 845}
+ *
+ * There is no `total_pages`. A fixture that invented one is why reading
+ * `total_pages ?? 1` — which breaks after the FIRST page every time against
+ * the real API — shipped: one run recorded $2.98 of a $49.31 spend (50/845 of
+ * it) and ran ~2x past its $25 budget. No fake in this file may send the field.
+ */
+function liveResultInfo(page: number, count: number, totalCount: number) {
+  return { count, page, per_page: DOCUMENTED_MAX_PER_PAGE, total_count: totalCount };
+}
+
+/**
+ * A gateway log with no end: every page comes back full, as a run larger than
+ * the whole pagination budget looks. Counting it is necessarily incomplete.
+ */
+function endlessLogs(runID: string, cost: number): { fetcher: typeof fetch; pages: () => number } {
+  let pages = 0;
+  const fetcher = (async (input: RequestInfo | URL) => {
+    pages += 1;
+    const page = Number(new URL(String(input)).searchParams.get("page") ?? "1");
+    return Response.json({
+      success: true,
+      result: Array.from({ length: LOG_PAGE_SIZE }, () => ({ cost, metadata: { run_id: runID } })),
+      result_info: liveResultInfo(page, LOG_PAGE_SIZE, 10_000_000),
+    });
+  }) as unknown as typeof fetch;
+  return { fetcher, pages: () => pages };
 }
 
 describe("the runs row cost is gateway telemetry, not a self-report", () => {
@@ -749,6 +787,88 @@ describe("the runs row cost is gateway telemetry, not a self-report", () => {
     const spend = await fetchRunSpend(env, run.run_id, { fetcher: logs.fetcher });
     expect(spend.ok && spend.requests).toBe(LOG_PAGE_SIZE * 2);
     expect(spend.ok && spend.cost_usd).toBeCloseTo(LOG_PAGE_SIZE * 0.03, 10);
+  });
+
+  it("counts every page of a run that outran one page, against the API's real result_info", async () => {
+    // The regression, in the shape that cost money: 845 rows, of which a
+    // `total_pages ?? 1` read counted the first 50 and called it a total.
+    const run = await liveRun();
+    const full = (cost: number) =>
+      Array.from({ length: LOG_PAGE_SIZE }, () => ({ cost, metadata: { run_id: run.run_id } }));
+    const tail = [{ cost: 0.05, metadata: { run_id: run.run_id } }];
+    const logs = fakeLogs([full(0.05), full(0.05), tail]);
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: logs.fetcher });
+
+    expect(spend.ok && spend.requests).toBe(LOG_PAGE_SIZE * 2 + 1);
+    expect(spend.ok && spend.cost_usd).toBeCloseTo((LOG_PAGE_SIZE * 2 + 1) * 0.05, 10);
+    expect(logs.urls).toHaveLength(3);
+  });
+
+  it("keeps paging a response that carries the live result_info verbatim, total_pages absent", async () => {
+    const run = await liveRun();
+    const seen: number[] = [];
+    const live = (async (input: RequestInfo | URL) => {
+      const page = Number(new URL(String(input)).searchParams.get("page") ?? "1");
+      seen.push(page);
+      const rows = page === 1 ? LOG_PAGE_SIZE : 45;
+      return Response.json({
+        success: true,
+        result: Array.from({ length: rows }, () => ({ cost: 0.1, metadata: { run_id: run.run_id } })),
+        // Verbatim from the API: count, page, per_page, total_count. Nothing
+        // else — reading a field it does not send is what broke this.
+        result_info: { count: rows, page, per_page: 50, total_count: LOG_PAGE_SIZE + 45 },
+      });
+    }) as unknown as typeof fetch;
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: live });
+
+    expect(seen).toEqual([1, 2]);
+    expect(spend.ok && spend.requests).toBe(LOG_PAGE_SIZE + 45);
+    expect(spend.ok && spend.cost_usd).toBeCloseTo((LOG_PAGE_SIZE + 45) * 0.1, 10);
+  });
+
+  it("calls a read that hit the page cap a failed read, never a total", async () => {
+    // An under-count that looks like a total is exactly what let a run pass
+    // its budget: past the cap the number is a floor, and jk7 turns a failed
+    // telemetry read into a refusal rather than into false confidence.
+    const run = await liveRun();
+    const endless = endlessLogs(run.run_id, 0.05);
+
+    const spend = await fetchRunSpend(env, run.run_id, { fetcher: endless.fetcher });
+
+    expect(endless.pages()).toBe(MAX_LOG_PAGES);
+    expect(spend.ok).toBe(false);
+    expect(spend.ok === false && spend.kind).toBe("truncated");
+    expect(spend.ok === false && spend.detail).toMatch(/floor/i);
+    expect(spendFailureRemedy("truncated")).toMatch(/floor/i);
+    expect(spendFailureRemedy("truncated")).not.toMatch(/tk factory setup/);
+  });
+
+  it("records the floor a truncated read does know, so a budget still trips on it", async () => {
+    const run = await liveRun();
+    const endless = endlessLogs(run.run_id, 0.05);
+
+    const spend = await syncRunCost(env, run.run_id, { fetcher: endless.fetcher });
+
+    expect(spend.ok).toBe(false);
+    expect((await getRun(env.DB, run.run_id))?.cost_usd).toBeCloseTo(
+      MAX_LOG_PAGES * LOG_PAGE_SIZE * 0.05,
+      6
+    );
+  });
+
+  it("never lowers a recorded cost to a truncated floor", async () => {
+    const run = await liveRun();
+    await env.DB.prepare("UPDATE runs SET cost_usd = ? WHERE run_id = ?")
+      .bind(9_999, run.run_id)
+      .run();
+    const endless = endlessLogs(run.run_id, 0.05);
+
+    const spend = await syncRunCost(env, run.run_id, { fetcher: endless.fetcher });
+
+    expect(spend.ok).toBe(false);
+    expect((await getRun(env.DB, run.run_id))?.cost_usd).toBe(9_999);
   });
 
   it("reports an unreadable telemetry read instead of guessing a number", async () => {
@@ -846,11 +966,12 @@ describe("the gateway logs query is pinned to the shape the API documents", () =
     expect(perPage).toBeLessThanOrEqual(50);
   });
 
-  it("states the pagination budget one spend read covers", () => {
-    // 20 pages of 50 rows: 1000 log rows per sync. A run that outspends that
-    // in one observation window undercounts, so the numbers are stated rather
-    // than left to be multiplied out of two unrelated constants.
-    expect(MAX_LOG_PAGES * LOG_PAGE_SIZE).toBe(1000);
+  it("states the pagination budget one spend read covers, and what exceeding it means", () => {
+    // 200 pages of 50 rows: 10,000 log rows per read, an order of magnitude
+    // past the 887-call run that found the pagination bug. The number is
+    // stated rather than multiplied out of two unrelated constants — and past
+    // it a read FAILS rather than reporting a partial sum as a total.
+    expect(MAX_LOG_PAGES * LOG_PAGE_SIZE).toBe(10_000);
   });
 
   it("surfaces the API's own refusal when a filter is rejected, rather than a bare status", async () => {

@@ -659,11 +659,27 @@ export type SpendFailureKind =
   /** The API refused the query this factory sent (4xx): a bug here. */
   | "request_rejected"
   /** The API errored (5xx) or could not be reached: a real outage. */
-  | "unavailable";
+  | "unavailable"
+  /**
+   * The run has more log rows than one read pages through, so what was counted
+   * is a floor rather than a total. A partial sum presented as a total is what
+   * let a $49.31 run pass a $25 budget, so it is a failure, not a number.
+   */
+  | "truncated";
 
 export type SpendResult =
   | { ok: true; cost_usd: number; requests: number }
-  | { ok: false; kind: SpendFailureKind; detail: string };
+  | {
+      ok: false;
+      kind: SpendFailureKind;
+      detail: string;
+      /**
+       * What the failed read did manage to count, when that is a lower bound
+       * on the run's real spend (a truncated read). Never a total: it exists
+       * so a budget can still trip on the largest ground truth available.
+       */
+      partial?: { cost_usd: number; requests: number };
+    };
 
 /**
  * What the operator should actually do about each kind, in one sentence.
@@ -689,6 +705,12 @@ export function spendFailureRemedy(kind: SpendFailureKind): string {
       return (
         "the AI Gateway logs API is erroring or unreachable — check the gateway and " +
         "Cloudflare's status, then retry the run"
+      );
+    case "truncated":
+      return (
+        "this run has more gateway log rows than one telemetry read pages through, so the " +
+        "recorded cost is a floor rather than a total — read its real spend from the AI " +
+        "Gateway dashboard, and stop the run if it is past its budget"
       );
   }
 }
@@ -716,7 +738,18 @@ type GatewayLogPage = {
   success?: boolean;
   errors?: { message?: string }[];
   result?: GatewayLogEntry[] | null;
-  result_info?: { total_pages?: number; page?: number } | null;
+  /**
+   * Verbatim from the live API: `{count, page, per_page, total_count}`. There
+   * is no `total_pages` — reading one (and defaulting the absent field to 1)
+   * ended every spend read after its first page. The field is deliberately
+   * absent from this type so nothing can read it back.
+   */
+  result_info?: {
+    count?: number;
+    page?: number;
+    per_page?: number;
+    total_count?: number;
+  } | null;
 };
 
 /**
@@ -823,14 +856,19 @@ export function encodeLogFilters(filters: GatewayLogFilter[]): string {
 export const GATEWAY_LOG_MAX_PAGE_SIZE = 50;
 
 /**
- * Pages of gateway logs one sync will read, and rows per page. Bounded: a sync
- * is a poll, not a report.
+ * Pages of gateway logs one sync will read, and rows per page.
  *
- * 20 x 50 = 1000 log rows per read, which is the pagination budget one
- * observation window covers. A run that makes more model calls than that
- * between two syncs undercounts its own spend until the next read catches up.
+ * 200 x 50 = 10,000 log rows per read — an order of magnitude past the 887
+ * model calls of the runaway run that found the pagination bug, and every read
+ * starts at page 1, so this is the size of the largest run whose spend can be
+ * known in full rather than a per-window allowance.
+ *
+ * The bound is a runaway guard, not a truncation policy: a read that reaches
+ * it FAILS (`kind: "truncated"`) instead of returning what it counted. An
+ * under-count that looks like a total is precisely what let a $49.31 run pass
+ * a $25 budget, and jk7 already turns an unreadable spend into a refusal.
  */
-export const MAX_LOG_PAGES = 20;
+export const MAX_LOG_PAGES = 200;
 export const LOG_PAGE_SIZE = GATEWAY_LOG_MAX_PAGE_SIZE;
 
 /** The API's own words for a refusal, bounded — never just its status code. */
@@ -896,6 +934,7 @@ export async function fetchRunSpend(
 
   let cost = 0;
   let requests = 0;
+  let reported: number | null = null;
   for (let page = 1; page <= MAX_LOG_PAGES; page++) {
     const url =
       `${apiBase}/accounts/${account}/ai-gateway/gateways/${gateway}/logs` +
@@ -952,11 +991,30 @@ export async function fetchRunSpend(
       if (typeof entry.cost === "number" && Number.isFinite(entry.cost)) cost += entry.cost;
     }
 
-    const totalPages = payload.result_info?.total_pages ?? 1;
-    if (entries.length < LOG_PAGE_SIZE || page >= totalPages) break;
+    const count = payload.result_info?.total_count;
+    if (typeof count === "number" && Number.isFinite(count)) reported = count;
+
+    // A page shorter than the one asked for is the only end-of-log signal this
+    // API actually gives. It does NOT send `total_pages`: reading that field
+    // and defaulting it to 1 broke on the FIRST iteration every time, so one
+    // 50-row page became the whole of a run's spend — $2.98 of $49.31, which
+    // is 50/845, while a $25 budget sat there unable to trip.
+    if (entries.length < LOG_PAGE_SIZE) return { ok: true, cost_usd: cost, requests };
   }
 
-  return { ok: true, cost_usd: cost, requests };
+  // The cap, with a full page still coming. What was counted is a floor, not a
+  // total, and is reported as such: a partial sum handed back as a total is the
+  // exact shape of wrongness that cost real money.
+  return {
+    ok: false,
+    kind: "truncated",
+    detail:
+      `run ${runID} has more than ${MAX_LOG_PAGES * LOG_PAGE_SIZE} AI Gateway log rows` +
+      (reported === null ? "" : ` (the API reports ${reported})`) +
+      ", which is more than one telemetry read pages through: " +
+      `$${cost.toFixed(2)} across ${requests} requests is a floor, not this run's spend`,
+    partial: { cost_usd: cost, requests },
+  };
 }
 
 /**
@@ -973,7 +1031,20 @@ export async function syncRunCost(
   options: ProxyOptions = {}
 ): Promise<SpendResult> {
   const spend = await fetchRunSpend(env, runID, options);
-  if (!spend.ok) return spend;
+  if (!spend.ok) {
+    // A truncated read still knows a lower bound. Recording it — never
+    // lowering a larger number already there — keeps the budget acting on the
+    // largest ground truth available, while the read itself stays a reported
+    // failure rather than becoming a total.
+    const partial = spend.partial;
+    if (partial !== undefined) {
+      const run = await getRun(env.DB, runID).catch(() => null);
+      if (partial.cost_usd > (run?.cost_usd ?? 0)) {
+        await updateRunCost(env.DB, runID, partial.cost_usd);
+      }
+    }
+    return spend;
+  }
   await updateRunCost(env.DB, runID, spend.cost_usd);
   return spend;
 }
