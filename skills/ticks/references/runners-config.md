@@ -95,7 +95,7 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 | `substrate` | `"herdr"` \| `"harness"` \| `"auto"` | `"auto"` | Dispatch substrate. See [Substrate semantics](#substrate-semantics). |
 | `detect` | `"env-or-socket"` \| `"env"` \| `"socket"` | `"env-or-socket"` | Which probes count as "herdr is available". |
 | `socket` | string | `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock` | Socket path used by the `socket` probe. |
-| `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. |
+| `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. **Enforced, not advisory**: `tk` refuses a claim (`tk update --status in_progress`) or a `tk herd spawn` that would exceed it with exit 8, naming the ticks holding the slots. A slot is held by every in_progress non-epic child of the epic and freed by closing or releasing one. `tk graph --json` reports the width, the free slots and `dispatch.now` under `dispatch`. Unset means no cap. |
 | `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for the worker branch (branch = `<prefix><tick-id>`). Read by `tk herd spawn` (to name the branch) and `tk herd reconcile` (to match branches to ticks), so neither hardcodes `tick/`. `cleanup` does **not** read it — it deletes the branch the manifest recorded at spawn, which is why changing the prefix mid-run still cleans up correctly. Ignored under harness orchestration — there the harness names branches. |
 | `full_auto` | boolean | `true` | Start workers with their kind's full-auto arg template. When `false`, every approval prompt becomes a human escalation. |
 

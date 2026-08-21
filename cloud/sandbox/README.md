@@ -450,7 +450,11 @@ fail closed, never a silent fall back to the file.
 The other `[orchestration]` key a cloud boot inherits, `max_parallel`, is
 honoured as-is: under the harness substrate it is concurrent subagents inside
 this one sandbox rather than independent panes. The resolution prints it for the
-same reason it prints everything else.
+same reason it prints everything else — and, since run_62c289d1 printed "wave
+width 3" and then dispatched seven implementers into this one container, the
+resolution also states that the width is *enforced*: `tk` refuses the claim that
+would exceed it (exit 8) until a slot frees, so the boot log's number binds the
+run rather than advising it.
 
 ## The model, and why a boot proves it
 

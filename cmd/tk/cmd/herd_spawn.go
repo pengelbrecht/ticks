@@ -170,7 +170,15 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Routing. Compiled BEFORE any herdr connection, so a refusal costs
+	// 2. The wave width. Checked BEFORE any herdr connection for the same
+	//    reason routing is: a refusal costs zero dials and leaves no
+	//    half-made workspace behind. `[orchestration].max_parallel` is a
+	//    dispatch policy, so this is the path that has to honour it.
+	if err := waveWidthGate(errOut, root, t); err != nil {
+		return err
+	}
+
+	// 3. Routing. Compiled BEFORE any herdr connection, so a refusal costs
 	//    zero dials and leaves no half-made workspace behind.
 	cfg, err := herdLoadConfig(root, herdSpawnConfig)
 	if err != nil {
@@ -225,7 +233,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	branch := cfg.WorktreeBranchPrefix() + t.ID
 	agentName := spawn.AgentName(t.ID)
 
-	// 3. herdr.
+	// 4. herdr.
 	herd, err := herdConnect(ctx, herdSpawnSocket)
 	if err != nil {
 		return err
@@ -263,7 +271,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
 
-	// 4. Run-state manifest. The single path under .tick/ this command
+	// 5. Run-state manifest. The single path under .tick/ this command
 	//    writes, and it is git-ignored local state, never tracker state.
 	m := state.Manifest{
 		Tick:         t.ID,

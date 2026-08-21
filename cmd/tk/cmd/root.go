@@ -48,6 +48,14 @@ const (
 	// orchestrator branching on "still unanswered" must not have to read stderr
 	// to tell the two apart.
 	ExitTimeout = 7
+
+	// ExitWaveFull reports that a dispatch was refused because the wave is at
+	// its configured width (`[orchestration].max_parallel`). It has its own
+	// slot for the same reason ExitTimeout does: "wait for a slot" and "that
+	// tick does not exist" are different next actions, and an orchestrator
+	// must be able to tell them apart without parsing stderr. Refused work is
+	// not failed work — the claim is retried when a slot frees.
+	ExitWaveFull = 8
 )
 
 // ExitError is an error that carries a specific exit code.

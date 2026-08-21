@@ -275,6 +275,13 @@ func runSandboxSubstrate(cmd *cobra.Command, args []string) error {
 			fmt.Fprint(cmd.ErrOrStderr(), " — under the harness substrate that is concurrent subagents in one sandbox")
 		}
 		fmt.Fprintln(cmd.ErrOrStderr())
+		// Said once, here, because this line used to be the whole of the
+		// width: run_62c289d1 printed it and then dispatched seven. It is now
+		// enforced where a dispatch is admitted, so a reader of the boot log
+		// knows the number is binding rather than advisory.
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"note: the width is enforced on the dispatch path — claiming a %d+1th tick in a wave (tk update --status in_progress, tk herd spawn) is refused with exit %d until a slot frees\n",
+			resolved.MaxParallel, ExitWaveFull)
 	}
 	return nil
 }

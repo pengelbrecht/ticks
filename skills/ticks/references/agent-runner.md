@@ -68,7 +68,7 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    Export TK_ACTOR=<runner>:orchestrator so every tk write from this session
    stamps activity entries with a recognisable actor — distinguishing orchestrator actions from
    human actions in the feed. (See "Actor convention" below.)
-1. tk graph <epic> --json          → waves + max_parallel
+1. tk graph <epic> --json          → waves + dispatch.now (how many to launch NOW)
 2. EPIC-SKELETON pre-flight (self-healing): if step 1's result carries a non-empty
    missing_process_ticks (roles no child tick has — "review", "closeout"), create the
    missing process ticks now — before wave 1 — with `tk create --role <role>` per the
@@ -81,6 +81,13 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    a. Mark the wave's ticks in_progress
       `tk update <id> --status in_progress` emits a 'start' activity entry and sets started_at
       on the tick — claiming is immediately visible on the board and in the activity feed.
+      THE CLAIM IS THE DISPATCH GATE. `[orchestration].max_parallel` is enforced here, not
+      by your restraint: a claim that would exceed the width is refused with exit 8 naming
+      the ticks holding the slots. Launch `dispatch.now` from step 1 — never the whole wave
+      when it is wider — and when a slot frees (close or release), claim the next tick and
+      launch its implementer. `stats.max_parallel` in the graph is the widest WAVE (graph
+      shape); `dispatch.max_parallel` is the configured WIDTH (policy). They are different
+      numbers and only the second bounds a launch.
    b. Launch one implementer per tick using the active harness adapter, recording each
       tick's branch/worktree in a durable note as soon as the name is known (before launch
       when the adapter controls naming; at first report when the harness assigns it)
