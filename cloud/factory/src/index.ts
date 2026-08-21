@@ -11,6 +11,8 @@
  * - GET  /api/runs         - the run index plus per-project lease and queue
  * - GET  /api/runs/:id     - one run: Workflow step state, lease, gates, queue
  * - POST /api/runs/:id/stop- a clean stop, enforced at the control plane (D15)
+ * - GET  /api/runs/:id/logs- the run's harness output, streamed to R2 during
+ *                             the run (read-only; it steers nothing — see D21)
  * - ANY  /api/gateway/*     - a run's model traffic, on its own run-scoped
  *                             gateway token (D17) — never the factory token
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
@@ -29,9 +31,11 @@
  */
 
 import { authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
+import { HARNESS_TAIL_MAX_BYTES, readHarnessTail } from "./artifacts";
 import {
   enrolProject,
   getEnrolledProject,
+  getRun,
   listEnrolledProjects,
   removeEnrolledProject,
   type EnrolledProject,
@@ -287,6 +291,58 @@ async function stopRoute(request: Request, runID: string, env: Env): Promise<Res
     case "invalid":
       return badRequest(result.detail);
   }
+}
+
+/**
+ * A run's harness output: what the container actually printed.
+ *
+ * Deliberately NOT the same command as `tk cloud trace`. This is stdout and
+ * stderr, already streamed to R2 during the run (D20) so a crashed sandbox
+ * still leaves its diagnostics behind; trace is the model conversation, read
+ * from AI Gateway. Conflating them would give one command two answers to
+ * "what happened", and the log is the one that shows a harness crash while the
+ * trace is the one that shows a bad decision.
+ *
+ * Read-only, like status: it observes a run and cannot steer one, so the
+ * operator-to-orchestrator command vocabulary stays run/stop/status/answer
+ * (D21).
+ */
+async function logsRoute(url: URL, runID: string, env: Env): Promise<Response> {
+  // getRun, not runStatus: the log stream is R2 and the run's index row, and
+  // asking the Workflows binding for step state to serve a log read would make
+  // a diagnostic depend on the layer most likely to be the thing being
+  // diagnosed.
+  const run = await getRun(env.DB, runID);
+  if (run === null) {
+    return Response.json({ error: "unknown_run", detail: `no run ${runID}` }, { status: 404 });
+  }
+  if (!env.ARTIFACTS) {
+    return Response.json(
+      {
+        error: "artifacts_unavailable",
+        detail: "this deployment has no artifacts bucket, so no harness output was ever stored",
+      },
+      { status: 503 }
+    );
+  }
+
+  const requested = url.searchParams.get("max_bytes");
+  let maxBytes = HARNESS_TAIL_MAX_BYTES;
+  if (requested !== null) {
+    const parsed = Number(requested);
+    if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > HARNESS_TAIL_MAX_BYTES) {
+      return badRequest(`max_bytes must be an integer between 1 and ${HARNESS_TAIL_MAX_BYTES}`);
+    }
+    maxBytes = parsed;
+  }
+
+  const output = await readHarnessTail(env.ARTIFACTS, run.project, runID, maxBytes);
+  return Response.json({
+    run_id: runID,
+    project: run.project,
+    state: run.state,
+    ...output,
+  });
 }
 
 // -------------------------------------------------------------- projects ---
@@ -702,6 +758,11 @@ export default {
       if (segments.length === 4 && segments[3] === "stop") {
         if (request.method !== "POST") return methodNotAllowed(["POST"]);
         return await stopRoute(request, segments[2]!, env);
+      }
+      // /api/runs/:id/logs
+      if (segments.length === 4 && segments[3] === "logs") {
+        if (request.method !== "GET") return methodNotAllowed(["GET"]);
+        return await logsRoute(url, segments[2]!, env);
       }
     }
 

@@ -211,3 +211,75 @@ export async function writeReconcileRecord(
     { httpMetadata: { contentType: "application/json" } }
   );
 }
+
+/**
+ * How much harness output one `tk cloud logs` read returns, in bytes.
+ *
+ * A long run's stream is unbounded and this Worker has to hold what it sends in
+ * memory, so a read is bounded — and it is bounded from the END, because the
+ * tail is what a run being debugged is read for. The bound is reported (see
+ * `HarnessOutput.truncated`), never silent: a log that quietly starts partway
+ * through reads as a run that started partway through.
+ */
+export const HARNESS_TAIL_MAX_BYTES = 1_048_576;
+
+export type HarnessOutput = {
+  /** The output, oldest first, ending at the most recent flush. */
+  text: string;
+  /** Bytes of the stream this read returned. */
+  bytes: number;
+  /** Bytes the stream holds in total. */
+  total_bytes: number;
+  /** True when `text` starts partway through the stream. */
+  truncated: boolean;
+};
+
+/**
+ * The tail of a run's harness output, with what it left out stated.
+ *
+ * Readable *while the run is going* — that is the whole reason the stream is
+ * segments rather than one rewritten object. Segments are taken whole from the
+ * newest backwards until the budget is spent, so the boundary always falls
+ * between two flushes rather than mid-line, and the last segment is always
+ * included even when it alone is over budget.
+ */
+export async function readHarnessTail(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  maxBytes: number = HARNESS_TAIL_MAX_BYTES
+): Promise<HarnessOutput> {
+  const prefix = harnessStreamPrefix(project, runID);
+  const objects: { key: string; size: number }[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page: R2Objects = await bucket.list({
+      prefix,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    objects.push(...page.objects.map((object) => ({ key: object.key, size: object.size })));
+    if (!page.truncated) break;
+    cursor = page.cursor;
+  }
+  objects.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+  const total = objects.reduce((sum, object) => sum + object.size, 0);
+  if (objects.length === 0) return { text: "", bytes: 0, total_bytes: 0, truncated: false };
+
+  let first = objects.length - 1;
+  let budget = Math.max(1, maxBytes) - objects[first]!.size;
+  while (first > 0 && budget - objects[first - 1]!.size >= 0) {
+    first -= 1;
+    budget -= objects[first]!.size;
+  }
+
+  const chunks: string[] = [];
+  let bytes = 0;
+  for (const object of objects.slice(first)) {
+    const stored = await bucket.get(object.key);
+    if (stored === null) continue;
+    chunks.push(await stored.text());
+    bytes += object.size;
+  }
+  return { text: chunks.join(""), bytes, total_bytes: total, truncated: first > 0 };
+}

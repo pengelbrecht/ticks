@@ -39,7 +39,15 @@ var cloudCmd = &cobra.Command{
 The factory is self-deployed and authenticated with the factory_url and
 factory_token entries in ~/.ticksrc. There is deliberately no cloud steering
 or mutation command: stop a run, edit the tracker in a normal checkout, and
-submit it again so the new orchestrator follows the reconcile path.`,
+submit it again so the new orchestrator follows the reconcile path.
+
+  run    ignite an epic          |  status  runs, leases and queue
+  stop   end one (--now kills)   |  logs    what the container printed
+                                 |  trace   what the model said and decided
+
+The left column is D21's command vocabulary (with tk answer). The right one
+is observation: it reads records a run left behind and cannot steer one, so
+it does not widen that vocabulary.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -74,8 +82,17 @@ never means deleting the container application.`,
 }
 
 var cloudStatusCmd = &cobra.Command{
-	Use:          "status [run]",
-	Short:        "Show cloud runs and their lease or queue state",
+	Use:   "status [run]",
+	Short: "Show cloud runs and their lease or queue state",
+	Long: `Show cloud runs and their lease or queue state.
+
+With a run id it reports that run: state, Workflow phase, the container image
+it booted, and — once it has ended — whether anything actually moved. Without
+one it lists the recent runs plus each project's lease and queue.
+
+Read-only, like 'tk cloud logs' and 'tk cloud trace': observing a run is not
+commanding one, so the operator-to-orchestrator command vocabulary stays
+run/stop/status/answer (D21).`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         runCloudStatus,

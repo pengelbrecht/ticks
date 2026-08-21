@@ -358,6 +358,34 @@ it cannot confirm it (`--skip-rollout-wait` accepts the unconfirmed state delibe
 The confirmed image is recorded server-side and stamped onto every run, so
 `tk cloud status <run>` names the image that run actually booted.
 
+### Reading a cloud run
+
+Two different records answer "what happened", so there are two commands:
+
+| Command | Reads | Answers |
+|---|---|---|
+| `tk cloud logs <run>` | the harness stream in R2 | what the container printed — a crash, a git failure, a command that never returned. `--tail N` for the last N lines. Readable mid-run. |
+| `tk cloud trace <run>` | AI Gateway logs for that run | what the model said and decided — message roles, tool calls and their arguments, tokens in/out and cached per call, cost per call |
+
+`trace` has flags for the four questions people actually arrive with:
+`--call N` dumps one exchange in full, `--tools` lists just the tool calls,
+`--cache` is the per-call prefix-cache table, and `--json` gives the raw
+gateway rows.
+
+Two things worth knowing about `trace`. Model responses are **streamed**, so
+the logged response body carries no content at all — what the model said is
+reconstructed from the assistant messages inside each *request* body, since a
+harness replays the whole conversation on every call. And the prefix cache is
+only measurable from each row's `usage_metadata.input_cached_tokens`, which is
+what `--cache` reports per call: one changed token near the head of a prompt
+invalidates the prefix, so an average hides exactly the swing you are looking
+for. It reads your own gateway directly, so it needs the Cloudflare API token
+`tk factory setup --cloudflare-api-token <token>` installs.
+
+Both are read-only. They observe a run and cannot steer one, which is why they
+do not widen the closed `run`/`stop`/`status`/`answer` command vocabulary the
+cloud surface is built on.
+
 | Flag | Effect |
 |---|---|
 | `--rotate-token` | Mint a new token; the previous one stops working immediately |
