@@ -59,21 +59,30 @@ git check-ignore .tick/
 # If it returns ".tick/", remove the entry from .gitignore
 ```
 
-**5. Per-project runner config (`.tick/config.md`):**
+**5. Per-project run config (`.tick/runners.toml` + `.tick/config.md`):**
 
-Projects can place a `.tick/config.md` file in the tracked `.tick/` directory to give dispatched implementers reliable, project-specific guidance. Recognized operational sections include:
+A project's run config lives in two tracked files in `.tick/`, split by who reads it. **Anything a program parses lives in `.tick/runners.toml`**, validated against `references/runners-config.schema.json`; **prose a model reads lives in `.tick/config.md`**. Both are optional and purely additive.
 
-- **Testing** — exact test commands, including surgical per-package invocations. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests.
-- **Closeout Evidence Commands** — strict controller-owned commands that may execute only during closeout, never in implementation children, per-tick verification, post-wave gates, or final-review tests.
-- **Acceptance Evidence** — optional controller-owned closeout authorization. Map each stable acceptance item exactly once with `- A<n>: \`exact command\``. The command must exist verbatim and uniquely in Testing or Closeout Evidence Commands; tracker/model prose never authorizes shell and duplicate, ambiguous, unknown, injected, missing, or cross-item evidence fails closed.
-- **Environment** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
-- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
+`.tick/runners.toml` — the structured half, semantics in **`references/runners-config.md`**:
 
-**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads it at run start; implementers read it from their worktree. Neither inlines a stale copy from an earlier session.
+- **`[testing.commands]`** — exact test commands, including surgical per-package invocations, as `id = { command = "…" }`. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests. `testing.notes` carries the caveats that are *not* commands.
+- **`[evidence.commands]`** — controller-owned commands that may execute only during closeout, never in implementation children, per-tick verification, post-wave gates, or final-review tests. The table a command sits in **is** its authorization; there is no flag to flip.
+- **`[evidence.acceptance]`** — optional closeout authorization, mapping each stable acceptance item id to the id of the one command that proves it (`A1 = "go"`). Nothing outside this file authorizes shell — not tracker prose, not a model's suggestion — and an item with no mapping is unverified, which leaves closeout and the epic open.
+- **`[environment.commands]`** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
+- **`[orchestrator]`, `[orchestration]`, `[roles.*]`** — which substrate orchestrates the run and which worker serves each role and tier.
 
-**Fallback when absent:** current behavior — implementers discover test commands themselves. The file is purely additive.
+`.tick/config.md` — the prose half:
 
-**Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. `.tick/config.md` is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
+- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.), included verbatim in every implementer prompt.
+- Narrative `Testing` hints that are guidance rather than commands, when a repo prefers them in markdown over `testing.notes`.
+
+A repo whose `.tick/config.md` still carries the old machine-parsed sections is on a **deprecated fallback**: it still runs, and each load warns. **`references/runners-config.md`** → *The deprecated markdown path* is the one place that path is documented, and it carries the one-command migration; do not restate it elsewhere.
+
+**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads both at run start; implementers read them from their worktree. Neither inlines a stale copy from an earlier session.
+
+**Fallback when absent:** current behavior — implementers discover test commands themselves.
+
+**Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. The `.tick/` run config is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
 
 **6. Pi executable extension (when running an epic in Pi):**
 
@@ -159,7 +168,7 @@ In Pi with the package extension installed, prefer safe automated planning:
 /ticks-plan <target> --apply                              # explicit tracker apply
 ```
 
-Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. Planning prompts include relevant Testing, Closeout Evidence Commands, Acceptance Evidence, and Rules sections as context, but models cannot add or authorize executable commands. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
+Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. Planning prompts include the relevant `[testing]`, `[evidence]` and `[evidence.acceptance]` tables and `.tick/config.md` Rules as context, but models cannot add or authorize executable commands. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
 
 Transform the gathered requirements into ticks organized by epic.
 
@@ -282,7 +291,7 @@ When the front epic has a goal-compatible definition of done (above), the plan i
 
 This is where you decide *how far* the run goes before it stops for you — one epic, one project, or the whole roadmap — instead of discovering it mid-run.
 
-The same decision extends to projects: a project whose goal facts are all auto-verifiable with approved Acceptance Evidence mappings (see *Project goals* above and `references/goal-design.md`) is safe to hand off end-to-end — the run verifies the goal at the project boundary and stops only on a real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode or not.
+The same decision extends to projects: a project whose goal facts are all auto-verifiable with approved `[evidence.acceptance]` mappings (see *Project goals* above and `references/goal-design.md`) is safe to hand off end-to-end — the run verifies the goal at the project boundary and stops only on a real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode or not.
 
 #### Target dates and the slip signal
 
@@ -457,7 +466,7 @@ Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
 Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi, `prime-runner.md` for Prime Agent).
 
-Then pick the dispatch **substrate** — harness-native subagents, or a herdr fleet of independent per-tick workers (`references/herdr-runner.md`, additional to the harness adapter). It comes from `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto`, default `auto` = herdr when a read-only probe finds it, harness otherwise); `references/runners-config.md` has the decision table and the explicit-degradation rule.
+Then pick the dispatch **substrate** — harness-native subagents, or a herdr fleet of independent per-tick workers (`references/herdr-runner.md`, additional to the harness adapter). It comes from `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto`, default `auto` = herdr when a read-only probe finds it, harness otherwise), unless an explicit `$TICKS_SUBSTRATE` set by whatever booted the run replaces it for this run — a cloud sandbox has no herdr server to probe for, so it is told, and its checkout is never rewritten; `references/runners-config.md` has the decision table and the explicit-degradation rule.
 
 ```bash
 # 1. Get the dependency graph (waves + max parallelism)

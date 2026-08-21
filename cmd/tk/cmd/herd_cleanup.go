@@ -207,7 +207,11 @@ func herdCleanupPrint(out io.Writer, p cleanup.Plan, applied bool) {
 	}
 	verb := "would remove"
 	if applied {
-		verb = "removed"
+		if p.OK() {
+			verb = "removed"
+		} else {
+			verb = "FAILED"
+		}
 	}
 	fmt.Fprintf(out, "tick      %s  %s\n", p.Tick, verb)
 	for _, s := range p.Steps {

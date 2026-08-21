@@ -299,6 +299,43 @@ func TestAskPhotoUnconfiguredParksAndExitsFour(t *testing.T) {
 	}
 }
 
+func TestAskPhotoIncapableFactoryParksAndExitsFour(t *testing.T) {
+	repo, store := setupTestRepo(t)
+	if err := store.Ensure(); err != nil {
+		t.Fatalf("ensure tick store: %v", err)
+	}
+	askTestTick(t, store, "abc123")
+	channelTestHome(t)
+	t.Setenv("TICKS_FACTORY_URL", "https://factory.example.test")
+	t.Setenv("TICKS_FACTORY_TOKEN", "tkf_secret")
+	t.Setenv("TICKS_FACTORY_PROJECT", "owner/repo")
+	path := writeTempFile(t, "board.png", "png bytes")
+
+	res, err := askFlow(t.Context(), askOptions{
+		Root:     ".",
+		TickID:   "abc123",
+		Question: operator.Question{Text: "Ship this board?"},
+		Gate:     true,
+		Photo:    path,
+		Caption:  "New board",
+		Timeout:  time.Second,
+	})
+	if code := GetExitCode(err); code != ExitNotFound {
+		t.Fatalf("exit code = %d, want %d (parked): %v", code, ExitNotFound, err)
+	}
+	if res.ID == "" {
+		t.Fatal("the incapable factory channel did not leave a pending question")
+	}
+	entries := askPendingEntries(t, repo)
+	if len(entries) != 1 || entries[0].Ref != (operator.MessageRef{}) {
+		t.Fatalf("pending entries = %+v, want one undelivered question", entries)
+	}
+	tk := mustReadTick(t, store, "abc123")
+	if tk.Awaiting == nil || *tk.Awaiting != tick.AwaitingApproval {
+		t.Errorf("tick awaiting = %v, want %s", tk.Awaiting, tick.AwaitingApproval)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Usage
 // ---------------------------------------------------------------------------

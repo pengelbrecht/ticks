@@ -5,21 +5,29 @@ account** (decision D16 in `docs/design/cloud-factory.md`): ticks.sh never
 operates the factory, and this bundle is completely separate from
 `cloud/worker` — it never imports from it and never deploys with it.
 
-Today it does almost nothing: a health route, single-tenant bearer auth, and
-a placeholder `RunRoom` Durable Object. It is deployable from day one so later
-phases add behaviour to a live bundle instead of standing one up under
-pressure.
+It serves the operator command surface (UC1b): submit a run, stop one, ask
+what is happening, and enrol the repositories it is allowed to run. The run
+itself is owned by the **Run Workflow** (`src/run-workflow.ts`), which boots the
+orchestrator sandbox, watches it, enforces the budgets and finalizes — see
+"The run lifecycle" below.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
 | `wrangler.toml` | Bindings + migrations. `compatibility_date` is recent on purpose: DO SQLite storage and current WebSocket hibernation both need it. |
-| `src/index.ts` | Worker entry. `GET /health` is open; every other route needs the bearer token, then 404s. |
+| `src/index.ts` | Worker entry: routing only — status codes, methods, body shapes. `GET /health` is open; everything else needs the bearer token. |
+| `src/runs.ts` | Submission, stop and status policy: the lease, enrolment, the queue window, the `dispatch_log` trail, and the Run Workflow seam. |
+| `src/telegram.ts` | Telegram webhook filtering, RunRoom question delivery, first-wins answer rendering, and threaded reports. |
+| `src/db.ts` | Typed D1 accessors: runs, signals, dispatch log, project enrolment, run gateway tokens. |
+| `src/gateway.ts` | The run's model path (D17): routing through the operator's AI Gateway, run/tick metadata, gateway-log cost telemetry, and the run-token kill switch. |
 | `src/auth.ts` | Single-tenant bearer auth (D16) — mint, salted PBKDF2 hash, constant-time verify, route middleware. |
 | `scripts/mint-factory-token.mjs` | Operator-side mint/rotate tool for hand rotation. Imports `src/auth.ts`. `tk factory deploy` mints in Go instead — see "Mint and rotate". |
 | `migrations/` | D1 migrations, applied by `tk factory deploy` before it deploys. |
-| `src/run-room.ts` | `RunRoom` DO placeholder — the dispatch lease, operator gates and reconcile alarms land in Phase 1. |
+| `src/run-room.ts` | `RunRoom` DO — one per project: the dispatch lease, the pending-question (gate) store, the submission queue and the stop record. Reconcile alarms land later. |
+| `src/run-workflow.ts` | `RunWorkflow` — one durable instance per run: boot, watch, budgets, clean stop, finalize. Everything below it is disposable; this is not. |
+| `src/sandbox.ts` | The orchestrator sandbox seam: what a container has to be, and the environment `cloud/sandbox`'s entrypoint is started with. |
+| `src/artifacts.ts` | The R2 artifact tree, and the harness log stream written *during* the run. |
 | `src/env.d.ts` | Hand-written `Cloudflare.Env` (what `wrangler types` would generate). Keep in sync with `wrangler.toml`. |
 | `test/` | vitest + `@cloudflare/vitest-pool-workers`: real workerd, bindings read from `wrangler.toml`. |
 
@@ -31,6 +39,167 @@ pnpm test          # vitest in workerd
 pnpm typecheck
 pnpm dev           # local worker on :8788
 ```
+
+## The run surface
+
+Every route below needs the bearer token. The RunRoom DO decides; `src/index.ts`
+only turns that decision into a status code.
+
+| Route | What it does |
+|---|---|
+| `POST /api/runs` | Submit `{project, epic, base_sha, requested_by, notify?, queue?, queue_ttl_ms?}`. `201` started, `409` refused naming the holding run, `202` parked (with `queue: true`), `403` project not enrolled, `503` no Run Workflow bound **or no AI Gateway configured** (the detail names `tk factory setup`). |
+| `GET /api/runs` | The run index plus, for every project it mentions, that project's lease and queued submissions. Filters: `project`, `state`, `limit`. |
+| `GET /api/runs/:id` | One run: index row, Workflow step state, lease, open gates, queued submissions, stop record. |
+| `POST /api/runs/:id/stop` | Stop a run. Default (`{"mode":"clean"}`) is D15's clean stop: finish the in-flight tick, then review and closeout. `{"mode":"hard"}` (`tk cloud stop --now`) revokes the run's gateway credentials in this request and forbids any later boot from minting another — no closeout, no more spend. The response says which stop was performed and how many live credentials it killed. |
+| `GET/POST /api/projects`, `DELETE /api/projects/:owner/:repo` | Project enrolment. |
+| `POST /api/projects/:owner/:repo/pending` | Register a cloud ask in the project's RunRoom; `{notify:"telegram"}` delivers it to the paired Telegram chat. |
+| `GET /api/projects/:owner/:repo/pending` | Read open pending entries; `include_resolved=true` lets the terminal report the winning surface. |
+| `POST /api/projects/:owner/:repo/pending/:id/answer` | Terminal answer. RunRoom arbitrates first-wins and returns `409` with the winner when already resolved. |
+| `POST /api/projects/:owner/:repo/reports` | Send a completion report, optionally with `ref` to reply in the originating Telegram thread. |
+
+**The submission boundary is a pushed sha.** `base_sha` must be a full 40-hex
+commit and `project` the canonical `owner/repo` pair — remote URLs are refused
+rather than parsed, because `internal/github` already owns that parsing in Go
+and a second parser in TypeScript would be a format to keep in parity for no
+gain.
+
+**Enrolment is a security boundary, not bookkeeping.** The bearer token says
+*you are this deployment's operator*; it does not say which repositories the
+operator pointed their GitHub credential at. A submission for an unenrolled
+project is refused before the lease is asked for, so a leaked or over-shared
+token cannot aim the factory at every repo its PAT can reach.
+
+**A refused submission on a leased project names the holder** (`lease_held_by:<run>`,
+D22). With `queue: true` it parks in the DO instead, ignites when the lease
+releases, is visible to `status`, and expires on a window — `RUN_QUEUE_TTL_MS`
+in `wrangler.toml`, overridable per submission. A queue that silently ignites
+work hours later is worse than a refusal.
+
+**Stop is control-plane state, never a message.** It writes a stop record into
+the RunRoom and flips the run's index state; the Run Workflow reads that record
+at a step boundary and enforces it. A wedged or adversarial orchestrator cannot
+decline a stop it is never asked about.
+
+**Every ignition and every refusal is written to `dispatch_log`** with a reason
+from the closed policy vocabulary (`lease_held_by` for contention,
+`awaiting_approval` for an unenrolled project, `budget_exhausted` when a run's
+spend trips), so "why did this not run" — and "why did this stop" — is
+answerable from D1 rather than from a log line.
+
+## The run lifecycle
+
+Once a submission has the lease, `src/runs.ts` creates one Workflow instance
+whose id **is** the run id, and hands the run over. From there the Workflow owns
+it (`src/run-workflow.ts`):
+
+    context → boot → watch … watch → [clean stop → closeout] → finalize
+
+- **The sandbox is disposable, the run is not.** A dead orchestrator is a
+  reboot, not a failure: the replacement is a *fresh* container booted with
+  `TICKS_PHASE=reconcile`, whose first instruction is the reconcile protocol
+  (evidence order: worker manifests → git → live sandboxes). Boots are bounded
+  (`MAX_SANDBOX_BOOTS`), and an entrypoint exit that is a *configuration*
+  verdict — 2 config, 3 clone, 4 tk version, 5 pre-flight — is never retried,
+  because another container reaches the identical answer.
+- **Budgets are enforced here, never in a prompt (D14).** `RUN_MAX_WALL_CLOCK_MS`
+  and `RUN_MAX_COST_USD` are checked at every observation against the elapsed
+  time the Workflow measured and the `cost_usd` on the index row, which is read
+  back from the gateway's own logs at every observation — not an agent
+  self-report. A model can be talked out of a budget; a Workflow step cannot.
+  And a trip does not stop at killing a process: the run's gateway token is
+  revoked, so an orchestrator that survives its own kill still cannot spend.
+- **Exhaustion is a clean stop, identical to `POST /api/runs/:id/stop` (D15).**
+  Both trip the same branch: the in-flight work gets `RUN_STOP_GRACE_MS` to
+  land, then a `closeout` orchestrator reconciles and runs review and closeout
+  on what is done. There is no "abandon the run" path — an abandoned run leaves
+  merged work with no tracker state.
+- **Whether the credential dies before or after that window is the difference
+  between a stop and a kill.** A clean stop revokes at the END of the grace
+  window, so in-flight work can land. A budget trip, a lost lease and an
+  operator's `--now` revoke at the START of it: a run already over its
+  allowance has no claim on the grace period's spend. A hard stop goes further
+  and is durable — `supervisePass` reads the stop record before it credentials
+  any boot, in every pass, so the supervisor can no longer undo an operator's
+  revocation the way it did on the run that motivated this (tick gyl).
+- **Harness output streams to R2 during the run, never at exit (D20).** The
+  crashed run is exactly the run whose logs you need. Each observation flushes
+  what the orchestrator printed since the last one as an immutable segment under
+  `runs/<project>/<run_id>/artifacts/orchestrator/harness/`, readable while the
+  run is still going; `harness.log` is a copy written at finalize, never the
+  source of truth.
+- **Finalize always runs.** Completed, stopped, failed or never-booted: the
+  lease is released, the index row reaches a terminal state, the containers are
+  destroyed and `run.json` says why. A run that ends without releasing its lease
+  wedges the project until the lease ttl expires.
+- **Completion is proved, never inferred from an exit status (D23).** A harness
+  exits 0 when it has nothing left to say, which is not the same as having done
+  something — the first run whose boot chain fully succeeded printed 271 bytes,
+  dispatched no wave, pushed no branch, left the epic's ticks open, and was
+  recorded COMPLETED and charged for. So the exit status decides only whether to
+  reboot; the terminal state is decided against the durable layer. `src/progress.ts`
+  reads the remote's branch heads before the first boot and again at the end: any
+  branch that appeared, moved or was deleted is a run that **advanced** the epic
+  (`completed`); nothing at all is a run that **stopped** without progress; and a
+  remote that could not be read is `unknown`, which leaves the run `completed`
+  and says so rather than inventing either verdict. The verdict is stamped in
+  `run_progress` (migrations/0006) and in `run.json`, and `tk cloud status <run>`
+  prints it beside the state.
+
+The observation cadence starts at 15s and backs off to 5m — fast where failures
+and first output happen, affordable across a multi-hour run within Cloudflare's
+per-instance step cap. `RUN_POLL_INTERVAL_MS` overrides it with a fixed gap.
+
+### The evidence seam
+
+Progress is read through `RepoRefs` (`src/progress.ts`) for the same reason the
+container is read through `SandboxBinding`: the finalize rule is what needs
+testing, and a rule exercisable only by pushing to a real GitHub repository is a
+rule nobody tests. A deployment gets the GitHub reader — `matching-refs/heads/`,
+authenticated with the repo-scoped PAT the factory already clones with; a test
+assigns its own to `env.REPO_REFS`. Comparison is over *all* heads rather than
+over a branch-naming convention, because naming is an adapter's choice and the
+reconcile protocol already treats git rather than a name as authoritative. The
+cost is that a human pushing an unrelated branch mid-run reads as progress —
+the forgiving direction, and the one that cannot turn a run that really did the
+work into a false negative.
+
+### The sandbox seam
+
+`wrangler.toml` binds `SANDBOXES` to the Cloudflare Sandbox SDK's own Durable
+Object class (re-exported from `src/index.ts`), and a `[[containers]]`
+application attaches the orchestrator image (`cloud/sandbox`) to that class. On
+a deployment the binding is therefore a Durable Object namespace;
+`sandboxBinding()` in `src/sandbox.ts` is what puts the SDK's `getSandbox`
+behind the seam's five methods, and what accepts a fake in its place.
+
+The seam itself is declared structurally rather than typed against the SDK, and
+it is **optional**: a deployment without it fails each run with a message naming
+the binding instead of looping on boots that cannot happen. The reason is testability — the run lifecycle is the thing
+worth proving, and a lifecycle exercisable only by starting a real container is
+a lifecycle nobody tests. `test/run-workflow.test.ts` drives the real Workflow,
+the real lease, the real D1 index and the real R2 bucket, and substitutes only
+the container: that is what lets a test kill an orchestrator mid-run and read
+the log stream while the run is still going.
+
+### The model path (D17)
+
+All cloud model traffic goes through the operator's own AI Gateway, and it gets
+there through this Worker. A sandbox is handed `<FACTORY_BASE_URL>/api/gateway`
+as its gateway and a **run gateway token** as its only model credential; the
+`/api/gateway/<provider>/...` route exchanges that token for the operator's
+provider key, stamps `cf-aig-metadata` with the run and tick ids the token was
+issued for, and forwards to the gateway.
+
+| Rule | Why |
+|---|---|
+| No gateway configured → submissions are refused, naming `tk factory setup` | The absence of a gateway is an actionable stop at submission, never a silent fall back to a vendor default. A base URL pointed at a vendor host is refused the same way. |
+| Only `workers-ai` is routed unless `GATEWAY_ALLOWED_PROVIDERS` names another | Workers AI bills to the operator's own Cloudflare account — the invoice their credit is on — while `anthropic`, `openai` and `openrouter` bill by the vendor in cash, and from this hop down the two are indistinguishable. A cash-billed route is refused with a 403 stating which invoice it would land on, so a mistyped or edited model id stops here instead of moving every run's spend onto a card. The opt-in is a wrangler `[vars]` list and a redeploy; a configured key is deliberately not one. |
+| The route is exempt from the factory bearer token, and does not accept it | A sandbox must never hold the credential that commands the control plane. The run token can do exactly one thing. |
+| Metadata is stamped, not accepted | Any `cf-aig-*` header the caller sent is dropped first, so an agent can neither misattribute its spend nor opt out of being attributed. |
+| Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run with no explicit cost budget records its cost as unknown rather than as `$0`, while an explicit budget refuses before sandbox boot. |
+| Every boot rotates the token; a trip, a stop and finalize revoke it | The kill switch works on a wedged or adversarial orchestrator, and no run ever leaves a live credential behind. Closeout gets a fresh token — a stop must still reach review and closeout (D15). |
+| A hard stop is a durable refusal to mint, not a one-off revocation | Revoking a token stopped nothing on a live run, because the next boot minted a replacement — closeout boots included, since that pass enforces no budgets and so read no stop record. Only deleting the container application halted the spend. Now every boot of every pass checks for a standing hard stop before it credentials anything, and a hard stop mid-closeout trips the closeout too. |
+| The `workers-ai` route rewrites `messages[].content` from OpenAI content parts to a string | Workers AI's `/v1/chat/completions` is OpenAI-*compatible*, not OpenAI: it takes content as a string, while omp sends parts. Every model call already passes through here, so the one documented dialect difference is normalised at the one hop that already reads the request. A part with no string form (an image, audio, a file) is refused with a 400 naming the message and the part — a translation layer that silently dropped it would reach the model as a prompt with a hole in it. |
 
 ## Auth: secrets, not accounts
 
@@ -60,7 +229,8 @@ not what makes it hard to guess.
 | Path | Auth |
 |---|---|
 | `GET /health` | Open — liveness has to answer before a token exists. |
-| `/api/hooks/**` | Open **today**. GitHub, Telegram and Sentry cannot carry the operator's token; Phase 3 lands these routes together with per-source shared secrets (UC6). No such route exists yet. |
+| `/api/hooks/**` | Open **today** for the future GitHub/Sentry webhook family; those sources cannot carry the operator's token and gain per-source shared secrets with Phase 3 (UC6). |
+| `POST /api/channels/telegram/webhook` | Open to Telegram; paired `TELEGRAM_USER_ID` + `TELEGRAM_CHAT_ID` filter updates at the transport, with optional `TELEGRAM_WEBHOOK_SECRET`. |
 | everything else | `Authorization: Bearer <factory token>` |
 
 Auth runs *before* routing, so an unauthenticated caller gets the same 401 for
@@ -107,19 +277,42 @@ whose embedded copy of this directory it uploaded (D16, "upgrades ride the repo"
 ```sh
 pnpm add -g wrangler   # or npm install -g wrangler — `npx wrangler` also works
 wrangler login
+# Docker (or another engine wrangler can drive) must be running: the deploy
+# builds the orchestrator container image and pushes it to your own registry.
 tk factory deploy
 ```
 
 It creates or reuses `ticks-factory` (D1) and `ticks-factory-artifacts` (R2),
-rewrites `database_id` in its own staged copy of `wrangler.toml`, applies
+rewrites `database_id` in its own staged copy of `wrangler.toml`, installs the
+bundle's runtime dependencies, builds and pushes the orchestrator image, applies
 `migrations/`, deploys, pushes `FACTORY_TOKEN_HASH`, writes `factory_url` /
 `factory_token` / `factory_version` into `~/.ticksrc`, and then proves the
-result by calling `/health` and making one authenticated request. Re-running
-upgrades in place and keeps the token unless `--rotate-token` is passed.
+result by calling `/health` — which must report the `sandboxes` binding — and
+making one authenticated request. Re-running upgrades in place and keeps the
+token unless `--rotate-token` is passed.
 
-The bundle is staged in `~/.tick/factory/bundle` (override with `--bundle-dir`);
-that directory is tk's, rewritten on every deploy, and is where to look to see
-exactly what was uploaded. The Go side of the deploy lives in
+The last step is the container rollout, and it is the one `wrangler deploy` does
+not perform: wrangler builds the image, pushes it, asks Cloudflare to roll it
+out and returns as soon as the rollout has been *created*, so the Worker goes
+live while the container application is still serving the previous image and a
+run started in that window boots the old code. `tk factory deploy` polls
+`wrangler containers list --json` until the `ticks-orchestrator` application
+reports the digest it just pushed, and exits nonzero naming both digests if it
+cannot confirm that (`--skip-rollout-wait` opts out and says so). The confirmed
+digest lands in `factory_deployment_image`, and each run is stamped with it in
+`run_image` as it ignites, which is what `tk cloud status <run>` reports as the
+image that run booted.
+
+Three prerequisites, each a stop with its own message rather than a deploy that
+half-works: a logged-in **wrangler**, a running **Docker** (the image), and
+**pnpm** (the Worker imports the Sandbox SDK, so the staged bundle is installed
+from the embedded lockfile before it is bundled).
+
+The bundle is staged in `~/.tick/factory/bundle` (override with `--bundle-dir`)
+and the image's build context beside it in `~/.tick/factory/sandbox`, so the
+`[[containers]]` image path (`../sandbox/Dockerfile`) means the same thing there
+as it does in this repository. Both directories are tk's, rewritten on every
+deploy, and are where to look to see exactly what was uploaded. The Go side of the deploy lives in
 `internal/factory`; `scripts/verify-factory-deploy.sh` exercises it end to end
 against a stateful wrangler stand-in, since CI has no Cloudflare account.
 
@@ -128,10 +321,11 @@ against a stateful wrangler stand-in, since CI has no Cloudflare account.
 The same steps, for a deployment tk is not driving:
 
 ```sh
+pnpm install --prod --frozen-lockfile     # the Worker imports @cloudflare/sandbox
 npx wrangler r2 bucket create ticks-factory-artifacts
 npx wrangler d1 create ticks-factory      # paste the printed database_id into wrangler.toml
 npx wrangler d1 migrations apply ticks-factory --remote
-npx wrangler deploy
+npx wrangler deploy                       # builds and pushes ../sandbox as the container image
 pnpm mint-token --hash-only | npx wrangler secret put FACTORY_TOKEN_HASH
 curl https://ticks-factory.<your-subdomain>.workers.dev/health   # auth.configured: true
 ```

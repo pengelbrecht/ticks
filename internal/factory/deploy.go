@@ -44,6 +44,18 @@ type Options struct {
 	// RotateToken mints a new bearer token instead of reusing the stored one.
 	RotateToken bool
 
+	// HasCommand reports whether this tk implements a subcommand chain
+	// ({"sandbox", "environment"}). The orchestrator image builds its tk from
+	// this binary's own source, so this is what proves the container will be
+	// able to run the entrypoint it ships with — before a multi-minute image
+	// build, and with the missing subcommand named. Required: a deploy that
+	// cannot ask is a deploy that cannot check.
+	HasCommand func(chain []string) bool
+
+	// SourceRef overrides the ref the image builds tk from (tests). Empty
+	// means the source this binary was built from, per [SourceRef].
+	SourceRef string
+
 	// URL overrides the endpoint instead of reading it from wrangler's deploy
 	// output. Needed when the Worker is served from a custom route, where
 	// there is nothing to detect.
@@ -61,6 +73,17 @@ type Options struct {
 	verifyAttempts int
 	verifyDelay    time.Duration
 
+	// SkipRolloutWait accepts an unconfirmed container rollout instead of
+	// failing. It is the deliberate escape hatch for an account or a wrangler
+	// whose container listing this build cannot read: the deploy still says,
+	// in its output, that nothing was confirmed.
+	SkipRolloutWait bool
+
+	// rolloutTimeout/rolloutPoll bound the wait for the container application
+	// to report the expected image (tests).
+	rolloutTimeout time.Duration
+	rolloutPoll    time.Duration
+
 	// onSecretPut runs after `wrangler secret put` returns, so the test
 	// harness can propagate the secret into its fake worker the way
 	// Cloudflare does for real.
@@ -77,6 +100,8 @@ type Result struct {
 	Rotated bool
 	// Version is the tk version the deployment is pinned to.
 	Version string
+	// SourceRef is the ref the orchestrator image built its tk from.
+	SourceRef string
 	// BundleSHA identifies the deployed bundle's contents.
 	BundleSHA string
 	// DatabaseID is the D1 database the deployment is bound to.
@@ -89,6 +114,18 @@ type Result struct {
 	WranglerVersion string
 	// ConfigPath is the file the credentials were written to.
 	ConfigPath string
+	// ImageRef is the digest-pinned orchestrator image this deploy confirmed,
+	// resolved from the application record when an idempotent deploy skipped
+	// the image push.
+	ImageRef string
+	// ImageDigest is the confirmed image's digest — the identity a run's
+	// container boots, and the one thing that tells a fix that did not work from
+	// a fix that was never running.
+	ImageDigest string
+	// RolloutConfirmed reports whether the container application was actually
+	// observed serving ImageDigest. False means the deploy is not claiming a
+	// run started now boots this image.
+	RolloutConfirmed bool
 }
 
 // DefaultBundleDir is where the bundle is materialized: under the ticks home
@@ -122,6 +159,23 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("factory deploy: no tk version to pin the deployment to")
 	}
 
+	// Before anything else — before a prerequisite probe, before a byte is
+	// written, before a container image is built — prove this binary can
+	// actually run the entrypoint it would ship.
+	//
+	// The image builds its tk from this binary's source, so "does this tk have
+	// `tk sandbox environment`?" and "will the container's tk have it?" are the
+	// same question. Asking it here turns a container that boots, streams, and
+	// dies at exit 6 into a stop that names the subcommand.
+	if opts.HasCommand == nil {
+		return nil, fmt.Errorf(
+			"factory deploy: this build did not supply its command set, so the orchestrator\n" +
+				"image's tk cannot be checked against the entrypoint it would ship")
+	}
+	if err := verifyEntrypointTkCommands(opts.Version, opts.HasCommand); err != nil {
+		return nil, err
+	}
+
 	bundleDir := opts.BundleDir
 	if bundleDir == "" {
 		var err error
@@ -141,6 +195,24 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	fmt.Fprintf(out, "%s %s, authenticated\n", w.label, wranglerVersion)
+
+	// The orchestrator sandbox is a container image, and wrangler builds and
+	// pushes it into the operator's own registry as part of the deploy. Both
+	// halves are checked here, before anything is created: a Worker deployed
+	// with a container binding whose image never got built is a factory that
+	// refuses every run, with a message pointing at the very command that
+	// produced it.
+	dockerVersion, err := requireDocker(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "%s %s, daemon reachable\n", dockerBinary(), dockerVersion)
+
+	pm, pmVersion, err := findPackageManager(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "%s %s\n", pm.label, pmVersion)
 
 	// Everything from here runs in the bundle directory.
 	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
@@ -168,6 +240,44 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	fmt.Fprintf(out, "bundle %s (tk %s) staged in %s\n", shortSHA(BundleSHA()), opts.Version, bundleDir)
+
+	// The image's build context is staged as a sibling of the bundle, because
+	// that is what makes the `[[containers]]` image path in the committed
+	// wrangler.toml (`../sandbox/Dockerfile`) resolve to the same tree here as
+	// it does in the repository.
+	// The ref the image builds its tk from — resolved here, after the
+	// prerequisite probes (a missing wrangler is a more useful thing to be told
+	// about first) and still before anything is created in the account. A dev
+	// build over a dirty worktree, or one with no commit stamped at all, stops:
+	// the image can only build a commit that exists.
+	sourceRef := opts.SourceRef
+	if sourceRef == "" {
+		if sourceRef, err = SourceRef(opts.Version); err != nil {
+			return nil, err
+		}
+	}
+
+	sandboxDir := SandboxDir(bundleDir)
+	if err := MaterializeSandbox(sandboxDir); err != nil {
+		return nil, err
+	}
+	// The image's two tk pins are the deploy's answers, not the committed
+	// defaults: the container's tk is built from this binary's source and
+	// labelled with this binary's version, which is what keeps it in step with
+	// the bundle it boots.
+	if err := SetSandboxTkPins(sandboxDir, opts.Version, sourceRef); err != nil {
+		return nil, err
+	}
+	fmt.Fprintf(out, "orchestrator image context staged in %s (tk %s built from %s)\n",
+		sandboxDir, opts.Version, sourceRef)
+
+	// The Worker imports the Cloudflare Sandbox SDK to run a container, so the
+	// staged bundle is installed before it is deployed. Local work, done before
+	// the first `create`: a deploy that cannot bundle must not have provisioned
+	// half an account first.
+	if err := pm.installDependencies(ctx, bundleDir); err != nil {
+		return nil, err
+	}
 
 	databaseID, createdDB, err := w.ensureDatabase(ctx, DatabaseName)
 	if err != nil {
@@ -219,6 +329,17 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	}
 	fmt.Fprintf(out, "%s %s\n", SecretName, tokenVerb(rotated))
 
+	// The endpoint is known exactly here, and the Worker needs it to hand a run
+	// a gateway to route model traffic through (D17). Without it, submission
+	// refuses rather than booting an agent that cannot reach a model.
+	if err := w.putSecret(ctx, SecretFactoryBaseURL, url); err != nil {
+		return nil, fmt.Errorf("setting the %s secret: %w", SecretFactoryBaseURL, err)
+	}
+	if opts.onSecretPut != nil {
+		opts.onSecretPut()
+	}
+	fmt.Fprintf(out, "%s recorded as %s\n", SecretFactoryBaseURL, url)
+
 	if err := recordDeployment(ctx, w, opts.Version); err != nil {
 		return nil, err
 	}
@@ -238,6 +359,7 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		Token:           token,
 		Rotated:         rotated,
 		Version:         opts.Version,
+		SourceRef:       sourceRef,
 		BundleSHA:       BundleSHA(),
 		DatabaseID:      databaseID,
 		CreatedDatabase: createdDB,
@@ -250,6 +372,28 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		return result, err
 	}
 	fmt.Fprintf(out, "verified %s/health and one authenticated request\n", url)
+
+	// The Worker is live at this point; the container application is not
+	// necessarily. `wrangler deploy` creates the container rollout and returns
+	// without waiting for it, so this is where the deploy stops being allowed
+	// to claim readiness on the strength of an exit code (see rollout.go).
+	rollout, rolloutErr := confirmContainerRollout(
+		ctx, w, out, deployOut, opts.rolloutTimeout, opts.rolloutPoll, opts.SkipRolloutWait)
+	result.ImageRef = rollout.Ref
+	result.ImageDigest = rollout.Digest
+	result.RolloutConfirmed = rollout.Confirmed
+	if rolloutErr != nil {
+		return result, rolloutErr
+	}
+
+	// Recorded only once the application actually reports it, so the row a run
+	// stamps itself with is the image the deployment was PROVEN to serve
+	// rather than the one the deploy hoped for.
+	if rollout.Confirmed {
+		if err := recordDeploymentImage(ctx, w, rollout.Ref, rollout.Digest); err != nil {
+			return result, err
+		}
+	}
 
 	return result, nil
 }
@@ -287,6 +431,11 @@ func shortSHA(sha string) string {
 // is a bug rather than an escaping problem worth solving.
 var sqlSafe = regexp.MustCompile(`^[A-Za-z0-9._:+-]*$`)
 
+// imageRefSafe is the same guard widened by the two characters an image
+// reference needs — a registry path and the `@digest` separator — and nothing
+// else. A value outside it is a bug, not an escaping problem to solve.
+var imageRefSafe = regexp.MustCompile(`^[A-Za-z0-9._:+/@-]*$`)
+
 // recordDeployment stores the deployed identity in D1, so a live factory can
 // answer "which tk version and which bundle are you running?" without trusting
 // the operator's local ~/.ticksrc.
@@ -310,10 +459,40 @@ func recordDeployment(ctx context.Context, w *wrangler, version string) error {
 	return nil
 }
 
+// recordDeploymentImage stores the orchestrator image the container
+// application was confirmed to serve, so the Worker can stamp each run it
+// starts with the image that run boots — which is what makes `tk cloud status`
+// able to answer "was my fix even running?" without the operator having to
+// hold two deploys in their head.
+func recordDeploymentImage(ctx context.Context, w *wrangler, ref, digest string) error {
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	for _, v := range []string{ref, digest, stamp} {
+		if !imageRefSafe.MatchString(v) {
+			return fmt.Errorf("refusing to record container image metadata containing %q", v)
+		}
+	}
+	sql := fmt.Sprintf(
+		"INSERT INTO factory_deployment_image (id, image_ref, image_digest, confirmed_at) "+
+			"VALUES (1, '%s', '%s', '%s') "+
+			"ON CONFLICT(id) DO UPDATE SET image_ref=excluded.image_ref, "+
+			"image_digest=excluded.image_digest, confirmed_at=excluded.confirmed_at",
+		ref, digest, stamp)
+	if err := w.execute(ctx, DatabaseName, sql); err != nil {
+		return fmt.Errorf("recording the rolled-out orchestrator image in D1: %w", err)
+	}
+	return nil
+}
+
 // healthPayload is the slice of GET /health this command reads.
 type healthPayload struct {
-	Status string `json:"status"`
-	Auth   struct {
+	Status   string `json:"status"`
+	Bindings struct {
+		// The container binding. A deployment without it records runs it can
+		// never boot, so the deploy that produced it has to fail rather than
+		// report success and leave the refusal for the first submission.
+		Sandboxes bool `json:"sandboxes"`
+	} `json:"bindings"`
+	Auth struct {
 		Required   bool `json:"required"`
 		Configured bool `json:"configured"`
 	} `json:"auth"`
@@ -430,6 +609,17 @@ func verifyOnce(ctx context.Context, client *http.Client, url, token string) err
 	var health healthPayload
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&health); err != nil {
 		return verificationError(fmt.Errorf("GET /health did not return the factory's health payload: %w", err), true)
+	}
+	if !health.Bindings.Sandboxes {
+		// Retryable: a fresh Worker version can take a moment to serve. If it
+		// is still false at the last attempt, the deploy failed — the alternative
+		// is a green deploy in front of a factory that refuses every run with a
+		// message naming this very command as the remedy.
+		return verificationError(fmt.Errorf(
+			"GET /health reports bindings.sandboxes=false: the deployed Worker has no container "+
+				"binding, so every run would be refused. Check that `wrangler deploy` built and "+
+				"pushed the orchestrator image, and that Containers are available on this "+
+				"Cloudflare account"), true)
 	}
 	if !health.Auth.Configured {
 		// The worker proves this with a real derivation, not a parse, so a

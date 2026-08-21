@@ -175,6 +175,40 @@ model = "gpt-5.6-luna"
 	}
 }
 
+// TestHerdSpawnFutureConfigVersionSaysUpgrade is the operator-facing half of
+// the version gate. On 2026-08-19 a released tk met a runners.toml written by
+// a newer one and died on every herd command with "57 validation errors:
+// ...unknown key" — a wall of text naming no cause and no fix. From here on a
+// file the binary is too old to read produces exactly one line that names both
+// versions and the command that fixes it.
+func TestHerdSpawnFutureConfigVersionSaysUpgrade(t *testing.T) {
+	setupSpawnRepo(t, `version = 99
+
+[roles.implement]
+kind = "claude"
+
+[warp.drive]
+setting = 11
+`)
+	srv := newSpawnFakeHerd(t)
+
+	err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()})
+	if err == nil {
+		t.Fatal("herd spawn with a future-version runners.toml returned nil error")
+	}
+	msg := err.Error()
+	want := ".tick/runners.toml is version 99 and this tk understands version 2; upgrade tk (tk upgrade)"
+	if msg != want {
+		t.Errorf("message = %q, want %q", msg, want)
+	}
+	if strings.Contains(msg, "unknown key") || strings.Contains(msg, "validation errors") {
+		t.Errorf("an unreadable-version file was reported as a pile of unknown keys: %s", msg)
+	}
+	if srv.Dials() != 0 {
+		t.Errorf("dials = %d, want 0", srv.Dials())
+	}
+}
+
 // TestHerdSpawnInvalidConfigIsAStop pins that a config that does not validate
 // is never silently replaced by defaults.
 func TestHerdSpawnInvalidConfigIsAStop(t *testing.T) {

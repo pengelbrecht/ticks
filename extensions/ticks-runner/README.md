@@ -43,7 +43,7 @@ Lists the four primary commands.
 
 The default scouts separately map subsystems, tests, and contracts. `--scouts` may add integration, risk, and documentation scouts, but is bounded to 3–6; `--scout-cap` is bounded to 2–4 and is also capped by configured `max_parallel` (planning fails before models if configuration permits fewer than two parallel scouts). Scouts run with exactly `read,grep,find,ls`, no bash and no extensions. The planner receives requirements or existing epic details, bounded scout summaries, fresh Testing/Rules configuration, and bundled tick-authoring patterns. `scout_model` and `planner_model` must be configured; no ambient-model fallback is accepted.
 
-The planner may return only schema `ticks-plan/v1`: new-epic metadata when applicable and 1–12 implementation tasks with safe client IDs, title/description/acceptance, priority/type/tier/files, hard `blocked_by`, and optional soft `after`. Acceptance is prose-only: backticks and model-authored command/code snippets are rejected, so planner output can never become closeout shell. New epic acceptance uses stable `[A<n>]` bullet IDs. Planning reports that the controller must separately map each item under `## Acceptance Evidence` before closeout; each mapping selects exactly one unique command from controller-owned `## Testing` or `## Closeout Evidence Commands`, never model prose. Scouts and the planner receive those relevant sections as read-only context, but cannot add or authorize commands. Validation also rejects unknown shell/tracker/process fields, malformed or oversized text, unsafe/duplicate IDs and files, missing dependencies, hard cycles, model-supplied review/closeout, non-atomic horizontal task shapes, missing acceptance, and same-wave file conflicts. Rejection occurs before controller mutation.
+The planner may return only schema `ticks-plan/v1`: new-epic metadata when applicable and 1–12 implementation tasks with safe client IDs, title/description/acceptance, priority/type/tier/files, hard `blocked_by`, and optional soft `after`. Acceptance is prose-only: backticks and model-authored command/code snippets are rejected, so planner output can never become closeout shell. New epic acceptance uses stable `[A<n>]` bullet IDs. Planning reports that the controller must separately map each item in `[evidence.acceptance]` before closeout; each mapping names the id of one command in controller-owned `[testing.commands]` or `[evidence.commands]`, never model prose. Scouts and the planner receive those tables as read-only context, but cannot add or authorize commands. Validation also rejects unknown shell/tracker/process fields, malformed or oversized text, unsafe/duplicate IDs and files, missing dependencies, hard cycles, model-supplied review/closeout, non-atomic horizontal task shapes, missing acceptance, and same-wave file conflicts. Rejection occurs before controller mutation.
 
 `--apply` is the only tracker-writing mode. It requires a clean non-default branch and validates an existing recorded base when present; otherwise it derives one resolvable, Git-valid base branch from `origin/HEAD` (or a single local `main`/`master` fallback). Ambiguous base context fails before models or tracker writes. The controller records that `base_branch` on both new and existing target epics so review/closeout can use it later. TUI mode also asks for explicit confirmation; in RPC/print command contexts, the flag itself is confirmation because a terminal dialog is unsafe or unavailable. The controller creates a requirements epic or freshly verifies an existing epic is open, childless, and plannable; creates/maps implementation tasks as `pi:orchestrator`; wires hard/soft edges; then appends canonical role-tagged review blocked by terminal implementation tasks and closeout blocked by review. The model cannot inject this process skeleton or change roadmap-level ordering.
 
@@ -53,7 +53,7 @@ Planning feeds the live dashboard/widget. Cards show every scout and the planner
 
 ### `/ticks-run <epic-id> [--execute] [--resume] [--worktrees] [--max-parallel N] [--autonomous] [--compact]`
 
-**Dry-run is the default.** Without `--execute`, the command reads `.tick/config.md` and `tk graph <epic-id> --json`, reconstructs recovery state, and prints every graph wave and tick with its resolved model/tier plus deterministic branch/worktree/artifact paths. Ready work is marked `ready now`; future blocked work is explicitly marked planned-only/not-ready, including review and closeout controller-checkout routing. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
+**Dry-run is the default.** Without `--execute`, the command reads the run config (`.tick/runners.toml`, or the deprecated sections of `.tick/config.md`) and `tk graph <epic-id> --json`, reconstructs recovery state, and prints every graph wave and tick with its resolved model/tier plus deterministic branch/worktree/artifact paths. Ready work is marked `ready now`; future blocked work is explicitly marked planned-only/not-ready, including review and closeout controller-checkout routing. It does not run Environment checks, mutate `.tick/` or git, create worktrees, or start a model.
 
 ```text
 /ticks-run qfs
@@ -89,7 +89,7 @@ Real `tk graph --json` omits awaiting-human children from `waves` while retainin
 
 A ready `role: review` tick launches the configured frontier reviewer in the controller checkout with only `read,grep,find,ls`; extensions, bash, edit, write, tracker authority, and source worktrees are absent. The reviewer reads a persisted full source diff from the epic's validated `base_branch` plus description/acceptance/specs and must emit strict JSON findings. Malformed output fails closed. Blockers—and should-fix findings under the default `repair` policy—become controller-created repair ticks discovered from the review and block it. A clean/routable review closes only after persisted configured-test evidence.
 
-A ready `role: closeout` tick treats every tracker acceptance item as prose. It executes only exact commands explicitly authorized for that item in controller-owned `.tick/config.md` under `## Acceptance Evidence`; each item has exactly one mapping, and that command must exist verbatim and uniquely in either executable `## Testing` or strict `## Closeout Evidence Commands`. Closeout-only commands never run in implementation children, per-tick verifiers, post-wave gates, or final-review tests. There is no Cartesian command×acceptance fallback. Stable `[A<n>]` IDs are recommended in epic acceptance (legacy untagged lines deterministically receive A1, A2, …). Unknown, duplicate, stale, or missing mappings fail closed before the closeout model starts. The controller issues distinct item-scoped evidence IDs only for mapped passing commands, then the dedicated read-only model verifies each item using IDs issued for that same item. Cross-item IDs are rejected. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
+A ready `role: closeout` tick treats every tracker acceptance item as prose. It executes only the command explicitly authorized for that item in the controller-owned `[evidence.acceptance]` table; each item id maps to the id of exactly one command defined in `[testing.commands]` or `[evidence.commands]`. Closeout-only commands never run in implementation children, per-tick verifiers, post-wave gates, or final-review tests. There is no Cartesian command×acceptance fallback. Stable `[A<n>]` IDs are recommended in epic acceptance (legacy untagged lines deterministically receive A1, A2, …). An unresolvable, stale, or missing mapping fails closed before the closeout model starts. The controller issues distinct item-scoped evidence IDs only for mapped passing commands, then the dedicated read-only model verifies each item using IDs issued for that same item. Cross-item IDs are rejected. A pass persists the report and retro/learned notes, closes closeout and then the epic, and reports the next feasible action returned by `tk next --epic --json` without changing the roadmap.
 
 ### `/ticks-status [<epic-id>]`
 
@@ -110,7 +110,74 @@ Controls: `Up`/`Down` navigates agents and gates and automatically scrolls the s
 
 ## Configuration
 
-The extension reads `.tick/config.md` fresh. Commands are only executable when a bullet contains exactly one Markdown inline-code span, optionally preceded by `Label:` and followed by prose:
+The structured run config lives in `.tick/runners.toml`, validated by `skills/ticks/references/runners-config.schema.json` and documented in `runners-config.md`. The extension reads it fresh on every command and prefers it whenever the file defines any of `[testing]`, `[evidence]` or `[environment]`:
+
+```toml
+[orchestration]
+max_parallel = 4
+
+[roles.plan]                       # planner_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol" # the `:thinking` suffix is split out
+effort = "xhigh"
+
+[roles.scout]                      # scout_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "low"
+
+[roles.implement]                  # implement_balanced_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "medium"
+
+[roles.implement.tiers.economy]    # implement_economy_model
+effort = "low"
+
+[roles.implement.tiers.strong]     # implement_strong_model
+effort = "high"
+
+[roles.review]                     # review_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[roles.closeout]                   # closeout_model
+kind = "pi"
+model = "openai-codex/gpt-5.6-sol"
+effort = "xhigh"
+
+[testing]
+notes = "Caveats that are not commands. Prose is never authority."
+
+[testing.commands]
+runner = { command = "node --test extensions/ticks-runner/*.test.ts", description = "Runner" }
+
+[evidence.commands]                # close-out only; the table IS the authorization
+package-proof = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc" }
+
+[evidence.acceptance]              # acceptance item -> command id
+A1 = "runner"
+A2 = "package-proof"
+
+[environment.commands]
+git = { command = "git --version", description = "Git" }
+```
+
+**Every role this extension reads must be `kind = "pi"`.** It spawns `pi` itself, and `model` lives in the kind's own namespace (`runners-config.md` → *One table, one kind per reader*), so a `kind = "claude"` role carries an id `pi --model` cannot take. A role or tier of another kind is **refused**, not read with the kind dropped: no model is derived from it, the mismatch is reported naming the cell, the kind and the model it would have passed, and the run blocks — a config this reader could not read authorizes nothing, so its command surface is empty too. Dropping the model instead would run the tick on `pi`'s own default. One `[roles]` table cannot carry a herdr routing and a pi routing at once; a repo whose roles are `claude`/`codex` is configured for `tk herd spawn`, and this extension does not run from it. `TICKS_PI_*_MODEL` still wins over the file per key, but does not un-refuse a config.
+
+```text
+roles.implement: kind = "claude", but this runner spawns `pi` and a model id is in its own
+kind's namespace — refusing to derive implement_economy_model = "haiku:low" … from a claude
+role rather than hand a claude id to `pi --provider/--model`. Give the role `kind = "pi"` and
+a pi model id, or run this epic through `tk herd spawn`, the reader a claude role is written for.
+```
+
+An absent tier resolves to its role's own model and effort. `[roles.plan]`, `[roles.scout]`, `[roles.review]` and `[roles.closeout]` do **not** resolve against `[roles.implement]` here: planning and the final process gates refuse to run on a defaulted model, so an absent role table leaves the key unset and the run blocks — the same stop the markdown path's missing `review_model`/`scout_model` line produced. (`tk herd spawn` does fall an unlisted role back to `implement`; that is right for spawning a worker and wrong for a gate that must fail closed.) Closeout alone has a fallback, and it is the planner: `closeout_model ?? planner_model`, blocking when neither is configured. A file that cannot be parsed, carries an unknown key, or maps an acceptance item to a command id no table defines is a **stop**: the run blocks and the command surface authorizes nothing — it never falls back to markdown. `review_should_fix` has no home in the schema and comes from `TICKS_PI_REVIEW_SHOULD_FIX` (default `repair`) on this path. `## Rules` stays in `.tick/config.md` on both paths.
+
+### Deprecated: structured sections in `.tick/config.md`
+
+A repo that has not migrated still has its structured sections parsed out of `.tick/config.md`, and each config load emits exactly one deprecation warning naming `tk config migrate`. Commands are only executable when a bullet contains exactly one Markdown inline-code span, optionally preceded by `Label:` and followed by prose:
 
 ```markdown
 ## Environment

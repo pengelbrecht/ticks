@@ -48,13 +48,13 @@ Nothing new is invented; the protocol's outputs land in existing homes:
 |---|---|
 | Goal statement (2–3 sentences: outcome + why) | The project's `description` |
 | Fact sheet (discrete, testable outcome statements) | The project's `acceptance_criteria`, as `[A<n>]`-marked lines |
-| Auto-verifiable facts | Proposed `- A<n>: \`command\`` mappings for `.tick/config.md` → `Acceptance Evidence` (human approves the edit) |
+| Auto-verifiable facts | Proposed `[evidence.acceptance]` mappings in `.tick/runners.toml` (human approves the edit) |
 | Human-judgment facts | Lines tagged `(human judgment)` in the same list — they become the checkpoint's review agenda |
 
 Keep `A<n>` IDs **unique across every container that carries an acceptance list** (the front
-epic and its project must not both use `A1`) — `.tick/config.md` `Acceptance Evidence` is a
-single namespace and ambiguous IDs fail closed. Simplest scheme: continue numbering across
-containers.
+epic and its project must not both use `A1`) — `[evidence.acceptance]` is a single namespace
+and a reused ID silently rebinds a fact to another container's command. Simplest scheme:
+continue numbering across containers.
 
 ## The protocol
 
@@ -141,11 +141,11 @@ tk create "Port sqlite to Rust" \
 
 Then:
 
-- **Propose** an `Acceptance Evidence` mapping in `.tick/config.md` for each auto-verifiable
-  fact (`- A<n>: \`exact command\``, the command existing verbatim and uniquely in Testing or
-  Closeout Evidence Commands). The human reviews and approves the edit — the file is
-  controller-owned and tracker/model prose never authorizes shell; the human committing the
-  mapping *is* the authorization.
+- **Propose** an `[evidence.acceptance]` mapping in `.tick/runners.toml` for each
+  auto-verifiable fact (`A<n> = "<command-id>"`, the id naming a command defined in
+  `[testing.commands]` or `[evidence.commands]`). The human reviews and approves the edit —
+  the file is controller-owned and tracker/model prose never authorizes shell; the human
+  committing the mapping *is* the authorization.
 - Only then plan the project's child epics. Each epic's own definition of done should serve
   identifiable facts; a fact no epic serves is a coverage gap, and an epic serving no fact is
   scope creep. Say which facts each epic serves in its rough-scope description.

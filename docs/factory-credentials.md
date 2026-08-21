@@ -33,7 +33,8 @@ tk factory setup \
   --github-token "$GITHUB_PAT" \
   --gateway-url https://gateway.ai.cloudflare.com/v1/<account-id>/<gateway> \
   --provider anthropic \
-  --provider-key "$ANTHROPIC_API_KEY"
+  --provider-key "$ANTHROPIC_API_KEY" \
+  --cloudflare-api-token "$CLOUDFLARE_API_TOKEN"
 ```
 
 ## Where the secrets go
@@ -41,8 +42,10 @@ tk factory setup \
 Two places, and only two:
 
 - **Worker secrets** in your own Cloudflare account (`GITHUB_TOKEN`,
-  `AI_GATEWAY_BASE_URL`, and the provider key, e.g. `ANTHROPIC_API_KEY`). These
-  are write-only: nothing, including `tk`, reads them back.
+  `AI_GATEWAY_BASE_URL`, the provider key, e.g. `ANTHROPIC_API_KEY`, the
+  optional `CLOUDFLARE_API_TOKEN`, and `FACTORY_BASE_URL`, which the deploy
+  writes so the Worker knows its own endpoint). These are write-only: nothing,
+  including `tk`, reads them back.
 - **`~/.ticksrc`**, written 0600, as the local mirror `tk factory status`
   re-checks and a later setup offers to keep.
 
@@ -108,9 +111,90 @@ provider that call must succeed with your key; for `workers-ai` there is no key
 to present from your laptop — the Worker calls it with the account's own
 credentials — so the check proves the gateway is reachable and stores no key.
 
+**A BYOK key is not permission to spend it.** The factory routes `workers-ai`
+and nothing else unless the deployment says otherwise: that rung bills to the
+same Cloudflare account the Worker runs in, where an operator's credit sits,
+while the other three bill by the vendor in real cash. Every other route is
+refused with a 403 (`provider_not_opted_in`) that states which invoice it would
+land on — so a mistyped or edited model id stops at the gateway instead of
+quietly moving a run's spend onto a card. Opting in is a wrangler `[vars]` entry
+in `cloud/factory/wrangler.toml`, followed by a redeploy:
+
+```toml
+[vars]
+GATEWAY_ALLOWED_PROVIDERS = "anthropic"
+```
+
+The value is a comma or whitespace separated list of slugs from the table above;
+`workers-ai` is always routed and never needs naming, and an entry that is not a
+slug is logged and ignored rather than guessed at. `tk factory setup` deliberately
+does not write it — a credential stored once should not open a cash-billed route
+for every run that follows.
+
 The tier vocabulary in `.tick/runners.toml` is unchanged by any of this: the
 gateway is plumbing below the role → kind/model/effort table, not a new name
 in it.
+
+What the provider rung *does* decide is how a cloud run spells its model ids.
+A cloud orchestrator's model is routed like every other role's — from
+`[orchestrator].model`, falling back to the role/tier table — and the id is
+provider-qualified so the sandbox knows which gateway route serves it:
+
+```toml
+[orchestrator]
+harness = "omp"
+kind = "pi"
+model = "workers-ai/meta/llama-3.3-70b-instruct-fp8-fast"
+```
+
+Workers AI's own ids live in the `@cf/<vendor>/<name>` namespace; `@` is not a
+legal character in a routing-config model id, so the namespace is left off here
+and restored by the sandbox. A run whose model is served by a provider this
+factory has no credential for does not hang — the sandbox proves the route with
+a one-token call before it starts the harness, and stops with what the gateway
+said.
+
+A reachable route is still not a runnable harness: each harness kind reads its
+gateway credential under a name of its own choosing — `claude` reads
+`ANTHROPIC_API_KEY`, `omp` on the `workers-ai` route reads
+`CLOUDFLARE_AI_GATEWAY_API_KEY` — so the sandbox wires the kind's own provider
+and then makes the harness itself do one round-trip before the run starts. The
+per-kind table is in [`cloud/sandbox/README.md`](../cloud/sandbox/README.md);
+none of it changes what you configure here, and all of it is the same run
+gateway token under different names.
+
+### What a sandbox actually holds
+
+Not your provider key. A run's model traffic goes to the factory Worker's own
+`/api/gateway` prefix, carrying a **run gateway token** the Run Workflow mints
+per orchestrator boot. The Worker exchanges that token for your provider key,
+stamps the run and tick ids onto the request's `cf-aig-metadata`, and forwards
+it to your gateway. Three things follow:
+
+- **Spend is attributable per run** without trusting the agent to say so, and
+  without the agent being able to write its own attribution.
+- **Revoking the run's token stops its model traffic mid-run** — the kill switch
+  D17 asks for, at the credential layer, so it works on an orchestrator that is
+  wedged or adversarial. The refusal is per request: the revoked token is
+  refused on the very next call, before anything reaches your gateway. The
+  Workflow revokes on every budget trip and stop, on every reboot (the replaced
+  container's token dies first), and at finalize.
+- **A leaked sandbox environment leaks a run-scoped, revocable credential**
+  rather than a vendor key.
+
+### Cost telemetry (optional, and loudly so)
+
+`--cloudflare-api-token` stores a Cloudflare API token with **AI Gateway read**
+access. It is what the Run Workflow reads your gateway's own per-request logs
+with, filtered by the run id it stamped, and that number — not anything the
+agent reports — is what `runs.cost_usd` holds and what the cost budget acts on.
+
+Without it the factory still routes and attributes model traffic when no
+explicit `RUN_MAX_COST_USD` is configured: `tk factory status` reports the rung
+as not configured, and each run's `run.json` records its cost as unknown rather
+than as `$0`. If an explicit cost budget is configured, the Workflow refuses
+the run before sandbox boot because it cannot enforce that budget. Setup proves
+the token with a live read of that gateway's logs before storing it.
 
 ## Checking it later
 
@@ -132,5 +216,15 @@ unconditionally.
   again (or `tk factory setup --github-token <new>`). The Worker secret and the
   local mirror are both replaced.
 - **Provider key** — same shape: rotate at the vendor, then re-run setup.
+- **A single run's model access** — that is not a rotation, it is `tk cloud stop
+  <run>` (or any budget trip): the Workflow revokes that run's gateway token and
+  its agent stops spending, without touching any other run. A clean stop
+  revokes at the end of the grace window, so the in-flight work can land; a
+  budget trip revokes first and unwinds afterwards. If you need the spend to
+  stop *now* — a runaway, a wedged agent, a run past its budget — use
+  `tk cloud stop <run> --now`. That revokes in the request itself and no later
+  boot of that run may mint another credential, at the cost of review and
+  closeout. It is the supported alternative to deleting the container
+  application, which takes down every run and needs a redeploy to restore.
 - **The factory's own bearer token** — that one belongs to the deploy:
   `tk factory deploy --rotate-token`.

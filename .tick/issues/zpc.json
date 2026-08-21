@@ -1,0 +1,18 @@
+{
+  "id": "zpc",
+  "title": "Sandbox image pins a tk that predates tk sandbox (chicken-and-egg)",
+  "description": "Blocks the epic acceptance. cloud/sandbox/Dockerfile pins ARG TK_VERSION=0.31.0, and the released 0.31.0 binary has no `sandbox` subcommand — the one this epic added. A real container boots and streams output, then the entrypoint dies at exit 6 with \"unknown command: sandbox\".\n\nThis is a genuine chicken-and-egg: the image needs a tk containing the epics own code, and that code is not released. It will recur on every future epic that adds a tk subcommand the sandbox entrypoint depends on, so decide the mechanism rather than bumping a number:\n\nOptions to weigh and pick one, stating why in the report:\n1. BUILD tk FROM SOURCE in the image, at the commit being deployed. Always correct, no release lag, and it makes the image self-consistent with the bundle it boots — at the cost of a Go toolchain and build time in the image build.\n2. Ship the operators LOCAL tk binary into the image at deploy time (tk factory deploy already knows its own path and version, and already version-pins the bundle). Fast and exactly the binary the operator runs, but it needs a linux/amd64 build rather than the operators host binary.\n3. Keep the release pin and gate deploys on a released tk that has the subcommand. Simplest, but it means an epic cannot boot its own work until after a release — the constraint that produced this bug.\n\nWhichever is chosen, the deploy must FAIL ACTIONABLY when the images tk lacks a subcommand the entrypoint needs, rather than producing a container that boots and then dies at exit 6.",
+  "notes": "2026-08-20 04:02 - runner-state: substrate=herdr kind=claude branch=tick/zpc worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-zpc workspace=wBM base=5f0c6d426a596f18471c032a659128b16f621d29 agent=tick-zpc pane=wBM:p1 session=92bee677-d423-4a93-b962-9cf578607bb6",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "ho3",
+  "acceptance_criteria": "A container booted by the deployed factory runs the entrypoint through to the skill loop with no unknown-command failure; the mechanism keeping the image tk in step with the deployed bundle is documented; a deploy whose image tk is too old fails with an actionable error naming the missing subcommand.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:02:38.593701Z",
+  "updated_at": "2026-08-20T02:26:51.086512Z",
+  "closed_at": "2026-08-20T02:26:51.086512Z",
+  "closed_reason": "Completed: the sandbox image builds tk from source at TK_SOURCE_REF, pinned by tk factory deploy to the commit the deploying binary was built from, with a generated required-tk-commands list and a test that fails when the entrypoint needs a subcommand the pinned tk lacks — so the image can no longer boot with a tk that predates the code it runs."
+}

@@ -3,6 +3,7 @@ package factory
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -15,6 +16,9 @@ func TestBundlePathsCoverWhatWranglerNeeds(t *testing.T) {
 		"src/index.ts",
 		"src/auth.ts",
 		"src/run-room.ts",
+		"src/run-workflow.ts",
+		"src/sandbox.ts",
+		"src/artifacts.ts",
 		"src/env.d.ts",
 		"migrations/0001_init.sql",
 		"package.json",
@@ -153,5 +157,110 @@ func TestMaterializedFilesAreOwnerWritable(t *testing.T) {
 	}
 	if info.Mode().Perm()&0o200 == 0 {
 		t.Errorf("wrangler.toml is not writable: %o", info.Mode().Perm())
+	}
+}
+
+// The bundle has to DECLARE the container, or a deployment is a control plane
+// that refuses every run with a message naming a remedy — `tk factory deploy` —
+// that cannot supply what the bundle never contained. That is the shape the
+// live factory shipped in, and it is what this guards.
+func TestBundleDeclaresTheContainerBinding(t *testing.T) {
+	data, err := ReadBundleFile(WranglerConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toml := string(data)
+
+	for _, want := range []string{
+		`name = "SANDBOXES"`,
+		`class_name = "Sandbox"`,
+		"[[containers]]",
+		`new_sqlite_classes = ["Sandbox"]`,
+	} {
+		if !strings.Contains(toml, want) {
+			t.Errorf("wrangler.toml does not declare %s:\n%s", want, toml)
+		}
+	}
+}
+
+// The image path in the committed config has to resolve to the tree the deploy
+// stages — the same relative path, true in the repository and in the bundle.
+func TestContainerImagePathResolvesToTheStagedContext(t *testing.T) {
+	bundleDir := filepath.Join(t.TempDir(), "bundle")
+	if err := Materialize(bundleDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := MaterializeSandbox(SandboxDir(bundleDir)); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(bundleDir, WranglerConfigFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := containerImagePath(t, string(data))
+	if _, err := os.Stat(filepath.Join(bundleDir, filepath.FromSlash(image))); err != nil {
+		t.Errorf("the container image path %q does not resolve from the staged bundle: %v", image, err)
+	}
+}
+
+// containerImagePath reads the single `image = "..."` assignment out of the
+// config. A regex rather than a TOML parser because the assertion is about one
+// literal line, and a parser here would be a second grammar to keep honest.
+func containerImagePath(t *testing.T, toml string) string {
+	t.Helper()
+	match := regexp.MustCompile(`(?m)^image\s*=\s*"([^"]+)"`).FindStringSubmatch(toml)
+	if match == nil {
+		t.Fatalf("wrangler.toml declares no container image:\n%s", toml)
+	}
+	return match[1]
+}
+
+// The Worker imports the Cloudflare Sandbox SDK, so the deploy installs the
+// bundle before deploying it — with the lockfile, or the deployed dependency
+// tree is whatever npm published today rather than what this build pins.
+func TestBundleShipsTheLockfileTheInstallNeeds(t *testing.T) {
+	have := make(map[string]bool)
+	for _, p := range BundlePaths() {
+		have[p] = true
+	}
+	for _, want := range []string{"package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"} {
+		if !have[want] {
+			t.Errorf("the bundle does not ship %s, so `pnpm install --frozen-lockfile` cannot run", want)
+		}
+	}
+}
+
+func TestSandboxContextShipsTheImage(t *testing.T) {
+	have := make(map[string]bool)
+	for _, p := range SandboxPaths() {
+		have[p] = true
+	}
+	// What the Dockerfile COPYs, plus the Dockerfile: the build context is
+	// the image, and an image missing its entrypoint boots into nothing.
+	for _, want := range []string{"Dockerfile", "entrypoint.sh", "preflight.sh"} {
+		if !have[want] {
+			t.Errorf("the embedded image context is missing %s (got %v)", want, SandboxPaths())
+		}
+	}
+}
+
+func TestMaterializeSandboxStagesTheBuildContext(t *testing.T) {
+	bundleDir := filepath.Join(t.TempDir(), "bundle")
+	dir := SandboxDir(bundleDir)
+
+	if err := MaterializeSandbox(dir); err != nil {
+		t.Fatalf("MaterializeSandbox: %v", err)
+	}
+
+	if filepath.Dir(dir) != filepath.Dir(bundleDir) {
+		t.Errorf("the image context %q is not a sibling of the bundle %q", dir, bundleDir)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		t.Fatalf("staged Dockerfile: %v", err)
+	}
+	if !strings.Contains(string(data), "FROM docker.io/cloudflare/sandbox") {
+		t.Errorf("the staged Dockerfile is not the orchestrator image:\n%s", data)
 	}
 }

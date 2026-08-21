@@ -1,0 +1,18 @@
+{
+  "id": "o4i",
+  "title": "Treat content: null as empty string on the workers-ai route",
+  "description": "Surfaced by xrz, deliberately not fixed there (behaviour change on a shape nothing currently sends).\n\nstringifyContentParts passes content: null straight through, with a test pinning that behaviour (\"that is a tool call, not a prompt\"). omp currently sends \"\" so nothing is broken today. But if any harness sends null, Workers AI answers 400 naming /messages/N/content — which is the EXACT error cloud/sandbox/README.md tells operators means \"the deployed factory predates the translation\". So a future harness would produce a false diagnosis pointing at a redeploy that cannot help.\n\nOne-line fix (treat null as \"\") plus flipping the pinned test. The reason to do it now rather than when it bites: the misleading-diagnosis cost is paid by whoever hits it, and this session has already spent several cycles on a fix that looked broken because the diagnosis pointed the wrong way.",
+  "notes": "2026-08-20 15:22 - runner-state: substrate=herdr kind=codex branch=tick/o4i worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-o4i workspace=wC8 base=6b1845dda960a048f7421c542006d3ba86cdbac0 agent=tick-o4i pane=wC8:p1 session=01a01f56-4993-7c61-a0f0-40617a338537",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "xrz",
+  "acceptance_criteria": "content: null is sent as an empty string on the workers-ai route; the pinned test is updated to assert the new behaviour; the README diagnosis for a 400 on /messages/N/content remains accurate.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T13:22:00.565752Z",
+  "updated_at": "2026-08-20T13:34:29.218172Z",
+  "closed_at": "2026-08-20T13:34:29.218172Z",
+  "closed_reason": "Completed: content: null is sent as an empty string on the workers-ai route, so a harness that omits content can no longer trigger a 400 that the README diagnoses as a stale deployment; the pinned test now asserts the new behaviour."
+}

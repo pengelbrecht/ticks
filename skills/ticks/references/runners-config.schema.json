@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ticks.sh/schemas/runners-config.schema.json",
   "title": "Ticks runners configuration (.tick/runners.toml)",
-  "description": "Routing configuration for the ticks agent runner: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which worker serves each task role and capability tier. A worker is specified along two dimensions — `kind` (the herdr harness dimension) and `model` + optional `effort` (the capability dimension) — which the spawner compiles into that kind's native argv; `args` remains an escape hatch appended after the compiled flags. Parse the TOML file, then validate the resulting object against this schema. This schema validates SHAPE only: whether a given model is usable by a given kind is a spawn-time compatibility check (see herdr-kinds.md), because model families are open-ended and cannot be enumerated here. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
+  "description": "Configuration for one repo's ticks runs, in `.tick/runners.toml`. Two things live here. ROUTING: which substrate orchestrates a run (herdr panes vs the harness's native subagents) and which worker serves each task role and capability tier. A worker is specified along two dimensions — `kind` (the herdr harness dimension) and `model` + optional `effort` (the capability dimension) — which the spawner compiles into that kind's native argv; `args` remains an escape hatch appended after the compiled flags. SANDBOX: `[sandbox]`, the environment one run is given — the image, the extra toolchain, and the idempotent setup commands that warm it. COMMANDS: the shell a run may execute, split by the phase authorised to execute it — `[testing]` for implementers, `[evidence]` for closeout only, `[environment]` for the run-start pre-flight — plus `[evidence.acceptance]`, the acceptance-item-to-command authorisation table. Parse the TOML file, then validate the resulting object against this schema. This schema validates SHAPE only. Whether a given model is usable by a given kind is a spawn-time compatibility check (see herdr-kinds.md), because model families are open-ended and cannot be enumerated here; and the cross-table command rules (a reference that resolves, a command that belongs to exactly one phase) are loader checks, because JSON Schema has no referential integrity — runners-config.md, 'Caught by the config loader', is normative for those and they fail closed. Not part of the repo's schemas/ codegen set: this config is consumed by the distributable ticks skill, never by tk's Go/TypeScript types.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "version": {
       "type": "integer",
-      "const": 1,
-      "description": "Config format version. Omitted means 1. A reader that does not recognise the value must stop rather than guess."
+      "enum": [1, 2],
+      "description": "Config format version. Omitted means 1. Version 2 introduced the command surface (`[testing]`, `[evidence]`, `[environment]`) and `[sandbox]`, which shipped in the same release, so a file carrying any of those tables must declare 2 — that is what lets a reader too old to know them fail with one line telling its operator to upgrade, instead of reporting every key it does not recognise. A reader must therefore check this field BEFORE it checks shape, and must stop rather than guess when the value is newer than it understands. Within a version it understands, an unknown key remains an error: the gate is about ordering, not about relaxing additionalProperties."
     },
     "orchestrator": {
       "$ref": "#/$defs/Orchestrator"
@@ -19,6 +19,18 @@
     },
     "roles": {
       "$ref": "#/$defs/Roles"
+    },
+    "testing": {
+      "$ref": "#/$defs/Testing"
+    },
+    "evidence": {
+      "$ref": "#/$defs/Evidence"
+    },
+    "environment": {
+      "$ref": "#/$defs/Environment"
+    },
+    "sandbox": {
+      "$ref": "#/$defs/Sandbox"
     }
   },
   "required": ["roles"],
@@ -31,8 +43,8 @@
     "Model": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$",
-      "description": "Model identifier in the *kind's own* namespace: a claude alias or full name (`opus`, `claude-fable-5`) for kind claude, an OpenAI model id (`gpt-5.6-luna`) for kind codex, a cross-provider `<provider>/<model>` id (`openai-codex/gpt-5.6-sol`) for kind pi. The spawner compiles this into the kind's native model flag (see herdr-kinds.md, 'Model and effort translation'). Shape only: model families are open-ended, so this schema cannot enumerate them and does NOT check that the model belongs to the kind — that is a spawn-time compatibility check the orchestrator must fail closed on. A `:` is deliberately rejected: effort belongs in `effort`, not smuggled into pi's `model:thinking` shorthand."
+      "pattern": "^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(/@?[A-Za-z0-9][A-Za-z0-9_.+-]*)*$",
+      "description": "Model identifier in the *kind's own* namespace: a claude alias or full name (`opus`, `claude-fable-5`) for kind claude, an OpenAI model id (`gpt-5.6-luna`) for kind codex, a cross-provider `<provider>/<model>` id (`openai-codex/gpt-5.6-sol`) for kind pi. The spawner compiles this into the kind's native model flag (see herdr-kinds.md, 'Model and effort translation'). Shape only: model families are open-ended, so this schema cannot enumerate them and does NOT check that the model belongs to the kind — that is a spawn-time compatibility check the orchestrator must fail closed on. A `:` is deliberately rejected: effort belongs in `effort`, not smuggled into pi's `model:thinking` shorthand. A segment may lead with `@`, because a provider namespace can be part of the id itself: every Workers AI model is `@cf/<vendor>/<name>`, so its qualified form here is `workers-ai/@cf/openai/gpt-oss-120b`. `@` is legal only in that position — leading a segment — never inside one, so `a@b` is still malformed."
     },
     "Effort": {
       "type": "string",
@@ -158,6 +170,115 @@
         { "required": ["effort"] },
         { "required": ["args"] }
       ]
+    },
+    "CommandId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "maxLength": 64,
+      "description": "Stable identifier for one command: the key of a command table, and the value of an `[evidence.acceptance]` mapping. Lowercase and short, so a reference is copied rather than retyped. An id is unique across `testing.commands`, `evidence.commands` and `environment.commands` — a loader check rather than a schema one (JSON Schema cannot see across tables), because a colliding id would make the phase authorised to run that command ambiguous."
+    },
+    "Command": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One executable command. `command` is the shell string run verbatim — never a template, never a line that also carries prose. `description` is the human label the markdown format wrote before the colon; it is documentation and is never executed.",
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "description": "The command, run verbatim. Control characters (NUL and friends) are rejected rather than escaped: the markdown format's injection guard becomes a type here."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human label for this command. Documentation only — never executed, never matched against."
+        }
+      },
+      "required": ["command"]
+    },
+    "CommandTable": {
+      "type": "object",
+      "description": "Command id -> command. A keyed table rather than an array because the id is the contract: keying by it makes a duplicate id a TOML parse error before validation even runs, and gives `[evidence.acceptance]` something stable to point at that is not the command text.",
+      "propertyNames": { "$ref": "#/$defs/CommandId" },
+      "additionalProperties": { "$ref": "#/$defs/Command" },
+      "maxProperties": 128
+    },
+    "Notes": {
+      "type": "string",
+      "maxLength": 8000,
+      "description": "Free-text narrative for a human or a model to read — the caveats that are not commands (\"this suite fails locally without a git identity\", \"the full worker suite has a known boot crash\"). Never parsed, never executed, and never a place to smuggle a command: only a command table authorises shell."
+    },
+    "Testing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The commands implementers run, plus the narrative hints that belong with them. These are the commands handed to an implementer prompt; unlike `[evidence]` they carry no phase restriction. Keeping the caveats here in `notes` is deliberate: a structured file that forces the prose out to another file gets a stale copy of the prose.",
+      "properties": {
+        "notes": { "$ref": "#/$defs/Notes" },
+        "commands": { "$ref": "#/$defs/CommandTable" }
+      }
+    },
+    "Evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Closeout-only commands — a separate table from `[testing]` rather than a flag on one shared list. A command defined here may run ONLY during closeout: never by an implementer, a per-tick verifier, a post-wave gate, or final-review tests. There is deliberately no key that relaxes that, so the table a command sits in IS its authorisation and a typo cannot promote it.",
+      "properties": {
+        "notes": { "$ref": "#/$defs/Notes" },
+        "commands": { "$ref": "#/$defs/CommandTable" },
+        "acceptance": { "$ref": "#/$defs/Acceptance" }
+      }
+    },
+    "Acceptance": {
+      "type": "object",
+      "description": "Acceptance item -> the id of the one command that authorises it. Structure replaces the markdown format's verbatim-and-uniquely-matching apparatus: an item can appear only once because it is a key, and it names a command by id rather than by repeating its text, so there is nothing left to match ambiguously. The surviving semantic rule is unchanged and fails closed — an item whose reference names no command in `testing.commands` or `evidence.commands` is a stop, and nothing outside this file (tracker text, a tick description, a model's suggestion) can authorise a command or acquire another item's authorisation.",
+      "propertyNames": {
+        "pattern": "^A[1-9][0-9]{0,2}$",
+        "description": "Stable acceptance item id, `A<n>` as written in the tick's acceptance criteria."
+      },
+      "additionalProperties": { "$ref": "#/$defs/CommandId" },
+      "maxProperties": 64
+    },
+    "Sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The environment one run is given: the image it boots, the extra toolchain provisioned into its persistent cache, and the idempotent commands that warm it. Absent means the batteries-included base image and nothing else, which is the 99% path. This table is the ONLY place a sandbox setup command may come from, and the reason it lives in tracked, PR-reviewed config: `setup` runs arbitrary shell inside a sandbox that holds the run's credentials, so it is read from this file at the submitted SHA and never from a tick note, a model, a signal payload or an API parameter. Adding capability is a pull request, not a dashboard click.",
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$",
+          "description": "Custom image reference this repository's sandbox boots. Omitted means the version-pinned base image, which is what almost every repository wants: `toolchain` and `setup` extend the base without a factory-wide image rebuild. Whatever boots a sandbox takes the reference as a parameter, so the resolved value is `tk sandbox image`."
+        },
+        "toolchain": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/ToolSpec" },
+          "description": "Extra tools provisioned through the version manager the base image already ships, resolved on first run into the project's persistent sandbox cache and warm thereafter. Only what the image does not already satisfy is provisioned. Ecosystem pins the image already reads on its own (`go.mod`, `package.json`'s `packageManager`, `.node-version`, `.tool-versions`) do not belong here — this is for what those files cannot say."
+        },
+        "setup": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/Command" },
+          "description": "Idempotent, cache-populating commands run once per sandbox, in order, after the checkout and before the harness starts (`pnpm install --frozen-lockfile`, `go mod download`). An ARRAY, not a keyed table: order is the contract and nothing references a setup command by id. This is provisioning, which `[environment]` deliberately cannot express — an Environment check is verification only, `test, do not ask`. A failing setup command stops the run: a wave started on a half-provisioned sandbox fails in every worker instead."
+        }
+      }
+    },
+    "ToolSpec": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9_.+-]*@[A-Za-z0-9][A-Za-z0-9_.+-]*$",
+      "description": "One `tool@version` pin in the version manager's own namespace (`rust@1.90.0`, `python@3.13`). The version is required: an unpinned tool makes the warm sandbox and the cold one different environments. One entry per tool — two versions of one tool is ambiguous and is refused by the loader."
+    },
+    "Environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pre-flight verification commands, run once at run start before wave 1. Each one TESTS a precondition rather than asking a human about it (`which go`, `pg_isready -h localhost`); a failing check stops the run and is surfaced to the user. These never authorise an acceptance item, so `[evidence.acceptance]` cannot reference an id defined here.",
+      "properties": {
+        "notes": { "$ref": "#/$defs/Notes" },
+        "commands": { "$ref": "#/$defs/CommandTable" }
+      }
     }
   }
 }

@@ -48,7 +48,7 @@ func run(args []string) int {
 	}
 
 	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "gc", "merge", "board", "herd", "skills", "channel", "tell", "ask", "answer", "factory":
+	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "list", "ls", "ready", "next", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "config", "gc", "merge", "board", "herd", "skills", "channel", "tell", "ask", "answer", "factory", "cloud", "sandbox":
 		// Route to Cobra command (pass args[1:] to include the subcommand)
 		// Handle aliases
 		cmdArgs := args[1:]
@@ -100,7 +100,7 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, channel, tell, ask, answer, skills, factory, version, upgrade, migrate, gc, merge")
+	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, list (ls), ready, next, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, config, channel, tell, ask, answer, skills, factory, cloud, sandbox, version, upgrade, migrate, gc, merge")
 	fmt.Println()
 	fmt.Println("Operator Channel:")
 	fmt.Println("  tk channel setup telegram     Pair your Telegram bot with this machine (token stays out of the repo)")
@@ -114,6 +114,11 @@ func printUsage() {
 	fmt.Println("  tk factory deploy             Deploy the factory into your own Cloudflare account")
 	fmt.Println("  tk factory setup              Walk the credential ladder: deployment, GitHub PAT, AI Gateway")
 	fmt.Println("  tk factory status             Show what is configured and whether each credential works")
+	fmt.Println()
+	fmt.Println("Cloud Runs:")
+	fmt.Println("  tk cloud run <epic>           Push the current branch and start a cloud run")
+	fmt.Println("  tk cloud stop <run>           Request a clean stop (--now to revoke the gateway credential immediately)")
+	fmt.Println("  tk cloud status               Show cloud runs, leases and queued submissions")
 	fmt.Println()
 	fmt.Println("Skill Bundle:")
 	fmt.Println("  tk skills list                List embedded skills and the tk version they ship with")

@@ -3,10 +3,38 @@ package config
 // FileName is the repo-relative path of the runner routing config.
 const FileName = ".tick/runners.toml"
 
-// Version is the only config format version defined. A file carrying any
-// other `version` is a stop, per the schema: "A reader that does not
-// recognise the value must stop rather than guess."
-const Version = 1
+// Version is the newest config format version this binary understands, and
+// the version [Migrate] writes. MinVersion is the oldest it still reads: a
+// version 1 file — routing only, written before the command surface existed —
+// keeps loading untouched.
+//
+// The field exists for one job, learned the hard way on 2026-08-19: a tk that
+// predates a format change must fail with one line telling its operator to
+// upgrade, not with a list of the keys it does not recognise. [Parse] reads
+// `version` BEFORE it reads shape, so a file from the future is refused with
+// an [UnsupportedVersionError] and nothing else.
+const (
+	Version    = 2
+	MinVersion = 1
+)
+
+// CommandSurfaceVersion is the format version that introduced `[testing]`,
+// `[evidence]`, `[environment]` and `[sandbox]`. A file carrying any of them
+// cannot be read by a version 1 reader, so it must declare this version —
+// that is what makes the older binary say "upgrade tk" instead of enumerating
+// 57 keys.
+//
+// `[sandbox]` deliberately does NOT get a version of its own. A version gate
+// only helps across a released boundary, and [sandbox] ships in the same
+// release as the command surface: no binary exists that reads version 2 and
+// has never heard of it. Bumping would lock out readers for nothing, which is
+// the mirror of the mistake the gate was added to fix.
+const CommandSurfaceVersion = 2
+
+// MinTkVersion is the first tk release that understands [Version]. It is what
+// a migration warning tells the operator to install everywhere else; keep it
+// in step with the CHANGELOG release that ships the version bump.
+const MinTkVersion = "0.32.0"
 
 // Effort is the kind-neutral reasoning/thinking level from the schema's
 // `Effort` enum. It is a union across kinds — a value valid here can still be
@@ -78,6 +106,10 @@ type Config struct {
 	Orchestrator  *Orchestrator    `toml:"orchestrator"`
 	Orchestration *Orchestration   `toml:"orchestration"`
 	Roles         map[string]*Role `toml:"roles"`
+	Testing       *Testing         `toml:"testing"`
+	Evidence      *Evidence        `toml:"evidence"`
+	Environment   *Environment     `toml:"environment"`
+	Sandbox       *Sandbox         `toml:"sandbox"`
 }
 
 // Orchestrator records which harness/kind the config was written for. It is
@@ -119,6 +151,131 @@ type TierVariant struct {
 	Model  string   `toml:"model"`
 	Effort Effort   `toml:"effort"`
 	Args   []string `toml:"args"`
+}
+
+// Command is one executable command. Command is run verbatim — one shell
+// string, never a template and never a line that also carries prose.
+// Description is the human label the markdown format wrote before the colon;
+// it is documentation and is never executed or matched against.
+type Command struct {
+	Command     string `toml:"command"`
+	Description string `toml:"description"`
+}
+
+// Commands maps a command id to its command. A keyed table rather than a list
+// because the id is the contract: keying by it makes a duplicate id a TOML
+// parse error, and gives [Evidence.Acceptance] something stable to point at
+// that is not the command's own text.
+type Commands map[string]*Command
+
+// Testing holds the commands implementers run, plus the narrative caveats
+// that belong with them. Unlike [Evidence] these carry no phase restriction.
+type Testing struct {
+	Notes    string   `toml:"notes"`
+	Commands Commands `toml:"commands"`
+}
+
+// Evidence holds close-out-only commands and the acceptance authorization
+// table. A command defined here may run ONLY during close-out — never by an
+// implementer, a per-tick verifier, a post-wave gate, or final-review tests.
+// The table a command sits in IS its authorization: there is deliberately no
+// key that relaxes it, so a typo cannot promote a command.
+type Evidence struct {
+	Notes    string   `toml:"notes"`
+	Commands Commands `toml:"commands"`
+	// Acceptance maps an acceptance item id (`A<n>`) to the id of the one
+	// command that authorizes it, in Testing.Commands or Evidence.Commands.
+	// An item whose reference resolves to nothing is a stop: nothing outside
+	// this file authorizes shell.
+	Acceptance map[string]string `toml:"acceptance"`
+}
+
+// Environment holds the run-start pre-flight checks: commands that TEST a
+// precondition rather than asking a human about it, run once before wave 1.
+// They never authorize an acceptance item.
+type Environment struct {
+	Notes    string   `toml:"notes"`
+	Commands Commands `toml:"commands"`
+}
+
+// Sandbox is the per-repo sandbox definition: what a run's container is, on
+// top of the batteries-included base image.
+//
+// It lives in this file, and only in this file, because of Setup. A setup
+// command is arbitrary shell executed inside a sandbox that holds the run's
+// credentials, so its only source is the tracked, PR-reviewed config at the
+// submitted SHA — never a tick note, a model, a signal payload or an API
+// parameter. Adding capability is a pull request, not a dashboard click.
+type Sandbox struct {
+	// Image is a custom image reference, or "" for the version-pinned base
+	// image. Absent is the 99% path: Toolchain and Setup extend the base
+	// without a factory-wide image rebuild.
+	Image string `toml:"image"`
+	// Toolchain is extra `tool@version` pins provisioned through the version
+	// manager the base image ships, into the project's persistent cache.
+	Toolchain []string `toml:"toolchain"`
+	// Setup is the idempotent, cache-populating commands run once per
+	// sandbox, in order, after the checkout and before the harness starts. An
+	// ordered array rather than a keyed table: order is the contract and
+	// nothing refers to a setup command by id.
+	Setup []*Command `toml:"setup"`
+}
+
+// SandboxImage reports the declared image reference, or "" for the
+// version-pinned base image. It is nil-safe.
+func (c *Config) SandboxImage() string {
+	if c == nil || c.Sandbox == nil {
+		return ""
+	}
+	return c.Sandbox.Image
+}
+
+// SandboxToolchain reports the declared `tool@version` pins, in file order. It
+// is nil-safe.
+func (c *Config) SandboxToolchain() []string {
+	if c == nil || c.Sandbox == nil {
+		return nil
+	}
+	return c.Sandbox.Toolchain
+}
+
+// SandboxSetup reports the declared setup commands, in file order. It is
+// nil-safe, and it is the ONLY way anything in this repository obtains a
+// sandbox setup command.
+func (c *Config) SandboxSetup() []*Command {
+	if c == nil || c.Sandbox == nil {
+		return nil
+	}
+	return c.Sandbox.Setup
+}
+
+// DeclaredVersion reports the `version` the file carries. An omitted key
+// means [MinVersion] — the format predates the field, so absence cannot mean
+// anything else. It is nil-safe.
+func (c *Config) DeclaredVersion() int {
+	if c == nil || c.Version == nil {
+		return MinVersion
+	}
+	return *c.Version
+}
+
+// RequiredVersion reports the lowest format version that can express this
+// config: [CommandSurfaceVersion] once `[testing]`, `[evidence]`,
+// `[environment]` or `[sandbox]` is present, [MinVersion] for a routing-only
+// file. It is
+// nil-safe.
+//
+// This is what [Migrate] writes, and why it does not bump a routing-only
+// file: a version an older tk can read is a version it should be allowed to
+// read.
+func (c *Config) RequiredVersion() int {
+	if c == nil {
+		return MinVersion
+	}
+	if c.Testing != nil || c.Evidence != nil || c.Environment != nil || c.Sandbox != nil {
+		return CommandSurfaceVersion
+	}
+	return MinVersion
 }
 
 // Substrate reports the configured substrate, defaulting to
@@ -184,4 +341,18 @@ func (c *Config) OrchestratorHarness() string {
 		return ""
 	}
 	return c.Orchestrator.Harness
+}
+
+// OrchestratorModel reports `orchestrator.model`, or "" when unset. It is
+// nil-safe.
+//
+// The orchestrator's own routing entry: a cloud run boots a harness that has
+// to be given a model like every other role, and this is the cell that says
+// which. Empty is not a default — it means the caller must fall back to the
+// role/tier table ([Config.Resolve]) rather than substitute something.
+func (c *Config) OrchestratorModel() string {
+	if c == nil || c.Orchestrator == nil {
+		return ""
+	}
+	return c.Orchestrator.Model
 }

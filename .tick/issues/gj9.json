@@ -1,0 +1,14 @@
+{
+  "id": "gj9",
+  "title": "Factory smoke: one small tick end to end",
+  "description": "A deliberately small epic for exercising the cloud factory end to end without paying for a full wave. It holds exactly one well-specified, genuinely small tick, so a run has to do the whole loop — plan, create a worktree, dispatch one implementer, implement, push, merge, gate, close — and nothing else.\n\nUse this, not a real multi-tick epic, whenever the thing under test is the FACTORY rather than the work. Run 62c289d1 spent 5.96 and 42 minutes on a seven-tick wave and was killed mid-exploration, which measured the budget and taught nothing about whether a tick can actually complete in the cloud.",
+  "notes": "2026-08-21 10:46 - runner-state: substrate=harness requested=harness config=auto source=TICKS_SUBSTRATE reason=explicit-override",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "base_branch": "main",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T10:34:16.386607Z",
+  "updated_at": "2026-08-21T10:46:43.716873606Z"
+}

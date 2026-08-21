@@ -2,7 +2,8 @@
   "id": "ldr",
   "title": "Run Workflow: boot the orchestrator sandbox and own the run lifecycle",
   "description": "The Cloudflare Workflow that makes a run survive everything below it. Steps: acquire context, boot ONE orchestrator sandbox from the Phase 1 image, watch it, enforce wall-clock and cost budgets, finalize (release the lease, write the runs row, stream remaining artifacts). Durable execution means the supervisor cannot be lost; the sandbox is expected to die and a fresh one is booted whose first instruction is the reconcile protocol. Budget enforcement lives HERE, never in a prompt: exhaustion is a clean stop (finish in-flight, then review and closeout), identical to the operator stop path. Harness output streams to R2 under runs/project/run_id during the run, never export-at-exit, so a crashed run leaves its logs behind.",
-  "status": "open",
+  "notes": "2026-08-19 19:36 - Seam warning (orchestrator): you share this wave with kv2 and 5ni. You OWN cloud/factory/wrangler.toml (the Workflow binding and migration) and the Workflow module. kv2 owns the Telegram delivery path. If you need to touch cloud/factory/src/index.ts, keep the edit minimal and additive — a wave sibling may touch the same file, and a predictable conflict is cheaper to avoid than to resolve.\n2026-08-19 19:36 - runner-state: substrate=herdr kind=claude branch=tick/ldr worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ldr workspace=wAJ base=16aa29d3804323f27f4f21720b5eb1c92df994c9 agent=tick-ldr pane=wAJ:p1 session=bbcd52c3-4e59-42cd-85fd-cae9ee472197",
+  "status": "closed",
   "priority": 2,
   "type": "feature",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,7 @@
   "acceptance_criteria": "A submitted run boots a sandbox, reaches the skill loop and finalizes with a runs row; killing the sandbox mid-run causes a fresh one to be booted rather than the run failing; a budget or stop trip produces a clean stop with review and closeout still run; R2 holds harness output written during the run, verified by reading it while the run is still going.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T15:56:51.599838Z",
-  "updated_at": "2026-08-19T15:56:51.689706Z"
+  "updated_at": "2026-08-19T18:38:31.681196Z",
+  "closed_at": "2026-08-19T18:38:31.681196Z",
+  "closed_reason": "Completed: Run Workflow owning the run lifecycle — boots one orchestrator sandbox, watches it, replaces a dead sandbox rather than failing the run, enforces wall-clock and cost budgets as a clean stop, and streams harness output to R2 during the run rather than at exit."
 }

@@ -1,0 +1,17 @@
+{
+  "id": "xrz",
+  "title": "Prove the cloud harness executes tools, not just reasons",
+  "description": "The decisive open question about the Phase 1 harness, found by inspecting the first completed cloud run (run_f5e3cb50...).\n\nWHAT IS PROVEN: omp made real model calls through the gateway and produced protocol-aware reasoning — it read runners.toml, found substrate = herdr, recognised no herdr socket exists in a container, cited the orchestration protocol and refused to fabricate progress. That is a working harness reasoning correctly.\n\nWHAT IS NOT PROVEN, and matters more: that it EXECUTES TOOLS. Its output said \"**Action taken**\" followed by `tk note 72y \"runner-state: ...\"`. That note is NOT on tick 72y, and the run pushed NO branch. Two readings, indistinguishable from outside the container:\n  (a) it wrote to its ephemeral checkout and the aborted run never pushed — expected under D4, the note simply died with the container;\n  (b) it narrated a command it never ran — hallucinated tool use, which would be disqualifying.\n\nWhy this is the right next test rather than a curiosity: the content-parts failure is0 fixed was a symptom of a CLASS — omp speaks fuller OpenAI than Workers AI implements — and TOOL-CALL and TOOL-RESULT message shapes are exactly where OpenAI-compatible implementations diverge most, far more than plain completions. A coding agent that reasons well but cannot reliably call tools is worthless for this.\n\nWork: run a cloud run whose task is a trivial, externally VERIFIABLE side effect — write a file and commit it, or make a tk write that is then pushed — and confirm the effect from OUTSIDE the container. Distinguish (a) from (b) explicitly: if the harness does execute tools but the abort path loses the work, that is a separate real bug about the abort path not pushing its diagnostic note, and should be filed. Capture the gateway request/response for one tool call so the message shape is on record either way.",
+  "notes": "2026-08-20 15:01 - runner-state: substrate=herdr kind=claude branch=tick/xrz worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-xrz workspace=wC7 base=72eb7534ad4937ca5d24bf2ad1336658d288e178 agent=tick-xrz pane=wC7:p1 session=54339093-1c7a-4a35-a3d0-9f1f2b7cf04c",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "acceptance_criteria": "A cloud run performs a tool call whose effect is verifiable from outside the container; the gateway request and response for a tool call are captured; (a) and (b) are distinguished, and if the abort path loses tracker writes that is filed separately.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T12:45:17.638952Z",
+  "updated_at": "2026-08-20T13:22:00.537261Z",
+  "closed_at": "2026-08-20T13:22:00.537261Z",
+  "closed_reason": "Completed: omp executes tool calls rather than narrating them — hypothesis (b) refuted with a reproducible rig and the request/response shapes recorded, so the earlier unverified 'Action taken: tk note' was an ephemeral-checkout loss, not hallucination; the omp-to-Pi fallback criteria are therefore not met."
+}

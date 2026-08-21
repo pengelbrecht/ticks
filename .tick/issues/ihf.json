@@ -1,0 +1,17 @@
+{
+  "id": "ihf",
+  "title": "Close out Phase 2: retro + plan Phase 3",
+  "description": "Retro on Phase 2, fold learnings into .tick/learnings.md within the 150-line cap, verify the epic outside-in against a real fan-out run, then plan Phase 3 (hdt, signal ingestion) against what per-tick containers actually cost and how reconcile behaved.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "oun"
+  ],
+  "parent": "1vn",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:35:09.9869Z",
+  "updated_at": "2026-08-20T02:35:09.9869Z"
+}

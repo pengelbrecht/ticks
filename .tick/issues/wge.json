@@ -1,0 +1,17 @@
+{
+  "id": "wge",
+  "title": "runners.toml v2 must fail readably on an older tk, not with 57 unknown-key errors",
+  "description": "BLOCKER found live (2026-08-19), immediately after sqt migrated this repo. Reproduced by experiment, not inference:\n  installed tk 0.30.0  -\u003e tk herd spawn FAILS: \".tick/runners.toml: 57 validation errors: environment.commands: unknown key (a typo is an error, never silently ignored); ...\"\n  tk built from this branch -\u003e spawn succeeds\n\nWe designed the compatibility we expected (new tk reads legacy markdown) and missed its mirror image: OLD TK READS NEW TOML. Because 728 correctly made unknown keys fail closed, an older tk does not degrade — it dies on every herd command with a wall of unknown-key errors that names no cause and no fix. Any operator or teammate on a released tk is hard-broken the moment someone runs tk config migrate, and the error gives them nothing to act on.\n\nrunners.toml already carries a version field, which exists for exactly this. Fix:\n1. Bump the schema/file version when the new tables are present (version = 2).\n2. Make the loader check version FIRST and, when the file is newer than the binary understands, fail with one actionable line — .tick/runners.toml is version 2 and this tk understands version 1; upgrade tk (tk upgrade) — instead of enumerating unknown keys.\n3. tk config migrate must write the new version, and should warn that the migrated file needs a tk of at least the version that introduced it.\n4. Keep unknown-key-fails-closed for keys WITHIN a version the binary does understand — that behaviour is right and 728 should not be weakened. This is about the version gate coming first.\n\nNote the orchestrator is now driving this run with a branch-built tk; the installed 0.30.0 cannot operate this repo at all until it is upgraded.",
+  "notes": "2026-08-19 22:39 - runner-state: substrate=herdr kind=claude branch=tick/wge worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-wge workspace=wAX base=2a323eb171a3f6e96615c25160a9d9a0dbb5ecb1 agent=tick-wge pane=wAX:p1 session=c02ddcdc-bfe1-4d17-b98c-a4c8a77fa7e0",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "48d",
+  "acceptance_criteria": "A runners.toml carrying the new tables reports version 2; a tk that understands only version 1 fails with a single actionable upgrade message naming the versions, not a list of unknown keys; a typo inside a supported version still fails closed naming the key; tk config migrate writes the new version and says which tk version is required.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T20:39:04.818745Z",
+  "updated_at": "2026-08-19T21:07:08.826089Z",
+  "closed_at": "2026-08-19T21:07:08.826089Z",
+  "closed_reason": "Completed: config version gate — runners.toml declares version 2, a tk that understands only version 1 fails with one actionable upgrade line naming both versions instead of a key list, typos inside a supported version still fail closed, and tk config migrate writes the version and warns which tk is required; an under-declared file is deliberately still read so repos migrated in the pre-gate window are not hard-broken."
+}

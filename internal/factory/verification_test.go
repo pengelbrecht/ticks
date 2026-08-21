@@ -33,7 +33,8 @@ func TestVerifyEndpointRetriesCloudflareEdgeError1042(t *testing.T) {
 		case 1:
 			return verificationResponse(1042, "Error 1042: propagation in progress"), nil
 		case 2:
-			return verificationResponse(http.StatusOK, `{"auth":{"configured":true}}`), nil
+			return verificationResponse(http.StatusOK,
+				`{"bindings":{"sandboxes":true},"auth":{"configured":true}}`), nil
 		default:
 			return verificationResponse(http.StatusNotFound, `{"error":"not found"}`), nil
 		}

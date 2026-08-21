@@ -1,0 +1,18 @@
+{
+  "id": "s8a",
+  "title": "tk config migrate should warn structurally, not per-key, when routing crosses kinds",
+  "description": "Follow-up qf0 identified while fixing the reader. The reader now refuses a role whose kind is not pi, but tk config migrate is unchanged: it still warns only about WHICH VALUE WON, never about WHICH READER the winning value is for, so it will merrily merge a ## Pi Orchestrator block into a claude [roles] table again and produce a config the reader then refuses.\n\nNow that the refusal exists, the migrator can cheaply emit the structural warning instead of six per-key ones: \"these keys came from a pi-only block and are being merged into a [roles] table whose kind is claude — the pi extension will refuse this config\". That turns a confusing downstream refusal into an explanation at the point of migration.",
+  "notes": "2026-08-20 00:14 - runner-state: substrate=herdr kind=codex branch=tick/s8a worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-s8a workspace=wB8 base=b29c331ae4b5c66bdd115e764db3eb2d0675c289 agent=tick-s8a pane=wB8:p1 session=01a01c17-3e6e-7333-a5e7-6d029f9d20d3",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "48d",
+  "discovered_from": "qf0",
+  "acceptance_criteria": "Migrating a config.md with a Pi Orchestrator block into a runners.toml whose roles are not kind=pi emits one structural warning naming the kind mismatch and the affected reader; the per-key which-value-won warnings remain for genuine value conflicts.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T22:14:30.792717Z",
+  "updated_at": "2026-08-19T22:27:17.13268Z",
+  "closed_at": "2026-08-19T22:27:17.13268Z",
+  "closed_reason": "Completed: tk config migrate now emits one structural warning naming the kind mismatch and the affected reader when a pi-only block is merged into a non-pi roles table, instead of six per-key which-value-won warnings that never said which reader the winner was for."
+}

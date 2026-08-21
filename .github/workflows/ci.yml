@@ -76,6 +76,60 @@ jobs:
       - name: Test
         run: pnpm test
 
+  # Which parts of the tree changed. Only the sandbox job needs this today: an
+  # image build is minutes and gigabytes, so unrelated PRs must not pay for one.
+  changes:
+    runs-on: ubuntu-latest
+    # The filter reads the pull request's file list through the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sandbox: ${{ steps.filter.outputs.sandbox }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Filter paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            sandbox:
+              - 'cloud/sandbox/**'
+              - '.github/workflows/ci.yml'
+
+  # The orchestrator sandbox image. Build only, never push: the operator pushes
+  # it into their own registry at `tk factory deploy` cadence (D16). This job
+  # exists because "the image builds" is the one thing the Go tests cannot
+  # prove — they check pin discipline and run the scripts, not docker.
+  sandbox:
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build the orchestrator sandbox image
+        # The same script the operator runs, so the build path is the one that
+        # is exercised. It tags with the tk version the Dockerfile pins.
+        #
+        # --tk-ref is REQUIRED here. The Dockerfile's default TK_SOURCE_REF is
+        # the last release tag, and its final layer runs every entry in
+        # required-tk-commands against the tk it just built — so any PR that
+        # adds a subcommand the entrypoint needs cannot build against a release
+        # that predates it, and this job would fail until the next release cut.
+        # Pinning the commit under test is also what `tk factory deploy` does.
+        # The commit must be PUSHED — `go install` inside the image resolves it
+        # through the module proxy, which fetches public commits on demand.
+        run: cloud/sandbox/build.sh --tk-ref "$TK_REF"
+        env:
+          TK_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Report the image
+        run: docker image ls ticks-orchestrator
+
   worker:
     runs-on: ubuntu-latest
     env:
@@ -108,6 +162,20 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  ticks-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Test
+        run: node --test --no-warnings extensions/ticks-runner/*.test.ts
 
   factory:
     runs-on: ubuntu-latest

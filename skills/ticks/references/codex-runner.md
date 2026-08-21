@@ -70,7 +70,7 @@ At the time this adapter was updated, the recommended strongest model is `gpt-5.
 
 `codex exec resume <session-id>` is useful within one live orchestration session, but session IDs are not durable runner state. After a crash or cross-runner handoff, run a fresh `codex exec -C <existing-worktree>` with the tick, prior report, review feedback, and current branch state. Never create a second branch for the tick.
 
-Codex loads `AGENTS.md` automatically. The implementer prompt must also tell it to read `.tick/config.md` and `.tick/learnings.md`; those files are execution inputs even though the implementer must not modify `.tick/`.
+Codex loads `AGENTS.md` automatically. The implementer prompt must also tell it to read `.tick/runners.toml`, `.tick/config.md` and `.tick/learnings.md`; those files are execution inputs even though the implementer must not modify `.tick/`.
 
 ## Boundary hardening
 

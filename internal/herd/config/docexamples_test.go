@@ -1,9 +1,19 @@
 package config
 
-// The four worked examples from skills/ticks/references/runners-config.md,
+import (
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/pengelbrecht/ticks/internal/skills"
+)
+
+// The six worked examples from skills/ticks/references/runners-config.md,
 // transcribed verbatim (comments included). TestDocExamples proves each one
 // parses, resolves and compiles exactly as the doc states; if the doc changes,
-// these strings must be re-copied from it.
+// TestDocExampleTranscriptionsMatch makes the copy stay in sync automatically.
+
+var runnersConfigTomlBlock = regexp.MustCompile("(?s)```toml\\n(.*?)```")
 
 const docExample1 = `
 version = 1
@@ -228,3 +238,115 @@ effort = "medium"
 kind = "claude"
 model = "haiku"
 `
+
+// docExample6 is worked example 6 from runners-config.md, transcribed
+// verbatim: routing plus the whole command surface — and so a version 2 file.
+const docExample6 = `
+version = 2
+
+[orchestrator]
+harness = "claude"
+kind = "claude"
+
+[orchestration]
+substrate = "auto"
+max_parallel = 4
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[roles.implement.tiers.economy]
+model = "haiku"
+effort = "low"
+
+[roles.implement.tiers.strong]
+model = "opus"
+
+[roles.review]
+kind = "claude"
+model = "opus"
+effort = "high"
+
+[testing]
+notes = """
+Go: internal/worktree can fail locally when temporary repositories lack a git \
+identity; it passes in CI. Do not chase that environmental baseline.
+UI/worker: run the targeted vitest files, not the full suite — it has known \
+pre-existing failures.
+"""
+
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+runner = { command = "node --test --no-warnings extensions/ticks-runner/*.test.ts", description = "Pi runner tests" }
+
+[evidence]
+notes = "Live smokes spawn real workers; budget ~90s each and never run them from a wave gate."
+
+[evidence.commands]
+herd-helper-quick = { command = "bash scripts/verify-herd-helper.sh --quick", description = "Herd helper live smoke (2 workers, ~1 min)" }
+herd-plugin-offline = { command = "bash scripts/verify-herd-plugin.sh --offline-only", description = "Herd plugin offline checks (zero herdr calls)" }
+package-rpc = { command = "node --no-warnings scripts/verify-pi-ticks-qfs.ts package-rpc", description = "Package RPC discovery" }
+
+[evidence.acceptance]
+A1 = "package-rpc"
+A2 = "herd-helper-quick"
+A3 = "herd-plugin-offline"
+A4 = "go"
+
+[environment]
+
+[environment.commands]
+go-toolchain = { command = "which go", description = "Go toolchain on PATH" }
+pnpm = { command = "which pnpm", description = "pnpm on PATH (never npm/yarn in this repo)" }
+git-identity = { command = "git config user.email", description = "git identity configured" }
+`
+
+// docExample7 is worked example 7 from runners-config.md, transcribed
+// verbatim: a repo that declares its own sandbox on top of the base image.
+const docExample7 = `
+version = 2
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+effort = "high"
+
+[testing.commands]
+go = { command = "go test -short -count=1 ./...", description = "Go suite, short mode" }
+
+[environment.commands]
+rust-toolchain = { command = "which cargo", description = "cargo on PATH once the sandbox is warm" }
+
+[sandbox]
+toolchain = ["rust@1.90.0"]
+setup = [
+  { command = "pnpm --dir cloud/factory install --frozen-lockfile", description = "warm the pnpm store" },
+  { command = "go mod download", description = "warm the module cache" },
+]
+`
+
+func TestDocExampleTranscriptionsMatch(t *testing.T) {
+	doc, err := skills.Read("ticks", "references/runners-config.md")
+	if err != nil {
+		t.Fatalf("read runners-config.md: %v", err)
+	}
+	var complete []string
+	for _, match := range runnersConfigTomlBlock.FindAllStringSubmatch(string(doc), -1) {
+		body := strings.TrimSpace(match[1])
+		if strings.HasPrefix(body, "# fragment") {
+			continue
+		}
+		complete = append(complete, body)
+	}
+	want := []string{docExample1, docExample2, docExample3, docExample4, docExample5, docExample6, docExample7}
+	if len(complete) != len(want) {
+		t.Fatalf("found %d complete TOML examples, want %d", len(complete), len(want))
+	}
+	for i, expected := range want {
+		if complete[i] != strings.TrimSpace(expected) {
+			t.Errorf("docExample%d is out of sync with runners-config.md", i+1)
+		}
+	}
+}

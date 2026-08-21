@@ -1,0 +1,18 @@
+{
+  "id": "ehy",
+  "title": "A run that did no work reports completed: exit 0 is not completion",
+  "description": "STRUCTURAL, found by the first run whose boot chain fully succeeded (run_5c3d7e4f...). Everything booted correctly — model resolved from repo routing, substrate resolved and explained, model probe green, HARNESS probe green (omp answered READY), 3/3 environment checks, skill loop started. The orchestrator then produced 271 bytes: it stated the resolved substrate, quoted the run-state note it would record, and exited. The Workflow marked the run COMPLETED and charged $0.22.\n\nNothing happened. No wave was dispatched, no branch was pushed, no note landed on epic 72y, and the epic still has its open ticks.\n\nThe bug is that COMPLETION IS INFERRED FROM PROCESS EXIT. The herdr adapter states the opposite rule in as many words — lifecycle state is a scheduling signal, never the completion authority; the durable layer (commits plus the report) is. The cloud Workflow currently violates the principle its own substrate documents: the harness exited 0, so the run is \"complete\".\n\nFix: finalize against DURABLE EVIDENCE, not the process. A run that ends with no commits, no pushed branch and no tracker mutation has not completed — it has stopped, and the record should say so with the distinction visible in tk cloud status. Consider the states the design already uses elsewhere: completed (epic advanced), stopped (clean stop, work preserved), failed (could not proceed). \"Completed\" must mean the epic actually moved.\n\nThis matters beyond tidiness: a factory that reports success for a no-op run will silently burn budget on runs that achieve nothing, and the operator has no signal. It is the same false-success class as the deploy that returned before its rollout landed (z1b).",
+  "notes": "2026-08-20 17:12 - runner-state: substrate=herdr kind=claude branch=tick/ehy worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ehy workspace=wCA base=cba30f5fc18c93c3a835b6869438c1e04488945d agent=tick-ehy pane=wCA:p1 session=02c60bbd-5c7b-4d09-81d8-424f840728be",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "ldr",
+  "acceptance_criteria": "A run whose harness exits without commits, a pushed branch or a tracker mutation is NOT recorded as completed; the state distinguishes completed from stopped-without-progress; tk cloud status shows the distinction; a run that genuinely advances the epic still reports completed.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T15:08:01.482543Z",
+  "updated_at": "2026-08-20T15:29:52.232611Z",
+  "closed_at": "2026-08-20T15:29:52.232611Z",
+  "closed_reason": "Completed: a run is finalized against durable evidence — commits, a pushed branch, tracker mutation — instead of process exit, so a harness that exits 0 having achieved nothing is recorded as stopped-without-progress rather than completed, and the distinction is visible in tk cloud status."
+}

@@ -1,0 +1,18 @@
+{
+  "id": "qcm",
+  "title": "Model-id schema pattern cannot express Workers AI ids (@cf/...)",
+  "description": "Blocks routing the cloud orchestrator at Workers AI, which the design names as a first-class provider rung and which this factory is configured for.\n\nEvery Workers AI model id begins with @ — for example @cf/openai/gpt-oss-120b, confirmed live against the operator account. The qualified form the entrypoint expects is therefore workers-ai/@cf/openai/gpt-oss-120b. The schema pattern rejects it:\n\n  orchestrator.model: workers-ai/@cf/openai/gpt-oss-120b does not match\n  ^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9][A-Za-z0-9_.+-]*)*$\n\nSo a factory configured for Workers AI cannot name a Workers AI model. The pattern was written for vendor/model shapes and never met an id with a namespace sigil.\n\nFix the pattern in ALL THREE implementations that validate it — skills/ticks/references/runners-config.schema.json, the Go loader, and the Python reference validator — so they cannot drift; 728 established that these three must agree. Allow @ only where Workers AI actually puts it (leading a path segment), not anywhere in the string, so the pattern stays a real constraint rather than becoming permissive.\n\nAdd a test case per implementation using a REAL Workers AI id, and keep a negative case proving genuinely malformed ids still fail. Note runners-config.md documents the model grammar — update it in the same change.",
+  "notes": "2026-08-20 06:01 - runner-state: substrate=herdr kind=claude branch=tick/qcm worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-qcm workspace=wBT base=3b65983041d910d7506eb3b617a182f07e118d00 agent=tick-qcm pane=wBT:p1 session=aa1a7b1e-bbba-4fd0-b8a7-9550fb55cdf2",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "cmb",
+  "acceptance_criteria": "workers-ai/@cf/openai/gpt-oss-120b validates in the JSON schema, the Go loader and the Python validator; a malformed id still fails in all three; runners-config.md documents the accepted shape; .tick/runners.toml can then set [orchestrator].model to a Workers AI model and validate.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T04:01:21.179528Z",
+  "updated_at": "2026-08-20T04:15:11.84807Z",
+  "closed_at": "2026-08-20T04:15:11.84807Z",
+  "closed_reason": "Completed: the model-id pattern accepts Workers AI ids (@ leading a path segment) across all three validators — JSON schema, Go loader and Python reference — with real-id positive cases and malformed-id negative cases in each, so a factory configured for Workers AI can finally name a Workers AI model."
+}

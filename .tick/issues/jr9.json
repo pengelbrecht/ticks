@@ -1,0 +1,20 @@
+{
+  "id": "jr9",
+  "title": "Pi extension reads TOML config, with markdown as a deprecated fallback",
+  "description": "Port extensions/ticks-runner/config.ts (298 lines) to read the schema-validated TOML from tick 728, keeping every existing consumer working: resolveRunnerConfig, routeTask, taskTier, modelForTier and the planning/process-ticks/runner call sites.\n\nPrecedence: runners.toml when the structured tables are present; otherwise fall back to parsing config.md exactly as today and emit ONE deprecation warning naming the migration command — not one per section, and not per invocation of every helper. A repo that has migrated must never see the markdown path.\n\nThe parsing heuristics that exist only to compensate for markdown (extractSection, parseExecutableCommands, and the verbatim-unique matching inside parseAcceptanceEvidence) stay ONLY on the legacy path. Do not port them forward into the TOML path and do not re-derive them on top of parsed structure — the schema already guarantees what they were checking, and keeping both is how the two paths drift.\n\nFail-closed semantics are preserved identically on both paths: an unmapped acceptance item, an unknown command reference, or a command absent from the file fails the run rather than degrading.",
+  "notes": "2026-08-19 21:30 - Seam: you share this wave with se7. You own extensions/ticks-runner/*. se7 owns cmd/tk (the migrate command). Do not edit skills/ticks/references/runners-config.schema.json — 728 shipped it and it is the contract you both read.\n2026-08-19 21:30 - runner-state: substrate=herdr kind=claude branch=tick/jr9 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-jr9 workspace=wAQ base=7a6e980433caf5a7631b240a892d3836e690b159 agent=tick-jr9 pane=wAQ:p1 session=1987767b-1fb7-41a1-9e60-04931642f380",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "728"
+  ],
+  "parent": "48d",
+  "acceptance_criteria": "Existing config.test.ts scenarios pass unchanged against the markdown fallback; an equivalent TOML fixture produces an identical RunnerConfig; a migrated repo emits no deprecation warning and a legacy repo emits exactly one; an acceptance item referencing an undefined command fails on BOTH paths; node --test extensions/ticks-runner/*.test.ts is green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T16:41:58.352051Z",
+  "updated_at": "2026-08-19T20:11:21.643688Z",
+  "closed_at": "2026-08-19T20:11:21.643688Z",
+  "closed_reason": "Completed: the Pi extension reads schema-validated TOML config, with the markdown path kept only as a deprecated fallback behind a single warning; the parsing heuristics that existed to compensate for markdown were not ported onto the structured path, and fail-closed semantics are identical on both."
+}

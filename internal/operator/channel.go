@@ -301,6 +301,10 @@ type Event struct {
 	// actually decided rather than restating who the run was configured for.
 	// Empty when the transport does not report a sender.
 	SenderID string `json:"sender_id,omitempty"`
+	// AnsweredBy preserves provenance when a cloud transport relays a resolution
+	// that the RunRoom already arbitrated. Empty means the local transport should
+	// use its normal channel provenance.
+	AnsweredBy AnsweredBy `json:"answered_by,omitempty"`
 	// Text carries the operator's free text for EventAnswer.
 	Text string `json:"text,omitempty"`
 	// OptionIDs are the [Option.ID] values pressed or selected.

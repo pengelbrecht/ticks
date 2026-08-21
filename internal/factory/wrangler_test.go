@@ -148,3 +148,53 @@ func TestFindWranglerSkipsNpxThatReportsItsOwnVersion(t *testing.T) {
 		t.Errorf("label = %q, want repository-local Wrangler", w.label)
 	}
 }
+
+// A deploy whose bundle declares a container prints the image's whole Docker
+// build log before it prints the deployment. That log is full of URLs — this
+// is the real output shape that made a deploy record `factory_url=https://go.dev`
+// and push it as the Worker's own base URL.
+func TestParseDeployedURLIgnoresTheImageBuildLog(t *testing.T) {
+	out := strings.Join([]string{
+		"  Total Upload: 732.65 KiB / gzip: 161.31 KiB",
+		`  #15 [ 3/14] RUN curl -fsSL -o /tmp/go.tar.gz "https://go.dev/dl/go1.24.11.linux-amd64.tar.gz"`,
+		`  #16 [10/14] RUN curl -fsSL -o /tmp/tk.tar.gz "https://github.com/pengelbrecht/ticks/releases/download/v0.31.0/tk.tar.gz"`,
+		"  https://docs.docker.com/go/credential-store/",
+		"  Uploaded ticks-factory (7.87 sec)",
+		"  Deployed ticks-factory triggers (6.19 sec)",
+		"    https://ticks-factory.example.workers.dev",
+		"    workflow: ticks-run",
+		"  Current Version ID: 08f93d0c-b20c-43c4-8b88-797c875a7c9a",
+	}, "\n")
+
+	if got := parseDeployedURL(out); got != "https://ticks-factory.example.workers.dev" {
+		t.Errorf("parseDeployedURL = %q, want the deployment's own endpoint", got)
+	}
+}
+
+// A custom route prints something that is not a workers.dev host, and it still
+// appears under the trigger banner.
+func TestParseDeployedURLReadsACustomRoute(t *testing.T) {
+	out := strings.Join([]string{
+		`  #4 RUN curl https://go.dev/dl/go.tar.gz`,
+		"  Deployed ticks-factory triggers (1.20 sec)",
+		"    https://factory.example.com/*",
+	}, "\n")
+
+	if got := parseDeployedURL(out); got != "https://factory.example.com" {
+		t.Errorf("parseDeployedURL = %q, want the custom route's host", got)
+	}
+}
+
+// "I could not tell" has to stay a stop. Returning a URL scraped from
+// somewhere else would be recorded in ~/.ticksrc and pushed as the Worker's
+// own base URL, which is where every run's model traffic is pointed.
+func TestParseDeployedURLRefusesToGuess(t *testing.T) {
+	out := strings.Join([]string{
+		`  #4 RUN curl -fsSL "https://go.dev/dl/go1.24.11.linux-amd64.tar.gz"`,
+		"  Uploaded ticks-factory (7.87 sec)",
+	}, "\n")
+
+	if got := parseDeployedURL(out); got != "" {
+		t.Errorf("parseDeployedURL = %q, want \"\" so the caller asks for --url", got)
+	}
+}

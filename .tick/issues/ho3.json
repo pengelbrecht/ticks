@@ -1,0 +1,18 @@
+{
+  "id": "ho3",
+  "title": "Provision the SANDBOXES container binding so a run can actually boot",
+  "description": "BLOCKS THE EPIC ACCEPTANCE. Phase 1s definition of done is \"a pushed epic submitted with tk cloud run completes end to end in one cloud orchestrator sandbox\". That cannot happen today:\n\n  live /health bindings: run_rooms, artifacts, db, run_workflow — NO sandboxes\n  cloud/factory/wrangler.toml: no [[containers]] block, no SANDBOXES binding\n  run-workflow.ts acquireContext: refuses when sandboxBinding(env) === null\n\nEverything else is built, deployed and correct — the lease, the run API, the Workflow, gateway routing, artifact streaming, the operator channel, the image itself (3q2) and the entrypoint (orl). The one missing link is that nothing DECLARES the container binding or PUSHES the image to Cloudflare, so the control plane will refuse every run with \"the SANDBOXES binding is not configured on this deployment\".\n\nThe refusal message even says \"re-run tk factory deploy\" — but deploy cannot fix it, because the declaration does not exist in the bundle. That is the tell: a correct error pointing at a remedy that does nothing.\n\nWork:\n1. Declare the container/sandbox binding in cloud/factory/wrangler.toml against the image 3q2 builds, with the Durable Object class the SDK requires and its migration.\n2. Teach tk factory deploy to build and push that image to the operator account registry before deploying the Worker, and to fail with an actionable error when the image is missing rather than deploying a Worker that refuses every run.\n3. Verify LIVE: /health reports the sandboxes binding, and a submitted run boots one container and reaches the skill loop. Nothing short of a real boot closes this — a green test would repeat exactly the mistake this epic keeps catching.\n\nNote the platform floor: containers/sandboxes may need a plan tier or an account flag beyond the Workers paid plan. If provisioning is blocked on an account setting, report that as a BLOCKED status naming the setting rather than working around it.",
+  "notes": "2026-08-20 03:14 - runner-state: substrate=herdr kind=claude branch=tick/ho3 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ho3 workspace=wBK base=01639044bb76d607f232efdd9fd7c0c6297c0fe0 agent=tick-ho3 pane=wBK:p1 session=262d8450-bd33-4bb0-89fa-ec399c30aa8a",
+  "status": "closed",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "parent": "ko8",
+  "discovered_from": "9gt",
+  "acceptance_criteria": "Live /health reports a sandboxes binding; tk factory deploy builds and pushes the image and fails actionably when it cannot; a run submitted against the deployed factory boots a container and reaches the skill loop, evidenced by harness output in R2.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T01:14:18.029913Z",
+  "updated_at": "2026-08-20T02:02:08.705403Z",
+  "closed_at": "2026-08-20T02:02:08.705403Z",
+  "closed_reason": "Completed: the SANDBOXES container binding is declared, the image is built and pushed by tk factory deploy (failing actionably when it cannot), and a real container boots and streams output through the adapter — proven live, with /health reporting sandboxes: true."
+}

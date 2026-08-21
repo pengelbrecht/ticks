@@ -1,0 +1,14 @@
+{
+  "id": "0ds",
+  "title": "Per-tick worker sandboxes: one container per tick",
+  "description": "The Phase 2 headline. Phase 1 boots ONE orchestrator sandbox that runs the skill loop with harness-native subagents inside it; Phase 2 gives every tick its own container.\n\nPer the design: clone at the epic base, branch tick/\u003cepic-id\u003e/\u003ctick-id\u003e, implement, push branch plus RESULT-\u003ctick-id\u003e.md, exit. Collect reads ONLY what survived in git — commits, the result file, the .tick/ boundary diff — never sandbox terminal output.\n\nAll three spawn-time defences the herd substrate documents apply verbatim here and must be implemented, not assumed:\n- the GREEN-START TRAP: a cleanly started container that did nothing. Probe with trivial work before dispatching real work. Phase 1 already proved this class twice (an npx probe returning npm version; a Codex self-update swallowing the gate).\n- CONFIRMED DISPATCH: wait for evidence of work starting, not just process start.\n- EXPIRING LIVENESS: re-check aliveness immediately before any destructive action.\n\nCost note this tick must respect: a container per tick means the image cold-start cost is paid N times per wave. Coordinate with kuf — its numbers decide whether sleeping named sandboxes amortise the pull well enough for this to be affordable at width 5.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "acceptance_criteria": "A wave of N ticks runs in N containers concurrently; each pushes its branch and RESULT file and collect reads only the durable layer; a container that starts cleanly but does no work is caught by the probe rather than counted as launched; a killed container is detected before any destructive action.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:34:43.979136Z",
+  "updated_at": "2026-08-20T02:34:43.979136Z"
+}

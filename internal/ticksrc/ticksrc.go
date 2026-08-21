@@ -69,6 +69,12 @@ const (
 	KeyFactoryGatewayProvider = "factory_gateway_provider"
 	// KeyFactoryGatewayKey is the provider key, empty for workers-ai.
 	KeyFactoryGatewayKey = "factory_gateway_key"
+	// KeyFactoryCloudflareAPIToken is the Cloudflare API token the factory
+	// reads its AI Gateway's logs with (D17). Gateway logs are the ground
+	// truth a run's cost budget acts on — an agent can misreport its spend, an
+	// invoice cannot — so a factory without one routes and attributes model
+	// traffic but cannot enforce the cost budget.
+	KeyFactoryCloudflareAPIToken = "factory_cloudflare_api_token"
 )
 
 // fileMode is owner-only: the file holds bearer tokens.

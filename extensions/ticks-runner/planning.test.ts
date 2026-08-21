@@ -210,6 +210,44 @@ test("read-only scouts overlap in time and the frontier planner receives every b
 	assert.equal(events.find((event) => event.planner)?.thinking, "xhigh");
 });
 
+// Planning refuses to invent a scout: without a scout model the run stops
+// before a single read-only scout is dialled. A migrated repo that never wrote
+// `[roles.scout]` must stop in exactly the same place, not quietly scout with
+// the implement model.
+test("a config with no scout role blocks planning identically on both paths", async () => {
+	const legacyFixture = fixture();
+	fs.writeFileSync(path.join(legacyFixture.repo, ".tick", "config.md"), "## Testing\n- Runner: `node --test planning.test.ts`\n\n## Pi Orchestrator\n- planner_model: fake/frontier:high\n- implement_balanced_model: fake/worker:low\n");
+	const legacy = await runAutomatedPlanning(options(legacyFixture, { kind: "existing", epicId: "epic-1" }, existingPlan()));
+
+	const tomlFixture = fixture();
+	fs.writeFileSync(path.join(tomlFixture.repo, ".tick", "runners.toml"), [
+		"[roles.plan]",
+		'kind = "pi"',
+		'model = "fake/frontier"',
+		'effort = "high"',
+		"",
+		"[roles.implement]",
+		'kind = "pi"',
+		'model = "fake/worker"',
+		'effort = "low"',
+		"",
+		"[testing.commands]",
+		'runner = { command = "node --test planning.test.ts", description = "Runner" }',
+		"",
+	].join("\n"));
+	fs.writeFileSync(path.join(tomlFixture.repo, ".tick", "config.md"), "## Rules\n- Preserve public compatibility.\n");
+	const migrated = await runAutomatedPlanning(options(tomlFixture, { kind: "existing", epicId: "epic-1" }, existingPlan()));
+
+	assert.equal(legacy.status, "failed", legacy.summary);
+	assert.equal(migrated.status, "failed", migrated.summary);
+	assert.match(legacy.error ?? "", /scout_model is required/);
+	assert.equal(migrated.error, legacy.error);
+	for (const f of [legacyFixture, tomlFixture]) {
+		assert.equal(piEvents(f).length, 0, "no scout or planner may run without a configured scout model");
+		assert.equal(trackerLog(f).length, 0);
+	}
+});
+
 test("valid dry-run runs models, persists artifacts, shows waves/cost, and performs zero tracker mutations", async () => {
 	const f = fixture();
 	const before = command(f.repo, "git", "rev-parse", "HEAD");

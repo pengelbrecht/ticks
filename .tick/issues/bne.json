@@ -1,0 +1,17 @@
+{
+  "id": "bne",
+  "title": "run_event producers: the board finally sees a live run",
+  "description": "The run_event protocol in schemas/websocket/messages.schema.json has existed with NO producers — tick zjp retired its vestigial ralph/swarm source values for substrate-shaped ones (cloud:orchestrator, cloud:worker, harness, herdr, pi) precisely so the first real producer would emit something honest.\n\nPhase 2 makes the orchestrator and workers emit run_event to the RunRoom, which forwards to the existing ProjectRoom so the board shows a run live, from anywhere. Two constraints:\n- The board is OBSERVABILITY, never authority. A badge is not evidence; collect remains the only completion authority.\n- Costs in the stream come from AI Gateway telemetry (k2s), not agent self-report — the protocol carries costUsd and it must not become a place where a self-report re-enters through the side door.",
+  "status": "open",
+  "priority": 2,
+  "type": "feature",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "0ds"
+  ],
+  "parent": "1vn",
+  "acceptance_criteria": "A cloud run appears live on the board with per-tick state from anywhere; the emitted source values are the substrate-shaped ones; a run whose events are dropped still completes and still collects correctly, proving the stream is observability rather than control.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:35:09.939408Z",
+  "updated_at": "2026-08-20T02:35:09.939408Z"
+}

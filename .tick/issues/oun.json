@@ -1,0 +1,25 @@
+{
+  "id": "oun",
+  "title": "Final review of Phase 2 epic diff",
+  "description": "Review the integrated Phase 2 diff: per-tick container isolation and the three spawn defences, one lease across local and cloud orchestrators, reconcile correctness against a live worker, and that run_event remained observability rather than becoming control. Verify against a REAL deployment and a REAL multi-container wave — Phase 1 shipped four defects that only live execution found.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "0ds",
+    "bmo",
+    "s7f",
+    "bne",
+    "kuf",
+    "x3v",
+    "y45",
+    "onn",
+    "t9s"
+  ],
+  "parent": "1vn",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-20T02:35:09.963232Z",
+  "updated_at": "2026-08-20T11:00:02.224427Z"
+}

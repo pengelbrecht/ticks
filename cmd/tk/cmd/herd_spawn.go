@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
+	"github.com/pengelbrecht/ticks/internal/sandbox"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
@@ -111,6 +114,21 @@ func init() {
 	herdSpawnCmd.Flags().Int64Var(&herdSpawnPromptTimeout, "prompt-timeout", defaultHerdSpawnPromptTimeoutMs,
 		"deadline for the implementer prompt call, in milliseconds")
 	herdCmd.AddCommand(herdSpawnCmd)
+}
+
+// herdSpawnWarm applies the repository's own `[sandbox]` declaration to a
+// freshly created worker worktree, so a local herdr worker warms exactly like
+// a cloud sandbox: same table, same code, same idempotence.
+//
+// The declaration is read from the WORKTREE — checked out at the integration
+// commit this wave branched from — which is the local equivalent of the cloud's
+// "the tracked config at the submitted SHA". A repository that declares nothing
+// gets a no-op, so this costs an untouched repo one config read.
+func herdSpawnWarm(ctx context.Context, errOut io.Writer) func(string) error {
+	return func(worktree string) error {
+		_, err := sandbox.Setup(ctx, sandbox.SetupOptions{Root: worktree, Out: errOut})
+		return err
+	}
 }
 
 func runHerdSpawn(cmd *cobra.Command, args []string) error {
@@ -226,6 +244,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 
 	res, err := spawn.Run(ctx, herd, spawn.Options{
 		RepoRoot:       root,
+		Warm:           herdSpawnWarm(ctx, errOut),
 		Branch:         branch,
 		Base:           base,
 		Label:          t.ID,

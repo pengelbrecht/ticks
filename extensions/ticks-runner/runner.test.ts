@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { loadRunnerConfig } from "./config.ts";
 import {
 	classifyChildReport,
 	createReadOnlyProcessInvocation,
@@ -962,6 +963,115 @@ test("closeout verifies acceptance with runnable evidence then closes closeout a
 	assert.match(state.epic.notes?.join("\n") ?? "", /Epic retro/);
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance and rules evidence" && item.status === "passed"));
 	assert.ok(result.dashboard?.verification.some((item) => item.label === "closeout acceptance/rules schema" && item.status === "passed"));
+});
+
+test("a migrated repo runs the whole epic off runners.toml with no markdown fallback", async () => {
+	const fixture = createFixture("closeout-toml", [{ id: "closeout", role: "closeout" }]);
+	fs.writeFileSync(path.join(fixture.repo, "delivered.txt"), "delivered\n");
+	fs.writeFileSync(path.join(fixture.repo, ".tick", "runners.toml"), [
+		"version = 1",
+		"",
+		"[orchestration]",
+		"max_parallel = 4",
+		"",
+		"[roles.implement]",
+		'kind = "pi"',
+		'model = "openai-codex/gpt-5.6-sol"',
+		'effort = "medium"',
+		"",
+		"[roles.review]",
+		'kind = "pi"',
+		'model = "openai-codex/gpt-5.6-sol"',
+		'effort = "xhigh"',
+		"",
+		"[roles.closeout]",
+		'kind = "pi"',
+		'model = "openai-codex/gpt-5.6-sol"',
+		'effort = "xhigh"',
+		"",
+		"[testing]",
+		'notes = "The exact command above is executable; this prose is not."',
+		"",
+		"[testing.commands]",
+		'fixture = { command = "node verify.mjs", description = "Fixture" }',
+		"",
+		"[evidence.acceptance]",
+		'A1 = "fixture"',
+		"",
+	].join("\n"));
+	// Everything structured has moved; config.md keeps only the prose it owns.
+	fs.writeFileSync(path.join(fixture.repo, ".tick", "config.md"), "# Fixture config\n\n## Rules\n- Fixture rule.\n");
+	command(fixture.repo, "git", "add", "delivered.txt", ".tick/runners.toml", ".tick/config.md");
+	command(fixture.repo, "git", "commit", "-m", "migrate the fixture config to runners.toml");
+
+	const config = loadRunnerConfig(fixture.repo, {});
+	assert.equal(config.configSource, "runners.toml");
+	assert.deepEqual(config.warnings, []);
+	assert.deepEqual(config.rules, ["- Fixture rule."]);
+
+	const result = await executeFixture(fixture);
+	assert.equal(result.status, "completed", result.summary);
+	const state = readState(fixture.repo);
+	assert.equal(state.tasks[0].status, "closed");
+	assert.equal(state.epic.status, "closed");
+	assert.ok(result.dashboard?.verification.some((item) => item.label === "outside-in acceptance and rules evidence" && item.status === "passed"));
+});
+
+// The migration's whole promise is that the two config paths cannot drift in
+// fail-closed semantics. A repo that migrates without writing `[roles.review]`
+// must be blocked here, not silently reviewed by the economy implement model.
+test("a config with no review role blocks the final review identically on both paths", async () => {
+	const markdownFixture = createFixture("review-no-frontier-markdown", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(markdownFixture.repo, ".tick", "config.md"), [
+		"# Fixture config",
+		"",
+		"## Testing",
+		"- Fixture: `node verify.mjs`",
+		"",
+		"## Pi Orchestrator",
+		"- planner_model: openai-codex/gpt-5.6-sol:xhigh",
+		"- implement_balanced_model: openai-codex/gpt-5.6-sol:medium",
+		"",
+		"## Rules",
+		"- Fixture rule.",
+		"",
+	].join("\n"));
+	command(markdownFixture.repo, "git", "add", ".tick/config.md");
+	command(markdownFixture.repo, "git", "commit", "-m", "drop the review model from the fixture config");
+	const legacy = await executeFixture(markdownFixture);
+
+	const tomlFixture = createFixture("review-no-frontier-toml", [{ id: "review", role: "review" }]);
+	fs.writeFileSync(path.join(tomlFixture.repo, ".tick", "runners.toml"), [
+		"version = 1",
+		"",
+		"[roles.plan]",
+		'kind = "pi"',
+		'model = "openai-codex/gpt-5.6-sol"',
+		'effort = "xhigh"',
+		"",
+		"[roles.implement]",
+		'kind = "pi"',
+		'model = "openai-codex/gpt-5.6-sol"',
+		'effort = "medium"',
+		"",
+		"[testing.commands]",
+		'fixture = { command = "node verify.mjs", description = "Fixture" }',
+		"",
+	].join("\n"));
+	fs.writeFileSync(path.join(tomlFixture.repo, ".tick", "config.md"), "# Fixture config\n\n## Rules\n- Fixture rule.\n");
+	command(tomlFixture.repo, "git", "add", ".tick/runners.toml", ".tick/config.md");
+	command(tomlFixture.repo, "git", "commit", "-m", "migrate the fixture config to runners.toml");
+	assert.equal(loadRunnerConfig(tomlFixture.repo, {}).configSource, "runners.toml");
+	const migrated = await executeFixture(tomlFixture);
+
+	assert.equal(legacy.status, "blocked", legacy.summary);
+	assert.equal(migrated.status, "blocked", migrated.summary);
+	assert.match(legacy.summary, /requires a valid configured review_model/);
+	assert.equal(migrated.summary, legacy.summary);
+	for (const fixture of [markdownFixture, tomlFixture]) {
+		assert.equal(readState(fixture.repo).tasks[0].status, "open", "a blocked review never closes");
+		assert.equal(fs.existsSync(fixture.marker) ? fs.readFileSync(fixture.marker, "utf8").trim() : "", "", "no review process may be launched without a configured model");
+	}
 });
 
 test("missing, cross-item, and unrelated generic evidence fail closed before the closeout model", async () => {

@@ -1,0 +1,13 @@
+{
+  "id": "rhe",
+  "title": "Dev builds go to ./bin/tk, never machine-wide",
+  "description": "Building tk straight over ~/.local/bin/tk during development replaces the binary every other agent on the machine is using, and silently reverts any local patch it carried — it did exactly that here, reverting the hand-bumped herdr protocol and obstructing other agents mid-task. Machine-wide installs should happen on release, not while dev is in flight. Make the dev path obvious and the machine-wide path deliberate: a documented build target that writes ./bin/tk, a note in CONTRIBUTING/README, and ideally a guard so an accidental install over the machine-wide binary has to be asked for explicitly.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T08:47:54.31103Z",
+  "updated_at": "2026-08-21T08:47:54.31103Z"
+}

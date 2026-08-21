@@ -14,7 +14,7 @@ Key semantics settled:
 - Autonomous mode: **verification failure outranks checkpoint flow-through** — all
   auto-verifiable facts pass + zero human-judgment facts, or stop and escalate.
 - Goal-gap repair epics are proposed, never created unilaterally (roadmap changes stay human).
-- `A<n>` IDs must be unique across containers — `.tick/config.md` Acceptance Evidence is one
+- `A<n>` IDs must be unique across containers — `[evidence.acceptance]` is one
   namespace and ambiguity fails closed.
 
 Deliberately deferred: (a) structured acceptance items in the tick JSON schema — prove the

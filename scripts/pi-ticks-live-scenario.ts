@@ -5,13 +5,17 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { resolveRunnerConfig } from "../extensions/ticks-runner/config.ts";
+import { resolveRunnerConfigFromToml } from "../extensions/ticks-runner/config.ts";
 import { acceptanceEvidenceBindings, acceptanceItems, type EpicProcessDetail } from "../extensions/ticks-runner/process-ticks.ts";
 import { parseModelInvocation, runEpic } from "../extensions/ticks-runner/runner.ts";
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_MODEL = "openai-codex/gpt-5.6-sol:medium";
 const SCENARIO_COMMAND = "node verify.mjs";
+
+function tomlString(value: string): string {
+	return JSON.stringify(value);
+}
 
 export type LiveScenarioOptions = {
 	execute: boolean;
@@ -23,30 +27,42 @@ export type LiveScenarioOptions = {
 };
 
 export function scenarioConfig(model = DEFAULT_MODEL): string {
+	const invocation = parseModelInvocation(model);
+	const modelName = invocation.model ?? model;
+	const effort = invocation.thinking ?? "medium";
+	const role = (name: string) => [
+		`[roles.${name}]`,
+		'kind = "pi"',
+		`model = ${tomlString(modelName)}`,
+		`effort = ${tomlString(effort)}`,
+	];
 	return [
-		"# Disposable live Pi runner scenario",
+		"version = 2",
 		"",
-		"## Environment",
-		"- Git: `git --version`",
-		"- Node: `node --version`",
+		...role("implement"),
 		"",
-		"## Testing",
-		`- Scenario: \`${SCENARIO_COMMAND}\``,
+		...role("review"),
 		"",
-		"## Acceptance Evidence",
-		`- A1: \`${SCENARIO_COMMAND}\``,
+		...role("closeout"),
 		"",
-		"## Pi Orchestrator",
-		`- implement_balanced_model: ${model}`,
-		`- review_model: ${model}`,
-		`- closeout_model: ${model}`,
-		"- review_should_fix: repair",
-		"- max_parallel: 1",
+		"[orchestration]",
+		"max_parallel = 1",
 		"",
-		"## Rules",
-		"- Keep the disposable scenario limited to delivered.txt.",
+		"[testing.commands]",
+		`scenario = { command = ${tomlString(SCENARIO_COMMAND)}, description = \"Disposable scenario verifier\" }`,
+		"",
+		"[evidence.acceptance]",
+		'A1 = "scenario"',
+		"",
+		"[environment.commands]",
+		'git = { command = "git --version", description = "Git" }',
+		'node = { command = "node --version", description = "Node" }',
 		"",
 	].join("\n");
+}
+
+export function scenarioRules(): string {
+	return "# Disposable live Pi runner scenario\n\n## Rules\n- Keep the disposable scenario limited to delivered.txt.\n";
 }
 
 export function validateScenarioDefinition(model = DEFAULT_MODEL): { acceptanceIds: string[]; commands: string[]; model: string } {
@@ -54,7 +70,8 @@ export function validateScenarioDefinition(model = DEFAULT_MODEL): { acceptanceI
 	if (invocation.provider !== "openai-codex" || !invocation.model) {
 		throw new Error("The live scenario requires an explicit openai-codex/<model>[:thinking] model");
 	}
-	const config = resolveRunnerConfig(scenarioConfig(model), {});
+	const config = resolveRunnerConfigFromToml(scenarioConfig(model), {}, { rules: ["- Keep the disposable scenario limited to delivered.txt."] });
+	if (config.errors.length || config.configSource !== "runners.toml") throw new Error(config.errors.join("; ") || "Scenario did not resolve through runners.toml");
 	if (config.acceptanceEvidenceErrors.length) throw new Error(config.acceptanceEvidenceErrors.join("; "));
 	const epic: EpicProcessDetail = {
 		id: "scenario-epic",
@@ -128,7 +145,8 @@ function setupDisposableRepo(root: string, tk: string, model: string, env: NodeJ
 	run("git", ["config", "user.email", "ticks-live@example.invalid"], repo);
 	run("git", ["remote", "add", "origin", "https://github.com/ticks-live/disposable.git"], repo);
 	run(tk, ["init"], repo, env);
-	fs.writeFileSync(path.join(repo, ".tick", "config.md"), scenarioConfig(model));
+	fs.writeFileSync(path.join(repo, ".tick", "runners.toml"), scenarioConfig(model));
+	fs.writeFileSync(path.join(repo, ".tick", "config.md"), scenarioRules());
 	fs.writeFileSync(path.join(repo, "AGENTS.md"), "# Disposable scenario\n\nOnly implement the requested tiny tick. Never edit .tick/**.\n");
 	fs.writeFileSync(path.join(repo, "verify.mjs"), [
 		'import * as fs from "node:fs";',

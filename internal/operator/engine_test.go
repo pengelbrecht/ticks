@@ -579,21 +579,18 @@ func TestConsumerRunIsSingleOwner(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- owner.Run(ctx) }()
 
-	// Wait for the owner to take the lock.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		probe, err := NewPendingStore(root).AcquireConsumer()
-		if errors.Is(err, ErrConsumerBusy) {
-			break
-		}
-		if err != nil {
-			t.Fatalf("probing consumer lock: %v", err)
-		}
-		_ = probe.Release()
-		if time.Now().After(deadline) {
-			t.Fatal("owner never took the consumer lock")
-		}
-		time.Sleep(2 * time.Millisecond)
+	// Wait for the owner to take the lock — by observing the subscription it
+	// makes immediately afterwards, NOT by acquiring the lock to look at it.
+	// A probe that acquires competes with the owner: when the probe wins,
+	// owner.Run returns ErrConsumerBusy and exits, and the probe loop then
+	// spins to its deadline reporting "owner never took the consumer lock",
+	// which describes the test's own interference rather than the code.
+	select {
+	case <-channel.Subscribed():
+	case err := <-done:
+		t.Fatalf("owner exited before taking the lock: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("owner never took the consumer lock")
 	}
 
 	waiter := NewConsumer(NewPendingStore(root), NewFakeChannel())

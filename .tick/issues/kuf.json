@@ -1,0 +1,14 @@
+{
+  "id": "kuf",
+  "title": "Benchmark sandbox start: cold, warm, hot, and fan-out",
+  "description": "Run as soon as real sandboxes boot — Phase 1 boots the first one, Phase 2 makes it per-tick, which is where start cost multiplies by fan-out width.\n\nMeasure, with a published harness and raw numbers (not just conclusions):\n- COLD: no sandbox, image not pulled — time to first useful work. This is the number that prices image size.\n- WARM: sandbox asleep, image pulled and filesystem persisted — wake time.\n- HOT: sandbox already running.\n- Per-stage breakdown inside each: image pull, container start, git clone, toolchain provisioning (first run for a project), dependency install against a cold vs warm cache.\n- FAN-OUT at N = 1, 3, 5 parallel sandboxes: does per-sandbox start time degrade, and where is the knee relative to orchestration.max_parallel.\n- COST per run alongside wall-clock. Spend is the other half of the decision and AI Gateway telemetry (k2s) makes it attributable per run.\n\nThese numbers exist to settle three decisions currently resting on assumption:\n1. Whether the batteries-included image (Node/pnpm, Bun, Python/uv, Go — roughly 2GB) is the right trade, or whether cold start argues for a thinner base plus provisioning. 3q2 was told to state that cost honestly; this replaces the assertion with a measurement.\n2. Whether named sandboxes that sleep and wake genuinely amortise the image pull — that premise is the entire reason caches live in the persistent sandbox rather than the image.\n3. Whether per-repo warm setup (79x [sandbox] setup) earns its complexity.\n\nThis is a dated measurement against one platform, not a constant: record the image digest, the date and the region, and re-measure after any image or base change.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "acceptance_criteria": "A committed, re-runnable harness produces a table of cold/warm/hot timings with the per-stage breakdown and the N=1/3/5 fan-out series, plus cost per run; the raw output is committed alongside the summary; each of the three decisions above is answered explicitly with a number and a recommendation, including one that says keep as-is if that is what the data shows.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T19:47:33.020598Z",
+  "updated_at": "2026-08-19T19:47:33.020598Z"
+}

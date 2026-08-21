@@ -1,0 +1,25 @@
+{
+  "id": "glr",
+  "title": "Close out the config migration: retro + unblock the sandbox table",
+  "description": "Retro, fold learnings into .tick/learnings.md within the cap, then confirm ko8 tick 79x can proceed: it adds a [sandbox] table to the same schema and was deliberately sequenced after this epic so it builds on the migrated shape instead of racing it.",
+  "notes": "2026-08-20 00:28 - RETRO — epic 48d (migrate structured run config from config.md to schema-validated TOML)\n\nOUTSIDE-IN VERIFICATION of the epic's definition of done:\n- 'A repo with only runners.toml runs an epic end to end with no config.md structured sections' — VERIFIED, and not merely by test: every wave since sqt landed (fdo, gek, qf0, s8a) was spawned, waited, collected and cleaned up off the migrated config.\n- 'a repo with only the legacy markdown still works and emits one deprecation warning naming the migration command' — VERIFIED by wsc end to end: this repo's own pre-migration config.md loaded through loadRunnerConfig -\u003e buildPreflight -\u003e buildRunPlan with exactly one warning, all 7 routing keys, 6/6 acceptance mappings resolved.\n- 'tk config migrate converts a real config.md, leaving prose behind, and the result validates' — VERIFIED on this repo; idempotent second run is a no-op.\n- 'unknown keys fail closed rather than being ignored' — VERIFIED by live probe after gek's fix: __proto__ no longer pollutes Object.prototype AND is now reported as an unknown key.\n- 'this repo has migrated and its own runs are green' — VERIFIED.\n- 'skill docs describe only the new shape with a documented legacy fallback' — VERIFIED, pinned by runconfig_docs_test.go.\n\nLEARNINGS PROMOTED to .tick/learnings.md (compacted back to exactly 150):\n- Never reference .tick/logs/** in a worker prompt — gitignored, invisible from a worktree. Cost one NEEDS_CONTEXT round trip.\n- Build every parsed table with Object.create(null): a key that evades the unknown-key check defeats fail-closed validation entirely.\n- A migrator must parse with the READER's grammar and report every line it would newly AUTHORIZE. 'Never silently drop a line' needs its mirror.\n- A version gate cannot be retrofitted into a released binary; ship it one release before the format that needs it.\n\nWHAT THE PROCESS CAUGHT: the review (wsc) found two behaviour-changing blockers no test would have — the frontier-review guarantee silently lost on the new path, and this repo's pi routing retargeted to claude ids. Both were reproduced with paste-and-run probes. The live spawn immediately after migration found the version-gate hole. Neither was reachable from the test suite.\n\nTWICE THIS EPIC a worker could not complete its own tick because .tick/ is outside its boundary (wge's version bump, qf0's comment) and the orchestrator had to apply the change — that is bug 09w, now in epic 72y.\n\nPROPOSED, not executed: 3 tooling defects found here (201, 09w, 5jo, 3nh) are grouped in epic 72y awaiting a run.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "wsc",
+    "wge",
+    "fdo",
+    "qf0",
+    "gek",
+    "s8a"
+  ],
+  "parent": "48d",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T16:42:18.111789Z",
+  "updated_at": "2026-08-19T22:28:54.240732Z",
+  "closed_at": "2026-08-19T22:28:54.240732Z",
+  "closed_reason": "Completed: retro written and verified outside-in against all six acceptance items, learnings promoted and compacted to exactly 150 lines, and 79x unblocked to build the [sandbox] table on the migrated schema."
+}

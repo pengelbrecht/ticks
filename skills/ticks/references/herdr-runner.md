@@ -19,7 +19,7 @@ Three companion documents carry the parts this one deliberately does not restate
 
 ## Substrate selection
 
-Whether this adapter applies at all is decided by `.tick/runners.toml` — read [`runners-config.md`](runners-config.md) for the full semantics and do not re-derive them here. In one paragraph: `orchestration.substrate` is `herdr`, `harness`, or `auto` (default `auto`); herdr is *available* when `HERDR_ENV=1` or the herdr socket answers a read-only call (`herdr status server`), subject to `orchestration.detect`; `auto` uses herdr when available and the active harness adapter otherwise; `herdr` with herdr unavailable **degrades explicitly** — say so in your own output, note it durably, and continue under the harness adapter. Probes are read-only; never start a herdr server, workspace, or TUI to detect one, and never run bare `herdr` (it launches or attaches the TUI).
+Whether this adapter applies at all is decided by `.tick/runners.toml` — read [`runners-config.md`](runners-config.md) for the full semantics and do not re-derive them here. In one paragraph: `orchestration.substrate` is `herdr`, `harness`, or `auto` (default `auto`), and an explicit `$TICKS_SUBSTRATE` set by whatever booted the run replaces it for that run (a cloud sandbox has no herdr to probe for, and its checkout is never rewritten); herdr is *available* when `HERDR_ENV=1` or the herdr socket answers a read-only call (`herdr status server`), subject to `orchestration.detect`; `auto` uses herdr when available and the active harness adapter otherwise, and states which once, quietly — `auto` finding no herdr is `auto` working, not a fallback; `herdr` with herdr unavailable **degrades explicitly** and loudly — it is an assertion the environment refused — so say so in your own output, note it durably, and continue under the harness adapter. Probes are read-only; never start a herdr server, workspace, or TUI to detect one, and never run bare `herdr` (it launches or attaches the TUI).
 
 Everything below applies only once herdr is the selected and available substrate. There is no `runners.toml`-less herdr mode worth documenting: without `[roles.implement]` there is no kind to spawn.
 
@@ -394,7 +394,7 @@ Epic: <epic-title> (<epic-id>)
 
 ## Instructions
 1. Read `.tick/learnings.md` (if present) — accumulated gotchas from earlier epics.
-2. Read `.tick/config.md` (if present) — test commands and project-specific rules for implementers.
+2. Read `.tick/runners.toml` and `.tick/config.md` (if present) — test commands and project-specific rules for implementers.
 3. Read the repository instruction file used by your CLI (`AGENTS.md`, `CLAUDE.md`, or equivalent)
    and any nested instruction files that apply.
 4. Read the relevant existing code before changing anything.

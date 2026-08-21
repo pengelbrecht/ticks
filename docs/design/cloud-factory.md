@@ -87,6 +87,18 @@ a shared bot "would need a hosted relay in front of it"
   shares one factory — the RunRoom lease already arbitrates concurrent
   submissions, and `.tick/operators.json` already maps identities. What no
   deployment ever does is serve strangers.
+- **One factory, many projects.** The unit of deployment is the *account*, not
+  the repo: the RunRoom lease is per project (`idFromName(project)`), so
+  two repos run concurrently without contending; every D1 row carries the
+  project, and R2 keys are project-prefixed. Adding a repo is enrolment, not
+  deployment. Consequently the account-scoped resource names are fixed
+  (`ticks-factory`, `ticks-factory-artifacts`) and `~/.ticksrc` holds one
+  endpoint — a second factory in the same account is not supported and is not
+  meant to be. Deploy a second factory only for deliberate separation (billing,
+  blast radius, credential grades), which means a second Cloudflare account.
+  **Enrolment is a security boundary, not bookkeeping:** without it the bearer
+  token alone would let any holder submit any `owner/repo`, turning the factory
+  into an arbitrary-code runner for the whole of GitHub.
 - **ticks.sh is unchanged**: install script, docs, and the existing
   local-authoritative board sync. It never gains factory endpoints. (A user's
   personal factory *may* optionally host its own board sync so power users are
@@ -134,7 +146,9 @@ The design separates components by *what is allowed to die*:
   retry a dead orchestrator, finalize. Workflows give durable execution with
   per-step checkpointing, so "the thing supervising the run" cannot itself be
   lost.
-- **The RunRoom DO** (one per active epic run, `idFromName(project + epic)`):
+- **The RunRoom DO** (one per project, `idFromName(project)` — the lease
+  arbitrates *between* epic runs, so an epic-scoped room would arbitrate
+  nothing):
   owns the state that is filesystem-shaped today and awkward for it — the
   dispatch lease (today: the Pi extension's checkout-scoped file lease with
   compare-and-delete semantics), pending operator questions (today:
@@ -150,6 +164,21 @@ reconcile protocol (evidence order: manifests → git → live sandbox list),
 which this repo already specifies and field-tested under herd. Sandbox
 snapshot/restore makes warm resume cheap, but is an optimization — cold
 reconstruction from git must always work (axiom 1).
+
+**Completion is proved, not inferred (D23).** The green-start trap has an exit
+counterpart: a harness exits 0 when it has nothing left to say, which is not the
+same as having done something. The first cloud run whose boot chain fully
+succeeded produced 271 bytes — it stated the substrate it had resolved and the
+note it intended to record, then exited — and was marked COMPLETED and charged
+for, having dispatched no wave, pushed no branch and left every one of the
+epic's ticks open. So the exit status decides only whether to reboot a
+container; whether the *run* finished is decided from the durable layer, by
+comparing the remote's branch heads at run start against the heads at run end
+(`cloud/factory/src/progress.ts`). Nothing changed means the run **stopped**,
+not completed; a remote that could not be read is recorded as `unknown`, which
+is a third fact rather than a quiet version of either — the same distinction
+`run.cost_source` draws between a zero and an unknown. `tk cloud status <run>`
+prints the verdict beside the state.
 
 **Worker agents.** One sandbox per tick: clone at the epic base, branch
 `tick/<epic-id>/<tick-id>`, implement, push branch + `RESULT-<tick-id>.md`,
@@ -211,10 +240,60 @@ This buys three things beyond vendor-agnosticism:
 - **A kill switch at the credential layer.** The Workflow can revoke a run's
   gateway token when a budget trips or a human hits stop — enforcement that
   works even on a wedged or adversarial agent, consistent with the doc's rule
-  that budgets never live in prompts.
+  that budgets never live in prompts. Revocation is refused on the very next
+  request; what a live incident proved it also has to be is *durable*, because
+  a revocation the next boot re-credentials is not a kill switch (see the hard
+  stop under UC1b).
+
+  *As built (Phase 1):* the run's gateway is the factory Worker's own
+  `/api/gateway` prefix, and the credential a sandbox carries is a run token
+  minted per orchestrator boot. The Worker exchanges it for the operator's
+  provider key and stamps the run/tick metadata itself, so attribution cannot
+  be forged or suppressed by the agent and the vendor key never enters a
+  container; revocation is a D1 write that the next model request hits. Every
+  boot rotates, every trip and stop revokes, and finalize leaves nothing live.
+  See `cloud/factory/src/gateway.ts`.
 - **Caching, rate limits, and logs** in one place, owned by the user, no
   third-party data path unless they choose one (OpenRouter is an opt-in rung,
   not a dependency).
+
+**Prompt caching is where an agentic run's money is.** A measured runaway run
+spent $49.80 on 46,098,950 input tokens against 1,019,075 output tokens: 98% of
+the spend was re-sending context, and not one of its 892 calls hit a cache
+(`cached_tokens: 0` on a 71,759-token prompt whose opening bytes were proved
+identical on two requests hours apart). Two different caches sit behind the
+gateway and only one of them is worth anything here:
+
+- The **gateway response cache** (`cf-aig-cache-ttl`) matches an identical
+  request to a stored response. Every turn of an agentic loop sends a different
+  request, so it would hit approximately never; it is deliberately left off.
+- **Prefix caching** bills the leading, unchanged span of a prompt at a cached
+  rate instead of re-processing it. That is exactly the shape of a loop, whose
+  prompt grows by appending while its first tens of thousands of tokens stay
+  fixed. Workers AI enables it by default on select models — but the cache
+  lives on the model instance, so it only pays if the run's calls keep reaching
+  the same one. Cloudflare's instruction is to "use the `x-session-affinity`
+  header with a unique session identifier"; the factory's gateway Worker sets
+  it to the **run id** (`SESSION_AFFINITY_HEADER` in
+  `cloud/factory/src/gateway.ts`), stamped the same way `cf-aig-metadata` is —
+  the caller cannot choose or suppress its own affinity, because an agent that
+  could would be able to park on another run's instance or scatter its own
+  calls.
+
+Affinity is only half of it: "a single token difference invalidates the cache
+from that point onward", so anything the factory injects at the head of the
+message array has to be a function of the run rather than of the moment. The
+factory contributes exactly one such thing — the prompt that
+`cloud/sandbox/entrypoint.sh` composes and hands the harness as `-p` — and
+`internal/sandbox/prompt_prefix_test.go` is the standing check on it: no date,
+clock, unix timestamp or uuid in the composed prompt; two boots of the same run
+produce the same prompt byte for byte; and the prompt builders shell out to
+nothing that varies (`date`, `$RANDOM`, `uuidgen`, `hostname`, `$SECONDS`).
+What a harness itself puts in front of that is outside this boundary and is
+checked by measurement, not by reading a header back: run the same epic twice
+and compare `cached_tokens` and cost per call across the runs. A run whose
+prefix is 60k of a 70k-token prompt should show most of its input billed at the
+cached rate from the second call onward.
 
 The tier vocabulary is unchanged (axiom 5): `.tick/runners.toml` still maps
 role → kind/model/effort; the gateway is plumbing below that table, not a new
@@ -234,10 +313,24 @@ for exactly this mix: route `economy` and `balanced` tiers to
 a BYOK frontier vendor — the same cross-vendor-per-tier pattern this repo
 already runs locally (its own `runners.toml` routes the balanced tier to a
 different vendor than the strong tier). Harness compatibility note: Workers AI
-models speak the OpenAI-compatible shape, so they ride the **pi** kind (or any
-kind with a configurable OpenAI-style provider); the `claude` kind expects
-Anthropic-shaped APIs and stays pointed at Anthropic models. One more reason
-pi is the natural default kind for cloud workers.
+serves an OpenAI-*compatible* endpoint, which is not the same as an OpenAI one,
+and the difference is load-bearing. Its `/v1/chat/completions` takes
+`messages[].content` as a **string**; omp sends OpenAI CONTENT PARTS
+(`[{"type":"text","text":"…"}]`) for user messages, and the first live run to
+reach the skill loop over this route died on exactly that
+(`Bad input: … Type mismatch of /messages/0/content, array not in string`).
+So the route does ride the **pi** kind (or any kind with a configurable
+OpenAI-style provider) — but only because the factory's own gateway Worker
+normalises content parts into a string on the `workers-ai` route, in
+`stringifyContentParts` (`cloud/factory/src/gateway.ts`), and refuses any part
+with no string form rather than dropping it. Read "OpenAI-compatible" here as
+"OpenAI-shaped, with one documented difference handled at the proxy" — a
+harness that sends anything richer than text through this rung will meet that
+refusal, not a silent truncation. The `claude` kind expects Anthropic-shaped
+APIs and stays pointed at Anthropic models. pi is still the natural default
+kind for cloud workers; picking a default MODEL for it is a harness-compat
+question as much as a capability one (see the Workers AI default-model tick),
+because the rung's wire shape is part of what the harness has to speak.
 
 One honest cost note: laptop runs often ride a flat-rate subscription; cloud
 agents run on metered API keys. The gateway makes that spend visible and
@@ -445,6 +538,22 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
   time, and the lease enforces it. If the run dies permanently, its `.tick/`
   state (claims, notes, closes for merged work) is on the pushed run branch —
   durable, recoverable, and mergeable by the field-level merge driver.
+- **The run branch is pushed continuously, by the container, not at closeout.**
+  The durability above is a property of a *pushed* branch, and for a while
+  nothing pushed until closeout — so a run that never reached closeout had
+  never pushed at all, and one that worked for 4.4 hours across seven ticks
+  lost every commit when its container was destroyed. The orchestrator sandbox
+  therefore runs a **run keeper** beside the harness (`cloud/sandbox`,
+  *The run branch, and why it is pushed continuously*): every 60 seconds it
+  fast-forward-pushes `tick-run/<epic-id>` if it has moved — after each worker
+  branch merges, after each wave integrates — and prints a heartbeat carrying
+  HEAD and commits-since-base, so a container that is thinking is
+  distinguishable from one that is hung. It is mechanical rather than
+  prompted, for the same reason budgets are (D14): durability that depends on
+  an agent remembering to push is not durability. Nothing is pushed until the
+  run has committed something, so the ref comparison that decides whether a run
+  advanced anything stays honest. Merging to the default branch is unchanged —
+  it still waits for closeout and the PR + CI gate.
 - **Notification is a run parameter, not config** — the requester chooses the
   channel per submission; the default comes from `.tick/operators.json`.
 
@@ -470,6 +579,7 @@ harness. One closed verb vocabulary is exposed on every transport:
 |---|---|---|---|
 | ignite | `tk cloud run <epic>` | `/run <epic>` | `/tk run` on an issue (UC3) |
 | clean stop | `tk cloud stop <run>` | `/stop` | — |
+| hard stop | `tk cloud stop <run> --now` | — | — |
 | what is happening | `tk cloud status` | `/status` | — |
 | answer a parked question | `tk answer <id> …` | inline keyboard (ships today) | — |
 
@@ -505,6 +615,22 @@ harness. One closed verb vocabulary is exposed on every transport:
   human trigger instead of a spend trigger — finish the in-flight tick, run
   review/closeout on what is done. There is no "abandon the run" verb, because
   an abandoned run leaves merged work with no tracker state.
+- **A clean stop has no teeth when the budget is already breached, so there is
+  a hard one.** Finishing in-flight work is right for an ordinary stop and
+  wrong for a runaway: a live run at 2x its budget with no durable output kept
+  spending through its own clean stop, and a hand-written token revocation was
+  undone by the supervisor's next boot, until the container application itself
+  was deleted. `tk cloud stop --now` (`{"mode":"hard"}` on `/stop`) revokes the
+  run's gateway credentials **in the request that asks for it**, before the
+  state flip and before the Workflow is told anything, and the stop record
+  keeps them dead: no later boot of that run — closeout included — may mint
+  another. It costs review and closeout, which is the trade an operator is
+  making knowingly; the clean stop remains the default and still runs them. A
+  budget trip takes the same revoke-first path automatically without recording
+  a hard stop, so the unwind into closeout still happens on a fresh credential.
+  Both stops report which one was performed, and a hard stop reports how many
+  live credentials it killed. Stop mode only ever escalates: `hard` supersedes
+  a standing `clean` record, `clean` never softens a `hard` one.
 - **Stop does not travel through the orchestrator.** A wedged or adversarial
   orchestrator will not honour a message it never reads, so `stop` is enforced
   at the Workflow and gateway-token layer (D17's kill switch), consistent with
@@ -891,6 +1017,8 @@ Collected from the use cases; each appears above in context.
 | D20 | One trace ID (`signal_id`/`run_id`/`tick_id`) threads every layer; harness output streams to R2 during the run (diagnostics), never export-at-exit; every dispatch refusal is logged with its policy reason; failure events use the named taxonomy; `tk factory trace` joins the story across layers | observability |
 | D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input | UC1b |
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
+| D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
+| D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
 
 ## What this is *not*
 
@@ -925,12 +1053,25 @@ Collected from the use cases; each appears above in context.
    mints the bearer token and pushes its hash, deploys the embedded bundle, and
    records `factory_url` / `factory_token` / `factory_version` in `~/.ticksrc`.
    The bundle is embedded in the tk binary the way skills are, so a deployment
-   is pinned to a tk version and `tk upgrade` points at a redeploy. wrangler is
+   is pinned to a tk version and `tk upgrade` points at a redeploy. The
+   orchestrator image is pinned the same way and to the same code: the deploy
+   rewrites the staged Dockerfile's `TK_SOURCE_REF` to its own source, and the
+   image builds tk from it, so the container's tk and the bundle it boots are
+   never a release apart (`cloud/sandbox/README.md`, "The image's tk is built
+   from the deployed source"). wrangler is
    resolved as a global binary or through `npx wrangler`, and every capability
    question is answered functionally — attempt the operation, surface the API
    error — never by parsing `wrangler whoami` scopes, which under-report what a
    token can do. CI has no Cloudflare account, so the end-to-end evidence is
    `scripts/verify-factory-deploy.sh` against a stateful wrangler stand-in.
+   The deploy's last step is the container rollout, which `wrangler deploy`
+   creates and does not wait for: it polls `wrangler containers list --json`
+   until the `ticks-orchestrator` application reports the digest this deploy
+   pushed, and fails with that comparison spelled out rather than reporting a
+   readiness it cannot prove — a green deploy in front of a stale container is
+   what makes a correct fix look broken. The confirmed digest is recorded in
+   `factory_deployment_image` and stamped onto each run (`run_image`), so
+   `tk cloud status <run>` names the image that run booted.
    The credential walk-through (`tk factory setup`) is still open.
 3. **Bump `compatibility_date`** (currently 2024-04-03) in the factory bundle —
    DO SQLite storage and current WebSocket hibernation ergonomics are needed.
@@ -943,7 +1084,11 @@ Collected from the use cases; each appears above in context.
 
 1. **Phase 1 — the trojan horse.** `tk cloud run <epic>` (UC1) with a *single*
    sandbox: the orchestrator runs the existing skill loop using the existing
-   `harness` substrate (subagents) inside one container. No RunRoom fan-out
+   `harness` substrate (subagents) inside one container — which the container
+   is *told*, through `TICKS_SUBSTRATE`, rather than left to infer: a repo's
+   `[orchestration].substrate` pin is a statement about its local runs, and the
+   first run to complete a real agent turn correctly stopped on one
+   (`cloud/sandbox/README.md` → *The substrate, and why a container is told*). No RunRoom fan-out
    yet beyond the lease and gates. Ships the whole pipeline end to end —
    auth, secrets, git credentials, sandbox lifecycle, budget enforcement,
    Telegram gates from a phone — with zero new orchestration logic. The

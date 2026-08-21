@@ -521,6 +521,13 @@ func ResetFlags() {
 	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
 	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
 
+	// Reset sandbox flags
+	sandboxRoot = ""
+	sandboxForce = false
+	sandboxStamp = ""
+	sandboxTkVerRaw = ""
+	sandboxDeclaredOnly = false
+
 	// Reset herd reconcile flags
 	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
 	// Reset herd collect flags
@@ -591,10 +598,23 @@ func ResetFlags() {
 	factorySetupGatewayURL = ""
 	factorySetupProvider = ""
 	factorySetupProviderKey = ""
+	factorySetupCFAPIToken = ""
+	factorySetupCFAPIBase = ""
 	factorySetupBundleDir = ""
 	factoryStatusOffline = false
 	factoryStatusCheck = false
 	factoryStatusGitHubAPI = ""
+	factoryStatusCFAPIBase = ""
+
+	// Reset cloud flags
+	cloudRunNotify = ""
+	cloudRunQueue = false
+	cloudStopNow = false
+
+	// Reset config migration flags
+	configMigrateApply = false
+	configMigrateWrite = false
+	configMigrateDryRun = false
 }
 
 // SetVersion allows main.go to set the version at initialization

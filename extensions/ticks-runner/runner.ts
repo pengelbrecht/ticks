@@ -945,6 +945,9 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 	}
 
 	let config = loadRunnerConfig(root, env);
+	if (config.errors.length) {
+		return finish("blocked", `Run configuration is invalid and authorizes nothing; fix it before running: ${config.errors.join("; ")}`);
+	}
 	if (options.maxParallel !== undefined) {
 		if (!Number.isSafeInteger(options.maxParallel) || options.maxParallel < 1) return finish("blocked", "--max-parallel must be a positive integer");
 		config = { ...config, maxParallel: options.maxParallel };
@@ -1247,7 +1250,7 @@ async function runEpicImplementation(options: RunEpicOptions, ownership: RunOwne
 			if (authorizationErrors.length) throw new Error(authorizationErrors.join("; "));
 			bindings = acceptanceEvidenceBindings(items, config.acceptanceEvidence);
 		} catch (error) {
-			const detail = `Controller-owned Acceptance Evidence is incomplete or invalid: ${error instanceof Error ? error.message : String(error)}. Add exactly one command mapping per item under ## Acceptance Evidence in .tick/config.md; each command must exist verbatim and uniquely under either ## Testing or ## Closeout Evidence Commands.`;
+			const detail = `Controller-owned Acceptance Evidence is incomplete or invalid: ${error instanceof Error ? error.message : String(error)}. Fix the active run configuration: each acceptance item must map exactly once in [evidence.acceptance] to a command id from [testing.commands] or [evidence.commands].`;
 			failProcessOpen(task, "closeout", detail, [], "closeout-failure");
 			return finish("failed", `Closeout authorization failed closed: ${detail}`, plan);
 		}

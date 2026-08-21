@@ -1,0 +1,23 @@
+{
+  "id": "wsc",
+  "title": "Final review of the config migration diff",
+  "description": "Review: schema completeness and fail-closed behaviour on unknown keys, that no parsing heuristic was ported onto the structured path, that the two paths cannot drift in fail-closed semantics, migration idempotency and its refusal cases, and that the docs describe one shape. Confirm no consuming repo is silently broken: the legacy path must still work end to end, not merely compile.",
+  "notes": "2026-08-19 22:39 - runner-state: substrate=herdr kind=claude branch=tick/wsc worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-wsc workspace=wAW base=77fcad0242ab30ef439b14ff41daf2b4ae206813 agent=tick-wsc pane=wAW:p1 session=92170c02-d1ef-4251-a812-3497831fb1de\n2026-08-19 22:39 - Review context: a blocker was already found live before this review started — see wge. Installed tk 0.30.0 cannot read the migrated runners.toml at all (57 unknown-key errors); only a branch-built tk works. Assess the version-gating fix as part of this review rather than re-finding it, and check whether anything else in this epic assumes a compatibility direction we did not actually test.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "728",
+    "jr9",
+    "se7",
+    "sqt"
+  ],
+  "parent": "48d",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-19T16:42:18.080276Z",
+  "updated_at": "2026-08-19T21:07:08.978008Z",
+  "closed_at": "2026-08-19T21:07:08.978008Z",
+  "closed_reason": "Completed: final review of the config migration diff — 12 findings, 2 behaviour-changing blockers (frontier-review guarantee silently lost on the TOML path; this repo's pi routing retargeted to claude/codex ids with no provider) and 2 authorization-surface defects, each reproduced with a paste-and-run probe; no source changed, per the read-only review rule."
+}

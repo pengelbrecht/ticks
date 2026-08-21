@@ -66,10 +66,10 @@ func TestSubstrateDecisionTable(t *testing.T) {
 			wantNote: "runner-state: substrate=herdr requested=auto",
 		},
 		{
-			name:      "cell 2: auto + unavailable -> harness, silent",
+			name:      "cell 2: auto + unavailable -> harness, quietly",
 			substrate: "auto", available: false,
 			wantSubstrate: SubstrateHarness, wantProbed: true,
-			wantNote: "runner-state: substrate=harness requested=auto",
+			wantNote: "runner-state: substrate=harness requested=auto reason=auto-no-herdr",
 		},
 		{
 			name:      "cell 3: herdr + available -> herdr",
@@ -339,4 +339,240 @@ func boolStr(b bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+// ---------------------------------------------------------------------------
+// Explicit substrate override
+//
+// The cloud sandbox found this gap the expensive way: a container booted, read
+// a repository whose `[orchestration].substrate` is pinned to herdr for LOCAL
+// runs, correctly found no herdr socket, and had nowhere to be told that a
+// harness substrate was the intended one. The override is how whatever boots a
+// run says which substrate is effective there, without editing the tracked
+// file the local runs depend on.
+// ---------------------------------------------------------------------------
+
+// TestOverrideWinsOverTheFile: the override is the requested substrate, the
+// file's value is reported as configured intent, and `harness` is as terminal
+// through an override as it is in the file — no probe runs.
+func TestOverrideWinsOverTheFile(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"herdr\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o, err := ParseOverride("harness", SubstrateEnvVar)
+	if err != nil {
+		t.Fatalf("ParseOverride: %v", err)
+	}
+	p := &fakeProber{}
+	d := DecideOverride(context.Background(), cfg, p, o)
+
+	if d.Substrate != SubstrateHarness {
+		t.Errorf("Substrate = %q, want harness", d.Substrate)
+	}
+	if d.Requested != SubstrateHarness {
+		t.Errorf("Requested = %q, want harness (the override IS the request)", d.Requested)
+	}
+	if d.Configured != SubstrateHerdr {
+		t.Errorf("Configured = %q, want herdr (what the file still says)", d.Configured)
+	}
+	if d.Probed || p.envCalls != 0 || p.socketCalls != 0 {
+		t.Errorf("an override to harness probed anyway (env=%d socket=%d)", p.envCalls, p.socketCalls)
+	}
+	if d.Degraded {
+		t.Error("an override is a deliberate choice, never a degradation")
+	}
+	want := "runner-state: substrate=harness requested=harness config=herdr source=" + SubstrateEnvVar + " reason=explicit-override"
+	if got := d.NoteLine(); got != want {
+		t.Errorf("NoteLine = %q, want %q", got, want)
+	}
+	msg := d.Announcement()
+	for _, want := range []string{SubstrateEnvVar, "harness", `substrate = "herdr"`, FileName, "Cross-vendor role routing"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("announcement missing %q:\n  %s", want, msg)
+		}
+	}
+}
+
+// TestOverrideToHerdrStillDegradesExplicitly: an override does not suspend the
+// explicit-degradation rule. Asking for herdr where there is none degrades and
+// says so, exactly as the file's own pin does.
+func TestOverrideToHerdrStillDegradesExplicitly(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"harness\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	o, err := ParseOverride("herdr", SubstrateEnvVar)
+	if err != nil {
+		t.Fatalf("ParseOverride: %v", err)
+	}
+	d := DecideOverride(context.Background(), cfg, &fakeProber{}, o)
+
+	if d.Substrate != SubstrateHarness || !d.Degraded {
+		t.Fatalf("substrate=%q degraded=%v, want harness/true", d.Substrate, d.Degraded)
+	}
+	if !d.Probed {
+		t.Error("an override to herdr must probe: availability is what decides")
+	}
+	want := "runner-state: substrate=harness requested=herdr config=harness source=" + SubstrateEnvVar + " reason=herdr-unavailable"
+	if got := d.NoteLine(); got != want {
+		t.Errorf("NoteLine = %q, want %q", got, want)
+	}
+	if !strings.Contains(d.Announcement(), "herdr is unavailable") {
+		t.Errorf("announcement does not state the degradation:\n  %s", d.Announcement())
+	}
+}
+
+// TestParseOverride: an empty value is "no override", and an unknown one is a
+// stop. A value a reader cannot parse authorises nothing — the same fail-closed
+// rule the config file itself gets.
+func TestParseOverride(t *testing.T) {
+	t.Run("empty is no override", func(t *testing.T) {
+		o, err := ParseOverride("", SubstrateEnvVar)
+		if err != nil {
+			t.Fatalf("ParseOverride: %v", err)
+		}
+		if o.Substrate != "" {
+			t.Fatalf("Substrate = %q, want none", o.Substrate)
+		}
+		// Whitespace only is the same thing: a variable set to nothing.
+		if o, err := ParseOverride("  \n", SubstrateEnvVar); err != nil || o.Substrate != "" {
+			t.Fatalf("ParseOverride(blank) = %+v, %v", o, err)
+		}
+	})
+
+	t.Run("the three legal values parse", func(t *testing.T) {
+		for _, want := range []Substrate{SubstrateHerdr, SubstrateHarness, SubstrateAuto} {
+			o, err := ParseOverride(string(want), SubstrateEnvVar)
+			if err != nil {
+				t.Fatalf("ParseOverride(%q): %v", want, err)
+			}
+			if o.Substrate != want || o.Source != SubstrateEnvVar {
+				t.Fatalf("ParseOverride(%q) = %+v", want, o)
+			}
+		}
+	})
+
+	t.Run("an unknown value is refused", func(t *testing.T) {
+		_, err := ParseOverride("subagents", SubstrateEnvVar)
+		if err == nil {
+			t.Fatal("ParseOverride accepted an unknown substrate")
+		}
+		for _, want := range []string{SubstrateEnvVar, "subagents", "herdr", "harness", "auto"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error missing %q: %v", want, err)
+			}
+		}
+	})
+}
+
+// TestDecideIsDecideOverrideWithNoOverride keeps the two entry points from
+// drifting: everything the decision table pins goes through the same code.
+func TestDecideIsDecideOverrideWithNoOverride(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"herdr\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	plain := Decide(context.Background(), cfg, &fakeProber{})
+	overridden := DecideOverride(context.Background(), cfg, &fakeProber{}, Override{})
+	if plain.NoteLine() != overridden.NoteLine() || plain.Substrate != overridden.Substrate {
+		t.Fatalf("Decide = %q, DecideOverride with no override = %q", plain.NoteLine(), overridden.NoteLine())
+	}
+	if strings.Contains(plain.NoteLine(), "source=") {
+		t.Errorf("a run with no override names one: %q", plain.NoteLine())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Loud versus quiet
+//
+// Two different runs end on harness dispatch with no herdr in sight, and they
+// are not the same event. `substrate = "auto"` finding no herdr is auto doing
+// exactly what it is for — the skill's original mode, a local session with no
+// herdr running, which the design doc calls the degenerate case that must stay
+// sacred. `substrate = "herdr"` finding no herdr is an assertion the
+// environment refused, and the protocol requires it to be stated loudly.
+//
+// Both must be SAID — a resolution nobody stated is one nobody can audit — but
+// a repository that announces a degradation on every ordinary run has taught
+// its operator to ignore the announcement that matters.
+// ---------------------------------------------------------------------------
+
+// TestAutoFallbackIsQuietButNotSilent: auto with no herdr states what it
+// resolved once, in a neutral register, and never reaches the loud channel.
+func TestAutoFallbackIsQuietButNotSilent(t *testing.T) {
+	cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"auto\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	d := Decide(context.Background(), cfg, &fakeProber{socketErr: errors.New("no such file or directory")})
+
+	if d.Substrate != SubstrateHarness || d.Degraded {
+		t.Fatalf("substrate=%q degraded=%v, want harness/false", d.Substrate, d.Degraded)
+	}
+	if d.Announcement() != "" {
+		t.Errorf("the loud channel fired for an ordinary auto fallback:\n  %s", d.Announcement())
+	}
+	msg := d.Resolution()
+	if msg == "" {
+		t.Fatal("auto resolved a substrate and said nothing at all — a resolution nobody stated is one nobody can audit")
+	}
+	// Quiet means neutral, not vague: it still names what was probed.
+	for _, want := range []string{`substrate = "auto"`, EnvVar + " is unset", string(SubstrateHarness)} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("quiet resolution missing %q:\n  %s", want, msg)
+		}
+	}
+	// And it must not read as a failure: no degradation vocabulary, and none of
+	// the consequences paragraph that belongs to a broken assertion.
+	for _, unwanted := range []string{"degrad", "Falling back", "Cross-vendor role routing"} {
+		if strings.Contains(msg, unwanted) {
+			t.Errorf("the ordinary path reads as a failure (%q):\n  %s", unwanted, msg)
+		}
+	}
+}
+
+// TestPinnedHerdrStaysLoudAndSaysHowToFixIt: the assertion the environment
+// refused keeps every bit of its volume, and now names the config that would
+// have made the same run ordinary.
+func TestPinnedHerdrStaysLoudAndSaysHowToFixIt(t *testing.T) {
+	cfg, err := Parse([]byte(docExample2)) // substrate = "herdr"
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	d := Decide(context.Background(), cfg, &fakeProber{socketErr: errors.New("no such file or directory")})
+
+	if !d.Degraded {
+		t.Fatal("a pinned herdr with no herdr must degrade explicitly")
+	}
+	if d.Resolution() != d.Announcement() {
+		t.Errorf("the loud case says two different things:\n  %s\n  %s", d.Resolution(), d.Announcement())
+	}
+	msg := d.Announcement()
+	for _, want := range []string{"Cross-vendor role routing", `substrate = "auto"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("degradation missing %q:\n  %s", want, msg)
+		}
+	}
+}
+
+// TestEveryCellStatesItsResolution: whatever the decision, a run has something
+// to say about it. This is what stops the quiet register from becoming silence.
+func TestEveryCellStatesItsResolution(t *testing.T) {
+	for _, substrate := range []string{"auto", "herdr", "harness"} {
+		for _, available := range []bool{true, false} {
+			cfg, err := Parse([]byte("[orchestration]\nsubstrate = \"" + substrate + "\"\nsocket = \"/tmp/fake-herdr.sock\"\n\n[orchestrator]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			d := Decide(context.Background(), cfg, &fakeProber{socketOK: available, socketErr: errors.New("connection refused")})
+			if d.Resolution() == "" {
+				t.Errorf("substrate=%q available=%v resolved %q and said nothing", substrate, available, d.Substrate)
+			}
+			if !strings.Contains(d.Resolution(), string(d.Substrate)) {
+				t.Errorf("substrate=%q available=%v: the statement does not name the substrate it resolved: %q",
+					substrate, available, d.Resolution())
+			}
+		}
+	}
 }

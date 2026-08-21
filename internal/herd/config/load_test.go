@@ -49,6 +49,12 @@ func TestDocExamplesParse(t *testing.T) {
 			roles: []string{"implement", "plan", "review", "scout"},
 		},
 		{
+			name: "example 6 routing plus command surface", toml: docExample6,
+			substrate: SubstrateAuto, detect: DetectEnvOrSocket, maxParallel: 4,
+			fullAuto: true, branchPrefix: "tick/", orchHarness: "claude",
+			roles: []string{"implement", "review"},
+		},
+		{
 			name: "tier overrides kind snippet", toml: docTierKindOverride,
 			substrate: SubstrateAuto, detect: DetectEnvOrSocket, maxParallel: 0,
 			fullAuto: true, branchPrefix: "tick/", orchHarness: "",
@@ -119,6 +125,23 @@ func TestSchemaNegatives(t *testing.T) {
 			name:     `model = "sonnet:high"`,
 			toml:     "[roles.implement]\nkind = \"claude\"\nmodel = \"sonnet:high\"\n",
 			wantPath: "roles.implement.model", wantMsg: "must not contain ':'",
+		},
+		{
+			// `@` is legal only where Workers AI puts it — leading a path
+			// segment. Inside one it is the old malformation and still a stop.
+			name:     `model = "workers-ai/cf@openai/gpt-oss-120b"`,
+			toml:     "[roles.implement]\nkind = \"claude\"\nmodel = \"workers-ai/cf@openai/gpt-oss-120b\"\n",
+			wantPath: "roles.implement.model", wantMsg: "is not a well-formed model id",
+		},
+		{
+			name:     `model = "workers-ai/@/gpt-oss-120b"`,
+			toml:     "[roles.implement]\nkind = \"claude\"\nmodel = \"workers-ai/@/gpt-oss-120b\"\n",
+			wantPath: "roles.implement.model", wantMsg: "is not a well-formed model id",
+		},
+		{
+			name:     `model = "workers-ai//@cf/openai/gpt-oss-120b"`,
+			toml:     "[roles.implement]\nkind = \"claude\"\nmodel = \"workers-ai//@cf/openai/gpt-oss-120b\"\n",
+			wantPath: "roles.implement.model", wantMsg: "is not a well-formed model id",
 		},
 		{
 			name:     `model = ""`,
@@ -194,9 +217,13 @@ func TestSchemaNegatives(t *testing.T) {
 			wantPath: "orchestrate", wantMsg: "unknown key",
 		},
 		{
-			name:     "unknown version",
-			toml:     "version = 2\n" + validRole,
-			wantPath: "version", wantMsg: "unsupported config version 2",
+			// Below the floor. A version ABOVE the ceiling is not here on
+			// purpose: it is refused by the version gate with a single
+			// upgrade line rather than a shape error — see
+			// TestAFileNewerThanTheBinaryFailsWithOneUpgradeLine.
+			name:     "version below the floor",
+			toml:     "version = 0\n" + validRole,
+			wantPath: "version", wantMsg: "unsupported config version 0",
 		},
 	}
 
@@ -310,4 +337,45 @@ func TestLoadRepoInvalidFileIsAStop(t *testing.T) {
 	if cfg != nil {
 		t.Error("cfg is non-nil on a validation failure")
 	}
+}
+
+// TestWorkersAIModelIDs proves the model grammar can spell a Workers AI id.
+// Every Workers AI model lives in the `@cf/<vendor>/<name>` namespace, so the
+// provider-qualified id the sandbox entrypoint reads out of
+// `[orchestrator].model` is `workers-ai/@cf/openai/gpt-oss-120b`. The pattern
+// was written for `vendor/model` shapes and had never met a namespace sigil;
+// `@` is now legal exactly where Workers AI puts it — leading a path segment —
+// and nowhere else, so the id stays a real constraint (the negative rows in
+// TestSchemaNegatives hold that line).
+func TestWorkersAIModelIDs(t *testing.T) {
+	const workersAI = "workers-ai/@cf/openai/gpt-oss-120b"
+
+	t.Run("orchestrator", func(t *testing.T) {
+		cfg, err := Parse([]byte("[orchestrator]\nharness = \"codex\"\nkind = \"codex\"\nmodel = \"" + workersAI + "\"\n\n[roles.implement]\nkind = \"codex\"\n"))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := cfg.Orchestrator.Model; got != workersAI {
+			t.Errorf("orchestrator.model = %q, want %q", got, workersAI)
+		}
+	})
+
+	t.Run("role and tier", func(t *testing.T) {
+		cfg, err := Parse([]byte("[roles.implement]\nkind = \"codex\"\nmodel = \"" + workersAI + "\"\n\n[roles.implement.tiers.strong]\nmodel = \"workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast\"\n"))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := cfg.Roles["implement"].Model; got != workersAI {
+			t.Errorf("roles.implement.model = %q, want %q", got, workersAI)
+		}
+		if got := cfg.Roles["implement"].Tiers["strong"].Model; got != "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast" {
+			t.Errorf("tier model = %q, want the Workers AI id", got)
+		}
+	})
+
+	t.Run("a bare Workers AI id, unqualified", func(t *testing.T) {
+		if _, err := Parse([]byte("[roles.implement]\nkind = \"codex\"\nmodel = \"@cf/openai/gpt-oss-120b\"\n")); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+	})
 }

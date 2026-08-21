@@ -12,6 +12,7 @@ var (
 	factoryDeployRotateToken bool
 	factoryDeployURL         string
 	factoryDeployBundleDir   string
+	factoryDeploySkipRollout bool
 
 	factorySetupRepo        string
 	factorySetupGitHubToken string
@@ -19,11 +20,14 @@ var (
 	factorySetupGatewayURL  string
 	factorySetupProvider    string
 	factorySetupProviderKey string
+	factorySetupCFAPIToken  string
+	factorySetupCFAPIBase   string
 	factorySetupBundleDir   string
 
 	factoryStatusOffline   bool
 	factoryStatusCheck     bool
 	factoryStatusGitHubAPI string
+	factoryStatusCFAPIBase string
 )
 
 var factoryCmd = &cobra.Command{
@@ -49,6 +53,16 @@ migrations, pushes the hash of your factory token as a Worker secret, deploys
 the worker, and records the endpoint and token in ~/.ticksrc alongside the
 existing board-sync token.
 
+It then waits for the orchestrator container application to report the image this
+deploy should serve. When ` + "`wrangler deploy`" + ` skips an unchanged image push,
+the existing application record supplies that digest; a real rollout is still
+waited for when a new image was pushed. ` + "`wrangler deploy`" + ` creates that rollout and returns without waiting
+for it, so without this wait a run started immediately after a green deploy can
+still boot the PREVIOUS container image — which makes a correct fix look like it
+did not work. If the rollout cannot be confirmed within the bounded wait the deploy
+says so and exits nonzero rather than reporting success; --skip-rollout-wait
+accepts the unconfirmed state deliberately.
+
 Re-running upgrades the deployment in place: nothing is duplicated and your
 token is preserved unless you pass --rotate-token. The deployed bundle is
 pinned to this tk version, so after ` + "`tk upgrade`" + ` you re-run this command to
@@ -64,11 +78,13 @@ Requires wrangler, logged in to your Cloudflare account:
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := factory.Deploy(cmd.Context(), factory.Options{
-			Version:     Version,
-			BundleDir:   factoryDeployBundleDir,
-			RotateToken: factoryDeployRotateToken,
-			URL:         factoryDeployURL,
-			Out:         cmd.OutOrStdout(),
+			Version:         Version,
+			BundleDir:       factoryDeployBundleDir,
+			RotateToken:     factoryDeployRotateToken,
+			URL:             factoryDeployURL,
+			Out:             cmd.OutOrStdout(),
+			HasCommand:      hasCommand,
+			SkipRolloutWait: factoryDeploySkipRollout,
 		})
 		if err != nil {
 			// Every failure is a stop with an explanation the operator can
@@ -77,8 +93,24 @@ Requires wrangler, logged in to your Cloudflare account:
 			return NewExitError(ExitGeneric, "%v", err)
 		}
 
-		cmd.Printf("\nFactory ready at %s\n", result.URL)
+		// "Ready" is a claim about what a run started now would boot, so it is
+		// only made when the container rollout was actually confirmed. An
+		// unconfirmed one reaches here only through --skip-rollout-wait, and it
+		// says so where the operator reads the verdict rather than only in the
+		// progress above.
+		if result.RolloutConfirmed {
+			cmd.Printf("\nFactory ready at %s\n", result.URL)
+		} else {
+			cmd.Printf("\nFactory deployed at %s — container rollout NOT confirmed\n", result.URL)
+		}
 		cmd.Printf("  tk version:  %s\n", result.Version)
+		cmd.Printf("  image tk:    built from %s\n", result.SourceRef)
+		if result.ImageDigest != "" {
+			cmd.Printf("  image:       %s\n", result.ImageDigest)
+		}
+		if !result.RolloutConfirmed {
+			cmd.Printf("  rollout:     unconfirmed — a run started now may still boot the previous image\n")
+		}
 		cmd.Printf("  credentials: %s\n", result.ConfigPath)
 		if result.Rotated {
 			cmd.Printf("  token:       rotated — anything holding the previous token must be updated\n")
@@ -105,7 +137,11 @@ Setup walks four rungs and proves each one before it stores anything:
   4. model access — your own AI Gateway base URL and the provider behind it.
      Workers AI needs no key (inference bills to the same Cloudflare account);
      a BYOK provider's key is verified with a live model-list call through the
-     gateway before it is stored.
+     gateway before it is stored. --cloudflare-api-token adds the optional half
+     of this rung: a token with AI Gateway read access, which is what lets a
+     run's cost budget act on what the gateway billed instead of on what the
+     agent claims. Without it, runs still route and attribute their model
+     traffic and record their cost as unknown.
 
 Everything it stores goes to two places: a Worker secret in your own Cloudflare
 account, and ~/.ticksrc (0600) so ` + "`tk factory status`" + ` can re-check it. Nothing is
@@ -122,6 +158,7 @@ walk scriptable.`,
 		_, err := factory.Setup(cmd.Context(), factory.SetupOptions{
 			Version:       Version,
 			BundleDir:     factorySetupBundleDir,
+			HasCommand:    hasCommand,
 			In:            cmd.InOrStdin(),
 			Out:           cmd.OutOrStdout(),
 			GitHubAPIBase: factorySetupGitHubAPI,
@@ -130,6 +167,9 @@ walk scriptable.`,
 			GatewayURL:    factorySetupGatewayURL,
 			Provider:      factorySetupProvider,
 			ProviderKey:   factorySetupProviderKey,
+
+			CloudflareAPIToken: factorySetupCFAPIToken,
+			CloudflareAPIBase:  factorySetupCFAPIBase,
 		})
 		if err != nil {
 			// A rung that did not verify is a stop with an explanation, never
@@ -157,8 +197,9 @@ nothing configured, status says so and exits 0. No credential is ever printed.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		report, err := factory.Status(cmd.Context(), factory.StatusOptions{
-			Offline:       factoryStatusOffline,
-			GitHubAPIBase: factoryStatusGitHubAPI,
+			Offline:           factoryStatusOffline,
+			GitHubAPIBase:     factoryStatusGitHubAPI,
+			CloudflareAPIBase: factoryStatusCFAPIBase,
 		})
 		if err != nil {
 			return NewExitError(ExitIO, "%v", err)
@@ -179,6 +220,9 @@ func init() {
 		"factory endpoint to record and verify, when wrangler's output does not name one (custom routes)")
 	factoryDeployCmd.Flags().StringVar(&factoryDeployBundleDir, "bundle-dir", "",
 		"directory to stage the worker bundle in (default ~/.tick/factory/bundle)")
+	factoryDeployCmd.Flags().BoolVar(&factoryDeploySkipRollout, "skip-rollout-wait", false,
+		"do not wait for the orchestrator container application to serve the pushed image "+
+			"(the deploy then reports the rollout as unconfirmed)")
 
 	factorySetupCmd.Flags().StringVar(&factorySetupRepo, "repo", "",
 		"owner/name the GitHub credential must reach (default: this checkout's origin remote)")
@@ -190,6 +234,11 @@ func init() {
 		"model provider behind the gateway: "+providerFlagHelp())
 	factorySetupCmd.Flags().StringVar(&factorySetupProviderKey, "provider-key", "",
 		"API key for a BYOK provider (prompted for when omitted; workers-ai needs none)")
+	factorySetupCmd.Flags().StringVar(&factorySetupCFAPIToken, "cloudflare-api-token", "",
+		"Cloudflare API token with AI Gateway read access — makes a run's cost gateway telemetry rather than a self-report")
+	factorySetupCmd.Flags().StringVar(&factorySetupCFAPIBase, "cloudflare-api-base", "",
+		"override the Cloudflare API root (testing)")
+	_ = factorySetupCmd.Flags().MarkHidden("cloudflare-api-base")
 	factorySetupCmd.Flags().StringVar(&factorySetupBundleDir, "bundle-dir", "",
 		"directory to stage the worker bundle in (default ~/.tick/factory/bundle)")
 	factorySetupCmd.Flags().StringVar(&factorySetupGitHubAPI, "github-api-base", "",
@@ -201,6 +250,9 @@ func init() {
 	factoryStatusCmd.Flags().StringVar(&factoryStatusGitHubAPI, "github-api-base", "",
 		"override the GitHub API root (testing)")
 	_ = factoryStatusCmd.Flags().MarkHidden("github-api-base")
+	factoryStatusCmd.Flags().StringVar(&factoryStatusCFAPIBase, "cloudflare-api-base", "",
+		"override the Cloudflare API root (testing)")
+	_ = factoryStatusCmd.Flags().MarkHidden("cloudflare-api-base")
 
 	factoryCmd.AddCommand(factoryDeployCmd)
 	factoryCmd.AddCommand(factorySetupCmd)
@@ -216,4 +268,26 @@ func providerFlagHelp() string {
 		ids = append(ids, spec.ID)
 	}
 	return strings.Join(ids, " | ")
+}
+
+// hasCommand reports whether this binary implements a subcommand chain, which
+// is how `tk factory deploy` proves the orchestrator image's tk will be able to
+// run the entrypoint it ships with (internal/factory/tkcommands.go).
+//
+// cobra's Find returns the deepest command it resolved plus the arguments it
+// could not. Leftovers on a command that HAS subcommands mean the chain named
+// one this binary does not have — the exact failure being gated. Leftovers on a
+// leaf are positional arguments, which is not a missing command.
+func hasCommand(chain []string) bool {
+	if len(chain) == 0 {
+		return false
+	}
+	found, rest, err := rootCmd.Find(chain)
+	if err != nil || found == nil || found == rootCmd {
+		return false
+	}
+	if len(rest) > 0 && found.HasSubCommands() {
+		return false
+	}
+	return true
 }

@@ -50,6 +50,14 @@ type FakeChannel struct {
 	nextID       int
 
 	events chan Event
+	// subscribed closes on the first Events call. A test that needs to know a
+	// Consumer is running cannot learn it by probing the consumer lock —
+	// acquiring the lock to look at it COMPETES with the Consumer, which
+	// returns ErrConsumerBusy and exits if the probe wins the race. Events is
+	// subscribed immediately after the lock is taken, so waiting here observes
+	// the same fact without contending for it.
+	subscribed    chan struct{}
+	subscribeOnce sync.Once
 }
 
 // The fake opts into both optional capabilities, so a test can drive the rich
@@ -67,6 +75,7 @@ func NewFakeChannel() *FakeChannel {
 		questions:    make(map[MessageRef]Question),
 		outcomes:     make(map[MessageRef]Outcome),
 		events:       make(chan Event, fakeEventBuffer),
+		subscribed:   make(chan struct{}),
 	}
 }
 
@@ -167,6 +176,7 @@ func (f *FakeChannel) Adopt(ref MessageRef, q Question) error {
 // Cancellation may drop an in-flight event — one already taken off the queue
 // but not yet handed to the consumer is lost, not requeued.
 func (f *FakeChannel) Events(ctx context.Context) <-chan Event {
+	f.subscribeOnce.Do(func() { close(f.subscribed) })
 	out := make(chan Event)
 	go func() {
 		defer close(out)
@@ -185,6 +195,10 @@ func (f *FakeChannel) Events(ctx context.Context) <-chan Event {
 	}()
 	return out
 }
+
+// Subscribed closes once Events has been called, which a Consumer does directly
+// after it takes the consumer lock. Wait on it instead of probing that lock.
+func (f *FakeChannel) Subscribed() <-chan struct{} { return f.subscribed }
 
 // Script queues events for delivery on Events. It may be called before or after
 // subscribing, and never blocks: queueing more than fakeEventBuffer undelivered

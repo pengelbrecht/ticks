@@ -10,6 +10,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/operator"
+	"github.com/pengelbrecht/ticks/internal/operator/telegram"
 )
 
 // `tk answer` is the terminal half of what `tk ask` parks.
@@ -98,6 +99,22 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 		}
 		pending, err = answerTarget(engine, tickID)
 		if err != nil {
+			// A cloud run has no local .tick/pending file in this checkout. Its
+			// question is in the project's RunRoom, so the terminal twin answers
+			// that durable entry rather than pretending the phone-only path is
+			// unavailable.
+			if GetExitCode(err) != ExitNotFound {
+				return answerError(cmd, err)
+			}
+			remote, configured, remoteErr := factoryOperatorChannel(project)
+			if remoteErr != nil {
+				// The factory is an additional delivery surface. If it is absent
+				// or cannot be constructed, preserve the local not-found contract.
+				return answerError(cmd, err)
+			}
+			if configured {
+				return runRemoteAnswer(cmd, remote, args, tickID)
+			}
 			return answerError(cmd, err)
 		}
 	}
@@ -118,6 +135,18 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	outcome, err := answerOutcome(pending.Question, args[1:])
 	if err != nil {
 		return answerError(cmd, err)
+	}
+	// A local pending file can still belong to a cloud-connected ask. Resolve
+	// the RunRoom first in that mode; resolving only the checkout file would
+	// leave the phone's durable entry live and would bypass cross-surface
+	// first-wins arbitration.
+	if !agentRelay {
+		channel, _, channelErr := askChannel()
+		if channelErr == nil {
+			if remote, ok := isFactoryChannel(channel); ok {
+				return answerRemoteEntry(cmd, remote, pending, tickID, outcome)
+			}
+		}
 	}
 
 	// Resolve first, apply second — the same order the channel consumer uses,
@@ -168,6 +197,110 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "answered %s (%s): %s\n", tickID, pending.ID, outcome.Text)
 	}
 	return nil
+}
+
+// runRemoteAnswer is the terminal half of the cloud RunRoom bridge. It never
+// writes a local tick: the cloud sandbox that registered the entry is the one
+// that applies the resolution, through the same Engine and verdict guard. The
+// terminal only performs the DO's first-wins answer operation.
+func runRemoteAnswer(
+	cmd *cobra.Command,
+	channel *telegram.FactoryChannel,
+	args []string,
+	tickID string,
+) error {
+	entries, err := channel.ListPending(commandContext(cmd), tickID)
+	if err != nil {
+		return answerRemoteNotFound(cmd, tickID)
+	}
+	// An explicit question id is useful when a tick carries more than one gate;
+	// it may not carry the tick id in the URL filter, so make the second lookup
+	// only when the first one did not find it.
+	var target operator.Pending
+	var resolvedTarget operator.Pending
+	found := false
+	for _, entry := range entries {
+		if entry.ID == args[0] {
+			target, found = entry, true
+			break
+		}
+		if entry.Resolution != nil && resolvedTarget.ID == "" {
+			resolvedTarget = entry
+		}
+	}
+	if !found {
+		for _, entry := range entries {
+			if entry.Resolution == nil {
+				target, found = entry, true
+				break
+			}
+		}
+	}
+	if !found && resolvedTarget.ID != "" {
+		target, found = resolvedTarget, true
+	}
+	if !found && args[0] != tickID {
+		all, listErr := channel.ListPending(commandContext(cmd), "")
+		if listErr != nil {
+			return answerRemoteNotFound(cmd, tickID)
+		}
+		for _, entry := range all {
+			if entry.ID == args[0] {
+				target, found = entry, true
+				break
+			}
+		}
+	}
+	if !found {
+		return answerRemoteNotFound(cmd, tickID)
+	}
+	if target.Resolution != nil {
+		return answerError(cmd, NewExitError(ExitNotFound,
+			"question %s on %s was already answered: %s", target.ID, tickID, answerSummary(target)))
+	}
+
+	if target.Kind == operator.PendingGate {
+		if _, err := resolveVerdictActor(answerFrom, ""); err != nil {
+			return answerError(cmd, err)
+		}
+	} else if answerFrom != "" {
+		return answerError(cmd, NewExitError(ExitUsage,
+			"--from applies to an approval gate (a plain answer is a note, not a verdict)"))
+	}
+	outcome, err := answerOutcome(target.Question, args[1:])
+	if err != nil {
+		return answerError(cmd, err)
+	}
+	return answerRemoteEntry(cmd, channel, target, tickID, outcome)
+}
+
+func answerRemoteEntry(
+	cmd *cobra.Command,
+	channel *telegram.FactoryChannel,
+	pending operator.Pending,
+	tickID string,
+	outcome operator.Outcome,
+) error {
+	_, err := channel.Answer(commandContext(cmd), pending.ID, outcome)
+	if err != nil {
+		var already *telegram.FactoryAlreadyAnsweredError
+		if errors.As(err, &already) {
+			winner := already.Entry
+			if winner.ID == "" {
+				winner = pending
+			}
+			return answerError(cmd, NewExitError(ExitNotFound,
+				"question %s on %s was already answered: %s", pending.ID, tickID, answerSummary(winner)))
+		}
+		return answerRemoteNotFound(cmd, tickID)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "answered %s (%s) remotely: %s\n", tickID, pending.ID, outcome.Text)
+	return nil
+}
+
+func answerRemoteNotFound(cmd *cobra.Command, tickID string) error {
+	return answerError(cmd, NewExitError(ExitNotFound,
+		"no question is parked on %s (tk list --awaiting shows what is waiting)", tickID))
 }
 
 func answerSubject(pending operator.Pending, tickID string) string {
