@@ -72,6 +72,15 @@ declare namespace Cloudflare {
      * seam for the same reason `REPO_REFS` is one.
      */
     REPO_CONFIG?: import("./repo-config").RepoConfigReader;
+    /**
+     * The reader a cloud wave's per-tick verdicts are collected with: the
+     * durable git layer, never a worker sandbox's terminal output (tick b6e,
+     * `worker-collect.ts`).
+     *
+     * Unset on a deployment, which reads GitHub's compare and contents APIs
+     * directly. A seam for the same reason `REPO_CONFIG` is one.
+     */
+    WORKER_COLLECTOR?: import("./worker-collect").WorkerCollector;
     /** Test/deployment override; defaults to api.github.com. */
     GITHUB_API_BASE_URL?: string;
     /**
@@ -99,6 +108,16 @@ declare namespace Cloudflare {
     /** Harness kind and model the orchestrator sandbox is started with. */
     RUN_HARNESS?: string;
     RUN_MODEL?: string;
+    /**
+     * The `[[containers]] max_instances` ceiling from this file (tick b6e) —
+     * a second declaration of the same number, because wrangler does not
+     * expose a container application's own config back to the Worker at
+     * runtime. A cloud wave's dispatch width is bounded by it, so raising the
+     * ceiling without raising this reintroduces exactly the silent
+     * serialization wave 3 measured, just one layer up. Bounds and the
+     * default live in src/run-workflow.ts.
+     */
+    FACTORY_MAX_INSTANCES?: string;
     /**
      * How long a queued submission stays ignitable, in ms (D22). A wrangler
      * `[vars]` value, so the window is a deployment decision; bounds and the

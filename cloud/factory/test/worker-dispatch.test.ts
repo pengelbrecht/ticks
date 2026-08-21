@@ -529,7 +529,7 @@ describe("dispatchWave", () => {
       binding,
       (tickID) => workerSandboxName("run1", tickID),
       tasks,
-      WORK_SPEC,
+      () => WORK_SPEC,
       { probe_timeout_ms: 2_000, probe_poll_ms: 1, confirm_timeout_ms: 2_000, confirm_poll_ms: 1, sleep },
       collector
     );
@@ -580,7 +580,7 @@ describe("dispatchWave", () => {
       binding,
       (tickID) => workerSandboxName("run1", tickID),
       tasks,
-      WORK_SPEC,
+      () => WORK_SPEC,
       { probe_timeout_ms: 2_000, probe_poll_ms: 1, confirm_timeout_ms: 2_000, confirm_poll_ms: 1, sleep },
       collector
     );
@@ -596,6 +596,43 @@ describe("dispatchWave", () => {
     expect(good.teardown.destroyed).toBe(true);
     expect(bad.teardown.destroyed).toBe(true);
     expect(collector.asked.map((t) => t.tick_id).sort()).toEqual(["bad", "good"]);
+  });
+
+  // tick b6e: the call site needs a distinct TICKS_TICK per container, or a
+  // wave of N tasks boots N containers all implementing the SAME tick.
+  it("gives every task its own spec rather than sharing one across the wave", async () => {
+    const binding = new FakeSandboxes();
+    const tasks = [task("aaa"), task("bbb")];
+
+    const sleep: Sleeper = async () => {
+      for (const sandbox of binding.booted) {
+        const proc = sandbox.processes.at(-1);
+        if (proc === undefined || proc.state !== "running") continue;
+        if (proc.command === PROBE_SPEC.command) {
+          proc.say("READY\n");
+          proc.finish(0);
+        } else {
+          proc.finish(0);
+        }
+      }
+    };
+
+    const collector = new FakeCollector();
+    await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName("run1", tickID),
+      tasks,
+      (t) => ({ probe: PROBE_SPEC, command: "ticks-worker", env: { TICKS_TICK: t.tick_id } }),
+      { probe_timeout_ms: 2_000, probe_poll_ms: 1, confirm_timeout_ms: 2_000, confirm_poll_ms: 1, sleep },
+      collector
+    );
+
+    const aaa = binding.named(workerSandboxName("run1", "aaa"));
+    const bbb = binding.named(workerSandboxName("run1", "bbb"));
+    const workEnv = (sandbox: FakeSandbox) =>
+      sandbox.processes.find((p) => p.command === "ticks-worker")!.env.TICKS_TICK;
+    expect(workEnv(aaa)).toBe("aaa");
+    expect(workEnv(bbb)).toBe("bbb");
   });
 });
 

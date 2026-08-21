@@ -377,6 +377,91 @@ describe("submission on a free project", () => {
   });
 });
 
+/**
+ * The wave of ticks a cloud-wave submission carries (tick b6e).
+ *
+ * Readiness is computed where `tk graph` already runs — the submitter, not
+ * this Worker — so the submission is where the wave enters the system. This
+ * is what makes `dispatchWave` (0ds) reachable from a real run at all.
+ */
+describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
+  it("carries tick_ids into the Workflow params", async () => {
+    const project = await enrolled("wave-direct");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: ["aaa", "bbb", "ccc"] }));
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params).toMatchObject({ tick_ids: ["aaa", "bbb", "ccc"] });
+  });
+
+  it("treats an absent tick_ids exactly as Phase 1 always has", async () => {
+    const project = await enrolled("wave-absent");
+
+    const res = await post("/api/runs", submission(project));
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params.tick_ids).toBeUndefined();
+  });
+
+  it("refuses an id that is not tick-id shaped", async () => {
+    const project = await enrolled("wave-bad-id");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: ["aaa", "not-a-tick-id"] }));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    expect(workflow.created).toHaveLength(0);
+  });
+
+  it("refuses a duplicate tick id rather than booting two containers for one name", async () => {
+    const project = await enrolled("wave-dup");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: ["aaa", "aaa"] }));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_request",
+      detail: expect.stringContaining("aaa"),
+    });
+  });
+
+  it("refuses tick_ids past the bound rather than truncating it", async () => {
+    const project = await enrolled("wave-too-wide");
+    const tooMany = Array.from({ length: 65 }, (_, i) => i.toString(36).padStart(3, "0"));
+
+    const res = await post("/api/runs", submission(project, { tick_ids: tooMany }));
+
+    expect(res.status).toBe(400);
+    expect(workflow.created).toHaveLength(0);
+  });
+
+  it("treats an empty tick_ids the same as absent", async () => {
+    const project = await enrolled("wave-empty");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: [] }));
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params.tick_ids).toBeUndefined();
+  });
+
+  // The RunRoom's queued-submission record has no tick_ids column yet: rather
+  // than silently ignite the queued submission on the Phase 1 path later
+  // having accepted a wave up front, the combination is refused loudly at
+  // submission, while there is still a caller to tell.
+  it("refuses to queue a wave until queued cloud-wave submissions are supported", async () => {
+    const project = await enrolled("wave-queue");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { tick_ids: ["aaa"], queue: true })
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    expect(workflow.created).toHaveLength(0);
+  });
+});
+
 describe("submission on a leased project", () => {
   it("refuses, naming the holding run", async () => {
     const project = await enrolled("leased");

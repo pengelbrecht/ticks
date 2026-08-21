@@ -11,7 +11,7 @@ import { enrolProject, getRun, getRunProgress, listDispatchLogs, listRunGatewayT
 import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import type { RepoRefs } from "../src/progress";
 import type { RepoConfigReader } from "../src/repo-config";
-import { MAX_SANDBOX_BOOTS } from "../src/run-workflow";
+import { MAX_SANDBOX_BOOTS, chunkWave, resolveDispatchWidth, summarizeCloudWave } from "../src/run-workflow";
 import { roomFor, runStatus, startRun, stopRun, submitRun } from "../src/runs";
 import {
   DEFAULT_SANDBOX_IMAGE,
@@ -22,6 +22,9 @@ import {
   type SandboxProcessState,
   type SandboxProcessView,
 } from "../src/sandbox";
+import { WORKER_COMMAND, WORKER_PROBE_COMMAND, WORKER_PROBE_MARKER } from "../src/worker-boot";
+import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
+import { workerSandboxName } from "../src/worker-dispatch";
 
 /**
  * The Run Workflow: boot one orchestrator sandbox, watch it, enforce the
@@ -69,6 +72,15 @@ class FakeSandbox implements OrchestratorSandbox {
   destroyed = false;
   /** The container died and came back empty: it no longer knows its process. */
   vanished = false;
+  /**
+   * tick b6e: a worker's probe/work command completes the instant it starts —
+   * true for every test that does not care about batch timing. Set false to
+   * hold the process `running` until a test drives it explicitly, the same
+   * way an orchestrator process already behaves.
+   */
+  autoCompleteWorkers = true;
+  /** tick b6e: makes this sandbox's green-start probe fail (no marker). */
+  failProbe = false;
   #next = 0;
 
   constructor(readonly name: string) {}
@@ -79,6 +91,15 @@ class FakeSandbox implements OrchestratorSandbox {
   ): Promise<SandboxProcessView> {
     const process = new FakeProcess(`${this.name}-p${++this.#next}`, command, options.env);
     this.processes.push(process);
+    if (this.autoCompleteWorkers) {
+      if (command === WORKER_PROBE_COMMAND) {
+        if (!this.failProbe) process.say(`${WORKER_PROBE_MARKER}\n`);
+        process.exit(0);
+      } else if (command === WORKER_COMMAND) {
+        process.say("implementing\n");
+        process.exit(0);
+      }
+    }
     return process.view;
   }
 
@@ -117,6 +138,10 @@ class FakeSandboxes implements SandboxBinding {
   readonly booted: FakeSandbox[] = [];
   /** The image each `get` asked for — the boot's own parameter, per tick 3q2. */
   readonly requestedImages: (string | undefined)[] = [];
+  /** tick b6e: propagated to every worker sandbox this creates from here on. */
+  autoCompleteWorkers = true;
+  /** tick b6e: tick ids whose green-start probe should fail when booted. */
+  readonly failProbeFor = new Set<string>();
   readonly #byName = new Map<string, FakeSandbox>();
 
   async get(name: string, options?: { image?: string }): Promise<OrchestratorSandbox> {
@@ -124,6 +149,9 @@ class FakeSandboxes implements SandboxBinding {
     let sandbox = this.#byName.get(name);
     if (sandbox === undefined) {
       sandbox = new FakeSandbox(name);
+      sandbox.autoCompleteWorkers = this.autoCompleteWorkers;
+      const tick = /-tick-([a-z0-9]+)$/.exec(name)?.[1];
+      if (tick !== undefined && this.failProbeFor.has(tick)) sandbox.failProbe = true;
       this.#byName.set(name, sandbox);
       this.booted.push(sandbox);
     }
@@ -134,6 +162,13 @@ class FakeSandboxes implements SandboxBinding {
   get latest(): FakeSandbox {
     const sandbox = this.booted.at(-1);
     if (sandbox === undefined) throw new Error("no sandbox has been booted");
+    return sandbox;
+  }
+
+  /** tick b6e: the sandbox already booted under this exact name. */
+  named(name: string): FakeSandbox {
+    const sandbox = this.#byName.get(name);
+    if (sandbox === undefined) throw new Error(`no sandbox named ${name} was booted`);
     return sandbox;
   }
 
@@ -209,6 +244,45 @@ class FakeRepoConfig implements RepoConfigReader {
   }
 }
 
+/**
+ * A cloud wave's per-tick verdicts, faked (tick b6e): the durable git layer
+ * `collectFromGithub` would read, without a real repository.
+ *
+ * Defaults every tick to `ready-to-merge` — the common case — so a test only
+ * has to `set` the ticks it cares about making say something else.
+ */
+class FakeWorkerCollector implements WorkerCollector {
+  readonly asked: WorkerTask[] = [];
+  readonly #reports = new Map<string, WorkerReport>();
+
+  set(tickID: string, report: Partial<WorkerReport>): void {
+    this.#reports.set(tickID, { ...defaultWorkerReport(tickID), ...report });
+  }
+
+  async collect(task: WorkerTask): Promise<WorkerReport> {
+    this.asked.push(task);
+    return this.#reports.get(task.tick_id) ?? defaultWorkerReport(task.tick_id);
+  }
+}
+
+function defaultWorkerReport(tickID: string): WorkerReport {
+  return {
+    tick_id: tickID,
+    branch: `tick/ko8/${tickID}`,
+    base_sha: BASE_SHA,
+    verdict: "ready-to-merge",
+    branch_exists: true,
+    commits: 1,
+    result_path: `RESULT-${tickID}.md`,
+    result_exists: true,
+    status: "DONE",
+    status_detail: "",
+    status_line: "STATUS: DONE",
+    boundary_files: [],
+    detail: "ready to merge",
+  };
+}
+
 // ------------------------------------------------------------------ harness ---
 
 const GATEWAY = "https://gateway.ai.cloudflare.com/v1/account/ticks";
@@ -272,7 +346,7 @@ let counter = 0;
 
 /** Takes the lease and ignites a run, exactly as the submit route does. */
 async function ignite(
-  overrides: { epic?: string; project?: string; leaseTtlMs?: number } = {}
+  overrides: { epic?: string; project?: string; leaseTtlMs?: number; tickIDs?: string[] } = {}
 ) {
   const project = overrides.project ?? `${PROJECT}-${++counter}`;
   const epic = overrides.epic ?? "ko8";
@@ -292,6 +366,7 @@ async function ignite(
     base_sha: BASE_SHA,
     requested_by: "operator",
     lease_token: lease.lease.token,
+    ...(overrides.tickIDs === undefined ? {} : { tick_ids: overrides.tickIDs }),
   });
   return { runID, project, epic, started, room };
 }
@@ -1360,5 +1435,210 @@ describe("an unprovisioned deployment fails closed", () => {
     const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord | null;
     expect(record?.detail ?? "").toContain("tk factory setup");
     expect(sandboxes.booted).toHaveLength(0);
+  });
+});
+
+// ------------------------------------------------------ substrate = cloud ---
+
+/**
+ * substrate = cloud: per-tick worker containers for a wave (tick b6e).
+ *
+ * `dispatchWave` (0ds) and the worker entrypoint (tap) already exist and are
+ * tested; this is the call site that makes them reachable from a real run.
+ * The width-reconciliation math (`resolveDispatchWidth`, `chunkWave`) is
+ * pure and tested directly; the wiring is proved end to end through the same
+ * real-Workflow harness every other describe block in this file uses.
+ */
+describe("resolveDispatchWidth: two ceilings that must not disagree silently", () => {
+  it("uses the deployment ceiling when no max_parallel is declared", () => {
+    expect(resolveDispatchWidth(3, null)).toMatchObject({ width: 3, capped: false });
+  });
+
+  it("uses max_parallel when it fits under the ceiling", () => {
+    expect(resolveDispatchWidth(5, 2)).toMatchObject({ width: 2, capped: false });
+  });
+
+  it("caps at the deployment ceiling and says so when max_parallel is wider", () => {
+    const resolved = resolveDispatchWidth(3, 10);
+    expect(resolved.width).toBe(3);
+    expect(resolved.capped).toBe(true);
+    expect(resolved.detail).toContain("10");
+    expect(resolved.detail).toContain("3");
+  });
+
+  it("treats an equal request as uncapped", () => {
+    expect(resolveDispatchWidth(3, 3)).toMatchObject({ width: 3, capped: false });
+  });
+});
+
+describe("chunkWave", () => {
+  it("splits a wave into batches of at most width, preserving order", () => {
+    expect(chunkWave(["a", "b", "c", "d", "e"], 2)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+  });
+
+  it("returns one batch when width covers the whole wave", () => {
+    expect(chunkWave(["a", "b"], 5)).toEqual([["a", "b"]]);
+  });
+
+  it("returns nothing for an empty wave", () => {
+    expect(chunkWave([], 3)).toEqual([]);
+  });
+});
+
+describe("summarizeCloudWave", () => {
+  it("counts by verdict, and by not-launched separately from any verdict", () => {
+    const outcome = (tickID: string, launched: boolean, verdict?: WorkerReport["verdict"]) => ({
+      tick_id: tickID,
+      sandbox_name: `s-${tickID}`,
+      launched,
+      probe: { ok: true } as const,
+      confirm: null,
+      process_id: null,
+      detail: "",
+      wait: null,
+      collect: { ...defaultWorkerReport(tickID), ...(verdict === undefined ? {} : { verdict }) },
+      teardown: { killed: false, destroyed: true, liveness: null },
+    });
+    const summary = summarizeCloudWave([
+      outcome("aaa", true, "ready-to-merge"),
+      outcome("bbb", true, "ready-to-merge"),
+      outcome("ccc", true, "missing-result"),
+      outcome("ddd", false),
+    ]);
+    expect(summary).toBe("1 missing-result, 1 not-launched, 2 ready-to-merge");
+  });
+});
+
+describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
+  let collector: FakeWorkerCollector;
+
+  beforeEach(() => {
+    collector = new FakeWorkerCollector();
+    set("WORKER_COLLECTOR", collector);
+  });
+
+  it("leaves the Phase 1 path completely unchanged when tick_ids is absent", async () => {
+    const { runID } = await ignite();
+    const process = await firstProcess();
+    expect(sandboxes.booted).toHaveLength(1);
+    expect(sandboxes.booted[0]!.name).not.toContain("-tick-");
+    process.exit(0);
+    await settled(runID);
+  });
+
+  it("boots one container per tick instead of one orchestrator, then hands off to closeout", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    await waitFor("both worker containers to boot", async () => {
+      try {
+        sandboxes.named(workerSandboxName(runID, "aaa"));
+        sandboxes.named(workerSandboxName(runID, "bbb"));
+        return true;
+      } catch {
+        return null;
+      }
+    });
+
+    // No orchestrator sandbox for the WORK phase — only the two workers. (A
+    // closeout orchestrator legitimately boots afterward; this checks the
+    // work phase specifically, via TICKS_PHASE, not "nothing else was ever
+    // booted".)
+    expect(sandboxes.phase("run")).toBeUndefined();
+    expect(sandboxes.named(workerSandboxName(runID, "aaa"))).toBeDefined();
+    expect(sandboxes.named(workerSandboxName(runID, "bbb"))).toBeDefined();
+
+    // Every container was given ITS OWN tick, never a shared one.
+    const aaaWork = sandboxes
+      .named(workerSandboxName(runID, "aaa"))
+      .processes.find((p) => p.command === WORKER_COMMAND)!;
+    const bbbWork = sandboxes
+      .named(workerSandboxName(runID, "bbb"))
+      .processes.find((p) => p.command === WORKER_COMMAND)!;
+    expect(aaaWork.env.TICKS_TICK).toBe("aaa");
+    expect(bbbWork.env.TICKS_TICK).toBe("bbb");
+    // Both share ONE gateway token — never one per worker (D17's rotation
+    // would have them revoke each other's).
+    expect(aaaWork.env.AI_GATEWAY_TOKEN).toBe(bbbWork.env.AI_GATEWAY_TOKEN);
+
+    // Collect read the durable layer for both, never a sandbox.
+    expect(collector.asked.map((t) => t.tick_id).sort()).toEqual(["aaa", "bbb"]);
+
+    // Per-tick workers only implement and push (tap); nothing merges or
+    // closes the epic out, so a real orchestrator boots for that.
+    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
+    expect(closeout.env.TICKS_EPIC).toBe(epic);
+    expect(closeout.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+
+    closeout.exit(0);
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("cloud wave dispatched 2");
+    expect(record.detail).toContain("ready-to-merge");
+  });
+
+  it("resolves the dispatch width from the deployment ceiling when no max_parallel is declared", async () => {
+    set("FACTORY_MAX_INSTANCES", "5");
+    const { runID, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    const logged = await waitFor("the wave's width to be logged", async () => {
+      const logs = await listDispatchLogs(env.DB, runID, epic);
+      return logs.find((l) => l.decision.startsWith("cloud_wave:width=")) ?? null;
+    });
+    expect(logged.decision).toBe("cloud_wave:width=5");
+
+    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("stopped");
+  });
+
+  it("caps the wave at the deployment ceiling and says so when max_parallel is wider", async () => {
+    set("FACTORY_MAX_INSTANCES", "2");
+    repoConfig.source = "[orchestration]\nmax_parallel = 5\n";
+    const { runID, epic } = await ignite({ tickIDs: ["aaa", "bbb", "ccc"] });
+
+    const logged = await waitFor("the wave's width to be logged", async () => {
+      const logs = await listDispatchLogs(env.DB, runID, epic);
+      return logs.find((l) => l.decision.startsWith("cloud_wave:width=")) ?? null;
+    });
+    expect(logged.decision).toBe("cloud_wave:width=2:capped");
+
+    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("stopped");
+  });
+
+  it("defers to the project's own narrower max_parallel rather than the deployment ceiling", async () => {
+    set("FACTORY_MAX_INSTANCES", "5");
+    repoConfig.source = "[orchestration]\nmax_parallel = 1\n";
+    const { runID, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    const logged = await waitFor("the wave's width to be logged", async () => {
+      const logs = await listDispatchLogs(env.DB, runID, epic);
+      return logs.find((l) => l.decision.startsWith("cloud_wave:width=")) ?? null;
+    });
+    expect(logged.decision).toBe("cloud_wave:width=1");
+
+    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("stopped");
+  });
+
+  it("fails the run without addressing an orchestrator sandbox when every probe fails", async () => {
+    sandboxes.failProbeFor.add("aaa");
+    sandboxes.failProbeFor.add("bbb");
+    const { runID, project } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const run = await settled(runID);
+    expect(run.state).toBe("failed");
+
+    // Zero orchestrator boots: `finalize`'s teardown loop must never ADDRESS
+    // (and so provision) a sandbox named for an orchestrator attempt that
+    // never happened.
+    expect(sandboxes.booted.some((s) => !s.name.includes("-tick-"))).toBe(false);
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("green-start probe");
   });
 });

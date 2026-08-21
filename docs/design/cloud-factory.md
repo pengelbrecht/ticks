@@ -1370,6 +1370,16 @@ Collected from the use cases; each appears above in context.
    their transports in Phase 3.
 2. **Phase 2 — real fan-out.** Per-tick worker sandboxes; substrate `cloud` in
    `runners.toml`; reconcile-on-reboot; `run_event` producers; R2 artifacts.
+   Landed so far: the dispatch mechanism (0ds), the worker entrypoint (tap),
+   and the Run Workflow call site (b6e) that fans a submitted wave out into
+   per-tick containers instead of one orchestrator running harness-native
+   subagents. NOT landed: `Substrate` in `internal/herd/config/types.go` still
+   has no `cloud` value (only `herdr`/`harness`/`auto`) — a repository cannot
+   yet *declare* `[orchestration].substrate = "cloud"` and have `tk` agree it
+   means anything, so b6e's trigger is submission-level (`tick_ids` present on
+   `POST /api/runs`) rather than a repo-config read. Extending the Go enum,
+   and the CLI plumbing to populate `tick_ids` from a locally-computed wave,
+   are follow-up ticks.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage
@@ -1383,11 +1393,22 @@ Order rationale: each phase is independently useful, and the risky loops
 
 ## Open questions
 
-- **Where does `wave.Compute` run for the dispatcher?** Port the (small, pure)
-  Go library to TS in the Worker, or have the dispatcher only *count* ready
-  ticks and leave graph computation to the orchestrator sandbox. Leaning to
-  the latter — the dispatcher needs "is there ready work under this filter,"
-  not the full wave structure.
+- **Where does `wave.Compute` run for the dispatcher?** Decided, narrowly, by
+  tick b6e (the Run Workflow's `dispatchWave` call site): NOT in the Worker.
+  `RunWorkflowParams.tick_ids` carries an already-resolved wave in from the
+  submission, and readiness is computed where `tk graph`/`wave.Compute`
+  already runs correctly and is already tested — the submitter — rather than
+  ported a second time into TypeScript (`.tick/learnings.md`'s "Cross-language
+  parity, parsers and formats" is exactly the failure class a second port
+  risks). What is still open: the Go CLI side of this (`tk cloud run` naming a
+  wave and passing `--tick-ids`) does not exist yet, so today `tick_ids` is
+  reachable only by calling `POST /api/runs` directly. A submitter that wants
+  ITERATIVE fan-out (wave 2 after wave 1 merges, not just one wave per run) is
+  also not addressed — b6e's cloud-wave pass always hands off to a real
+  orchestrator boot (`closeout` phase) after dispatching its one wave, which
+  can itself compute and drive further waves under the `harness` substrate,
+  but does not yet re-enter the per-tick cloud path for them. Both are
+  follow-up ticks, not silently assumed away.
 - **Multi-repo projects.** Everything above assumes project == one repo (as
   `internal/github` project detection does today). Factory 2.0-style
   cross-repo signals are out of scope until a real use case forces the issue.

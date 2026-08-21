@@ -1,30 +1,40 @@
 /**
  * The repository's own tracked configuration, read at the submitted SHA.
  *
- * One key comes out of it here: `[sandbox].image`, the image a repository
- * declares its runs should boot. Everything else in `.tick/runners.toml` — the
- * setup commands above all — is read INSIDE the container by the `tk` that
- * owns the format, and deliberately nowhere else (`cloud/sandbox/README.md`,
- * *Where setup may come from*). The image is the one value that cannot wait
- * for a checkout: by the time a container exists it is already running an
- * image, so the only place that can act on a declaration is the control plane,
- * before it boots one.
+ * Two keys come out of it here. `[sandbox].image` is the image a repository
+ * declares its runs should boot: it cannot wait for a checkout, because by the
+ * time a container exists it is already running an image, so the only place
+ * that can act on a declaration is the control plane, before it boots one.
+ * `[orchestration].max_parallel` (tick b6e) is the wave width a cloud run's
+ * container fan-out must not silently exceed — the same number `kji` enforces
+ * on the tick claim inside each worker, read here so the two never disagree
+ * without saying so. Everything else in `.tick/runners.toml` — the setup
+ * commands above all — is read INSIDE the container by the `tk` that owns the
+ * format, and deliberately nowhere else (`cloud/sandbox/README.md`, *Where
+ * setup may come from*).
  *
  * Where the value comes from is the whole security argument, and it is the
  * same one setup gets: the tracked, PR-reviewed file at the submitted SHA,
  * fetched by this Worker from the repository itself. Never a submission
  * parameter — an image IS arbitrary code, so accepting one from a caller would
  * hand whoever can submit a run the container that holds the run's gateway
- * credential and its GitHub token.
+ * credential and its GitHub token. `max_parallel` is a bounded integer, not
+ * arbitrary code, but it is read from the same tracked source for the same
+ * reason: a submission cannot widen its own concurrency past what the
+ * repository's own PR-reviewed policy allows.
  *
  * Reading it here is best effort, and that is not a shrug (tick x3v). This
  * module's parser is a second reader of a format whose first reader is Go, so
  * a file it cannot read must not fail a run on its own authority. What makes
- * that safe is the backstop: the entrypoint compares the repository's declared
- * image — through `tk`, the authoritative reader — against the image the
- * control plane says it booted, and REFUSES the boot on a mismatch. So a
- * declaration this module misses ends as a legible configuration failure
- * inside the container, never as a silent fall back to the base image.
+ * that safe for the image is the backstop: the entrypoint compares the
+ * repository's declared image — through `tk`, the authoritative reader —
+ * against the image the control plane says it booted, and REFUSES the boot on
+ * a mismatch. So a declaration this module misses ends as a legible
+ * configuration failure inside the container, never as a silent fall back to
+ * the base image. `max_parallel` has a matching backstop of its own: a
+ * declaration this module misses just means the deployment's own ceiling
+ * stands, and `kji`'s claim-time enforcement inside each worker is still the
+ * authoritative check no dispatch-side miss can bypass.
  */
 
 import { GITHUB_API_BASE_URL } from "./progress";
@@ -163,6 +173,72 @@ export type DeclaredImage = {
   /** Why it could not be read, or null when the read was conclusive. */
   unread: string | null;
 };
+
+// -------------------------------------------------------- the wave width ---
+
+/**
+ * The `[orchestration].max_parallel` schema mirrored from
+ * `internal/herd/config/load.go` (`must be >= 1`).
+ *
+ * Read for the same reason the image is (tick b6e): a cloud wave's container
+ * width is a control-plane decision made before any container boots, and it
+ * must not disagree with the width `kji` enforces on the tick claim inside
+ * each worker — a wave dispatched wider than this would only book containers
+ * whose claim gets refused.
+ */
+export function declaredMaxParallel(source: string): number | null {
+  const root = parseToml(source);
+  const orchestration = (root as Record<string, unknown>).orchestration;
+  if (orchestration === undefined) return null;
+  if (typeof orchestration !== "object" || orchestration === null || Array.isArray(orchestration)) {
+    throw new Error("[orchestration] is not a table");
+  }
+  const value = (orchestration as Record<string, unknown>).max_parallel;
+  if (value === undefined) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error(`orchestration.max_parallel is ${typeof value}, not an integer`);
+  }
+  if (value < 1) {
+    throw new Error(`orchestration.max_parallel must be >= 1, got ${value}`);
+  }
+  return value;
+}
+
+/** What the control plane could learn about a repository's declared wave width. */
+export type DeclaredMaxParallel = {
+  /** The declared width, or null for "nothing declared" and for "not read". */
+  max_parallel: number | null;
+  /** Why it could not be read, or null when the read was conclusive. */
+  unread: string | null;
+};
+
+/**
+ * Read the wave width a repository declares at this commit. Never throws.
+ *
+ * Best effort, mirroring `readDeclaredSandboxImage`: this module's parser is a
+ * second reader of a format Go owns, so a file it cannot read must not fail a
+ * run on its own authority — it leaves the deployment's own ceiling standing,
+ * which `resolveDispatchWidth` in src/run-workflow.ts treats as "no configured
+ * width" rather than as a refusal.
+ */
+export async function readDeclaredMaxParallel(
+  env: Env,
+  project: string,
+  ref: string
+): Promise<DeclaredMaxParallel> {
+  try {
+    const source = await repoConfig(env).read(project, ref);
+    if (source === null) return { max_parallel: null, unread: null };
+    return { max_parallel: declaredMaxParallel(source), unread: null };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const kind = error instanceof TomlParseError ? "could not be parsed here" : "could not be read";
+    return {
+      max_parallel: null,
+      unread: `${RUNNERS_CONFIG_PATH} of ${project} at ${ref} ${kind} (${detail})`,
+    };
+  }
+}
 
 /**
  * Read the image the repository declares at this commit. Never throws.

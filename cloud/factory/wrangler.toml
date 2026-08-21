@@ -113,6 +113,15 @@ RUN_STOP_GRACE_MS = "300000"
 # A closeout that has not closed out in this long is not going to.
 RUN_CLOSEOUT_MS = "1800000"
 
+# The account's container ceiling, mirrored (tick b6e): must equal
+# `[[containers]] max_instances` above. Wrangler does not hand a container
+# application's own config back to the Worker at runtime, so a cloud wave's
+# dispatch width — bounded so it never books more concurrent containers than
+# the account can actually run — needs its own copy of the number. Raise both
+# together, bounded by the account's real container limit, or a wave wider
+# than this silently serializes exactly the way wave 3 measured for Phase 1.
+FACTORY_MAX_INSTANCES = "3"
+
 # The Run Workflow: one instance per run, keyed by run id, so one trace ID
 # threads every layer (D20) and `status` finds the instance with no extra
 # column. src/runs.ts creates instances; src/run-workflow.ts is the lifecycle.
