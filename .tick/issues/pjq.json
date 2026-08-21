@@ -1,0 +1,13 @@
+{
+  "id": "pjq",
+  "title": "tk cloud run --tick-ids: reach the cloud-wave path from the CLI",
+  "description": "From b6e gap 1. The per-tick-container path is only reachable by POSTing to /api/runs directly with tick_ids in the body; tk cloud run has no flag for it. Add one, and while there decide what it means to combine it with --queue: b6e refuses queue plus tick_ids with a 400 rather than accepting it and losing the wave on later ignition (the RunRoom queued-submission storage has no tick_ids column), so the CLI should refuse it clearly rather than let the operator discover it as an HTTP error.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T19:36:09.896421Z",
+  "updated_at": "2026-08-21T19:36:09.896421Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "ddv",
+  "title": "Go's Substrate enum has no cloud value",
+  "description": "From b6e gap 3. internal/herd/config/types.go knows herdr, harness and auto only, so a repository cannot declare [orchestration].substrate = \"cloud\" and have tk agree it means anything. That is why b6e triggers the per-tick-container path on the SUBMISSION carrying tick_ids rather than on repo config — a workaround, and a reasonable one, but it means the substrate a repo declares and the substrate a run actually uses can disagree with nothing to reconcile them.\n\nExtend the enum and decide what tk does differently once it is set, including what tk herd spawn should do when a repo says cloud. bmo depends on this being real rather than implied.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T19:36:09.865903Z",
+  "updated_at": "2026-08-21T19:36:09.865903Z"
+}
