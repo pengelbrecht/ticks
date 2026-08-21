@@ -2,7 +2,7 @@
   "id": "h4n",
   "title": "Pre-flight asserts the gateway is on postpaid Workers AI billing",
   "description": "AI Gateway has a per-gateway workers_ai_billing_mode. On postpaid, Workers AI lands on the normal Cloudflare invoice, where an account credit can absorb it. On unified, the same traffic drains a separately purchased prepaid wallet (bought at a 5 percent premium) instead — so a one-click dashboard change silently moves every run from credit-funded to cash-funded, with no signal in our telemetry. Pre-flight should read the gateway config and fail loudly if the mode is not the one the operator configured.",
-  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own pre-flight — internal/factory and whatever reads the gateway's config. fxf owns gateway.ts request headers; stay out of the proxy path. Measured context: both of this operator's gateways currently report workers_ai_billing_mode=postpaid, which is the mode that reaches the invoice where the credit lives; unified would silently move spend to a separately purchased prepaid wallet at a 5 percent premium. repo-wiki/cloud-factory-billing.md has the three-pot model.",
+  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own pre-flight — internal/factory and whatever reads the gateway's config. fxf owns gateway.ts request headers; stay out of the proxy path. Measured context: both of this operator's gateways currently report workers_ai_billing_mode=postpaid, which is the mode that reaches the invoice where the credit lives; unified would silently move spend to a separately purchased prepaid wallet at a 5 percent premium. repo-wiki/cloud-factory-billing.md has the three-pot model.\n2026-08-21 16:56 - runner-state: substrate=herdr kind=claude branch=tick/h4n worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-h4n workspace=wD9 base=f2925cf88162b6bbaff483b87c82caaf6c7942a8 agent=tick-h4n pane=wD9:p1 session=0ce01004-b1cf-4130-b342-2b8de503da70",
   "status": "in_progress",
   "priority": 1,
   "type": "task",
@@ -10,6 +10,6 @@
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T06:55:06.59844Z",
-  "updated_at": "2026-08-21T14:55:57.22497Z",
+  "updated_at": "2026-08-21T14:56:25.746308Z",
   "started_at": "2026-08-21T14:55:57.22497Z"
 }
