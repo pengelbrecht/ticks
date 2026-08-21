@@ -104,11 +104,17 @@ Bun-runtime harness (`docs/design/cloud-factory.md`, "oh-my-pi as a candidate
 default kind"). It does not replace Node — this repo's own tooling is
 pnpm-on-Node and keeps working.
 
-**The cost, stated honestly.** A batteries-included image is large, and image
-size is paid on *cold start*. Phase 2 starts a container per tick, so a ~2 GB
-image across five parallel workers is real wall-clock. The mitigation is named
-sandboxes that sleep and wake with the image already pulled, plus keeping the
-set to what the projects actually use — not "every runtime that might come up".
+**The cost, measured.** A batteries-included image is large, and image size is
+paid on *cold start*. That cost used to be stated as an estimate; it is now
+measured, and the estimate was wrong in a useful direction —
+`docs/sandbox-start-benchmark.md` (2026-08-21) puts the image at 2.90 GB on disk
+but **1.11 GB on the wire**, of which this Dockerfile's additions are ~750 MB.
+A cold start comes to ~93 s and a warm one to ~18 s; the alternative, a thin base
+that provisions the same toolchains per sandbox, costs 31.9 s *every* sandbox and
+so loses from the second one onward. The measurement says keep this image, and
+names the one trim worth its own decision (the base's `-python` variant, 137 MB
+compressed). Re-measure after any change to the pins above:
+`python3 scripts/bench_sandbox_start.py --all`.
 
 **Runtimes in the image, caches in the sandbox.** Nothing repository-specific is
 ever baked in: no clone, no `node_modules`, no module cache. Baking dependencies

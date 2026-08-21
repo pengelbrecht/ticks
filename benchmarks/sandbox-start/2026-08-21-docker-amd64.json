@@ -1,0 +1,583 @@
+{
+  "schema": "ticks.sandbox-start-benchmark/1",
+  "measured_at": "2026-08-21T16:02:15+00:00",
+  "harness": "scripts/bench_sandbox_start.py",
+  "platform": {
+    "backend": "docker",
+    "host_arch": "aarch64",
+    "host_cpus": 10,
+    "host_memory_bytes": 16808570880,
+    "docker_version": "29.4.0",
+    "storage_driver": "overlay2",
+    "platform": "darwin",
+    "region": "operator host, EU link; Cloudflare region not measured",
+    "image_arch": "amd64",
+    "instance_type_priced": "standard-3",
+    "fidelity": "Docker on the operator's host, not Cloudflare. Image bytes, unpack, clone, provisioning, dependency install and host contention are measured; registry bandwidth and sleep/wake behaviour are not."
+  },
+  "image": {
+    "ref": "ticks-orchestrator:398fa0d4",
+    "digest": "sha256:bba8994210de5fd0597291497b05d2a03f0156bcd2bc8990710eb18d72bdfacf",
+    "image_arch": "amd64",
+    "os": "linux",
+    "size_bytes": 2897553704,
+    "layer_count": 37,
+    "batteries_size_bytes": 1867140893,
+    "base_size_bytes": 1027727167,
+    "largest_added_layers": [
+      {
+        "size_bytes": 405000000,
+        "instruction": "apt-get update && apt-get install -y --no-install-recommends build-essential ripgrep && rm -rf /var/lib/apt/lists/*"
+      },
+      {
+        "size_bytes": 400000000,
+        "instruction": "npm install -g \"@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}\""
+      },
+      {
+        "size_bytes": 317000000,
+        "instruction": "set -euo pipefail; git --version; rg --version | sed -n 1p; jq --version; cc --version | sed -n 1p; go version; uv --version; node --version; pnpm --version; bun --version; python3 --version; mise --v"
+      },
+      {
+        "size_bytes": 253000000,
+        "instruction": "set -euo pipefail; case \"${TARGETARCH}\" in amd64) go_arch=amd64; go_sum=\"${GO_SHA256_AMD64}\" ;; arm64) go_arch=arm64; go_sum=\"${GO_SHA256_ARM64}\" ;; *) echo \"unsupported architecture: ${TARGETARCH}\" >"
+      },
+      {
+        "size_bytes": 178000000,
+        "instruction": "set -euo pipefail; case \"${TARGETARCH}\" in amd64) omp_arch=x64; omp_sum=\"${OMP_SHA256_AMD64}\" ;; arm64) omp_arch=arm64; omp_sum=\"${OMP_SHA256_ARM64}\" ;; *) echo \"unsupported architecture: ${TARGETARCH"
+      },
+      {
+        "size_bytes": 116000000,
+        "instruction": "set -euo pipefail; case \"${TARGETARCH}\" in amd64) mise_arch=x64; mise_sum=\"${MISE_SHA256_AMD64}\" ;; arm64) mise_arch=arm64; mise_sum=\"${MISE_SHA256_ARM64}\" ;; *) echo \"unsupported architecture: ${TARG"
+      },
+      {
+        "size_bytes": 92800000,
+        "instruction": "set -euo pipefail; case \"${TARGETARCH}\" in amd64) bun_arch=x64; bun_sum=\"${BUN_SHA256_AMD64}\" ;; arm64) bun_arch=aarch64; bun_sum=\"${BUN_SHA256_ARM64}\" ;; *) echo \"unsupported architecture: ${TARGETAR"
+      },
+      {
+        "size_bytes": 59400000,
+        "instruction": "set -euo pipefail; case \"${TARGETARCH}\" in amd64) uv_arch=x86_64-unknown-linux-gnu; uv_sum=\"${UV_SHA256_AMD64}\" ;; arm64) uv_arch=aarch64-unknown-linux-gnu; uv_sum=\"${UV_SHA256_ARM64}\" ;; *) echo \"uns"
+      },
+      {
+        "size_bytes": 29500000,
+        "instruction": "set -euo pipefail; npm install -g \"pnpm@${PNPM_VERSION}\"; pnpm --version"
+      },
+      {
+        "size_bytes": 15900000,
+        "instruction": "set -euo pipefail; GOTOOLCHAIN=local GOFLAGS=-trimpath GOBIN=/usr/local/bin go install -ldflags \"-s -w -X main.Version=${TK_VERSION}\" \"${TK_MODULE}@${TK_SOURCE_REF}\"; rm -rf /root/go/pkg/mod /root/.ca"
+      }
+    ],
+    "largest_base_layers": [
+      {
+        "size_bytes": 287000000,
+        "instruction": "pip3 install --no-cache-dir matplotlib numpy pandas ipython"
+      },
+      {
+        "size_bytes": 148000000,
+        "instruction": "COPY /usr/local/python /usr/local/python"
+      },
+      {
+        "size_bytes": 138000000,
+        "instruction": "rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downloaded-Packages \"true\";' >/etc/apt/apt.conf.d/keep-cache && rm -rf /var/cache/apt/* /var/lib/apt/lists/* && apt-get update &&"
+      },
+      {
+        "size_bytes": 125000000,
+        "instruction": "COPY /usr/local/bin/node /usr/local/bin/node"
+      },
+      {
+        "size_bytes": 99900000,
+        "instruction": "COPY /app/packages/sandbox-container/dist/sandbox /container-server/sandbox"
+      },
+      {
+        "size_bytes": 99700000,
+        "instruction": "COPY /usr/local/bin/bun /usr/local/bin/bun"
+      },
+      {
+        "size_bytes": 78100000,
+        "instruction": "#(nop) ADD file:4501ff54ffd37d854b1cfbcd2e37da58bf8a49da3a6a82232d03e7556d337a92 in /"
+      },
+      {
+        "size_bytes": 39700000,
+        "instruction": "COPY /cloudflared /usr/local/bin/cloudflared"
+      },
+      {
+        "size_bytes": 11900000,
+        "instruction": "COPY /usr/local/lib/node_modules /usr/local/lib/node_modules"
+      },
+      {
+        "size_bytes": 266000,
+        "instruction": "COPY /app/packages/sandbox-container/dist/index.js ./dist/"
+      }
+    ]
+  },
+  "pull": {
+    "cold_wan": {
+      "ref": "docker.io/cloudflare/sandbox:0.12.6-python",
+      "platform": "linux/arm64",
+      "seconds": 25.531005917117,
+      "uncompressed_bytes": 1028710438,
+      "bytes_per_second": 40292593.301633745,
+      "layers_downloaded": 18,
+      "layers_already_present": 1,
+      "cold": true,
+      "note": "layers absent from the host; download + decompress + extract, end to end"
+    },
+    "warm_host": {
+      "ref": "docker.io/cloudflare/sandbox:0.12.7-python",
+      "platform": "linux/amd64",
+      "seconds": 1.8099528327584267,
+      "already_present_layers": 21,
+      "note": "layers already on the host; this is what a wake saves, at most"
+    },
+    "compression": {
+      "compressed_bytes": 1112314706,
+      "measured": true,
+      "ratio": 0.38388061779993154,
+      "config_bytes": 35725,
+      "layer_count": 37,
+      "largest_compressed_layers": [
+        200205026,
+        186999187,
+        103632795,
+        88855800,
+        79125314,
+        65235968,
+        47930462,
+        47506836,
+        45212319,
+        39518239
+      ],
+      "push_seconds_loopback": 37.393802291713655,
+      "method": "pushed to a throwaway local registry; sizes are the manifest's, i.e. what a pull moves"
+    },
+    "download_only_seconds_by_mbps": {
+      "100": 88.98517648,
+      "250": 35.594070592,
+      "500": 17.797035296,
+      "1000": 8.898517648,
+      "2500": 3.5594070592
+    },
+    "cold_pull_seconds_extrapolated": 71.91281241960945,
+    "cold_pull_basis": "image bytes / the end-to-end rate measured on --probe-image; the cold mode's image_pull stage is this number, and it is an extrapolation from this host, not a platform measurement"
+  },
+  "modes": {
+    "cold": {
+      "runs": [
+        {
+          "stages": {
+            "container_start": 0.3589079170487821,
+            "git_clone": 3.328994124662131,
+            "toolchain_provision": 0.6745321657508612,
+            "deps_install": 16.962909874971956,
+            "image_pull": 71.91281241960945
+          },
+          "total_s": 93.23815650204318,
+          "skipped_stages": [],
+          "cache": "cold",
+          "exec_overhead_s": 0.09228141698986292,
+          "declared_setup": {
+            "declares": false,
+            "seconds": 0.19969083415344357,
+            "source_used": "representative fallback (the checkout declares no [sandbox].setup)",
+            "output": "sandbox: no [sandbox] setup in .tick/runners.toml \u2014 nothing to warm"
+          },
+          "image_pull_is_derived": true
+        }
+      ],
+      "median_stages": {
+        "image_pull": 71.91281241960945,
+        "container_start": 0.3589079170487821,
+        "git_clone": 3.328994124662131,
+        "toolchain_provision": 0.6745321657508612,
+        "deps_install": 16.962909874971956
+      },
+      "stage_range_s": {
+        "image_pull": {
+          "min": 71.91281241960945,
+          "max": 71.91281241960945
+        },
+        "container_start": {
+          "min": 0.3589079170487821,
+          "max": 0.3589079170487821
+        },
+        "git_clone": {
+          "min": 3.328994124662131,
+          "max": 3.328994124662131
+        },
+        "toolchain_provision": {
+          "min": 0.6745321657508612,
+          "max": 0.6745321657508612
+        },
+        "deps_install": {
+          "min": 16.962909874971956,
+          "max": 16.962909874971956
+        }
+      },
+      "median_total_s": 93.23815650204318,
+      "total_range_s": {
+        "min": 93.23815650204318,
+        "max": 93.23815650204318
+      },
+      "setup_source": "representative fallback: this checkout declares no [sandbox].setup, so the measured warm step is the dependency install a run of this repo would do",
+      "setup_commands": [
+        "go mod download",
+        "cd internal/tickboard/ui && pnpm install --frozen-lockfile --prefer-offline"
+      ]
+    },
+    "warm": {
+      "runs": [
+        {
+          "stages": {
+            "container_start": 0.6191274169832468,
+            "git_clone": 3.8460189579054713,
+            "toolchain_provision": 0.509458125103265,
+            "deps_install": 12.806906832847744,
+            "image_pull": 0.0
+          },
+          "total_s": 17.781511332839727,
+          "skipped_stages": [
+            "image_pull"
+          ],
+          "cache": "warm",
+          "exec_overhead_s": 0.08199129207059741,
+          "declared_setup": {
+            "declares": false,
+            "seconds": 0.19490937516093254,
+            "source_used": "representative fallback (the checkout declares no [sandbox].setup)",
+            "output": "sandbox: no [sandbox] setup in .tick/runners.toml \u2014 nothing to warm"
+          }
+        },
+        {
+          "stages": {
+            "container_start": 0.43908804235979915,
+            "git_clone": 3.90780062507838,
+            "toolchain_provision": 0.7634822083637118,
+            "deps_install": 13.42515466734767,
+            "image_pull": 0.0
+          },
+          "total_s": 18.53552554314956,
+          "skipped_stages": [
+            "image_pull"
+          ],
+          "cache": "warm",
+          "exec_overhead_s": 0.12860949989408255,
+          "declared_setup": {
+            "declares": false,
+            "seconds": 0.27724120765924454,
+            "source_used": "representative fallback (the checkout declares no [sandbox].setup)",
+            "output": "sandbox: no [sandbox] setup in .tick/runners.toml \u2014 nothing to warm"
+          }
+        },
+        {
+          "stages": {
+            "container_start": 0.2756589171476662,
+            "git_clone": 3.2766211247071624,
+            "toolchain_provision": 0.6284826248884201,
+            "deps_install": 11.866982084233314,
+            "image_pull": 0.0
+          },
+          "total_s": 16.047744750976562,
+          "skipped_stages": [
+            "image_pull"
+          ],
+          "cache": "warm",
+          "exec_overhead_s": 0.09362812479957938,
+          "declared_setup": {
+            "declares": false,
+            "seconds": 0.20839475002139807,
+            "source_used": "representative fallback (the checkout declares no [sandbox].setup)",
+            "output": "sandbox: no [sandbox] setup in .tick/runners.toml \u2014 nothing to warm"
+          }
+        }
+      ],
+      "median_stages": {
+        "image_pull": 0.0,
+        "container_start": 0.43908804235979915,
+        "git_clone": 3.8460189579054713,
+        "toolchain_provision": 0.6284826248884201,
+        "deps_install": 12.806906832847744
+      },
+      "stage_range_s": {
+        "image_pull": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "container_start": {
+          "min": 0.2756589171476662,
+          "max": 0.6191274169832468
+        },
+        "git_clone": {
+          "min": 3.2766211247071624,
+          "max": 3.90780062507838
+        },
+        "toolchain_provision": {
+          "min": 0.509458125103265,
+          "max": 0.7634822083637118
+        },
+        "deps_install": {
+          "min": 11.866982084233314,
+          "max": 13.42515466734767
+        }
+      },
+      "median_total_s": 17.781511332839727,
+      "total_range_s": {
+        "min": 16.047744750976562,
+        "max": 18.53552554314956
+      },
+      "setup_source": "representative fallback: this checkout declares no [sandbox].setup, so the measured warm step is the dependency install a run of this repo would do",
+      "setup_commands": [
+        "go mod download",
+        "cd internal/tickboard/ui && pnpm install --frozen-lockfile --prefer-offline"
+      ]
+    },
+    "hot": {
+      "runs": [
+        {
+          "stages": {
+            "image_pull": 0.0,
+            "container_start": 0.18580741714686155,
+            "git_clone": 0.0,
+            "toolchain_provision": 0.0,
+            "deps_install": 0.0
+          },
+          "total_s": 0.18580741714686155,
+          "skipped_stages": [
+            "image_pull",
+            "git_clone",
+            "toolchain_provision",
+            "deps_install"
+          ],
+          "cache": "warm"
+        },
+        {
+          "stages": {
+            "image_pull": 0.0,
+            "container_start": 0.1772134997881949,
+            "git_clone": 0.0,
+            "toolchain_provision": 0.0,
+            "deps_install": 0.0
+          },
+          "total_s": 0.1772134997881949,
+          "skipped_stages": [
+            "image_pull",
+            "git_clone",
+            "toolchain_provision",
+            "deps_install"
+          ],
+          "cache": "warm"
+        },
+        {
+          "stages": {
+            "image_pull": 0.0,
+            "container_start": 0.17567408317700028,
+            "git_clone": 0.0,
+            "toolchain_provision": 0.0,
+            "deps_install": 0.0
+          },
+          "total_s": 0.17567408317700028,
+          "skipped_stages": [
+            "image_pull",
+            "git_clone",
+            "toolchain_provision",
+            "deps_install"
+          ],
+          "cache": "warm"
+        },
+        {
+          "stages": {
+            "image_pull": 0.0,
+            "container_start": 0.18126179231330752,
+            "git_clone": 0.0,
+            "toolchain_provision": 0.0,
+            "deps_install": 0.0
+          },
+          "total_s": 0.18126179231330752,
+          "skipped_stages": [
+            "image_pull",
+            "git_clone",
+            "toolchain_provision",
+            "deps_install"
+          ],
+          "cache": "warm"
+        },
+        {
+          "stages": {
+            "image_pull": 0.0,
+            "container_start": 0.1765430411323905,
+            "git_clone": 0.0,
+            "toolchain_provision": 0.0,
+            "deps_install": 0.0
+          },
+          "total_s": 0.1765430411323905,
+          "skipped_stages": [
+            "image_pull",
+            "git_clone",
+            "toolchain_provision",
+            "deps_install"
+          ],
+          "cache": "warm"
+        }
+      ],
+      "median_stages": {
+        "image_pull": 0.0,
+        "container_start": 0.1772134997881949,
+        "git_clone": 0.0,
+        "toolchain_provision": 0.0,
+        "deps_install": 0.0
+      },
+      "stage_range_s": {
+        "image_pull": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "container_start": {
+          "min": 0.17567408317700028,
+          "max": 0.18580741714686155
+        },
+        "git_clone": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "toolchain_provision": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "deps_install": {
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "median_total_s": 0.1772134997881949,
+      "total_range_s": {
+        "min": 0.17567408317700028,
+        "max": 0.18580741714686155
+      },
+      "setup_source": "representative fallback: this checkout declares no [sandbox].setup, so the measured warm step is the dependency install a run of this repo would do",
+      "setup_commands": [
+        "go mod download",
+        "cd internal/tickboard/ui && pnpm install --frozen-lockfile --prefer-offline"
+      ]
+    }
+  },
+  "fanout": [
+    {
+      "n": 1,
+      "per_sandbox_s": [
+        18.1205891254358
+      ],
+      "median_s": 18.1205891254358,
+      "slowest_s": 18.1205891254358,
+      "total_wall_clock_s": 19.23497329093516,
+      "per_stage_median": {
+        "image_pull": 0.0,
+        "container_start": 0.48386791720986366,
+        "git_clone": 3.6120448750443757,
+        "toolchain_provision": 0.642991750035435,
+        "deps_install": 13.381684583146125
+      }
+    },
+    {
+      "n": 3,
+      "per_sandbox_s": [
+        21.279374833218753,
+        40.24549816828221,
+        40.26340850023553
+      ],
+      "median_s": 40.24549816828221,
+      "slowest_s": 40.26340850023553,
+      "total_wall_clock_s": 42.3247053748928,
+      "per_stage_median": {
+        "image_pull": 0.0,
+        "container_start": 0.39203712483868003,
+        "git_clone": 17.368480500299484,
+        "toolchain_provision": 0.7976644169539213,
+        "deps_install": 21.52174883428961
+      }
+    },
+    {
+      "n": 5,
+      "per_sandbox_s": [
+        67.48791529098526,
+        67.76885666698217,
+        67.46060075005516,
+        68.18553529074416,
+        67.7630405840464
+      ],
+      "median_s": 67.7630405840464,
+      "slowest_s": 68.18553529074416,
+      "total_wall_clock_s": 74.8016122924164,
+      "per_stage_median": {
+        "image_pull": 0.0,
+        "container_start": 0.6558340829797089,
+        "git_clone": 5.002316291909665,
+        "toolchain_provision": 0.9418531251139939,
+        "deps_install": 61.06794154224917
+      }
+    }
+  ],
+  "fanout_degradation_vs_n1": {
+    "1": 1.0,
+    "3": 2.221,
+    "5": 3.74
+  },
+  "counterfactual_thin_base": {
+    "base_image": "docker.io/cloudflare/sandbox:0.12.7-python",
+    "parts": {
+      "mise_bootstrap": {
+        "seconds": 4.673093416728079,
+        "exit_code": 0,
+        "tail": "###########################                 79.4%\n##################################################################        93.0%\n#####################################################################     95.8%\n######################################################################## 100.0%\nmise: installed successfully to /root/.local/bin/mise\nmise: run `/root/.local/bin/mise --help` to get started\n"
+      },
+      "mise_provision": {
+        "specs": [
+          "go@1.24.11",
+          "pnpm@11.0.6",
+          "uv@0.12.5",
+          "bun@1.3.14"
+        ],
+        "seconds": 17.74856008309871,
+        "exit_code": 0,
+        "tail": "5       [3/3] extract uv-x86_64-unknown-linux-gnu.tar.gz\n\u001b[2mmise\u001b[0m \u001b[34muv\u001b[0m@0.12.5     \u001b[38;5;10m\u2713\u001b[0m installed\n\u001b[2mmise\u001b[0m \u001b[34mpnpm\u001b[0m@11.0.6     [1/3] download pnpm-linux-x64.tar.gz\n\u001b[2mmise\u001b[0m \u001b[34mgo\u001b[0m@1.24.11      [3/3] go version\n\u001b[2mmise\u001b[0m \u001b[34mgo\u001b[0m@1.24.11      [3/3] go version go1.24.11 linux/amd64\n\u001b[2mmise\u001b[0m \u001b[34mgo\u001b[0m@1.24.11    \u001b[38;5;10m\u2713\u001b[0m installed\n\u001b[2mmise\u001b[0m \u001b[34mpnpm\u001b[0m@11.0.6     [2/3] verify GitHub artifact attestations\n\u001b[2mmise\u001b[0m \u001b[34mpnpm\u001b[0m@11.0.6     [2/3] \u2713 GitHub artifact attestations verified\n\u001b[2mmise\u001b[0m \u001b[34mpnpm\u001b[0m@11.0.6     [2/3] checksum pnpm-linux-x64.tar.gz\n\u001b[2mmise\u001b[0m \u001b[34mpnpm\u001b[0m@11.0.6     [3/3] extract pnpm-linux-x64.tar.gz\n\u001b[2mmise\u001b[0m \u001b[34mpnpm\u001b[0m@11.0.6   \u001b[38;5;10m\u2713\u001b[0m installed\n\u001b[2mmise\u001b[0m all tools are installed\n"
+      },
+      "npm_globals": {
+        "packages": [
+          "@anthropic-ai/claude-code@2.1.227"
+        ],
+        "seconds": 9.47588258376345,
+        "exit_code": 0,
+        "tail": "\nadded 2 packages in 9s\n"
+      }
+    },
+    "container_start_s": 0.2738912501372397,
+    "total_seconds": 31.89753608359024,
+    "note": "per-sandbox cost a thin base would pay in place of image bytes, against an empty cache; compare against the image_pull the batteries add to a cold start"
+  },
+  "cost": {
+    "instance_type": "standard-3",
+    "instance_shape": {
+      "vcpu": 2,
+      "memory_gib": 8,
+      "disk_gb": 16
+    },
+    "basis": {
+      "source": "https://developers.cloudflare.com/containers/pricing/",
+      "as_of": "2026-04-21",
+      "memory_usd_per_gib_second": 2.5e-06,
+      "disk_usd_per_gb_second": 7e-08,
+      "vcpu_usd_per_vcpu_second": 2e-05,
+      "egress_usd_per_gb_na_eu": 0.025,
+      "note": "Memory and disk are billed on provisioned resources for the instance's wall-clock; vCPU on active use. Monthly included allotments are ignored, so these are marginal prices for one additional run."
+    },
+    "per_run_usd": {
+      "cold": 0.0042069056213721884,
+      "warm": 0.0008023017913377285,
+      "hot": 7.995873110443354e-06
+    },
+    "per_wave_usd_at_max_parallel": {
+      "cold": 0.02524143372823313,
+      "warm": 0.004813810748026371,
+      "hot": 4.7975238662660124e-05
+    },
+    "model_spend": "Not measured here. Model spend is attributable per run through the AI Gateway telemetry the factory stamps with run and tick ids; start cost is compute time, which is what this harness prices."
+  },
+  "max_parallel": 6
+}
