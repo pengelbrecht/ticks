@@ -111,9 +111,9 @@ boot, and the closeout pass ran with `enforce_budgets:false` so it read no stop 
 not a revocation a reboot can undo. Ask "what re-creates what I just destroyed?" And revoke BEFORE
 the grace window on a hard stop: that window is time a runaway spends.
 
-**Problem:** A 4.4-hour run implemented seven ticks and lost all of it: nothing reached origin
-until closeout. **Rule:** Durability that depends on an agent remembering to push is not
-durability — push mechanically from the container on a timer. Never `--force` a ref it does not own.
+**Problem:** A 4.4-hour run implemented seven ticks and lost all of it: nothing reached origin until
+closeout. **Rule:** Durability that depends on an agent remembering to push is not durability —
+push mechanically from the container on a timer, and never `--force` a ref it does not own.
 
 **Problem:** 46M input tokens billed at zero cache hits. **Cause:** Workers AI prefix caching is
 per model instance and needs `x-session-affinity`; the gateway set none. **Rule:** Affinity alone
