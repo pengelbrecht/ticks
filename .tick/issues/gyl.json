@@ -2,7 +2,8 @@
   "id": "gyl",
   "title": "CRITICAL: the gateway-token kill switch does not stop a running agent",
   "description": "Found while stopping the \\$49.80 runaway (run_f15efdfb...). D17 states that revoking a run gateway token is the kill switch that works even on a wedged or adversarial agent. It does not work.\n\nWhat was tried, in order, and what happened:\n  1. POST /api/runs/\u003cid\u003e/stop        -\u003e state became \"stopping\"; model calls CONTINUED (by design, a clean stop finishes in-flight work — but see below).\n  2. Revoked the run gateway token in D1 (run_gateway_token.revoked_at set, 1 row written) -\u003e model calls CONTINUED for several more minutes.\n  3. wrangler containers delete \u003capp\u003e -\u003e calls STOPPED within ~2 minutes.\nOnly destroying the container actually halted the spend. That is a sledgehammer: it removes the application for every run and needs a redeploy to restore.\n\nTWO DEFECTS HERE:\na) The revocation is not enforced on the request path. Either the gateway proxy does not check revoked_at per request, or it caches the token. Whatever the cause, the credential-layer kill switch the design relies on is decorative. Fix it so a revoked token is refused on the very next request, and add a test that revokes mid-run and asserts the next call is rejected.\nb) A CLEAN STOP HAS NO TEETH WHEN THE BUDGET IS ALREADY BREACHED. Finishing in-flight work is right for an ordinary stop and wrong for a runaway — this run was at 2x its budget with no durable output for over four hours, and the clean stop kept it spending. There needs to be a hard stop for the budget case: revoke first, then let the clean stop unwind. tk cloud stop should probably grow --now (or the budget trip should take that path automatically), so the operator is not left choosing between a stop that does not stop and deleting infrastructure.\n\nNote this compounds cts: the budget could not trip because of the pagination bug, AND once a human noticed, the intended remedy did not work either. Two independent failures of the same safety property — the first let it start, the second stopped it being stoppable.",
-  "status": "open",
+  "notes": "2026-08-21 08:49 - Seam: you share this wave with l8z and tpl. You own the revocation CHECK on the request path in cloud/factory/src/gateway.ts; l8z owns the outbound header block in the same file. Keep the edits apart. tpl owns run-workflow.ts.",
+  "status": "in_progress",
   "priority": 0,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,6 @@
   "acceptance_criteria": "A revoked run gateway token is refused on the next request, proven by a test that revokes mid-run; a budget-exhausted or operator-forced stop halts model traffic without deleting the container application; tk cloud stop offers a hard variant and says which it performed.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T20:15:59.394912Z",
-  "updated_at": "2026-08-20T20:15:59.455806Z"
+  "updated_at": "2026-08-21T06:49:01.523279Z",
+  "started_at": "2026-08-21T06:49:01.523279Z"
 }
