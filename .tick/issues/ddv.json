@@ -2,14 +2,15 @@
   "id": "ddv",
   "title": "Go's Substrate enum has no cloud value",
   "description": "From b6e gap 3. internal/herd/config/types.go knows herdr, harness and auto only, so a repository cannot declare [orchestration].substrate = \"cloud\" and have tk agree it means anything. That is why b6e triggers the per-tick-container path on the SUBMISSION carrying tick_ids rather than on repo config — a workaround, and a reasonable one, but it means the substrate a repo declares and the substrate a run actually uses can disagree with nothing to reconcile them.\n\nExtend the enum and decide what tk does differently once it is set, including what tk herd spawn should do when a repo says cloud. bmo depends on this being real rather than implied.",
-  "notes": "2026-08-21 22:18 - Seam (wave 5, three wide with k24 and bne). You own internal/herd/config and whatever in cmd/tk must agree with it. k24 owns worker-dispatch.ts; bne owns run_event producers. b6e triggers the per-tick-container path on a submission carrying tick_ids precisely because this enum has no cloud value — a deliberate workaround it documented. Decide what tk herd spawn should do when a repo declares cloud, because 'nothing' is what it does today and that is how a repo's declared substrate and a run's actual substrate come to disagree with nothing reconciling them.\n2026-08-21 22:18 - runner-state: substrate=herdr kind=claude branch=tick/ddv worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ddv workspace=wDT base=dfe17ee97edaea552b86d8a87acfab77302c5ae1 agent=tick-ddv pane=wDT:p1 session=3c5b33e6-7a82-48b5-922d-37c1022999d5",
-  "status": "in_progress",
+  "notes": "2026-08-21 22:18 - Seam (wave 5, three wide with k24 and bne). You own internal/herd/config and whatever in cmd/tk must agree with it. k24 owns worker-dispatch.ts; bne owns run_event producers. b6e triggers the per-tick-container path on a submission carrying tick_ids precisely because this enum has no cloud value — a deliberate workaround it documented. Decide what tk herd spawn should do when a repo declares cloud, because 'nothing' is what it does today and that is how a repo's declared substrate and a run's actual substrate come to disagree with nothing reconciling them.\n2026-08-21 22:18 - runner-state: substrate=herdr kind=claude branch=tick/ddv worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ddv workspace=wDT base=dfe17ee97edaea552b86d8a87acfab77302c5ae1 agent=tick-ddv pane=wDT:p1 session=3c5b33e6-7a82-48b5-922d-37c1022999d5\n2026-08-21 22:51 - runner-state: runner=claude branch=tick/ddv merged=386bcfb4",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T19:36:09.865903Z",
-  "updated_at": "2026-08-21T20:18:36.495023Z",
-  "started_at": "2026-08-21T20:18:17.275106Z"
+  "updated_at": "2026-08-21T20:51:16.932167Z",
+  "closed_at": "2026-08-21T20:51:16.932167Z",
+  "closed_reason": "Completed: cloud is a real value in the Substrate enum, so a repository can declare it and tk agrees what it means, rather than the per-tick-container path being reachable only through a submission-level workaround."
 }
