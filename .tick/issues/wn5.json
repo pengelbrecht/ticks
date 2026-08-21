@@ -1,0 +1,13 @@
+{
+  "id": "wn5",
+  "title": "Per-run budget override on tk cloud run",
+  "description": "The only budget knob today is a deployment-wide var in wrangler.toml, so trying a smaller run means editing config and redeploying the Worker. Add --max-cost and --max-wall-clock flags to tk cloud run that ride the submit payload into the Run Workflow, bounded by the deployment ceiling (a flag may lower it, never raise it). Cheap-and-bounded then becomes a per-invocation choice.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T06:55:06.559646Z",
+  "updated_at": "2026-08-21T06:55:06.559646Z"
+}
