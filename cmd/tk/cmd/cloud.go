@@ -23,6 +23,7 @@ import (
 var (
 	cloudRunNotify string
 	cloudRunQueue  bool
+	cloudStopNow   bool
 )
 
 // cloudHTTPClient is a package variable so command tests can exercise the
@@ -53,8 +54,20 @@ var cloudRunCmd = &cobra.Command{
 }
 
 var cloudStopCmd = &cobra.Command{
-	Use:          "stop <run>",
-	Short:        "Request a clean stop for a live cloud run",
+	Use:   "stop <run>",
+	Short: "Stop a live cloud run, cleanly or right now",
+	Long: `Stop a live cloud run.
+
+By default this is a clean stop (D15): the in-flight work gets a bounded
+window to land, then review and closeout run, and the run's gateway
+credential dies at the end of it.
+
+--now is the kill switch. The run's gateway credential is revoked in this
+request, before anything else happens, so the orchestrator's next model call
+is refused whether or not it is listening — and no later boot of the run may
+mint another. Nothing further is spent, and review and closeout do not run.
+Reach for it when a run is over its budget or wedged, so that stopping it
+never means deleting the container application.`,
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE:         runCloudStop,
@@ -71,6 +84,7 @@ var cloudStatusCmd = &cobra.Command{
 func init() {
 	cloudRunCmd.Flags().StringVar(&cloudRunNotify, "notify", "", "notification channel for this submission")
 	cloudRunCmd.Flags().BoolVar(&cloudRunQueue, "queue", false, "park behind the current project lease instead of refusing")
+	cloudStopCmd.Flags().BoolVar(&cloudStopNow, "now", false, "hard stop: revoke the run's gateway credential immediately and skip closeout")
 
 	cloudCmd.AddCommand(cloudRunCmd)
 	cloudCmd.AddCommand(cloudStopCmd)
@@ -342,13 +356,22 @@ func runCloudStop(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
 	requestedBy := cloudRequestedBy()
+	mode := "clean"
+	if cloudStopNow {
+		mode = "hard"
+	}
 	path := "/api/runs/" + url.PathEscape(args[0]) + "/stop"
-	data, err := client.request(cmd.Context(), http.MethodPost, path, map[string]string{"requested_by": requestedBy})
+	data, err := client.request(cmd.Context(), http.MethodPost, path, map[string]string{
+		"requested_by": requestedBy,
+		"mode":         mode,
+	})
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
 	var response struct {
-		Run cloudRunRecord `json:"run"`
+		Run           cloudRunRecord `json:"run"`
+		Mode          string         `json:"mode"`
+		TokensRevoked int            `json:"tokens_revoked"`
 	}
 	if err := decodeCloudJSON(data, &response); err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
@@ -358,7 +381,22 @@ func runCloudStop(cmd *cobra.Command, args []string) error {
 	if state == "" {
 		state = "stopping"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Cloud stop requested: %s (%s)\n", args[0], state)
+	// Which stop the factory performed, not which one was asked for: an
+	// operator reaching for the kill switch must be able to read back that it
+	// fired, and how many live credentials it killed.
+	performed := response.Mode
+	if performed == "" {
+		performed = mode
+	}
+	out := cmd.OutOrStdout()
+	if performed == "hard" {
+		fmt.Fprintf(out, "Cloud hard stop performed: %s (%s)\n", args[0], state)
+		fmt.Fprintf(out, "  gateway credentials revoked: %d\n", response.TokensRevoked)
+		fmt.Fprintln(out, "  model traffic is refused from the next request; review and closeout will not run")
+		return nil
+	}
+	fmt.Fprintf(out, "Cloud clean stop requested: %s (%s)\n", args[0], state)
+	fmt.Fprintln(out, "  in-flight work finishes, then review and closeout run; use --now to revoke the credential immediately")
 	return nil
 }
 

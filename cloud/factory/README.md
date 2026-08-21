@@ -50,7 +50,7 @@ only turns that decision into a status code.
 | `POST /api/runs` | Submit `{project, epic, base_sha, requested_by, notify?, queue?, queue_ttl_ms?}`. `201` started, `409` refused naming the holding run, `202` parked (with `queue: true`), `403` project not enrolled, `503` no Run Workflow bound **or no AI Gateway configured** (the detail names `tk factory setup`). |
 | `GET /api/runs` | The run index plus, for every project it mentions, that project's lease and queued submissions. Filters: `project`, `state`, `limit`. |
 | `GET /api/runs/:id` | One run: index row, Workflow step state, lease, open gates, queued submissions, stop record. |
-| `POST /api/runs/:id/stop` | A clean stop (D15): finish the in-flight tick, then review and closeout. |
+| `POST /api/runs/:id/stop` | Stop a run. Default (`{"mode":"clean"}`) is D15's clean stop: finish the in-flight tick, then review and closeout. `{"mode":"hard"}` (`tk cloud stop --now`) revokes the run's gateway credentials in this request and forbids any later boot from minting another — no closeout, no more spend. The response says which stop was performed and how many live credentials it killed. |
 | `GET/POST /api/projects`, `DELETE /api/projects/:owner/:repo` | Project enrolment. |
 | `POST /api/projects/:owner/:repo/pending` | Register a cloud ask in the project's RunRoom; `{notify:"telegram"}` delivers it to the paired Telegram chat. |
 | `GET /api/projects/:owner/:repo/pending` | Read open pending entries; `include_resolved=true` lets the terminal report the winning surface. |
@@ -113,6 +113,14 @@ it (`src/run-workflow.ts`):
   land, then a `closeout` orchestrator reconciles and runs review and closeout
   on what is done. There is no "abandon the run" path — an abandoned run leaves
   merged work with no tracker state.
+- **Whether the credential dies before or after that window is the difference
+  between a stop and a kill.** A clean stop revokes at the END of the grace
+  window, so in-flight work can land. A budget trip, a lost lease and an
+  operator's `--now` revoke at the START of it: a run already over its
+  allowance has no claim on the grace period's spend. A hard stop goes further
+  and is durable — `supervisePass` reads the stop record before it credentials
+  any boot, in every pass, so the supervisor can no longer undo an operator's
+  revocation the way it did on the run that motivated this (tick gyl).
 - **Harness output streams to R2 during the run, never at exit (D20).** The
   crashed run is exactly the run whose logs you need. Each observation flushes
   what the orchestrator printed since the last one as an immutable segment under
@@ -189,6 +197,7 @@ issued for, and forwards to the gateway.
 | Metadata is stamped, not accepted | Any `cf-aig-*` header the caller sent is dropped first, so an agent can neither misattribute its spend nor opt out of being attributed. |
 | Cost comes from `GET .../ai-gateway/gateways/<gw>/logs`, filtered by run id | An agent can misreport; an invoice cannot. Needs `CLOUDFLARE_API_TOKEN`; without it a run with no explicit cost budget records its cost as unknown rather than as `$0`, while an explicit budget refuses before sandbox boot. |
 | Every boot rotates the token; a trip, a stop and finalize revoke it | The kill switch works on a wedged or adversarial orchestrator, and no run ever leaves a live credential behind. Closeout gets a fresh token — a stop must still reach review and closeout (D15). |
+| A hard stop is a durable refusal to mint, not a one-off revocation | Revoking a token stopped nothing on a live run, because the next boot minted a replacement — closeout boots included, since that pass enforces no budgets and so read no stop record. Only deleting the container application halted the spend. Now every boot of every pass checks for a standing hard stop before it credentials anything, and a hard stop mid-closeout trips the closeout too. |
 | The `workers-ai` route rewrites `messages[].content` from OpenAI content parts to a string | Workers AI's `/v1/chat/completions` is OpenAI-*compatible*, not OpenAI: it takes content as a string, while omp sends parts. Every model call already passes through here, so the one documented dialect difference is normalised at the one hop that already reads the request. A part with no string form (an image, audio, a file) is refused with a 400 naming the message and the part — a translation layer that silently dropped it would reach the model as a prompt with a hole in it. |
 
 ## Auth: secrets, not accounts

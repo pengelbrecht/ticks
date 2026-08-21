@@ -609,6 +609,7 @@ func ResetFlags() {
 	// Reset cloud flags
 	cloudRunNotify = ""
 	cloudRunQueue = false
+	cloudStopNow = false
 
 	// Reset config migration flags
 	configMigrateApply = false

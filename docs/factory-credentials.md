@@ -155,8 +155,10 @@ it to your gateway. Three things follow:
   without the agent being able to write its own attribution.
 - **Revoking the run's token stops its model traffic mid-run** — the kill switch
   D17 asks for, at the credential layer, so it works on an orchestrator that is
-  wedged or adversarial. The Workflow revokes on every budget trip and stop, on
-  every reboot (the replaced container's token dies first), and at finalize.
+  wedged or adversarial. The refusal is per request: the revoked token is
+  refused on the very next call, before anything reaches your gateway. The
+  Workflow revokes on every budget trip and stop, on every reboot (the replaced
+  container's token dies first), and at finalize.
 - **A leaked sandbox environment leaks a run-scoped, revocable credential**
   rather than a vendor key.
 
@@ -196,6 +198,13 @@ unconditionally.
 - **Provider key** — same shape: rotate at the vendor, then re-run setup.
 - **A single run's model access** — that is not a rotation, it is `tk cloud stop
   <run>` (or any budget trip): the Workflow revokes that run's gateway token and
-  its agent stops spending immediately, without touching any other run.
+  its agent stops spending, without touching any other run. A clean stop
+  revokes at the end of the grace window, so the in-flight work can land; a
+  budget trip revokes first and unwinds afterwards. If you need the spend to
+  stop *now* — a runaway, a wedged agent, a run past its budget — use
+  `tk cloud stop <run> --now`. That revokes in the request itself and no later
+  boot of that run may mint another credential, at the cost of review and
+  closeout. It is the supported alternative to deleting the container
+  application, which takes down every run and needs a redeploy to restore.
 - **The factory's own bearer token** — that one belongs to the deploy:
   `tk factory deploy --rotate-token`.

@@ -45,13 +45,14 @@ import {
   type Run,
   type RunProgressRecord,
 } from "./db";
-import { modelRoutingComplaint } from "./gateway";
+import { modelRoutingComplaint, revokeRunTokens } from "./gateway";
 import type { Env } from "./index";
 import type {
   DispatchLeaseView,
   PendingEntry,
   QueuedSubmission,
   RunRoom,
+  StopMode,
   StopRequest,
 } from "./run-room";
 
@@ -585,13 +586,23 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
 // ------------------------------------------------------------------ stop ---
 
 export type StopResult =
-  | { outcome: "stopping"; run: Run; stop: StopRequest; already: boolean; workflow_notified: boolean }
+  | {
+      outcome: "stopping";
+      run: Run;
+      stop: StopRequest;
+      already: boolean;
+      workflow_notified: boolean;
+      /** What was actually performed, so an operator is never left guessing. */
+      mode: StopMode;
+      /** Live gateway credentials this stop killed. Always 0 for a clean stop. */
+      tokens_revoked: number;
+    }
   | { outcome: "unknown_run" }
   | { outcome: "not_active"; run: Run }
   | { outcome: "invalid"; detail: string };
 
 /**
- * A clean stop (D15 semantics), enforced at the control plane.
+ * A stop (D15 semantics), enforced at the control plane.
  *
  * The stop record lands in the project's RunRoom — the arbiter the Run
  * Workflow reads at every step boundary — and the run's index state flips to
@@ -600,14 +611,27 @@ export type StopResult =
  * its own layer. The `sendEvent` below is an optimisation that lets a waiting
  * Workflow react immediately; the record is what makes the stop true, so a
  * failure to deliver it is reported, not fatal.
+ *
+ * A `hard` stop revokes the run's gateway credentials HERE, in the request
+ * that asked for it, before anything downstream is told anything (tick gyl).
+ * The clean path revokes at the end of the grace window, which is right for an
+ * ordinary stop and wrong for a runaway: a live run at twice its budget kept
+ * spending through a clean stop, and through a hand-written revocation the
+ * next boot undid, until its container application was deleted. The
+ * credential dying first is what makes the rest of the unwind safe to take its
+ * time.
  */
 export async function stopRun(
   env: Env,
   runID: string,
-  requestedBy: string
+  requestedBy: string,
+  mode: StopMode = "clean"
 ): Promise<StopResult> {
   if (typeof runID !== "string" || runID.trim() === "") {
     return { outcome: "invalid", detail: "run id is required" };
+  }
+  if (mode !== "clean" && mode !== "hard") {
+    return { outcome: "invalid", detail: `stop mode must be "clean" or "hard"` };
   }
 
   const run = await getRun(env.DB, runID);
@@ -617,8 +641,28 @@ export async function stopRun(
   }
 
   const room = roomFor(env, run.project);
-  const requested = await room.requestStop({ run_id: runID, requested_by: requestedBy });
+  const requested = await room.requestStop({
+    run_id: runID,
+    requested_by: requestedBy,
+    mode,
+  });
   if (requested.ok === false) return { outcome: "invalid", detail: requested.detail };
+
+  // Before the state flip, before the Workflow is told, before anything can
+  // observe a stop and take its time about it: the credential is the kill
+  // switch (D17), so on a hard stop it dies in this request. The record above
+  // is what keeps it dead — no later boot of this run may mint another.
+  const tokensRevoked =
+    requested.stop.mode === "hard"
+      ? await revokeRunTokens(env, runID, `stopped:hard:${requestedBy}`).catch(
+          (error: unknown) => {
+            console.error(
+              `factory runs: ${runID} could not revoke its gateway tokens on a hard stop: ${String(error)}`
+            );
+            return 0;
+          }
+        )
+      : 0;
 
   const updated = (await updateRunState(env.DB, runID, "stopping")) ?? { ...run, state: "stopping" };
 
@@ -647,6 +691,8 @@ export async function stopRun(
     stop: requested.stop,
     already: requested.already,
     workflow_notified: notified,
+    mode: requested.stop.mode,
+    tokens_revoked: tokensRevoked,
   };
 }
 

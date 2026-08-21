@@ -240,7 +240,10 @@ This buys three things beyond vendor-agnosticism:
 - **A kill switch at the credential layer.** The Workflow can revoke a run's
   gateway token when a budget trips or a human hits stop — enforcement that
   works even on a wedged or adversarial agent, consistent with the doc's rule
-  that budgets never live in prompts.
+  that budgets never live in prompts. Revocation is refused on the very next
+  request; what a live incident proved it also has to be is *durable*, because
+  a revocation the next boot re-credentials is not a kill switch (see the hard
+  stop under UC1b).
 
   *As built (Phase 1):* the run's gateway is the factory Worker's own
   `/api/gateway` prefix, and the credential a sandbox carries is a run token
@@ -560,6 +563,7 @@ harness. One closed verb vocabulary is exposed on every transport:
 |---|---|---|---|
 | ignite | `tk cloud run <epic>` | `/run <epic>` | `/tk run` on an issue (UC3) |
 | clean stop | `tk cloud stop <run>` | `/stop` | — |
+| hard stop | `tk cloud stop <run> --now` | — | — |
 | what is happening | `tk cloud status` | `/status` | — |
 | answer a parked question | `tk answer <id> …` | inline keyboard (ships today) | — |
 
@@ -595,6 +599,22 @@ harness. One closed verb vocabulary is exposed on every transport:
   human trigger instead of a spend trigger — finish the in-flight tick, run
   review/closeout on what is done. There is no "abandon the run" verb, because
   an abandoned run leaves merged work with no tracker state.
+- **A clean stop has no teeth when the budget is already breached, so there is
+  a hard one.** Finishing in-flight work is right for an ordinary stop and
+  wrong for a runaway: a live run at 2x its budget with no durable output kept
+  spending through its own clean stop, and a hand-written token revocation was
+  undone by the supervisor's next boot, until the container application itself
+  was deleted. `tk cloud stop --now` (`{"mode":"hard"}` on `/stop`) revokes the
+  run's gateway credentials **in the request that asks for it**, before the
+  state flip and before the Workflow is told anything, and the stop record
+  keeps them dead: no later boot of that run — closeout included — may mint
+  another. It costs review and closeout, which is the trade an operator is
+  making knowingly; the clean stop remains the default and still runs them. A
+  budget trip takes the same revoke-first path automatically without recording
+  a hard stop, so the unwind into closeout still happens on a fresh credential.
+  Both stops report which one was performed, and a hard stop reports how many
+  live credentials it killed. Stop mode only ever escalates: `hard` supersedes
+  a standing `clean` record, `clean` never softens a `hard` one.
 - **Stop does not travel through the orchestrator.** A wedged or adversarial
   orchestrator will not honour a message it never reads, so `stop` is enforced
   at the Workflow and gateway-token layer (D17's kill switch), consistent with

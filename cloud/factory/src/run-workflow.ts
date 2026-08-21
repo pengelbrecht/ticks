@@ -350,9 +350,24 @@ export async function acquireContext(
 // -------------------------------------------------------------- watching ---
 
 /** Why a run is stopping cleanly. Both kinds take the identical path (D15). */
-export type Trip =
+/**
+ * Why a pass ended early, and how fast the credential has to die with it.
+ *
+ * `hard` is the whole of tick gyl: a clean stop revokes at the END of the
+ * grace window so in-flight work can land, and a budget breach or an operator
+ * kill must revoke at the START of it. A run at twice its budget spending
+ * through its own stop is not an unwind, it is an unmetered four minutes.
+ */
+export type Trip = { hard: boolean } & (
   | { kind: "stop"; detail: string }
-  | { kind: "budget"; budget: "wall_clock" | "cost"; detail: string };
+  | { kind: "budget"; budget: "wall_clock" | "cost"; detail: string }
+);
+
+/** The reason a revocation is recorded under, so the row says which stop killed it. */
+function tripRevokeReason(trip: Trip): string {
+  if (trip.kind === "budget") return `budget:${trip.budget}`;
+  return trip.hard ? "stopped:hard" : "stopped";
+}
 
 type Observation = {
   process: SandboxProcessState;
@@ -448,7 +463,7 @@ export async function observe(env: Env, input: ObserveInput): Promise<Observatio
 
   const trip = input.enforce_budgets
     ? await detectTrip(env, input, at, leaseLost)
-    : passDeadlineTrip(input, at);
+    : ((await hardStopTrip(env, input)) ?? passDeadlineTrip(input, at));
 
   return {
     process: view === null ? "gone" : view.state,
@@ -465,8 +480,40 @@ function passDeadlineTrip(input: ObserveInput, at: number): Trip | null {
   return {
     kind: "budget",
     budget: "wall_clock",
+    hard: true,
     detail: "the closeout window elapsed before the orchestrator finished closing out",
   };
+}
+
+/**
+ * A hard stop, read at every observation of every pass — budgets or no.
+ *
+ * The closeout pass deliberately does not enforce budgets (it exists to land
+ * the work the budget interrupted), and that used to mean it read no stop
+ * record at all: an operator killing a run mid-closeout was talking to nobody,
+ * and every closeout reboot minted a fresh credential over their revocation.
+ * A hard stop is not a budget, so it is not on that switch.
+ */
+async function hardStopTrip(env: Env, input: ObserveInput): Promise<Trip | null> {
+  const stop = await hardStopRecord(env, input.params);
+  if (stop === null) return null;
+  return {
+    kind: "stop",
+    hard: true,
+    detail: `a hard stop was requested by ${stop.requested_by} at ${stop.requested_at}`,
+  };
+}
+
+/** The standing hard stop for a run, or null. A read failure is not a stop. */
+async function hardStopRecord(
+  env: Env,
+  params: RunWorkflowParams
+): Promise<{ requested_by: string; requested_at: string } | null> {
+  const stop = await roomFor(env, params.project)
+    .stopRequest(params.run_id)
+    .catch(() => null);
+  if (stop === null || stop.mode !== "hard") return null;
+  return { requested_by: stop.requested_by, requested_at: stop.requested_at };
 }
 
 /**
@@ -488,16 +535,20 @@ async function detectTrip(
     .stopRequest(params.run_id)
     .catch(() => null);
   if (stop !== null) {
+    const hard = stop.mode === "hard";
     return {
       kind: "stop",
-      detail: `a clean stop was requested by ${stop.requested_by} at ${stop.requested_at}`,
+      hard,
+      detail: `a ${hard ? "hard" : "clean"} stop was requested by ${stop.requested_by} at ${stop.requested_at}`,
     };
   }
 
   if (leaseLost) {
     // Somebody else holds the project. Exactly one `.tick/` writer per project
-    // (D4), so this run stops rather than racing the new holder.
-    return { kind: "stop", detail: "the dispatch lease was lost to another run" };
+    // (D4), so this run stops rather than racing the new holder — and it stops
+    // spending immediately, because the other holder is the one doing the work
+    // now.
+    return { kind: "stop", hard: true, detail: "the dispatch lease was lost to another run" };
   }
 
   const elapsed = at - context.started_at_ms;
@@ -505,6 +556,7 @@ async function detectTrip(
     return {
       kind: "budget",
       budget: "wall_clock",
+      hard: true,
       detail:
         `the wall-clock budget is exhausted: ${Math.round(elapsed / 1000)}s of ` +
         `${Math.round(context.config.max_wall_clock_ms / 1000)}s`,
@@ -527,6 +579,7 @@ async function detectTrip(
     return {
       kind: "budget",
       budget: "cost",
+      hard: true,
       detail: `the cost budget is exhausted: $${cost.toFixed(2)} of $${context.config.max_cost_usd.toFixed(2)}`,
     };
   }
@@ -575,6 +628,36 @@ async function supervisePass(
   };
 
   for (let attempt = 1; attempt <= options.max_boots; attempt++) {
+    // Before anything is credentialled — before a boot is even counted: does a
+    // hard stop stand?
+    //
+    // This is the half of the kill switch that was missing. Revoking a run's
+    // token stopped nothing on a live run because the very next boot minted a
+    // replacement — the supervisor undoing the operator's revocation every
+    // time the harness died of it, closeout boots included, until the
+    // container application itself was deleted. A hard stop is therefore a
+    // durable refusal to mint, not a one-off revocation (tick gyl).
+    const killed = await step.do(`${options.label}:killcheck:${attempt}`, OBSERVE_RETRIES, () =>
+      hardStopRecord(env, params)
+    );
+    if (killed !== null) {
+      await step.do(`${options.label}:killrevoke:${attempt}`, OBSERVE_RETRIES, async () => {
+        const revoked = await revokeRunTokens(env, params.run_id, "stopped:hard");
+        return { revoked };
+      });
+      return {
+        kind: "tripped",
+        trip: {
+          kind: "stop",
+          hard: true,
+          detail:
+            `a hard stop requested by ${killed.requested_by} at ${killed.requested_at} ` +
+            "stands, so no orchestrator was credentialled",
+        },
+        boots: counter.next - 1,
+      };
+    }
+
     const boot = counter.next++;
     // A reboot is a *fresh* container by construction: the previous one is
     // presumed broken, and reusing its name is how you inherit what broke it.
@@ -657,27 +740,37 @@ async function supervisePass(
       seq = seen.seq;
 
       if (seen.trip !== null) {
-        // A clean stop: the in-flight work gets a bounded window to land, then
-        // the orchestrator is killed and closeout takes over. Nothing durable
-        // is lost either way — tracker state is committed to the run branch.
+        const trip = seen.trip;
+        const reason = tripRevokeReason(trip);
+        const revoke = (label: string) =>
+          step.do(`${options.label}:${label}:${attempt}`, OBSERVE_RETRIES, async () => {
+            const revoked = await revokeRunTokens(env, params.run_id, reason);
+            return { revoked };
+          });
+
+        // The kill switch, at the layer that does not need the agent's
+        // cooperation (D17): whatever survived the kill cannot spend another
+        // cent, because its gateway token is dead.
+        //
+        // WHEN it fires is the difference a live run paid for. A clean stop
+        // revokes after the grace window, because the point of that window is
+        // to let in-flight work land. A budget breach or an operator kill has
+        // no such claim on the money: the run is already over its allowance,
+        // so the credential dies FIRST and the unwind happens on a container
+        // that can no longer spend (tick gyl).
+        if (trip.hard) await revoke("revoke");
+        // The in-flight work still gets its bounded window to land, then the
+        // orchestrator is killed and closeout takes over. Nothing durable is
+        // lost either way — tracker state is committed to the run branch.
         await step.sleep(`${options.label}:grace:${attempt}`, context.config.stop_grace_ms);
         await step.do(`${options.label}:drain:${attempt}`, OBSERVE_RETRIES, () =>
           drainAndKill(env, params, name, booted.process_id, boot, offset, seq)
         );
-        // The kill switch, at the layer that does not need the agent's
-        // cooperation (D17): whatever survived the kill cannot spend another
-        // cent, because its gateway token is dead. The closeout boot mints a
-        // fresh one — a stop must still reach review and closeout (D15).
-        const trip = seen.trip;
-        await step.do(`${options.label}:revoke:${attempt}`, OBSERVE_RETRIES, async () => {
-          const revoked = await revokeRunTokens(
-            env,
-            params.run_id,
-            trip.kind === "budget" ? `budget:${trip.budget}` : "stopped"
-          );
-          return { revoked };
-        });
-        return { kind: "tripped", trip: seen.trip, boots: counter.next - 1 };
+        // The closeout boot mints a fresh credential — a stop must still reach
+        // review and closeout (D15) — unless a hard stop stands, which the
+        // boot guard above refuses.
+        if (!trip.hard) await revoke("revoke:clean");
+        return { kind: "tripped", trip, boots: counter.next - 1 };
       }
 
       if (seen.process === "completed" && (seen.exit_code ?? 0) === 0) {
@@ -718,7 +811,7 @@ async function supervisePass(
         ? { kind: "failed", detail, boots: counter.next - 1 }
         : {
             kind: "tripped",
-            trip: { kind: "budget", budget: "wall_clock", detail },
+            trip: { kind: "budget", budget: "wall_clock", hard: true, detail },
             boots: counter.next - 1,
           };
     }
@@ -1068,7 +1161,14 @@ export async function superviseRun(
     const closed =
       closeout.kind === "completed"
         ? "review and closeout ran"
-        : `review and closeout did not finish (${closeout.kind === "failed" ? closeout.detail : "the closeout window elapsed"})`;
+        : `review and closeout did not finish (${
+            closeout.kind === "failed"
+              ? closeout.detail
+              : // A tripped closeout has its own reason, and a hard stop's is
+                // the one an operator most needs to read back: the run stopped
+                // spending because they said so, not because a window elapsed.
+                closeout.trip.detail
+          })`;
     outcome = { state: "stopped", detail: `${trip.detail}; ${closed}`, boots: closeout.boots };
   }
 

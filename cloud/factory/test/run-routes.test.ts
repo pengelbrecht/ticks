@@ -2,7 +2,13 @@ import { env, SELF } from "cloudflare:test";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deriveTokenHash, mintFactoryToken } from "../src/auth";
-import { getRun, listDispatchLogs, type DispatchLog } from "../src/db";
+import {
+  getRun,
+  listDispatchLogs,
+  listRunGatewayTokens,
+  type DispatchLog,
+} from "../src/db";
+import { GATEWAY_PATH_PREFIX, issueRunToken } from "../src/gateway";
 import { type QueuedSubmission } from "../src/run-room";
 import {
   MIN_QUEUE_TTL_MS,
@@ -652,6 +658,117 @@ describe("stop is enforced at the control plane", () => {
     expect(first.already_stopping).toBe(false);
     expect(second.already_stopping).toBe(true);
     expect(second.stop.requested_at).toBe(first.stop.requested_at);
+  });
+
+  // ------------------------------------------------------- the hard stop ---
+
+  /** One model request made with a sandbox's own credential, through the route. */
+  const modelCall = (runToken: string) =>
+    SELF.fetch(`${BASE}${GATEWAY_PATH_PREFIX}/anthropic/v1/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${runToken}`, "content-type": "application/json" },
+      body: "{}",
+    });
+
+  async function liveRunWithCredential(name: string): Promise<{ runID: string; token: string }> {
+    const project = await enrolled(name);
+    const { run } = (await (await post("/api/runs", submission(project))).json()) as {
+      run: { run_id: string };
+    };
+    await markRunning(run.run_id);
+    const { token: runToken } = await issueRunToken(env, {
+      run_id: run.run_id,
+      tick_id: "ko8",
+      attempt: 1,
+    });
+    return { runID: run.run_id, token: runToken };
+  }
+
+  it("kills the credential in the request that asks for a hard stop", async () => {
+    // Tick gyl. A clean stop is right for an ordinary stop and wrong for a
+    // runaway: the live run this came from was at twice its budget and kept
+    // spending through its own stop. `--now` revokes first and the unwind
+    // happens afterwards, on a container that can no longer spend.
+    const { runID, token: runToken } = await liveRunWithCredential("stop-hard");
+    workflow.refuseEvents = true;
+
+    const res = await post(`/api/runs/${runID}/stop`, {
+      requested_by: "operator@example.com",
+      mode: "hard",
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      run: { state: string };
+      stop: { mode: string };
+      mode: string;
+      tokens_revoked: number;
+    };
+    expect(body.mode).toBe("hard");
+    expect(body.stop.mode).toBe("hard");
+    expect(body.tokens_revoked).toBe(1);
+    expect(body.run.state).toBe("stopping");
+
+    // The next model request, not the next observation: nothing downstream
+    // agreed to anything, and the credential is already dead.
+    const refused = await modelCall(runToken);
+    expect(refused.status).toBe(403);
+    await expect(refused.json()).resolves.toMatchObject({ error: "run_token_revoked" });
+  });
+
+  it("leaves the credential live on a clean stop, and says which stop it performed", async () => {
+    const { runID } = await liveRunWithCredential("stop-clean-credential");
+
+    const body = (await (
+      await post(`/api/runs/${runID}/stop`, { requested_by: "operator@example.com" })
+    ).json()) as { mode: string; tokens_revoked: number };
+
+    expect(body.mode).toBe("clean");
+    expect(body.tokens_revoked).toBe(0);
+    // In-flight work still has its window: the Workflow revokes at the end of
+    // the grace period, not here.
+    const tokens = await listRunGatewayTokens(env.DB, runID);
+    expect(tokens.every((entry) => entry.revoked_at === null)).toBe(true);
+  });
+
+  it("escalates a clean stop that is not stopping anything, and never downgrades", async () => {
+    const { runID, token: runToken } = await liveRunWithCredential("stop-escalate");
+
+    const clean = (await (await post(`/api/runs/${runID}/stop`)).json()) as {
+      mode: string;
+      already_stopping: boolean;
+    };
+    expect(clean.mode).toBe("clean");
+
+    // The exact sequence the incident took: a clean stop, then a human
+    // watching the spend continue. An escalation is a new decision, not a
+    // repeat of the stop that already stood.
+    const hard = (await (await post(`/api/runs/${runID}/stop`, { mode: "hard" })).json()) as {
+      mode: string;
+      already_stopping: boolean;
+      tokens_revoked: number;
+    };
+    expect(hard.mode).toBe("hard");
+    expect(hard.already_stopping).toBe(false);
+    expect(hard.tokens_revoked).toBe(1);
+    expect((await modelCall(runToken)).status).toBe(403);
+
+    const back = (await (await post(`/api/runs/${runID}/stop`)).json()) as { mode: string };
+    expect(back.mode).toBe("hard");
+    await expect(roomFor(env, (await getRun(env.DB, runID))!.project).stopRequest(runID)).resolves
+      .toMatchObject({ mode: "hard" });
+  });
+
+  it("refuses a stop mode it does not know rather than quietly stopping cleanly", async () => {
+    const { runID } = await liveRunWithCredential("stop-mode-unknown");
+
+    const res = await post(`/api/runs/${runID}/stop`, { mode: "immediate" });
+
+    expect(res.status).toBe(400);
+    const tokens = await listRunGatewayTokens(env.DB, runID);
+    expect(tokens.every((entry) => entry.revoked_at === null)).toBe(true);
+    await expect(roomFor(env, (await getRun(env.DB, runID))!.project).stopRequest(runID)).resolves
+      .toBeNull();
   });
 
   it("404s an unknown run and 409s one that already ended", async () => {

@@ -158,11 +158,26 @@ export type CancelQueuedResult =
   | { ok: false; error: "not_queued"; detail: string }
   | RequestInvalid;
 
-/** A clean stop asked of a run — D15 semantics, recorded rather than sent. */
+/**
+ * How hard a stop is, and what the difference buys.
+ *
+ * `clean` is D15's stop: the in-flight work gets a bounded window to land, and
+ * the run's credential dies at the end of it. `hard` is the runaway case (tick
+ * gyl) — the credential dies FIRST, before the grace window, and no later boot
+ * of this run may mint another. A stop that lets a run at twice its budget
+ * keep spending while it unwinds is not a kill switch, and the alternative an
+ * operator was left with was deleting the container application for every run.
+ *
+ * A stop only ever escalates: `hard` supersedes a `clean` record, and a
+ * `clean` request never softens a `hard` one.
+ */
+export type StopMode = "clean" | "hard";
+
+/** A stop asked of a run — D15 semantics, recorded rather than sent. */
 export type StopRequest = {
   run_id: string;
-  /** The only stop there is: there is no "abandon the run" verb (UC1b). */
-  mode: "clean";
+  /** There is still no "abandon the run" verb (UC1b): both modes close out. */
+  mode: StopMode;
   requested_by: string;
   requested_at: string;
 };
@@ -663,26 +678,57 @@ export class RunRoom extends DurableObject<Env> {
   // ----------------------------------------------------------------- stop ---
 
   /**
-   * Records a clean stop for a run (D15, UC1b).
+   * Records a stop for a run (D15, UC1b).
    *
    * The record IS the enforcement point: the Run Workflow reads it at a step
    * boundary and finishes the in-flight tick, then runs review and closeout.
    * Nothing is sent to the orchestrator, so a wedged or adversarial one cannot
    * decline. Repeating a stop is not an error — it is the same stop.
+   *
+   * A `hard` request over a `clean` record is the exception, and the only
+   * mutation this table has: it is not a repeat, it is an operator deciding
+   * the clean stop is not stopping anything, so the record is upgraded and
+   * reported as a new stop rather than as one that already stood.
    */
-  async requestStop(request: { run_id: string; requested_by?: string }): Promise<RequestStopResult> {
+  async requestStop(request: {
+    run_id: string;
+    requested_by?: string;
+    mode?: StopMode;
+  }): Promise<RequestStopResult> {
     const complaint = badText(request?.run_id, "run_id");
     if (complaint !== null) return invalid(complaint);
+    if (request?.mode !== undefined && request.mode !== "clean" && request.mode !== "hard") {
+      return invalid(`stop mode must be "clean" or "hard", not "${String(request.mode)}"`);
+    }
+    const mode: StopMode = request?.mode === "hard" ? "hard" : "clean";
+    const requestedBy = request.requested_by?.trim() || "unknown";
 
     const existing = this.#readStop(request.run_id);
     if (existing !== null) {
-      return { ok: true, stop: this.#stopView(existing), already: true };
+      // Never downgrade: a clean request over a hard record is the same stop.
+      if (mode === "clean" || existing.mode === "hard") {
+        return { ok: true, stop: this.#stopView(existing), already: true };
+      }
+      const upgraded: StopRecord = {
+        run_id: existing.run_id,
+        mode: "hard",
+        requested_by: requestedBy,
+        requested_at: Date.now(),
+      };
+      this.ctx.storage.sql.exec(
+        `UPDATE run_stop SET mode = ?, requested_by = ?, requested_at = ? WHERE run_id = ?`,
+        upgraded.mode,
+        upgraded.requested_by,
+        upgraded.requested_at,
+        upgraded.run_id
+      );
+      return { ok: true, stop: this.#stopView(upgraded), already: false };
     }
 
     const record: StopRecord = {
       run_id: request.run_id,
-      mode: "clean",
-      requested_by: request.requested_by?.trim() || "unknown",
+      mode,
+      requested_by: requestedBy,
       requested_at: Date.now(),
     };
     this.ctx.storage.sql.exec(
@@ -1090,7 +1136,7 @@ export class RunRoom extends DurableObject<Env> {
   #stopView(record: StopRecord): StopRequest {
     return {
       run_id: record.run_id,
-      mode: "clean",
+      mode: record.mode === "hard" ? "hard" : "clean",
       requested_by: record.requested_by,
       requested_at: stamp(record.requested_at),
     };
