@@ -1703,3 +1703,5 @@
 {"ts":"2026-08-21T10:53:28.983888073Z","tick":"9f5","action":"create","actor":"cloud:orchestrator","epic":"gj9","data":{"priority":2,"title":"Final review of epic gj9 diff","type":"task"}}
 {"ts":"2026-08-21T10:53:29.020530974Z","tick":"npz","action":"create","actor":"cloud:orchestrator","epic":"gj9","data":{"priority":2,"title":"Close out epic gj9: retro, verify acceptance, PR gate","type":"task"}}
 {"ts":"2026-08-21T10:54:37.727055226Z","tick":"npz","action":"block","actor":"cloud:orchestrator","epic":"gj9","data":{"blockers":["9f5"],"title":"Close out epic gj9: retro, verify acceptance, PR gate"}}
+{"ts":"2026-08-21T11:05:57.277292518Z","tick":"iit","action":"start","actor":"cloud:orchestrator","epic":"gj9","data":{"title":"tk herd cleanup prints \"removed\" above its own FAILED lines"}}
+{"ts":"2026-08-21T11:05:57.31426775Z","tick":"iit","action":"note","actor":"cloud:orchestrator","epic":"gj9","data":{"note":"\n2026-08-21 11:05 - runner-state: branch=tick/gj9/iit runner=harness substrate=harness isolation=none-shared-tree reason=single-tick-wave","title":"tk herd cleanup prints \"removed\" above its own FAILED lines"}}
