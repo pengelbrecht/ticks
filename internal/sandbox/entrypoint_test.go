@@ -1005,22 +1005,62 @@ func TestEntrypointIgnoresSetupInjectedThroughTheEnvironment(t *testing.T) {
 	}
 }
 
-// A repository asking for an image this container is not is reported, never
-// silently ignored: the container cannot change what it is running, so the log
-// is where that fact has to land.
-func TestEntrypointReportsAnImageItCouldNotHonour(t *testing.T) {
+// The control plane boots the image a repository declares (tick x3v), so a
+// container that is NOT that image is a configuration failure — not a warning
+// it works through. The container cannot change what it is running, and
+// continuing means provisioning, warming and spending in an environment the
+// repository explicitly said was the wrong one.
+func TestEntrypointRefusesAnImageItsRepositoryDidNotDeclare(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
 	f.env[EnvSandboxImage] = "ticks-orchestrator:0.31.0"
 	out, code := f.run()
+	if code != ExitSetup {
+		t.Fatalf("exit %d, want %d (a [sandbox] configuration verdict)\n%s", code, ExitSetup, out)
+	}
+	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the refusal names the declared image")
+	mustContain(t, out, "ticks-orchestrator:0.31.0", "the refusal names the booted image")
+	mustContain(t, out, "remove [sandbox].image", "the refusal names a remedy")
+	if f.harnessStarted() {
+		t.Error("the harness ran in an image the repository did not declare")
+	}
+}
+
+// The other side of the same rule: the declared image IS what booted, so the
+// boot continues without so much as a warning. This is the escape hatch
+// working — a repository pinning its own image and getting it.
+func TestEntrypointRunsWhenTheDeclaredImageIsTheBootedOne(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
+	f.env[EnvSandboxImage] = "registry.example.com/acme/orchestrator:2.0.0"
+	out, code := f.run()
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
 	}
-	mustContain(t, out, "warning", "the mismatch is a warning, not silence")
-	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the warning names the declared image")
-	mustContain(t, out, "ticks-orchestrator:0.31.0", "the warning names the booted image")
+	if strings.Contains(out, "warning") && strings.Contains(out, "sandbox image") {
+		t.Errorf("the image the repository declared was warned about:\n%s", out)
+	}
 	if !f.harnessStarted() {
-		t.Error("a declared image the control plane did not boot stopped the run")
+		t.Error("a repository that got the image it declared did not start")
+	}
+}
+
+// A hand-driven boot: nothing told this container what it is, so there is
+// nothing to compare a declaration against. That is reported and worked
+// through — refusing here would make the image undrivable by hand, and the
+// container still has no way to know it is wrong.
+func TestEntrypointReportsADeclaredImageItCannotConfirm(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
+	delete(f.env, EnvSandboxImage)
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, out, "warning", "an unconfirmable declaration is reported")
+	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the warning names the declared image")
+	if !f.harnessStarted() {
+		t.Error("a boot nothing identified was stopped by a declaration it could not check")
 	}
 }
 

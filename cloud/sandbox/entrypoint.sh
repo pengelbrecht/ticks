@@ -71,9 +71,10 @@ stop_reason="${TICKS_STOP_REASON:-}"
 workdir="${TICKS_WORKDIR:-/work/repo}"
 cache_dir="${TICKS_CACHE_DIR:-/cache}"
 pinned_tk="${TICKS_TK_VERSION:-}"
-# What image the control plane says it booted. Advisory: the container cannot
-# change what it is running, so this exists to make a repository that asks for
-# a DIFFERENT image visible in the log rather than silently ignored.
+# What image the control plane says it booted. The container cannot change what
+# it is running, so this is what makes a repository that asks for a DIFFERENT
+# image actionable here: the boot is refused rather than continued in an image
+# nobody asked for (check_declared_image).
 booted_image="${TICKS_SANDBOX_IMAGE:-}"
 # Which substrate dispatches this run's workers, and the default that makes a
 # cloud boot correct without any control-plane opinion.
@@ -924,14 +925,40 @@ repo_setup() {
 	local declared
 	declared="$(tk sandbox image --declared-only --root "$workdir" 2>/dev/null)" || declared=""
 	[[ -z $booted_image ]] || say "sandbox image $booted_image"
-	if [[ -n $declared && $declared != "$booted_image" ]]; then
-		# The container cannot change what it is running, so this is reported
-		# rather than acted on — never silently dropped.
-		warn "the repository declares the sandbox image $declared; this container is ${booted_image:-not identified by the control plane}, so the toolchain and setup below are all it gets"
-	fi
+	check_declared_image "$declared"
 
 	tk sandbox setup --root "$workdir" ||
 		die $EXIT_SETUP "the repository's [sandbox] setup failed — the failing command is named above; fix it in .tick/runners.toml (it must be idempotent) or remove it"
+}
+
+# The declared image, checked against the one this container actually is.
+#
+# The control plane resolves `[sandbox].image` from the tracked config at the
+# submitted SHA and boots it (tick x3v), so reaching here with a mismatch means
+# that resolution did not happen or did not agree: the control plane could not
+# read the file, its reader disagreed with this one, or the deployment served
+# something else. This is the check that cannot be skipped — `tk` is the
+# authoritative reader of runners.toml, and it is running in the checkout.
+#
+# A mismatch is a REFUSAL, not a warning. The container cannot change what it
+# is running, so continuing means provisioning a toolchain, warming caches and
+# spending model budget in an environment the repository explicitly said was
+# the wrong one — and failing later, far from the cause. It is a configuration
+# verdict (EXIT_SETUP), so the Workflow ends the run instead of rebooting into
+# the identical answer.
+check_declared_image() {
+	local declared="$1"
+	[[ -n $declared ]] || return 0
+	if [[ -z $booted_image ]]; then
+		# Nothing said what this container is: a hand-driven boot rather than a
+		# control-plane run, with nothing to compare against. Refusing here
+		# would make the image undrivable by hand for no gain — the container
+		# still has no way to know whether it is the right one.
+		warn "the repository declares the sandbox image $declared and nothing identified this container (TICKS_SANDBOX_IMAGE is unset), so what it is running cannot be confirmed"
+		return 0
+	fi
+	[[ $declared != "$booted_image" ]] || return 0
+	die $EXIT_SETUP "the repository declares the sandbox image $declared and this container is $booted_image — the run would provision, warm and spend in an image its repository did not ask for; deploy a factory whose orchestrator image is $declared, or remove [sandbox].image from .tick/runners.toml"
 }
 
 verify_tk() {

@@ -154,10 +154,12 @@ const (
 	ExitClone     = 3 // clone/checkout of the submitted SHA failed
 	ExitTkVersion = 4 // tk is absent or is not the version the image pins
 	ExitPreflight = 5 // an [environment.commands] pre-flight check failed
-	// ExitSetup reports that the repository's own `[sandbox]` setup failed.
-	// It is deliberately not best effort like toolchain provisioning: a
-	// repository that declares a warm step and does not get it starts a wave
-	// in which every worker fails the same way, at model prices.
+	// ExitSetup reports that the repository's own `[sandbox]` declaration was
+	// not satisfied: a setup command failed, or the container is not the
+	// `[sandbox].image` the checkout declares (tick x3v). It is deliberately
+	// not best effort like toolchain provisioning: a repository that declares
+	// a warm step, or an image, and does not get it starts a wave in which
+	// every worker fails the same way, at model prices.
 	ExitSetup = 6
 	// ExitModel reports that the container has a gateway and no model it can
 	// actually call: nothing routed, a model whose provider cannot be named, a
