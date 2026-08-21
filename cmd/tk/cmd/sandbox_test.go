@@ -491,3 +491,128 @@ model = "sonnet"
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// tk sandbox model --role / tk sandbox worker-prompt
+//
+// The per-tick worker container's two questions (tick tap). A worker asks the
+// same command the orchestrator does, one role cell over, and asks for the job
+// it was booted to do — so that cloud/sandbox/worker.sh never learns either
+// format.
+// ---------------------------------------------------------------------------
+
+// The orchestrator's cell is a frontier one on purpose; routing every per-tick
+// container at it is a silent multiple on a wave's bill, so a named role reads
+// the role/tier table and NOT `[orchestrator].model`.
+func TestSandboxModelForANamedRoleIgnoresTheOrchestratorCell(t *testing.T) {
+	root := sandboxRepo(t, orchestratorModelRunners)
+	out, notes := captureSandboxStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "model", "--root", root, "--role", "implement"}); err != nil {
+		t.Fatalf("tk sandbox model --role implement: %v", err)
+	}
+	got := strings.TrimSpace(out.String())
+	if strings.Contains(got, "llama") {
+		t.Errorf("a worker was routed at the orchestrator's own model %q", got)
+	}
+	if got == "" && !strings.Contains(notes.String(), "routes no model for role implement") {
+		t.Errorf("nothing said why the implement role routes nothing:\n%s", notes.String())
+	}
+}
+
+func TestSandboxModelForANamedRoleReadsThatRolesCell(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	out, notes := captureSandboxStreams(t)
+	if err := ExecuteArgs([]string{"sandbox", "model", "--root", root, "--role", "implement"}); err != nil {
+		t.Fatalf("tk sandbox model --role implement: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "sonnet" {
+		t.Errorf("model = %q, want the implement role's", got)
+	}
+	if !strings.Contains(notes.String(), "roles.implement.model") {
+		t.Errorf("the note does not name the cell the model came from:\n%s", notes.String())
+	}
+}
+
+// A misspelled tier is a typo in the invocation, caught before any config is
+// resolved — the same boundary `tk herd spawn` draws.
+func TestSandboxModelRefusesAnUnknownTier(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	captureSandboxStreams(t)
+	err := ExecuteArgs([]string{"sandbox", "model", "--root", root, "--role", "implement", "--tier", "supreme"})
+	if err == nil {
+		t.Fatal("an unknown tier was accepted")
+	}
+	if !strings.Contains(err.Error(), "unknown --tier") {
+		t.Errorf("the error does not name the mistake: %v", err)
+	}
+}
+
+// One template for both substrates. A container-per-tick worker and a
+// herdr-pane worker must be handed the same job, or the two substrates
+// disagree about what a tick asked for.
+func TestSandboxWorkerPromptRendersTheSharedWorkerTemplate(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	out := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{
+		"sandbox", "worker-prompt", "--root", root, "--tick", "a1w",
+		"--base", "930f1cf4dbcac5505cce506cbf2a8412d8248b92",
+	}); err != nil {
+		t.Fatalf("tk sandbox worker-prompt: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"deliver the spawn command", // the tick's description
+		"go test green",             // its acceptance criteria
+		"Tick ID: a1w",              //
+		"tick/gy1/a1w",              // the branch derived from the epic
+		"930f1cf4dbcac5505cce506cbf2a8412d8248b92", // the base it must verify
+		"RESULT-a1w.md", // the report it owes
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the worker prompt does not carry %q:\n%s", want, got)
+		}
+	}
+}
+
+// Three things are different in a container and all three change what the
+// agent must do, so the template gets an addendum rather than a footnote.
+func TestSandboxWorkerPromptStatesWhatIsTrueOnlyInAContainer(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	out := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"sandbox", "worker-prompt", "--root", root, "--tick", "a1w"}); err != nil {
+		t.Fatalf("tk sandbox worker-prompt: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"ephemeral cloud container", "Do NOT push", "entrypoint commits"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the container addendum does not say %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSandboxWorkerPromptRefusesWithoutATick(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	captureCmdOutput(t)
+	err := ExecuteArgs([]string{"sandbox", "worker-prompt", "--root", root})
+	if err == nil {
+		t.Fatal("a worker prompt was rendered for no tick at all")
+	}
+	if !strings.Contains(err.Error(), "--tick is required") {
+		t.Errorf("the error does not name the missing input: %v", err)
+	}
+}
+
+// An absent tick is a lookup miss (exit 4), never a generic failure: booting a
+// worker on a tick that does not exist and booting one on damaged tracker
+// state need different answers.
+func TestSandboxWorkerPromptReportsAnAbsentTickAsNotFound(t *testing.T) {
+	root := sandboxRepo(t, validRunners)
+	captureCmdOutput(t)
+	err := ExecuteArgs([]string{"sandbox", "worker-prompt", "--root", root, "--tick", "zzz"})
+	if err == nil {
+		t.Fatal("a worker prompt was rendered for a tick that does not exist")
+	}
+	if got := GetExitCode(err); got != ExitNotFound {
+		t.Errorf("exit code = %d, want %d (not found) for error %v", got, ExitNotFound, err)
+	}
+}

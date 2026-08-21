@@ -1,24 +1,147 @@
-# orchestrator sandbox image
+# ticks sandbox image
 
-The container one cloud run boots. `tk cloud run <epic>` starts a Run Workflow;
-the Workflow boots **one** sandbox from this image and starts
-`ticks-orchestrator` inside it, which clones the repo at the submitted SHA,
-verifies `tk`, provisions anything the repository needs that the image does not
-already carry, runs the repository's own `[sandbox]` setup, runs the Environment
-pre-flight, exports
-`TK_ACTOR=cloud:orchestrator`, and execs the headless harness on the ticks skill
-loop. See `docs/design/cloud-factory.md` (Phase 1).
+The container a cloud run boots — in either of its **two roles**. On Cloudflare
+an image belongs to the containers application rather than to a boot (tick
+x3v), so an orchestrator container and a per-tick worker container are the
+*same image*, and what tells a container which role it is playing is **which
+entrypoint the control plane starts inside it**: `ticks-orchestrator` works an
+epic, `ticks-worker` works one tick. There is deliberately no role flag beside
+that — a container whose role is the command it was given cannot be started in
+the wrong one.
+
+The role-neutral half of the boot lives in `common.sh` and is sourced by both.
+It is sourced rather than copied because a gateway or credential fix that lands
+in one role and misses the other is a whole wave of containers dying the same
+way, at model prices.
 
 | File | What it is |
 |---|---|
 | `Dockerfile` | The image. Every version and checksum is pinned in one ARG block. |
-| `entrypoint.sh` | Installed as `/usr/local/bin/ticks-orchestrator` — the run entrypoint. |
+| `entrypoint.sh` | Installed as `/usr/local/bin/ticks-orchestrator` — the ORCHESTRATOR run entrypoint. |
+| `worker.sh` | Installed as `/usr/local/bin/ticks-worker` — the PER-TICK WORKER run entrypoint, and `--probe`. |
+| `common.sh` | Installed as `/usr/local/share/ticks/common.sh` — the role-neutral half both entrypoints source. A library, not an entrypoint. |
 | `preflight.sh` | Installed as `/usr/local/bin/ticks-preflight` — the Environment pre-flight. |
 | `build.sh` | Builds and optionally pushes, tagged with the tk version the Dockerfile pins. |
-| `required-tk-commands` | Derived list of every `tk` subcommand the two scripts run. The image build asserts each one against the tk it produced. |
+| `required-tk-commands` | Derived list of every `tk` subcommand the run scripts invoke. The image build asserts each one against the tk it produced. |
 
-Guarded by `internal/sandbox` (`go test ./internal/sandbox`), which runs the two
-scripts against stub harnesses and checks the Dockerfile's pin discipline.
+Guarded by `internal/sandbox` (`go test ./internal/sandbox`), which runs both
+entrypoints against stub harnesses — with a real git remote, a real clone and a
+real push for the worker — and checks the Dockerfile's pin discipline.
+
+## The orchestrator role
+
+`tk cloud run <epic>` starts a Run Workflow; the Workflow boots **one** sandbox
+from this image and starts `ticks-orchestrator` inside it, which clones the repo
+at the submitted SHA, verifies `tk`, provisions anything the repository needs
+that the image does not already carry, runs the repository's own `[sandbox]`
+setup, runs the Environment pre-flight, exports `TK_ACTOR=cloud:orchestrator`,
+and execs the headless harness on the ticks skill loop. See
+`docs/design/cloud-factory.md` (Phase 1).
+
+## The worker role
+
+One sandbox per tick. `ticks-worker` clones at the epic base, branches
+`tick/<epic-id>/<tick-id>`, runs the harness on that one tick, then **commits
+`RESULT-<tick-id>.md`, pushes the branch, and exits**. Its caller is
+`cloud/factory/src/worker-dispatch.ts`, which probes the container, confirms
+dispatch, waits, collects from git and tears the sandbox down;
+`cloud/factory/src/worker-boot.ts` is where the control plane reads the command,
+the probe and the environment from.
+
+Four things about it are load-bearing:
+
+**It does not `exec` the harness.** The orchestrator execs, so the harness's
+exit status is the run's. A worker cannot: its entire contract is what it does
+*after* the agent stops. The last thing the container does is make sure the
+durable layer has something in it, because collect reads git and nothing else —
+terminal output from a destroyed container is not a channel.
+
+**It commits the report.** A herdr worker leaves `RESULT-<tick-id>.md`
+uncommitted in its worktree and `tk herd collect` reads it off the filesystem.
+There is no worktree here, so `worker-collect.ts` reads the report *off the
+pushed branch* — which means it has to be committed, and the entrypoint (not the
+agent) commits it, in its own commit, with an explicit pathspec. The agent's
+`STATUS:` line is never rewritten; a header of facts the agent could not know —
+its own exit status, how many commits it made, what it left uncommitted — is
+prepended above it.
+
+**A pushed branch is adopted, never overwritten.** An earlier attempt's work is
+evidence collect explicitly still looks for. A branch already on origin that
+descends from this base is continued; one from another base is left alone and
+this attempt pushes beside it as `tick/<epic>/<tick>-<run-id>`.
+
+**Exit codes distinguish the classes**, on top of the shared 2–8:
+
+| Exit | Meaning |
+|---|---|
+| `9` | Commits exist and origin would not take them. The worst outcome: the work lives only in a container about to be destroyed. Retry. |
+| `10` | Branch and report reached origin with **no work commits**. The green-start trap's exit counterpart (D23) — the harness exited 0 having done nothing. Look at the tick, not the container. |
+| `11` | The harness failed, ran out of time, or exited without writing its report. Whatever it committed was pushed first. |
+
+### The probe marker
+
+`ticks-worker --probe` is the green-start probe `worker-dispatch.ts` runs before
+it dispatches any real work. It proves `tk`, `git` and the harness binary answer,
+and then prints:
+
+```
+ticks-worker: ticks-worker-probe-ok tick=<id> tk=<version> harness=<kind> git version …
+```
+
+The gate is **`ticks-worker-probe-ok` appearing in the output**, never the exit
+status — a probe that exits 0 having printed the wrong thing is exactly the
+trap. The marker is defined here and read from three places: `worker.sh`,
+`internal/sandbox/worker.go` and `cloud/factory/src/worker-boot.ts`, pinned
+together by `cloud/factory/test/fixtures/worker-boot-contract.json`.
+
+The probe deliberately makes **no model call** and does **no clone**. It runs
+once per sandbox in a wave, and the model round-trip is already proved during
+the boot itself, where a failure has a route to blame.
+
+### Worker inputs
+
+Everything in *Entrypoint contract* below applies, minus `TICKS_PHASE`,
+`TICKS_STOP_REASON`, `TICKS_SUBSTRATE` and `TICKS_KEEPER_INTERVAL` (a worker
+plans no waves and dispatches nobody), plus:
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `TICKS_TICK` | yes | The one tick this container implements. A worker with no tick refuses to boot (exit 2) rather than run something else's prompt. |
+| `TICKS_WORKER_SETUP` | no | `always` (default) or `skip` — whether this worker runs the repository's `[sandbox]` setup. See below. |
+| `TICKS_WORKER_TIMEOUT` | no | Seconds the harness may run before the container stops waiting and pushes what it has; `0` (default) leaves it unbounded. |
+| `TICKS_WORKER_BRANCH` | derived | **Output, not input.** `tick/<epic>/<tick>`, exported for everything the harness spawns. |
+
+`TICKS_MODEL`, when unset, is resolved from the **`implement`** cell of the
+repository's role/tier table (`tk sandbox model --role implement`), not from
+`[orchestrator].model`. The orchestrator's cell is a frontier one because it
+plans waves and reviews epics; routing every per-tick container at it is a
+silent multiple on a wave's bill.
+
+### Dependencies are the fan-out cost
+
+Tick kuf measured it: per-sandbox time degrades **3.74x at N=5**, and *all* of
+that is dependency install — not the image pull. That is why
+`TICKS_WORKER_SETUP` is a switch and why the entrypoint prints how long setup
+took on every boot: the number belongs in a log an operator can read, not in a
+measurement somebody has to remember.
+
+`always` is the default and the correct one — a worker that cannot run the
+repository's tests cannot implement a tick. `skip` exists for a wave whose ticks
+touch no dependencies, and says so loudly in the boot log.
+
+Two related facts about fan-out that are not this script's to fix: the caches
+every toolchain is pointed at are per-sandbox unless the control plane keeps a
+shared tree warm, and Cloudflare's `max_instances` silently *serialises* a wave
+wider than it (3 at the time of writing).
+
+### The harness bound, and why it exists
+
+`worker-dispatch.ts`'s wait timeout ends in `teardownWorker` **killing** the
+container — and a killed container pushes nothing. A worker bounded just under
+the dispatcher's bound turns a hung agent into a pushed branch plus a report,
+which is the difference between a lost tick and a legible one.
+`workerHarnessTimeoutSeconds` in `worker-boot.ts` derives one from the other so
+the two bounds are a single decision rather than two constants that drift.
 
 ## The image's tk is built from the deployed source
 
