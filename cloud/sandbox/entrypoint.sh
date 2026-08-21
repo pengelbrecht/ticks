@@ -14,6 +14,11 @@
 # and streams its output to R2 during the run. Everything printed here goes
 # straight to stdout, and the harness is exec'd, so output is never buffered
 # until exit: a sandbox that dies mid-run still leaves its logs behind.
+#
+# Beside the harness it runs the RUN KEEPER, which is what makes a run that
+# dies recoverable rather than lost: it pushes the run branch as soon as there
+# is anything on it and prints a heartbeat on a timer, so committed work
+# outlives the container and a working run is distinguishable from a hung one.
 set -uo pipefail
 
 readonly ME="ticks-orchestrator"
@@ -101,6 +106,16 @@ substrate_note=""
 factory_url="${TICKS_FACTORY_URL:-}"
 factory_token="${TICKS_FACTORY_TOKEN:-}"
 factory_project="${TICKS_FACTORY_PROJECT:-}"
+# How often the run keeper pushes the run branch and prints a heartbeat, in
+# seconds; 0 turns it off. The default is deliberately far shorter than a wave:
+# the run this exists because of worked productively for 4.4 hours across seven
+# ticks, pushed nothing, and lost all of it when the container was destroyed.
+keeper_interval="${TICKS_KEEPER_INTERVAL:-60}"
+# Filled in by adopt_run_branch: the branch this run's commits land on and the
+# keeper pushes, and how many commits it already carried when this boot took
+# it over. Empty until the checkout exists — nothing may read them earlier.
+run_branch=""
+run_branch_inherited=0
 # How long the pre-flight model probe may take before it is a failure. Bounded
 # by construction: an unbounded probe for a hang is itself a hang.
 probe_timeout="${TICKS_MODEL_PROBE_TIMEOUT:-30}"
@@ -707,6 +722,117 @@ clone_at_sha() {
 	*) die $EXIT_CLONE "checked out $head, not the submitted $base_sha" ;;
 	esac
 	say "checked out $head from $repo_url"
+	adopt_run_branch
+}
+
+# The run branch: `tick-run/<epic>`, the branch every commit this run makes
+# lands on and the keeper below pushes.
+#
+# D4 says a run's tracker state lives on a pushed run branch and is therefore
+# "durable, recoverable, and mergeable" if the run dies. It was not: nothing
+# pushed until closeout, so a run that never REACHED closeout had never pushed
+# at all. One run worked productively for 4.4 hours across seven ticks and lost
+# every commit when its container was destroyed to stop the spend. The branch
+# exists from the clone so there is somewhere for that work to be pushed to.
+#
+# A boot that finds the branch already on origin is a CONTINUATION — a rebooted
+# orchestrator, or a new run for an epic whose previous run was killed — and it
+# adopts what is there instead of starting the epic over. But only when the
+# pushed branch descends from THIS boot's base: a branch from another base is
+# another run's work, and taking its name would overwrite exactly what this
+# mechanism exists to preserve. That one is left untouched and this run pushes
+# beside it, under a name carrying the run id.
+adopt_run_branch() {
+	local remote_head
+	run_branch="tick-run/${epic}"
+	if git -C "$workdir" fetch -q origin "+refs/heads/${run_branch}:refs/remotes/origin/${run_branch}" 2>/dev/null &&
+		remote_head="$(git -C "$workdir" rev-parse --verify -q "refs/remotes/origin/${run_branch}")" &&
+		[[ -n $remote_head ]]; then
+		if git -C "$workdir" merge-base --is-ancestor "$base_sha" "$remote_head" 2>/dev/null; then
+			git -C "$workdir" checkout -q -B "$run_branch" "$remote_head" ||
+				die $EXIT_CLONE "cannot continue the pushed run branch ${run_branch} at ${remote_head}"
+			run_branch_inherited="$(git -C "$workdir" rev-list --count "${base_sha}..HEAD" 2>/dev/null)" ||
+				run_branch_inherited=0
+			say "adopted ${run_branch} from origin: ${run_branch_inherited} commit(s) an earlier boot pushed, on top of ${base_sha}"
+			return 0
+		fi
+		run_branch="tick-run/${epic}-${run_id}"
+		warn "origin already has tick-run/${epic} from a run at a different base; leaving it untouched and pushing this run to ${run_branch} instead"
+	fi
+	git -C "$workdir" checkout -q -B "$run_branch" HEAD ||
+		die $EXIT_CLONE "cannot create the run branch ${run_branch}"
+	say "run branch ${run_branch} at ${base_sha}"
+}
+
+# The run keeper: the durability half of this entrypoint, and the reason a
+# killed run is recoverable.
+#
+# It runs BESIDE the harness rather than inside it, because durability that
+# depends on an agent remembering to push is not durability — and because the
+# operator who has to kill a runaway should not be choosing between stopping
+# the spend and destroying the work. Every interval it does two things.
+#
+# 1. Pushes the run branch when it has moved: after each worker branch merges,
+#    after each wave integrates, whenever anything is committed. Fast-forward
+#    only — a rejected push means something else owns that ref, and forcing
+#    over it would lose the very work this preserves. Nothing is pushed until
+#    the run has actually committed something: the Workflow decides whether a
+#    run DID anything by comparing the remote's refs before and after (tick
+#    ehy, src/progress.ts), so a keeper that staked its branch at the base on
+#    every boot would report progress no run had made.
+# 2. Prints a heartbeat. The output stream is the only view an operator has of
+#    a container they cannot reach, and a harness that is thinking prints
+#    nothing: the run above froze at offset 3014 for over four hours while it
+#    was demonstrably working, which is what made killing it look correct. A
+#    hang and productive work must not look identical from outside, so liveness
+#    is on a timer rather than at turn boundaries, and it carries what the run
+#    has to show for itself — HEAD, commits since the base, the last push.
+#
+# It watches the pid it was started from, which after the exec below IS the
+# harness, so it dies with the run instead of outliving it and billing.
+start_keeper() {
+	local watch_pid="$1"
+	if [[ ! $keeper_interval =~ ^[0-9]+$ ]]; then
+		warn "TICKS_KEEPER_INTERVAL='$keeper_interval' is not a number of seconds; the run keeper is off and this run's work is not durable until closeout"
+		return 0
+	fi
+	if ((keeper_interval == 0)); then
+		warn "the run keeper is off (TICKS_KEEPER_INTERVAL=0): nothing pushes ${run_branch} until the run chooses to"
+		return 0
+	fi
+	(
+		SECONDS=0
+		local pushed head ahead note beat
+		pushed="$(git -C "$workdir" rev-parse HEAD 2>/dev/null)" || pushed=""
+		beat=$keeper_interval
+		# Liveness is checked far more often than the heartbeat fires, so the
+		# keeper releases the output stream promptly when the harness exits
+		# rather than holding it open for the rest of an interval.
+		while kill -0 "$watch_pid" 2>/dev/null; do
+			if ((SECONDS < beat)); then
+				sleep 1
+				continue
+			fi
+			beat=$((SECONDS + keeper_interval))
+			head="$(git -C "$workdir" rev-parse HEAD 2>/dev/null)" || head=""
+			if [[ -z $head ]]; then
+				say "keeper +${SECONDS}s: the checkout has no HEAD to push"
+				continue
+			fi
+			ahead="$(git -C "$workdir" rev-list --count "${base_sha}..${head}" 2>/dev/null)" || ahead="?"
+			note="nothing new to push"
+			if [[ $head != "$pushed" ]]; then
+				if git -C "$workdir" push -q origin "${head}:refs/heads/${run_branch}" 2>&1; then
+					pushed="$head"
+					note="pushed ${run_branch}"
+				else
+					note="COULD NOT PUSH ${run_branch} — this run's work is not durable yet"
+				fi
+			fi
+			say "keeper +${SECONDS}s: head ${head:0:12}, ${ahead} commit(s) since the base; ${note}"
+		done
+	) &
+	say "run keeper: ${run_branch} is pushed and a heartbeat printed every ${keeper_interval}s, so a run that dies leaves its work on origin"
 }
 
 # The image carries this factory's known toolchain set. The version manager is
@@ -861,6 +987,13 @@ prompt_footer() {
 	else
 		guidance="The checkout's own pin is for runs where it applies; this sandbox has no herdr server. Do not probe for one, do not edit .tick/runners.toml, and do not stop over the mismatch — dispatch workers as subagents of this harness, in this container."
 	fi
+	# What the run branch already carried when this boot took it over. An
+	# orchestrator told "checked out at <base>" while it is actually standing on
+	# an earlier boot's merged work would re-plan the epic from the wrong state.
+	local inherited=""
+	if ((run_branch_inherited > 0)); then
+		inherited=" It already carries ${run_branch_inherited} commit(s) pushed by an earlier boot of this epic, on top of ${base_sha} — reconcile against them and do not redo that work."
+	fi
 	cat <<PROMPT
 
 The dispatch substrate for this run is ${substrate_resolved}, resolved from
@@ -875,6 +1008,17 @@ The repository is checked out at ${base_sha}, the run id is ${run_id}, and
 TK_ACTOR is already ${ACTOR} — every tracker write is attributed to the cloud
 orchestrator, so do not change it. Terminal output is a diagnostic channel,
 never a result channel — results live in git and in the tracker.
+
+You are on the run branch ${run_branch} (also in TICKS_RUN_BRANCH), and this
+container pushes it to origin every ${keeper_interval}s whenever it has new
+commits.${inherited} That is what makes this run recoverable: the container can
+be killed, evicted or stopped at any moment, and everything COMMITTED here
+survives on origin while everything else dies with it. So commit as you go —
+each worker branch as it merges, each wave as it integrates, and tracker state
+immediately after every mutation batch — and do not wait for closeout to make
+work durable. Keep working on this branch: do not create a second integration
+branch, and do not push to the default branch yourself; merging ${run_branch}
+is closeout's job, through the PR and CI gate.
 PROMPT
 }
 
@@ -927,6 +1071,9 @@ start_harness() {
 	export TK_ACTOR="$ACTOR"
 	export TICKS_RUN_ID="$run_id"
 	export TICKS_PHASE="$phase"
+	# The branch the keeper pushes, named for everything the harness spawns:
+	# one spelling from the clone to the worker that merges into it.
+	export TICKS_RUN_BRANCH="$run_branch"
 	if [[ -n $factory_url ]]; then export TICKS_FACTORY_URL="$factory_url"; fi
 	if [[ -n $factory_token ]]; then export TICKS_FACTORY_TOKEN="$factory_token"; fi
 	if [[ -n $factory_project ]]; then export TICKS_FACTORY_PROJECT="$factory_project"; fi
@@ -951,6 +1098,9 @@ start_harness() {
 		;;
 	esac
 
+	# Started BEFORE the exec, watching this pid: exec keeps the pid, so the
+	# keeper is watching the harness itself and dies when it does.
+	start_keeper "$$"
 	say "starting the $harness harness on the skill loop"
 	# exec, so the harness owns stdout directly: its output streams as it is
 	# produced and its exit status is the run's exit status.

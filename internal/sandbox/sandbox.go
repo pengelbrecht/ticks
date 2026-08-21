@@ -85,12 +85,41 @@ const (
 	// DIFFERENT image in its `[sandbox]` table is reported in the boot log
 	// rather than silently ignored.
 	EnvSandboxImage = "TICKS_SANDBOX_IMAGE"
+	// EnvKeeperInterval is how often the run keeper pushes the run branch and
+	// prints a heartbeat, in seconds. 0 turns it off, which is a deliberate
+	// choice a caller has to make: the default is on, because a run that
+	// pushes nothing until closeout loses everything a killed container held.
+	EnvKeeperInterval = "TICKS_KEEPER_INTERVAL"
+	// EnvRunBranch is the branch the run's commits land on and the keeper
+	// pushes. The entrypoint DERIVES it (see [RunBranch]) and exports it, so
+	// the orchestrator and everything it spawns name the same branch the
+	// control plane can recover work from.
+	EnvRunBranch = "TICKS_RUN_BRANCH"
 	// The RunRoom-backed operator bridge. The token is injected only into the
 	// ephemeral sandbox and is never written into the checkout.
 	EnvFactoryURL     = "TICKS_FACTORY_URL"
 	EnvFactoryToken   = "TICKS_FACTORY_TOKEN"
 	EnvFactoryProject = "TICKS_FACTORY_PROJECT"
 )
+
+// RunBranchPrefix is the namespace a run's own branch lives in. It is half of
+// the branch-name ownership test the factory applies to a pull request (D9,
+// with `tick/*` for worker branches), so a run branch is recognisable as the
+// factory's work by its name alone.
+const RunBranchPrefix = "tick-run/"
+
+// RunBranch is the branch one run's commits land on, pushed continuously by
+// the container's run keeper.
+//
+// The name is derived from the epic rather than the run, because a run is
+// recovery state: a boot that finds this branch on origin CONTINUES it —
+// whether it is a rebooted orchestrator or a new run for an epic whose
+// previous run was killed — instead of starting the epic over. A branch that
+// does not descend from the boot's base belongs to a run at another base and
+// is left alone; the entrypoint pushes beside it rather than over it.
+func RunBranch(epic string) string {
+	return RunBranchPrefix + epic
+}
 
 // Phase is what a boot is for. The Run Workflow owns the run's lifecycle and
 // can only reach the image through the environment, so "this is a reboot after
