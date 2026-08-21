@@ -11,6 +11,7 @@ import {
   GATEWAY_PATH_PREFIX,
   LOG_PAGE_SIZE,
   MAX_LOG_PAGES,
+  SESSION_AFFINITY_HEADER,
   encodeLogFilters,
   fetchRunSpend,
   gatewayConfig,
@@ -234,6 +235,75 @@ describe("every model request carries run and tick metadata", () => {
     expect(gateway.metadata()).toMatchObject({ run_id: run.run_id, tick_id: "k2s" });
   });
 
+  it("pins a run's calls to one model instance so its prompt prefix can cache", async () => {
+    const run = await liveRun();
+    const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "k2s", attempt: 1 });
+    const gateway = new FakeGateway();
+
+    await proxyModelRequest(
+      env,
+      modelRequest(undefined, { authorization: `Bearer ${token}` }),
+      ["anthropic", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+    await proxyModelRequest(
+      env,
+      modelRequest(undefined, { authorization: `Bearer ${token}` }),
+      ["anthropic", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+
+    // The run id, on every call, unchanged between them: prefix caching only
+    // pays when a run's turns land on the same instance.
+    expect(gateway.calls.map((call) => call.headers.get(SESSION_AFFINITY_HEADER))).toEqual([
+      run.run_id,
+      run.run_id,
+    ]);
+  });
+
+  it("gives a different run a different affinity, so runs do not share an instance", async () => {
+    const first = await liveRun();
+    const second = await liveRun();
+    const gateway = new FakeGateway();
+
+    for (const run of [first, second]) {
+      const { token } = await issueRunToken(env, {
+        run_id: run.run_id,
+        tick_id: "k2s",
+        attempt: 1,
+      });
+      await proxyModelRequest(
+        env,
+        modelRequest(undefined, { authorization: `Bearer ${token}` }),
+        ["anthropic", "v1", "messages"],
+        { fetcher: gateway.fetcher }
+      );
+    }
+
+    expect(gateway.calls[0]!.headers.get(SESSION_AFFINITY_HEADER)).toBe(first.run_id);
+    expect(gateway.calls[1]!.headers.get(SESSION_AFFINITY_HEADER)).toBe(second.run_id);
+  });
+
+  it("drops an affinity the caller chose for itself", async () => {
+    const run = await liveRun();
+    const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "k2s", attempt: 1 });
+    const gateway = new FakeGateway();
+
+    await proxyModelRequest(
+      env,
+      modelRequest(undefined, {
+        authorization: `Bearer ${token}`,
+        [SESSION_AFFINITY_HEADER]: "run_somebody_else",
+      }),
+      ["anthropic", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+
+    // Affinity is attribution's twin: an agent that could pick it could park
+    // itself on another run's instance, or scatter its own calls at will.
+    expect(gateway.last.headers.get(SESSION_AFFINITY_HEADER)).toBe(run.run_id);
+  });
+
   it("refuses a provider this factory has no key for, naming setup", async () => {
     set("OPENAI_API_KEY", undefined);
     const run = await liveRun();
@@ -386,6 +456,25 @@ describe("the workers-ai route takes content as a string, not as parts", () => {
     expect(failure.detail).toContain("image_url");
     // A refusal, not a request with a hole in it.
     expect(gateway.calls).toHaveLength(0);
+  });
+
+  it("rewrites two identical requests into identical bytes, so the prefix survives", async () => {
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    // The only body the Worker rebuilds rather than streams. If the rebuild
+    // varied at all — key order, spacing, a stamped field — it would move the
+    // head of the message array on every call and no prefix would ever cache,
+    // affinity header or not.
+    await proxyModelRequest(env, workersAIRequest(OMP_REQUEST, token), WORKERS_AI_PATH, {
+      fetcher: gateway.fetcher,
+    });
+    await proxyModelRequest(env, workersAIRequest(OMP_REQUEST, token), WORKERS_AI_PATH, {
+      fetcher: gateway.fetcher,
+    });
+
+    expect(gateway.calls).toHaveLength(2);
+    expect(gateway.calls[1]!.body).toBe(gateway.calls[0]!.body);
   });
 
   it("leaves a request that already conforms exactly as it arrived", async () => {

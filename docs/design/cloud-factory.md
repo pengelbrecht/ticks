@@ -254,6 +254,44 @@ This buys three things beyond vendor-agnosticism:
   third-party data path unless they choose one (OpenRouter is an opt-in rung,
   not a dependency).
 
+**Prompt caching is where an agentic run's money is.** A measured runaway run
+spent $49.80 on 46,098,950 input tokens against 1,019,075 output tokens: 98% of
+the spend was re-sending context, and not one of its 892 calls hit a cache
+(`cached_tokens: 0` on a 71,759-token prompt whose opening bytes were proved
+identical on two requests hours apart). Two different caches sit behind the
+gateway and only one of them is worth anything here:
+
+- The **gateway response cache** (`cf-aig-cache-ttl`) matches an identical
+  request to a stored response. Every turn of an agentic loop sends a different
+  request, so it would hit approximately never; it is deliberately left off.
+- **Prefix caching** bills the leading, unchanged span of a prompt at a cached
+  rate instead of re-processing it. That is exactly the shape of a loop, whose
+  prompt grows by appending while its first tens of thousands of tokens stay
+  fixed. Workers AI enables it by default on select models — but the cache
+  lives on the model instance, so it only pays if the run's calls keep reaching
+  the same one. Cloudflare's instruction is to "use the `x-session-affinity`
+  header with a unique session identifier"; the factory's gateway Worker sets
+  it to the **run id** (`SESSION_AFFINITY_HEADER` in
+  `cloud/factory/src/gateway.ts`), stamped the same way `cf-aig-metadata` is —
+  the caller cannot choose or suppress its own affinity, because an agent that
+  could would be able to park on another run's instance or scatter its own
+  calls.
+
+Affinity is only half of it: "a single token difference invalidates the cache
+from that point onward", so anything the factory injects at the head of the
+message array has to be a function of the run rather than of the moment. The
+factory contributes exactly one such thing — the prompt that
+`cloud/sandbox/entrypoint.sh` composes and hands the harness as `-p` — and
+`internal/sandbox/prompt_prefix_test.go` is the standing check on it: no date,
+clock, unix timestamp or uuid in the composed prompt; two boots of the same run
+produce the same prompt byte for byte; and the prompt builders shell out to
+nothing that varies (`date`, `$RANDOM`, `uuidgen`, `hostname`, `$SECONDS`).
+What a harness itself puts in front of that is outside this boundary and is
+checked by measurement, not by reading a header back: run the same epic twice
+and compare `cached_tokens` and cost per call across the runs. A run whose
+prefix is 60k of a 70k-token prompt should show most of its input billed at the
+cached rate from the second call onward.
+
 The tier vocabulary is unchanged (axiom 5): `.tick/runners.toml` still maps
 role → kind/model/effort; the gateway is plumbing below that table, not a new
 name in it. The green-start trap defense becomes *more* important with
@@ -944,6 +982,7 @@ Collected from the use cases; each appears above in context.
 | D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input | UC1b |
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
 | D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
+| D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
 
 ## What this is *not*
 

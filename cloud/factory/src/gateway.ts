@@ -396,6 +396,33 @@ export type GatewayMetadataKey = (typeof GATEWAY_METADATA_KEYS)[number];
 
 export type GatewayMetadata = Record<GatewayMetadataKey, string>;
 
+/**
+ * The header that keeps a run's model calls on one model instance.
+ *
+ * Workers AI enables PREFIX caching by default on select models: the leading,
+ * unchanged span of a prompt is billed at a cached rate instead of being
+ * re-processed. An agentic loop is the shape that pays most — its prompt grows
+ * by appending while its first tens of thousands of tokens stay fixed — but
+ * only if the calls reach the same instance, because the prefix cache lives on
+ * the instance. Cloudflare's own instruction: "Use the x-session-affinity
+ * header with a unique session identifier to maximize cache hit rates by
+ * routing requests to the same model instance."
+ *
+ * Without it a run's calls scatter, every instance sees a cold prefix, and the
+ * hit rate is ~0 no matter how stable the prompt is. A measured runaway run
+ * spent $49.80 on 46,098,950 input tokens against 1,019,075 output tokens with
+ * `cached_tokens: 0` on all 892 calls, on a prefix proven byte-identical hours
+ * apart. The run id is the unique session identifier the doc asks for: it is
+ * already on the token row, it is stable for the life of a run, and it is
+ * distinct between runs, so two runs never contend for one instance's cache.
+ *
+ * This is NOT the gateway's response cache (`cf-aig-cache-ttl`), which matches
+ * an identical request to a stored response. That one is near-useless here —
+ * every turn of a loop sends a different request — and is deliberately left
+ * off. See docs/design/cloud-factory.md (D24).
+ */
+export const SESSION_AFFINITY_HEADER = "x-session-affinity";
+
 /** Headers a caller must never be able to set on the upstream request. */
 function sanitizedHeaders(request: Request): Headers {
   const headers = new Headers();
@@ -405,6 +432,10 @@ function sanitizedHeaders(request: Request): Headers {
     // claimed; hop-by-hop and CF-injected headers belong to the transport.
     if (lower === "authorization" || lower === "x-api-key") continue;
     if (lower.startsWith("cf-")) continue;
+    // Affinity is attribution's twin and is stamped the same way: an agent
+    // that could choose it could park on another run's instance or scatter
+    // its own calls, and either one costs the operator money.
+    if (lower === SESSION_AFFINITY_HEADER) continue;
     if (lower === "host" || lower === "cookie" || lower === "content-length") continue;
     headers.set(name, value);
   }
@@ -594,6 +625,9 @@ export async function proxyModelRequest(
   else headers.set("authorization", `Bearer ${key}`);
   // Attribution the caller cannot forge or suppress (D17).
   headers.set("cf-aig-metadata", JSON.stringify(gatewayMetadata(authorized.token, authorized.run)));
+  // One run, one model instance, so its unchanging prompt prefix stays cached
+  // on that instance instead of being re-processed at full price every turn.
+  headers.set(SESSION_AFFINITY_HEADER, authorized.run.run_id);
   // The operator's gateway may itself be authenticated; when it is, the same
   // account token that reads its logs is what opens it.
   const gatewayAuth = textVar(env.CLOUDFLARE_API_TOKEN);
