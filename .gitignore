@@ -21,3 +21,7 @@ node_modules/
 repo-wiki/.ingest/
 repo-wiki/.comments/
 bin/
+
+# Python bytecode from scripts/ (the benchmark harness is a module when imported)
+__pycache__/
+*.pyc
