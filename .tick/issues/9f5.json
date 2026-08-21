@@ -1,0 +1,19 @@
+{
+  "id": "9f5",
+  "title": "Final review of epic gj9 diff",
+  "notes": "2026-08-21 11:56 - Final review (controller, read-only): clean. Diff is 2 files, +40/-1: herd_cleanup.go now chooses the per-tick verb after the steps run (p.OK() -\u003e removed | FAILED), leaving the REFUSED and preview paths untouched; herd_cleanup_test.go pins both outcomes and asserts a failed apply never contains \"removed\". Sibling audit: herd_collect prints its verdict after collection, spawn/paint print titles not outcomes, reconcile prints class after evidence, wait computes its summary after settle — no other herd command carries the header-before-outcome pattern. Gate: go test -short -count=1 ./... green on the integrated tree. Findings: none.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "ticks-orchestrator@ticks.invalid",
+  "blocked_by": [
+    "iit"
+  ],
+  "parent": "gj9",
+  "role": "review",
+  "created_by": "ticks-orchestrator@ticks.invalid",
+  "created_at": "2026-08-21T10:53:28.983589223Z",
+  "updated_at": "2026-08-21T11:56:21.70872232Z",
+  "closed_at": "2026-08-21T11:56:21.70872232Z",
+  "closed_reason": "Completed: full epic diff reviewed read-only against base 6f45a32; fix is correct and minimal, acceptance covered by two pinned tests, sibling herd commands audited for the same pattern (none), integrated go test -short ./... gate green; no findings to route"
+}
