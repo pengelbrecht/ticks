@@ -1,0 +1,13 @@
+{
+  "id": "vy2",
+  "title": "cmd/tk command tests fail under heavy machine load",
+  "description": "Seen once during this epic: TestApproveCommand, TestRejectCommand and TestUpdateVerdictFlag all failed with \"expected approve exit 0, got 2\" during a full go test ./... run, while a cloud run, two pollers and a stream of API fetches were saturating the machine. The same tree passed on origin/main alone, on the epic branch before the merge, on the single test in isolation, on the cmd/tk package alone, and on a full re-run once the machine was quiet.\n\nExit 2 rather than an assertion failure suggests the spawned binary was killed or timed out rather than misbehaving, so the likely cause is a deadline that is generous on an idle machine and not on a loaded one. Find the deadline and either make it robust or make the failure say \"timed out\" instead of reporting an exit code that reads like a usage error — the current message sent me looking for a merge regression that did not exist.\n\nDo not fix this by lengthening a sleep. It matters because CI runners are loaded by definition, and this class already bit this repo once (the herdr AfterList ordering race in .tick/config.md).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T12:21:07.223749Z",
+  "updated_at": "2026-08-21T12:21:07.223749Z"
+}
