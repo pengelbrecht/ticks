@@ -280,6 +280,31 @@ gateway and only one of them is worth anything here:
   could would be able to park on another run's instance or scatter its own
   calls.
 
+One key for a whole run is deliberate, and the alternative was measured rather
+than argued (tick fxf). Under the harness substrate a run is not one
+conversation — it is an orchestrator plus N implementer subagents, all spending
+the same run token, so one affinity key carries N message arrays that share
+nothing past the harness preamble. The reading that they evict each other off
+the single instance the key routes to is wrong. In `run_62c289d1` (230 calls,
+65.3% of 10,954,464 input tokens cached, $5.96 against a modelled $15.08
+uncached) the eight conversations separate cleanly in the gateway logs by the
+first two messages of each request body, and the seven-way fan-out phase cached
+BETTER than the serial one: 67.9% with six or more conversations live against
+52.4% while the orchestrator ran alone, and 65.7% for a call whose predecessor
+belonged to another conversation against 62.4% for one that followed its own.
+Nor was the prompt head drifting: two consecutive requests around a total miss
+were byte-identical over the whole 220,891 characters of the earlier one, and
+the later was billed 512 cached tokens of 74,605. Three controlled probes (four
+synthetic 15k-token conversations, one shared key against a key each) landed
+within noise and disagreed on the sign — 24.0/24.3 sequential, 40.2/7.8
+concurrent, 12.1/29.8 concurrent with the order reversed — and a fourth showed
+why: ONE conversation, alone, on its own key still missed completely on two of
+three follow-up calls. The header buys routing that is real but statistical;
+the input a run still pays full price for is instance-side behaviour a finer
+key does not steer, while a body-derived key would hand the choice of instance
+back to the agent. `sessionAffinityKey` is the one place the value is chosen,
+and it takes the run row and nothing else.
+
 Affinity is only half of it: "a single token difference invalidates the cache
 from that point onward", so anything the factory injects at the head of the
 message array has to be a function of the run rather than of the moment. The
@@ -1253,7 +1278,7 @@ Collected from the use cases; each appears above in context.
 | D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input. Read-only observation (`tk cloud status`/`logs`/`trace`) is a separate axis and does not widen this vocabulary: it reads records the run already wrote and cannot reach the orchestrator at all | UC1b |
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
 | D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
-| D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
+| D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The key stays per RUN, not per conversation, on measurement: a fan-out run's subagents cache better together than the orchestrator does alone, and a per-conversation key tested within noise of a shared one while handing the agent influence over its own instance (tick fxf). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
 | D25 | Two epics at once on one repo is a policy question, not an architectural one: what must be exclusive is the tracker's merge into the DEFAULT BRANCH, not the run, so the project lease becomes an N-slot lease with `[orchestration].max_concurrent_runs` (default 1 — today's refusal, unchanged) under a factory-wide ceiling bounded by `max_instances`. Concurrency stays off until the three closeout seams close: ids are minted per checkout, the retro compacts `.tick/learnings.md` by rewrite, and GitHub's server-side merge has none of the tick merge drivers. Telegram needs legibility (project + epic + tick on every gate, report and refusal list), not new arbitration — button and reply-to answers are already id-scoped | UC1c |
 
 ## What this is *not*

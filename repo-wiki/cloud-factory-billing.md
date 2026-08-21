@@ -90,11 +90,57 @@ anyone reasoning about what a run costs.
 
 For that run: 3,799,364 uncached + 7,154,176 cached input and 157,709 output
 came to **$5.95 actual against $15.08 modelled with no caching — 61% saved**.
-The pre-`l8z` runaway cached nothing and paid full freight on all 46M tokens.
+
+The pre-`l8z` runaway is often quoted as having cached *nothing*. It did not:
+re-read row by row (`fxf`), `run_f15efdfb` cached **11,823,872 of 46,098,950
+input tokens — 25.6%** with 510 of its 892 calls at exactly zero. The "0" in the
+original write-up came from the log row's `cached` boolean, which reports the
+gateway RESPONSE cache and is false on every agentic call by construction. So
+the real before/after for the affinity header is **25.6% → 65.3%**, not 0 → 65%,
+and the honest reading of it is weaker and more useful: affinity roughly 2.5×'d
+the hit rate without ever making instance routing deterministic.
 
 Read cached tokens from `usage_metadata.input_cached_tokens` on each gateway log
 row, or `prompt_tokens_details.cached_tokens` in the response body. Nothing in D1
-carries it.
+carries it. **Never read the row's `cached` field for this** — that is the
+response cache, permanently false here.
+
+## What `x-session-affinity` does and does not buy
+
+The header routes a session's calls toward one model instance, which is where a
+prefix cache lives. It is worth a lot (25.6% → 65.3%) and it is **not**
+stickiness. Measured on `run_62c289d1` and against the live model (`fxf`):
+
+- **The key is per RUN, and a run is many conversations.** That run's 230 calls
+  are one orchestrator plus seven implementer subagents — separable in the logs
+  by the first two messages of each request body — all sharing one key. They do
+  not fight: the fan-out phase cached **67.9%** with six or more conversations
+  live against **52.4%** while the orchestrator ran alone, and a call following
+  *another* conversation hit 65.7% against 62.4% following its own.
+- **A miss is usually not a drifting prompt.** Two consecutive requests around a
+  total miss were byte-identical for all 220,891 characters of the earlier one,
+  same tools and options — and the later was billed 512 cached of 74,605.
+- **Nothing about the key fixes it.** Four synthetic 15k-token conversations,
+  one shared key vs one key each: 24.0/24.3% sequential, 40.2/7.8% concurrent,
+  12.1/29.8% concurrent with the order reversed — noise, both signs. One
+  conversation, alone, on its own key still missed completely on two of three
+  follow-up calls.
+- **Caching also warms up.** In every probe the first repeat of a prefix was
+  billed at 0% and hits only appeared from the second repeat on, so a short
+  conversation can pay full price throughout.
+
+**The headroom is real but bounded.** `run_62c289d1` left 3,799,364 input tokens
+uncached; billing every one of them at the cached rate would have saved
+3,799,364 × (0.120 − 0.004) = 440,726 neurons = **$4.85**, taking the run from
+$5.96 to about $1.11. That is the whole prize for perfect caching, and none of
+it is bought by choosing a different affinity key.
+
+The recurring signature of a miss is a *floor*: the call is billed a cached
+count equal to some earlier snapshot of that conversation (~15.6k tokens in the
+fan-out, 15,872 in the runaway) rather than zero, i.e. it reached an instance
+that saw the conversation once and never since. Treat the remaining ~35% as
+instance-side and unpurchasable by header choice; the levers that do move it are
+prompt size and turn count.
 
 ## Where a run's conversation lives
 
