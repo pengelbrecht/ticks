@@ -1,0 +1,13 @@
+{
+  "id": "b6e",
+  "title": "Wire the Run Workflow to dispatch per-tick workers",
+  "description": "The call site for 0ds. dispatchWave exists, is tested and is reachable from nothing — the Run Workflow still boots one orchestrator sandbox that fans out harness-native subagents inside itself. This tick makes substrate = cloud actually mean per-tick containers for a wave.\n\nDepends on kx8 (a worker has to have an entrypoint to boot). Respect what wave 3 measured: max_instances = 3 is a deployment ceiling that silently serialises a wider wave, so either raise it as a deployment decision bounded by the account container limits or cap the wave at it and say so; and kji enforces [orchestration].max_parallel on the claim, so the two limits must not disagree silently.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T17:42:36.896511Z",
+  "updated_at": "2026-08-21T17:42:36.896511Z"
+}
