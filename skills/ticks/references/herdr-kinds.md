@@ -1,6 +1,6 @@
 # Herdr Kinds — Capability Matrix
 
-Read [`agent-runner.md`](agent-runner.md) first. This file is the **per-kind lookup table** for driving a Herdr-managed coding agent as a tick implementer: how to spawn one non-interactively with the model and permission mode you intend, whether its lifecycle state is trustworthy, and how to get back into its native session after the pane is gone. The orchestration loop that consumes this table lives in `herdr-runner.md`; the runner selection that decides you are on Herdr at all (`substrate = herdr | harness | auto` in `.tick/runners.toml`) lives in `runners-config.md`.
+Read [`agent-runner.md`](agent-runner.md) first. This file is the **per-kind lookup table** for driving a Herdr-managed coding agent as a tick implementer: how to spawn one non-interactively with the model and permission mode you intend, whether its lifecycle state is trustworthy, and how to get back into its native session after the pane is gone. The orchestration loop that consumes this table lives in `herdr-runner.md`; the runner selection that decides you are on Herdr at all (`substrate = herdr | harness | auto | cloud` in `.tick/runners.toml`) lives in `runners-config.md`.
 
 A **kind** is Herdr's `--kind` value — the canonical executable it knows how to launch and detect. As of the version verified here, `herdr agent start --help` lists:
 

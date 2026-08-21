@@ -114,8 +114,8 @@ var sandboxSubstrateCmd = &cobra.Command{
 	Short: "Print the dispatch substrate a run on this checkout resolves",
 	Long: `Print the substrate this run dispatches workers through, and the note to record.
 
-Two lines on stdout, in this order: the resolved substrate (` + "`herdr`" + ` or
-` + "`harness`" + `), and the ` + "`runner-state:`" + ` line to record on the epic with
+Two lines on stdout, in this order: the resolved substrate (` + "`herdr`" + `,
+` + "`harness`" + ` or ` + "`cloud`" + `), and the ` + "`runner-state:`" + ` line to record on the epic with
 ` + "`tk note`" + `. Why it resolved that way — and the wave width that comes with it —
 goes to stderr, where a boot log reads it.
 
@@ -127,10 +127,18 @@ actually executes — a cloud sandbox has no herdr server and never will in Phas
 checkout is read, never rewritten: the file keeps saying what the repository
 means everywhere else.
 
-An override to ` + "`harness`" + ` is terminal and probes nothing. An override to
-` + "`herdr`" + ` probes read-only exactly as a pinned ` + "`herdr`" + ` does, and degrades
-explicitly — announced and noted — when herdr is unavailable. A value that is
-not a substrate is a stop, never a silent fall back to the file.
+An override to ` + "`harness`" + ` or ` + "`cloud`" + ` is terminal and probes nothing.
+An override to ` + "`herdr`" + ` probes read-only exactly as a pinned ` + "`herdr`" + ` does,
+and degrades explicitly — announced and noted — when herdr is unavailable. A
+value that is not a substrate is a stop, never a silent fall back to the file.
+
+` + "`cloud`" + ` is terminal for a stronger reason than ` + "`harness`" + ` is: it says
+WHERE the workers run, and a herdr server listening on this machine cannot
+change that. It says nothing about where the ORCHESTRATOR sits — a local session
+driving cloud workers is a supported shape — which is also why a worker
+container running ON that substrate is told ` + "`harness`" + ` for itself rather
+than inheriting the repository's ` + "`cloud`" + ` declaration and dispatching
+containers from inside a container.
 
 Every resolution is stated on stderr, in one of two registers. A pinned
 ` + "`herdr`" + ` that cannot be had is loud: an assertion the environment refused.
@@ -314,8 +322,11 @@ func runSandboxSubstrate(cmd *cobra.Command, args []string) error {
 		// independent panes, which is worth saying out loud.
 		fmt.Fprintf(cmd.ErrOrStderr(), "note: wave width %d from %s [orchestration].max_parallel",
 			resolved.MaxParallel, herdconfig.FileName)
-		if resolved.Substrate == herdconfig.SubstrateHarness {
+		switch resolved.Substrate {
+		case herdconfig.SubstrateHarness:
 			fmt.Fprint(cmd.ErrOrStderr(), " — under the harness substrate that is concurrent subagents in one sandbox")
+		case herdconfig.SubstrateCloud:
+			fmt.Fprint(cmd.ErrOrStderr(), " — under the cloud substrate that is concurrent worker containers, and a deployment's own instance ceiling can lower it further")
 		}
 		fmt.Fprintln(cmd.ErrOrStderr())
 		// Said once, here, because this line used to be the whole of the

@@ -613,7 +613,12 @@ function readRouting(document: TomlTable, errors: string[]): RoutingSettings {
 	const orchestration = subTable(document, "orchestration", "orchestration", errors);
 	if (orchestration) {
 		unknownKeys(orchestration, ORCHESTRATION_KEYS, "orchestration", errors);
-		enumField(orchestration, "substrate", "orchestration.substrate", ["herdr", "harness", "auto"], errors);
+		// Kept byte-identical to `Substrates` in internal/herd/config/types.go,
+		// in the same order. Two readers of one format, each internally
+		// consistent, is how a value that validates for one and is refused by
+		// the other survives two green suites — see the parity tests in
+		// config.test.ts and TestSubstrateEnumMatchesTheSchema on the Go side.
+		enumField(orchestration, "substrate", "orchestration.substrate", ["herdr", "harness", "auto", "cloud"], errors);
 		enumField(orchestration, "detect", "orchestration.detect", ["env-or-socket", "env", "socket"], errors);
 		for (const key of ["socket", "worktree_branch_prefix"] as const) {
 			const value = orchestration[key];

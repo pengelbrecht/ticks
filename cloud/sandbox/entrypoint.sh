@@ -76,6 +76,13 @@ stop_reason="${TICKS_STOP_REASON:-}"
 # commits against and put a config change nobody submitted into the run's diff.
 # Phase 1 runs the harness substrate — the orchestrator's own subagents inside
 # one container — and the control plane can still ask for something else.
+#
+# The default matters more now that a repository CAN declare `substrate =
+# "cloud"`. Left to infer, an orchestrator container on such a checkout would
+# resolve cloud and dispatch worker containers of its own from inside a
+# container. Defaulting the override to `harness` is what keeps "the repository
+# says its workers are cloud sandboxes" and "this container IS one of them" from
+# being the same statement.
 substrate="${TICKS_SUBSTRATE:-harness}"
 # Filled in by resolve_substrate: what tk actually resolved, and the durable
 # runner-state line the run records on its epic. Empty until then.
@@ -127,7 +134,7 @@ resolve_substrate() {
 	resolved="$(tk sandbox substrate --root "$workdir")"
 	status=$?
 	if ((status != 0)); then
-		die $EXIT_CONFIG "tk could not resolve the dispatch substrate ('tk sandbox substrate' exited $status; its reason is above) — TICKS_SUBSTRATE is '${substrate}' and must be herdr, harness or auto. This is a stop: a run that does not know how it dispatches workers cannot dispatch any."
+		die $EXIT_CONFIG "tk could not resolve the dispatch substrate ('tk sandbox substrate' exited $status; its reason is above) — TICKS_SUBSTRATE is '${substrate}' and must be herdr, harness, auto or cloud. This is a stop: a run that does not know how it dispatches workers cannot dispatch any."
 	fi
 	substrate_resolved="$(printf '%s\n' "$resolved" | sed -n 1p | tr -d '[:space:]')"
 	substrate_note="$(printf '%s\n' "$resolved" | sed -n 2p)"

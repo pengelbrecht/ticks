@@ -1,5 +1,10 @@
 package config
 
+import (
+	"strconv"
+	"strings"
+)
+
 // FileName is the repo-relative path of the runner routing config.
 const FileName = ".tick/runners.toml"
 
@@ -74,11 +79,55 @@ var TierNames = []Tier{TierEconomy, TierBalanced, TierStrong, TierFrontier}
 type Substrate string
 
 // The substrate values. SubstrateAuto is the default when unset.
+//
+// SubstrateCloud is the third real substrate, not a location. A repository
+// declaring it says its workers run as one cloud sandbox per tick, dispatched
+// through the run API — which is orthogonal to where the ORCHESTRATOR sits: a
+// laptop session driving cloud workers is the supported shape the cloud-factory
+// design calls local judgement, cloud hands (D19), not an accident.
+//
+// Adding a value deliberately does NOT bump [Version]. A version gate exists so
+// an older reader fails with one line instead of enumerating keys it does not
+// know; an older reader meeting `substrate = "cloud"` already produces exactly
+// one line naming the key, the value and the values it accepts. Bumping would
+// lock that reader out of every OTHER key in the file for nothing, which is the
+// mirror of the mistake the gate was added to fix (see [CommandSurfaceVersion]).
 const (
 	SubstrateHerdr   Substrate = "herdr"
 	SubstrateHarness Substrate = "harness"
 	SubstrateAuto    Substrate = "auto"
+	SubstrateCloud   Substrate = "cloud"
 )
+
+// Substrates is the substrate vocabulary in schema order. Every message that
+// enumerates the legal values derives from it, so a value added here cannot be
+// missing from the refusal that teaches an operator which values exist.
+var Substrates = []Substrate{SubstrateHerdr, SubstrateHarness, SubstrateAuto, SubstrateCloud}
+
+// Valid reports whether s is one of [Substrates].
+func (s Substrate) Valid() bool {
+	for _, known := range Substrates {
+		if s == known {
+			return true
+		}
+	}
+	return false
+}
+
+// SubstrateList renders the vocabulary for a message: quoted for a refusal
+// that echoes a rejected value back, bare for prose. Both spellings come from
+// one place, so two refusals can never enumerate different substrates.
+func SubstrateList(quote bool) string {
+	parts := make([]string, 0, len(Substrates))
+	for _, s := range Substrates {
+		if quote {
+			parts = append(parts, strconv.Quote(string(s)))
+		} else {
+			parts = append(parts, string(s))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
 
 // Detect selects which availability probes count as "herdr is available".
 type Detect string

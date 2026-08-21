@@ -159,3 +159,69 @@ func TestOrchestratorSubstrateOnABrokenConfig(t *testing.T) {
 		t.Fatal("a config that fails validation resolved a substrate")
 	}
 }
+
+const cloudDeclared = `version = 2
+
+[orchestrator]
+harness = "claude"
+
+[orchestration]
+substrate = "cloud"
+max_parallel = 5
+
+[roles.implement]
+kind = "claude"
+model = "sonnet"
+`
+
+// TestOrchestratorSubstrateResolvesADeclaredCloud pins the half of the
+// reconciliation that lives outside the container: a repository that DECLARES
+// the cloud substrate resolves it, and does so without probing — the value says
+// where the workers run, and a herdr server on this machine cannot change that.
+func TestOrchestratorSubstrateResolvesADeclaredCloud(t *testing.T) {
+	p := &noHerdr{}
+	resolved, err := OrchestratorSubstrate(context.Background(), SubstrateOptions{
+		Root:   substrateCheckout(t, cloudDeclared),
+		Prober: p,
+	})
+	if err != nil {
+		t.Fatalf("OrchestratorSubstrate: %v", err)
+	}
+	if resolved.Substrate != config.SubstrateCloud {
+		t.Errorf("Substrate = %q, want %q", resolved.Substrate, config.SubstrateCloud)
+	}
+	if p.envCalls != 0 || p.socketCalls != 0 {
+		t.Errorf("cloud probed for herdr (env=%d socket=%d) — the value is terminal", p.envCalls, p.socketCalls)
+	}
+	if resolved.MaxParallel != 5 {
+		t.Errorf("MaxParallel = %d, want 5 — the width travels with the substrate", resolved.MaxParallel)
+	}
+	if got := resolved.NoteLine(); !strings.Contains(got, "substrate=cloud requested=cloud") {
+		t.Errorf("NoteLine = %q", got)
+	}
+}
+
+// TestContainerOverrideBeatsADeclaredCloud is why the container is still TOLD
+// its substrate now that a repository can declare one. Left to infer, an
+// orchestrator container on a cloud-declaring checkout would dispatch worker
+// containers of its own; told `harness`, it fans subagents out inside itself
+// and still records what the checkout asked for.
+func TestContainerOverrideBeatsADeclaredCloud(t *testing.T) {
+	resolved, err := OrchestratorSubstrate(context.Background(), SubstrateOptions{
+		Root:     substrateCheckout(t, cloudDeclared),
+		Override: string(DefaultCloudSubstrate),
+		Prober:   &noHerdr{},
+	})
+	if err != nil {
+		t.Fatalf("OrchestratorSubstrate: %v", err)
+	}
+	if resolved.Substrate != config.SubstrateHarness {
+		t.Fatalf("Substrate = %q, want harness", resolved.Substrate)
+	}
+	if resolved.Configured != config.SubstrateCloud {
+		t.Errorf("Configured = %q, want cloud", resolved.Configured)
+	}
+	if got := resolved.NoteLine(); !strings.Contains(got, "config=cloud source="+config.SubstrateEnvVar) {
+		t.Errorf("NoteLine = %q — a reader must be able to tell the container was told", got)
+	}
+}

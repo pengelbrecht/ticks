@@ -56,6 +56,15 @@ const (
 	// must be able to tell them apart without parsing stderr. Refused work is
 	// not failed work — the claim is retried when a slot frees.
 	ExitWaveFull = 8
+
+	// ExitWrongSubstrate reports that a dispatch verb refused because the run
+	// dispatches through a different substrate than the verb serves: `tk herd
+	// spawn` on a repository that declares `[orchestration].substrate =
+	// "cloud"`. It has its own slot for the reason ExitWaveFull does — the next
+	// action is neither "retry" nor "fix the config", it is "use the other
+	// verb", and an orchestrator must be able to tell that apart from a routing
+	// refusal (1) without parsing stderr.
+	ExitWrongSubstrate = 9
 )
 
 // ExitError is an error that carries a specific exit code.

@@ -512,6 +512,44 @@ test("orchestration values use the same enums and types as the Go reader", () =>
 	assert.match(config.errors.join("\n"), /orchestration\.full_auto/);
 });
 
+// The test above only proves a bad value is caught. It passed for as long as
+// the Go enum carried a substrate this reader refused — two readers, each
+// internally consistent, which is exactly the half-applied shape a
+// cross-implementation check exists to catch. Every substrate the Go loader
+// accepts must be accepted here, `cloud` included.
+test("every substrate the Go reader accepts is accepted here", () => {
+	for (const substrate of ["herdr", "harness", "auto", "cloud"]) {
+		const config = resolveRunnerConfigFromToml([
+			"[orchestration]",
+			`substrate = "${substrate}"`,
+			"[roles.implement]",
+			'kind = "pi"',
+			'model = "gpt-5.6-luna"',
+		].join("\n"), {});
+		assert.deepEqual(
+			config.errors.filter((error) => /orchestration\.substrate/.test(error)),
+			[],
+			`substrate = "${substrate}" was refused by the TypeScript reader`,
+		);
+	}
+});
+
+// The refusal is also part of the contract: it teaches an operator which
+// substrates exist, so a value missing from it is a value nobody discovers.
+test("an unknown substrate is refused with the full vocabulary", () => {
+	const config = resolveRunnerConfigFromToml([
+		"[orchestration]",
+		'substrate = "lambda"',
+		"[roles.implement]",
+		'kind = "pi"',
+		'model = "gpt-5.6-luna"',
+	].join("\n"), {});
+	const message = config.errors.find((error) => /orchestration\.substrate/.test(error)) ?? "";
+	for (const substrate of ["herdr", "harness", "auto", "cloud"]) {
+		assert.ok(message.includes(substrate), `refusal ${JSON.stringify(message)} omits ${substrate}`);
+	}
+});
+
 test("prototype-looking tables remain visible to unknown-key validation", () => {
 	const before = (Object.prototype as Record<string, unknown>).command;
 	try {

@@ -1371,15 +1371,22 @@ Collected from the use cases; each appears above in context.
 2. **Phase 2 — real fan-out.** Per-tick worker sandboxes; substrate `cloud` in
    `runners.toml`; reconcile-on-reboot; `run_event` producers; R2 artifacts.
    Landed so far: the dispatch mechanism (0ds), the worker entrypoint (tap),
-   and the Run Workflow call site (b6e) that fans a submitted wave out into
+   the Run Workflow call site (b6e) that fans a submitted wave out into
    per-tick containers instead of one orchestrator running harness-native
-   subagents. NOT landed: `Substrate` in `internal/herd/config/types.go` still
-   has no `cloud` value (only `herdr`/`harness`/`auto`) — a repository cannot
-   yet *declare* `[orchestration].substrate = "cloud"` and have `tk` agree it
-   means anything, so b6e's trigger is submission-level (`tick_ids` present on
-   `POST /api/runs`) rather than a repo-config read. Extending the Go enum,
-   and the CLI plumbing to populate `tick_ids` from a locally-computed wave,
-   are follow-up ticks.
+   subagents, and the `cloud` substrate value itself (ddv) — a repository can
+   now *declare* `[orchestration].substrate = "cloud"` and `tk` agrees it means
+   something: it validates, it resolves terminally (herdr is never probed,
+   because the value says *where the workers run* and a local herdr server
+   cannot change that), `TICKS_SUBSTRATE` overrides it in both directions, and
+   `tk herd spawn` refuses it with exit 9 rather than putting a local pane on a
+   branch a container is already pushing to. NOT landed: the **local** dispatch
+   path. b6e's trigger is still submission-level (`tick_ids` present on
+   `POST /api/runs`) rather than a repo-config read, and the
+   `tk cloud spawn/wait/collect/reconcile` verb family (D19, tick bmo) that
+   would let a laptop session drive worker containers does not exist — so a
+   local orchestrator meeting `cloud` today stops rather than dispatching,
+   which is the fail-closed half of the same decision. The CLI plumbing to
+   populate `tick_ids` from a locally-computed wave is also still a follow-up.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage

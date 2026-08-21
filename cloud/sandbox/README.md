@@ -328,7 +328,7 @@ starts a command in a sandbox.
 | `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the one-token gateway probe may take (default 30). |
 | `TICKS_HARNESS_PROBE_TIMEOUT` | no | Seconds the harness's own pre-flight round-trip may take (default 120). Larger than the gateway probe's because it starts a whole agent CLI. |
-| `TICKS_SUBSTRATE` | no | The dispatch substrate this run uses: `harness` (default), `herdr` or `auto`. It **overrides** `[orchestration].substrate` in the checkout, which a repository pins for its LOCAL runs; the checkout is read, never rewritten. A value that is not a substrate is exit 2. See *The substrate, and why a container is told* below. |
+| `TICKS_SUBSTRATE` | no | The dispatch substrate this run uses: `harness` (default), `herdr`, `auto` or `cloud`. It **overrides** `[orchestration].substrate` in the checkout, which a repository pins for its LOCAL runs; the checkout is read, never rewritten. A value that is not a substrate is exit 2. The default is load-bearing: a checkout may now declare `cloud`, and a container that inherited that declaration would dispatch worker containers from inside a container. See *The substrate, and why a container is told* below. |
 | `TICKS_MAX_TIME` | no | Passed through to the harness. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the pre-flight model probe may take, default 30. |
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
@@ -579,8 +579,20 @@ defaults to `harness` — Phase 1's design: the existing harness substrate
 
 `TICKS_SUBSTRATE=herdr` is honoured too, and gets the documented explicit
 degradation: the probes run, find nothing, and the run continues under harness
-dispatch saying so. A value that is not one of the three substrates is exit 2 —
+dispatch saying so. A value that is not one of the four substrates is exit 2 —
 fail closed, never a silent fall back to the file.
+
+**Why the default is load-bearing, not cosmetic.** A repository can now declare
+`[orchestration].substrate = "cloud"`, meaning "my workers are one cloud sandbox
+per tick". That is a statement about the workers, not about where the
+orchestrator sits — so a container left to infer its substrate from such a
+checkout would resolve `cloud` and start dispatching worker containers from
+inside a container. `TICKS_SUBSTRATE=harness` is what separates "this repository
+dispatches to the cloud" from "this container is where that dispatch landed",
+and the runner-state note records both: `substrate=harness requested=harness
+config=cloud source=TICKS_SUBSTRATE reason=explicit-override`. A control plane
+that genuinely wants a container to fan work out into sibling worker containers
+says so by setting `TICKS_SUBSTRATE=cloud` explicitly.
 
 The other `[orchestration]` key a cloud boot inherits, `max_parallel`, is
 honoured as-is: under the harness substrate it is concurrent subagents inside

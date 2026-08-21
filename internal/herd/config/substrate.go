@@ -167,8 +167,8 @@ type Override struct {
 // ParseOverride parses one override value from source, fail-closed.
 //
 // An empty or blank value is no override and no error: the variable is simply
-// not set. Anything that is not one of the three substrate values is refused
-// rather than ignored — a substrate a reader cannot parse authorises nothing,
+// not set. Anything that is not one of [Substrates] is refused rather than
+// ignored — a substrate a reader cannot parse authorises nothing,
 // and silently falling back to the file is how a run ends up on a substrate
 // nobody asked for.
 func ParseOverride(value, source string) (Override, error) {
@@ -176,13 +176,27 @@ func ParseOverride(value, source string) (Override, error) {
 	if trimmed == "" {
 		return Override{}, nil
 	}
-	switch s := Substrate(trimmed); s {
-	case SubstrateHerdr, SubstrateHarness, SubstrateAuto:
+	if s := Substrate(trimmed); s.Valid() {
 		return Override{Substrate: s, Source: source}, nil
-	default:
-		return Override{}, fmt.Errorf("%s=%q is not a substrate: expected %q, %q or %q",
-			source, trimmed, SubstrateHerdr, SubstrateHarness, SubstrateAuto)
 	}
+	return Override{}, fmt.Errorf("%s=%q is not a substrate: expected one of %s",
+		source, trimmed, SubstrateList(true))
+}
+
+// Requested reports the substrate a run asks for — the override when one is in
+// force, otherwise the configured value ([SubstrateAuto] when unset). It is the
+// same value [Decision.Requested] carries, computed from the file and the
+// environment alone.
+//
+// It exists for a dispatch verb deciding whether it is the right verb. Probing
+// for herdr cannot change the answer to that question, and a command that had
+// to run the whole decision procedure to refuse would dial a socket before
+// telling its operator it was never going to spawn anything.
+func Requested(cfg *Config, o Override) Substrate {
+	if o.Substrate != "" {
+		return o.Substrate
+	}
+	return cfg.Substrate()
 }
 
 // Decision is the outcome of the substrate decision procedure: which
@@ -199,7 +213,8 @@ type Decision struct {
 	// Override is the explicit override in force, or the zero value when the
 	// file decided on its own.
 	Override Override
-	// Substrate is the effective substrate: herdr or harness, never auto.
+	// Substrate is the effective substrate: herdr, harness or cloud, never
+	// auto.
 	Substrate Substrate
 	// Detect is the probe policy that applied.
 	Detect Detect
@@ -272,10 +287,13 @@ func DecideOverride(ctx context.Context, cfg *Config, p Prober, o Override) Deci
 		d.Requested = o.Substrate
 	}
 
-	// Config first. `harness` is a deliberate choice, not a degradation, and
-	// it forbids probing outright — even inside a herdr pane.
-	if d.Requested == SubstrateHarness {
-		d.Substrate = SubstrateHarness
+	// Config first. `harness` and `cloud` are deliberate choices, not
+	// degradations, and both forbid probing outright — even inside a herdr
+	// pane. For `cloud` the reason is stronger than for `harness`: the value
+	// says WHERE the workers run, and a herdr server listening on the
+	// orchestrator's own machine cannot change that answer.
+	if d.Requested == SubstrateHarness || d.Requested == SubstrateCloud {
+		d.Substrate = d.Requested
 		return d
 	}
 
@@ -392,8 +410,11 @@ func (d Decision) overrideAnnouncement() string {
 	msg := fmt.Sprintf(
 		"%s=%s is set for this run, so the effective substrate is %s; %s requests substrate = %q, which stands for runs where it applies (the checkout is not modified).",
 		d.Override.Source, string(d.Override.Substrate), string(d.Substrate), FileName, string(d.Configured))
-	if d.Substrate == SubstrateHarness && !d.Degraded {
+	switch {
+	case d.Substrate == SubstrateHarness && !d.Degraded:
 		msg += " " + harnessConsequences
+	case d.Substrate == SubstrateCloud:
+		msg += " " + cloudConsequences
 	}
 	return msg
 }
@@ -447,6 +468,14 @@ func (d Decision) Resolution() string {
 		return msg
 	}
 	switch {
+	case !d.Probed && d.Substrate == SubstrateCloud:
+		// Cloud earns its own sentence rather than sharing the terminal one.
+		// "cloud" alone does not tell a reader of a boot log that no local
+		// worktree will ever appear for this wave, and that is the single most
+		// surprising consequence of the value.
+		return fmt.Sprintf(
+			"%s requests substrate = %q: workers are dispatched as one cloud sandbox per tick through the run API, and herdr is not probed for. %s",
+			FileName, string(d.Requested), cloudConsequences)
 	case !d.Probed:
 		return fmt.Sprintf(
 			"%s requests substrate = %q: workers are dispatched as subagents of the orchestrating harness, and herdr is not probed for.",
@@ -490,6 +519,21 @@ func (d Decision) probeDetail() string {
 // harnessConsequences is what running on harness dispatch costs a run whose
 // [roles] table was written for herdr. Stated once, because a degradation and
 // an override arrive at the same place and must describe it identically.
+// cloudConsequences is what dispatching through the cloud substrate means for
+// a run, stated once for the same reason harnessConsequences is: an override
+// and a plain resolution arrive at the same place and must describe it
+// identically.
+//
+// The list is deliberately about what an operator will NOT see locally. The
+// failure this substrate invites is a run that looks stalled because nothing
+// appeared on the laptop — no worktree, no pane, no branch until a container
+// pushes one — and an orchestrator that then spawns a local worker on the same
+// tick has produced exactly the two-workers-one-branch collision the substrate
+// values exist to prevent.
+const cloudConsequences = "Workers are containers, not local processes: no worktree, pane or local branch appears for a tick until its container pushes one, " +
+	"[roles] routes the harness each container runs rather than a local CLI, and dispatch needs the project to be enrolled with a cloud factory. " +
+	"`tk herd spawn` is not the dispatch verb for this substrate and refuses rather than starting a second worker on a tick."
+
 const harnessConsequences = "Cross-vendor role routing in [roles] will not apply — every worker runs on the orchestrating harness, " +
 	"branch naming follows the harness adapter rather than worktree_branch_prefix, and workers no longer outlive the orchestrator."
 

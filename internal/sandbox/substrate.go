@@ -60,7 +60,8 @@ type ResolvedSubstrate struct {
 	// MaxParallel is `[orchestration].max_parallel`, or 0 when the config
 	// leaves the width to the adapter. Under the harness substrate it is
 	// concurrent subagents inside ONE sandbox rather than independent panes,
-	// which is a difference worth printing rather than assuming.
+	// and under the cloud substrate it is concurrent worker containers — which
+	// is a difference worth printing rather than assuming.
 	MaxParallel int
 }
 
@@ -68,11 +69,17 @@ type ResolvedSubstrate struct {
 // dispatches through, honouring an explicit override.
 //
 // The override supplies the request; everything else is the decision procedure
-// runners-config.md already specifies. `harness` is terminal and probes
-// nothing. `herdr` — configured or overridden — probes read-only and degrades
-// explicitly when herdr is unavailable, which is what a cloud sandbox handed
-// `TICKS_SUBSTRATE=herdr` would get: a run that continues and says why, never
-// one that stops.
+// runners-config.md already specifies. `harness` and `cloud` are terminal and
+// probe nothing. `herdr` — configured or overridden — probes read-only and
+// degrades explicitly when herdr is unavailable, which is what a cloud sandbox
+// handed `TICKS_SUBSTRATE=herdr` would get: a run that continues and says why,
+// never one that stops.
+//
+// A checkout declaring `substrate = "cloud"` resolves cloud here, and that is
+// why [DefaultCloudSubstrate] is a DEFAULT applied by whatever boots a
+// container rather than a rule applied here: a container is told `harness` so
+// that a repository's cloud declaration does not make the container dispatch
+// containers of its own.
 //
 // A checkout with no config resolves fine (substrate `auto`, no declared
 // width). A config that fails validation is a stop: an unreadable config
