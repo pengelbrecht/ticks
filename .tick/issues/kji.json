@@ -10,7 +10,7 @@
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T10:33:56.093187Z",
-  "updated_at": "2026-08-21T14:55:29.84261Z",
-  "closed_at": "2026-08-21T14:55:29.84261Z",
-  "closed_reason": "Completed: the configured wave width is now enforced where every substrate dispatches — the claim — rather than printed at boot and hoped for, and the tooling that told the orchestrator to launch seven has been corrected. A slot is live rather than a budget, so closing or releasing frees one, and re-claiming a tick that already holds its slot cannot deadlock a crash recovery."
+  "updated_at": "2026-08-21T15:27:14.147834Z",
+  "closed_at": "2026-08-21T15:27:14.147834Z",
+  "closed_reason": "already closed"
 }

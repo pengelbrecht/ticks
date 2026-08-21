@@ -2,14 +2,15 @@
   "id": "rhe",
   "title": "Dev builds go to ./bin/tk, never machine-wide",
   "description": "Building tk straight over ~/.local/bin/tk during development replaces the binary every other agent on the machine is using, and silently reverts any local patch it carried — it did exactly that here, reverting the hand-bumped herdr protocol and obstructing other agents mid-task. Machine-wide installs should happen on release, not while dev is in flight. Make the dev path obvious and the machine-wide path deliberate: a documented build target that writes ./bin/tk, a note in CONTRIBUTING/README, and ideally a guard so an accidental install over the machine-wide binary has to be asked for explicitly.",
-  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own build tooling and its docs — nothing under cloud/factory/src. Live context: this is not hypothetical, it broke tk herd for every agent on this machine mid-task, and the workaround is still in force — ./bin/tk is protocol 19 and cannot spawn against herdr 0.8.2, so dispatch currently uses the machine-wide binary. repo-wiki/local-worker-durability.md records it.\n2026-08-21 16:56 - runner-state: substrate=herdr kind=claude branch=tick/rhe worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-rhe workspace=wDA base=f2925cf88162b6bbaff483b87c82caaf6c7942a8 agent=tick-rhe pane=wDA:p1 session=b6148a3f-0577-4c12-9886-d53d09c4370f",
-  "status": "in_progress",
+  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own build tooling and its docs — nothing under cloud/factory/src. Live context: this is not hypothetical, it broke tk herd for every agent on this machine mid-task, and the workaround is still in force — ./bin/tk is protocol 19 and cannot spawn against herdr 0.8.2, so dispatch currently uses the machine-wide binary. repo-wiki/local-worker-durability.md records it.\n2026-08-21 16:56 - runner-state: substrate=herdr kind=claude branch=tick/rhe worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-rhe workspace=wDA base=f2925cf88162b6bbaff483b87c82caaf6c7942a8 agent=tick-rhe pane=wDA:p1 session=b6148a3f-0577-4c12-9886-d53d09c4370f\n2026-08-21 17:27 - runner-state: runner=claude branch=tick/rhe merged=49a69a57",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T08:47:54.31103Z",
-  "updated_at": "2026-08-21T14:56:34.34295Z",
-  "started_at": "2026-08-21T14:55:57.253809Z"
+  "updated_at": "2026-08-21T15:27:14.217942Z",
+  "closed_at": "2026-08-21T15:27:14.217942Z",
+  "closed_reason": "Completed: dev builds go to ./bin/tk and the machine-wide install is a deliberate release action, so building from a clean tree can no longer silently replace the binary every other agent on the machine is using — which it did once already, mid-task."
 }
