@@ -12,6 +12,20 @@ tk note <id> "Investigating auth flow"
 tk close <id> --reason "Fixed in this session"
 ```
 
+## Building tk
+
+Dev builds go to **`./bin/tk`** (gitignored):
+
+```bash
+make build && ./bin/tk --help
+```
+
+**Never build over `~/.local/bin/tk`.** That binary is shared by every other
+agent running on this machine and may carry a hand-applied local patch; a
+build from a clean tree silently reverts it and breaks them mid-task.
+Replacing it is a release action and needs an explicit
+`TK_ALLOW_MACHINE_INSTALL=1 make install`.
+
 ## Ticks Skill
 
 The distributable skill lives in `skills/ticks/` and is the source of truth. Runner-neutral behavior belongs in `skills/ticks/references/agent-runner.md`; Claude and Codex mechanics belong in their respective adapters. Keep cross-runner handoff based on git and `.tick/` state, never a harness-private session ID.

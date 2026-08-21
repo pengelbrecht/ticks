@@ -1,18 +1,38 @@
 # Ticks Makefile
 # Code generation and development tasks
 
+BIN_DIR := bin
+DEV_BINARY := $(BIN_DIR)/tk
+
 SCHEMAS_DIR := schemas
 GO_GENERATED_DIR := internal/types/generated
 GO_JSONSCHEMA := $(shell go env GOPATH)/bin/go-jsonschema
 
-.PHONY: help codegen codegen-ts codegen-go clean-generated
+.PHONY: help build install codegen codegen-ts codegen-go clean-generated
 
 help:
 	@echo "Available targets:"
+	@echo "  build        - Build the dev binary to ./bin/tk (gitignored)"
+	@echo "  install      - Install tk machine-wide (needs TK_ALLOW_MACHINE_INSTALL=1)"
 	@echo "  codegen      - Generate all code from JSON schemas"
 	@echo "  codegen-ts   - Generate TypeScript types"
 	@echo "  codegen-go   - Generate Go types"
 	@echo "  clean-generated - Remove all generated files"
+
+# Development build.
+#
+# Always ./bin/tk, never the machine-wide binary: ~/.local/bin/tk is shared by
+# every shell and agent on this machine and may carry a local patch that a
+# fresh build would silently revert. Run what you built with ./bin/tk.
+build:
+	@mkdir -p $(BIN_DIR)
+	go build -o $(DEV_BINARY) ./cmd/tk
+	@echo "Built $(DEV_BINARY) - run it as ./bin/tk"
+
+# Machine-wide install. Deliberate by design: the script refuses unless
+# TK_ALLOW_MACHINE_INSTALL=1 is set. Use `make build` while developing.
+install:
+	@scripts/install-tk.sh
 
 # Full codegen
 codegen: codegen-ts codegen-go
