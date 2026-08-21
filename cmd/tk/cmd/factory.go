@@ -21,6 +21,7 @@ var (
 	factorySetupProvider    string
 	factorySetupProviderKey string
 	factorySetupCFAPIToken  string
+	factorySetupBillingMode string
 	factorySetupCFAPIBase   string
 	factorySetupBundleDir   string
 
@@ -143,6 +144,14 @@ Setup walks four rungs and proves each one before it stores anything:
      agent claims. Without it, runs still route and attribute their model
      traffic and record their cost as unknown.
 
+     That token also reads the gateway's Workers AI billing mode, which decides
+     which pot a run's spend comes out of: postpaid puts Workers AI on your
+     Cloudflare invoice (where an account credit can absorb it), unified drains
+     a separately purchased prepaid AI Gateway wallet bought at a 5% premium.
+     It is one dashboard toggle, it appears nowhere in a run's telemetry, and
+     setup refuses a gateway that is not on the mode you settled on. Postpaid is
+     the default; --workers-ai-billing-mode unified records the other choice.
+
 Everything it stores goes to two places: a Worker secret in your own Cloudflare
 account, and ~/.ticksrc (0600) so ` + "`tk factory status`" + ` can re-check it. Nothing is
 ever written into the repository.
@@ -168,8 +177,9 @@ walk scriptable.`,
 			Provider:      factorySetupProvider,
 			ProviderKey:   factorySetupProviderKey,
 
-			CloudflareAPIToken: factorySetupCFAPIToken,
-			CloudflareAPIBase:  factorySetupCFAPIBase,
+			CloudflareAPIToken:   factorySetupCFAPIToken,
+			CloudflareAPIBase:    factorySetupCFAPIBase,
+			WorkersAIBillingMode: factorySetupBillingMode,
 		})
 		if err != nil {
 			// A rung that did not verify is a stop with an explanation, never
@@ -184,11 +194,17 @@ var factoryStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show what the factory has configured and whether each credential works",
 	Long: `Report each rung of the factory's credential ladder: the deployment, the
-GitHub credential and the AI Gateway with the provider behind it.
+GitHub credential and the AI Gateway with the provider behind it, plus the
+gateway's Workers AI billing mode — which decides whether a run's model spend
+lands on your Cloudflare invoice or drains a prepaid AI Gateway wallet. That
+last one is not a credential: it is a per-gateway setting one dashboard click
+changes, and a run's telemetry reports the identical cost either way, so this
+is the pre-flight that catches it.
 
 Each check is live by default — the factory's own health route, a GitHub API
-call with the stored token, a model-list call through the gateway. --offline
-skips them all, so status is safe to run with no network.
+call with the stored token, a model-list call through the gateway, a read of
+the gateway's own configuration. --offline skips them all, so status is safe to
+run with no network.
 
 A rejected credential is always reported, but only --check turns it into a
 nonzero exit, so a status call can be made unconditionally in a script. With
@@ -236,6 +252,8 @@ func init() {
 		"API key for a BYOK provider (prompted for when omitted; workers-ai needs none)")
 	factorySetupCmd.Flags().StringVar(&factorySetupCFAPIToken, "cloudflare-api-token", "",
 		"Cloudflare API token with AI Gateway read access — makes a run's cost gateway telemetry rather than a self-report")
+	factorySetupCmd.Flags().StringVar(&factorySetupBillingMode, "workers-ai-billing-mode", "",
+		"the gateway's Workers AI billing mode to assert: postpaid (default — the Cloudflare invoice) or unified (a prepaid AI Gateway wallet)")
 	factorySetupCmd.Flags().StringVar(&factorySetupCFAPIBase, "cloudflare-api-base", "",
 		"override the Cloudflare API root (testing)")
 	_ = factorySetupCmd.Flags().MarkHidden("cloudflare-api-base")

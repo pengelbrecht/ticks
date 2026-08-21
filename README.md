@@ -427,6 +427,17 @@ tk factory setup
 Each answer can be passed as a flag (`--repo`, `--github-token`, `--gateway-url`,
 `--provider`, `--provider-key`) instead of typed, so the same walk is scriptable.
 
+`--cloudflare-api-token` adds the optional half of rung 4, and it buys two things.
+It is what a run's cost budget acts on — your gateway's own per-request logs rather
+than anything the agent claims — and it is what reads the gateway's **Workers AI
+billing mode**. That mode decides which pot the spend comes out of: `postpaid` puts
+Workers AI on your normal Cloudflare invoice, where an account credit can absorb it;
+`unified` drains a separately purchased prepaid AI Gateway wallet, bought at a 5%
+premium. It is one toggle in the dashboard, it appears in no config file, and a run's
+telemetry reports the identical cost either way — so setup and status read the
+gateway itself and refuse a mode you did not settle on. Postpaid is the default;
+`--workers-ai-billing-mode unified` records the other choice.
+
 Everything it stores goes to exactly two places: **Worker secrets** in your own
 Cloudflare account, and `~/.ticksrc` at 0600 as the mirror `tk factory status` re-checks.
 Never the repository — a test runs the whole walk inside a checkout and fails if any

@@ -190,6 +190,13 @@ type SetupOptions struct {
 	// the walk says exactly what is lost when it is absent instead of asking
 	// every operator for an API token they may not have minted yet.
 	CloudflareAPIToken string
+	// WorkersAIBillingMode is the AI Gateway billing mode the operator has
+	// settled on: postpaid (the default — Workers AI on the Cloudflare
+	// invoice) or unified (a separately purchased prepaid wallet). The walk
+	// asserts the gateway is actually on it before it stores anything, so
+	// moving to unified is an explicit act rather than a dashboard click
+	// nobody notices.
+	WorkersAIBillingMode string
 
 	// onSecretPut runs after every `wrangler secret put`, so the test harness
 	// can propagate a secret into its fake worker the way Cloudflare does.
@@ -219,6 +226,9 @@ type SetupResult struct {
 	// CostTelemetry reports whether gateway cost telemetry is configured — the
 	// credential the Run Workflow reads spend with.
 	CostTelemetry bool
+	// WorkersAIBillingMode is the mode the gateway reported and the walk
+	// recorded, or "" when there was no token to read it with.
+	WorkersAIBillingMode string
 	// Models is what the gateway listed during verification, if anything.
 	Models []string
 }
@@ -659,7 +669,22 @@ func setupCostTelemetry(
 		fmt.Fprintf(out, "read access. Without one, runs still route and attribute their model\n")
 		fmt.Fprintf(out, "traffic, but the cost budget has nothing to act on and each run records\n")
 		fmt.Fprintf(out, "its cost as unknown.\n")
+		fmt.Fprintf(out, "The same token is what reads the gateway's Workers AI billing mode, so\n")
+		fmt.Fprintf(out, "without it nothing checks whether Workers AI still bills to your Cloudflare\n")
+		fmt.Fprintf(out, "invoice or has been moved onto a prepaid AI Gateway wallet.\n")
 		fmt.Fprintf(out, "Add one with: tk factory setup --cloudflare-api-token <token>\n")
+		if chosen := strings.TrimSpace(opts.WorkersAIBillingMode); chosen != "" {
+			mode, err := ExpectedBillingMode(chosen)
+			if err != nil {
+				return err
+			}
+			cfg.Set(ticksrc.KeyFactoryWorkersAIBillingMode, mode)
+			if err := cfg.Save(); err != nil {
+				return err
+			}
+			result.WorkersAIBillingMode = mode
+			fmt.Fprintf(out, "Recorded %s as the expected billing mode — nothing can verify it until a token is configured.\n", mode)
+		}
 		return nil
 	}
 
@@ -671,15 +696,37 @@ func setupCostTelemetry(
 		return fmt.Errorf("verifying the Cloudflare API token against gateway %s: %w", gateway, err)
 	}
 
+	// The same token answers a second question the logs cannot: which wallet
+	// the spend it reports comes out of. Assert it before anything is stored,
+	// so a factory is never configured against a gateway that has quietly
+	// moved off the invoice.
+	expected := strings.TrimSpace(opts.WorkersAIBillingMode)
+	if expected == "" {
+		expected = cfg.Get(ticksrc.KeyFactoryWorkersAIBillingMode)
+	}
+	mode, err := CheckWorkersAIBilling(ctx, BillingOptions{
+		HTTPClient:         client,
+		CloudflareAPIBase:  opts.CloudflareAPIBase,
+		GatewayURL:         gatewayURL,
+		CloudflareAPIToken: token,
+		Expected:           expected,
+	})
+	if err != nil {
+		return fmt.Errorf("Workers AI billing: %w", err)
+	}
+
 	if err := putSecret(ctx, w, opts, SecretCloudflareAPIToken, token); err != nil {
 		return err
 	}
 	cfg.Set(ticksrc.KeyFactoryCloudflareAPIToken, token)
+	cfg.Set(ticksrc.KeyFactoryWorkersAIBillingMode, mode)
 	if err := cfg.Save(); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "%s stored as a Worker secret — run cost comes from gateway logs\n", SecretCloudflareAPIToken)
+	fmt.Fprintf(out, "Workers AI billing mode: %s — %s\n", mode, DescribeBillingMode(mode))
 	result.CostTelemetry = true
+	result.WorkersAIBillingMode = mode
 	return nil
 }
 
