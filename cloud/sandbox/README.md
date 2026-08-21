@@ -208,12 +208,57 @@ starts a command in a sandbox.
 | `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
 | `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
 | `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Advisory: reported, and compared against a repository's declared `[sandbox].image` so a mismatch is a warning rather than silence. |
+| `TICKS_KEEPER_INTERVAL` | no | Seconds between run-keeper passes — one push of the run branch when it has moved, one heartbeat — default 60. `0` turns the keeper off, which means nothing this run commits reaches origin until it chooses to push. See *The run branch, and why it is pushed continuously*. |
+| `TICKS_RUN_BRANCH` | derived | **Output, not input.** The branch this run's commits land on (`tick-run/<epic>`), exported so the orchestrator and everything it spawns name the same branch. Setting it has no effect; the entrypoint derives it. |
 | `TICKS_FACTORY_URL` | no | Factory Worker URL for the RunRoom-backed operator channel. |
 | `TICKS_FACTORY_TOKEN` | no | Ephemeral factory bearer credential used by `tk ask` to sync gates. Never written to the checkout. |
 | `TICKS_FACTORY_PROJECT` | no | Canonical `owner/repo` for the RunRoom; defaults to the checked-out Git remote when omitted. |
 | `GITHUB_TOKEN` | no | Clone/push credential, wired into a git credential helper. |
 | `TICKS_GIT_NAME`, `TICKS_GIT_EMAIL` | no | Commit identity for tracker writes. |
 | `TICKS_TK_VERSION` | baked | The tk version the image pins; the entrypoint refuses a different `tk` on PATH. |
+
+## The run branch, and why it is pushed continuously
+
+Every commit a run makes lands on **`tick-run/<epic>`**, and the container
+pushes that branch to origin every `TICKS_KEEPER_INTERVAL` seconds whenever it
+has moved. Merging it to the default branch still waits for closeout and the
+PR + CI gate — the incremental push is to the run's *own* branch, so it costs
+nothing and risks nothing.
+
+It exists because the property the design claimed was not true. D4 says a run's
+tracker state is on a pushed run branch and is therefore "durable, recoverable,
+and mergeable" if the run dies. Nothing pushed until closeout, so a run that
+never *reached* closeout had never pushed at all: one run worked productively
+for 4.4 hours across seven ticks in parallel worktrees, and every commit died
+with the container when it was destroyed to stop the spend. The operator was
+choosing between an unstoppable run and destroying its work. With the keeper,
+that choice is no longer destructive.
+
+Four rules the keeper holds, each of them load-bearing:
+
+- **Fast-forward only.** A rejected push is reported and retried, never forced.
+  Forcing over a ref this run does not own would lose exactly the work the
+  keeper exists to preserve.
+- **Nothing is pushed until something is committed.** The Workflow decides
+  whether a run actually did anything by comparing the remote's refs before and
+  after (`src/progress.ts`), so a keeper that staked its branch at the base on
+  every boot would report progress no run had made.
+- **A boot that finds the branch on origin continues it.** A rebooted
+  orchestrator — or a new run for an epic whose previous run was killed — checks
+  out what is there and reconciles against it instead of starting the epic over,
+  which is what makes "recoverable" mean something. The prompt says how many
+  commits it inherited.
+- **A run branch from another base is left alone.** It belongs to a run that
+  started somewhere else; this boot warns and pushes to
+  `tick-run/<epic>-<run id>` beside it.
+
+The keeper's other half is the **heartbeat**: one line per interval carrying
+elapsed time, HEAD, commits since the base, and what the last push did. The
+stream is the only view an operator has of a container they cannot reach, and a
+harness that is thinking prints nothing — the run above froze at one offset for
+over four hours while it was working, which is what made killing it look
+correct. Liveness is on a timer, not at turn boundaries, so a working run and a
+hung one no longer look identical from outside.
 
 ## Boot phases
 

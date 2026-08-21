@@ -497,6 +497,22 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
   time, and the lease enforces it. If the run dies permanently, its `.tick/`
   state (claims, notes, closes for merged work) is on the pushed run branch —
   durable, recoverable, and mergeable by the field-level merge driver.
+- **The run branch is pushed continuously, by the container, not at closeout.**
+  The durability above is a property of a *pushed* branch, and for a while
+  nothing pushed until closeout — so a run that never reached closeout had
+  never pushed at all, and one that worked for 4.4 hours across seven ticks
+  lost every commit when its container was destroyed. The orchestrator sandbox
+  therefore runs a **run keeper** beside the harness (`cloud/sandbox`,
+  *The run branch, and why it is pushed continuously*): every 60 seconds it
+  fast-forward-pushes `tick-run/<epic-id>` if it has moved — after each worker
+  branch merges, after each wave integrates — and prints a heartbeat carrying
+  HEAD and commits-since-base, so a container that is thinking is
+  distinguishable from one that is hung. It is mechanical rather than
+  prompted, for the same reason budgets are (D14): durability that depends on
+  an agent remembering to push is not durability. Nothing is pushed until the
+  run has committed something, so the ref comparison that decides whether a run
+  advanced anything stays honest. Merging to the default branch is unchanged —
+  it still waits for closeout and the PR + CI gate.
 - **Notification is a run parameter, not config** — the requester chooses the
   channel per submission; the default comes from `.tick/operators.json`.
 
