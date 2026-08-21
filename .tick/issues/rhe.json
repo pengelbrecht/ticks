@@ -2,12 +2,14 @@
   "id": "rhe",
   "title": "Dev builds go to ./bin/tk, never machine-wide",
   "description": "Building tk straight over ~/.local/bin/tk during development replaces the binary every other agent on the machine is using, and silently reverts any local patch it carried — it did exactly that here, reverting the hand-bumped herdr protocol and obstructing other agents mid-task. Machine-wide installs should happen on release, not while dev is in flight. Make the dev path obvious and the machine-wide path deliberate: a documented build target that writes ./bin/tk, a note in CONTRIBUTING/README, and ideally a guard so an accidental install over the machine-wide binary has to be asked for explicitly.",
-  "status": "open",
+  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own build tooling and its docs — nothing under cloud/factory/src. Live context: this is not hypothetical, it broke tk herd for every agent on this machine mid-task, and the workaround is still in force — ./bin/tk is protocol 19 and cannot spawn against herdr 0.8.2, so dispatch currently uses the machine-wide binary. repo-wiki/local-worker-durability.md records it.",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T08:47:54.31103Z",
-  "updated_at": "2026-08-21T08:47:54.31103Z"
+  "updated_at": "2026-08-21T14:55:57.25381Z",
+  "started_at": "2026-08-21T14:55:57.253809Z"
 }

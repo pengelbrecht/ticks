@@ -15,7 +15,7 @@ model = "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813"
 # cloud run of this repo to complete a real agent turn ended.
 [orchestration]
 substrate = "auto"
-max_parallel = 3
+max_parallel = 6
 
 [roles.implement]
 kind = "claude"
