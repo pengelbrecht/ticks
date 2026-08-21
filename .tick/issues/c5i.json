@@ -2,14 +2,15 @@
   "id": "c5i",
   "title": "tk cloud trace refuses a short run id instead of resolving it",
   "description": "Found by fxf while using the command that landed the same day. tk cloud trace run_62c289d1 answers \"No AI Gateway calls are stamped with run run_62c289d1\" — technically true and completely misleading, because gateway metadata carries the full id (run_62c289d1e57942cea5fef6c1a508a0fd) and every other tk surface accepts a short id. The operator reads it as \"there is no telemetry for this run\" and stops, which is the opposite of what the command exists for.\n\nResolve a prefix against the runs the factory knows about and say so, or refuse with \"that is a prefix, did you mean \u003cfull id\u003e\" — never answer a prefix with a confident negative. Check the same trap on tk cloud logs and tk cloud status while in there.",
-  "notes": "2026-08-21 19:43 - Seam (wave 4, three wide with tap and y45). You own internal/gatewaytrace and the cloud trace/logs/status command files. Nothing under cloud/sandbox or cloud/factory/src.\n2026-08-21 19:43 - runner-state: substrate=herdr kind=claude branch=tick/c5i worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-c5i workspace=wDN base=930f1cf4dbcac5505cce506cbf2a8412d8248b92 agent=tick-c5i pane=wDN:p1 session=4952de30-f241-464c-b9e1-f02494a97a34",
-  "status": "in_progress",
+  "notes": "2026-08-21 19:43 - Seam (wave 4, three wide with tap and y45). You own internal/gatewaytrace and the cloud trace/logs/status command files. Nothing under cloud/sandbox or cloud/factory/src.\n2026-08-21 19:43 - runner-state: substrate=herdr kind=claude branch=tick/c5i worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-c5i workspace=wDN base=930f1cf4dbcac5505cce506cbf2a8412d8248b92 agent=tick-c5i pane=wDN:p1 session=4952de30-f241-464c-b9e1-f02494a97a34\n2026-08-21 20:41 - runner-state: runner=claude branch=tick/c5i merged=5bac18d3",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T16:05:00.966302Z",
-  "updated_at": "2026-08-21T17:43:45.538637Z",
-  "started_at": "2026-08-21T17:43:26.805861Z"
+  "updated_at": "2026-08-21T18:41:22.659297Z",
+  "closed_at": "2026-08-21T18:41:22.659297Z",
+  "closed_reason": "Completed: a short run id resolves against the runs the factory knows about instead of being answered with a confident negative that reads as 'this run has no telemetry'."
 }

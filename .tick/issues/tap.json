@@ -2,14 +2,15 @@
   "id": "tap",
   "title": "Worker container entrypoint: clone, implement, push branch and RESULT, exit",
   "description": "The container-side half of 0ds. 0ds landed the dispatch layer — probe, confirmed dispatch, expiring liveness, concurrent fan-out, git-only collect — and it is tested, but nothing exists for it to boot. A worker container needs its own entrypoint, distinct from the orchestrator entrypoint in cloud/sandbox/entrypoint.sh: clone at the epic base, branch tick/\u003cepic\u003e/\u003ctick\u003e, run the harness on one tick, push the branch plus RESULT-\u003ctick\u003e.md, exit with a code that distinguishes the failure classes the way the orchestrator entrypoint already does.\n\nConstraints already measured, do not re-derive: on Cloudflare an image belongs to the containers application rather than to a boot (x3v), so a worker runs the same image as the orchestrator and must be told which role it is playing. Fan-out per-sandbox time degrades 3.74x at N=5 and kuf found ALL of that in dependency install, not the image pull — so whatever this entrypoint does about dependencies is the performance question for the whole per-tick design. max_instances = 3 will silently serialise a wider wave.\n\nThe probe 0ds runs must have something real to check for: define the marker here, in the entrypoint, rather than leaving dispatch to guess.",
-  "notes": "2026-08-21 19:42 - b6e is the call site for this: it wires the Run Workflow to dispatchWave and is blocked on this entrypoint existing.\n2026-08-21 19:43 - Seam (wave 4, three wide with c5i and y45). You own the worker container entrypoint — new files under cloud/sandbox plus whatever Go supports them. c5i owns internal/gatewaytrace and cmd/tk/cmd/cloud_trace.go; y45 is config and docs only. Stay out of cloud/factory/src/worker-dispatch.ts, which 0ds just landed and b6e will call — but read it, because the marker its probe checks for is yours to define.\n2026-08-21 19:43 - runner-state: substrate=herdr kind=claude branch=tick/tap worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-tap workspace=wDM base=930f1cf4dbcac5505cce506cbf2a8412d8248b92 agent=tick-tap pane=wDM:p1 session=88df9ce1-d43f-49db-b27f-11675b8d30e2",
-  "status": "in_progress",
+  "notes": "2026-08-21 19:42 - b6e is the call site for this: it wires the Run Workflow to dispatchWave and is blocked on this entrypoint existing.\n2026-08-21 19:43 - Seam (wave 4, three wide with c5i and y45). You own the worker container entrypoint — new files under cloud/sandbox plus whatever Go supports them. c5i owns internal/gatewaytrace and cmd/tk/cmd/cloud_trace.go; y45 is config and docs only. Stay out of cloud/factory/src/worker-dispatch.ts, which 0ds just landed and b6e will call — but read it, because the marker its probe checks for is yours to define.\n2026-08-21 19:43 - runner-state: substrate=herdr kind=claude branch=tick/tap worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-tap workspace=wDM base=930f1cf4dbcac5505cce506cbf2a8412d8248b92 agent=tick-tap pane=wDM:p1 session=88df9ce1-d43f-49db-b27f-11675b8d30e2\n2026-08-21 20:41 - runner-state: runner=claude branch=tick/tap merged=5bac18d3",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T17:42:36.859945Z",
-  "updated_at": "2026-08-21T17:43:37.549915Z",
-  "started_at": "2026-08-21T17:43:26.784821Z"
+  "updated_at": "2026-08-21T18:41:22.68054Z",
+  "closed_at": "2026-08-21T18:41:22.68054Z",
+  "closed_reason": "Completed: a worker container has an entrypoint — clone at the epic base, branch tick/\u003cepic\u003e/\u003ctick\u003e, run the harness on one tick, push the branch and RESULT file, exit with a code that distinguishes the failure classes — so 0ds's dispatch layer now has something real to boot and a defined marker for its probe."
 }
