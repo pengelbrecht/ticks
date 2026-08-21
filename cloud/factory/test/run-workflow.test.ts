@@ -211,6 +211,9 @@ beforeEach(() => {
   // gateway to a sandbox. `tk factory deploy` writes it.
   set("FACTORY_BASE_URL", FACTORY);
   set("ANTHROPIC_API_KEY", "sk-operator-key");
+  // The kill-switch cases below drive the anthropic route, which a default
+  // factory refuses on billing grounds (tick fw6) — this one opted in.
+  set("GATEWAY_ALLOWED_PROVIDERS", "anthropic");
   // A tight, fixed cadence: the supervision loop's own backoff is not what
   // these tests are about, and an explicit interval is a supported override.
   set("RUN_POLL_INTERVAL_MS", "25");

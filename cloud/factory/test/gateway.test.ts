@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { deriveTokenHash, isAuthExempt, mintFactoryToken } from "../src/auth";
 import { getRun, insertRun, type Run } from "../src/db";
 import {
+  allowedProviders,
   GATEWAY_LOG_FILTER_KEYS,
   GATEWAY_LOG_FILTER_OPERATORS,
   GATEWAY_LOG_MAX_PAGE_SIZE,
@@ -11,6 +12,7 @@ import {
   GATEWAY_PATH_PREFIX,
   LOG_PAGE_SIZE,
   MAX_LOG_PAGES,
+  PROVIDER_OPT_IN_VAR,
   SESSION_AFFINITY_HEADER,
   encodeLogFilters,
   fetchRunSpend,
@@ -54,6 +56,9 @@ beforeEach(() => {
   set("AI_GATEWAY_BASE_URL", GATEWAY);
   set("FACTORY_BASE_URL", FACTORY);
   set("ANTHROPIC_API_KEY", "sk-operator-key");
+  // Most of this file drives the anthropic route, which a default factory now
+  // refuses on billing grounds (tick fw6) — these cases are an opted-in one.
+  set(PROVIDER_OPT_IN_VAR, "anthropic");
   set("CLOUDFLARE_API_TOKEN", "cf-api-token");
   set("CLOUDFLARE_API_BASE_URL", "https://api.cloudflare.example/client/v4");
 });
@@ -327,6 +332,9 @@ describe("every model request carries run and tick metadata", () => {
   });
 
   it("refuses a provider this factory has no key for, naming setup", async () => {
+    // Opted into openai (tick fw6) and still unable to route it: the billing
+    // gate and the credential are separate refusals with separate fixes.
+    set(PROVIDER_OPT_IN_VAR, "openai");
     set("OPENAI_API_KEY", undefined);
     const run = await liveRun();
     const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "ko8", attempt: 1 });
@@ -515,6 +523,7 @@ describe("the workers-ai route takes content as a string, not as parts", () => {
   });
 
   it("normalises only this route — every other provider keeps its streamed body", async () => {
+    set(PROVIDER_OPT_IN_VAR, "openai");
     set("OPENAI_API_KEY", "sk-operator-openai");
     const { token } = await liveToken();
     const gateway = new FakeGateway();
@@ -598,6 +607,132 @@ describe("what the workers-ai translation will and will not touch", () => {
     expect(rewrite.ok).toBe(false);
     expect((rewrite as { detail: string }).detail).toContain("messages[1]");
     expect((rewrite as { detail: string }).detail).toContain("input_audio");
+  });
+});
+
+// -------------------------------------------------- the billing default ---
+
+/**
+ * Tick fw6. Workers AI bills to the operator's own Cloudflare account — the
+ * invoice their credit sits on — while anthropic, openai and openrouter are
+ * billed by the vendor in real cash. A config change or a typo in a model id
+ * is enough to move every run from one to the other, and nothing downstream of
+ * this hop can tell the difference: the request looks identical, the run
+ * succeeds, and the cost lands on a card instead of on credit. So the route is
+ * the place it stops, and it stops closed — a cash-billed provider is refused
+ * until a var names it, and the refusal says what routing it would cost.
+ */
+describe("workers-ai is the only route a factory takes without an explicit opt-in", () => {
+  it("allows workers-ai alone by default, whatever keys the factory holds", () => {
+    set(PROVIDER_OPT_IN_VAR, undefined);
+    // ANTHROPIC_API_KEY is configured (beforeEach) and still buys nothing:
+    // holding a vendor key is not a decision to spend against it.
+    expect(allowedProviders(env)).toEqual(["workers-ai"]);
+  });
+
+  it("reads the opt-in as a comma or whitespace separated list of slugs", () => {
+    set(PROVIDER_OPT_IN_VAR, " anthropic, openrouter ");
+    expect(allowedProviders(env)).toEqual(["anthropic", "openrouter", "workers-ai"]);
+  });
+
+  it("ignores an entry that is not a provider rather than routing it", () => {
+    // A misspelled slug must not widen anything — an allow-list that guesses
+    // is not an allow-list.
+    set(PROVIDER_OPT_IN_VAR, "anthropi,openai");
+    expect(allowedProviders(env)).toEqual(["openai", "workers-ai"]);
+  });
+
+  it("refuses a cash-billed provider and names the billing consequence", async () => {
+    set(PROVIDER_OPT_IN_VAR, undefined);
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    const response = await proxyModelRequest(
+      env,
+      modelRequest(undefined, { authorization: `Bearer ${token}` }),
+      ["anthropic", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: string; detail: string };
+    expect(body.error).toBe("provider_not_opted_in");
+    // Without the why, an operator "fixes" this by adding a key — which is
+    // the move that starts the cash spend.
+    expect(body.detail).toContain("anthropic");
+    expect(body.detail).toContain("cash");
+    expect(body.detail).toContain("workers-ai");
+    expect(body.detail).toContain(PROVIDER_OPT_IN_VAR);
+    // Refused before the operator's key was presented to anything.
+    expect(gateway.calls).toHaveLength(0);
+  });
+
+  it("still routes workers-ai on a factory that opted into nothing", async () => {
+    set(PROVIDER_OPT_IN_VAR, undefined);
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    const response = await proxyModelRequest(
+      env,
+      workersAIRequest(OMP_REQUEST, token),
+      WORKERS_AI_PATH,
+      { fetcher: gateway.fetcher }
+    );
+
+    expect(response.status).toBe(200);
+    expect(gateway.last.url).toBe(`${GATEWAY}/workers-ai/v1/chat/completions`);
+  });
+
+  it("opens a cash-billed route only for the provider the var actually names", async () => {
+    set(PROVIDER_OPT_IN_VAR, "anthropic");
+    set("OPENROUTER_API_KEY", "sk-operator-openrouter");
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    const opted = await proxyModelRequest(
+      env,
+      modelRequest(undefined, { authorization: `Bearer ${token}` }),
+      ["anthropic", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+    expect(opted.status).toBe(200);
+
+    const other = await proxyModelRequest(
+      env,
+      new Request(`${FACTORY}${GATEWAY_PATH_PREFIX}/openrouter/v1/chat/completions`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: "{}",
+      }),
+      ["openrouter", "v1", "chat", "completions"],
+      { fetcher: gateway.fetcher }
+    );
+    // Configured, keyed, and still not routed: one opt-in is not four.
+    expect(other.status).toBe(403);
+    await expect(other.json()).resolves.toMatchObject({ error: "provider_not_opted_in" });
+    expect(gateway.calls).toHaveLength(1);
+  });
+
+  it("does not accept a prototype key as a provider slug", async () => {
+    const { token } = await liveToken();
+    const gateway = new FakeGateway();
+
+    const response = await proxyModelRequest(
+      env,
+      new Request(`${FACTORY}${GATEWAY_PATH_PREFIX}/__proto__/v1/messages`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: "{}",
+      }),
+      ["__proto__", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+
+    // `"__proto__" in PROVIDERS` is true for any object literal, so an
+    // inherited key must not read as a route this gateway offers.
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: "unknown_provider" });
+    expect(gateway.calls).toHaveLength(0);
   });
 });
 

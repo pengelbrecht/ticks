@@ -86,6 +86,14 @@ migrations_dir = "migrations"
 [vars]
 RUN_QUEUE_TTL_MS = "1800000"
 
+# Which providers the gateway will route. Left unset on purpose: the default is
+# `workers-ai` alone, the one rung billed to the operator's own Cloudflare
+# account instead of by a vendor in cash, so no edit to a model id can quietly
+# move a run's spend onto a card. A deployment that wants a BYOK rung names it
+# here and redeploys — a stored key is not an opt-in.
+#
+#   GATEWAY_ALLOWED_PROVIDERS = "anthropic"
+
 # Budget enforcement lives in the Run Workflow, never in a prompt (D14): a model
 # can be talked out of a budget, a Workflow step cannot. Both numbers are
 # deployment decisions, and exhausting either is the SAME clean stop the

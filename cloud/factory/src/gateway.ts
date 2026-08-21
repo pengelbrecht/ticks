@@ -3,7 +3,7 @@
  * (D17).
  *
  * Every model call a cloud agent makes goes through the operator's own AI
- * Gateway, and it gets there through this Worker. Four rules shape the module.
+ * Gateway, and it gets there through this Worker. Five rules shape the module.
  *
  * 1. **There is no vendor default.** A deployment with no gateway configured
  *    refuses submissions and refuses proxying, and every refusal names
@@ -23,6 +23,12 @@
  *    whether or not it is listening — the same reason budgets live in the Run
  *    Workflow rather than in a prompt (D14, D15). A trip rotates: the wedged
  *    orchestrator's token dies, and the closeout boot mints a fresh one.
+ * 5. **Cash spend is opted into, never arrived at.** Workers AI bills to the
+ *    operator's own Cloudflare account; the other three rungs bill in real
+ *    cash. Only `workers-ai` is routed unless `GATEWAY_ALLOWED_PROVIDERS`
+ *    names another, so a mistyped model id or an edited config stops at a 403
+ *    that states the billing consequence rather than moving a run's spend onto
+ *    a card (tick fw6).
  *
  * Cost is read back from the gateway's own logs, never from the agent and
  * never from a response body: an agent can misreport, an invoice cannot. That
@@ -76,6 +82,61 @@ const PROVIDERS: Record<ProviderSlug, ProviderSpec> = {
 };
 
 export const PROVIDER_SLUGS = Object.keys(PROVIDERS) as ProviderSlug[];
+
+/**
+ * The provider a factory routes to when nobody has decided otherwise.
+ *
+ * Workers AI is inference billed to the operator's own Cloudflare account —
+ * the same invoice the factory's compute, storage and D1 land on, and the one
+ * an operator's credit sits on. The other three rungs are billed by the vendor
+ * in real cash. From this hop down the two are indistinguishable: same request
+ * shape, same run, same telemetry — only the invoice differs, and it differs
+ * after the money is spent.
+ */
+export const CREDIT_BILLED_PROVIDER: ProviderSlug = "workers-ai";
+
+/**
+ * The var that opts a deployment into cash-billed inference (tick fw6).
+ *
+ * A wrangler `[vars]` list of provider slugs, so moving a factory onto a
+ * vendor's invoice is a deployment decision someone wrote down, not a
+ * side effect of a model id being edited or mistyped. Holding a vendor key is
+ * deliberately NOT the opt-in: `tk factory setup` stores a key for a rung the
+ * operator may have configured months ago, and a credential is not a budget.
+ */
+export const PROVIDER_OPT_IN_VAR = "GATEWAY_ALLOWED_PROVIDERS";
+
+/**
+ * The providers this deployment will route, credit-billed first.
+ *
+ * Fails closed in both directions: no var means Workers AI alone, and an entry
+ * that is not a provider slug is logged and dropped rather than guessed at — an
+ * allow-list that widens on a typo is not an allow-list.
+ */
+export function allowedProviders(env: Env): ProviderSlug[] {
+  const allowed = new Set<ProviderSlug>([CREDIT_BILLED_PROVIDER]);
+  const raw = textVar((env as unknown as Record<string, unknown>)[PROVIDER_OPT_IN_VAR]);
+  if (raw !== null) {
+    for (const entry of raw.split(/[\s,]+/).filter((part) => part !== "")) {
+      if (isProviderSlug(entry)) allowed.add(entry);
+      else {
+        console.error(
+          `factory gateway: ${PROVIDER_OPT_IN_VAR} names "${entry}", which is not a provider ` +
+            `this gateway routes (${PROVIDER_SLUGS.join(", ")}); ignoring it`
+        );
+      }
+    }
+  }
+  return PROVIDER_SLUGS.filter((slug) => allowed.has(slug));
+}
+
+/**
+ * Own keys only: `"__proto__" in PROVIDERS` is true for any object literal, and
+ * a route inherited from Object.prototype is not a route this gateway offers.
+ */
+function isProviderSlug(value: string): value is ProviderSlug {
+  return Object.hasOwn(PROVIDERS, value);
+}
 
 /**
  * Hosts that are a vendor, not a gateway.
@@ -593,15 +654,36 @@ export async function proxyModelRequest(
     return jsonError({ status: 503, error: "gateway_not_configured", detail: config.detail });
   }
 
+  const allowed = allowedProviders(env);
   const slug = path[0];
-  if (slug === undefined || !(slug in PROVIDERS)) {
+  if (slug === undefined || !isProviderSlug(slug)) {
     return jsonError({
       status: 404,
       error: "unknown_provider",
-      detail: `the gateway routes ${PROVIDER_SLUGS.join(", ")}, not "${slug ?? ""}"`,
+      detail: `the gateway routes ${allowed.join(", ")}, not "${slug ?? ""}"`,
     });
   }
-  const provider = PROVIDERS[slug as ProviderSlug];
+  // Before the credential is fetched and before the token is even read: a
+  // provider this deployment never opted into is not a request to authorize,
+  // it is money it never agreed to spend (tick fw6).
+  if (!allowed.includes(slug)) {
+    console.error(
+      `factory gateway: refused a ${slug} request — this factory routes ` +
+        `${allowed.join(", ")} and ${PROVIDER_OPT_IN_VAR} does not name ${slug}`
+    );
+    return jsonError({
+      status: 403,
+      error: "provider_not_opted_in",
+      detail:
+        `this factory routes ${allowed.join(", ")}, and ${slug} is not among them: ` +
+        `${slug} inference is billed by the vendor in real cash, while ` +
+        `${CREDIT_BILLED_PROVIDER} is billed to the Cloudflare account this factory is ` +
+        `deployed in — the invoice the operator's credit is on. Configuring a key does not ` +
+        `open the route: to spend cash on ${slug}, name it in the ${PROVIDER_OPT_IN_VAR} ` +
+        `var (e.g. ${PROVIDER_OPT_IN_VAR} = "${slug}" under \`[vars]\`) and redeploy`,
+    });
+  }
+  const provider = PROVIDERS[slug];
 
   const authorized = await authorizeGatewayRequest(env, request);
   if (!authorized.ok) return jsonError(authorized.denial);
