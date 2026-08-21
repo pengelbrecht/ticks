@@ -2,12 +2,15 @@
   "id": "4ef",
   "title": "CRITICAL: a run expires its own dispatch lease during boot and hard-stops itself",
   "description": "Measured on run_d941c5ee: lease acquired 08:31:19, gateway token issued 08:31:24, token revoked 08:32:26 with reason stopped:hard, and the harness first real model call returned 403 run_token_revoked. Nobody asked for a stop.\n\nCause: runs.ts acquireDispatchLease is called with no ttl_ms, so it takes DEFAULT_LEASE_TTL_MS = 60s. The Workflow then boots the sandbox (clone, toolchain, model probe, harness probe, pre-flight — about 60s here) and only renews the lease at the FIRST OBSERVATION, which is behind step.sleep(pollDelay) = 15s more. So the first renewal happens at roughly boot + 15s, always later than the 60s it was given, and renewDispatchLease answers lease_lost. detectTrip treats a lost lease as a HARD trip, which since gyl revokes the gateway token immediately.\n\nThis is almost certainly what the $49.80 runaway actually was. Before gyl a lost lease ended the pass and the next attempt booted and minted a fresh token, forever — a reboot loop that spends, which matches 892 calls with nothing ever finishing. gyl turned an infinite spend loop into an immediate self-kill; neither is the intended behaviour.\n\nFix both halves: acquire the lease with a ttl that covers a cold boot (image pull included), and renew it as soon as the sandbox is booted, before the first poll sleep. Neither alone is sufficient — a long boot outlives any fixed acquire ttl, and a renewal that only happens after the first sleep is always too late.\n\nAdd a regression test that a boot slower than the lease ttl does not produce a lost lease, driving the real Workflow rather than asserting on the constants.",
-  "status": "open",
+  "notes": "2026-08-21 11:14 - Root cause chain, confirmed from D1 on run_d941c5ee: lease acquired 08:31:19 with the 60s default (runs.ts passed no ttl_ms) -\u003e boot took ~60s -\u003e first renewal was behind step.sleep(pollDelay) at the first observation -\u003e renewDispatchLease answered lease_lost -\u003e detectTrip classes a lost lease as HARD -\u003e revokeRunTokens -\u003e harness 403 run_token_revoked on its first real call. Before gyl the same lost lease ended the pass and the next attempt minted a fresh token, which is the reboot-loop reading of the 892-call runaway.",
+  "status": "closed",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "ko8",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T08:41:26.970654Z",
-  "updated_at": "2026-08-21T08:41:26.970654Z"
+  "updated_at": "2026-08-21T09:14:18.587844Z",
+  "closed_at": "2026-08-21T09:14:18.587844Z",
+  "closed_reason": "Completed: a submission now takes a lease sized to outlive a cold boot, and the Workflow renews it the moment the container is up rather than one poll delay later, so a run can no longer expire its own lease during boot and read the result as a lost lease worth revoking its credential over. This is the defect behind the $49.80 runaway, and the regression test inverts the suite's cadence to express it because the normal 25ms poll cannot."
 }
