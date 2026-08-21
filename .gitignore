@@ -20,3 +20,4 @@ node_modules/
 # repo-wiki local ingest state
 repo-wiki/.ingest/
 repo-wiki/.comments/
+bin/

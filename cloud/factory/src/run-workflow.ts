@@ -705,6 +705,38 @@ async function supervisePass(
       return { process_id: started.id, at_ms: Date.now() };
     });
 
+    // Renew the lease the moment the container is up, BEFORE the first sleep.
+    //
+    // The lease is acquired at submit, and until this existed the next renewal
+    // was the first observation — which sits behind boot plus a poll delay.
+    // A boot that clones, installs a toolchain, probes the model and the
+    // harness and runs pre-flight takes about a minute, so the first renewal
+    // reliably arrived after the lease it was renewing had already expired.
+    // renewDispatchLease then answered lease_lost, detectTrip read that as a
+    // HARD trip, and the run revoked its own gateway token roughly a minute
+    // in: measured on run_d941c5ee as a 403 run_token_revoked on the harness's
+    // first real call, with nobody having asked for a stop (tick 4ef).
+    //
+    // Acquiring for longer is the other half of the fix (BOOT_LEASE_TTL_MS in
+    // runs.ts) and neither half is sufficient alone: a slow boot outlives any
+    // fixed acquire ttl, and a renewal that only happens after the first sleep
+    // is always too late. A failure here is not fatal on its own — the first
+    // observation re-reads the lease and trips properly if it really is gone.
+    await step.do(`${options.label}:lease:${attempt}`, OBSERVE_RETRIES, async () => {
+      const renewed = await roomFor(env, params.project).renewDispatchLease({
+        run_id: params.run_id,
+        token: params.lease_token,
+        ttl_ms: renewalTtl(pollDelay(context.config, 0)),
+      });
+      if (renewed.ok === false) {
+        console.error(
+          `factory run-workflow: ${params.run_id} could not renew its lease after boot ${boot}: ` +
+            `${renewed.error}`
+        );
+      }
+      return { ok: renewed.ok };
+    });
+
     const deadline =
       options.pass_max_ms === null ? null : booted.at_ms + options.pass_max_ms;
 

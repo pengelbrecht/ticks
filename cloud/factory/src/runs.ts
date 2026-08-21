@@ -65,6 +65,25 @@ import type {
  * clean stop, and it is set here rather than by the orchestrator precisely so
  * a wedged orchestrator cannot refuse it.
  */
+
+/**
+ * The lease ttl a submission takes, sized to outlive a COLD boot.
+ *
+ * The lease is acquired here, and the first renewal the Run Workflow makes is
+ * the one right after its container is up. Between those two moments sits a
+ * whole boot: pulling an image, cloning at the base sha, installing a
+ * toolchain, probing the model and the harness, and running pre-flight. The
+ * 60s default did not survive that, so a run expired its own lease during boot
+ * and read the result as a lost lease — a HARD trip, which revoked its gateway
+ * token about a minute in and 403'd the harness on its first real call
+ * (tick 4ef; measured on run_d941c5ee).
+ *
+ * This bounds how long an abandoned pre-boot run wedges the project, so it is
+ * generous rather than unbounded. It is only load-bearing until that first
+ * post-boot renewal takes over with the poll-sized ttl.
+ */
+export const BOOT_LEASE_TTL_MS = 600_000;
+
 export const RUN_STATES = [
   "starting",
   "running",
@@ -512,6 +531,7 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
     epic: submission.epic,
     origin: "cloud",
     requested_by: submission.requested_by,
+    ttl_ms: BOOT_LEASE_TTL_MS,
   });
 
   if (lease.ok) {

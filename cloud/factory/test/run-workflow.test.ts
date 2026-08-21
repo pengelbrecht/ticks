@@ -7,11 +7,11 @@ import {
   reconcileKey,
   type RunRecord,
 } from "../src/artifacts";
-import { getRun, getRunProgress, listDispatchLogs, listRunGatewayTokens } from "../src/db";
+import { enrolProject, getRun, getRunProgress, listDispatchLogs, listRunGatewayTokens } from "../src/db";
 import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import type { RepoRefs } from "../src/progress";
 import { MAX_SANDBOX_BOOTS } from "../src/run-workflow";
-import { roomFor, startRun, stopRun } from "../src/runs";
+import { roomFor, runStatus, startRun, stopRun, submitRun } from "../src/runs";
 import {
   DEFAULT_SANDBOX_IMAGE,
   ORCHESTRATOR_COMMAND,
@@ -236,12 +236,19 @@ afterEach(() => {
 let counter = 0;
 
 /** Takes the lease and ignites a run, exactly as the submit route does. */
-async function ignite(overrides: { epic?: string; project?: string } = {}) {
+async function ignite(
+  overrides: { epic?: string; project?: string; leaseTtlMs?: number } = {}
+) {
   const project = overrides.project ?? `${PROJECT}-${++counter}`;
   const epic = overrides.epic ?? "ko8";
   const runID = `run_wf_${++counter}`;
   const room = roomFor(env, project);
-  const lease = await room.acquireDispatchLease({ run_id: runID, epic, origin: "cloud" });
+  const lease = await room.acquireDispatchLease({
+    run_id: runID,
+    epic,
+    origin: "cloud",
+    ...(overrides.leaseTtlMs === undefined ? {} : { ttl_ms: overrides.leaseTtlMs }),
+  });
   if (!lease.ok) throw new Error(`the lease was refused: ${JSON.stringify(lease)}`);
   const started = await startRun(env, {
     run_id: runID,
@@ -453,6 +460,71 @@ describe("boot and finalize", () => {
     await settled(runID);
 
     expect(await room.leaseStatus()).toBeNull();
+  });
+
+  it("renews the lease as soon as the container is up, not a poll later (tick 4ef)", async () => {
+    // The lease acquired at submit has to survive until the FIRST renewal, and
+    // until tick 4ef that renewal was the first observation — behind boot plus
+    // a poll delay. In production a boot (image pull, clone, toolchain, two
+    // probes, pre-flight) took about a minute against a 60s lease, so the run
+    // read its own expiry as a lost lease, treated it as a HARD trip, and
+    // revoked its own gateway token: measured on run_d941c5ee as a
+    // 403 run_token_revoked on the harness's first real call.
+    //
+    // The default test cadence (25ms) cannot express that, because the first
+    // observation lands long before any lease expires. So invert the two: a
+    // lease shorter than one poll delay makes "renewed only on observation"
+    // fail exactly the way the real boot did.
+    set("RUN_POLL_INTERVAL_MS", "3000");
+    const { runID, room } = await ignite({ leaseTtlMs: 1_000 });
+    const process = await firstProcess();
+
+    // Past the point where a lease renewed only on observation is already dead.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+
+    const lease = await room.leaseStatus();
+    expect(lease).not.toBeNull();
+    expect(lease!.run_id).toBe(runID);
+
+    // The production symptom, asserted directly: nothing revoked this run's
+    // credential, so the harness can still spend.
+    const tokens = await listRunGatewayTokens(env.DB, runID);
+    expect(tokens.filter((token) => token.revoked_at !== null)).toEqual([]);
+
+    const status = await runStatus(env, runID);
+    expect(status?.run.state).toBe("running");
+
+    process.exit(0);
+    await settled(runID);
+  });
+
+  it("takes a lease at submit that outlives a cold boot (tick 4ef)", async () => {
+    const project = `${PROJECT}-${++counter}`;
+    await enrolProject(env.DB, {
+      project,
+      enrolled_by: "operator",
+      enrolled_at: new Date().toISOString(),
+    });
+    const submitted = await submitRun(env, {
+      project,
+      epic: "ko8",
+      base_sha: BASE_SHA,
+      requested_by: "operator",
+      queue: false,
+    });
+    if (submitted.outcome !== "started") {
+      throw new Error(`the submission was refused: ${JSON.stringify(submitted)}`);
+    }
+
+    // The window the acquire ttl has to cover is a whole boot, so assert it in
+    // those terms rather than against the constant: a minute is what the old
+    // default gave, and a real boot takes about that.
+    const lease = await roomFor(env, project).leaseStatus();
+    expect(lease).not.toBeNull();
+    expect(Date.parse(lease!.expires_at) - Date.now()).toBeGreaterThan(120_000);
+
+    (await firstProcess()).exit(0);
+    await settled(submitted.started.run.run_id);
   });
 
   it("renews the lease while the run is alive", async () => {
