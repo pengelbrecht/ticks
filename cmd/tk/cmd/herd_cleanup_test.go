@@ -186,6 +186,42 @@ func TestHerdCleanupApplyKeepsManifestWhenAStepFails(t *testing.T) {
 	}
 }
 
+// TestHerdCleanupApplyReportsFailedPerTick pins that a failed apply's per-tick
+// line says FAILED, not "removed": a caller reading the summary line must get
+// the truth, even when the failure is on the first step.
+func TestHerdCleanupApplyReportsFailedPerTick(t *testing.T) {
+	_, _, srv := setupCleanupTick(t, true)
+	srv.SetRemoveError("no such workspace")
+	buf, _ := captureHerdOutput(t)
+
+	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--apply"})
+	if err == nil {
+		t.Fatal("a failed removal exited 0")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "tick      nhk  FAILED") {
+		t.Errorf("per-tick line = %q, want FAILED", out)
+	}
+	if strings.Contains(out, "removed") {
+		t.Errorf("per-tick line reports success for a failed apply:\n%s", out)
+	}
+}
+
+// TestHerdCleanupApplyReportsRemovedPerTick pins that a successful apply's
+// per-tick line still says removed.
+func TestHerdCleanupApplyReportsRemovedPerTick(t *testing.T) {
+	_, _, srv := setupCleanupTick(t, true)
+	buf, _ := captureHerdOutput(t)
+
+	if err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--apply"}); err != nil {
+		t.Fatalf("apply: %v\n%s", err, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "tick      nhk  removed") {
+		t.Errorf("per-tick line = %q, want removed", out)
+	}
+}
+
 func TestHerdCleanupPreviewAndApplyAreMutuallyExclusive(t *testing.T) {
 	_, _, srv := setupCleanupTick(t, true)
 	err := ExecuteArgs([]string{"herd", "cleanup", "nhk", "--socket", srv.Path(), "--preview", "--apply"})
