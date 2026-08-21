@@ -130,6 +130,22 @@ tk close <id> --force            # Close epic with all children, or bypass a req
 tk reopen <id>                   # Reopen closed tick
 ```
 
+### Wave width (the dispatch gate)
+
+`tk update <id> --status in_progress` is the claim every substrate makes before it starts a
+worker, so it is where `[orchestration].max_parallel` is enforced — the width is not left to
+the orchestrator's restraint:
+
+- A slot is held by every **in_progress non-epic child of the same epic**; closing or releasing
+  one frees it. Re-claiming a tick that already holds its slot is always admitted.
+- A claim beyond the width is refused with **exit 8**, naming the width, its source and the
+  ticks holding the slots. Refused is not failed — retry the claim when a slot frees.
+- `tk herd spawn` applies the same gate before it dials herdr, so a refusal costs zero dials.
+- Nothing else is gated: closing, releasing and every other field edit stay open while a wave
+  is full, and the TUI/board (human surfaces) are not gated at all.
+- No `[orchestration].max_parallel` means no cap. `tk graph --json` → `dispatch` reports the
+  width, the slots in flight and free, and `dispatch.now` — the ids to launch right now.
+
 ## Human Verdicts
 
 Commands for humans responding to agent handoffs:
@@ -177,8 +193,10 @@ human, which is the agent's normal path.
 tk block <id> <blocker-id>...     # Add blocker(s) (id is now blocked by each blocker-id)
 tk unblock <id> <blocker-id>      # Remove blocker
 tk deps <id>                      # Show dependency tree
-tk graph <epic-id> [--json]       # Waves + parallelism; JSON carries needs_planning and
+tk graph <epic-id> [--json]       # Waves + parallelism; JSON carries needs_planning,
                                   # missing_process_ticks (EPIC-SKELETON roles no child has)
+                                  # and dispatch{max_parallel,in_flight,free,now} — the
+                                  # configured wave width and the ids to launch right now
 ```
 
 These commands manage **hard** dependencies (`blocked_by` — feasibility: the tick is not ready until its blockers close). **Soft** ordering preferences are managed with `--after` on `tk create` / `tk update` (clear with `--after ""`); they affect `tk next` ordering only and never gate readiness.

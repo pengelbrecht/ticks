@@ -497,11 +497,12 @@ tk graph <epic-id> --json # Machine-readable for orchestration
 
 The graph shows:
 - **Waves**: groups of ticks that can run in parallel
-- **Max parallel**: how many subagents you can launch at once in the widest wave
+- **Max parallel** (`stats.max_parallel`): how wide the widest wave *could* be — graph shape, not a launch budget
+- **Dispatch** (`dispatch`): the configured wave width (`[orchestration].max_parallel`), how many implementers are in flight, how many slots are free, and `dispatch.now` — the exact tick ids to launch right now
 - **Critical path**: minimum number of sequential waves to finish the epic
 - **Dependencies**: what each tick is blocked by
 
-Launch up to `max_parallel` subagents per wave (cap it if you want to limit cost or noise), and merge each wave before starting the next so dependent ticks build on completed work.
+Launch `dispatch.now`, not the whole wave: the width is enforced on the dispatch path, so claiming a tick beyond it (`tk update <id> --status in_progress`, `tk herd spawn`) is refused with exit 8 until a slot frees. Merge each wave before starting the next so dependent ticks build on completed work.
 
 See `references/tk-commands.md` for full reference.
 
