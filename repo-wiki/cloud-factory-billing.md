@@ -53,6 +53,53 @@ Consequence for anyone reading a cost number here: **the Workers AI dashboard is
 the reconciliation point, not the billing page.** Compare gateway-log cost against
 Neurons there; the billing page only catches up at cycle close.
 
+## The cost model, fitted from a real run
+
+Workers AI bills in Neurons at **$0.011 per 1,000**. Fitting neurons against token
+classes across 226 substantive calls of `run_62c289d1` gives round numbers, which
+is a good sign the fit found the tariff rather than noise:
+
+| Token class | Neurons/token | Relative |
+|---|---|---|
+| uncached input | 0.120 | 1× |
+| **cached input** | **0.004** | **1/30×** |
+| output | 0.360 | 3× |
+
+The gateway log's `cost` field is therefore **net** — already discounted for
+caching, not a list price. Two calls of near-identical size from that run:
+
+    104,940 in,  15,616 cached (15%)  ->  10,866 neurons  ->  $0.1195
+     87,747 in,  84,736 cached (97%)  ->     768 neurons  ->  $0.0084
+
+Same size, 14x the cost, purely cache rate. That single ratio — a cached input
+token costing a thirtieth of an uncached one — is the most important number for
+anyone reasoning about what a run costs.
+
+For that run: 3,799,364 uncached + 7,154,176 cached input and 157,709 output
+came to **$5.95 actual against $15.08 modelled with no caching — 61% saved**.
+The pre-`l8z` runaway cached nothing and paid full freight on all 46M tokens.
+
+Read cached tokens from `usage_metadata.input_cached_tokens` on each gateway log
+row, or `prompt_tokens_details.cached_tokens` in the response body. Nothing in D1
+carries it.
+
+## Where a run's conversation lives
+
+Not in D1 — that holds control-plane state only (`runs`, `signals`,
+`dispatch_log`, `run_gateway_token`, `run_image`, `run_progress`), no messages.
+The conversation is in the AI Gateway logs, filterable by `metadata.run_id`, with
+full bodies from two detail endpoints:
+
+    GET /ai-gateway/gateways/{gw}/logs/{id}/request    -> the whole message array
+    GET /ai-gateway/gateways/{gw}/logs/{id}/response   -> choices, tool_calls, usage
+
+One trap: responses are streamed, so `choices[0].message` on the *response* is
+empty — `content: null`, `tool_calls: null`. Reconstruct what the model did from
+the assistant messages inside each *request* body instead, deduplicated across
+calls. Reading the response and concluding "the model emitted nothing" is wrong.
+
+`tk cloud trace` (tick `l4l`) is the intended home for this.
+
 ## What the credit does not cover
 
 Only Workers AI reaches the Cloudflare invoice at all. The other three
