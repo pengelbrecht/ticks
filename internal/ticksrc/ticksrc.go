@@ -75,6 +75,14 @@ const (
 	// invoice cannot — so a factory without one routes and attributes model
 	// traffic but cannot enforce the cost budget.
 	KeyFactoryCloudflareAPIToken = "factory_cloudflare_api_token"
+	// KeyFactoryWorkersAIBillingMode is the AI Gateway Workers AI billing mode
+	// the operator has settled on — `postpaid` (Workers AI on the Cloudflare
+	// invoice, where an account credit can absorb it) or `unified` (a
+	// separately purchased prepaid wallet). It is an EXPECTATION, not a
+	// credential: the gateway holds the real value and one dashboard click
+	// changes it, so pre-flight reads the gateway and asserts it still matches
+	// what is recorded here.
+	KeyFactoryWorkersAIBillingMode = "factory_workers_ai_billing_mode"
 )
 
 // fileMode is owner-only: the file holds bearer tokens.

@@ -67,11 +67,18 @@ type StatusReport struct {
 	// separately, and a factory whose budget has nothing to act on must not
 	// look like a healthy one.
 	Telemetry CredentialState
+	// Billing is which pot the gateway's Workers AI traffic bills to. It is
+	// not a credential at all — it is a per-gateway setting one dashboard
+	// click changes, moving every run from the Cloudflare invoice an account
+	// credit pays onto a separately purchased prepaid wallet, with the
+	// identical cost reported either way. Status is where an operator can see
+	// that before submitting a run.
+	Billing CredentialState
 }
 
 // rungs returns the report's states in the order the ladder is walked.
 func (r *StatusReport) rungs() []CredentialState {
-	return []CredentialState{r.Deployment, r.GitHub, r.Gateway, r.Telemetry}
+	return []CredentialState{r.Deployment, r.GitHub, r.Gateway, r.Telemetry, r.Billing}
 }
 
 // Configured reports whether any rung has been walked at all.
@@ -231,7 +238,61 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 		}
 	}
 
+	// Workers AI billing mode: which wallet the spend above comes out of.
+	report.Billing = CredentialState{Name: "workers ai billing"}
+	if gateway != "" {
+		report.Billing.Configured = true
+		stored := cfg.Get(ticksrc.KeyFactoryWorkersAIBillingMode)
+		expected, expectedErr := ExpectedBillingMode(stored)
+		_, gatewayID, ok := gatewayIDs(gateway)
+		switch {
+		case expectedErr != nil:
+			report.Billing.Summary = fmt.Sprintf("%s (recorded in %s)", stored, cfg.Path())
+			report.Billing.Checked = true
+			report.Billing.Detail = "rejected: " + expectedErr.Error()
+		case opts.Offline:
+			report.Billing.Summary = describeBillingExpectation(expected, stored)
+			report.Billing.Detail = "not checked (--offline)"
+		case telemetry == "":
+			report.Billing.Summary = describeBillingExpectation(expected, stored)
+			report.Billing.Detail = "not checked — reading the gateway's billing mode needs the same " +
+				"Cloudflare API token as cost telemetry"
+		case !ok:
+			report.Billing.Summary = describeBillingExpectation(expected, stored)
+			report.Billing.Checked = true
+			report.Billing.Detail = "rejected: the gateway URL names no Cloudflare account and gateway to read the billing mode from"
+		default:
+			report.Billing.Summary = describeBillingExpectation(expected, stored)
+			report.Billing.Checked = true
+			mode, err := CheckWorkersAIBilling(ctx, BillingOptions{
+				HTTPClient:         client,
+				CloudflareAPIBase:  opts.CloudflareAPIBase,
+				GatewayURL:         gateway,
+				CloudflareAPIToken: telemetry,
+				Expected:           expected,
+			})
+			if err != nil {
+				report.Billing.Detail = "rejected: " + err.Error()
+			} else {
+				report.Billing.OK = true
+				report.Billing.Detail = fmt.Sprintf("live, gateway %s reports %s billing", gatewayID, mode)
+			}
+		}
+	}
+
 	return report, nil
+}
+
+// describeBillingExpectation says which mode is asserted and whether that was
+// chosen or defaulted, because "postpaid because nobody said otherwise" and
+// "postpaid because the operator settled on it" read the same in a report and
+// are not the same claim.
+func describeBillingExpectation(expected, stored string) string {
+	source := "the default"
+	if strings.TrimSpace(stored) != "" {
+		source = "recorded"
+	}
+	return fmt.Sprintf("expects %s (%s) — %s", expected, source, DescribeBillingMode(expected))
 }
 
 // Write renders the report the way `tk channel status` renders channels: what

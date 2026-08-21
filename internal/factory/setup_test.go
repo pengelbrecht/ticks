@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -32,7 +33,8 @@ const (
 	testPAT       = "github_pat_11EXAMPLE0000000000000000"
 	testRepo      = "octo-org/octo-repo"
 	testLogin     = "octo-user"
-	testGatewayNS = "/v1/00000000000000000000000000000000/ticks"
+	testGatewayID = "ticks"
+	testGatewayNS = "/v1/00000000000000000000000000000000/" + testGatewayID
 	// A Cloudflare API token with AI Gateway read access — the credential that
 	// turns a run's cost into gateway telemetry (D17).
 	testCloudflareToken = "cf_api_token_EXAMPLE"
@@ -109,17 +111,26 @@ func newFakeGateway(t *testing.T, key string) *fakeGateway {
 
 func (gw *fakeGateway) base() string { return gw.server.URL + testGatewayNS }
 
-// fakeCloudflareAPI answers the AI Gateway logs read the telemetry rung proves
-// its token with.
+// fakeCloudflareAPI answers the two AI Gateway reads the factory makes with a
+// Cloudflare API token: the logs the telemetry rung proves its token with, and
+// the gateway object pre-flight reads `workers_ai_billing_mode` off.
 type fakeCloudflareAPI struct {
 	server *httptest.Server
 	token  string
 	calls  atomic.Int32
+	// gatewayCalls counts reads of the gateway OBJECT, so a test can tell a
+	// billing assertion that ran from one that was skipped.
+	gatewayCalls atomic.Int32
+
+	mu sync.Mutex
+	// billingMode is what the gateway object reports. Empty means the object
+	// omits the field entirely, which is its own failure class.
+	billingMode string
 }
 
 func newFakeCloudflareAPI(t *testing.T, token string) *fakeCloudflareAPI {
 	t.Helper()
-	api := &fakeCloudflareAPI{token: token}
+	api := &fakeCloudflareAPI{token: token, billingMode: BillingModePostpaid}
 	api.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api.calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
@@ -131,14 +142,58 @@ func newFakeCloudflareAPI(t *testing.T, token string) *fakeCloudflareAPI {
 			})
 			return
 		}
-		if !strings.HasSuffix(r.URL.Path, "/logs") {
-			w.WriteHeader(http.StatusNotFound)
+		if strings.HasSuffix(r.URL.Path, "/logs") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": []any{}})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": []any{}})
+		if id, ok := gatewayObjectPath(r.URL.Path); ok {
+			api.gatewayCalls.Add(1)
+			if id != testGatewayID {
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"success": false,
+					"errors":  []any{map[string]any{"message": "gateway not found"}},
+				})
+				return
+			}
+			result := map[string]any{"id": id}
+			if mode := api.mode(); mode != "" {
+				result["workers_ai_billing_mode"] = mode
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": result})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(api.server.Close)
 	return api
+}
+
+// gatewayObjectPath reports the gateway id a GET of the gateway OBJECT names —
+// /accounts/<account>/ai-gateway/gateways/<id> with nothing after it.
+func gatewayObjectPath(path string) (string, bool) {
+	const marker = "/ai-gateway/gateways/"
+	idx := strings.Index(path, marker)
+	if idx < 0 {
+		return "", false
+	}
+	id := strings.Trim(strings.TrimPrefix(path[idx:], marker), "/")
+	if id == "" || strings.Contains(id, "/") {
+		return "", false
+	}
+	return id, true
+}
+
+func (api *fakeCloudflareAPI) mode() string {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	return api.billingMode
+}
+
+func (api *fakeCloudflareAPI) setMode(mode string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.billingMode = mode
 }
 
 func (api *fakeCloudflareAPI) base() string { return api.server.URL }

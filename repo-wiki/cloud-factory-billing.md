@@ -25,7 +25,20 @@ Read the current mode from the gateway object:
     GET /accounts/{account_id}/ai-gateway/gateways/{gateway_id}
     → result.workers_ai_billing_mode   # "postpaid" | "unified"
 
-`postpaid` is the mode this project wants. `h4n` makes pre-flight assert it.
+`postpaid` is the mode this project wants, and pre-flight now asserts it
+(`h4n`). The expectation lives in `~/.ticksrc` as
+`factory_workers_ai_billing_mode` and defaults to `postpaid`, so a factory that
+was never told otherwise FAILS on unified rather than quietly spending cash:
+`tk factory setup` reads the gateway object and refuses to configure a factory
+that drifted, and `tk factory status` carries it as its own `workers ai billing`
+rung, which `--check` turns into a nonzero exit. An operator who really did buy
+a prepaid wallet opts in once with
+`tk factory setup --workers-ai-billing-mode unified`. Implementation:
+`internal/factory/billing.go` (`CheckWorkersAIBilling`), which is also the entry
+point a run-submit path can call. Both reads need the Cloudflare API token the
+telemetry rung installs — without one the mode is UNCHECKED, and both commands
+say so rather than passing quietly. An absent `workers_ai_billing_mode` field
+fails closed for the same reason: it is not evidence of postpaid.
 
 Cloudflare unified Workers AI and AI Gateway billing on 2026-08-07, so any
 reasoning about this that predates that changelog entry is wrong.
