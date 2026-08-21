@@ -1,7 +1,8 @@
 {
   "id": "npz",
   "title": "Close out epic gj9: retro, verify acceptance, PR gate",
-  "status": "open",
+  "notes": "2026-08-21 12:03 - Close-out (controller-run):\n- Gate: go test -short -count=1 ./... green on integrated tree (TK_ACTOR unset; the actor guard correctly fails three actor-verdict tests when a runner actor is ambient, so the gate runs with the env var removed).\n- PR: #50 opened (head tick-run/gj9 -\u003e main), CI green 8/8 (go, ui, worker, public-repo, changes, ticks-runner, factory, sandbox), mergeable_state clean.\n- Integration: PR #50 merged to main at dfd99fb5 (merge commit). tick-run/gj9 tip 7e01fda is an ancestor of origin/main — the epic's work is on the default branch through the PR+CI gate.\n- Retro learnings: none new to promote — the two fixes this epic surfaced (misleading per-tick summary line; runner-actor ambient breaking actor-guard tests) are code, not operational gotchas, and the repo's learnings already carry both classes (grep-filter masking; gate-actor hygiene).\n- Acceptance (epic definition of done): factory loop ran end to end on one tick — plan, single worktree-less harness dispatch, implement, merge, gate, close — with no unmerged or orphaned work left behind.\n- Tracker: iit, 9f5 closed; this close-out closes next; epic closes after.\n- Integration status: merged.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "ticks-orchestrator@ticks.invalid",
@@ -12,5 +13,7 @@
   "role": "closeout",
   "created_by": "ticks-orchestrator@ticks.invalid",
   "created_at": "2026-08-21T10:53:29.020146724Z",
-  "updated_at": "2026-08-21T10:54:37.726797386Z"
+  "updated_at": "2026-08-21T12:03:06.67314733Z",
+  "closed_at": "2026-08-21T12:03:06.67314733Z",
+  "closed_reason": "Completed: close-out retro run (no new learnings to promote), epic acceptance verified outside-in (factory loop completed end to end, zero orphaned work), integrated gate green (go test -short ./...), PR #50 CI 8/8 green and merged to main at dfd99fb5 — epic work is on the default branch through the PR+CI gate; integration status merged"
 }
