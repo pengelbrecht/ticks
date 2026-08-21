@@ -289,6 +289,33 @@ describe("submission on a free project", () => {
     });
   });
 
+  // The flags on `tk cloud run` are a per-invocation choice; nothing about
+  // them is a redeploy, so they have to reach the Workflow's params.
+  it("carries a per-run budget into the Workflow params", async () => {
+    const project = await enrolled("budget-direct");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { max_cost_usd: 2.5, max_wall_clock_ms: 2_700_000 })
+    );
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params).toMatchObject({
+      max_cost_usd: 2.5,
+      max_wall_clock_ms: 2_700_000,
+    });
+  });
+
+  it("refuses a budget that is not a positive number rather than dropping it", async () => {
+    const project = await enrolled("budget-invalid");
+
+    const res = await post("/api/runs", submission(project, { max_cost_usd: 0 }));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    expect(workflow.created).toHaveLength(0);
+  });
+
   it("writes the ignition to dispatch_log", async () => {
     const project = await enrolled("free-logged");
     const { run } = (await (await post("/api/runs", submission(project))).json()) as {
@@ -469,6 +496,40 @@ describe("queued submissions (D22)", () => {
       expect.stringContaining("queued"),
       "dispatched",
     ]);
+  });
+
+  // A budget that survives the submission but not the queue is a run the
+  // operator believes is bounded and is not.
+  it("keeps a parked submission's budget through to ignition", async () => {
+    const project = await enrolled("queue-budget");
+    const first = (await (await post("/api/runs", submission(project))).json()) as {
+      run: { run_id: string };
+    };
+    const parked = (await (
+      await post(
+        "/api/runs",
+        submission(project, {
+          epic: "afj",
+          base_sha: OTHER_SHA,
+          queue: true,
+          max_cost_usd: 1.25,
+          max_wall_clock_ms: 600_000,
+        })
+      )
+    ).json()) as { queued: QueuedSubmission };
+
+    const released = await roomFor(env, project).releaseDispatchLease({
+      run_id: first.run.run_id,
+      token: workflow.created[0]!.params.lease_token,
+    });
+    expect(released.ok).toBe(true);
+
+    expect(workflow.created).toHaveLength(2);
+    expect(workflow.created[1]!.params).toMatchObject({
+      run_id: parked.queued.run_id,
+      max_cost_usd: 1.25,
+      max_wall_clock_ms: 600_000,
+    });
   });
 
   it("expires on its window rather than igniting work hours later", async () => {

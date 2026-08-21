@@ -214,12 +214,70 @@ function hasPositiveVar(env: Env, name: keyof Env, integer: boolean): boolean {
   return (integer ? Number.isSafeInteger(parsed) : Number.isFinite(parsed)) && parsed > 0;
 }
 
-export function runConfig(env: Env): RunConfig {
+/**
+ * What one submission asked its own budget to be (tick wn5).
+ *
+ * Both fields are optional and both are bounded by the deployment's ceiling on
+ * the way in: a flag may lower a budget, never raise it. The ceiling is the
+ * operator's standing decision, and a submission is something an agent can
+ * make — so "cheap and bounded" is a per-invocation choice while "how much may
+ * anything spend at all" stays a deployment one.
+ */
+export type RunBudgetOverride = {
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
+};
+
+/**
+ * The requested budget, clamped to the ceiling.
+ *
+ * An unusable value is ignored with a log rather than failing the run, exactly
+ * as `positiveVar` treats a typo'd var — and both fallbacks are toward the
+ * ceiling, which is the bound that was already agreed to. A submission's value
+ * is validated at the edge (`parseSubmission`), so reaching this with garbage
+ * means something upstream is broken, not that a run should widen its budget.
+ */
+function boundedBudget(
+  ceiling: number,
+  requested: number | undefined,
+  name: string,
+  integer: boolean
+): { value: number; applied: boolean } {
+  if (requested === undefined) return { value: ceiling, applied: false };
+  const usable = integer ? Number.isSafeInteger(requested) : Number.isFinite(requested);
+  if (!usable || requested <= 0) {
+    console.error(
+      `factory run-workflow: ${name} must be a positive number; ignoring ${String(requested)} and using ${ceiling}`
+    );
+    return { value: ceiling, applied: false };
+  }
+  if (requested > ceiling) {
+    // Said, not silently honoured and not refused: the run is bounded either
+    // way, and an operator who asked for more must be able to read back that
+    // the deployment ceiling is what it actually got.
+    console.error(
+      `factory run-workflow: ${name} ${requested} exceeds the deployment ceiling ${ceiling}; ` +
+        "a submission may lower a budget, never raise it"
+    );
+    return { value: ceiling, applied: true };
+  }
+  return { value: requested, applied: true };
+}
+
+export function runConfig(env: Env, override: RunBudgetOverride = {}): RunConfig {
   const poll = textVar(env, "RUN_POLL_INTERVAL_MS");
+  const wallCeiling = positiveVar(env, "RUN_MAX_WALL_CLOCK_MS", DEFAULT_MAX_WALL_CLOCK_MS, true);
+  const costCeiling = positiveVar(env, "RUN_MAX_COST_USD", DEFAULT_MAX_COST_USD, false);
+  const cost = boundedBudget(costCeiling, override.max_cost_usd, "max_cost_usd", false);
+  const wall = boundedBudget(wallCeiling, override.max_wall_clock_ms, "max_wall_clock_ms", true);
   return {
-    max_wall_clock_ms: positiveVar(env, "RUN_MAX_WALL_CLOCK_MS", DEFAULT_MAX_WALL_CLOCK_MS, true),
-    max_cost_usd: positiveVar(env, "RUN_MAX_COST_USD", DEFAULT_MAX_COST_USD, false),
-    cost_budget_configured: hasPositiveVar(env, "RUN_MAX_COST_USD", false),
+    max_wall_clock_ms: wall.value,
+    max_cost_usd: cost.value,
+    // A submission that named a cost budget has asked for one, so it is
+    // enforced like a configured var — including the part that matters: a
+    // budget whose telemetry cannot be read stops the run rather than letting
+    // it spend unmeasured.
+    cost_budget_configured: hasPositiveVar(env, "RUN_MAX_COST_USD", false) || cost.applied,
     stop_grace_ms: positiveVar(env, "RUN_STOP_GRACE_MS", DEFAULT_STOP_GRACE_MS, true),
     closeout_ms: positiveVar(env, "RUN_CLOSEOUT_MS", DEFAULT_CLOSEOUT_MS, true),
     poll_interval_ms: poll === null ? null : positiveVar(env, "RUN_POLL_INTERVAL_MS", MIN_POLL_MS, true),
@@ -421,7 +479,12 @@ export async function acquireContext(
   const routing = modelRoutingComplaint(env);
   if (routing !== null) return { ok: false, detail: routing };
 
-  const config = runConfig(env);
+  const config = runConfig(env, {
+    ...(params.max_cost_usd === undefined ? {} : { max_cost_usd: params.max_cost_usd }),
+    ...(params.max_wall_clock_ms === undefined
+      ? {}
+      : { max_wall_clock_ms: params.max_wall_clock_ms }),
+  });
   const telemetry = await syncRunCost(env, params.run_id);
   if (!telemetry.ok) {
     console.error(

@@ -109,6 +109,17 @@ it (`src/run-workflow.ts`):
   self-report. A model can be talked out of a budget; a Workflow step cannot.
   And a trip does not stop at killing a process: the run's gateway token is
   revoked, so an orchestrator that survives its own kill still cannot spend.
+  Those two vars are the deployment's **ceiling**, and one submission can ask
+  for less: `tk cloud run <epic> --max-cost 2.50 --max-wall-clock 45m` rides
+  the submit payload (`max_cost_usd`, `max_wall_clock_ms`) into the Run
+  Workflow's config, so trying something cheap-and-bounded is a per-invocation
+  choice rather than an edit to `wrangler.toml` and a redeploy. A submission
+  may only ever lower a budget — a value above the ceiling is clamped to it and
+  logged — because the ceiling is the operator's standing decision and a
+  submission is something an agent can make. A submitted cost budget counts as
+  configured, so a run whose gateway cost telemetry cannot be read refuses to
+  boot rather than spending unmeasured. A budget parked by `--queue` is stored
+  with the entry and travels to ignition.
 - **Exhaustion is a clean stop, identical to `POST /api/runs/:id/stop` (D15).**
   Both trip the same branch: the in-flight work gets `RUN_STOP_GRACE_MS` to
   land, then a `closeout` orchestrator reconciles and runs review and closeout
