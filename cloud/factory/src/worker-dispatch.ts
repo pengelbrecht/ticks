@@ -431,17 +431,26 @@ async function dispatchOneWorker(
  * tick's spawn → wait → collect → teardown cycle is independent of every
  * other's, exactly as `tk herd spawn` fires every worker of a wave before
  * any wait begins rather than working through them one at a time.
+ *
+ * `specFor` is a function, not a shared `WorkSpec`, because a spec is PER
+ * TICK — `worker-boot.ts`'s own `workerWorkSpec` says so in as many words —
+ * and a single shared spec would set the identical `TICKS_TICK` in every
+ * container's environment, which is the exact bug that would make "one
+ * container per tick" boot N containers that all implement the SAME tick
+ * (tick b6e).
  */
 export async function dispatchWave(
   binding: SandboxBinding,
   sandboxNameFor: (tickID: string) => string,
   tasks: WorkerTask[],
-  spec: WorkSpec,
+  specFor: (task: WorkerTask) => WorkSpec,
   opts: WaveOptions,
   collector: WorkerCollector
 ): Promise<WorkerWaveOutcome[]> {
   return Promise.all(
-    tasks.map((task) => dispatchOneWorker(binding, sandboxNameFor(task.tick_id), task, spec, opts, collector))
+    tasks.map((task) =>
+      dispatchOneWorker(binding, sandboxNameFor(task.tick_id), task, specFor(task), opts, collector)
+    )
   );
 }
 

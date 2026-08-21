@@ -127,6 +127,18 @@ export interface WorkerCollector {
   collect(task: WorkerTask): Promise<WorkerReport>;
 }
 
+/**
+ * The collector this deployment uses: a test's fake, or GitHub.
+ *
+ * Mirrors `repoConfig(env)` in repo-config.ts — the same reason applies: the
+ * durable-layer-only verdict is what needs testing, and a rule exercisable
+ * only against a real pushed branch is a rule nobody tests.
+ */
+export function workerCollector(env: Env, project: string): WorkerCollector {
+  const injected = env.WORKER_COLLECTOR;
+  return injected === undefined || injected === null ? githubWorkerCollector(env, project) : injected;
+}
+
 export const GITHUB_API_BASE_URL = "https://api.github.com";
 
 function githubHeaders(env: Env): Record<string, string> {

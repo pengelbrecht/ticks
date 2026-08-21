@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_CONFIG_BYTES,
   RUNNERS_CONFIG_PATH,
+  declaredMaxParallel,
   declaredSandboxImage,
   githubRepoConfig,
+  readDeclaredMaxParallel,
   readDeclaredSandboxImage,
   repoConfig,
   type RepoConfigReader,
@@ -93,6 +95,75 @@ image = "smuggled-through-a-note"
 command = "pnpm install --frozen-lockfile"
 `;
     expect(() => declaredSandboxImage(source)).toThrow(/array-of-tables/);
+  });
+});
+
+describe("the declared wave width, read from the tracked config (tick b6e)", () => {
+  it("reads a declared width", () => {
+    expect(declaredMaxParallel("[orchestration]\nmax_parallel = 4\n")).toBe(4);
+  });
+
+  it("reads nothing declared as null", () => {
+    expect(declaredMaxParallel("version = 2\n")).toBeNull();
+    expect(declaredMaxParallel("[orchestration]\ndetect = \"env\"\n")).toBeNull();
+  });
+
+  // Mirrors `internal/herd/config/load.go`'s own bound: `max_parallel` must be
+  // >= 1. A declaration outside it is refused rather than silently clamped.
+  it("refuses a width below the schema's bound, the same one Go enforces", () => {
+    expect(() => declaredMaxParallel("[orchestration]\nmax_parallel = 0\n")).toThrow(/>= 1/);
+    expect(() => declaredMaxParallel("[orchestration]\nmax_parallel = -1\n")).toThrow(/>= 1/);
+  });
+
+  it("refuses a non-integer value", () => {
+    expect(() => declaredMaxParallel("[orchestration]\nmax_parallel = 1.5\n")).toThrow(/integer/);
+    expect(() => declaredMaxParallel('[orchestration]\nmax_parallel = "3"\n')).toThrow(/integer/);
+  });
+
+  it("refuses [orchestration] written as something other than a table", () => {
+    expect(() => declaredMaxParallel("orchestration = 3\n")).toThrow(/not a table/);
+  });
+});
+
+describe("what an unreadable wave width does", () => {
+  const reader = (read: RepoConfigReader["read"]) => ({ REPO_CONFIG: { read } }) as never;
+  const PROJECT = "example-org/example-repo";
+  const SHA = "d".repeat(40);
+
+  it("reads a declaration when the file is there", async () => {
+    const declared = await readDeclaredMaxParallel(
+      reader(async () => "[orchestration]\nmax_parallel = 2\n"),
+      PROJECT,
+      SHA
+    );
+    expect(declared).toEqual({ max_parallel: 2, unread: null });
+  });
+
+  it("reads no config as no declaration, conclusively", async () => {
+    const declared = await readDeclaredMaxParallel(reader(async () => null), PROJECT, SHA);
+    expect(declared).toEqual({ max_parallel: null, unread: null });
+  });
+
+  it("keeps 'could not be read' distinct from 'declares nothing'", async () => {
+    const declared = await readDeclaredMaxParallel(
+      reader(async () => {
+        throw new Error("GitHub answered HTTP 503");
+      }),
+      PROJECT,
+      SHA
+    );
+    expect(declared.max_parallel).toBeNull();
+    expect(declared.unread).toContain("HTTP 503");
+  });
+
+  it("treats a file it cannot parse the same way", async () => {
+    const declared = await readDeclaredMaxParallel(
+      reader(async () => "[orchestration\nmax_parallel = broken\n"),
+      PROJECT,
+      SHA
+    );
+    expect(declared.max_parallel).toBeNull();
+    expect(declared.unread).toContain("could not be parsed here");
   });
 });
 

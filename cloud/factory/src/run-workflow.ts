@@ -76,7 +76,7 @@ import {
   type RefSnapshot,
   type RunProgress,
 } from "./progress";
-import { readDeclaredSandboxImage } from "./repo-config";
+import { readDeclaredMaxParallel, readDeclaredSandboxImage } from "./repo-config";
 import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS } from "./run-room";
 import { logDispatch, roomFor, type RunWorkflowParams } from "./runs";
 import {
@@ -91,6 +91,9 @@ import {
   type OrchestratorPhase,
   type SandboxProcessState,
 } from "./sandbox";
+import { workerTask, workerWorkSpec } from "./worker-boot";
+import { workerCollector } from "./worker-collect";
+import { dispatchWave, workerSandboxName, type WorkerWaveOutcome } from "./worker-dispatch";
 
 // ------------------------------------------------------------- the shape ---
 
@@ -105,6 +108,27 @@ export const MAX_SANDBOX_BOOTS = 3;
 
 /** The closeout pass gets its own, smaller allowance for the same reason. */
 export const MAX_CLOSEOUT_BOOTS = 2;
+
+/**
+ * This deployment's `[[containers]] max_instances` ceiling, mirrored into a
+ * `[vars]` string because wrangler does not hand a container application's own
+ * config back to the Worker at runtime (tick b6e). Kept in step with
+ * `wrangler.toml`'s `max_instances = 3` by hand; raising one without the
+ * other reintroduces the exact silent serialization wave 3 measured, one
+ * layer up.
+ */
+export const DEFAULT_FACTORY_MAX_INSTANCES = 3;
+
+/**
+ * How many cloud worker containers a run may run concurrently.
+ *
+ * `FACTORY_MAX_INSTANCES` is `[vars]`, not `RUN_*`: it is a fact about this
+ * deployment's account, not a per-run budget, so it is read once rather than
+ * through `runConfig`'s per-submission override machinery.
+ */
+export function factoryMaxInstances(env: Env): number {
+  return positiveVar(env, "FACTORY_MAX_INSTANCES", DEFAULT_FACTORY_MAX_INSTANCES, true);
+}
 
 /**
  * Observations per boot.
@@ -454,7 +478,77 @@ export type RunContext = {
    * started.
    */
   sandbox_image: string;
+  /**
+   * A wave of ticks to run as per-tick cloud worker containers (tick b6e), or
+   * null for the unchanged Phase 1 path.
+   *
+   * Resolved once, before any container exists, for the same reason
+   * `sandbox_image` is: the width is a configuration decision (two ceilings
+   * reconciled — `resolveDispatchWidth`), and it cannot change mid-run without
+   * the dispatch-log record of it becoming a lie.
+   */
+  cloud_wave: CloudWavePlan | null;
 };
+
+/**
+ * A resolved wave: which ticks, and how many of their containers may run at
+ * once.
+ */
+export type CloudWavePlan = {
+  tick_ids: string[];
+  width: number;
+  /** True when `[orchestration].max_parallel` asked for more than the deployment can serve. */
+  capped: boolean;
+  /** Why `width` is what it is — always said, never silent (tick b6e, wave 3's finding). */
+  detail: string;
+};
+
+/**
+ * How many worker containers a cloud wave may run at once.
+ *
+ * Two ceilings, and per the tick's own instruction they must not disagree
+ * silently. `maxParallel` — `[orchestration].max_parallel` in the
+ * repository's tracked config — is the project's own choice, and it is the
+ * SAME number `kji` enforces on the tick claim inside each worker's
+ * entrypoint: a width wider than it would only book containers whose claim
+ * gets refused, wasting a boot for nothing. `deploymentCeiling` —
+ * `FACTORY_MAX_INSTANCES`, mirroring `wrangler.toml`'s `[[containers]]
+ * max_instances` — is a hard platform limit on concurrent containers across
+ * the WHOLE factory, not just this run.
+ *
+ * `max_parallel` is authoritative for INTENT (it is the operator's explicit
+ * per-project choice); the deployment ceiling is authoritative for
+ * ENFORCEMENT (it is a resource limit, not a preference) and can only
+ * narrow the width, never widen it past what `max_parallel` asked for. When
+ * the two disagree the wave is capped at the tighter one and it SAYS SO
+ * (`capped`/`detail`) — the alternative wave 3 found is Cloudflare's own
+ * container scheduler serializing the overflow invisibly.
+ */
+export function resolveDispatchWidth(
+  deploymentCeiling: number,
+  maxParallel: number | null
+): { width: number; capped: boolean; detail: string } {
+  const requested = maxParallel ?? deploymentCeiling;
+  if (requested <= deploymentCeiling) {
+    return {
+      width: requested,
+      capped: false,
+      detail:
+        maxParallel === null
+          ? `wave width ${requested}, from this deployment's container ceiling — no ` +
+            "[orchestration].max_parallel is declared"
+          : `wave width ${requested}, from [orchestration].max_parallel`,
+    };
+  }
+  return {
+    width: deploymentCeiling,
+    capped: true,
+    detail:
+      `[orchestration].max_parallel (${maxParallel}) exceeds this deployment's container ` +
+      `ceiling (${deploymentCeiling}); the wave is capped at ${deploymentCeiling} and runs in ` +
+      "batches rather than silently serializing wider than that",
+  };
+}
 
 export type ContextResult =
   | { ok: true; context: RunContext }
@@ -549,6 +643,36 @@ export async function acquireContext(
   });
   if (!image.ok) return { ok: false, detail: image.detail };
 
+  // A wave of ticks to fan out as per-tick cloud worker containers (tick
+  // b6e), or null for the unchanged Phase 1 path — an ADDED path, decided
+  // once here, before any container exists, same as the image above.
+  let cloud_wave: CloudWavePlan | null = null;
+  if (params.tick_ids !== undefined && params.tick_ids.length > 0) {
+    const declaredParallel = await readDeclaredMaxParallel(env, params.project, params.base_sha);
+    if (declaredParallel.unread !== null) {
+      console.error(
+        `factory run-workflow: ${params.run_id} could not read [orchestration].max_parallel: ` +
+          `${declaredParallel.unread}; falling back to this deployment's own ceiling`
+      );
+    }
+    const resolved = resolveDispatchWidth(factoryMaxInstances(env), declaredParallel.max_parallel);
+    cloud_wave = {
+      tick_ids: params.tick_ids,
+      width: resolved.width,
+      capped: resolved.capped,
+      detail: resolved.detail,
+    };
+    // "Must not disagree silently" (tick b6e): a durable record of the width
+    // this run actually dispatched with, queryable the same way any other
+    // dispatch decision is (`tk factory trace`) — not just a console line.
+    await logDispatch(env, {
+      run_id: params.run_id,
+      epic: params.epic,
+      decision: `cloud_wave:width=${resolved.width}${resolved.capped ? ":capped" : ""}`,
+      reason: null,
+    });
+  }
+
   const context: RunContext = {
     repo_url: repoURL(params.project),
     gateway_base_url: runGatewayEndpoint(factoryBaseURL(env)!),
@@ -557,6 +681,7 @@ export async function acquireContext(
     cost_telemetry: telemetry.ok ? null : telemetry.detail,
     refs_baseline: refs,
     sandbox_image: image.image,
+    cloud_wave,
   };
 
   // The run identifies itself in R2 before it does anything, so a run whose
@@ -1209,6 +1334,192 @@ async function drainAndKill(
   return { killed: true };
 }
 
+// ------------------------------------------------------------ cloud wave ---
+
+/**
+ * One `step.do` retry for a batch dispatch, not the usual three.
+ *
+ * A batch can legitimately run for tens of minutes (`CLOUD_WAVE_WAIT_TIMEOUT_MS`
+ * below); a naive retry limit would let a flaky retry TRIPLE a run's worst-case
+ * duration for the same reason `supervisePass`'s own boot/observe steps use
+ * narrower policies than a quick D1 read does. One retry still recovers a
+ * transient failure without compounding a slow one.
+ */
+const CLOUD_DISPATCH_RETRIES = { retries: { limit: 1, delay: 2_000, backoff: "constant" } } as const;
+
+/**
+ * How long one worker container is watched before its wave gives up on it —
+ * `dispatchWave`'s own default (0ds). The container is told the SAME number
+ * (`workerHarnessTimeoutSeconds`, minus the push margin) so its own harness
+ * bound and the wave's wait bound are one decision, not two that can drift
+ * (`worker-boot.ts`'s own reasoning for `wait_timeout_ms`).
+ */
+const CLOUD_WAVE_WAIT_TIMEOUT_MS = 30 * 60_000;
+
+/** Splits a wave into batches of at most `width`, preserving order. */
+export function chunkWave(tickIDs: string[], width: number): string[][] {
+  if (width <= 0) return tickIDs.length === 0 ? [] : [tickIDs];
+  const batches: string[][] = [];
+  for (let i = 0; i < tickIDs.length; i += width) {
+    batches.push(tickIDs.slice(i, i + width));
+  }
+  return batches;
+}
+
+/** A short, greppable summary of what a wave's containers actually did. */
+export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) {
+    const label = outcome.launched ? outcome.collect.verdict : "not-launched";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([label, n]) => `${n} ${label}`)
+    .join(", ");
+}
+
+/**
+ * Dispatches a run's cloud wave: one container per tick, `plan.width` at a
+ * time, through `dispatchWave` (0ds) — the call site tick b6e exists to wire
+ * up.
+ *
+ * Returns a `PassOutcome` so `superviseRun` can fold it into the SAME
+ * outcome-derivation logic the harness-substrate pass already has, rather
+ * than growing a second one: a completed dispatch (or a mid-wave stop) is
+ * reported as a `tripped` "stop", which sends `superviseRun` down its
+ * existing closeout leg. That is deliberate, not a reuse of convenience —
+ * per-tick workers only implement and push (tap); nothing merges, runs the
+ * integrated gate, or does epic-level review and closeout the way a Phase 1
+ * orchestrator does before it exits 0, so a REAL orchestrator boot in
+ * `closeout` phase is mandatory after every cloud wave, not just an
+ * interrupted one.
+ *
+ * KNOWN GAP, stated rather than hidden: this pass does not enforce
+ * `context.config`'s wall-clock/cost budgets or a mid-batch operator stop
+ * WHILE a batch is in flight — only between batches, before the next one is
+ * dispatched (the kill-check below). `dispatchWave`'s spawn → wait → collect
+ * → teardown cycle has no cancellation seam to interrupt safely, and
+ * threading one through would touch tested, closed code (0ds) beyond this
+ * tick's call-site scope. Follow-up work, not silently assumed away.
+ */
+export async function superviseCloudWave(
+  env: Env,
+  step: WorkflowStep,
+  params: RunWorkflowParams,
+  context: RunContext,
+  plan: CloudWavePlan
+): Promise<PassOutcome> {
+  const collector = workerCollector(env, params.project);
+  const batches = chunkWave(plan.tick_ids, plan.width);
+  const outcomes: WorkerWaveOutcome[] = [];
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i]!;
+
+    // Mirrors `supervisePass`'s own killcheck: a hard stop that stands
+    // refuses to credential ANOTHER batch, the same way it refuses to
+    // credential another orchestrator boot (tick gyl).
+    const killed = await step.do(`cloud:killcheck:${i}`, OBSERVE_RETRIES, () =>
+      hardStopRecord(env, params)
+    );
+    if (killed !== null) {
+      await step.do(`cloud:killrevoke:${i}`, OBSERVE_RETRIES, async () => {
+        const revoked = await revokeRunTokens(env, params.run_id, "stopped:hard");
+        return { revoked };
+      });
+      return {
+        kind: "tripped",
+        trip: {
+          kind: "stop",
+          hard: true,
+          detail:
+            `a hard stop requested by ${killed.requested_by} at ${killed.requested_at} stands, ` +
+            `so no further cloud workers were dispatched (${outcomes.length}/${plan.tick_ids.length} ` +
+            "already ran)",
+        },
+        boots: outcomes.length,
+      };
+    }
+
+    // One credential per BATCH, shared by every worker dispatched concurrently
+    // in it — never one per worker. `issueRunToken` revokes the run's previous
+    // token as part of minting a new one (D17's rotation), so calling it once
+    // per worker would have concurrent workers killing each other's gateway
+    // access mid-run.
+    const credential = await step.do(`cloud:credential:${i}`, BOOT_RETRIES, () =>
+      issueRunToken(env, { run_id: params.run_id, tick_id: params.epic, attempt: i + 1 })
+    );
+
+    const batchOutcomes = await step.do(`cloud:dispatch:${i}`, CLOUD_DISPATCH_RETRIES, async () => {
+      const binding = sandboxBinding(env);
+      if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
+      const tasks = batch.map((tick) => workerTask(params.epic, tick, params.base_sha));
+      return dispatchWave(
+        binding,
+        (tickID) => workerSandboxName(params.run_id, tickID),
+        tasks,
+        (task) =>
+          workerWorkSpec({
+            repo_url: context.repo_url,
+            base_sha: params.base_sha,
+            epic: params.epic,
+            tick: task.tick_id,
+            run_id: params.run_id,
+            gateway_base_url: context.gateway_base_url,
+            gateway_token: credential.token,
+            ...(context.config.harness === null ? {} : { harness: context.config.harness }),
+            ...(context.config.model === null ? {} : { model: context.config.model }),
+            ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
+            sandbox_image: context.sandbox_image,
+            wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS,
+          }),
+        { wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS },
+        collector
+      );
+    });
+    outcomes.push(...batchOutcomes);
+  }
+
+  // The batch token has done its job; closeout mints its own fresh one, the
+  // same way a clean stop revokes the work pass's token before closeout boots
+  // (tick gyl) — dead hygiene, not a functional requirement, since nobody
+  // holds it once the last batch's containers are torn down.
+  await step.do("cloud:revoke:done", OBSERVE_RETRIES, async () => {
+    const revoked = await revokeRunTokens(env, params.run_id, "stopped");
+    return { revoked };
+  });
+
+  if (outcomes.length > 0 && outcomes.every((outcome) => !outcome.launched)) {
+    return {
+      kind: "failed",
+      detail:
+        `every worker container in the cloud wave failed its green-start probe ` +
+        `(${outcomes.length} tick(s)) — a configuration failure, so no closeout was attempted`,
+      // Zero ORCHESTRATOR sandboxes, which is what `boots` means to
+      // `finalize`'s teardown loop (`sandboxName(run_id, boot)`) — every
+      // worker container this wave booted is already torn down by
+      // `dispatchWave`'s own `teardownWorker` call, per task, unconditionally.
+      // Reporting the worker count here would make finalize ADDRESS —
+      // and so provision — orchestrator-named sandboxes that were never
+      // booted, exactly the mistake its own teardown comment warns against.
+      boots: 0,
+    };
+  }
+
+  return {
+    kind: "tripped",
+    trip: {
+      kind: "stop",
+      hard: false,
+      detail:
+        `the cloud wave dispatched ${outcomes.length} per-tick worker container(s): ` +
+        `${summarizeCloudWave(outcomes)}; handing off for review and closeout`,
+    },
+    boots: outcomes.length,
+  };
+}
+
 // ------------------------------------------------------------- finalizing ---
 
 export type RunOutcome = {
@@ -1428,14 +1739,20 @@ export async function superviseRun(
   const context = acquired.context;
   const counter: BootCounter = { next: 1 };
 
-  const work = await supervisePass(env, step, params, context, counter, {
-    label: "work",
-    phase: "run",
-    max_boots: MAX_SANDBOX_BOOTS,
-    enforce_budgets: true,
-    pass_max_ms: null,
-    on_exhausted: "stop",
-  });
+  // substrate = cloud (tick b6e): a resolved wave fans out per-tick worker
+  // containers instead of the Phase 1 single orchestrator. Absent, this is
+  // the unchanged path — an ADDED one, not a replacement.
+  const work =
+    context.cloud_wave !== null
+      ? await superviseCloudWave(env, step, params, context, context.cloud_wave)
+      : await supervisePass(env, step, params, context, counter, {
+          label: "work",
+          phase: "run",
+          max_boots: MAX_SANDBOX_BOOTS,
+          enforce_budgets: true,
+          pass_max_ms: null,
+          on_exhausted: "stop",
+        });
 
   let outcome: RunOutcome;
   if (work.kind === "completed") {
