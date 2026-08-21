@@ -28,6 +28,9 @@ different records, and conflating them would give one command two answers:
   trace  what the model said and decided — the conversation, its tool calls
          and its token and cache accounting, read from AI Gateway
 
+A truncated run id is resolved against the factory's run index first, so a
+prefix is never answered with "no run <prefix>".
+
 Both are read-only observation. Neither steers a run, so the operator-to-
 orchestrator command vocabulary stays run/stop/status/answer (D21).`,
 	Args:         cobra.ExactArgs(1),
@@ -60,7 +63,15 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
 
-	path := "/api/runs/" + url.PathEscape(args[0]) + "/logs"
+	// A prefix is resolved before the read, not passed through to the
+	// factory's 404: "no run run_62c289d1" is true of the prefix and reads as a
+	// verdict on the run (tick c5i).
+	runID, err := cloudRunIDArg(cmd, args[0])
+	if err != nil {
+		return err
+	}
+
+	path := "/api/runs/" + url.PathEscape(runID) + "/logs"
 	data, err := client.request(cmd.Context(), http.MethodGet, path, nil)
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
@@ -75,7 +86,7 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 		// Two different facts: a run that printed nothing yet, and a run whose
 		// sandbox never got far enough to print. The state is what tells them
 		// apart, so it is reported rather than an unqualified "no output".
-		fmt.Fprintf(out, "No harness output is stored for %s (state: %s).\n", args[0], stateOrUnknown(response.State))
+		fmt.Fprintf(out, "No harness output is stored for %s (state: %s).\n", runID, stateOrUnknown(response.State))
 		return nil
 	}
 

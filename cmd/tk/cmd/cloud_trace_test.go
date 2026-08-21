@@ -78,7 +78,7 @@ func traceRow(id, created string, tokensIn, cached, tokensOut int, cost float64)
 		"tokens_in":      tokensIn,
 		"tokens_out":     tokensOut,
 		"duration":       9000,
-		"metadata":       map[string]string{"run_id": "run_62c289d1", "tick_id": "l4l"},
+		"metadata":       map[string]string{"run_id": "run_62c289d1e57942cea5fef6c1a508a0fd", "tick_id": "l4l"},
 		"usage_metadata": map[string]any{"input_cached_tokens": cached},
 	}
 }
@@ -155,7 +155,7 @@ func TestCloudTraceReconstructsTheConversationFromRequestBodies(t *testing.T) {
 	seen := traceRunGateway(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd"}); err != nil {
 		t.Fatalf("cloud trace: %v\n%s", err, buf.String())
 	}
 	output := buf.String()
@@ -198,7 +198,7 @@ func TestCloudTraceCacheViewShowsPerCallHitRates(t *testing.T) {
 	seen := traceRunGateway(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--cache"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--cache"}); err != nil {
 		t.Fatalf("cloud trace --cache: %v\n%s", err, buf.String())
 	}
 	output := buf.String()
@@ -230,7 +230,7 @@ func TestCloudTraceToolsListsOnlyTheToolCalls(t *testing.T) {
 	traceRunGateway(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--tools"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--tools"}); err != nil {
 		t.Fatalf("cloud trace --tools: %v\n%s", err, buf.String())
 	}
 	output := buf.String()
@@ -247,7 +247,7 @@ func TestCloudTraceCallDumpsOneExchangeInFull(t *testing.T) {
 	seen := traceRunGateway(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--call", "2"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--call", "2"}); err != nil {
 		t.Fatalf("cloud trace --call 2: %v\n%s", err, buf.String())
 	}
 	output := buf.String()
@@ -285,7 +285,7 @@ func TestCloudTraceRefusesACallNumberThatDoesNotExist(t *testing.T) {
 	traceRunGateway(t)
 	captureCmdOutput(t)
 
-	err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--call", "9"})
+	err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--call", "9"})
 	if err == nil || !strings.Contains(err.Error(), "no call 9") {
 		t.Fatalf("an out-of-range --call is not refused clearly: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestCloudTraceJSONEmitsTheRawGatewayRows(t *testing.T) {
 	traceRunGateway(t)
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--json"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--json"}); err != nil {
 		t.Fatalf("cloud trace --json: %v\n%s", err, buf.String())
 	}
 	var payload struct {
@@ -312,7 +312,7 @@ func TestCloudTraceJSONEmitsTheRawGatewayRows(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
 		t.Fatalf("--json did not emit JSON: %v\n%s", err, buf.String())
 	}
-	if payload.RunID != "run_62c289d1" || payload.Totals.Calls != 2 {
+	if payload.RunID != "run_62c289d1e57942cea5fef6c1a508a0fd" || payload.Totals.Calls != 2 {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if payload.Totals.TokensIn != 100000 || payload.Totals.CachedTokens != 36800 {
@@ -362,7 +362,7 @@ func TestCloudTraceWithoutCostTelemetryNamesItsOwnRemedy(t *testing.T) {
 	}
 	captureCmdOutput(t)
 
-	err = ExecuteArgs([]string{"cloud", "trace", "run_62c289d1"})
+	err = ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd"})
 	if err == nil || !strings.Contains(err.Error(), "--cloudflare-api-token") {
 		t.Fatalf("a missing telemetry token does not name its remedy: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestCloudTraceRefusesTwoViewsAtOnce(t *testing.T) {
 	configureTraceGateway(t)
 	captureCmdOutput(t)
 
-	err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--tools", "--cache"})
+	err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--tools", "--cache"})
 	if err == nil || !strings.Contains(err.Error(), "one at a time") {
 		t.Fatalf("two views at once are not refused: %v", err)
 	}
@@ -385,14 +385,14 @@ func TestCloudTraceFiltersOnTheRunIDMetadataPair(t *testing.T) {
 	seen := traceRunGateway(t)
 	captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1", "--cache"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd", "--cache"}); err != nil {
 		t.Fatalf("cloud trace: %v", err)
 	}
 	filters := (*seen)[0].Query.Get("filters")
 	if !strings.Contains(filters, `"metadata.key"`) || !strings.Contains(filters, `"metadata.value"`) {
 		t.Fatalf("filters = %s", filters)
 	}
-	if !strings.Contains(filters, "run_62c289d1") {
+	if !strings.Contains(filters, "run_62c289d1e57942cea5fef6c1a508a0fd") {
 		t.Fatalf("the run id is not in the filter: %s", filters)
 	}
 	if got := (*seen)[0].Path; !strings.Contains(got, "/accounts/acct-id/ai-gateway/gateways/ticks-gw/logs") {
@@ -437,7 +437,7 @@ func TestCloudTraceNamesACallWhoseBodyCouldNotBeRead(t *testing.T) {
 	})
 	buf := captureCmdOutput(t)
 
-	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1"}); err != nil {
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd"}); err != nil {
 		t.Fatalf("cloud trace: %v\n%s", err, buf.String())
 	}
 	output := buf.String()

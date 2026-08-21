@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 type cloudFactoryRequest struct {
 	Method string
 	Path   string
+	Query  url.Values
 	Body   map[string]any
 	Auth   string
 }
@@ -36,7 +38,9 @@ func newCloudFactory(t *testing.T, handler func(cloudFactoryRequest) (int, any))
 	requests := make([]cloudFactoryRequest, 0)
 	previousClient := cloudHTTPClient
 	cloudHTTPClient = &http.Client{Transport: cloudRoundTripper(func(r *http.Request) (*http.Response, error) {
-		request := cloudFactoryRequest{Method: r.Method, Path: r.URL.Path, Auth: r.Header.Get("Authorization")}
+		request := cloudFactoryRequest{
+			Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Auth: r.Header.Get("Authorization"),
+		}
 		if r.Body != nil {
 			data, err := io.ReadAll(r.Body)
 			if err != nil {
