@@ -114,7 +114,18 @@ jobs:
       - name: Build the orchestrator sandbox image
         # The same script the operator runs, so the build path is the one that
         # is exercised. It tags with the tk version the Dockerfile pins.
-        run: cloud/sandbox/build.sh
+        #
+        # --tk-ref is REQUIRED here. The Dockerfile's default TK_SOURCE_REF is
+        # the last release tag, and its final layer runs every entry in
+        # required-tk-commands against the tk it just built — so any PR that
+        # adds a subcommand the entrypoint needs cannot build against a release
+        # that predates it, and this job would fail until the next release cut.
+        # Pinning the commit under test is also what `tk factory deploy` does.
+        # The commit must be PUSHED — `go install` inside the image resolves it
+        # through the module proxy, which fetches public commits on demand.
+        run: cloud/sandbox/build.sh --tk-ref "$TK_REF"
+        env:
+          TK_REF: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Report the image
         run: docker image ls ticks-orchestrator
