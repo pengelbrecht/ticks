@@ -101,6 +101,9 @@ With a run id it reports that run: state, Workflow phase, the container image
 it booted, and — once it has ended — whether anything actually moved. Without
 one it lists the recent runs plus each project's lease and queue.
 
+A truncated run id is resolved against the run index first, so a prefix is
+never answered with "no run <prefix>".
+
 Read-only, like 'tk cloud logs' and 'tk cloud trace': observing a run is not
 commanding one, so the operator-to-orchestrator command vocabulary stays
 run/stop/status/answer (D21).`,
@@ -475,7 +478,14 @@ func runCloudStatus(cmd *cobra.Command, args []string) error {
 	}
 	path := "/api/runs"
 	if len(args) == 1 {
-		path += "/" + url.PathEscape(args[0])
+		// Resolved rather than looked up literally: the factory answers a
+		// prefix with "no run <prefix>", which is true of the prefix and reads
+		// as a verdict on the run (tick c5i).
+		runID, err := cloudRunIDArg(cmd, args[0])
+		if err != nil {
+			return err
+		}
+		path += "/" + url.PathEscape(runID)
 	}
 	data, err := client.request(cmd.Context(), http.MethodGet, path, nil)
 	if err != nil {

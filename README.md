@@ -393,6 +393,14 @@ invalidates the prefix, so an average hides exactly the swing you are looking
 for. It reads your own gateway directly, so it needs the Cloudflare API token
 `tk factory setup --cloudflare-api-token <token>` installs.
 
+All three run-scoped reads — `logs`, `trace` and `status <run>` — take a
+**truncated run id**. A run id is `run_` plus 32 hex characters, so anything
+shorter is unambiguously the head of one: it is resolved against the runs the
+factory knows about (the resolution is reported on stderr, so `--json` stays
+parseable), or refused for being a prefix. None of them answers a prefix with
+a negative, because "no calls are stamped with `run_62c289d1`" is true of the
+prefix, false of the run, and reads as "this run has no telemetry".
+
 Both are read-only. They observe a run and cannot steer one, which is why they
 do not widen the closed `run`/`stop`/`status`/`answer` command vocabulary the
 cloud surface is built on.

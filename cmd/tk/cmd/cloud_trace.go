@@ -54,6 +54,11 @@ This is an observation command. It reads a finished or running conversation
 and cannot steer one: the operator-to-orchestrator command vocabulary stays
 run/stop/status/answer (D21).
 
+A truncated run id — "run_62c289d1" — is resolved against the runs the
+factory knows about and the resolution is reported, or it is refused for
+being a prefix. It is never answered with "no calls are stamped with that
+run", which is true of every prefix and false of the run it names.
+
 Use 'tk cloud logs' for the other half — what the container printed.`,
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
@@ -98,7 +103,13 @@ func runCloudTrace(cmd *cobra.Command, args []string) error {
 	}
 	client := gatewaytrace.New(traceConfig, cloudTraceHTTPClient)
 
-	runID := args[0]
+	// Before the gateway is asked anything: it can only answer about the exact
+	// string it is given, and its answer for a prefix is a negative that reads
+	// as a verdict on the run (tick c5i).
+	runID, err := cloudRunIDArg(cmd, args[0])
+	if err != nil {
+		return err
+	}
 	calls, err := client.Calls(cmd.Context(), runID)
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
