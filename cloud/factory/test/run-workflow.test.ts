@@ -79,6 +79,13 @@ class FakeSandbox implements OrchestratorSandbox {
    * way an orchestrator process already behaves.
    */
   autoCompleteWorkers = true;
+  /**
+   * tick k24: the probe still passes instantly, but the real work command
+   * stays `running` after printing — a worker container that is genuinely
+   * mid-tick, which is the only state in which "the batch is interruptible"
+   * means anything.
+   */
+  holdWork = false;
   /** tick b6e: makes this sandbox's green-start probe fail (no marker). */
   failProbe = false;
   #next = 0;
@@ -97,7 +104,7 @@ class FakeSandbox implements OrchestratorSandbox {
         process.exit(0);
       } else if (command === WORKER_COMMAND) {
         process.say("implementing\n");
-        process.exit(0);
+        if (!this.holdWork) process.exit(0);
       }
     }
     return process.view;
@@ -140,6 +147,8 @@ class FakeSandboxes implements SandboxBinding {
   readonly requestedImages: (string | undefined)[] = [];
   /** tick b6e: propagated to every worker sandbox this creates from here on. */
   autoCompleteWorkers = true;
+  /** tick k24: propagated the same way — worker containers that keep running. */
+  holdWork = false;
   /** tick b6e: tick ids whose green-start probe should fail when booted. */
   readonly failProbeFor = new Set<string>();
   readonly #byName = new Map<string, FakeSandbox>();
@@ -150,6 +159,7 @@ class FakeSandboxes implements SandboxBinding {
     if (sandbox === undefined) {
       sandbox = new FakeSandbox(name);
       sandbox.autoCompleteWorkers = this.autoCompleteWorkers;
+      sandbox.holdWork = this.holdWork;
       const tick = /-tick-([a-z0-9]+)$/.exec(name)?.[1];
       if (tick !== undefined && this.failProbeFor.has(tick)) sandbox.failProbe = true;
       this.#byName.set(name, sandbox);
@@ -232,8 +242,22 @@ class FakeRepoConfig implements RepoConfigReader {
   unreadable: string | null = null;
   readonly asked: { project: string; ref: string }[] = [];
 
+  /**
+   * tick k24: something to do INSIDE the read, once.
+   *
+   * The control plane resolves this file before it credentials anything, so a
+   * hook here is a synchronization seam with no timing in it: whatever it does
+   * has provably happened before the first kill-check runs.
+   */
+  onRead: (() => Promise<void>) | null = null;
+
   async read(project: string, ref: string): Promise<string | null> {
     this.asked.push({ project, ref });
+    const hook = this.onRead;
+    if (hook !== null) {
+      this.onRead = null;
+      await hook();
+    }
     if (this.unreadable !== null) throw new Error(this.unreadable);
     return this.source;
   }
@@ -253,6 +277,8 @@ class FakeRepoConfig implements RepoConfigReader {
  */
 class FakeWorkerCollector implements WorkerCollector {
   readonly asked: WorkerTask[] = [];
+  /** tick k24: something to do inside the first collect of a batch, once. */
+  onCollect: (() => Promise<void>) | null = null;
   readonly #reports = new Map<string, WorkerReport>();
 
   set(tickID: string, report: Partial<WorkerReport>): void {
@@ -261,6 +287,11 @@ class FakeWorkerCollector implements WorkerCollector {
 
   async collect(task: WorkerTask): Promise<WorkerReport> {
     this.asked.push(task);
+    const hook = this.onCollect;
+    if (hook !== null) {
+      this.onCollect = null;
+      await hook();
+    }
     return this.#reports.get(task.tick_id) ?? defaultWorkerReport(task.tick_id);
   }
 }
@@ -346,7 +377,17 @@ let counter = 0;
 
 /** Takes the lease and ignites a run, exactly as the submit route does. */
 async function ignite(
-  overrides: { epic?: string; project?: string; leaseTtlMs?: number; tickIDs?: string[] } = {}
+  overrides: {
+    epic?: string;
+    project?: string;
+    leaseTtlMs?: number;
+    tickIDs?: string[];
+    /**
+     * tick k24: runs with the run id in hand, before the Workflow exists, so a
+     * test can arm a seam that has to be in place before the very first step.
+     */
+    beforeStart?: (runID: string) => void;
+  } = {}
 ) {
   const project = overrides.project ?? `${PROJECT}-${++counter}`;
   const epic = overrides.epic ?? "ko8";
@@ -359,6 +400,7 @@ async function ignite(
     ...(overrides.leaseTtlMs === undefined ? {} : { ttl_ms: overrides.leaseTtlMs }),
   });
   if (!lease.ok) throw new Error(`the lease was refused: ${JSON.stringify(lease)}`);
+  overrides.beforeStart?.(runID);
   const started = await startRun(env, {
     run_id: runID,
     project,
@@ -411,8 +453,11 @@ function stubLogsAPI(
 ): {
   filters: { key: string; operator: string; value: unknown[] }[][];
   restore: () => void;
+  /** tick k24: what each logged call costs from here on. */
+  setCost: (next: number) => void;
 } {
   const filters: { key: string; operator: string; value: unknown[] }[][] = [];
+  let perCall = cost;
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -458,7 +503,7 @@ function stubLogsAPI(
     return Response.json({
       success: true,
       result: Array.from({ length: rows }, () => ({
-        cost,
+        cost: perCall,
         metadata: { run_id: runID, tick_id: "ko8" },
       })),
       // The API's real result_info: count/page/per_page/total_count, and no
@@ -467,7 +512,11 @@ function stubLogsAPI(
       result_info: { count: rows, page, per_page: perPage, total_count: calls },
     });
   }) as typeof fetch;
-  return { filters, restore: () => void (globalThis.fetch = original) };
+  return {
+    filters,
+    restore: () => void (globalThis.fetch = original),
+    setCost: (next: number) => void (perCall = next),
+  };
 }
 
 async function settled(runID: string) {
@@ -1494,6 +1543,7 @@ describe("summarizeCloudWave", () => {
       probe: { ok: true } as const,
       confirm: null,
       process_id: null,
+      cancelled: null,
       detail: "",
       wait: null,
       collect: { ...defaultWorkerReport(tickID), ...(verdict === undefined ? {} : { verdict }) },
@@ -1640,5 +1690,199 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
 
     const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
     expect(record.detail).toContain("green-start probe");
+  });
+});
+
+// ------------------------------------------------- stops nothing waits out ---
+
+/**
+ * Runs `hook` once, inside the R2 write that records why a boot died.
+ *
+ * The synchronization seam this suite did not have (tick k24). Asserting "a
+ * stop that arrives between two boots is refused" needs the stop to land in a
+ * window the test cannot otherwise address: after the supervisor has decided
+ * boot N is dead and before it credentials boot N+1. Waiting a while and
+ * hoping is a flaky test, which is why tick b6e declined to write one. The
+ * reconcile record IS that window — it is the last thing the supervisor writes
+ * before looping to the next attempt — so a hook awaited inside the write is
+ * ordered by the code under test rather than by the clock.
+ */
+function onReconcileWrite(hook: () => Promise<void>): void {
+  const bucket = env.ARTIFACTS as R2Bucket;
+  let fired = false;
+  set(
+    "ARTIFACTS",
+    new Proxy(bucket, {
+      get(target, property, receiver) {
+        if (property === "put") {
+          return async (key: string, value: unknown, options?: unknown) => {
+            const put = await (target.put as (...args: unknown[]) => Promise<unknown>)(
+              key,
+              value,
+              options
+            );
+            if (!fired && typeof key === "string" && key.includes("/reconcile/")) {
+              fired = true;
+              await hook();
+            }
+            return put;
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    })
+  );
+}
+
+describe("a hard stop is refused at every boundary, not only the ones a run happens to reach", () => {
+  // Neither of these had an assertion before tick k24: the kill-switch suite
+  // proved the credential layer refuses a REVOKED token, and that a closeout
+  // reboot is refused, but nothing proved the two boundaries the supervisor
+  // itself owns — before the first boot, and between two of them.
+  it("credentials no orchestrator at all when the stop lands before the first boot", async () => {
+    // The stop lands while the control plane is still resolving the repo's
+    // tracked config — provably before the first kill-check, with no waiting.
+    const { runID, project } = await ignite({
+      beforeStart: (id) => {
+        repoConfig.onRead = async () => {
+          await stopRun(env, id, "operator", "hard");
+        };
+      },
+    });
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+    // Not one container was addressed — addressing one is what provisions it.
+    expect(sandboxes.booted).toHaveLength(0);
+    // And not one credential was minted: a hard stop is a durable refusal to
+    // ISSUE, which is the half of tick gyl that a revocation alone never was.
+    expect(await listRunGatewayTokens(env.DB, runID)).toHaveLength(0);
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("no orchestrator was credentialled");
+  });
+
+  it("credentials no replacement when the stop lands between two boots", async () => {
+    const { runID } = await ignite();
+    const first = await firstProcess();
+    const firstToken = first.env.AI_GATEWAY_TOKEN!;
+
+    // Armed BEFORE the container dies, fired inside the write that records the
+    // death: the stop is in place before the next attempt's kill-check runs.
+    onReconcileWrite(async () => {
+      await stopRun(env, runID, "operator", "hard");
+    });
+    sandboxes.booted[0]!.vanished = true;
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+    // The replacement boot the supervisor was on its way to making never
+    // happened — and neither did a closeout boot, which is refused by the same
+    // check.
+    expect(sandboxes.booted).toHaveLength(1);
+    const tokens = await listRunGatewayTokens(env.DB, runID);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]!.revoked_at).not.toBeNull();
+    // The dead boot's credential cannot be spent by anything that survived it.
+    const gateway = fakeGateway();
+    expect((await modelCall(firstToken, gateway.fetcher)).status).toBe(403);
+  });
+});
+
+describe("a cloud wave in flight answers to a stop and to a budget", () => {
+  let collector: FakeWorkerCollector;
+
+  beforeEach(() => {
+    collector = new FakeWorkerCollector();
+    set("WORKER_COLLECTOR", collector);
+  });
+
+  /**
+   * tick k24, the one with teeth. Before this, the hard-stop check ran only
+   * BETWEEN batches: an operator's kill waited for every container in the
+   * current batch to finish — up to `CLOUD_WAVE_WAIT_TIMEOUT_MS`, thirty
+   * minutes — before anything reacted. This test holds the workers running,
+   * which is precisely the state in which that window is open, so a regression
+   * does not fail on a wrong value; it fails by never finishing.
+   */
+  it("tears down containers mid-batch on a hard stop rather than waiting the batch out", async () => {
+    sandboxes.holdWork = true;
+    const { runID } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const working = await waitFor("both worker containers to be mid-tick", async () => {
+      const names = ["aaa", "bbb"].map((tick) => workerSandboxName(runID, tick));
+      try {
+        const found = names.map((name) =>
+          sandboxes.named(name).processes.find((p) => p.command === WORKER_COMMAND)
+        );
+        return found.every((p) => p !== undefined && p.state === "running") ? found : null;
+      } catch {
+        return null;
+      }
+    });
+    const token = working[0]!.env.AI_GATEWAY_TOKEN!;
+    const gateway = fakeGateway();
+    expect((await modelCall(token, gateway.fetcher)).status).toBe(200);
+
+    // The operator pulls the switch while both containers are mid-tick.
+    await stopRun(env, runID, "operator", "hard");
+
+    // Both are killed and their containers destroyed — without waiting for the
+    // batch, which would never have finished on its own.
+    await waitFor("both worker containers to be torn down", async () =>
+      working.every((p) => p!.killed) &&
+      ["aaa", "bbb"].every((tick) => sandboxes.named(workerSandboxName(runID, tick)).destroyed)
+        ? true
+        : null
+    );
+
+    // …and the credential died with them, so anything that survived the kill
+    // cannot spend another cent.
+    expect((await modelCall(token, gateway.fetcher)).status).toBe(403);
+    expect(gateway.calls).toHaveLength(1);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+    // A hard stop refuses the closeout boot too (tick gyl), so the only
+    // containers this run ever had are the two workers.
+    expect(sandboxes.booted.every((sandbox) => sandbox.name.includes("-tick-"))).toBe(true);
+  });
+
+  // The budgets were enforced on the Phase 1 orchestrator path and on NO cloud
+  // path at all: `observe` is what watches the money, and a cloud wave never
+  // calls it. A wave could run every batch it was handed at any cost.
+  it("stops dispatching further batches once the cost budget is spent", async () => {
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    set("RUN_MAX_COST_USD", "1");
+    // One tick per batch, so "the next batch" is a real boundary.
+    set("FACTORY_MAX_INSTANCES", "1");
+    const logs = stubLogsAPI(0, undefined, 1);
+
+    try {
+      // The spend lands inside the first batch's durable read — after batch
+      // one's container has run, before batch two is credentialled.
+      collector.onCollect = async () => {
+        logs.setCost(9.99);
+      };
+      const { runID, project } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+      const run = await settled(runID);
+      expect(run.state).toBe("stopped");
+
+      // The first tick got its container; the second never did.
+      expect(sandboxes.named(workerSandboxName(runID, "aaa"))).toBeDefined();
+      expect(sandboxes.booted.some((s) => s.name.endsWith("-tick-bbb"))).toBe(false);
+
+      const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+      expect(record.detail).toContain("cost budget is exhausted");
+
+      // Recorded as the budget stop it is, in the closed vocabulary.
+      const logged = await listDispatchLogs(env.DB, runID, "ko8");
+      expect(logged.some((entry) => entry.decision === "stopping:budget:cost")).toBe(true);
+    } finally {
+      logs.restore();
+    }
   });
 });
