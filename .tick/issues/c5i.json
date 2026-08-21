@@ -2,12 +2,14 @@
   "id": "c5i",
   "title": "tk cloud trace refuses a short run id instead of resolving it",
   "description": "Found by fxf while using the command that landed the same day. tk cloud trace run_62c289d1 answers \"No AI Gateway calls are stamped with run run_62c289d1\" — technically true and completely misleading, because gateway metadata carries the full id (run_62c289d1e57942cea5fef6c1a508a0fd) and every other tk surface accepts a short id. The operator reads it as \"there is no telemetry for this run\" and stops, which is the opposite of what the command exists for.\n\nResolve a prefix against the runs the factory knows about and say so, or refuse with \"that is a prefix, did you mean \u003cfull id\u003e\" — never answer a prefix with a confident negative. Check the same trap on tk cloud logs and tk cloud status while in there.",
-  "status": "open",
+  "notes": "2026-08-21 19:43 - Seam (wave 4, three wide with tap and y45). You own internal/gatewaytrace and the cloud trace/logs/status command files. Nothing under cloud/sandbox or cloud/factory/src.",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T16:05:00.966302Z",
-  "updated_at": "2026-08-21T16:05:00.966302Z"
+  "updated_at": "2026-08-21T17:43:26.805861Z",
+  "started_at": "2026-08-21T17:43:26.805861Z"
 }
