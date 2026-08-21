@@ -64,6 +64,165 @@ function excerpt(text: string, max = 200): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+// ------------------------------------------------- the cancellation seam ---
+
+/**
+ * Why a wave is being cancelled while it is still in flight.
+ *
+ * `reason` is machine-readable and is what a credential revocation is
+ * recorded under (`stopped:hard`, `budget:cost`, …); `detail` is what the
+ * operator reads back.
+ */
+export type WaveCancellation = {
+  reason: string;
+  detail: string;
+};
+
+/** One look at whatever can cancel a wave — a stop record, a budget, a lease. */
+export type CancelProbe = () => Promise<WaveCancellation | null>;
+
+/**
+ * How often a wave in flight looks for a reason to stop, by default.
+ *
+ * The same cadence `run-workflow.ts` watches an orchestrator on (`MIN_POLL_MS`):
+ * the point of this seam is that noticing a hard stop costs one poll interval,
+ * never one batch.
+ */
+export const DEFAULT_CANCEL_POLL_MS = 15_000;
+
+/**
+ * The seam a wave is interrupted through.
+ *
+ * ONE of these is shared by every worker in a wave, which is the whole design:
+ * N containers polling independently would make N stop-record reads per
+ * interval, and — worse — could disagree with each other about whether the run
+ * is still allowed to spend. A latched answer means the first worker to see the
+ * stop decides it for all of them.
+ */
+export type Canceller = {
+  /**
+   * The current answer. Makes at most one real read per `pollMs`, dedupes
+   * concurrent readers onto one read, and latches: once a wave is cancelled it
+   * stays cancelled, so nothing re-reads to ask permission to keep stopping.
+   */
+  check(): Promise<WaveCancellation | null>;
+  /** What is already known, without making a read. */
+  readonly cancelled: WaveCancellation | null;
+  /** The read cadence; 0 means every call reads (what the tests drive). */
+  readonly pollMs: number;
+  /** Real reads made — a shared canceller keeps this near one per interval. */
+  readonly reads: number;
+};
+
+export type CancellerOptions = {
+  poll_ms?: number;
+  /**
+   * Run once, awaited, the instant the wave is first found cancelled — before
+   * `check` answers and therefore before any worker starts tearing down.
+   *
+   * This is where the money dies. `.tick/learnings.md` ("Cost, budgets and kill
+   * switches"): a hard stop must revoke BEFORE the window in which the run
+   * would otherwise keep spending, not after it. Tearing a container down is
+   * the stronger stop, but it is also the slower one, and a failure here must
+   * not swallow the cancellation — it is logged, never thrown.
+   */
+  on_cancel?: (cancellation: WaveCancellation) => Promise<void>;
+};
+
+/**
+ * Builds the shared canceller for one wave.
+ *
+ * A probe that throws is NOT a cancellation: an unreadable stop record is a
+ * failed read, and the run keeps going exactly as `hardStopRecord` in
+ * `run-workflow.ts` already decides ("a read failure is not a stop"). Fail-open
+ * is right here and only here, because the between-batch check and the
+ * per-observation check both still stand behind it.
+ */
+export function waveCanceller(probe: CancelProbe, opts: CancellerOptions = {}): Canceller {
+  const pollMs = Math.max(opts.poll_ms ?? DEFAULT_CANCEL_POLL_MS, 0);
+  let latched: WaveCancellation | null = null;
+  let inflight: Promise<WaveCancellation | null> | null = null;
+  let nextAt = 0;
+  let reads = 0;
+
+  async function read(): Promise<WaveCancellation | null> {
+    reads += 1;
+    let seen: WaveCancellation | null = null;
+    try {
+      seen = await probe();
+    } catch (error) {
+      console.error(`factory worker-dispatch: a wave's cancellation probe failed: ${String(error)}`);
+      return null;
+    }
+    nextAt = Date.now() + pollMs;
+    if (seen === null) return null;
+    latched = seen;
+    if (opts.on_cancel !== undefined) {
+      try {
+        await opts.on_cancel(seen);
+      } catch (error) {
+        console.error(
+          `factory worker-dispatch: a wave's cancellation hook failed: ${String(error)}`
+        );
+      }
+    }
+    return seen;
+  }
+
+  return {
+    async check(): Promise<WaveCancellation | null> {
+      if (latched !== null) return latched;
+      if (pollMs > 0 && Date.now() < nextAt) return null;
+      if (inflight === null) {
+        inflight = read().finally(() => {
+          inflight = null;
+        });
+      }
+      return inflight;
+    },
+    get cancelled(): WaveCancellation | null {
+      return latched;
+    },
+    pollMs,
+    get reads(): number {
+      return reads;
+    },
+  };
+}
+
+/**
+ * Sleeps, checking for cancellation on the CANCELLER's cadence rather than the
+ * caller's.
+ *
+ * The two cadences are deliberately independent. A wait loop that polls a
+ * container every fifteen minutes must not mean fifteen minutes before a hard
+ * stop is noticed; a probe loop that polls every second must not mean a
+ * stop-record read every second. Whichever is shorter decides how long a sleep
+ * runs before the next look.
+ */
+async function sleepUnlessCancelled(
+  ms: number,
+  sleep: Sleeper,
+  cancel: Canceller | undefined
+): Promise<WaveCancellation | null> {
+  if (cancel === undefined) {
+    await sleep(ms);
+    return null;
+  }
+  const total = Math.max(ms, 0);
+  const chunk = cancel.pollMs > 0 ? Math.min(total, cancel.pollMs) : total;
+  let waited = 0;
+  for (;;) {
+    const remaining = total - waited;
+    const step = chunk > 0 ? Math.min(chunk, remaining) : remaining;
+    await sleep(step);
+    waited += step;
+    const hit = await cancel.check();
+    if (hit !== null) return hit;
+    if (waited >= total) return null;
+  }
+}
+
 // -------------------------------------------------------------- the probe ---
 
 export type ProbeSpec = {
@@ -82,7 +241,7 @@ export type ProbeOutcome =
   | { ok: true }
   | {
       ok: false;
-      reason: "no-output" | "wrong-output" | "process-gone" | "timeout";
+      reason: "no-output" | "wrong-output" | "process-gone" | "timeout" | "cancelled";
       detail: string;
       output: string;
     };
@@ -113,7 +272,7 @@ async function watchProbe(
   sandbox: OrchestratorSandbox,
   processID: string,
   expect: string,
-  opts: { timeoutMs: number; pollMs: number; sleep: Sleeper }
+  opts: { timeoutMs: number; pollMs: number; sleep: Sleeper; cancel?: Canceller }
 ): Promise<ProbeOutcome> {
   const deadline = Date.now() + opts.timeoutMs;
   let output = "";
@@ -132,7 +291,12 @@ async function watchProbe(
     if (Date.now() >= deadline) {
       return { ok: false, reason: "timeout", detail: `the probe had not finished after ${opts.timeoutMs}ms`, output };
     }
-    await opts.sleep(opts.pollMs);
+    const cancelled = await sleepUnlessCancelled(opts.pollMs, opts.sleep, opts.cancel);
+    if (cancelled !== null) {
+      // The wave was stopped while this container was still proving itself:
+      // it never gets to run real work, and it is never counted as launched.
+      return { ok: false, reason: "cancelled", detail: cancelled.detail, output };
+    }
   }
 }
 
@@ -140,7 +304,7 @@ async function watchProbe(
 
 export type ConfirmOutcome =
   | { confirmed: true; detail: string }
-  | { confirmed: false; detail: string };
+  | { confirmed: false; detail: string; cancelled?: WaveCancellation };
 
 /**
  * Waits for evidence the real command actually started doing something.
@@ -157,7 +321,7 @@ export type ConfirmOutcome =
 export async function confirmDispatch(
   sandbox: OrchestratorSandbox,
   processID: string,
-  opts: { timeoutMs: number; pollMs: number; sleep?: Sleeper }
+  opts: { timeoutMs: number; pollMs: number; sleep?: Sleeper; cancel?: Canceller }
 ): Promise<ConfirmOutcome> {
   const sleep = opts.sleep ?? defaultSleeper;
   const deadline = Date.now() + opts.timeoutMs;
@@ -191,7 +355,14 @@ export async function confirmDispatch(
         detail: `no evidence the worker started within ${opts.timeoutMs}ms (state ${view.state})`,
       };
     }
-    await sleep(opts.pollMs);
+    const cancelled = await sleepUnlessCancelled(opts.pollMs, sleep, opts.cancel);
+    if (cancelled !== null) {
+      return {
+        confirmed: false,
+        detail: `the wave was cancelled before the worker's dispatch was confirmed: ${cancelled.detail}`,
+        cancelled,
+      };
+    }
   }
 }
 
@@ -209,6 +380,8 @@ export type SpawnOptions = {
   confirm_timeout_ms?: number;
   confirm_poll_ms?: number;
   sleep?: Sleeper;
+  /** The wave's shared cancellation seam; absent means nothing can interrupt. */
+  cancel?: Canceller;
 };
 
 export type SpawnResult = {
@@ -220,6 +393,8 @@ export type SpawnResult = {
   confirm: ConfirmOutcome | null;
   /** The real work process id, present exactly when `launched` is true. */
   process_id: string | null;
+  /** Set when the wave was cancelled during this spawn, or before it started. */
+  cancelled: WaveCancellation | null;
   detail: string;
 };
 
@@ -247,8 +422,10 @@ export async function spawnWorker(
     timeoutMs: opts.probe_timeout_ms ?? DEFAULT_PROBE_TIMEOUT_MS,
     pollMs: opts.probe_poll_ms ?? DEFAULT_PROBE_POLL_MS,
     sleep,
+    ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
   });
   if (!probe.ok) {
+    const cancelled = probe.reason === "cancelled" ? (opts.cancel?.cancelled ?? null) : null;
     return {
       tick_id: task.tick_id,
       sandbox_name: sandboxName,
@@ -256,7 +433,9 @@ export async function spawnWorker(
       probe,
       confirm: null,
       process_id: null,
-      detail: `green-start trap: ${probe.detail}`,
+      cancelled,
+      detail:
+        cancelled === null ? `green-start trap: ${probe.detail}` : `wave cancelled: ${probe.detail}`,
     };
   }
 
@@ -265,6 +444,7 @@ export async function spawnWorker(
     timeoutMs: opts.confirm_timeout_ms ?? DEFAULT_CONFIRM_TIMEOUT_MS,
     pollMs: opts.confirm_poll_ms ?? DEFAULT_CONFIRM_POLL_MS,
     sleep,
+    ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
   });
 
   return {
@@ -279,6 +459,10 @@ export async function spawnWorker(
     probe,
     confirm,
     process_id: work.id,
+    // The real command IS running in this container, so it is launched — and
+    // that is exactly why the cancellation has to be reported: the caller owes
+    // this one a teardown before it does anything else.
+    cancelled: confirm.confirmed ? null : (confirm.cancelled ?? null),
     detail: confirm.confirmed ? confirm.detail : `dispatched but unconfirmed: ${confirm.detail}`,
   };
 }
@@ -289,6 +473,8 @@ export type WaitOutcome = {
   state: SandboxProcessState | "gone";
   exit_code: number | null;
   timed_out: boolean;
+  /** Set when the wave was cancelled while this worker was still being watched. */
+  cancelled: WaveCancellation | null;
 };
 
 /**
@@ -304,7 +490,7 @@ export async function waitForWorker(
   binding: SandboxBinding,
   sandboxName: string,
   processID: string,
-  opts: { timeoutMs?: number; pollMs?: number; sleep?: Sleeper } = {}
+  opts: { timeoutMs?: number; pollMs?: number; sleep?: Sleeper; cancel?: Canceller } = {}
 ): Promise<WaitOutcome> {
   const sleep = opts.sleep ?? defaultSleeper;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
@@ -313,14 +499,20 @@ export async function waitForWorker(
   for (;;) {
     const sandbox = await binding.get(sandboxName);
     const view = await sandbox.getProcess(processID);
-    if (view === null) return { state: "gone", exit_code: null, timed_out: false };
+    if (view === null) return { state: "gone", exit_code: null, timed_out: false, cancelled: null };
     if (view.state === "completed" || view.state === "failed") {
-      return { state: view.state, exit_code: view.exit_code, timed_out: false };
+      return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled: null };
     }
     if (Date.now() >= deadline) {
-      return { state: view.state, exit_code: view.exit_code, timed_out: true };
+      return { state: view.state, exit_code: view.exit_code, timed_out: true, cancelled: null };
     }
-    await sleep(pollMs);
+    // The wait is where a wave spends nearly all of its wall clock, and it is
+    // therefore where an operator's stop was being ignored for up to
+    // `timeoutMs` — thirty minutes of a batch nobody could interrupt.
+    const cancelled = await sleepUnlessCancelled(pollMs, sleep, opts.cancel);
+    if (cancelled !== null) {
+      return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled };
+    }
   }
 }
 
@@ -394,6 +586,9 @@ export type WorkerWaveOutcome = SpawnResult & {
   teardown: TeardownOutcome;
 };
 
+/** A container the wave never addressed: nothing was booted, so nothing is torn down. */
+const NOT_ADDRESSED: TeardownOutcome = { killed: false, destroyed: false, liveness: null };
+
 async function dispatchOneWorker(
   binding: SandboxBinding,
   sandboxName: string,
@@ -402,15 +597,49 @@ async function dispatchOneWorker(
   opts: WaveOptions,
   collector: WorkerCollector
 ): Promise<WorkerWaveOutcome> {
+  // Before a container is even ADDRESSED. `binding.get` provisions on
+  // Cloudflare, so a wave already cancelled must not touch the sandbox at all:
+  // addressing one is how a stopped run boots the containers it was stopped to
+  // prevent.
+  const before = opts.cancel === undefined ? null : await opts.cancel.check();
+  if (before !== null) {
+    return {
+      tick_id: task.tick_id,
+      sandbox_name: sandboxName,
+      launched: false,
+      probe: { ok: false, reason: "cancelled", detail: before.detail, output: "" },
+      confirm: null,
+      process_id: null,
+      cancelled: before,
+      detail: `wave cancelled before this container was addressed: ${before.detail}`,
+      wait: null,
+      collect: await collector.collect(task),
+      teardown: NOT_ADDRESSED,
+    };
+  }
+
   const spawned = await spawnWorker(binding, sandboxName, task, spec, opts);
 
   let wait: WaitOutcome | null = null;
-  if (spawned.launched && spawned.process_id !== null) {
+  if (spawned.cancelled === null && spawned.launched && spawned.process_id !== null) {
     wait = await waitForWorker(binding, sandboxName, spawned.process_id, {
       timeoutMs: opts.wait_timeout_ms,
       pollMs: opts.wait_poll_ms,
       sleep: opts.sleep,
+      ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
     });
+  }
+
+  const cancelled = spawned.cancelled ?? wait?.cancelled ?? null;
+  if (cancelled !== null) {
+    // Teardown FIRST, collect after — the reverse of the ordinary order below.
+    // Collect makes GitHub round trips; on a hard stop or a blown budget those
+    // are seconds a container keeps spending in. Killing the process and
+    // destroying the container is what actually ends the spend, so it happens
+    // before anything else, and what landed is read from git afterwards —
+    // git does not forget while we tear a container down.
+    const teardown = await teardownWorker(binding, sandboxName, spawned.process_id);
+    return { ...spawned, cancelled, wait, collect: await collector.collect(task), teardown };
   }
 
   // Collect ALWAYS runs, whatever spawn/wait decided: a green-start trap or
@@ -438,6 +667,15 @@ async function dispatchOneWorker(
  * container's environment, which is the exact bug that would make "one
  * container per tick" boot N containers that all implement the SAME tick
  * (tick b6e).
+ *
+ * `opts.cancel` is the wave's interrupt (tick k24). Without it a batch of up
+ * to `max_instances` containers runs to completion no matter what an operator
+ * asks for — a hard stop or a blown budget waited on the slowest container in
+ * the batch, up to `wait_timeout_ms`. With it, every polling loop in the cycle
+ * looks for a reason to stop on the canceller's own cadence, and a cancelled
+ * worker is torn down before anything else is done with it. The canceller is
+ * SHARED by the whole wave by construction: it lives in the options every task
+ * is handed, so the first worker to see the stop decides it for all of them.
  */
 export async function dispatchWave(
   binding: SandboxBinding,

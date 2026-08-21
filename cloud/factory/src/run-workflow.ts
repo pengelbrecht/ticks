@@ -93,7 +93,13 @@ import {
 } from "./sandbox";
 import { workerTask, workerWorkSpec } from "./worker-boot";
 import { workerCollector } from "./worker-collect";
-import { dispatchWave, workerSandboxName, type WorkerWaveOutcome } from "./worker-dispatch";
+import {
+  dispatchWave,
+  waveCanceller,
+  workerSandboxName,
+  type WaveCancellation,
+  type WorkerWaveOutcome,
+} from "./worker-dispatch";
 
 // ------------------------------------------------------------- the shape ---
 
@@ -1366,6 +1372,94 @@ export function chunkWave(tickIDs: string[], width: number): string[][] {
   return batches;
 }
 
+/**
+ * The stop-and-budget check a cloud wave answers to, at a batch boundary AND
+ * while a batch is in flight (tick k24).
+ *
+ * It is deliberately the same function in both places. The between-batch check
+ * used to read only the hard stop record, which meant the budgets this run was
+ * given were enforced on the Phase 1 orchestrator path and on NO cloud path at
+ * all — a wave could run every batch it was handed at any cost, because the
+ * only thing watching the money was `observe`, and a cloud wave never calls it.
+ *
+ * `detectTrip` is the model, minus the pieces that belong to a single watched
+ * process (log drain, lease renewal, process state). A clean stop is not here
+ * on purpose: "clean" means the in-flight work gets its window, and a wave's
+ * in-flight work is a container that will finish on its own.
+ */
+async function cloudWaveTrip(
+  env: Env,
+  params: RunWorkflowParams,
+  context: RunContext,
+  telemetry: { complained: boolean }
+): Promise<Trip | null> {
+  const stop = await hardStopRecord(env, params);
+  if (stop !== null) {
+    return {
+      kind: "stop",
+      hard: true,
+      detail: `a hard stop requested by ${stop.requested_by} at ${stop.requested_at} stands`,
+    };
+  }
+
+  const elapsed = Date.now() - context.started_at_ms;
+  if (elapsed >= context.config.max_wall_clock_ms) {
+    return {
+      kind: "budget",
+      budget: "wall_clock",
+      hard: true,
+      detail:
+        `the wall-clock budget is exhausted: ${Math.round(elapsed / 1000)}s of ` +
+        `${Math.round(context.config.max_wall_clock_ms / 1000)}s`,
+    };
+  }
+
+  // Ground truth from the gateway logs, exactly as `detectTrip` reads it. A
+  // failed read leaves the last known number standing and is complained about
+  // ONCE per wave — this runs on the poll cadence, and a per-read log would
+  // bury the run's output in the same line a few thousand times.
+  const spend = await syncRunCost(env, params.run_id);
+  if (!spend.ok && !telemetry.complained) {
+    telemetry.complained = true;
+    console.error(
+      `factory run-workflow: ${params.run_id} could not read gateway spend for its cloud wave: ` +
+        `${spend.detail}`
+    );
+  }
+  const run = await getRun(env.DB, params.run_id).catch(() => null);
+  const cost = run?.cost_usd ?? 0;
+  if (cost >= context.config.max_cost_usd) {
+    return {
+      kind: "budget",
+      budget: "cost",
+      hard: true,
+      detail: `the cost budget is exhausted: $${cost.toFixed(2)} of $${context.config.max_cost_usd.toFixed(2)}`,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * A mid-batch cancellation, back as the trip that caused it.
+ *
+ * A `step.do` result is what survives a Workflow replay, so the reason a batch
+ * was cancelled has to travel inside the step's return value — a variable the
+ * step's callback closed over is simply not re-assigned when the step replays
+ * from its checkpoint, and the run would sail on into the next batch of a
+ * stopped wave. `reason` is the same string the credential revocation is
+ * recorded under, so the two can never describe different stops.
+ */
+function tripFromCancellation(cancellation: WaveCancellation): Trip {
+  if (cancellation.reason === "budget:cost") {
+    return { kind: "budget", budget: "cost", hard: true, detail: cancellation.detail };
+  }
+  if (cancellation.reason === "budget:wall_clock") {
+    return { kind: "budget", budget: "wall_clock", hard: true, detail: cancellation.detail };
+  }
+  return { kind: "stop", hard: true, detail: cancellation.detail };
+}
+
 /** A short, greppable summary of what a wave's containers actually did. */
 export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
   const counts = new Map<string, number>();
@@ -1395,13 +1489,13 @@ export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
  * `closeout` phase is mandatory after every cloud wave, not just an
  * interrupted one.
  *
- * KNOWN GAP, stated rather than hidden: this pass does not enforce
- * `context.config`'s wall-clock/cost budgets or a mid-batch operator stop
- * WHILE a batch is in flight — only between batches, before the next one is
- * dispatched (the kill-check below). `dispatchWave`'s spawn → wait → collect
- * → teardown cycle has no cancellation seam to interrupt safely, and
- * threading one through would touch tested, closed code (0ds) beyond this
- * tick's call-site scope. Follow-up work, not silently assumed away.
+ * Budgets and stops are enforced at BOTH scales (tick k24): `cloudWaveTrip`
+ * runs between batches, and the same function is the wave's shared
+ * cancellation probe while a batch is in flight, so an operator's hard stop or
+ * a blown budget no longer waits for up to `max_instances` containers to
+ * finish. This repo has paid for that lesson twice already — cts (a budget
+ * that could not trip) and gyl (a kill switch a reboot undid) — and both times
+ * the enforcement existed somewhere that could not act in time.
  */
 export async function superviseCloudWave(
   env: Env,
@@ -1413,30 +1507,32 @@ export async function superviseCloudWave(
   const collector = workerCollector(env, params.project);
   const batches = chunkWave(plan.tick_ids, plan.width);
   const outcomes: WorkerWaveOutcome[] = [];
+  // How often a batch in flight looks for a reason to stop: the run's own
+  // observation cadence, so a deployment that tightens one tightens both.
+  const cancelPollMs = context.config.poll_interval_ms ?? MIN_POLL_MS;
+  const telemetry = { complained: false };
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i]!;
 
-    // Mirrors `supervisePass`'s own killcheck: a hard stop that stands
-    // refuses to credential ANOTHER batch, the same way it refuses to
-    // credential another orchestrator boot (tick gyl).
-    const killed = await step.do(`cloud:killcheck:${i}`, OBSERVE_RETRIES, () =>
-      hardStopRecord(env, params)
+    // Mirrors `supervisePass`'s own killcheck: a hard stop that stands — or a
+    // budget already spent — refuses to credential ANOTHER batch, the same way
+    // it refuses to credential another orchestrator boot (tick gyl).
+    const standing = await step.do(`cloud:killcheck:${i}`, OBSERVE_RETRIES, () =>
+      cloudWaveTrip(env, params, context, telemetry)
     );
-    if (killed !== null) {
+    if (standing !== null) {
       await step.do(`cloud:killrevoke:${i}`, OBSERVE_RETRIES, async () => {
-        const revoked = await revokeRunTokens(env, params.run_id, "stopped:hard");
+        const revoked = await revokeRunTokens(env, params.run_id, tripRevokeReason(standing));
         return { revoked };
       });
       return {
         kind: "tripped",
         trip: {
-          kind: "stop",
-          hard: true,
+          ...standing,
           detail:
-            `a hard stop requested by ${killed.requested_by} at ${killed.requested_at} stands, ` +
-            `so no further cloud workers were dispatched (${outcomes.length}/${plan.tick_ids.length} ` +
-            "already ran)",
+            `${standing.detail}, so no further cloud workers were dispatched ` +
+            `(${outcomes.length}/${plan.tick_ids.length} already ran)`,
         },
         boots: outcomes.length,
       };
@@ -1451,11 +1547,33 @@ export async function superviseCloudWave(
       issueRunToken(env, { run_id: params.run_id, tick_id: params.epic, attempt: i + 1 })
     );
 
-    const batchOutcomes = await step.do(`cloud:dispatch:${i}`, CLOUD_DISPATCH_RETRIES, async () => {
+    const dispatched = await step.do(`cloud:dispatch:${i}`, CLOUD_DISPATCH_RETRIES, async () => {
       const binding = sandboxBinding(env);
       if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
       const tasks = batch.map((tick) => workerTask(params.epic, tick, params.base_sha));
-      return dispatchWave(
+      // One canceller for the whole batch, built fresh inside the step so a
+      // retry of it gets a fresh one rather than an already-latched verdict.
+      const cancel = waveCanceller(
+        async () => {
+          const trip = await cloudWaveTrip(env, params, context, telemetry);
+          return trip === null
+            ? null
+            : { reason: tripRevokeReason(trip), detail: trip.detail };
+        },
+        {
+          poll_ms: cancelPollMs,
+          // The money dies before the containers do. Destroying a container is
+          // the stronger stop but also the slower one, and every second of
+          // teardown is a second the harness inside it can still spend — so
+          // the credential is revoked the instant the wave is found cancelled,
+          // ahead of the teardowns (tick gyl's ordering, at wave scale). The
+          // step-level revoke below is the durable, replay-safe half.
+          on_cancel: async (cancellation) => {
+            await revokeRunTokens(env, params.run_id, cancellation.reason);
+          },
+        }
+      );
+      const batch_outcomes = await dispatchWave(
         binding,
         (tickID) => workerSandboxName(params.run_id, tickID),
         tasks,
@@ -1474,11 +1592,32 @@ export async function superviseCloudWave(
             sandbox_image: context.sandbox_image,
             wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS,
           }),
-        { wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS },
+        { wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS, cancel },
         collector
       );
+      return { outcomes: batch_outcomes, cancelled: cancel.cancelled };
     });
-    outcomes.push(...batchOutcomes);
+    outcomes.push(...dispatched.outcomes);
+
+    if (dispatched.cancelled !== null) {
+      const trip = tripFromCancellation(dispatched.cancelled);
+      // Idempotent with the canceller's own revoke: that one is fast, this one
+      // is checkpointed, and a replayed Workflow only ever runs the second.
+      await step.do(`cloud:cancelrevoke:${i}`, OBSERVE_RETRIES, async () => {
+        const revoked = await revokeRunTokens(env, params.run_id, tripRevokeReason(trip));
+        return { revoked };
+      });
+      return {
+        kind: "tripped",
+        trip: {
+          ...trip,
+          detail:
+            `${trip.detail}, so the cloud wave was cancelled mid-batch and its containers ` +
+            `were torn down (${outcomes.length}/${plan.tick_ids.length} tick(s) dispatched)`,
+        },
+        boots: outcomes.length,
+      };
+    }
   }
 
   // The batch token has done its job; closeout mints its own fresh one, the
