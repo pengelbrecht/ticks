@@ -121,6 +121,95 @@ describe("budget configuration", () => {
     expect(config.cost_budget_configured).toBe(true);
     expect(config.max_wall_clock_ms).toBe(60_000);
   });
+
+  // A per-run budget is bounded by the deployment's, in one direction only:
+  // the ceiling is the operator's standing decision and a submission — which
+  // an agent can make — must never be able to widen it.
+  it("lets a submission lower the deployment ceiling", () => {
+    const config = runConfig(
+      { RUN_MAX_COST_USD: "8", RUN_MAX_WALL_CLOCK_MS: "2700000" } as never,
+      { max_cost_usd: 2, max_wall_clock_ms: 600_000 }
+    );
+
+    expect(config.max_cost_usd).toBe(2);
+    expect(config.max_wall_clock_ms).toBe(600_000);
+  });
+
+  it("clamps a submission that tries to raise the deployment ceiling", () => {
+    const config = runConfig(
+      { RUN_MAX_COST_USD: "8", RUN_MAX_WALL_CLOCK_MS: "2700000" } as never,
+      { max_cost_usd: 50, max_wall_clock_ms: 21_600_000 }
+    );
+
+    expect(config.max_cost_usd).toBe(8);
+    expect(config.max_wall_clock_ms).toBe(2_700_000);
+  });
+
+  // The deployment set no cost var, so the default stood and unreadable
+  // telemetry was survivable. A submission that names a cost budget has asked
+  // for one, so it is enforced like any other — including its failure mode.
+  it("counts a submitted cost budget as configured", () => {
+    const config = runConfig({} as never, { max_cost_usd: 3 });
+
+    expect(config.max_cost_usd).toBe(3);
+    expect(config.cost_budget_configured).toBe(true);
+  });
+
+  it("ignores an unusable override rather than widening the budget", () => {
+    const config = runConfig(
+      { RUN_MAX_COST_USD: "8" } as never,
+      { max_cost_usd: -1, max_wall_clock_ms: Number.NaN }
+    );
+
+    expect(config.max_cost_usd).toBe(8);
+    expect(config.max_wall_clock_ms).toBe(DEFAULT_MAX_WALL_CLOCK_MS);
+  });
+});
+
+describe("a submission's own budget", () => {
+  const base = {
+    project: "example-org/example-repo",
+    epic: "ko8",
+    base_sha: "b".repeat(40),
+    requested_by: "operator@example.com",
+  };
+
+  it("accepts a fractional cost and an integral clock", () => {
+    const parsed = parseSubmission({ ...base, max_cost_usd: 2.5, max_wall_clock_ms: 2_700_000 });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.submission.max_cost_usd).toBe(2.5);
+    expect(parsed.submission.max_wall_clock_ms).toBe(2_700_000);
+  });
+
+  it("carries no budget when the submission names none", () => {
+    const parsed = parseSubmission(base);
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.submission.max_cost_usd).toBeUndefined();
+    expect(parsed.submission.max_wall_clock_ms).toBeUndefined();
+  });
+
+  // Refused at the edge rather than ignored deeper in: a budget the factory
+  // silently dropped is a run the operator believes is bounded and is not.
+  it("refuses a budget that is not a positive number", () => {
+    const bad: Record<string, unknown>[] = [
+      { max_cost_usd: 0 },
+      { max_cost_usd: -2 },
+      { max_cost_usd: "2.50" },
+      { max_cost_usd: Number.POSITIVE_INFINITY },
+      { max_wall_clock_ms: 0 },
+      { max_wall_clock_ms: -1 },
+      { max_wall_clock_ms: 1.5 },
+      { max_wall_clock_ms: "600000" },
+    ];
+    for (const extra of bad) {
+      const parsed = parseSubmission({ ...base, ...extra });
+      expect(parsed.ok, JSON.stringify(extra)).toBe(false);
+    }
+  });
 });
 
 describe("observation cadence", () => {

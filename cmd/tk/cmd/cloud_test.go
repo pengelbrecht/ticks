@@ -577,3 +577,70 @@ func TestCloudStopNowAsksForAHardStopAndSaysWhichItPerformed(t *testing.T) {
 		t.Fatalf("clean stop output does not name the hard variant:\n%s", clean)
 	}
 }
+
+// A budget is a per-invocation choice, not a redeploy. The flags ride the
+// submit payload; the deployment ceiling still bounds them on the far side.
+func TestCloudRunCarriesPerRunBudgetOverridesInTheSubmission(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, requests := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method != http.MethodPost || request.Path != "/api/runs" {
+			return http.StatusNotFound, map[string]any{"error": "not_found"}
+		}
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_bounded"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1", "--max-cost", "2.50", "--max-wall-clock", "45m"}); err != nil {
+		t.Fatalf("bounded cloud run: %v", err)
+	}
+	body := (*requests)[0].Body
+	if got := body["max_cost_usd"]; got != 2.5 {
+		t.Errorf("max_cost_usd = %#v, want 2.5", got)
+	}
+	if got := body["max_wall_clock_ms"]; got != float64(2_700_000) {
+		t.Errorf("max_wall_clock_ms = %#v, want 2700000", got)
+	}
+
+	// Without the flags the submission carries no budget at all, so the
+	// deployment's own ceiling stands rather than being restated by the CLI.
+	ResetFlags()
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1"}); err != nil {
+		t.Fatalf("unbounded cloud run: %v", err)
+	}
+	plain := (*requests)[1].Body
+	if _, ok := plain["max_cost_usd"]; ok {
+		t.Errorf("submission carries max_cost_usd with no flag set: %#v", plain["max_cost_usd"])
+	}
+	if _, ok := plain["max_wall_clock_ms"]; ok {
+		t.Errorf("submission carries max_wall_clock_ms with no flag set: %#v", plain["max_wall_clock_ms"])
+	}
+}
+
+func TestCloudRunRefusesANonPositiveBudgetBeforeSubmitting(t *testing.T) {
+	setupCloudRepo(t, true)
+	var calls int
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		calls++
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_should_not_start"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	for _, args := range [][]string{
+		{"cloud", "run", "epic1", "--max-cost", "0"},
+		{"cloud", "run", "epic1", "--max-wall-clock", "-5m"},
+	} {
+		ResetFlags()
+		err := ExecuteArgs(args)
+		if err == nil {
+			t.Fatalf("%v was accepted, want a refusal", args)
+		}
+		if !strings.Contains(err.Error(), "positive") {
+			t.Errorf("%v error does not say the budget must be positive: %v", args, err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("factory received %d submission(s) after an invalid budget", calls)
+	}
+}

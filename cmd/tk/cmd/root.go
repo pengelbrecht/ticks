@@ -617,6 +617,8 @@ func ResetFlags() {
 	// Reset cloud flags
 	cloudRunNotify = ""
 	cloudRunQueue = false
+	cloudRunMaxCost = 0
+	cloudRunMaxWallClock = 0
 	cloudStopNow = false
 	cloudTraceJSON = false
 	cloudTraceCall = 0

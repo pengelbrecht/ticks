@@ -144,6 +144,12 @@ export type RunWorkflowParams = {
   requested_by: string;
   notify?: string;
   /**
+   * This submission's own budget (tick wn5), bounded by the deployment ceiling
+   * when the Workflow builds its config. Absent means "the deployment's".
+   */
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
+  /**
    * The dispatch lease's release credential. The Workflow renews it while the
    * run lives and releases it at finalize; nobody else ever sees it, which is
    * what compare-and-delete release depends on.
@@ -196,6 +202,10 @@ export type RunSubmission = {
   notify?: string;
   queue: boolean;
   queue_ttl_ms?: number;
+  /** `tk cloud run --max-cost`: this run's cost ceiling, never above the deployment's. */
+  max_cost_usd?: number;
+  /** `tk cloud run --max-wall-clock`: this run's clock, never above the deployment's. */
+  max_wall_clock_ms?: number;
 };
 
 export type SubmissionParse =
@@ -274,6 +284,22 @@ export function parseSubmission(body: unknown): SubmissionParse {
     queueTtl = value as number;
   }
 
+  // A budget the factory quietly dropped is worse than one it refused: the
+  // operator would believe the run is bounded and it would not be. So an
+  // unusable value is a 400, not a fallback to the deployment ceiling.
+  let maxCost: number | undefined;
+  const costComplaint = budgetField(raw.max_cost_usd, "max_cost_usd", false, (v) => (maxCost = v));
+  if (costComplaint !== null) return { ok: false, detail: costComplaint };
+
+  let maxWallClock: number | undefined;
+  const clockComplaint = budgetField(
+    raw.max_wall_clock_ms,
+    "max_wall_clock_ms",
+    true,
+    (v) => (maxWallClock = v)
+  );
+  if (clockComplaint !== null) return { ok: false, detail: clockComplaint };
+
   return {
     ok: true,
     submission: {
@@ -284,8 +310,31 @@ export function parseSubmission(body: unknown): SubmissionParse {
       ...(notify === undefined ? {} : { notify }),
       queue: raw.queue === true,
       ...(queueTtl === undefined ? {} : { queue_ttl_ms: queueTtl }),
+      ...(maxCost === undefined ? {} : { max_cost_usd: maxCost }),
+      ...(maxWallClock === undefined ? {} : { max_wall_clock_ms: maxWallClock }),
     },
   };
+}
+
+/**
+ * Reads an optional per-run budget. Absent and null both mean "the deployment
+ * decides"; anything else must be a positive number of the right kind, because
+ * the alternative is a run an operator thinks is capped and is not.
+ */
+function budgetField(
+  value: unknown,
+  field: string,
+  integer: boolean,
+  into: (v: number) => void
+): string | null {
+  if (value === undefined || value === null) return null;
+  const usable =
+    typeof value === "number" && (integer ? Number.isSafeInteger(value) : Number.isFinite(value));
+  if (!usable || (value as number) <= 0) {
+    return `${field} must be a positive ${integer ? "integer" : "number"}, got ${JSON.stringify(value)}`;
+  }
+  into(value as number);
+  return null;
 }
 
 /**
@@ -329,6 +378,8 @@ export type StartRunInput = {
   base_sha: string;
   requested_by: string;
   notify?: string;
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
   lease_token: string;
 };
 
@@ -374,6 +425,10 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
         base_sha: run.base_sha,
         requested_by: run.requested_by,
         ...(input.notify === undefined ? {} : { notify: input.notify }),
+        ...(input.max_cost_usd === undefined ? {} : { max_cost_usd: input.max_cost_usd }),
+        ...(input.max_wall_clock_ms === undefined
+          ? {}
+          : { max_wall_clock_ms: input.max_wall_clock_ms }),
         lease_token: input.lease_token,
       },
     });
@@ -545,6 +600,12 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
           base_sha: submission.base_sha,
           requested_by: submission.requested_by,
           ...(submission.notify === undefined ? {} : { notify: submission.notify }),
+          ...(submission.max_cost_usd === undefined
+            ? {}
+            : { max_cost_usd: submission.max_cost_usd }),
+          ...(submission.max_wall_clock_ms === undefined
+            ? {}
+            : { max_wall_clock_ms: submission.max_wall_clock_ms }),
           lease_token: lease.lease.token,
         }),
       };
@@ -584,6 +645,10 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
     base_sha: submission.base_sha,
     requested_by: submission.requested_by,
     ...(submission.notify === undefined ? {} : { notify: submission.notify }),
+    ...(submission.max_cost_usd === undefined ? {} : { max_cost_usd: submission.max_cost_usd }),
+    ...(submission.max_wall_clock_ms === undefined
+      ? {}
+      : { max_wall_clock_ms: submission.max_wall_clock_ms }),
     blocked_by: lease.holder.run_id,
     ttl_ms: queueTtlMs(env, submission.queue_ttl_ms),
   });

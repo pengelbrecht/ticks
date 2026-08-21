@@ -21,9 +21,11 @@ import (
 )
 
 var (
-	cloudRunNotify string
-	cloudRunQueue  bool
-	cloudStopNow   bool
+	cloudRunNotify       string
+	cloudRunQueue        bool
+	cloudRunMaxCost      float64
+	cloudRunMaxWallClock time.Duration
+	cloudStopNow         bool
 )
 
 // cloudHTTPClient is a package variable so command tests can exercise the
@@ -54,8 +56,17 @@ it does not widen that vocabulary.`,
 }
 
 var cloudRunCmd = &cobra.Command{
-	Use:          "run <epic>",
-	Short:        "Push the current branch and start a cloud run for an epic",
+	Use:   "run <epic>",
+	Short: "Push the current branch and start a cloud run for an epic",
+	Long: `Push the current branch and start a cloud run for an epic.
+
+--max-cost and --max-wall-clock bound this one run. They ride the submission
+into the Workflow that enforces budgets, so trying something cheap is a per-
+invocation choice rather than an edit to the deployment's own budget vars.
+They only ever lower it: the deployment ceiling still bounds the run, and a
+larger value is clamped to it. Omitting them leaves the ceiling standing.
+
+  tk cloud run pay-4 --max-cost 2.50 --max-wall-clock 45m`,
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE:         runCloudRun,
@@ -101,6 +112,8 @@ run/stop/status/answer (D21).`,
 func init() {
 	cloudRunCmd.Flags().StringVar(&cloudRunNotify, "notify", "", "notification channel for this submission")
 	cloudRunCmd.Flags().BoolVar(&cloudRunQueue, "queue", false, "park behind the current project lease instead of refusing")
+	cloudRunCmd.Flags().Float64Var(&cloudRunMaxCost, "max-cost", 0, "cost ceiling in USD for this run; may lower the deployment budget, never raise it")
+	cloudRunCmd.Flags().DurationVar(&cloudRunMaxWallClock, "max-wall-clock", 0, "wall-clock ceiling for this run (e.g. 45m); may lower the deployment budget, never raise it")
 	cloudStopCmd.Flags().BoolVar(&cloudStopNow, "now", false, "hard stop: revoke the run's gateway credential immediately and skip closeout")
 
 	cloudCmd.AddCommand(cloudRunCmd)
@@ -314,6 +327,12 @@ func runCloudRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
+	// Parsed before anything is pushed: a budget the factory would refuse must
+	// not first cost a push and a lease.
+	budget, err := cloudRunBudget(cmd)
+	if err != nil {
+		return NewExitError(ExitUsage, "%v", err)
+	}
 	root, err := repoRoot()
 	if err != nil {
 		return fmt.Errorf("failed to detect repo root: %w", err)
@@ -325,15 +344,18 @@ func runCloudRun(cmd *cobra.Command, args []string) error {
 	}
 
 	submission := struct {
-		Project     string `json:"project"`
-		Epic        string `json:"epic"`
-		BaseSHA     string `json:"base_sha"`
-		RequestedBy string `json:"requested_by"`
-		Notify      string `json:"notify,omitempty"`
-		Queue       bool   `json:"queue"`
+		Project     string  `json:"project"`
+		Epic        string  `json:"epic"`
+		BaseSHA     string  `json:"base_sha"`
+		RequestedBy string  `json:"requested_by"`
+		Notify      string  `json:"notify,omitempty"`
+		Queue       bool    `json:"queue"`
+		MaxCostUSD  float64 `json:"max_cost_usd,omitempty"`
+		MaxWallMS   int64   `json:"max_wall_clock_ms,omitempty"`
 	}{
 		Project: project, Epic: args[0], BaseSHA: baseSHA, RequestedBy: requestedBy,
 		Notify: strings.TrimSpace(cloudRunNotify), Queue: cloudRunQueue,
+		MaxCostUSD: budget.maxCostUSD, MaxWallMS: budget.maxWallClockMS,
 	}
 
 	data, err := client.request(cmd.Context(), http.MethodPost, "/api/runs", submission)
@@ -365,6 +387,35 @@ func runCloudRun(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitGeneric, "factory accepted the submission but returned no run id")
 	}
 	return nil
+}
+
+// cloudRunBudgetOverride is what --max-cost and --max-wall-clock ask of one
+// submission. Zero means "not asked for", which leaves the deployment's own
+// ceiling standing — the flags bound a run downward and can never widen it,
+// so an omitted flag is not the same as a flag set to the deployment value.
+type cloudRunBudgetOverride struct {
+	maxCostUSD     float64
+	maxWallClockMS int64
+}
+
+func cloudRunBudget(cmd *cobra.Command) (cloudRunBudgetOverride, error) {
+	var budget cloudRunBudgetOverride
+	if cmd.Flags().Changed("max-cost") {
+		if cloudRunMaxCost <= 0 {
+			return budget, fmt.Errorf("--max-cost must be a positive amount in USD, got %v", cloudRunMaxCost)
+		}
+		budget.maxCostUSD = cloudRunMaxCost
+	}
+	if cmd.Flags().Changed("max-wall-clock") {
+		if cloudRunMaxWallClock <= 0 {
+			return budget, fmt.Errorf("--max-wall-clock must be a positive duration, got %s", cloudRunMaxWallClock)
+		}
+		budget.maxWallClockMS = cloudRunMaxWallClock.Milliseconds()
+		if budget.maxWallClockMS == 0 {
+			return budget, fmt.Errorf("--max-wall-clock must be at least 1ms, got %s", cloudRunMaxWallClock)
+		}
+	}
+	return budget, nil
 }
 
 func runCloudStop(cmd *cobra.Command, args []string) error {
