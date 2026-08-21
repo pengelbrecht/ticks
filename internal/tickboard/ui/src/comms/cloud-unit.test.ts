@@ -1087,6 +1087,69 @@ describe('CloudCommsClient Concurrent Operations', () => {
     });
   });
 
+  describe('live run events (tick bne)', () => {
+    it('hands a run_event to run subscribers, never to tick subscribers', () => {
+      const runEvents: unknown[] = [];
+      const tickEvents: unknown[] = [];
+      client.onRun((event) => runEvents.push(event));
+      client.onTick((event) => tickEvents.push(event));
+
+      mockWs.simulateMessage({
+        type: 'run_event',
+        epicId: 'ko8',
+        taskId: 'aaa',
+        source: 'cloud:worker',
+        event: {
+          type: 'task-completed',
+          timestamp: '2026-08-21T10:00:00.000Z',
+          status: 'ready-to-merge',
+          success: true,
+        },
+      });
+
+      // The board is observability: a run event reaches the run stream and
+      // cannot reach tick state through this door.
+      expect(runEvents).toHaveLength(1);
+      expect(runEvents[0]).toMatchObject({
+        type: 'run:event',
+        message: { epicId: 'ko8', taskId: 'aaa', source: 'cloud:worker' },
+      });
+      expect(tickEvents).toHaveLength(0);
+    });
+
+    it('stops delivering once unsubscribed', () => {
+      const seen: unknown[] = [];
+      const unsubscribe = client.onRun((event) => seen.push(event));
+      unsubscribe();
+
+      mockWs.simulateMessage({
+        type: 'run_event',
+        epicId: 'ko8',
+        source: 'cloud:orchestrator',
+        event: { type: 'epic-started', timestamp: '2026-08-21T10:00:00.000Z' },
+      });
+
+      expect(seen).toHaveLength(0);
+    });
+
+    it('survives a handler that throws, so one bad viewer cannot break the stream', () => {
+      const seen: unknown[] = [];
+      client.onRun(() => {
+        throw new Error('boom');
+      });
+      client.onRun((event) => seen.push(event));
+
+      mockWs.simulateMessage({
+        type: 'run_event',
+        epicId: 'ko8',
+        source: 'cloud:orchestrator',
+        event: { type: 'epic-started', timestamp: '2026-08-21T10:00:00.000Z' },
+      });
+
+      expect(seen).toHaveLength(1);
+    });
+  });
+
   describe('event ordering', () => {
     it('emits tick events in order', async () => {
       const events: Array<{ type: string; tickId?: string }> = [];

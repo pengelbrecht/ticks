@@ -43,14 +43,27 @@
  * holders — with N from `[orchestration].max_concurrent_runs`, defaulting to
  * 1 so this file's behaviour is unchanged until a project opts in.
  *
- * Reconcile alarms and `run_event` fan-out to the board's ProjectRoom are
- * later phases. The DO alarm is multiplexed: `#armAlarm` takes the earliest of
- * the lease deadline and the queue's expiries, and every handler re-arms for
- * the next one. Nothing may call `setAlarm` behind it.
+ * 5. **The `run_event` fan-out** (tick bne) — the run says what it is doing
+ *    HERE, and the room forwards it to the board's `ProjectRoom` (UC1 step 5).
+ *    The room is the funnel because it is already the per-project address, so
+ *    exactly one piece of code knows how to reach a board. Everything about
+ *    this path is best effort: the stream is observability, never authority,
+ *    and a board that is down or absent costs a run nothing.
+ *
+ * Reconcile alarms are a later phase. The DO alarm is multiplexed: `#armAlarm`
+ * takes the earliest of the lease deadline and the queue's expiries, and every
+ * handler re-arms for the next one. Nothing may call `setAlarm` behind it.
  */
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./index";
+import {
+  RUN_EVENT_SOURCES,
+  runEventSink,
+  type RunEventDelivery,
+  type RunEventMessage,
+  type RunEventSource,
+} from "./run-events";
 import { MAX_QUEUE_TTL_MS, MIN_QUEUE_TTL_MS, startRun } from "./runs";
 
 /**
@@ -304,7 +317,40 @@ export type RunRoomStatus = {
   lease: DispatchLeaseView | null;
   pending: { open: number; resolved: number };
   queued: QueuedSubmission[];
+  /**
+   * The tail of the `run_event` stream this room forwarded (tick bne), newest
+   * first — the same picture the board draws, readable over HTTP by an
+   * operator who has no browser open.
+   *
+   * A convenience, and stated as one: nothing reads it to decide anything.
+   * "The operator repeatedly had to ask whether a run was still alive" is what
+   * it answers, in the shape tpl's keeper heartbeat proved works — a working
+   * run and a hung one are distinguishable from outside without touching model
+   * telemetry.
+   */
+  recent_events: RunEventView[];
 };
+
+/** One forwarded event as `status` shows it. */
+export type RunEventView = {
+  at: string;
+  epic: string;
+  tick: string | null;
+  source: RunEventSource;
+  type: string;
+  status: string | null;
+  message: string | null;
+  delivered: boolean;
+};
+
+/**
+ * How many forwarded events a room keeps.
+ *
+ * Small on purpose. This is a live view, not an archive: the archive is R2
+ * (`artifacts.ts`), and a DO that grew an unbounded log of a chatty run's
+ * heartbeat would be paying storage for something nothing reads twice.
+ */
+export const MAX_RECENT_EVENTS = 50;
 
 /** Single-row table: the lease is one per project, and the room *is* the project. */
 const LEASE_ROW = "dispatch";
@@ -353,7 +399,54 @@ type QuestionRecord = {
   resolution: string | null;
 };
 
+type RunEventRecord = {
+  seq: number;
+  at: number;
+  epic: string;
+  tick: string | null;
+  source: string;
+  type: string;
+  status: string | null;
+  message: string | null;
+  delivered: number;
+};
+
 const stamp = (ms: number): string => new Date(ms).toISOString();
+
+/**
+ * Returns a complaint when the message is not a `run_event` the schema
+ * describes, else null.
+ *
+ * The room checks rather than trusts because it is the last code that sees an
+ * event before it leaves this Worker: a producer bug that put a bare number or
+ * an unknown source on the wire would surface as a board that silently draws
+ * nothing, which is the worst way to learn about it.
+ */
+function badRunEvent(event: unknown): string | null {
+  if (typeof event !== "object" || event === null) return "the event is not an object";
+  const message = event as Partial<RunEventMessage>;
+  if (message.type !== "run_event") return `the event's type is ${String(message.type)}`;
+  if (typeof message.epicId !== "string" || message.epicId.trim() === "") {
+    return "the event names no epic";
+  }
+  if (
+    message.taskId !== undefined &&
+    (typeof message.taskId !== "string" || message.taskId.trim() === "")
+  ) {
+    return "the event's taskId is present but empty";
+  }
+  if (!RUN_EVENT_SOURCES.includes(message.source as RunEventSource)) {
+    return `${JSON.stringify(message.source)} is not one of the substrate-shaped sources ` +
+      `(${RUN_EVENT_SOURCES.join(", ")})`;
+  }
+  const data = message.event as Record<string, unknown> | undefined;
+  if (typeof data !== "object" || data === null) return "the event carries no payload";
+  if (typeof data.type !== "string" || data.type === "") return "the payload names no type";
+  if (typeof data.timestamp !== "string" || data.timestamp === "") {
+    return "the payload carries no timestamp";
+  }
+  return null;
+}
 
 /** Returns a complaint when the field is not a non-empty string, else null. */
 function badText(value: unknown, field: string): string | null {
@@ -436,6 +529,17 @@ export class RunRoom extends DurableObject<Env> {
         mode TEXT NOT NULL,
         requested_by TEXT NOT NULL,
         requested_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS run_event (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        epic TEXT NOT NULL,
+        tick TEXT,
+        source TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT,
+        message TEXT,
+        delivered INTEGER NOT NULL
       );
     `);
 
@@ -975,6 +1079,114 @@ export class RunRoom extends DurableObject<Env> {
     ].map((record) => this.#entry(record));
   }
 
+  // ----------------------------------------------------------- run events ---
+
+  /**
+   * Forwards a batch of `run_event` messages to the board and remembers the
+   * tail (tick bne).
+   *
+   * NEVER THROWS and never retries. The board is observability: a run whose
+   * events are all dropped completes, collects and finalizes exactly as one
+   * whose events all landed, because nothing downstream of this method feeds
+   * anything upstream of it. That is why a sink failure is recorded as
+   * `delivered: false` on the room's own tail rather than raised — the
+   * operator can still see that the run is alive and that the board is not.
+   *
+   * The batch is one round trip on purpose: a wave's per-tick events are
+   * generated together, and one DO hop for a wave beats one per tick.
+   */
+  async publishRunEvents(
+    project: string,
+    events: RunEventMessage[]
+  ): Promise<RunEventDelivery[]> {
+    if (!Array.isArray(events) || events.length === 0) return [];
+
+    const sink = runEventSink(this.env);
+    const deliveries: RunEventDelivery[] = [];
+
+    for (const event of events) {
+      const complaint = badRunEvent(event);
+      if (complaint !== null) {
+        // A malformed event is this factory's bug, not the board's, and it is
+        // not worth failing a run over. It is logged and dropped: publishing
+        // it would put a message on the wire that no schema describes.
+        console.error(`factory run-room: ${project}: refusing to forward an event: ${complaint}`);
+        deliveries.push({ delivered: false, detail: complaint });
+        continue;
+      }
+
+      let delivery: RunEventDelivery;
+      if (sink === null) {
+        delivery = {
+          delivered: false,
+          detail: "no board is configured for this factory (BOARD_BASE_URL/BOARD_TOKEN)",
+        };
+      } else {
+        try {
+          delivery = await sink.publish(project, event);
+        } catch (error) {
+          delivery = {
+            delivered: false,
+            detail: `the board could not be reached: ${String(
+              error instanceof Error ? error.message : error
+            )}`,
+          };
+        }
+      }
+
+      this.#recordEvent(event, delivery.delivered);
+      deliveries.push(delivery);
+    }
+
+    return deliveries;
+  }
+
+  /** The tail of the forwarded stream, newest first. */
+  async recentEvents(limit: number = MAX_RECENT_EVENTS): Promise<RunEventView[]> {
+    const bounded = Number.isSafeInteger(limit)
+      ? Math.max(1, Math.min(limit, MAX_RECENT_EVENTS))
+      : MAX_RECENT_EVENTS;
+    return [
+      ...this.ctx.storage.sql.exec<RunEventRecord>(
+        `SELECT seq, at, epic, tick, source, type, status, message, delivered
+         FROM run_event ORDER BY seq DESC LIMIT ?`,
+        bounded
+      ),
+    ].map((record) => ({
+      at: stamp(record.at),
+      epic: record.epic,
+      tick: record.tick,
+      source: record.source as RunEventSource,
+      type: record.type,
+      status: record.status,
+      message: record.message,
+      delivered: record.delivered === 1,
+    }));
+  }
+
+  #recordEvent(event: RunEventMessage, delivered: boolean): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO run_event (at, epic, tick, source, type, status, message, delivered)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      Date.parse(event.event.timestamp) || Date.now(),
+      event.epicId,
+      event.taskId ?? null,
+      event.source,
+      event.event.type,
+      event.event.status ?? null,
+      event.event.message ?? null,
+      delivered ? 1 : 0
+    );
+    // Trim in the same synchronous block as the insert, so the table is never
+    // observed above its cap and a long run cannot grow the room without bound.
+    this.ctx.storage.sql.exec(
+      `DELETE FROM run_event WHERE seq <= (
+         SELECT MAX(seq) FROM run_event
+       ) - ?`,
+      MAX_RECENT_EVENTS
+    );
+  }
+
   // --------------------------------------------------------------- status ---
 
   /** What the room holds right now: the lease (token withheld) and question counts. */
@@ -993,6 +1205,7 @@ export class RunRoom extends DurableObject<Env> {
       lease: await this.leaseStatus(),
       pending: { open: counts.open, resolved: counts.resolved },
       queued: await this.listQueuedSubmissions(),
+      recent_events: await this.recentEvents(),
     };
   }
 

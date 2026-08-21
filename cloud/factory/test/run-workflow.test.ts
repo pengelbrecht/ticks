@@ -25,6 +25,7 @@ import {
 import { WORKER_COMMAND, WORKER_PROBE_COMMAND, WORKER_PROBE_MARKER } from "../src/worker-boot";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
 import { workerSandboxName } from "../src/worker-dispatch";
+import type { RunEventMessage, RunEventSink } from "../src/run-events";
 
 /**
  * The Run Workflow: boot one orchestrator sandbox, watch it, enforce the
@@ -1884,5 +1885,185 @@ describe("a cloud wave in flight answers to a stop and to a budget", () => {
     } finally {
       logs.restore();
     }
+  });
+});
+
+/**
+ * The board finally sees a live run (tick bne).
+ *
+ * These drive the REAL Workflow with a recording sink in the `RUN_EVENTS`
+ * seam, so what is asserted is what a deployed factory would actually put on
+ * the wire — not what a builder returns in isolation (that is
+ * test/run-events.test.ts).
+ */
+describe("a run streams run_event to the board", () => {
+  let collector: FakeWorkerCollector;
+  let published: RunEventMessage[];
+
+  /** A sink that remembers what reached it, or refuses everything. */
+  class WorkflowSink implements RunEventSink {
+    fail: string | null = null;
+    async publish(_project: string, event: RunEventMessage) {
+      if (this.fail !== null) throw new Error(this.fail);
+      published.push(event);
+      return { delivered: true, detail: "ok" };
+    }
+  }
+
+  let sink: WorkflowSink;
+
+  beforeEach(() => {
+    collector = new FakeWorkerCollector();
+    set("WORKER_COLLECTOR", collector);
+    published = [];
+    sink = new WorkflowSink();
+    set("RUN_EVENTS", sink);
+  });
+
+  const seen = (type: string) => published.filter((e) => e.event.type === type);
+
+  it("shows a cloud run live, with per-tick state and substrate-shaped sources", async () => {
+    const { runID, epic } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("stopped");
+
+    // The run announced itself before any container existed.
+    const started = seen("epic-started");
+    expect(started).toHaveLength(1);
+    expect(started[0]!).toMatchObject({
+      type: "run_event",
+      epicId: epic,
+      source: "cloud:orchestrator",
+    });
+    expect(started[0]!.taskId).toBeUndefined();
+    expect(started[0]!.event.message).toContain(runID);
+
+    // Per-tick state: one dispatch and one verdict for each tick, attributed
+    // to the worker substrate and scoped to its own tick.
+    const dispatched = seen("task-started");
+    expect(dispatched.map((e) => e.taskId).sort()).toEqual(["aaa", "bbb"]);
+    expect(dispatched.every((e) => e.source === "cloud:worker")).toBe(true);
+
+    const finished = seen("task-completed");
+    expect(finished.map((e) => e.taskId).sort()).toEqual(["aaa", "bbb"]);
+    expect(finished.every((e) => e.source === "cloud:worker")).toBe(true);
+    expect(finished.every((e) => e.event.status === "ready-to-merge")).toBe(true);
+    expect(finished.every((e) => e.event.success === true)).toBe(true);
+
+    // Dispatch is announced BEFORE the verdict for the same tick — a wave that
+    // boots and then wedges must still have shown what it was working on.
+    const order = published.map((e) => `${e.event.type}:${e.taskId ?? "-"}`);
+    expect(order.indexOf("task-started:aaa")).toBeLessThan(order.indexOf("task-completed:aaa"));
+
+    // And the run's last word.
+    expect(seen("epic-completed")).toHaveLength(1);
+    expect(seen("epic-completed")[0]!.source).toBe("cloud:orchestrator");
+  });
+
+  it("reports the durable verdict, never the worker's own claim, as success", async () => {
+    // A worker that writes STATUS: DONE onto a branch with no commits is
+    // exactly what collect exists to catch. The board must not show it green.
+    collector.set("aaa", {
+      verdict: "no-commits",
+      commits: 0,
+      status: "DONE",
+      status_line: "STATUS: DONE",
+      detail: "the branch has no commits beyond the base",
+    });
+    const { runID } = await ignite({ tickIDs: ["aaa"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+    await settled(runID);
+
+    const finished = seen("task-completed");
+    expect(finished).toHaveLength(1);
+    expect(finished[0]!.event.success).toBe(false);
+    expect(finished[0]!.event.status).toBe("no-commits");
+    // The claim is still shown — an operator wants to read it — it just is not
+    // what decides the badge.
+    expect(finished[0]!.event.message).toContain("DONE");
+  });
+
+  it("carries the gateway's cost on the closing event and never an agent's", async () => {
+    set("CLOUDFLARE_API_TOKEN", "cf-api-token");
+    set("CLOUDFLARE_API_BASE_URL", LOGS_API);
+    const logs = stubLogsAPI(0.5, undefined, 4);
+
+    try {
+      const { runID } = await ignite({ tickIDs: ["aaa"] });
+      const closeout = await waitFor("the closeout orchestrator", async () =>
+        sandboxes.phase("closeout")
+      );
+      closeout.exit(0);
+      const run = await settled(runID);
+
+      const completed = seen("epic-completed");
+      expect(completed).toHaveLength(1);
+      // The same number the gateway logs produced and the index row recorded.
+      expect(completed[0]!.event.metrics?.costUsd).toBeCloseTo(4 * 0.5, 6);
+      expect(completed[0]!.event.metrics?.costUsd).toBeCloseTo(run.cost_usd, 6);
+      // No per-tick event carries a cost at all: a worker has no way to put
+      // one there.
+      expect(seen("task-completed").every((e) => e.event.metrics === undefined)).toBe(true);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("publishes no cost at all when the gateway telemetry could not be read", async () => {
+    // Unknown and free are different facts. The default harness has no
+    // Cloudflare API token, so this is the unreadable case.
+    const { runID } = await ignite({ tickIDs: ["aaa"] });
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+    await settled(runID);
+
+    const completed = seen("epic-completed");
+    expect(completed).toHaveLength(1);
+    expect(completed[0]!.event.metrics?.costUsd).toBeUndefined();
+  });
+
+  it("completes and collects identically when every event is dropped", async () => {
+    // The load-bearing claim: the stream is observability, not control. A
+    // board that refuses everything must change nothing about the run.
+    sink.fail = "the board is down";
+    const { runID, project } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+    const run = await settled(runID);
+
+    expect(run.state).toBe("stopped");
+    expect(published).toHaveLength(0);
+    // Collect still read the durable layer for both ticks, and the run record
+    // still carries their verdicts.
+    expect(collector.asked.map((t) => t.tick_id).sort()).toEqual(["aaa", "bbb"]);
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("cloud wave dispatched 2");
+    expect(record.detail).toContain("ready-to-merge");
+  });
+
+  it("streams the Phase 1 single-orchestrator run too, without per-tick events", async () => {
+    const { runID, epic } = await ignite();
+    const process = await firstProcess();
+    orchestratorPushedWork(epic);
+    process.exit(0);
+
+    expect((await settled(runID)).state).toBe("completed");
+    expect(seen("epic-started")).toHaveLength(1);
+    expect(seen("epic-completed")).toHaveLength(1);
+    expect(seen("epic-completed")[0]!.event.success).toBe(true);
+    expect(seen("task-started")).toHaveLength(0);
   });
 });

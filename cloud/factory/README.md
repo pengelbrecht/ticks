@@ -115,6 +115,24 @@ it (`src/run-workflow.ts`):
   read is best effort — a Worker that refused every run on a GitHub hiccup
   would be worse than the silence it replaced — and the container is the
   backstop: it refuses a boot that is not what its checkout declares.
+- **A run reports itself to a board, if there is one (tick bne).** The Workflow
+  emits `run_event` messages — `epic-started` before anything boots,
+  `task-started` per tick before its worker container is dispatched,
+  `task-completed` carrying that tick's COLLECT verdict, `epic-completed` at
+  finalize — through the project's RunRoom, which forwards them to
+  `POST /api/projects/:project/run-events` on the board named by
+  `BOARD_BASE_URL` with the credential in the `BOARD_TOKEN` secret. Both are
+  **unset by default and neither is a dependency**: a factory runs identically
+  with no board at all, because the stream is observability and never control.
+  Nothing about a run's outcome depends on an event landing — a publish cannot
+  throw, is not retried, and is bounded by a short timeout — and a run whose
+  every event is dropped completes and collects exactly the same way. A tick
+  shows as successful only when collect said `ready-to-merge`; a worker's own
+  `STATUS:` line is carried as text and decides nothing. `costUsd` on the
+  stream comes from AI Gateway telemetry alone, and a read that failed carries
+  no cost rather than a zero. Whether a board is listening or not, the room
+  keeps the last 50 events on its `/status` probe, so "is this run still
+  alive?" is answerable without a browser.
 - **Budgets are enforced here, never in a prompt (D14).** `RUN_MAX_WALL_CLOCK_MS`
   and `RUN_MAX_COST_USD` are checked at every observation against the elapsed
   time the Workflow measured and the `cost_usd` on the index row, which is read

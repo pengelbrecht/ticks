@@ -13,8 +13,8 @@ compatibility_flags = ["nodejs_compat"]
 
 # One RunRoom per project (idFromName(project)) — the dispatch lease is per
 # project, so an epic-scoped room would hand every run its own lease and
-# arbitrate nothing (D4, D19). It owns the lease and the pending-question store
-# today; reconcile alarms and run_event fan-out land with later phases.
+# arbitrate nothing (D4, D19). It owns the lease, the pending-question store and
+# the run_event fan-out to the board (tick bne); reconcile alarms land later.
 [[durable_objects.bindings]]
 name = "RUN_ROOMS"
 class_name = "RunRoom"
@@ -121,6 +121,16 @@ RUN_CLOSEOUT_MS = "1800000"
 # together, bounded by the account's real container limit, or a wave wider
 # than this silently serializes exactly the way wave 3 measured for Phase 1.
 FACTORY_MAX_INSTANCES = "3"
+
+# Where a run's live `run_event` stream is forwarded so a board can draw it
+# (tick bne). Left unset on purpose: a factory is self-deployed into the
+# operator's own account and runs identically with no board — the stream is
+# observability, never authority, so an unconfigured board costs a run nothing
+# and a board that is down costs it nothing either. A deployment that wants a
+# live board sets the base URL here and puts the credential in a secret
+# (`wrangler secret put BOARD_TOKEN`), never in this tracked file.
+#
+#   BOARD_BASE_URL = "https://<your-board-host>"
 
 # The Run Workflow: one instance per run, keyed by run id, so one trace ID
 # threads every layer (D20) and `status` finds the instance with no extra

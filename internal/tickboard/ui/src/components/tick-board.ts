@@ -54,6 +54,7 @@ initCommsAutoConnect();
 import './ticks-button.js';
 import './ticks-alert.js';
 import './roadmap-view.js';
+import './live-run-panel.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -1103,6 +1104,11 @@ export class TickBoard extends LitElement {
         @dashboard-toggle=${this.toggleDashboard}
         @roadmap-toggle=${this.toggleRoadmap}
       ></tick-header>
+
+      <!-- Live run, when one is streaming (tick bne). Its own surface, never
+           the columns: the stream is observability, and a tick still only
+           moves when the tracker says so. -->
+      <live-run-panel></live-run-panel>
 
       <!-- Toast notification stack -->
       <tick-toast-stack></tick-toast-stack>

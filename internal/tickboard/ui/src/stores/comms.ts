@@ -7,7 +7,7 @@
 
 import { atom, computed, onMount } from 'nanostores';
 import type { Tick } from '../types/tick.js';
-import type { CommsClient, TickEvent, ConnectionEvent } from '../comms/index.js';
+import type { CommsClient, TickEvent, ConnectionEvent, RunEvent } from '../comms/index.js';
 import { LocalCommsClient, CloudCommsClient } from '../comms/index.js';
 import {
   $isCloudMode,
@@ -16,6 +16,7 @@ import {
   setLocalClientConnected,
   setSyncConnected,
 } from './connection.js';
+import { applyRunEvent, clearLiveRun } from './run.js';
 import {
   setTicksFromMap,
   updateTick,
@@ -102,6 +103,19 @@ function handleTickEvent(event: TickEvent): void {
 }
 
 /**
+ * Handle live run events (tick bne).
+ *
+ * Deliberately routed to the run store and NOWHERE else. A run event never
+ * touches tick state: the board is observability, and a tick is done when
+ * collect says the branch carries the work, not when a badge says so.
+ */
+function handleRunEvent(event: RunEvent): void {
+  if (event.type === 'run:event') {
+    applyRunEvent(event.message);
+  }
+}
+
+/**
  * Handle connection events and update stores accordingly.
  */
 function handleConnectionEvent(event: ConnectionEvent): void {
@@ -157,6 +171,8 @@ export async function initLocalComms(): Promise<void> {
   // Subscribe to events
   unsubscribers.push(client.onTick(handleTickEvent));
   unsubscribers.push(client.onConnection(handleConnectionEvent));
+  // No run subscription in local mode: the local transport is SSE and carries
+  // no `run_event` today. A board with no live run is a board, not a bug.
 
   $commsClient.set(client);
 
@@ -186,6 +202,10 @@ export async function initCloudComms(projectId: string): Promise<void> {
   // Subscribe to events
   unsubscribers.push(client.onTick(handleTickEvent));
   unsubscribers.push(client.onConnection(handleConnectionEvent));
+  // Optional on the interface: a transport that carries no run_event simply
+  // never shows a live run, which costs nothing (tick bne).
+  const onRun = client.onRun?.bind(client);
+  if (onRun) unsubscribers.push(onRun(handleRunEvent));
 
   $commsClient.set(client);
   setRepoName(projectId);
@@ -231,6 +251,10 @@ function cleanup(): void {
     unsub();
   }
   unsubscribers = [];
+
+  // A live run belongs to the connection that was streaming it: leaving it on
+  // screen across a reconnect would show a run that nothing is reporting on.
+  clearLiveRun();
 
   // Disconnect client
   const client = $commsClient.get();

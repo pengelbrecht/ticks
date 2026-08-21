@@ -201,6 +201,38 @@ interface PendingRequest {
 
 const SYNC_REQUEST_DEBOUNCE_MS = 1000;
 
+/**
+ * The substrate-shaped `RunEventSource` values, from
+ * `schemas/websocket/messages.schema.json`.
+ *
+ * Tick zjp retired the vestigial `ralph`/`swarm` values for these so the first
+ * real producer would emit something honest (tick bne). The list is checked
+ * rather than trusted because this room is the last code that sees an event
+ * before a browser does.
+ */
+const RUN_EVENT_SOURCES = ["cloud:orchestrator", "cloud:worker", "harness", "herdr", "pi"];
+
+/** Returns a complaint when the value is not a `run_event`, else null. */
+export function validateRunEvent(event: unknown): string | null {
+  if (typeof event !== "object" || event === null) return "the event is not an object";
+  const msg = event as Record<string, unknown>;
+  if (msg.type !== "run_event") return `the event's type is ${JSON.stringify(msg.type)}`;
+  if (typeof msg.epicId !== "string" || msg.epicId.trim() === "") return "the event names no epic";
+  if (msg.taskId !== undefined && (typeof msg.taskId !== "string" || msg.taskId.trim() === "")) {
+    return "the event's taskId is present but empty";
+  }
+  if (typeof msg.source !== "string" || !RUN_EVENT_SOURCES.includes(msg.source)) {
+    return `${JSON.stringify(msg.source)} is not one of ${RUN_EVENT_SOURCES.join(", ")}`;
+  }
+  const data = msg.event as Record<string, unknown> | undefined;
+  if (typeof data !== "object" || data === null) return "the event carries no payload";
+  if (typeof data.type !== "string" || data.type === "") return "the payload names no type";
+  if (typeof data.timestamp !== "string" || data.timestamp === "") {
+    return "the payload carries no timestamp";
+  }
+  return null;
+}
+
 export class ProjectRoom extends DurableObject<Env> {
   private ticks: Map<string, Tick> = new Map();
   private connections: Map<string, Connection> = new Map();
@@ -457,9 +489,10 @@ export class ProjectRoom extends DurableObject<Env> {
           // Only local clients send run events, only cloud clients receive them
           console.log(`[ProjectRoom:${this.projectId}] run_event from ${conn.type} client: ${(msg as RunEventMessage).event?.type}`);
           if (conn.type === "local") {
-            const cloudClientCount = [...this.connections.values()].filter(c => c.type === "cloud").length;
-            console.log(`[ProjectRoom:${this.projectId}] Broadcasting to ${cloudClientCount} cloud clients`);
-            this.broadcastToCloudClients(msg);
+            // The same check the HTTP door runs (publishRunEvent): two
+            // entrances answering the same question must not answer it
+            // differently.
+            await this.publishRunEvent(msg);
           }
           break;
 
@@ -838,6 +871,31 @@ export class ProjectRoom extends DurableObject<Env> {
    */
   async reopenTick(tickId: string, initiatingUserId?: string): Promise<Tick> {
     return this.sendOperation("reopen", tickId, undefined, initiatingUserId);
+  }
+
+  /**
+   * Broadcast one `run_event` to the browsers watching this project (tick bne).
+   *
+   * The WebSocket path above carries run events from a *local* agent. This is
+   * the same fan-out reached over HTTP, which is how a run with no laptop in
+   * it — a cloud factory's RunRoom — gets a live run onto the board.
+   *
+   * It is deliberately the narrowest thing that could work: run events are
+   * transient, so nothing is stored, nothing is merged into tick state, and no
+   * tick is created, updated or closed by anything arriving here. The board is
+   * observability; the tracker is still written only by the local agent
+   * through `sendOperation`, and a tick is still only done when collect says
+   * so. A malformed message is refused rather than relayed, so a producer bug
+   * cannot put a shape on the wire that no schema describes.
+   */
+  async publishRunEvent(event: unknown): Promise<{ ok: boolean; error?: string }> {
+    const complaint = validateRunEvent(event);
+    if (complaint !== null) {
+      console.error(`[ProjectRoom:${this.projectId}] refusing a run_event: ${complaint}`);
+      return { ok: false, error: complaint };
+    }
+    this.broadcastToCloudClients(event as unknown as ServerMessage);
+    return { ok: true };
   }
 
   // ============================================================================

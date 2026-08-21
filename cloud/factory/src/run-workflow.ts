@@ -77,6 +77,13 @@ import {
   type RunProgress,
 } from "./progress";
 import { readDeclaredMaxParallel, readDeclaredSandboxImage } from "./repo-config";
+import {
+  epicCompleted,
+  epicStarted,
+  publishRunEvents,
+  tickCompleted,
+  tickStarted,
+} from "./run-events";
 import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS } from "./run-room";
 import { logDispatch, roomFor, type RunWorkflowParams } from "./runs";
 import {
@@ -705,6 +712,22 @@ export async function acquireContext(
 
   // `starting` belongs to the submit route; the Workflow owns the run now.
   await updateRunState(env.DB, params.run_id, "running");
+
+  // The board finds out a run exists here — after the refusals above, so it
+  // never draws a run that a broken deploy was about to reject, and before any
+  // container boots, so the first thing an operator sees is the run appearing.
+  // `publishRunEvents` cannot throw: nothing below the record above may depend
+  // on a picture of it reaching a screen (tick bne).
+  await publishRunEvents(env, params.project, [
+    epicStarted({
+      epic: params.epic,
+      run_id: params.run_id,
+      status:
+        cloud_wave === null
+          ? "one orchestrator container"
+          : `${cloud_wave.tick_ids.length} tick(s), ${cloud_wave.width} at a time`,
+    }),
+  ]);
 
   return { ok: true, context };
 }
@@ -1547,6 +1570,18 @@ export async function superviseCloudWave(
       issueRunToken(env, { run_id: params.run_id, tick_id: params.epic, attempt: i + 1 })
     );
 
+    // The board learns which ticks are in flight BEFORE the containers are
+    // booted, because a wave that boots and then wedges is exactly the run an
+    // operator needs to see the shape of. One publish per batch, never one per
+    // tick: a wave's events are generated together and one DO hop carries them.
+    await step.do(`cloud:events:started:${i}`, OBSERVE_RETRIES, async () =>
+      publishRunEvents(
+        env,
+        params.project,
+        batch.map((tick) => tickStarted({ epic: params.epic, tick, batch: i + 1 }))
+      )
+    );
+
     const dispatched = await step.do(`cloud:dispatch:${i}`, CLOUD_DISPATCH_RETRIES, async () => {
       const binding = sandboxBinding(env);
       if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
@@ -1598,6 +1633,33 @@ export async function superviseCloudWave(
       return { outcomes: batch_outcomes, cancelled: cancel.cancelled };
     });
     outcomes.push(...dispatched.outcomes);
+
+    // What the DURABLE LAYER said about each tick, never what its container
+    // printed or its report claimed: `success` on the board is
+    // `verdict === "ready-to-merge"` and nothing else (tick bne). A worker
+    // that writes STATUS: DONE onto a branch with no commits is the case
+    // collect exists to catch, and a board that believed the report would be
+    // drawing green over an empty branch.
+    //
+    // Published BEFORE the cancellation return (tick k24) on purpose: a wave
+    // cancelled mid-batch is exactly when an operator most needs the board to
+    // show what the containers that did run actually produced. Returning first
+    // would hide a cancelled batch's real outcomes behind the cancellation.
+    await step.do(`cloud:events:collected:${i}`, OBSERVE_RETRIES, async () =>
+      publishRunEvents(
+        env,
+        params.project,
+        dispatched.outcomes.map((outcome) =>
+          tickCompleted({
+            epic: params.epic,
+            tick: outcome.collect.tick_id,
+            verdict: outcome.launched ? outcome.collect.verdict : "not-launched",
+            status: outcome.collect.status,
+            detail: outcome.launched ? outcome.collect.detail : outcome.detail,
+          })
+        )
+      )
+    );
 
     if (dispatched.cancelled !== null) {
       const trip = tripFromCancellation(dispatched.cancelled);
@@ -1702,6 +1764,30 @@ export async function finalize(
   const telemetry = finalSpend.ok ? null : (costTelemetry ?? finalSpend.detail);
 
   const run = await getRun(env.DB, params.run_id);
+
+  // The run's last word to the board (tick bne), before the index row goes
+  // terminal rather than after — so "the run is finished" cannot be true
+  // anywhere before the picture of it has been offered, and so nothing
+  // downstream of this line (the lease release, the record, the container
+  // teardown) can be reordered by how slow a board is.
+  //
+  // `spend` is the AI Gateway read taken above and nothing else:
+  // `epicCompleted` has no parameter an agent's self-reported cost would fit,
+  // which is what keeps a self-report from re-entering the protocol through
+  // `metrics.costUsd`. A read that failed publishes NO cost rather than a
+  // zero — unknown and free are different facts about a run.
+  await publishRunEvents(env, params.project, [
+    epicCompleted({
+      epic: params.epic,
+      run_id: params.run_id,
+      state: outcome.state,
+      detail: outcome.detail,
+      spend: finalSpend,
+      ...(run?.started_at === undefined
+        ? {}
+        : { duration_ms: Math.max(0, Date.parse(endedAt) - Date.parse(run.started_at)) }),
+    }),
+  ]);
 
   await updateRunState(env.DB, params.run_id, outcome.state, endedAt);
   // The evidence the state was decided from, stamped beside it: an operator
