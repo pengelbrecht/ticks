@@ -1,0 +1,2406 @@
+{
+ "schema": "ticks.workers-ai-models/1",
+ "measured_at": "2026-08-21",
+ "source": "live Cloudflare API (GET /accounts/<id>/ai/models/search and POST /accounts/<id>/ai/v1/chat/completions)",
+ "endpoint": "https://api.cloudflare.com/client/v4/accounts/<cloudflare-account-id>/ai/v1/chat/completions",
+ "neuron_usd_per_1000": 0.011,
+ "neuron_rate_check": [
+  {
+   "model": "@cf/openai/gpt-oss-120b",
+   "predicted_usd": 8.36e-05,
+   "billed_usd": 8.36e-05
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.7-code",
+   "predicted_usd": 0.00023275,
+   "billed_usd": 0.00023275
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.6",
+   "predicted_usd": 0.00025275,
+   "billed_usd": 0.00025275
+  },
+  {
+   "model": "@cf/zai-org/glm-4.7-flash",
+   "predicted_usd": 3.9337e-05,
+   "billed_usd": 3.9365e-05
+  },
+  {
+   "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "predicted_usd": 0.000115309,
+   "billed_usd": 0.000115378
+  },
+  {
+   "model": "@cf/ibm-granite/granite-4.0-h-micro",
+   "predicted_usd": 6.808e-06,
+   "billed_usd": 6.792e-06
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "predicted_usd": 0.0002596,
+   "billed_usd": 0.0002596
+  },
+  {
+   "model": "@cf/zai-org/glm-5.2",
+   "predicted_usd": 0.0003716,
+   "billed_usd": 0.0003716
+  },
+  {
+   "model": "@cf/nvidia/nemotron-3-120b-a12b",
+   "predicted_usd": 0.0002885,
+   "billed_usd": 0.000286616
+  },
+  {
+   "model": "@cf/qwen/qwen3-30b-a3b-fp8",
+   "predicted_usd": 4.7403e-05,
+   "billed_usd": 4.7423e-05
+  },
+  {
+   "model": "@cf/google/gemma-4-26b-a4b-it",
+   "predicted_usd": 1.6e-05,
+   "billed_usd": 1.6e-05
+  },
+  {
+   "model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+   "predicted_usd": 4.6755e-05,
+   "billed_usd": 4.6726e-05
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "predicted_usd": 0.00079464,
+   "billed_usd": 0.00079464
+  },
+  {
+   "model": "@cf/qwen/qwen3.8-27b",
+   "predicted_usd": 0.0002915,
+   "billed_usd": 0.0002915
+  },
+  {
+   "model": "@cf/openai/gpt-oss-20b",
+   "predicted_usd": 4.14e-05,
+   "billed_usd": 4.14e-05
+  },
+  {
+   "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+   "predicted_usd": 5.463e-05,
+   "billed_usd": 5.463e-05
+  }
+ ],
+ "inventory": [
+  {
+   "name": "@cf/pipecat-ai/smart-turn-v2",
+   "task": "Dumb Pipe",
+   "created_at": "2025-08-04 10:08:04.219",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/openai/gpt-oss-120b",
+   "task": "Text Generation",
+   "created_at": "2025-08-05 10:27:29.131",
+   "context_window": 128000,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.35,
+   "price_per_m_output_usd": 0.75,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/baai/bge-m3",
+   "task": "Text Embeddings",
+   "created_at": "2024-05-22 19:27:09.781",
+   "context_window": 60000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.0118,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/huggingface/distilbert-sst-2-int8",
+   "task": "Text Classification",
+   "created_at": "2023-09-25 19:21:11.898",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.0263,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/google/gemma-2b-it-lora",
+   "task": "Text Generation",
+   "created_at": "2024-04-02 00:19:34.669",
+   "context_window": 8192,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/black-forest-labs/flux-2-klein-9b",
+   "task": "Text-to-Image",
+   "created_at": "2026-01-14 12:55:54.294",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/llama-3.2-3b-instruct",
+   "task": "Text Generation",
+   "created_at": "2024-09-25 20:05:43.986",
+   "context_window": 80000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.0509,
+   "price_per_m_output_usd": 0.335,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/llama-guard-3-8b",
+   "task": "Text Generation",
+   "created_at": "2025-01-22 23:26:23.495",
+   "context_window": 131072,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.484,
+   "price_per_m_output_usd": 0.03,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/qwen/qwen3-embedding-0.6b",
+   "task": "Text Embeddings",
+   "created_at": "2025-06-18 20:23:22.086",
+   "context_window": 8192,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.0118,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/myshell-ai/melotts",
+   "task": "Text-to-Speech",
+   "created_at": "2024-07-19 15:51:04.819",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/mistral/mistral-7b-instruct-v0.2-lora",
+   "task": "Text Generation",
+   "created_at": "2024-04-01 22:14:40.529",
+   "context_window": 15000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepgram/aura-2-es",
+   "task": "Text-to-Speech",
+   "created_at": "2025-10-09 22:42:37.002",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/moonshotai/kimi-k2.7-code",
+   "task": "Text Generation",
+   "created_at": "2026-06-12 11:45:20.582",
+   "context_window": 262144,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": true,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.95,
+   "price_per_m_output_usd": 4,
+   "price_per_m_cached_input_usd": 0.19
+  },
+  {
+   "name": "@cf/openai/whisper",
+   "task": "Automatic Speech Recognition",
+   "created_at": "2023-09-25 19:21:11.898",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/pfnet/plamo-embedding-1b",
+   "task": "Text Embeddings",
+   "created_at": "2025-09-24 18:42:05.576",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.0186,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/llava-hf/llava-1.5-7b-hf",
+   "task": "Image-to-Text",
+   "created_at": "2024-05-01 18:00:39.971",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+   "task": "Text Generation",
+   "created_at": "2025-01-22 19:48:55.776",
+   "context_window": 80000,
+   "function_calling": false,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.497,
+   "price_per_m_output_usd": 4.881,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/runwayml/stable-diffusion-v1-5-inpainting",
+   "task": "Text-to-Image",
+   "created_at": "2024-02-27 17:23:57.528",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepgram/flux",
+   "task": "Automatic Speech Recognition",
+   "created_at": "2025-09-29 21:07:55.114",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepgram/nova-3",
+   "task": "Automatic Speech Recognition",
+   "created_at": "2025-06-05 16:05:15.199",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/black-forest-labs/flux-1-schnell",
+   "task": "Text-to-Image",
+   "created_at": "2024-08-29 16:37:39.541",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/llama-3.1-8b-instruct-fp8",
+   "task": "Text Generation",
+   "created_at": "2024-07-25 17:28:43.328",
+   "context_window": 32000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.152,
+   "price_per_m_output_usd": 0.287,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/llama-3.2-1b-instruct",
+   "task": "Text Generation",
+   "created_at": "2024-09-25 21:36:32.050",
+   "context_window": 60000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.027,
+   "price_per_m_output_usd": 0.201,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/moonshotai/kimi-k2.6",
+   "task": "Text Generation",
+   "created_at": "2026-04-20 01:40:35.001",
+   "context_window": 262144,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": true,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.95,
+   "price_per_m_output_usd": 4,
+   "price_per_m_cached_input_usd": 0.16
+  },
+  {
+   "name": "@cf/zai-org/glm-4.7-flash",
+   "task": "Text Generation",
+   "created_at": "2026-01-28 16:04:39.346",
+   "context_window": 131072,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.0605,
+   "price_per_m_output_usd": 0.4,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/microsoft/resnet-50",
+   "task": "Image Classification",
+   "created_at": "2023-09-25 19:21:11.898",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/bytedance/stable-diffusion-xl-lightning",
+   "task": "Text-to-Image",
+   "created_at": "2024-02-27 17:41:29.578",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta-llama/llama-2-7b-chat-hf-lora",
+   "task": "Text Generation",
+   "created_at": "2024-04-02 00:17:18.579",
+   "context_window": 8192,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "task": "Text Generation",
+   "created_at": "2024-12-06 17:09:18.338",
+   "context_window": 24000,
+   "function_calling": true,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.293,
+   "price_per_m_output_usd": 2.253,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/ibm-granite/granite-4.0-h-micro",
+   "task": "Text Generation",
+   "created_at": "2025-10-07 18:46:29.436",
+   "context_window": 131000,
+   "function_calling": true,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.017,
+   "price_per_m_output_usd": 0.112,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/lykon/dreamshaper-8-lcm",
+   "task": "Text-to-Image",
+   "created_at": "2024-02-27 17:40:38.881",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "task": "Text Generation",
+   "created_at": "2026-07-31 14:10:43.440",
+   "context_window": 1310720,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": true,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.44,
+   "price_per_m_output_usd": 1.32,
+   "price_per_m_cached_input_usd": 0.014
+  },
+  {
+   "name": "@cf/leonardo/phoenix-1.0",
+   "task": "Text-to-Image",
+   "created_at": "2025-08-25 18:12:18.073",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+   "task": "Text-to-Image",
+   "created_at": "2023-11-10 10:54:43.694",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/m2m100-1.2b",
+   "task": "Translation",
+   "created_at": "2023-09-25 19:21:11.898",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.342,
+   "price_per_m_output_usd": 0.342,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/ai4bharat/indictrans2-en-indic-1B",
+   "task": "Translation",
+   "created_at": "2025-09-23 18:19:17.382",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.342,
+   "price_per_m_output_usd": 0.342,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/black-forest-labs/flux-2-klein-4b",
+   "task": "Text-to-Image",
+   "created_at": "2026-01-14 12:54:55.024",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/baai/bge-small-en-v1.5",
+   "task": "Text Embeddings",
+   "created_at": "2023-11-07 15:43:58.042",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.0202,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/qwen/qwen2.5-coder-32b-instruct",
+   "task": "Text Generation",
+   "created_at": "2025-02-27 00:31:43.829",
+   "context_window": 32768,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.66,
+   "price_per_m_output_usd": 1,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/zai-org/glm-5.2",
+   "task": "Text Generation",
+   "created_at": "2026-06-15 09:51:05.921",
+   "context_window": 262144,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": true,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 1.4,
+   "price_per_m_output_usd": 4.4,
+   "price_per_m_cached_input_usd": 0.26
+  },
+  {
+   "name": "@cf/nvidia/nemotron-3-120b-a12b",
+   "task": "Text Generation",
+   "created_at": "2026-02-24 23:22:47.215",
+   "context_window": 256000,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.5,
+   "price_per_m_output_usd": 1.5,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/baai/bge-base-en-v1.5",
+   "task": "Text Embeddings",
+   "created_at": "2023-09-25 19:21:11.898",
+   "context_window": 153600,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.0666,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/aisingapore/gemma-sea-lion-v4-27b-it",
+   "task": "Text Generation",
+   "created_at": "2025-09-23 19:27:30.468",
+   "context_window": 128000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.351,
+   "price_per_m_output_usd": 0.555,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/qwen/qwen3-30b-a3b-fp8",
+   "task": "Text Generation",
+   "created_at": "2025-04-30 21:36:10.009",
+   "context_window": 32768,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.0509,
+   "price_per_m_output_usd": 0.335,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/black-forest-labs/flux-2-dev",
+   "task": "Text-to-Image",
+   "created_at": "2025-11-24 15:44:06.050",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/google/gemma-7b-it-lora",
+   "task": "Text Generation",
+   "created_at": "2024-04-02 00:20:19.633",
+   "context_window": 3500,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/google/gemma-4-26b-a4b-it",
+   "task": "Text Generation",
+   "created_at": "2026-04-02 15:05:22.642",
+   "context_window": 256000,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.1,
+   "price_per_m_output_usd": 0.3,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+   "task": "Text Generation",
+   "created_at": "2025-03-18 03:28:37.890",
+   "context_window": 128000,
+   "function_calling": true,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.351,
+   "price_per_m_output_usd": 0.555,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "task": "Text Generation",
+   "created_at": "2026-08-13 17:15:08.489",
+   "context_window": 1048576,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": true,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 1.32,
+   "price_per_m_output_usd": 3.96,
+   "price_per_m_cached_input_usd": 0.044
+  },
+  {
+   "name": "@cf/meta/llama-3.2-11b-vision-instruct",
+   "task": "Text Generation",
+   "created_at": "2024-09-25 05:36:04.547",
+   "context_window": 128000,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.0485,
+   "price_per_m_output_usd": 0.676,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/qwen/qwen3.8-27b",
+   "task": "Text Generation",
+   "created_at": "2026-08-17 07:13:11.641",
+   "context_window": 262144,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.45,
+   "price_per_m_output_usd": 3.2,
+   "price_per_m_cached_input_usd": 0.05
+  },
+  {
+   "name": "@cf/openai/whisper-tiny-en",
+   "task": "Automatic Speech Recognition",
+   "created_at": "2024-04-22 20:59:02.731",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/openai/whisper-large-v3-turbo",
+   "task": "Automatic Speech Recognition",
+   "created_at": "2024-05-22 00:02:18.656",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepgram/aura-1",
+   "task": "Text-to-Speech",
+   "created_at": "2025-08-27 01:18:18.880",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/runwayml/stable-diffusion-v1-5-img2img",
+   "task": "Text-to-Image",
+   "created_at": "2024-02-27 17:32:28.581",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/openai/gpt-oss-20b",
+   "task": "Text Generation",
+   "created_at": "2025-08-05 10:49:53.265",
+   "context_window": 128000,
+   "function_calling": true,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.2,
+   "price_per_m_output_usd": 0.3,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/google/embeddinggemma-300m",
+   "task": "Text Embeddings",
+   "created_at": "2025-09-04 16:38:44.980",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/baai/bge-reranker-base",
+   "task": "Text Classification",
+   "created_at": "2025-02-14 12:28:19.009",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.00311,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/moondream/moondream3.1-9B-A2B",
+   "task": "Image-to-Text",
+   "created_at": "2026-07-07 14:39:02.726",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.3,
+   "price_per_m_output_usd": 1,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/leonardo/lucid-origin",
+   "task": "Text-to-Image",
+   "created_at": "2025-08-25 19:21:28.770",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/meta/llama-4-scout-17b-16e-instruct",
+   "task": "Text Generation",
+   "created_at": "2025-04-05 20:25:56.137",
+   "context_window": 131000,
+   "function_calling": true,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": true,
+   "price_per_m_input_usd": 0.27,
+   "price_per_m_output_usd": 0.85,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/qwen/qwq-32b",
+   "task": "Text Generation",
+   "created_at": "2025-03-05 21:52:40.974",
+   "context_window": 24000,
+   "function_calling": false,
+   "reasoning": true,
+   "requires_paid": false,
+   "openai_compatible": false,
+   "price_per_m_input_usd": 0.66,
+   "price_per_m_output_usd": 1,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/baai/bge-large-en-v1.5",
+   "task": "Text Embeddings",
+   "created_at": "2023-11-07 15:43:58.042",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": 0.204,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  },
+  {
+   "name": "@cf/deepgram/aura-2-en",
+   "task": "Text-to-Speech",
+   "created_at": "2025-10-09 22:19:34.483",
+   "context_window": 0,
+   "function_calling": false,
+   "reasoning": false,
+   "requires_paid": false,
+   "openai_compatible": null,
+   "price_per_m_input_usd": null,
+   "price_per_m_output_usd": null,
+   "price_per_m_cached_input_usd": null
+  }
+ ],
+ "compat": [
+  {
+   "model": "@cf/openai/gpt-oss-120b",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.7-code",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.6",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/zai-org/glm-4.7-flash",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/ibm-granite/granite-4.0-h-micro",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": false,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/zai-org/glm-5.2",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/nvidia/nemotron-3-120b-a12b",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/qwen/qwen3-30b-a3b-fp8",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/google/gemma-4-26b-a4b-it",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/qwen/qwen3.8-27b",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/openai/gpt-oss-20b",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  },
+  {
+   "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+   "http_status": "200",
+   "accepts_string_content": true,
+   "tool_calls": 1,
+   "tool_name": "read_file",
+   "tool_arguments_parsed": true,
+   "accepts_content_parts": true
+  }
+ ],
+ "cache": [
+  {
+   "model": "@cf/openai/gpt-oss-120b",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 23189,
+   "cold_neurons": 738.91845703125,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 738.9227,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 23189,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 738.91845703125
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 23189,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 738.91845703125
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 23189,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 738.91845703125
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 23189,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 738.91845703125
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 23189,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 738.91845703125
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 23189,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 738.91845703125
+    }
+   ]
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.7-code",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 5,
+   "prompt_tokens": 22434,
+   "cold_neurons": 0.0,
+   "warm_neurons": 395.66363525390625,
+   "list_price_neurons": 1943.3,
+   "cache_is_billed": true,
+   "cached_fraction": 0.9985,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 395.66363525390625
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 395.66363525390625
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 395.66363525390625
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 395.66363525390625
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 395.66363525390625
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 395.66363525390625
+    }
+   ]
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.6",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 5,
+   "prompt_tokens": 22434,
+   "cold_neurons": 0.0,
+   "warm_neurons": 334.5727233886719,
+   "list_price_neurons": 1943.3,
+   "cache_is_billed": true,
+   "cached_fraction": 0.9985,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 334.5727233886719
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 334.5727233886719
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 334.5727233886719
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 334.5727233886719
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 334.5727233886719
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 22434,
+     "cached_tokens": 22400,
+     "completion_tokens": 16,
+     "neurons": 334.5727233886719
+    }
+   ]
+  },
+  {
+   "model": "@cf/zai-org/glm-4.7-flash",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 23954,
+   "cold_neurons": 132.3294,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 132.3288,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 23954,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 132.3294
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 23954,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 132.3294
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 23954,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 132.3294
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 23954,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 132.3294
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 23954,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 132.3294
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 23954,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 132.3294
+    }
+   ]
+  },
+  {
+   "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "probe_ok": false,
+   "probe_error": "HTTP 413: [{\"message\": \"AiError: Ai: The estimated number of input and maximum output tokens (24678) exceeded this model context window limit (24000). (aff1a491-d25c-4d27-bc7f-7923a1891d8f)\", \"code\": 5021}]",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 0,
+   "cold_neurons": 0.0,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 0.0,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "413",
+     "prompt_tokens": null,
+     "cached_tokens": null,
+     "completion_tokens": null,
+     "neurons": null
+    },
+    {
+     "call": 1,
+     "http_status": "413",
+     "prompt_tokens": null,
+     "cached_tokens": null,
+     "completion_tokens": null,
+     "neurons": null
+    },
+    {
+     "call": 2,
+     "http_status": "413",
+     "prompt_tokens": null,
+     "cached_tokens": null,
+     "completion_tokens": null,
+     "neurons": null
+    },
+    {
+     "call": 3,
+     "http_status": "413",
+     "prompt_tokens": null,
+     "cached_tokens": null,
+     "completion_tokens": null,
+     "neurons": null
+    },
+    {
+     "call": 4,
+     "http_status": "413",
+     "prompt_tokens": null,
+     "cached_tokens": null,
+     "completion_tokens": null,
+     "neurons": null
+    },
+    {
+     "call": 5,
+     "http_status": "413",
+     "prompt_tokens": null,
+     "cached_tokens": null,
+     "completion_tokens": null,
+     "neurons": null
+    }
+   ]
+  },
+  {
+   "model": "@cf/ibm-granite/granite-4.0-h-micro",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 22435,
+   "cold_neurons": 34.61761709,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 34.7028,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 22435,
+     "cached_tokens": 0,
+     "completion_tokens": 3,
+     "neurons": 34.61761709
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 22435,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 34.62777542
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 22435,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 34.62777542
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 22435,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 34.62777542
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 22435,
+     "cached_tokens": 0,
+     "completion_tokens": 5,
+     "neurons": 34.63793375
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 22435,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 34.62777542
+    }
+   ]
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 5,
+   "prompt_tokens": 22505,
+   "cold_neurons": 902.1199340820312,
+   "warm_neurons": 39.58624267578125,
+   "list_price_neurons": 902.12,
+   "cache_is_billed": true,
+   "cached_fraction": 0.9896,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 902.1199340820312
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 39.58624267578125
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 39.58624267578125
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 39.58624267578125
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 39.58624267578125
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 39.58624267578125
+    }
+   ]
+  },
+  {
+   "model": "@cf/zai-org/glm-5.2",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 23961,
+   "cold_neurons": 3051.981689453125,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 3055.9818,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 23961,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 3055.981689453125
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 23961,
+     "cached_tokens": 0,
+     "completion_tokens": 6,
+     "neurons": 3051.981689453125
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 23961,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 3055.981689453125
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 23961,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 3055.981689453125
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 23961,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 3055.981689453125
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 23961,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 3055.981689453125
+    }
+   ]
+  },
+  {
+   "model": "@cf/nvidia/nemotron-3-120b-a12b",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 26418,
+   "cold_neurons": 1190.9859999999999,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 1203.0,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 26418,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1190.9859999999999
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 26418,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1190.9859999999999
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 26418,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1190.9859999999999
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 26418,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1190.9859999999999
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 26418,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1190.9859999999999
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 26418,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1190.9859999999999
+    }
+   ]
+  },
+  {
+   "model": "@cf/qwen/qwen3-30b-a3b-fp8",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 26415,
+   "cold_neurons": 122.64591217041016,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 122.7167,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 26415,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 122.64591217041016
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 26415,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 122.64591217041016
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 26415,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 122.64591217041016
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 26415,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 122.64591217041016
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 26415,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 122.64591217041016
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 26415,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 122.64591217041016
+    }
+   ]
+  },
+  {
+   "model": "@cf/google/gemma-4-26b-a4b-it",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 4,
+   "prompt_tokens": 29918,
+   "cold_neurons": 272.4181823730469,
+   "warm_neurons": 272.41815185546875,
+   "list_price_neurons": 272.4182,
+   "cache_is_billed": false,
+   "cached_fraction": 0.999,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 29918,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 272.4181823730469
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 29918,
+     "cached_tokens": 29888,
+     "completion_tokens": 16,
+     "neurons": 272.41815185546875
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 29918,
+     "cached_tokens": 29888,
+     "completion_tokens": 16,
+     "neurons": 272.41815185546875
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 29918,
+     "cached_tokens": 29888,
+     "completion_tokens": 16,
+     "neurons": 272.41815185546875
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 29919,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 272.4272766113281
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 29918,
+     "cached_tokens": 29888,
+     "completion_tokens": 16,
+     "neurons": 272.41815185546875
+    }
+   ]
+  },
+  {
+   "model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 26407,
+   "cold_neurons": 841.8505249023438,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 842.8252,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 26407,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 841.9515380859375
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 26407,
+     "cached_tokens": 0,
+     "completion_tokens": 2,
+     "neurons": 841.8505249023438
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 26407,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 841.9515380859375
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 26407,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 841.9515380859375
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 26407,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 841.9515380859375
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 26407,
+     "cached_tokens": 0,
+     "completion_tokens": 4,
+     "neurons": 841.9515380859375
+    }
+   ]
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 5,
+   "prompt_tokens": 22505,
+   "cold_neurons": 0.0,
+   "warm_neurons": 122.8080062866211,
+   "list_price_neurons": 2706.36,
+   "cache_is_billed": true,
+   "cached_fraction": 0.9896,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 122.8080062866211
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 122.8080062866211
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 122.8080062866211
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 122.8080062866211
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 122.8080062866211
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 22505,
+     "cached_tokens": 22272,
+     "completion_tokens": 16,
+     "neurons": 122.8080062866211
+    }
+   ]
+  },
+  {
+   "model": "@cf/qwen/qwen3.8-27b",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 27855,
+   "cold_neurons": 1144.17724609375,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 1144.1773,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 27855,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1144.17724609375
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 27855,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1144.17724609375
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 27855,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1144.17724609375
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 27855,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1144.17724609375
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 27855,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1144.17724609375
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 27855,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 1144.17724609375
+    }
+   ]
+  },
+  {
+   "model": "@cf/openai/gpt-oss-20b",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 23195,
+   "cold_neurons": 422.1632142,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 422.1636,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 23195,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 422.1632142
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 23195,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 422.1632142
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 23195,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 422.1632142
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 23195,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 422.1632142
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 23195,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 422.1632142
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 23195,
+     "cached_tokens": 0,
+     "completion_tokens": 16,
+     "neurons": 422.1632142
+    }
+   ]
+  },
+  {
+   "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+   "probe_ok": true,
+   "probe_error": "",
+   "calls": 6,
+   "post_warm_calls": 5,
+   "post_warm_hits": 0,
+   "prompt_tokens": 22437,
+   "cold_neurons": 550.8809204101562,
+   "warm_neurons": 0.0,
+   "list_price_neurons": 550.8809,
+   "cache_is_billed": false,
+   "cached_fraction": 0.0,
+   "rows": [
+    {
+     "call": 0,
+     "http_status": "200",
+     "prompt_tokens": 22437,
+     "cached_tokens": 0,
+     "completion_tokens": 2,
+     "neurons": 550.8809204101562
+    },
+    {
+     "call": 1,
+     "http_status": "200",
+     "prompt_tokens": 22437,
+     "cached_tokens": 0,
+     "completion_tokens": 5,
+     "neurons": 551.1127319335938
+    },
+    {
+     "call": 2,
+     "http_status": "200",
+     "prompt_tokens": 22437,
+     "cached_tokens": 0,
+     "completion_tokens": 2,
+     "neurons": 550.8809204101562
+    },
+    {
+     "call": 3,
+     "http_status": "200",
+     "prompt_tokens": 22437,
+     "cached_tokens": 0,
+     "completion_tokens": 5,
+     "neurons": 551.1127319335938
+    },
+    {
+     "call": 4,
+     "http_status": "200",
+     "prompt_tokens": 22437,
+     "cached_tokens": 0,
+     "completion_tokens": 2,
+     "neurons": 550.8809204101562
+    },
+    {
+     "call": 5,
+     "http_status": "200",
+     "prompt_tokens": 22437,
+     "cached_tokens": 0,
+     "completion_tokens": 2,
+     "neurons": 550.8809204101562
+    }
+   ]
+  }
+ ],
+ "scores": [
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "benchmark": "DeepSWE",
+   "version": "v1.1 (113 tasks / 91 repos / 5 languages)",
+   "score": 63.0,
+   "source": "https://codingfleet.com/blog/deepswe-v11-leaderboard-2026/",
+   "dated": "2026-08-21",
+   "note": "+/-6; the DeepSWE-2026 board reads 62.8 for the same checkpoint"
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "benchmark": "SWE-bench Verified",
+   "version": "Vals neutral bash-only harness",
+   "score": 96.4,
+   "source": "https://www.vals.ai/benchmarks/swebench",
+   "dated": "2026-08-19",
+   "note": "2nd overall, behind Claude Opus 5 at 97.0"
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "benchmark": "DeepSWE",
+   "version": "DeepSWE 2026 board",
+   "score": 53.3,
+   "source": "https://benchlm.ai/benchmarks/deepswe",
+   "dated": "2026-08-20",
+   "note": "rank 17 of 25"
+  },
+  {
+   "model": "@cf/qwen/qwen3.8-27b",
+   "benchmark": "DeepSWE",
+   "version": "v1.1",
+   "score": 42.2,
+   "source": "https://huggingface.co/Qwen/Qwen3.8-27B",
+   "dated": "2026-08-21",
+   "note": "vendor model card; the 57.5 on the public board is Qwen3.8 MAX, which Workers AI does not serve"
+  },
+  {
+   "model": "@cf/qwen/qwen3.8-27b",
+   "benchmark": "SWE-bench Pro",
+   "version": "vendor-reported",
+   "score": 61.7,
+   "source": "https://huggingface.co/Qwen/Qwen3.8-27B",
+   "dated": "2026-08-21",
+   "note": "not comparable to SWE-bench Verified"
+  },
+  {
+   "model": "@cf/zai-org/glm-5.2",
+   "benchmark": "DeepSWE",
+   "version": "DeepSWE 2026 board",
+   "score": 43.8,
+   "source": "https://benchlm.ai/benchmarks/deepswe",
+   "dated": "2026-08-20",
+   "note": "the v1.1 board reads 44.0 for the same checkpoint"
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.7-code",
+   "benchmark": "DeepSWE",
+   "version": "DeepSWE 2026 board",
+   "score": 30.5,
+   "source": "https://benchlm.ai/benchmarks/deepswe",
+   "dated": "2026-08-20",
+   "note": "rank 23 of 25"
+  },
+  {
+   "model": "@cf/zai-org/glm-4.7-flash",
+   "benchmark": "SWE-bench Verified",
+   "version": "vendor-reported",
+   "score": 59.2,
+   "source": "https://docs.z.ai/guides/llm/glm-4.7",
+   "dated": "2026-08-21",
+   "note": "vendor number on a vendor harness; no DeepSWE score published"
+  },
+  {
+   "model": "@cf/openai/gpt-oss-120b",
+   "benchmark": "SWE-bench Verified",
+   "version": "2025 model card, pre-agentic-harness era",
+   "score": 62.4,
+   "source": "https://arxiv.org/pdf/2508.10925",
+   "dated": "2025-08-05",
+   "note": "the incumbent has NO DeepSWE score on any 2026 board searched; this number is a year old on a different harness and is not comparable to the DeepSWE column"
+  },
+  {
+   "model": "byok:anthropic/claude-opus-5",
+   "benchmark": "DeepSWE",
+   "version": "v1.1",
+   "score": 74.0,
+   "source": "https://codingfleet.com/blog/deepswe-v11-leaderboard-2026/",
+   "dated": "2026-08-21",
+   "note": "+/-4; rank 1. Not served by Workers AI"
+  },
+  {
+   "model": "byok:moonshot/kimi-k3",
+   "benchmark": "DeepSWE",
+   "version": "v1.1",
+   "score": 69.0,
+   "source": "https://codingfleet.com/blog/deepswe-v11-leaderboard-2026/",
+   "dated": "2026-08-21",
+   "note": "the operator asked for K3 'if and when Workers AI serves it' \u2014 as of this date it does not"
+  }
+ ],
+ "wave_profile": {
+  "calls": 230.0,
+  "ticks": 7.0,
+  "uncached_input_tokens": 3799364.0,
+  "cached_input_tokens": 7154176.0,
+  "output_tokens": 157709.0
+ },
+ "wave_profile_source": "run_62c289d1, measured on @cf/deepseek-ai/deepseek-v4-pro-0813 (repo-wiki/cloud-factory-billing.md)",
+ "cost_per_wave_usd": [
+  {
+   "model": "@cf/ibm-granite/granite-4.0-h-micro",
+   "usd": 0.2032,
+   "per_tick_usd": 0.029,
+   "cache_applied": false,
+   "token_ratio": 0.9969,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/qwen/qwen3-30b-a3b-fp8",
+   "usd": 0.7164,
+   "per_tick_usd": 0.1023,
+   "cache_applied": false,
+   "token_ratio": 1.1737,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/zai-org/glm-4.7-flash",
+   "usd": 0.7725,
+   "per_tick_usd": 0.1104,
+   "cache_applied": false,
+   "token_ratio": 1.0644,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/google/gemma-4-26b-a4b-it",
+   "usd": 1.5191,
+   "per_tick_usd": 0.217,
+   "cache_applied": false,
+   "token_ratio": 1.3294,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "usd": 1.9801,
+   "per_tick_usd": 0.2829,
+   "cache_applied": true,
+   "token_ratio": 1.0,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/openai/gpt-oss-20b",
+   "usd": 2.3066,
+   "per_tick_usd": 0.3295,
+   "cache_applied": false,
+   "token_ratio": 1.0307,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+   "usd": 3.0822,
+   "per_tick_usd": 0.4403,
+   "cache_applied": false,
+   "token_ratio": 0.997,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "usd": 3.5647,
+   "per_tick_usd": 0.5092,
+   "cache_applied": false,
+   "token_ratio": 1.0,
+   "cache_measured": false
+  },
+  {
+   "model": "@cf/openai/gpt-oss-120b",
+   "usd": 4.0721,
+   "per_tick_usd": 0.5817,
+   "cache_applied": false,
+   "token_ratio": 1.0304,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
+   "usd": 4.614,
+   "per_tick_usd": 0.6591,
+   "cache_applied": false,
+   "token_ratio": 1.1734,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.6",
+   "usd": 5.3679,
+   "per_tick_usd": 0.7668,
+   "cache_applied": true,
+   "token_ratio": 0.9968,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/moonshotai/kimi-k2.7-code",
+   "usd": 5.5819,
+   "per_tick_usd": 0.7974,
+   "cache_applied": true,
+   "token_ratio": 0.9968,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "usd": 5.9545,
+   "per_tick_usd": 0.8506,
+   "cache_applied": true,
+   "token_ratio": 1.0,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/nvidia/nemotron-3-120b-a12b",
+   "usd": 6.7067,
+   "per_tick_usd": 0.9581,
+   "cache_applied": false,
+   "token_ratio": 1.1739,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/qwen/qwen3.8-27b",
+   "usd": 6.7255,
+   "per_tick_usd": 0.9608,
+   "cache_applied": false,
+   "token_ratio": 1.2377,
+   "cache_measured": true
+  },
+  {
+   "model": "@cf/zai-org/glm-5.2",
+   "usd": 17.0659,
+   "per_tick_usd": 2.438,
+   "cache_applied": false,
+   "token_ratio": 1.0647,
+   "cache_measured": true
+  }
+ ],
+ "recommendations": [
+  {
+   "role": "orchestrator",
+   "tier": "frontier",
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "provider": "workers-ai",
+   "why": "Highest DeepSWE of anything the account serves (63.0), 1M context, reliable tool calls, and the model the only reconciled production run already ran on. Its prefix cache is intermittent (3/8 post-warm hits measured), which is why it is not also the implement default."
+  },
+  {
+   "role": "orchestrator",
+   "tier": "strong",
+   "model": "byok:anthropic/claude-opus-5",
+   "provider": "byok",
+   "why": "For a run that must not fail on tool-use reliability, the 11-point DeepSWE gap over the best Workers AI model is worth the cash: the orchestrator drives the skill loop and a wedged orchestrator wastes every implementer under it."
+  },
+  {
+   "role": "implement",
+   "tier": "balanced",
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "provider": "workers-ai",
+   "why": "The cost-per-tick winner by a wide margin: 53.3 DeepSWE, and the only model measured whose prefix cache fired on 8 of 8 post-warm calls, which is what turns the platform's 1/30 cached-input tariff into money."
+  },
+  {
+   "role": "implement",
+   "tier": "economy",
+   "model": "@cf/zai-org/glm-4.7-flash",
+   "provider": "workers-ai",
+   "why": "Cheapest tool-capable model with a credible coding number ($0.0605/M in). It caches nothing, but at 1/7 of flash's input rate an uncached token still costs less than flash's uncached one; use it for mechanical ticks where a retry is cheaper than a better model."
+  },
+  {
+   "role": "implement",
+   "tier": "strong",
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "provider": "workers-ai",
+   "why": "The capability ceiling on Workers AI. Route the ticks that a flash model has already failed once here before paying BYOK rates."
+  },
+  {
+   "role": "implement",
+   "tier": "frontier",
+   "model": "byok:anthropic/claude-opus-5",
+   "provider": "byok",
+   "why": "Nothing on Workers AI reaches the frontier tier's bar. Leaving this cell on a Workers AI id would be the pretence the tick warns against."
+  },
+  {
+   "role": "plan",
+   "tier": "frontier",
+   "model": "@cf/deepseek-ai/deepseek-v4-pro-0813",
+   "provider": "workers-ai",
+   "why": "Planning is long-context reading with few tool calls \u2014 the shape the 1M-token window and the cheap cached-input tariff suit best, and the shape where a 11-point DeepSWE gap matters least."
+  },
+  {
+   "role": "scout",
+   "tier": "economy",
+   "model": "@cf/deepseek-ai/deepseek-v4-flash-0731",
+   "provider": "workers-ai",
+   "why": "Scouting is read-heavy and disposable; flash's 1.31M context and reliable cache make it the cheapest way to read a lot of repository."
+  },
+  {
+   "role": "review",
+   "tier": "frontier",
+   "model": "byok:anthropic/claude-opus-5",
+   "provider": "byok",
+   "why": "Review is the gate that catches what the implementer got wrong, so it must not share the implementer's blind spots or sit below it in capability. This is the cell the design already said to keep on BYOK."
+  },
+  {
+   "role": "closeout",
+   "tier": "strong",
+   "model": "byok:anthropic/claude-opus-5",
+   "provider": "byok",
+   "why": "Close-out writes the epic's durable record and the learnings the next epic reads; a cheap mistake here is paid for repeatedly. Follows the planner/review model per runners-config.md's fallback."
+  }
+ ]
+}
