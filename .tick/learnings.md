@@ -1,14 +1,14 @@
 # Learnings
 
 Repo-specific gotchas, Problem → Cause → Rule. Hard cap 150 lines — compact every retro.
-Cross-repo learnings belong in the ticks skill (claude-runner.md promotion table), not here.
+Cross-repo learnings belong in the ticks skill's promotion table, not here.
 
 ## This repo's build
 
 **Problem:** A new cobra subcommand compiles and tests green but is unreachable from the installed
 binary. **Cause:** `cmd/tk/main.go` has a legacy routing switch with a hard-coded case list.
 **Rule:** Register new subcommands in BOTH `cmd/tk/cmd/*.go` and the switch + usage text in
-`cmd/tk/main.go`; keep `TestLegacyDispatchCoversAllCobraCommands` passing.
+`cmd/tk/main.go`, keeping `TestLegacyDispatchCoversAllCobraCommands` green.
 
 **Problem:** In-process command tests hang or silently no-op after other tests. **Cause:** cobra
 state leaks across in-process executions. **Rule:** Drive commands in tests only via
@@ -123,8 +123,7 @@ across calls. The gateway RESPONSE cache never helps an agentic loop, which neve
 **Problem:** ~$50 of model spend appeared in no billing page, prompting "were we charged?"
 **Cause:** Billable usage lags the cycle and lists no Workers AI product family at all. **Rule:**
 Reconcile gateway-log cost against Neurons on the Workers AI dashboard, not the billing page.
-Credits cover Workers AI (capped) and EXCLUDE AI Gateway, so the provider slug decides which wallet
-pays — see `repo-wiki/cloud-factory-billing.md`.
+Credits cover Workers AI (capped) and EXCLUDE AI Gateway — see `repo-wiki/cloud-factory-billing.md`.
 
 ## Cross-language parity, parsers and formats
 
