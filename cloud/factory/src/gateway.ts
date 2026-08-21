@@ -484,6 +484,51 @@ export type GatewayMetadata = Record<GatewayMetadataKey, string>;
  */
 export const SESSION_AFFINITY_HEADER = "x-session-affinity";
 
+/**
+ * The affinity value a run's calls carry — one per run, derived here.
+ *
+ * The obvious objection to a per-RUN key is that a harness run is not one
+ * conversation. It is an orchestrator PLUS N implementer subagents, all
+ * spending the same run token, so one key carries N message arrays that share
+ * nothing past the harness preamble and would, on the face of it, evict each
+ * other off the single instance the key routes to. That objection was measured
+ * (tick fxf) before this function was written, and it does not hold:
+ *
+ *   - In run_62c289d1 — 230 calls, 65.3% of 10,954,464 input tokens cached —
+ *     the eight conversations are separable in the AI Gateway logs by the first
+ *     two messages of each request body. The seven-way fan-out phase cached
+ *     BETTER than the serial one (67.9% with six or more conversations live
+ *     against 52.4% while the orchestrator ran alone), and a call whose
+ *     predecessor belonged to a DIFFERENT conversation hit 65.7% against 62.4%
+ *     for one that followed its own. Interference would show the opposite sign.
+ *   - The prompt head was not drifting either: two consecutive requests around
+ *     a total miss were byte-identical for the whole 220,891 characters of the
+ *     earlier one, same tools, same model, same options — and that call was
+ *     billed 512 cached tokens of 74,605.
+ *   - Three controlled probes against the same model (four synthetic
+ *     15k-token conversations, one shared key against one key each) put the two
+ *     within noise and disagreed on the sign: 24.0% vs 24.3% sequential, then
+ *     40.2% vs 7.8% concurrent, then 12.1% vs 29.8% concurrent with the order
+ *     reversed. A fourth probe ran ONE conversation, alone, on its own key: it
+ *     still missed completely on two of three follow-up calls.
+ *
+ * So the header buys routing that is real but only statistical — the ~35% of
+ * input this run still paid full price for is instance-side behaviour the key
+ * does not steer, not something a finer key would recover. A per-conversation
+ * key would also cost what the run id gives for free: the key must stay a
+ * function of the RUN ROW, never of the request, because deriving it from the
+ * body would let an agent choose its own instance (park on another run's, or
+ * scatter its own) exactly as a caller-supplied header would. `sanitizedHeaders`
+ * drops the caller's; this is the only place the value is chosen.
+ *
+ * Changing this granularity again is a measurement, not an opinion: run the
+ * same epic twice and compare `usage_metadata.input_cached_tokens` per call
+ * (`tk cloud trace <run> --cache`).
+ */
+export function sessionAffinityKey(run: Run): string {
+  return run.run_id;
+}
+
 /** Headers a caller must never be able to set on the upstream request. */
 function sanitizedHeaders(request: Request): Headers {
   const headers = new Headers();
@@ -709,7 +754,7 @@ export async function proxyModelRequest(
   headers.set("cf-aig-metadata", JSON.stringify(gatewayMetadata(authorized.token, authorized.run)));
   // One run, one model instance, so its unchanging prompt prefix stays cached
   // on that instance instead of being re-processed at full price every turn.
-  headers.set(SESSION_AFFINITY_HEADER, authorized.run.run_id);
+  headers.set(SESSION_AFFINITY_HEADER, sessionAffinityKey(authorized.run));
   // The operator's gateway may itself be authenticated; when it is, the same
   // account token that reads its logs is what opens it.
   const gatewayAuth = textVar(env.CLOUDFLARE_API_TOKEN);

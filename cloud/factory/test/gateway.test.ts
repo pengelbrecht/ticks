@@ -24,6 +24,7 @@ import {
   proxyModelRequest,
   revokeRunTokens,
   runGatewayEndpoint,
+  sessionAffinityKey,
   spendFailureRemedy,
   stringifyContentParts,
   syncRunCost,
@@ -309,6 +310,74 @@ describe("every model request carries run and tick metadata", () => {
 
     expect(gateway.calls[0]!.headers.get(SESSION_AFFINITY_HEADER)).toBe(first.run_id);
     expect(gateway.calls[1]!.headers.get(SESSION_AFFINITY_HEADER)).toBe(second.run_id);
+  });
+
+  it("keeps one affinity for a run whose subagents hold unrelated conversations", async () => {
+    // The measured question behind this test (tick fxf): a harness run is one
+    // orchestrator PLUS N implementer subagents, all spending the same run
+    // token, so one affinity key carries N conversations whose contexts have
+    // nothing in common. The suspicion was that they evict each other off the
+    // one model instance and defeat prefix caching. Measured, they do not.
+    //
+    // In run_62c289d1 (230 calls, 8 conversations — one orchestrator and seven
+    // implementers, told apart by the first two messages of each request body
+    // in the AI Gateway logs), the fan-out phase cached BETTER than the serial
+    // one: 67.9% with six or more conversations live against 52.4% while the
+    // orchestrator ran alone, and a call whose predecessor belonged to another
+    // conversation hit 65.7% against 62.4% for one that followed its own. Three
+    // controlled probes against the same model (four synthetic 15k-token
+    // conversations, one shared key against a key each) put the two within
+    // noise of one another and disagreed on the sign: 24.0/24.3 sequential,
+    // 40.2/7.8 concurrent, then 12.1/29.8 concurrent with the order reversed.
+    //
+    // What the probes did show is that the header does not buy stickiness at
+    // all: ONE conversation, alone, on its own key, still missed completely on
+    // two of three follow-up calls. The per-call variance is instance-side and
+    // the key does not steer it, so splitting the key per conversation would
+    // buy nothing while costing the run-level isolation the next case pins.
+    const run = await liveRun();
+    const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "k2s", attempt: 1 });
+    const gateway = new FakeGateway();
+
+    const orchestrator = '{"model":"claude","messages":[{"role":"user","content":"run epic 1vn"}]}';
+    const implementer = '{"model":"claude","messages":[{"role":"user","content":"implement fxf"}]}';
+    for (const body of [orchestrator, implementer]) {
+      await proxyModelRequest(
+        env,
+        modelRequest(body, { authorization: `Bearer ${token}` }),
+        ["anthropic", "v1", "messages"],
+        { fetcher: gateway.fetcher }
+      );
+    }
+
+    expect(gateway.calls.map((call) => call.headers.get(SESSION_AFFINITY_HEADER))).toEqual([
+      sessionAffinityKey(run),
+      sessionAffinityKey(run),
+    ]);
+  });
+
+  it("derives the affinity from the run alone, so no body can reach it", async () => {
+    // The derivation is a function of the run row and of nothing else: a body
+    // that names its own session, and a header that asks for one, both leave
+    // the affinity where the factory put it. This is the property that has to
+    // survive any future change of key — an agent that can influence the value
+    // can park on another run's instance or scatter its own calls (D24).
+    const run = await liveRun();
+    const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "k2s", attempt: 1 });
+    const gateway = new FakeGateway();
+
+    await proxyModelRequest(
+      env,
+      modelRequest('{"model":"claude","session_id":"sess_theirs","messages":[]}', {
+        authorization: `Bearer ${token}`,
+        [SESSION_AFFINITY_HEADER]: "run_somebody_else",
+      }),
+      ["anthropic", "v1", "messages"],
+      { fetcher: gateway.fetcher }
+    );
+
+    expect(gateway.last.headers.get(SESSION_AFFINITY_HEADER)).toBe(sessionAffinityKey(run));
+    expect(sessionAffinityKey(run)).toBe(run.run_id);
   });
 
   it("drops an affinity the caller chose for itself", async () => {
