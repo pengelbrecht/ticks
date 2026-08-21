@@ -91,8 +91,13 @@ RUN_QUEUE_TTL_MS = "1800000"
 # deployment decisions, and exhausting either is the SAME clean stop the
 # operator's `tk cloud stop` takes — finish in flight, then review and closeout
 # (D15). Bounds and defaults live in src/run-workflow.ts.
-RUN_MAX_WALL_CLOCK_MS = "21600000"
-RUN_MAX_COST_USD = "25"
+#
+# Deliberately small until a run has been measured with working enforcement. The
+# first uncapped run billed $49.80 against a $25 ceiling because the cost query
+# stopped after one page (see cts); a runaway under these numbers costs single
+# digits. Raise them once a measured run shows what real work actually costs.
+RUN_MAX_WALL_CLOCK_MS = "2700000"
+RUN_MAX_COST_USD = "5"
 # How long the in-flight work has to land before a clean stop kills the
 # orchestrator. Nothing durable is lost either way — tracker state is committed
 # to the run branch — but a tick that is one commit from done deserves it.
