@@ -49,7 +49,19 @@ submit it again so the new orchestrator follows the reconcile path.
 
 The left column is D21's command vocabulary (with tk answer). The right one
 is observation: it reads records a run left behind and cannot steer one, so
-it does not widen that vocabulary.`,
+it does not widen that vocabulary.
+
+A third group is neither, and is where a LOCAL orchestrator drives cloud
+workers itself (D19) — the same verbs tk herd exposes for herdr panes, so
+swapping substrates costs no relearning:
+
+  spawn      dispatch a wave, one container per tick
+  wait       fan in on the report each container pushed
+  collect    the verdict, read off the pushed branches (never merges)
+  reconcile  what is live and what is salvageable after a crash (read-only)
+
+Typing them makes you the orchestrator, exactly as typing tk herd spawn does;
+none of them steers a run that is orchestrating itself in the cloud.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},

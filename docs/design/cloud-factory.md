@@ -477,7 +477,7 @@ test of whether the abstraction held:
 
 | Orchestrator ↓ / Workers → | `harness` (subagents) | `herdr` (local CLIs) | `cloud` (sandboxes) |
 |---|---|---|---|
-| Local terminal | today | today | **`tk cloud` verbs** |
+| Local terminal | today | today | **`tk cloud` verbs** (Phase 2, tick bmo) |
 | Cloud Workflow | **Phase 1** | (door open, not needed) | **Phase 2** |
 
 ## Signal ingestion: the funnel
@@ -1396,14 +1396,22 @@ Collected from the use cases; each appears above in context.
    because the value says *where the workers run* and a local herdr server
    cannot change that), `TICKS_SUBSTRATE` overrides it in both directions, and
    `tk herd spawn` refuses it with exit 9 rather than putting a local pane on a
-   branch a container is already pushing to. NOT landed: the **local** dispatch
-   path. b6e's trigger is still submission-level (`tick_ids` present on
-   `POST /api/runs`) rather than a repo-config read, and the
-   `tk cloud spawn/wait/collect/reconcile` verb family (D19, tick bmo) that
-   would let a laptop session drive worker containers does not exist — so a
-   local orchestrator meeting `cloud` today stops rather than dispatching,
-   which is the fail-closed half of the same decision. The CLI plumbing to
-   populate `tick_ids` from a locally-computed wave is also still a follow-up.
+   branch a container is already pushing to. The **local** dispatch path
+   landed with it (D19, tick bmo): `tk cloud spawn/wait/collect/reconcile`
+   mirrors the `tk herd` verb family, so a laptop session drives worker
+   containers with the loop it already runs — spawn submits the wave as
+   `tick_ids`, wait settles on the report each container pushed, collect reads
+   the four verdicts off the pushed branches (plus `unknown` for evidence that
+   could not be read), and reconcile classifies a wave after the orchestrator
+   dies without ever proposing a second worker for a live tick. The lease is
+   the same lease: a locally-driven submission takes the project's RunRoom
+   lease with `origin: local`, an un-enrolled project keeps the local file
+   lease and is refused with that reason, and a checkout with no factory
+   configured makes no network call at all. `tk cloud spawn` also refuses a
+   run that dispatches herdr panes, with the same exit 9 — the two dispatch
+   verbs each refuse the other's substrate. NOT landed: populating a wave from
+   a locally-computed readiness set on `tk cloud run` (tick pjq); `tk cloud
+   spawn` takes the wave the orchestrator computed, and does not compute one.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage
@@ -1424,9 +1432,11 @@ Order rationale: each phase is independently useful, and the risky loops
   already runs correctly and is already tested — the submitter — rather than
   ported a second time into TypeScript (`.tick/learnings.md`'s "Cross-language
   parity, parsers and formats" is exactly the failure class a second port
-  risks). What is still open: the Go CLI side of this (`tk cloud run` naming a
-  wave and passing `--tick-ids`) does not exist yet, so today `tick_ids` is
-  reachable only by calling `POST /api/runs` directly. A submitter that wants
+  risks). What is still open: `tk cloud run` naming a wave and passing
+  `--tick-ids` (tick pjq) does not exist yet. `tk cloud spawn --ticks` (tick
+  bmo) reaches the same submission field from the CLI, so `tick_ids` is no
+  longer reachable only by calling `POST /api/runs` directly — but it takes a
+  wave the orchestrator has already computed rather than computing one. A submitter that wants
   ITERATIVE fan-out (wave 2 after wave 1 merges, not just one wave per run) is
   also not addressed — b6e's cloud-wave pass always hands off to a real
   orchestrator boot (`closeout` phase) after dispatching its one wave, which

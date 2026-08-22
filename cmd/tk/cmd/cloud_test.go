@@ -344,15 +344,27 @@ func TestCloudWithoutFactoryConfigurationNamesSetup(t *testing.T) {
 // status and answer: no chat, no prompt injection, no mid-run mutation channel.
 // Steering is stop -> edit the tracker -> run again.
 //
-// Observation is a different thing and does not widen that vocabulary. `logs`
-// reads what the container printed and `trace` reads what the model said; both
-// are read-only records of a run that has already happened (or is happening),
-// and neither can tell an orchestrator to do anything. The split is pinned here
-// rather than left implicit, because a reader counting subcommands would
-// otherwise conclude D21 had been violated (tick l4l).
+// Two other kinds of command live under `tk cloud` and neither widens that
+// vocabulary. Observation — `logs` reads what the container printed, `trace`
+// reads what the model said — is read-only records of a run that has already
+// happened, with no path from either to the orchestrator (tick l4l).
+//
+// DISPATCH is the second, and it is a different AXIS rather than a wider
+// vocabulary (D19, tick bmo). `spawn`, `wait`, `collect` and `reconcile` are
+// what an ORCHESTRATOR uses to drive its own workers — the same verbs
+// `tk herd` exposes for herdr panes — and the cloud substrate is deliberately
+// drivable from any orchestrator location, including a laptop. An operator
+// typing them IS the orchestrator at that moment, exactly as they are when
+// they type `tk herd spawn`; nothing here steers a run that is already
+// orchestrating itself, and a Workflow-hosted run is untouched by them.
+//
+// The split is pinned here rather than left implicit, because a reader
+// counting subcommands would otherwise conclude D21 had been violated.
 func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	steering := map[string]bool{"run": true, "stop": true}
 	observation := map[string]bool{"status": true, "logs": true, "trace": true}
+	// The orchestrator's own hands (D19): dispatch, fan-in, verdict, recovery.
+	dispatch := map[string]bool{"spawn": true, "wait": true, "collect": true, "reconcile": true}
 	// The third kind: reads the checkout it is run in, prints, and touches no
 	// factory at all. `pr-body` composes a closeout PR body from git — it
 	// neither commands a run nor reads one, so it is outside D21 rather than an
@@ -361,8 +373,8 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 
 	for _, command := range cloudCmd.Commands() {
 		name := command.Name()
-		if !steering[name] && !observation[name] && !local[name] {
-			t.Errorf("unexpected cloud command %q: it is neither a D21 verb, a read-only observation, nor a local git read", name)
+		if !steering[name] && !observation[name] && !dispatch[name] && !local[name] {
+			t.Errorf("unexpected cloud command %q: it is neither a D21 verb, a D19 dispatch verb, a read-only observation, nor a local git read", name)
 		}
 		if (observation[name] || local[name]) && !strings.Contains(command.Long, "D21") {
 			// Said in the help text, not just in a design doc: the next reader
@@ -370,12 +382,19 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 			// vocabulary and needs the answer where they are looking.
 			t.Errorf("cloud %s does not say why a non-steering command does not widen D21's vocabulary", name)
 		}
+		if dispatch[name] && !strings.Contains(command.Long, "D19") {
+			t.Errorf("cloud %s does not say it is a D19 dispatch verb — the one thing that distinguishes it from steering a run", name)
+		}
 	}
-	if len(cloudCmd.Commands()) != len(steering)+len(observation)+len(local) {
-		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()), len(steering)+len(observation)+len(local))
+	if len(cloudCmd.Commands()) != len(steering)+len(observation)+len(dispatch)+len(local) {
+		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()),
+			len(steering)+len(observation)+len(dispatch)+len(local))
 	}
 
-	// The mutating half of the surface is exactly D21's verbs, and stays so.
+	// The half of the surface that COMMANDS A RUN is exactly D21's verbs, and
+	// stays so. Dispatch verbs mutate too — a spawn starts containers — but
+	// they are the orchestrator acting, never an operator steering an
+	// orchestrator, which is the vocabulary D21 closes.
 	mutating := []string{}
 	for _, command := range cloudCmd.Commands() {
 		if steering[command.Name()] {
@@ -385,6 +404,28 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	sort.Strings(mutating)
 	if strings.Join(mutating, ",") != "run,stop" {
 		t.Fatalf("the mutating cloud vocabulary is %v; D21 fixes it at run and stop (answer lives on tk answer)", mutating)
+	}
+}
+
+// The dispatch verbs mirror `tk herd`'s vocabulary on purpose: an orchestrator
+// swapping substrates must not have to relearn its commands (D19). If one
+// family grows a verb the other lacks, that promise has quietly lapsed.
+func TestCloudDispatchVerbsMirrorTheHerdVocabulary(t *testing.T) {
+	cloudVerbs := map[string]bool{}
+	for _, command := range cloudCmd.Commands() {
+		cloudVerbs[command.Name()] = true
+	}
+	herdVerbs := map[string]bool{}
+	for _, command := range herdCmd.Commands() {
+		herdVerbs[command.Name()] = true
+	}
+	for _, verb := range []string{"spawn", "wait", "collect", "reconcile"} {
+		if !cloudVerbs[verb] {
+			t.Errorf("tk cloud has no %s verb; the cloud substrate is not drivable by a local orchestrator without it", verb)
+		}
+		if !herdVerbs[verb] {
+			t.Errorf("tk herd has no %s verb; the two families no longer mirror each other", verb)
+		}
 	}
 }
 

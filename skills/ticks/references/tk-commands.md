@@ -223,6 +223,36 @@ tk notes <id>                         # List notes
 
 This skill runs epics through a runner-neutral orchestration protocol — see `agent-runner.md`, then the Claude Code, Codex, or Pi adapter. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed. The `tk merge` command remains available for merging a completed epic's worktree branch.
 
+## Cloud Substrate
+
+The dispatch verbs for `[orchestration].substrate = "cloud"`, mirroring `tk herd`'s
+vocabulary one for one so an orchestrator swapping substrates keeps its loop (D19 in
+`docs/design/cloud-factory.md`). They are the ORCHESTRATOR's own hands — dispatching,
+fanning in, reading verdicts, recovering — not the operator's `tk cloud run/stop/status`
+vocabulary for commanding a cloud run.
+
+```bash
+tk cloud spawn <epic> --ticks a,b,c   # one worker container per tick
+tk cloud wait --epic <id>             # fan in on the durable layer
+tk cloud collect [<tick>] --epic <id> # verdicts from the pushed branches; never merges
+tk cloud reconcile [--epic <id>]      # read-only recovery plan; mutates nothing
+```
+
+| Command | Description |
+|---------|-------------|
+| `tk cloud spawn` | Refuses first and cheaply: exit 9 when the run does not dispatch containers, exit 4 for an unknown tick, exit 1 for a tick outside the epic, for a project not enrolled with a factory, and for a lease another run holds (the refusal names the holder). Then pushes, submits the wave, and writes `.tick/logs/cloud/<epic>/<tick>.json` per tick. |
+| `tk cloud wait` | A cloud worker settles when `RESULT-<tick>.md` reaches its branch on the remote — a destroyed container leaves no process to watch. `--timeout`/`--poll` in ms; a run that has ended reports its stragglers as `exited` rather than waiting out the deadline. |
+| `tk cloud collect` | The same three checks (commits, report + `STATUS:` line, empty `.tick/` boundary diff) and the same four verdicts as `tk herd collect`, read off the remote. Adds `unknown`: an unreachable remote is not a worker that failed. Exit 0 only when every worker is `ready-to-merge`. |
+| `tk cloud reconcile` | Classes: `settled`, `live-worker`, `dead-with-work`, `stale-no-work`, `unknown`. A run state that cannot be read counts as ALIVE — never redispatch a live worker; a branch with no commits is one that has not pushed yet. |
+
+**One lease per project, wherever the orchestrator sits.** An enrolled project's dispatch
+takes the same RunRoom lease a cloud run takes (recorded `origin: local`); an un-enrolled
+one keeps the local file lease and cannot dispatch containers. A checkout with no factory
+configured never reaches the network to discover that — offline stays offline.
+
+`--ticks` is required and is never guessed: the wave is what the orchestrator computed
+(`tk graph --json` → `dispatch.now`), and this verb dispatches it.
+
 ## Sandbox
 
 ```bash

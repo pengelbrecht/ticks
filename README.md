@@ -267,7 +267,8 @@ When an epic runs inside a [herdr](https://herdr.dev) session, the `tk herd` com
 group dispatches implementers as independent, visible herdr agents — any herdr kind,
 cross-vendor (e.g. codex implementers under a claude orchestrator) — instead of the
 orchestrating harness's own subagents. Configure routing in `.tick/runners.toml`
-(`substrate = "herdr" | "harness" | "auto"`, plus per-role kind × model/effort).
+(`substrate = "herdr" | "harness" | "auto" | "cloud"`, plus per-role kind × model/effort;
+`cloud` dispatches containers instead — see [Cloud substrate](#cloud-substrate-drive-worker-containers-from-your-terminal)).
 
 | Command | Description |
 |---------|-------------|
@@ -470,6 +471,45 @@ tk factory status --check      # exit nonzero when a configured credential is re
 
 The full ladder, including the GitHub App upgrade path and how to rotate a key, is in
 [`docs/factory-credentials.md`](docs/factory-credentials.md).
+
+### Cloud substrate: drive worker containers from your terminal
+
+A repository that declares `[orchestration].substrate = "cloud"` in
+`.tick/runners.toml` runs its implementers as **one container per tick** instead of
+local worktrees. Nothing about that requires the orchestrator to be in the cloud too:
+a Claude Code, omp or Pi session on your laptop dispatches the containers and drives
+the wave from here — local judgment, cloud hands. Five parallel implementers stop
+costing local worktrees, CPU and battery, and a lid closed mid-wave loses only the
+orchestrator, which is the failure every runner already recovers from.
+
+The verbs mirror `tk herd`'s one for one, so an orchestrator swapping substrates keeps
+the loop it already runs:
+
+| Command | Description |
+|---------|-------------|
+| `tk cloud spawn <epic> --ticks a,b,c` | Dispatch the wave as one container per tick; writes a manifest per tick |
+| `tk cloud wait --epic <id>` | Fan in: a worker settles when its `RESULT-<tick>.md` reaches the remote |
+| `tk cloud collect [<id>] --epic <id>` | Verify each pushed branch and print a verdict — never merges |
+| `tk cloud reconcile [--epic <id>]` | Read-only recovery plan after the orchestrator dies |
+
+Because a container is destroyed when it exits, the durable layer is all there is:
+`collect` reads the branch `tick/<epic>/<tick>` off the remote — commits beyond the
+submitted base, the **committed** report, an empty `.tick/` boundary diff — and adds a
+fifth verdict, `unknown`, for evidence it could not read at all. An unreachable remote
+is not a worker that failed, and is never reported as one.
+
+**One lease, wherever the orchestrator sits.** On an enrolled project a local dispatch
+takes the *same* per-project lease a cloud run takes, recorded as `origin: local`, so a
+laptop session and a scheduled run cannot both be inside `.tick/`; a second dispatch is
+refused and names the holder's run id. A project that is not enrolled keeps the local
+file lease and is told so — enrolment upgrades the arbiter, it never installs a second
+one. And a checkout with no factory configured makes no network call to find that out:
+a fully local orchestrator on the `harness` or `herdr` substrate keeps working offline,
+forever.
+
+`tk cloud spawn` refuses a run whose workers are herdr panes (exit 9), exactly as
+`tk herd spawn` refuses a run whose workers are containers. Two dispatch verbs, each
+refusing the other's substrate, is what keeps two workers off one tick.
 
 ### Merging a cloud run: `tk cloud pr-body`
 
