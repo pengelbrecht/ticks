@@ -7,7 +7,7 @@
  *       artifacts/orchestrator/harness/<attempt>/<seq>.log
  *       artifacts/orchestrator/harness.log
  *       artifacts/orchestrator/reconcile/<attempt>.json
- *       artifacts/<tick_id>/...            (worker artifacts, Phase 2)
+ *       artifacts/<tick_id>/manifest.json   (what was dispatched — src/reconcile.ts)
  *
  * **Written during the run, never exported at exit.** A crashed sandbox is the
  * case that matters: its logs are the only evidence of what it was doing, and a
@@ -282,4 +282,108 @@ export async function readHarnessTail(
     bytes += object.size;
   }
   return { text: chunks.join(""), bytes, total_bytes: total, truncated: first > 0 };
+}
+
+// -------------------------------------------------------- worker manifests ---
+
+/**
+ * One dispatched tick's manifest — the FIRST evidence source of the reconcile
+ * protocol (src/reconcile.ts), and the reason its documented order starts with
+ * manifests rather than with git or with the live sandbox list.
+ *
+ * It is written to R2 BEFORE the tick's container is addressed, and addressing
+ * a container is what provisions it on this substrate. So "no manifest" is a
+ * durable, positive statement that no container was ever booted for this tick
+ * — which is exactly what a replacement supervisor needs before it may boot
+ * one. A manifest written after the boot would make the absent case
+ * ambiguous, and an ambiguous absence is how a live worker gets a second
+ * container.
+ *
+ * It lives under the run's own `artifacts/<tick_id>/` folder, the tree this
+ * module's header reserves for worker artifacts, so a run's whole durable
+ * story is one prefix.
+ */
+export type WorkerManifest = {
+  run_id: string;
+  epic: string;
+  tick_id: string;
+  /** The container this tick is addressed by — `workerSandboxName(run, tick)`. */
+  sandbox_name: string;
+  /** `tick/<epic>/<tick>` — what collect reads and what a redispatch continues. */
+  branch: string;
+  base_sha: string;
+  /** Which batch of the wave dispatched it, 1-based. */
+  batch: number;
+  dispatched_at: string;
+  /**
+   * The work process, once one was started. Absent is NOT "nothing is
+   * running": the live process list settles that, and this is only ever a
+   * convenience for a reader that wants to name the process a manifest
+   * expected.
+   */
+  process_id?: string;
+  /** Set when a later attempt adopted a container this manifest already booted. */
+  adopted_at?: string;
+};
+
+export function workerManifestKey(project: string, runID: string, tickID: string): string {
+  return `${runPrefix(project, runID)}artifacts/${tickID}/manifest.json`;
+}
+
+/** The suffix `listWorkerManifests` recognises a manifest by. */
+const MANIFEST_SUFFIX = "/manifest.json";
+
+export async function writeWorkerManifest(
+  bucket: R2Bucket,
+  project: string,
+  manifest: WorkerManifest
+): Promise<void> {
+  await bucket.put(
+    workerManifestKey(project, manifest.run_id, manifest.tick_id),
+    JSON.stringify(manifest, null, 2),
+    { httpMetadata: { contentType: "application/json" } }
+  );
+}
+
+export async function readWorkerManifest(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  tickID: string
+): Promise<WorkerManifest | null> {
+  const object = await bucket.get(workerManifestKey(project, runID, tickID));
+  if (object === null) return null;
+  return JSON.parse(await object.text()) as WorkerManifest;
+}
+
+/**
+ * Every manifest this run has written, in tick order.
+ *
+ * Paged to exhaustion rather than to a fixed number of looks: a listing that
+ * stops early reads as a run that dispatched fewer ticks than it did, and
+ * "fewer ticks were dispatched" is the exact false statement that makes a
+ * reconcile boot a second container (.tick/learnings.md, "Never default a
+ * pagination bound to a permissive value").
+ */
+export async function listWorkerManifests(
+  bucket: R2Bucket,
+  project: string,
+  runID: string
+): Promise<WorkerManifest[]> {
+  const prefix = `${runPrefix(project, runID)}artifacts/`;
+  const manifests: WorkerManifest[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const listed = await bucket.list(cursor === undefined ? { prefix } : { prefix, cursor });
+    for (const object of listed.objects) {
+      if (!object.key.endsWith(MANIFEST_SUFFIX)) continue;
+      const body = await bucket.get(object.key);
+      if (body === null) continue;
+      manifests.push(JSON.parse(await body.text()) as WorkerManifest);
+    }
+    if (!listed.truncated) break;
+    cursor = listed.cursor;
+  }
+  manifests.sort((a, b) => a.tick_id.localeCompare(b.tick_id));
+  return manifests;
 }

@@ -89,6 +89,8 @@ class FakeSandbox implements OrchestratorSandbox {
   holdWork = false;
   /** tick b6e: makes this sandbox's green-start probe fail (no marker). */
   failProbe = false;
+  /** tick s7f: how many times the reconcile has read this container's process list. */
+  listed = 0;
   #next = 0;
 
   constructor(readonly name: string) {}
@@ -115,6 +117,17 @@ class FakeSandbox implements OrchestratorSandbox {
     if (this.vanished) return null;
     const process = this.processes.find((p) => p.id === id);
     return process === undefined ? null : process.view;
+  }
+
+  /**
+   * The live sandbox list (tick s7f). A vanished container answers with an
+   * empty list, which is what a container that died and came back looks like —
+   * and is deliberately NOT the same as the listing throwing.
+   */
+  async listProcesses(): Promise<SandboxProcessView[]> {
+    this.listed += 1;
+    if (this.vanished) return [];
+    return this.processes.map((p) => ({ ...p.view, command: p.command }));
   }
 
   async readOutput(id: string, offset: number): Promise<SandboxOutput> {
@@ -152,9 +165,40 @@ class FakeSandboxes implements SandboxBinding {
   holdWork = false;
   /** tick b6e: tick ids whose green-start probe should fail when booted. */
   readonly failProbeFor = new Set<string>();
+  /**
+   * tick s7f: throw on the Nth `get` of this name, once.
+   *
+   * This is how a test kills the supervisor MID-WAVE. The dispatch step is
+   * the one that boots containers, and a supervisor that dies inside it is
+   * replaced by one that runs the same step again — so a throw placed after
+   * the work processes exist reproduces the replacement exactly, with no
+   * waiting on a clock.
+   */
+  failGetAt: { name: string; nth: number; evict?: boolean } | null = null;
+  /** How many times each name has been addressed, for `failGetAt`. */
+  readonly #gets = new Map<string, number>();
   readonly #byName = new Map<string, FakeSandbox>();
 
+  /**
+   * tick s7f: the container is evicted and no snapshot restores it. Addressing
+   * the same name again provisions an EMPTY container, which is what a cold
+   * recovery actually looks like.
+   */
+  discard(name: string): void {
+    this.#byName.delete(name);
+  }
+
   async get(name: string, options?: { image?: string }): Promise<OrchestratorSandbox> {
+    const nth = (this.#gets.get(name) ?? 0) + 1;
+    this.#gets.set(name, nth);
+    if (this.failGetAt !== null && this.failGetAt.name === name && this.failGetAt.nth === nth) {
+      const { evict } = this.failGetAt;
+      this.failGetAt = null;
+      // `evict` is the no-snapshot case: the supervisor and the container die
+      // together, so addressing the name again provisions an empty one.
+      if (evict === true) this.discard(name);
+      throw new Error(`the supervisor lost ${name} mid-wave`);
+    }
     this.requestedImages.push(options?.image);
     let sandbox = this.#byName.get(name);
     if (sandbox === undefined) {
@@ -174,6 +218,11 @@ class FakeSandboxes implements SandboxBinding {
     const sandbox = this.booted.at(-1);
     if (sandbox === undefined) throw new Error("no sandbox has been booted");
     return sandbox;
+  }
+
+  /** tick s7f: how many times a name has been addressed. */
+  addressed(name: string): number {
+    return this.#gets.get(name) ?? 0;
   }
 
   /** tick b6e: the sandbox already booted under this exact name. */
@@ -278,7 +327,16 @@ class FakeRepoConfig implements RepoConfigReader {
  */
 class FakeWorkerCollector implements WorkerCollector {
   readonly asked: WorkerTask[] = [];
-  /** tick k24: something to do inside the first collect of a batch, once. */
+  /**
+   * tick k24: something to do inside a batch's collect, once.
+   *
+   * It fires on the first collect that finds PUSHED WORK, not on the first
+   * collect of any kind (tick s7f). Since the reconcile protocol reads git
+   * before a batch is dispatched, "the first collect" is now a read taken
+   * before any container exists — and a hook armed to land between batch one
+   * running and batch two being credentialled has to fire on the read that
+   * comes after batch one's container, which is the one that sees its branch.
+   */
   onCollect: (() => Promise<void>) | null = null;
   readonly #reports = new Map<string, WorkerReport>();
 
@@ -288,13 +346,56 @@ class FakeWorkerCollector implements WorkerCollector {
 
   async collect(task: WorkerTask): Promise<WorkerReport> {
     this.asked.push(task);
+    // The remote, modelled honestly (tick s7f). A tick's branch does not
+    // exist until a container has run for it, and the reconcile protocol
+    // reads git BEFORE the wave dispatches — a fake that answered
+    // "ready-to-merge" to that read would make every fresh wave look like a
+    // wave whose work had already landed.
+    const report =
+      this.#reports.get(task.tick_id) ??
+      (pushedFor(task.tick_id)
+        ? defaultWorkerReport(task.tick_id)
+        : absentBranchReport(task.tick_id));
     const hook = this.onCollect;
-    if (hook !== null) {
+    if (hook !== null && report.commits > 0) {
       this.onCollect = null;
       await hook();
     }
-    return this.#reports.get(task.tick_id) ?? defaultWorkerReport(task.tick_id);
+    return report;
   }
+}
+
+/**
+ * Whether this tick's work has reached the remote.
+ *
+ * A worker pushes its branch when it FINISHES, so a container that is still
+ * mid-tick has pushed nothing — which is exactly the state the reconcile
+ * protocol has to survive: a branch with no commits is what a live worker
+ * looks like, not what a dead one does (tick s7f).
+ */
+function pushedFor(tickID: string): boolean {
+  return sandboxes.booted.some(
+    (sandbox) =>
+      sandbox.name.endsWith(`-tick-${tickID}`) &&
+      sandbox.processes.some(
+        (process) => process.command === WORKER_COMMAND && process.state !== "running"
+      )
+  );
+}
+
+/** What the remote says about a tick nothing has pushed yet. */
+function absentBranchReport(tickID: string): WorkerReport {
+  return {
+    ...defaultWorkerReport(tickID),
+    verdict: "no-commits",
+    branch_exists: false,
+    commits: 0,
+    result_exists: false,
+    status: "",
+    status_detail: "",
+    status_line: "",
+    detail: "the branch is not on the remote",
+  };
 }
 
 function defaultWorkerReport(tickID: string): WorkerReport {
@@ -1544,6 +1645,7 @@ describe("summarizeCloudWave", () => {
       probe: { ok: true } as const,
       confirm: null,
       process_id: null,
+      adopted: false,
       cancelled: null,
       detail: "",
       wait: null,
@@ -1611,8 +1713,10 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     // would have them revoke each other's).
     expect(aaaWork.env.AI_GATEWAY_TOKEN).toBe(bbbWork.env.AI_GATEWAY_TOKEN);
 
-    // Collect read the durable layer for both, never a sandbox.
-    expect(collector.asked.map((t) => t.tick_id).sort()).toEqual(["aaa", "bbb"]);
+    // Collect read the durable layer for both, never a sandbox. (Each tick is
+    // read more than once: the reconcile protocol reads git before the wave
+    // dispatches, and the wave collects again afterwards — tick s7f.)
+    expect([...new Set(collector.asked.map((t) => t.tick_id))].sort()).toEqual(["aaa", "bbb"]);
 
     // Per-tick workers only implement and push (tap); nothing merges or
     // closes the epic out, so a real orchestrator boots for that.
@@ -2048,7 +2152,7 @@ describe("a run streams run_event to the board", () => {
     expect(published).toHaveLength(0);
     // Collect still read the durable layer for both ticks, and the run record
     // still carries their verdicts.
-    expect(collector.asked.map((t) => t.tick_id).sort()).toEqual(["aaa", "bbb"]);
+    expect([...new Set(collector.asked.map((t) => t.tick_id))].sort()).toEqual(["aaa", "bbb"]);
     const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
     expect(record.detail).toContain("cloud wave dispatched 2");
     expect(record.detail).toContain("ready-to-merge");
@@ -2066,4 +2170,192 @@ describe("a run streams run_event to the board", () => {
     expect(seen("epic-completed")[0]!.event.success).toBe(true);
     expect(seen("task-started")).toHaveLength(0);
   });
+});
+
+// ------------------------------------------ a supervisor that died mid-wave ---
+
+/**
+ * Reconcile on orchestrator reboot (tick s7f).
+ *
+ * The orchestrator is EXPECTED to die. Phase 1 booted a replacement; this is
+ * what makes the replacement correct. The dispatch step is the one that boots
+ * containers, so a supervisor that dies inside it is replaced by one that runs
+ * that same step again — and without a reconcile it would address the same
+ * per-tick sandbox names and start a SECOND worker in each of them.
+ *
+ * These drive the real Workflow: the failure is a container the supervisor
+ * cannot address at the moment it starts watching one, which is exactly the
+ * shape of an evicted isolate, and the retry is the replacement.
+ */
+describe("a supervisor that dies mid-wave adopts live workers instead of redispatching", () => {
+  let collector: FakeWorkerCollector;
+  let boardEvents: RunEventMessage[];
+
+  beforeEach(() => {
+    collector = new FakeWorkerCollector();
+    set("WORKER_COLLECTOR", collector);
+    boardEvents = [];
+    set("RUN_EVENTS", {
+      async publish(_project: string, event: RunEventMessage) {
+        boardEvents.push(event);
+        return { delivered: true, detail: "ok" };
+      },
+    } satisfies RunEventSink);
+  });
+
+  it("adopts both live workers, resumes the wave and finishes the run", async () => {
+    // Both containers stay mid-tick, which is the only state in which
+    // "adopted, not redispatched" means anything — and their branches are
+    // therefore EMPTY, because a worker pushes when it finishes.
+    sandboxes.holdWork = true;
+    const { runID, project } = await ignite({
+      tickIDs: ["aaa", "bbb"],
+      beforeStart: (id) => {
+        // The second address of aaa's container is `waitForWorker`'s first
+        // look, immediately after the work process was started and confirmed.
+        sandboxes.failGetAt = { name: workerSandboxName(id, "aaa"), nth: 2 };
+      },
+    });
+
+    // The replacement establishes the evidence before it starts anything: it
+    // asks each container's live process list.
+    await waitFor("the replacement to read the live sandbox list", async () => {
+      try {
+        return ["aaa", "bbb"].every(
+          (tick) => sandboxes.named(workerSandboxName(runID, tick)).listed > 0
+        )
+          ? true
+          : null;
+      } catch {
+        return null;
+      }
+    });
+
+    // The evidence it read: a live worker on a branch with nothing on it.
+    for (const tick of ["aaa", "bbb"]) {
+      const container = sandboxes.named(workerSandboxName(runID, tick));
+      const work = container.processes.filter((p) => p.command === WORKER_COMMAND);
+      expect(work).toHaveLength(1);
+      expect(work[0]!.state).toBe("running");
+    }
+    expect(pushedFor("aaa")).toBe(false);
+
+    // Let the adopted workers finish, then close the run out.
+    for (const tick of ["aaa", "bbb"]) {
+      sandboxes
+        .named(workerSandboxName(runID, tick))
+        .processes.find((p) => p.command === WORKER_COMMAND)!
+        .exit(0);
+    }
+
+    // The adopted workers are watched on the wave's own poll cadence
+    // (`DEFAULT_WAIT_POLL_MS`), so the handoff to closeout can be one poll
+    // away — the wait here is generous on purpose rather than tuned.
+    const closeout = await waitFor(
+      "the closeout orchestrator",
+      async () => sandboxes.phase("closeout"),
+      30_000
+    );
+    closeout.exit(0);
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+
+    // The invariant. Not one tick got a second worker, and not one container
+    // got a second green-start probe: they were taken over, not replaced.
+    for (const tick of ["aaa", "bbb"]) {
+      const container = sandboxes.named(workerSandboxName(runID, tick));
+      expect(container.processes.filter((p) => p.command === WORKER_COMMAND)).toHaveLength(1);
+      expect(container.processes.filter((p) => p.command === WORKER_PROBE_COMMAND)).toHaveLength(1);
+    }
+    // And exactly two worker containers existed for the whole run.
+    expect(sandboxes.booted.filter((s) => s.name.includes("-tick-"))).toHaveLength(2);
+
+    const logged = await listDispatchLogs(env.DB, runID, "ko8");
+    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile:"))!;
+    expect(reconciled.decision).toContain("2 live-worker");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("(adopted)");
+    // A replacement supervisor pays a retry delay before it runs the dispatch
+    // step again, and then a poll interval waiting on what it adopted — more
+    // than the file's default budget allows for.
+  }, 45_000);
+
+  it("recovers from git alone when the container dies with the supervisor — slower, not different", async () => {
+    // Snapshot/restore is an accelerator, never a correctness dependency
+    // (axiom 1). Here nothing restores the container: addressing its name
+    // gives an empty one. The recovery still works — from the branch the dead
+    // worker pushed — it just costs a second container and redoes whatever
+    // that worker had not pushed.
+    collector.set("aaa", {
+      verdict: "missing-result",
+      commits: 2,
+      result_exists: false,
+      status: "",
+      status_line: "",
+      detail: "2 commit(s) and no report",
+    });
+    const { runID } = await ignite({
+      tickIDs: ["aaa"],
+      beforeStart: (id) => {
+        sandboxes.failGetAt = { name: workerSandboxName(id, "aaa"), nth: 2, evict: true };
+      },
+    });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+
+    // The replacement read git, found the pushed branch, and dispatched a
+    // fresh container that continues it — a second CONTAINER for the tick,
+    // never a second branch.
+    const logged = await listDispatchLogs(env.DB, runID, "ko8");
+    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile:"))!;
+    expect(reconciled.decision).toContain("1 dead-with-work");
+
+    const containers = sandboxes.booted.filter((s) => s.name.endsWith("-tick-aaa"));
+    expect(containers).toHaveLength(2);
+    // The replacement container did the work over again.
+    expect(containers[1]!.processes.some((p) => p.command === WORKER_COMMAND)).toBe(true);
+    // Both attempts used the ONE branch the tick owns.
+    expect(new Set(collector.asked.map((t) => t.branch))).toEqual(new Set(["tick/ko8/aaa"]));
+  }, 15_000);
+
+  it("does not redo work that already landed while the supervisor was dying", async () => {
+    const { runID } = await ignite({
+      tickIDs: ["aaa"],
+      beforeStart: (id) => {
+        sandboxes.failGetAt = { name: workerSandboxName(id, "aaa"), nth: 2, evict: true };
+      },
+    });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("stopped");
+
+    // The worker had already pushed a mergeable branch before the supervisor
+    // lost it, so the replacement addressed no second container at all.
+    const logged = await listDispatchLogs(env.DB, runID, "ko8");
+    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile:"))!;
+    expect(reconciled.decision).toContain("1 already-landed");
+    // The replacement DID address the container — asking what is running in it
+    // is the third evidence source and there is no way to ask without
+    // addressing — but it started nothing in it.
+    const containers = sandboxes.booted.filter((s) => s.name.endsWith("-tick-aaa"));
+    expect(containers).toHaveLength(2);
+    expect(containers[1]!.processes).toHaveLength(0);
+
+    // And the board is told what the DURABLE LAYER says about it, not that
+    // nothing was launched — a merged branch drawn as a failure is worse than
+    // no badge at all.
+    const completed = boardEvents.filter((e) => e.event.type === "task-completed");
+    expect(completed).toHaveLength(1);
+    expect(completed[0]!.event.status).toBe("ready-to-merge");
+    expect(completed[0]!.event.success).toBe(true);
+  }, 15_000);
 });

@@ -8,7 +8,7 @@
  * lifecycle that can only be exercised by starting a real container is a
  * lifecycle nobody tests. A fake binding assigned to `env.SANDBOXES` proves the
  * supervision loop; the deployment binds the SDK's `getSandbox` behind the same
- * five methods. Nothing below is Cloudflare-specific, which is also what keeps
+ * six methods. Nothing below is Cloudflare-specific, which is also what keeps
  * the door open for the substrate to grow a second implementation (D19).
  *
  * The environment builder is the other half of the seam. `cloud/sandbox`
@@ -166,6 +166,15 @@ export type SandboxProcessView = {
   state: SandboxProcessState;
   /** The entrypoint's (and therefore the harness's) exit status, once it has one. */
   exit_code: number | null;
+  /**
+   * The command the process was started with, when the container reports one.
+   *
+   * Absent from a `startProcess` round trip that does not echo it, so nothing
+   * may REQUIRE it — but a reconcile reading the live process list needs to
+   * tell a worker's real work from its green-start probe, and the command is
+   * the only thing that distinguishes them (src/reconcile.ts).
+   */
+  command?: string;
 };
 
 /** Output produced since a cursor, plus the cursor to resume from. */
@@ -174,8 +183,9 @@ export type SandboxOutput = { text: string; offset: number };
 /**
  * One orchestrator container.
  *
- * Deliberately small: start a process, ask how it is doing, read what it has
- * printed since a cursor, kill it, throw the container away. Anything richer
+ * Deliberately small: start a process, ask how it is doing (by id, or by
+ * listing what is running), read what it has printed since a cursor, kill it,
+ * throw the container away. Anything richer
  * would be a capability the supervision loop does not have a use for, and every
  * method here is one a fake has to implement honestly for the tests to mean
  * something.
@@ -190,6 +200,18 @@ export interface OrchestratorSandbox {
    * which is what a container that died and came back empty looks like.
    */
   getProcess(id: string): Promise<SandboxProcessView | null>;
+  /**
+   * Every process this container knows about — the live sandbox list, which is
+   * the third and last evidence source of the reconcile protocol
+   * (src/reconcile.ts).
+   *
+   * It is deliberately not `getProcess(id)` with a remembered id. A supervisor
+   * that died between starting a worker's process and recording its id would
+   * hold no id to ask about, and "I have no id for it" must never be allowed
+   * to read as "nothing is running here" — that is precisely the evidence gap
+   * that redispatches a live worker.
+   */
+  listProcesses(): Promise<SandboxProcessView[]>;
   /** Everything printed after `offset` characters, with the new cursor. */
   readOutput(id: string, offset: number): Promise<SandboxOutput>;
   killProcess(id: string): Promise<void>;
@@ -259,6 +281,7 @@ export type SdkSandbox = {
     options?: { env?: Record<string, string>; autoCleanup?: boolean }
   ): Promise<SdkProcess>;
   getProcess(id: string): Promise<SdkProcess | null>;
+  listProcesses(): Promise<SdkProcess[]>;
   getProcessLogs(id: string): Promise<{ stdout: string; stderr: string }>;
   killProcess(id: string): Promise<void>;
   destroy(): Promise<void>;
@@ -269,6 +292,8 @@ export type SdkProcess = {
   id: string;
   status: string;
   exitCode?: number | null;
+  /** The SDK reports it on a listing; `startProcess` need not echo it back. */
+  command?: string;
 };
 
 /** The Durable Object namespace `[[containers]]` binds the Sandbox class to. */
@@ -308,7 +333,7 @@ export function sdkSandboxBinding(namespace: SandboxNamespace): SandboxBinding {
   };
 }
 
-/** One SDK sandbox, behind the five methods the supervision loop uses. */
+/** One SDK sandbox, behind the six methods the supervision loop uses. */
 export function adaptSandbox(sandbox: SdkSandbox): OrchestratorSandbox {
   return {
     async startProcess(command, options) {
@@ -325,6 +350,10 @@ export function adaptSandbox(sandbox: SdkSandbox): OrchestratorSandbox {
     async getProcess(id) {
       const view = await sandbox.getProcess(id);
       return view === null || view === undefined ? null : processView(view);
+    },
+    async listProcesses() {
+      const listed = await sandbox.listProcesses();
+      return (listed ?? []).map(processView);
     },
     async readOutput(id, offset) {
       const logs = await sandbox.getProcessLogs(id);
@@ -358,6 +387,12 @@ function processView(process: SdkProcess): SandboxProcessView {
     id: process.id,
     state: processState(process.status),
     exit_code: process.exitCode === undefined ? null : process.exitCode,
+    // The redirect `startProcess` appends is stripped again: the seam's
+    // callers compare against the command they ASKED for, and a stored
+    // `... 2>&1` would never match one.
+    ...(process.command === undefined
+      ? {}
+      : { command: process.command.replace(/\s*2>&1\s*$/, "") }),
   };
 }
 
