@@ -139,6 +139,42 @@ export type WorkerBootInput = {
 export const WORKER_PUSH_MARGIN_MS = 60_000;
 
 /**
+ * A worker container's own default harness — cross-provider, unlike `claude`
+ * (`cloud/sandbox/common.sh` refuses `claude` outright against a non-Anthropic
+ * provider, by design).
+ */
+export const WORKER_DEFAULT_HARNESS = "omp";
+
+/**
+ * A worker container's own default model when the run config names none.
+ *
+ * Deliberately NOT `.tick/runners.toml`'s `[roles.implement]` (`kind =
+ * "claude"`, `model = "sonnet"`): that table is shared with `tk herd spawn`'s
+ * LOCAL worker CLIs on an operator's machine, which authenticate straight to
+ * Anthropic and have no factory gateway credential at all. A cloud worker
+ * left to fall through to it asked the checkout's `tk sandbox model
+ * --role implement` for that same `sonnet`/`anthropic` route, which the
+ * factory gateway does not serve (Phase 2 routes Workers AI only) —
+ * `probe_model` died `EXIT_MODEL` deterministically, on every worker, in
+ * every wave, before the harness ever started (tick ys3). Repointing
+ * `[roles.implement]` itself was the trap: it would have fixed the cloud
+ * container and broken every local epic run in the same commit. A cloud
+ * worker's harness and model come from the FACTORY, never from the
+ * repository's implement role — this constant is that route, applied in
+ * `workerBootEnv` only when the caller supplies none, so an operator's or the
+ * run config's explicit choice still wins.
+ *
+ * `deepseek-v4-flash-0731`: measured against this account's own
+ * `GET /ai/models/search` catalog by tick y45
+ * (`docs/workers-ai-model-selection.md`), not assumed — 53.3 DeepSWE v1.1
+ * (`deepseek-v4-pro-0813`, the orchestrator's own model, scores 63.0 but at
+ * roughly 3x the price) with 23/23 post-warm prompt-cache hits, the best of
+ * six models probed; `qwen3.8-27b` is disqualified outright at 0/27 cache
+ * hits, fatal for an agentic loop regardless of score.
+ */
+export const WORKER_DEFAULT_MODEL = "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731";
+
+/**
  * The container's own harness bound, in whole seconds, derived from the wave's
  * wait timeout. Zero (unbounded) when the caller bounds nothing or when the
  * window is too small to reserve a push margin from — a bound of a few seconds
@@ -152,8 +188,12 @@ export function workerHarnessTimeoutSeconds(waitTimeoutMs?: number): number {
 /**
  * The environment one worker container boots with.
  *
- * Only what is set is passed: the entrypoint defaults everything else, and an
- * empty string is not the same as absent to a shell reading `${VAR:-default}`.
+ * Only what is set is passed, and the entrypoint defaults everything else —
+ * except `TICKS_HARNESS`/`TICKS_MODEL`, which this function itself defaults
+ * (see {@link WORKER_DEFAULT_MODEL}), because the entrypoint's own fallback
+ * for an unset model is the repository's `[roles.implement]`, and that route
+ * is for local worker CLIs, not a factory-dispatched container. An empty
+ * string is not the same as absent to a shell reading `${VAR:-default}`.
  */
 export function workerBootEnv(input: WorkerBootInput): Record<string, string> {
   const env: Record<string, string> = {
@@ -167,8 +207,12 @@ export function workerBootEnv(input: WorkerBootInput): Record<string, string> {
     TICKS_WORKER_SETUP: input.setup ?? "always",
   };
   const optional: [string, string | undefined][] = [
-    ["TICKS_HARNESS", input.harness],
-    ["TICKS_MODEL", input.model],
+    // Defaulted rather than left absent, unlike everything else below: an
+    // absent TICKS_MODEL falls through to the container's own
+    // `resolve_model`, which asks the checkout's `[roles.implement]` — the
+    // LOCAL worker route, unreachable from the factory gateway (tick ys3).
+    ["TICKS_HARNESS", input.harness ?? WORKER_DEFAULT_HARNESS],
+    ["TICKS_MODEL", input.model ?? WORKER_DEFAULT_MODEL],
     ["GITHUB_TOKEN", input.github_token],
     ["TICKS_SANDBOX_IMAGE", input.sandbox_image],
     ["TICKS_WORKDIR", input.workdir],

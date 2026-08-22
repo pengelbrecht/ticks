@@ -240,6 +240,21 @@ export function classifyWorker(evidence: WorkerEvidence): ReconcileItem {
   }
 
   if (liveness.live) {
+    // The container's business is genuinely ambiguous on its own — but when
+    // git already carries a mergeable branch, that evidence is durable and
+    // conclusive regardless of what the container is doing, and escalating to
+    // a human here would ask them to adjudicate a question git already
+    // answered (tick 6uv).
+    if (report !== null && report.verdict === "ready-to-merge") {
+      return item(
+        "already-landed",
+        "skip",
+        `${evidence.branch} already carries ${report.commits} commit(s) and ${report.result_path}: ` +
+          `the work is in git, and a reconcile never redoes work that landed — ${evidence.sandbox_name} ` +
+          "is still busy with something other than the work command, but durable evidence is " +
+          "unambiguous, so it is left alone rather than escalated"
+      );
+    }
     return item("unknown", "inspect", "the container is busy with something that is not the work command", {
       contradictions: [
         `${evidence.sandbox_name} has ${liveness.running.length} running process(es) ` +
