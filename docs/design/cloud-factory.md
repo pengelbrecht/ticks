@@ -668,7 +668,7 @@ counted together:
 
 | Observation (read-only) | Terminal | Record it reads |
 |---|---|---|
-| what the container printed | `tk cloud logs <run>` | the harness stream in R2 (D20) |
+| what the container printed | `tk cloud logs <run>` | the harness stream in R2 (D20) — the orchestrator's by default, one worker container's with `--tick <id>` |
 | what the model said and decided | `tk cloud trace <run>` | AI Gateway logs, filtered on `metadata.run_id` (D17) |
 | what the factory is doing right now | `tk factory dashboard` | one composed read, `GET /api/observe`: the run listing, a focused run's Workflow phase, image digest and boot attempt, the RunRoom's gates, the `dispatch_log` refusals and the `run_event` tail (tick t9s) |
 
@@ -1273,7 +1273,11 @@ Three rules keep it useful rather than voluminous:
   - `tk cloud logs <run>` — the harness stream in R2: what the container
     printed. Readable mid-run (that is why the stream is segments), bounded
     from the END with the bound stated, since the tail is what a run being
-    debugged is read for.
+    debugged is read for. Every container has one, not just the orchestrator:
+    a wave's per-tick workers each stream to their own `artifacts/<tick_id>/
+    harness/` key — one shared key would interleave a batch into nonsense —
+    and `--tick <id>` reads one of them. The default read names the streams
+    that exist.
   - `tk cloud trace <run>` — the model conversation from AI Gateway, filtered
     on the `run_id` the proxy stamps: message roles, tool calls and their
     arguments, tokens in/out and cached per call, cost per call. `--call N`

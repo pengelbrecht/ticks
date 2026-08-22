@@ -377,7 +377,7 @@ Two different records answer "what happened", so there are two commands:
 
 | Command | Reads | Answers |
 |---|---|---|
-| `tk cloud logs <run>` | the harness stream in R2 | what the container printed — a crash, a git failure, a command that never returned. `--tail N` for the last N lines. Readable mid-run. |
+| `tk cloud logs <run>` | the harness stream in R2 | what the container printed — a crash, a git failure, a command that never returned. `--tail N` for the last N lines. Readable mid-run. Names the per-tick worker streams the run has; `--tick <id>` prints one worker container's own output. |
 | `tk cloud trace <run>` | AI Gateway logs for that run | what the model said and decided — message roles, tool calls and their arguments, tokens in/out and cached per call, cost per call |
 
 `trace` has flags for the four questions people actually arrive with:

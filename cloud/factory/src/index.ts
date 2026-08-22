@@ -31,7 +31,12 @@
  */
 
 import { authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
-import { HARNESS_TAIL_MAX_BYTES, readHarnessTail } from "./artifacts";
+import {
+  HARNESS_TAIL_MAX_BYTES,
+  listWorkerLogStreams,
+  readHarnessTail,
+  readWorkerLogTail,
+} from "./artifacts";
 import {
   enrolProject,
   getEnrolledProject,
@@ -337,14 +342,43 @@ async function logsRoute(url: URL, runID: string, env: Env): Promise<Response> {
     maxBytes = parsed;
   }
 
+  // Which worker containers left a stream, always — on a per-tick read as much
+  // as on the default one. A `--tick` whose valid values are unlisted is a
+  // flag nobody can use, and it is what tells a typo'd tick id apart from a
+  // container that printed nothing (tick 0fg).
+  const streams = await listWorkerLogStreams(env.ARTIFACTS, run.project, runID);
+
+  const tick = url.searchParams.get("tick");
+  if (tick !== null) {
+    // A tick id addresses a folder under the run's own prefix, so it is
+    // checked rather than trusted: `../orchestrator` would read a stream this
+    // parameter does not name.
+    if (!TICK_ID_PATTERN.test(tick)) {
+      return badRequest("tick must be a tick id — letters, digits, dots, dashes or underscores");
+    }
+    const worker = await readWorkerLogTail(env.ARTIFACTS, run.project, runID, tick, maxBytes);
+    return Response.json({
+      run_id: runID,
+      project: run.project,
+      state: run.state,
+      tick_id: tick,
+      ...worker,
+      streams,
+    });
+  }
+
   const output = await readHarnessTail(env.ARTIFACTS, run.project, runID, maxBytes);
   return Response.json({
     run_id: runID,
     project: run.project,
     state: run.state,
     ...output,
+    streams,
   });
 }
+
+/** What may name a worker stream: a tick id, and nothing that walks the tree. */
+const TICK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 // -------------------------------------------------------------- projects ---
 

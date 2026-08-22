@@ -23,6 +23,7 @@ import {
   type Canceller,
   type Sleeper,
   type WaveCancellation,
+  type WorkerLogSink,
   type WorkSpec,
 } from "../src/worker-dispatch";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
@@ -81,7 +82,16 @@ class FakeSandbox implements OrchestratorSandbox {
     return process.view;
   }
 
+  /**
+   * Runs just before `getProcess` answers. A real container can print on its
+   * way out — after the supervisor's last read and before the state it reads
+   * says the process is over — and this is the only way a fake can reproduce
+   * that ordering (tick 0fg).
+   */
+  beforeGetProcess: (() => void) | null = null;
+
   async getProcess(id: string): Promise<SandboxProcessView | null> {
+    this.beforeGetProcess?.();
     if (this.vanished) return null;
     const process = this.processes.find((p) => p.id === id);
     return process === undefined ? null : process.view;
@@ -1504,5 +1514,183 @@ describe("dispatchWave: a failed probe's output survives to the real R2 manifest
     expect(manifest!.probe_failure).toBeDefined();
     expect(manifest!.probe_failure!.reason).toBe("probe-error");
     expect(manifest!.probe_failure!.detail).toContain("the sandbox did not answer");
+  });
+});
+
+// ------------------------------------------ the container's own output ---
+
+/**
+ * Every worker container streams its stdout/stderr somewhere durable, the way
+ * the orchestrator sandbox does — continuously, never at exit (tick 0fg).
+ *
+ * A container that dies must still leave its diagnostics: the exit-7 wave cost
+ * seven paid runs because `worker.sh`'s `die` message, which names the exact
+ * gateway route and HTTP body, went nowhere. Export-at-exit is the one design
+ * that cannot answer that, because the thing being diagnosed is the exit.
+ */
+class FakeLogSink implements WorkerLogSink {
+  readonly flushes: { tick_id: string; text: string }[] = [];
+
+  forTick(tickID: string) {
+    return async (text: string): Promise<void> => {
+      this.flushes.push({ tick_id: tickID, text });
+    };
+  }
+
+  text(tickID: string): string {
+    return this.flushes
+      .filter((flush) => flush.tick_id === tickID)
+      .map((flush) => flush.text)
+      .join("");
+  }
+}
+
+describe("a worker container's own output is streamed while it runs", () => {
+  it("flushes the probe's output as it appears, not once the probe is over", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0fg");
+    const logs = new FakeLogSink();
+    let look = 0;
+    const sleep: Sleeper = async () => {
+      const process = binding.named(name).current;
+      look += 1;
+      if (look === 1) {
+        process.say("ticks-worker: resolving the model route\n");
+        return;
+      }
+      if (look === 2) {
+        // By the second look the first line must ALREADY be durable — a stream
+        // that only lands at exit is no use to a container about to die.
+        expect(logs.text("0fg")).toBe("ticks-worker: resolving the model route\n");
+        process.say("READY\n");
+        process.finish(0);
+        return;
+      }
+      // The confirm loop, now watching the real work command.
+      process.say("implementing 0fg\n");
+      process.finish(0);
+    };
+
+    const result = await spawnWorker(binding, name, task("0fg"), WORK_SPEC, {
+      probe_timeout_ms: 5_000,
+      probe_poll_ms: 1,
+      confirm_timeout_ms: 5_000,
+      confirm_poll_ms: 1,
+      sleep,
+      logs,
+    });
+
+    expect(result.probe.ok).toBe(true);
+    expect(logs.text("0fg")).toContain("READY");
+  });
+
+  it("keeps what a container printed on its way out — the die message IS the diagnosis", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0fg");
+    const logs = new FakeLogSink();
+    const died =
+      "ticks-worker: FATAL POST /v1/chat/completions -> 404 {\"error\":\"no route\"}\n";
+    const sleep: Sleeper = async () => {
+      // The container prints and dies BETWEEN the supervisor's read and the
+      // state it reads back. Only a drain after the terminal state was seen
+      // can catch that.
+      binding.named(name).beforeGetProcess = () => {
+        const probe = binding.named(name).current;
+        if (probe.state !== "running") return;
+        probe.say(died);
+        probe.finish(7);
+      };
+    };
+
+    const result = await spawnWorker(binding, name, task("0fg"), WORK_SPEC, {
+      probe_timeout_ms: 5_000,
+      probe_poll_ms: 1,
+      sleep,
+      logs,
+    });
+
+    expect(result.launched).toBe(false);
+    expect(logs.text("0fg")).toBe(died);
+  });
+
+  it("streams the real work command's output through the wait, mid-run", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0fg");
+    const logs = new FakeLogSink();
+    let stage = 0;
+    const sleep: Sleeper = async () => {
+      const sandbox = binding.named(name);
+      stage += 1;
+      if (stage === 1) {
+        sandbox.current.say("READY\n");
+        sandbox.current.finish(0);
+        return;
+      }
+      if (stage === 2) {
+        sandbox.current.say("cloning the repository\n");
+        return;
+      }
+      if (stage === 3) {
+        // Mid-run: the wait has not finished, and the line is already durable.
+        expect(logs.text("0fg")).toContain("cloning the repository");
+        sandbox.current.say("running the harness\n");
+        return;
+      }
+      sandbox.current.finish(0);
+    };
+
+    const outcome = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName("run1", tickID),
+      [task("0fg")],
+      () => WORK_SPEC,
+      {
+        probe_timeout_ms: 5_000,
+        probe_poll_ms: 1,
+        confirm_timeout_ms: 5_000,
+        confirm_poll_ms: 1,
+        wait_timeout_ms: 5_000,
+        wait_poll_ms: 1,
+        sleep,
+        logs,
+      },
+      new FakeCollector()
+    );
+
+    expect(outcome[0]!.launched).toBe(true);
+    // The probe ran in the same container and its output belongs to the same
+    // tick's stream, in the order the container produced it — and nothing is
+    // recorded twice as the cursor passes from confirm to wait.
+    expect(logs.text("0fg")).toBe(
+      "READY\ncloning the repository\nrunning the harness\n"
+    );
+  });
+
+  it("keeps a sink failure out of the dispatch — telemetry cannot fail a wave", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0fg");
+    const sleep: Sleeper = async () => {
+      const probe = binding.named(name).current;
+      probe.say("READY\n");
+      probe.finish(0);
+    };
+
+    const result = await spawnWorker(binding, name, task("0fg"), WORK_SPEC, {
+      probe_timeout_ms: 5_000,
+      probe_poll_ms: 1,
+      confirm_timeout_ms: 5_000,
+      confirm_poll_ms: 1,
+      sleep,
+      logs: {
+        forTick() {
+          return async () => {
+            throw new Error("R2 is having a day");
+          };
+        },
+      },
+    });
+
+    expect(result.probe.ok).toBe(true);
+    expect(result.launched).toBe(true);
   });
 });

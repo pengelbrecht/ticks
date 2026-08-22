@@ -100,6 +100,9 @@ describe("GET /api/runs/:id/logs", () => {
       bytes: 21,
       total_bytes: 21,
       truncated: false,
+      // Which worker containers left a stream of their own (tick 0fg). Empty
+      // here: this run dispatched none.
+      streams: [],
     });
   });
 

@@ -8,6 +8,7 @@
  *       artifacts/orchestrator/harness.log
  *       artifacts/orchestrator/reconcile/<attempt>.json
  *       artifacts/<tick_id>/manifest.json   (what was dispatched — src/reconcile.ts)
+ *       artifacts/<tick_id>/harness/<epoch>/<seq>.log  (that container's own output)
  *
  * **Written during the run, never exported at exit.** A crashed sandbox is the
  * case that matters: its logs are the only evidence of what it was doing, and a
@@ -20,6 +21,8 @@
  * Segment keys are zero-padded because R2 lists lexicographically: `10.log`
  * sorting before `9.log` would silently reorder a log file.
  */
+
+import type { WorkerLogSink } from "./worker-dispatch";
 
 /** Widths chosen so lexicographic order is numeric order for any real run. */
 const SEQ_WIDTH = 6;
@@ -249,7 +252,21 @@ export async function readHarnessTail(
   runID: string,
   maxBytes: number = HARNESS_TAIL_MAX_BYTES
 ): Promise<HarnessOutput> {
-  const prefix = harnessStreamPrefix(project, runID);
+  return readStreamTail(bucket, harnessStreamPrefix(project, runID), maxBytes);
+}
+
+/**
+ * Every object under one segment prefix, paged to exhaustion and in key order.
+ *
+ * Paged to exhaustion rather than to a fixed number of looks, for the reason
+ * `.tick/learnings.md` states about pagination bounds: a listing that stops
+ * early reads as a stream that ends early, and a log that quietly ends early
+ * is the exact false statement a log is read to avoid.
+ */
+async function listSegments(
+  bucket: R2Bucket,
+  prefix: string
+): Promise<{ key: string; size: number }[]> {
   const objects: { key: string; size: number }[] = [];
   let cursor: string | undefined;
   for (;;) {
@@ -262,6 +279,23 @@ export async function readHarnessTail(
     cursor = page.cursor;
   }
   objects.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return objects;
+}
+
+/**
+ * The tail of ONE segment stream, whichever container wrote it.
+ *
+ * Shared by the orchestrator's stream and by every worker container's own
+ * (tick 0fg): the two are the same kind of record at two places in the tree,
+ * and a second copy of this logic is a second place for the bound to be
+ * reported wrongly.
+ */
+async function readStreamTail(
+  bucket: R2Bucket,
+  prefix: string,
+  maxBytes: number
+): Promise<HarnessOutput> {
+  const objects = await listSegments(bucket, prefix);
 
   const total = objects.reduce((sum, object) => sum + object.size, 0);
   if (objects.length === 0) return { text: "", bytes: 0, total_bytes: 0, truncated: false };
@@ -435,4 +469,173 @@ export async function listWorkerManifests(
   }
   manifests.sort((a, b) => a.tick_id.localeCompare(b.tick_id));
   return manifests;
+}
+
+// ------------------------------------------------ worker container logs ---
+
+/**
+ * What one worker container printed — its own stdout and stderr, per tick
+ * (tick 0fg).
+ *
+ * `tk cloud logs <run>` served the ORCHESTRATOR sandbox's stream and nothing
+ * else, so a worker container that booted, ran `cloud/sandbox/worker.sh` and
+ * died on `die $EXIT_MODEL` left a message naming the exact gateway route and
+ * HTTP body — and that message went nowhere durable. Diagnosing that cost
+ * seven paid runs. This is the container's TEXT; `WorkerManifest` (and its
+ * `probe_failure`) is the dispatch OUTCOME. Two records, two questions.
+ *
+ * ONE STREAM PER (RUN, TICK), never the orchestrator's single key: a wave runs
+ * its containers concurrently, and one shared stream would interleave them
+ * into nonsense. It lives beside the tick's manifest, under the
+ * `artifacts/<tick_id>/` folder this module's header already reserves for
+ * worker artifacts, and it is written the same way the orchestrator's is —
+ * continuously, as immutable segments, never exported at exit. The exit is the
+ * thing being diagnosed, so an export-at-exit design cannot answer it.
+ */
+export function workerLogStreamPrefix(project: string, runID: string, tickID: string): string {
+  return `${runPrefix(project, runID)}artifacts/${tickID}/harness/`;
+}
+
+/** The folder under `artifacts/` that is the orchestrator's, not a tick's. */
+const ORCHESTRATOR_DIR = "orchestrator";
+
+/** The path component a stream's segments live under, for both roles. */
+const STREAM_DIR = "harness";
+
+/**
+ * Milliseconds since the epoch are 13 digits until the year 2286 — wide enough
+ * that a fixed pad keeps lexicographic order numeric, which is what makes
+ * attempt N+1's segments sort after attempt N's.
+ */
+const EPOCH_WIDTH = 13;
+
+/**
+ * One segment of one worker container's output.
+ *
+ * `epoch` plays the part `attempt` plays for the orchestrator: it separates
+ * what one supervisor wrote from what its replacement wrote. It is a
+ * wall-clock stamp rather than a counter because no counter survives a
+ * Workflow step boundary — a retried dispatch step starts a fresh sequence at
+ * 1, and without the epoch it would PUT straight over the segments of the
+ * attempt whose failure is the reason anyone is reading (`.tick/learnings.md`:
+ * a crashed attempt's diagnostics are the ones that matter).
+ */
+export function workerLogSegmentKey(
+  project: string,
+  runID: string,
+  tickID: string,
+  epoch: number,
+  seq: number
+): string {
+  return (
+    `${workerLogStreamPrefix(project, runID, tickID)}` +
+    `${pad(epoch, EPOCH_WIDTH)}/${pad(seq, SEQ_WIDTH)}.log`
+  );
+}
+
+/** One flush of a worker container's output. Empty text writes nothing. */
+export async function writeWorkerLogSegment(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  tickID: string,
+  epoch: number,
+  seq: number,
+  text: string
+): Promise<boolean> {
+  if (text === "") return false;
+  await bucket.put(workerLogSegmentKey(project, runID, tickID, epoch, seq), text, {
+    httpMetadata: { contentType: "text/plain; charset=utf-8" },
+  });
+  return true;
+}
+
+/** The tail of one worker container's output, with what it left out stated. */
+export async function readWorkerLogTail(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  tickID: string,
+  maxBytes: number = HARNESS_TAIL_MAX_BYTES
+): Promise<HarnessOutput> {
+  return readStreamTail(bucket, workerLogStreamPrefix(project, runID, tickID), maxBytes);
+}
+
+/** One tick's stream, as the default `tk cloud logs` read names it. */
+export type WorkerLogStream = {
+  tick_id: string;
+  bytes: number;
+  segments: number;
+};
+
+/**
+ * Which worker streams a run has, in tick order.
+ *
+ * This is what makes `--tick` discoverable: an operator reading a failed wave
+ * does not know which containers got far enough to print, and a flag whose
+ * valid values are unlisted is a flag nobody uses. The orchestrator's own
+ * stream is skipped rather than reported as a tick — it sits under the same
+ * `harness/` name one level over, and calling it a tick would invent a tick
+ * id that no board, manifest or branch has ever heard of.
+ */
+export async function listWorkerLogStreams(
+  bucket: R2Bucket,
+  project: string,
+  runID: string
+): Promise<WorkerLogStream[]> {
+  const prefix = `${runPrefix(project, runID)}artifacts/`;
+  const byTick = new Map<string, WorkerLogStream>();
+  for (const object of await listSegments(bucket, prefix)) {
+    const rest = object.key.slice(prefix.length).split("/");
+    // <tick_id>/harness/<epoch>/<seq>.log
+    if (rest.length !== 4 || rest[1] !== STREAM_DIR) continue;
+    const tickID = rest[0]!;
+    if (tickID === ORCHESTRATOR_DIR) continue;
+    const seen = byTick.get(tickID);
+    if (seen === undefined) byTick.set(tickID, { tick_id: tickID, bytes: object.size, segments: 1 });
+    else {
+      seen.bytes += object.size;
+      seen.segments += 1;
+    }
+  }
+  return [...byTick.values()].sort((a, b) => a.tick_id.localeCompare(b.tick_id));
+}
+
+/**
+ * The sink a live wave streams its containers' output through.
+ *
+ * The sequence counter is per tick and lives in this closure, SHARED by every
+ * writer `forTick` hands out: a wave's spawn and its wait each bind their own
+ * writer for the same container, and two counters would mean two writers
+ * PUTting `000001.log` over each other. One epoch per sink, taken once at
+ * construction, so everything one supervisor writes for one wave sorts
+ * together and after whatever an earlier supervisor left.
+ */
+export function workerLogSink(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  epoch: number = Date.now()
+): WorkerLogSink {
+  const seq = new Map<string, number>();
+  return {
+    forTick(tickID: string) {
+      return async (text: string): Promise<void> => {
+        const next = (seq.get(tickID) ?? 0) + 1;
+        const wrote = await writeWorkerLogSegment(
+          bucket,
+          project,
+          runID,
+          tickID,
+          epoch,
+          next,
+          text
+        );
+        // Only a flush that actually wrote bytes advances the sequence, so
+        // segment N always holds something — the rule `writeHarnessSegment`
+        // already keeps for the orchestrator's stream.
+        if (wrote) seq.set(tickID, next);
+      };
+    },
+  };
 }

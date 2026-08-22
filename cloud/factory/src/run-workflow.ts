@@ -58,6 +58,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
 import {
+  workerLogSink,
   writeHarnessSegment,
   writeCombinedHarnessLog,
   writeReconcileRecord,
@@ -1721,6 +1722,15 @@ export async function superviseCloudWave(
             epic: params.epic,
             batch: i + 1,
           }),
+          // Each container's own stdout/stderr, streamed to its own R2 key as
+          // it appears (tick 0fg). The orchestrator sandbox has had this since
+          // D20; a worker's went nowhere, so a container that died at boot took
+          // the one message that explained it with it. One sink for the wave,
+          // one stream per tick: a shared key would interleave the batch's
+          // containers into nonsense.
+          ...(env.ARTIFACTS === undefined
+            ? {}
+            : { logs: workerLogSink(env.ARTIFACTS, params.project, params.run_id) }),
         },
         collector
       );

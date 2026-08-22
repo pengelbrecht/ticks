@@ -42,7 +42,12 @@
  * the fact of running it. See RESULT-0ds.md for what that leaves open.
  */
 
-import type { OrchestratorSandbox, SandboxBinding, SandboxProcessState } from "./sandbox";
+import type {
+  OrchestratorSandbox,
+  SandboxBinding,
+  SandboxOutput,
+  SandboxProcessState,
+} from "./sandbox";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "./worker-collect";
 
 // ------------------------------------------------------------- the timing ---
@@ -104,6 +109,55 @@ export const defaultSleeper: Sleeper = (ms) => scheduler.wait(ms);
 
 function excerpt(text: string, max = 200): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+// ------------------------------------------------------- the log stream ---
+
+/**
+ * Where one worker container's own stdout/stderr goes, one flush at a time.
+ *
+ * A seam rather than an R2 call, for the same reason `WorkerRecorder` and
+ * `WorkerCollector` are seams: what is worth testing here is WHEN the drain
+ * happens, not what storage it lands in. `artifacts.ts`'s `workerLogSink` is
+ * the live implementation.
+ */
+export type WorkerLogWriter = (text: string) => Promise<void>;
+
+export type WorkerLogSink = {
+  /**
+   * The writer for one tick's stream. Called more than once for the same tick
+   * — spawn binds one, the wave's wait binds another — so an implementation
+   * must SHARE whatever ordering state it keeps between them.
+   */
+  forTick(tickID: string): WorkerLogWriter;
+};
+
+/**
+ * Reads whatever a container has printed since `offset` and flushes it.
+ *
+ * The read propagates: `spawnWorker` turns a probe read that throws into a
+ * `probe-error` outcome, and swallowing it here would turn that into a silent
+ * wait for a timeout. The WRITE never propagates — a wave must not fail
+ * because its telemetry could not be written, the same rule `writeWaveOutcomes`
+ * follows at the other end of the wave.
+ */
+async function drain(
+  sandbox: OrchestratorSandbox,
+  processID: string,
+  offset: number,
+  log: WorkerLogWriter | undefined
+): Promise<SandboxOutput> {
+  const chunk = await sandbox.readOutput(processID, offset);
+  if (chunk.text !== "" && log !== undefined) {
+    try {
+      await log(chunk.text);
+    } catch (error) {
+      console.error(
+        `factory worker-dispatch: could not stream a container's output: ${String(error)}`
+      );
+    }
+  }
+  return chunk;
 }
 
 // ------------------------------------------------- the cancellation seam ---
@@ -321,13 +375,19 @@ async function watchProbe(
   sandbox: OrchestratorSandbox,
   processID: string,
   expect: string,
-  opts: { timeoutMs: number; pollMs: number; sleep: Sleeper; cancel?: Canceller }
+  opts: {
+    timeoutMs: number;
+    pollMs: number;
+    sleep: Sleeper;
+    cancel?: Canceller;
+    log?: WorkerLogWriter;
+  }
 ): Promise<ProbeOutcome> {
   const deadline = Date.now() + opts.timeoutMs;
   let output = "";
   let offset = 0;
   for (;;) {
-    const chunk = await sandbox.readOutput(processID, offset);
+    const chunk = await drain(sandbox, processID, offset, opts.log);
     output += chunk.text;
     offset = chunk.offset;
     const view = await sandbox.getProcess(processID);
@@ -335,6 +395,13 @@ async function watchProbe(
       return { ok: false, reason: "process-gone", detail: "the probe process vanished before it finished", output };
     }
     if (view.state === "completed" || view.state === "failed") {
+      // One more read AFTER the terminal state was observed. A container can
+      // print on its way out — `worker.sh`'s `die` message is exactly that —
+      // and the read at the top of this iteration happened before the death
+      // this state reports. Skipping it drops the one line worth having.
+      const last = await drain(sandbox, processID, offset, opts.log);
+      output += last.text;
+      offset = last.offset;
       return evaluateProbeOutput(output, expect, view.exit_code);
     }
     if (Date.now() >= deadline) {
@@ -367,9 +434,16 @@ async function watchProbe(
 
 // --------------------------------------------------------- confirm dispatch ---
 
+/**
+ * `offset` is how far into the work process's output this confirm already
+ * read. Handed on to `waitForWorker` so the wait resumes the cursor rather
+ * than restarting it: the two loops stream the SAME process to the same R2
+ * stream, and a wait that started at zero would write everything the confirm
+ * already wrote a second time (tick 0fg).
+ */
 export type ConfirmOutcome =
-  | { confirmed: true; detail: string }
-  | { confirmed: false; detail: string; cancelled?: WaveCancellation };
+  | { confirmed: true; detail: string; offset: number }
+  | { confirmed: false; detail: string; cancelled?: WaveCancellation; offset: number };
 
 /**
  * Waits for evidence the real command actually started doing something.
@@ -386,7 +460,13 @@ export type ConfirmOutcome =
 export async function confirmDispatch(
   sandbox: OrchestratorSandbox,
   processID: string,
-  opts: { timeoutMs: number; pollMs: number; sleep?: Sleeper; cancel?: Canceller }
+  opts: {
+    timeoutMs: number;
+    pollMs: number;
+    sleep?: Sleeper;
+    cancel?: Canceller;
+    log?: WorkerLogWriter;
+  }
 ): Promise<ConfirmOutcome> {
   const sleep = opts.sleep ?? defaultSleeper;
   const deadline = Date.now() + opts.timeoutMs;
@@ -398,26 +478,36 @@ export async function confirmDispatch(
       return {
         confirmed: false,
         detail: "the worker process vanished before any evidence of it starting was observed",
+        offset,
       };
     }
     if (view.state === "completed" || view.state === "failed") {
+      // A tick trivial enough to finish inside the confirm window has already
+      // said everything it is ever going to say, and this is the last chance
+      // to keep it: nothing downstream waits on a process that is over.
+      const last = await drain(sandbox, processID, offset, opts.log);
+      offset = last.offset;
       return {
         confirmed: true,
         detail: `the worker reached a terminal state (${view.state}) before the confirm window closed`,
+        offset,
       };
     }
-    if (!sawOutput) {
-      const chunk = await sandbox.readOutput(processID, offset);
-      offset = chunk.offset;
-      if (chunk.text !== "") sawOutput = true;
-    }
+    // Drained on EVERY look, not only until the first byte proves the dispatch:
+    // the confirm window is up to three minutes of a real container's output,
+    // and a stream that starts once confirm happens to stop looking is a
+    // stream with a hole in it.
+    const chunk = await drain(sandbox, processID, offset, opts.log);
+    offset = chunk.offset;
+    if (chunk.text !== "") sawOutput = true;
     if (view.state === "running" && sawOutput) {
-      return { confirmed: true, detail: "the worker is running and has produced output" };
+      return { confirmed: true, detail: "the worker is running and has produced output", offset };
     }
     if (Date.now() >= deadline) {
       return {
         confirmed: false,
         detail: `no evidence the worker started within ${opts.timeoutMs}ms (state ${view.state})`,
+        offset,
       };
     }
     const cancelled = await sleepUnlessCancelled(opts.pollMs, sleep, opts.cancel);
@@ -426,6 +516,7 @@ export async function confirmDispatch(
         confirmed: false,
         detail: `the wave was cancelled before the worker's dispatch was confirmed: ${cancelled.detail}`,
         cancelled,
+        offset,
       };
     }
   }
@@ -449,6 +540,12 @@ export type SpawnOptions = {
   cancel?: Canceller;
   /** Where this dispatch is recorded durably, for a later reconcile (tick s7f). */
   record?: WorkerRecorder;
+  /**
+   * Where this container's own stdout/stderr is streamed as it appears (tick
+   * 0fg). Absent means nothing is kept — which is what the exit-7 wave cost
+   * seven paid runs to learn.
+   */
+  logs?: WorkerLogSink;
 };
 
 /**
@@ -494,6 +591,12 @@ export type SpawnResult = {
   /** The real work process id, present exactly when `launched` is true. */
   process_id: string | null;
   /**
+   * How much of the work process's output has already been streamed, so the
+   * wave's wait resumes the cursor instead of re-streaming it (tick 0fg).
+   * Absent means nothing was streamed and the wait starts at the beginning.
+   */
+  output_offset?: number;
+  /**
    * True when this outcome took over a worker that was ALREADY running rather
    * than starting one (tick s7f). No probe was run and no process was started;
    * the container was left exactly as the dead supervisor left it.
@@ -521,6 +624,9 @@ export async function spawnWorker(
   opts: SpawnOptions = {}
 ): Promise<SpawnResult> {
   const sleep = opts.sleep ?? defaultSleeper;
+  // Bound once for this container: every loop below streams the SAME tick's
+  // stream, and the sink keeps this tick's ordering state behind it.
+  const log = opts.logs?.forTick(task.tick_id);
   // The manifest lands BEFORE the container is addressed. `binding.get`
   // provisions on this substrate, so a crash in the other order would leave a
   // running container that no durable record names — and a reconcile reading
@@ -537,6 +643,7 @@ export async function spawnWorker(
       pollMs: opts.probe_poll_ms ?? DEFAULT_PROBE_POLL_MS,
       sleep,
       ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
+      ...(log === undefined ? {} : { log }),
     });
   } catch (error) {
     // The real Sandbox SDK's `startProcess`/`getProcess`/`readOutput` are
@@ -566,6 +673,7 @@ export async function spawnWorker(
       probe,
       confirm: null,
       process_id: null,
+      output_offset: 0,
       adopted: false,
       cancelled,
       detail:
@@ -583,6 +691,7 @@ export async function spawnWorker(
     pollMs: opts.confirm_poll_ms ?? DEFAULT_CONFIRM_POLL_MS,
     sleep,
     ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
+    ...(log === undefined ? {} : { log }),
   });
 
   return {
@@ -597,6 +706,7 @@ export async function spawnWorker(
     probe,
     confirm,
     process_id: work.id,
+    output_offset: confirm.offset,
     adopted: false,
     // The real command IS running in this container, so it is launched — and
     // that is exactly why the cancellation has to be reported: the caller owes
@@ -629,17 +739,52 @@ export async function waitForWorker(
   binding: SandboxBinding,
   sandboxName: string,
   processID: string,
-  opts: { timeoutMs?: number; pollMs?: number; sleep?: Sleeper; cancel?: Canceller } = {}
+  opts: {
+    timeoutMs?: number;
+    pollMs?: number;
+    sleep?: Sleeper;
+    cancel?: Canceller;
+    /** Where this container's output goes as the wait watches it (tick 0fg). */
+    log?: WorkerLogWriter;
+    /** How much of it `confirmDispatch` already streamed — never restart at 0. */
+    offset?: number;
+  } = {}
 ): Promise<WaitOutcome> {
   const sleep = opts.sleep ?? defaultSleeper;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const pollMs = opts.pollMs ?? DEFAULT_WAIT_POLL_MS;
   const deadline = Date.now() + timeoutMs;
+  let offset = opts.offset ?? 0;
+
+  /**
+   * The wait is where a worker spends nearly all of its wall clock and prints
+   * nearly everything it prints, so the drain happens HERE, on the same
+   * cadence as the liveness look — continuously, never once at the end. A read
+   * that fails is logged and the wait carries on: a diagnostic that can end a
+   * live run is worse than a gap in a log.
+   */
+  const flush = async (sandbox: OrchestratorSandbox): Promise<void> => {
+    if (opts.log === undefined) return;
+    try {
+      const chunk = await drain(sandbox, processID, offset, opts.log);
+      offset = chunk.offset;
+    } catch (error) {
+      console.error(
+        `factory worker-dispatch: could not read ${sandboxName}'s output: ${String(error)}`
+      );
+    }
+  };
+
   for (;;) {
     const sandbox = await binding.get(sandboxName);
+    await flush(sandbox);
     const view = await sandbox.getProcess(processID);
     if (view === null) return { state: "gone", exit_code: null, timed_out: false, cancelled: null };
     if (view.state === "completed" || view.state === "failed") {
+      // Read once more now the process is over: whatever it printed on its way
+      // out landed after the flush above, and that is the half of the log a
+      // failed worker is read for.
+      await flush(sandbox);
       return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled: null };
     }
     if (Date.now() >= deadline) {
@@ -776,8 +921,14 @@ function adoptedSpawn(
     // dispatched, and re-probing a container that is mid-tick would start a
     // second process in it for no reason.
     probe: { ok: true },
-    confirm: { confirmed: true, detail: adoption.detail },
+    confirm: { confirmed: true, detail: adoption.detail, offset: 0 },
     process_id: adoption.process_id,
+    // Zero, not "wherever the dead supervisor got to": that cursor died with
+    // it. This attempt streams the adopted container from the beginning into
+    // its OWN attempt folder, so a reader may see the pre-adoption output
+    // twice — deliberately chosen over losing whatever the dead supervisor
+    // never flushed, which is the output closest to why it died.
+    output_offset: 0,
     adopted: true,
     cancelled: null,
     detail: `adopted a live worker: ${adoption.detail}`,
@@ -805,6 +956,7 @@ async function dispatchOneWorker(
       probe: { ok: false, reason: "cancelled", detail: before.detail, output: "" },
       confirm: null,
       process_id: null,
+      output_offset: 0,
       adopted: false,
       cancelled: before,
       detail: `wave cancelled before this container was addressed: ${before.detail}`,
@@ -826,11 +978,14 @@ async function dispatchOneWorker(
 
   let wait: WaitOutcome | null = null;
   if (spawned.cancelled === null && spawned.launched && spawned.process_id !== null) {
+    const log = opts.logs?.forTick(task.tick_id);
     wait = await waitForWorker(binding, sandboxName, spawned.process_id, {
       timeoutMs: opts.wait_timeout_ms,
       pollMs: opts.wait_poll_ms,
       sleep: opts.sleep,
+      offset: spawned.output_offset ?? 0,
       ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
+      ...(log === undefined ? {} : { log }),
     });
   }
 
