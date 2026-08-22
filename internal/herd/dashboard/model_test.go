@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -293,6 +294,108 @@ func TestCursorClampsOnSmallerSnapshot(t *testing.T) {
 	if !ok || sel.ID != "m05" {
 		t.Errorf("selection = %q (%v) after the board shrank, want m05", sel.ID, ok)
 	}
+}
+
+// A board taller than the terminal must scroll to follow the cursor, not
+// truncate: j/k/g/G have to reach the last epic and every tick under it, and
+// a new tick must be reachable without resizing the terminal.
+func TestBoardScrollsToFollowCursor(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	m.width, m.height = 120, 12
+
+	snap := tallBoard()
+	apply(m, SnapshotMsg{Snapshot: snap})
+
+	// The last tick must not be visible before navigation: it sits beyond the
+	// terminal's window, and a truncating board drops it silently.
+	if strings.Contains(m.View(), "ep-z9") {
+		t.Fatalf("last tick rendered before navigation (board is not truncating):\n%s", m.View())
+	}
+
+	// g reaches the first selectable row: the first epic header.
+	apply(m, key("G"))
+	apply(m, key("g"))
+	sel, ok := m.SelectedEpic()
+	if !ok || sel != "ep-a" {
+		t.Fatalf("g landed on %q (%v), want ep-a", sel, ok)
+	}
+	if !strings.Contains(m.View(), "ep-a") {
+		t.Fatalf("g did not scroll the first epic into view:\n%s", m.View())
+	}
+
+	// G reaches the very last selectable row: the last tick under the last
+	// epic. That is the deepest reachable row in the board.
+	apply(m, key("G"))
+	got, ok := m.Selected()
+	if !ok || got.ID != "ep-z9" {
+		t.Fatalf("G selection = %q (%v), want ep-z9", got.ID, ok)
+	}
+	if !strings.Contains(m.View(), "ep-z9") {
+		t.Fatalf("G did not scroll the last tick into view:\n%s", m.View())
+	}
+	if !strings.Contains(m.View(), "ep-z") {
+		t.Fatalf("G did not scroll the last epic header into view:\n%s", m.View())
+	}
+
+	// Step back one: the previous tick stays reachable and visible.
+	apply(m, key("k"))
+	if got, _ = m.Selected(); got.ID != "ep-z8" {
+		t.Fatalf("k selection = %q, want ep-z8", got.ID)
+	}
+	if !strings.Contains(m.View(), "ep-z8") {
+		t.Fatalf("k did not keep the previous tick visible:\n%s", m.View())
+	}
+}
+
+// A tick that lands under the last epic after the board grows must be
+// reachable without resizing: a single j from the epic header selects it and
+// scrolls it into view.
+func TestNewTickReachableWithoutResize(t *testing.T) {
+	pinProfile(t)
+	m := testModel(t)
+	m.width, m.height = 120, 12
+
+	apply(m, SnapshotMsg{Snapshot: tallBoard()})
+	apply(m, key("G"))
+
+	// A new tick appears under the last epic, after the board was already at
+	// the bottom.
+	grown := tallBoard()
+	ep := &grown.Epics[len(grown.Epics)-1]
+	ep.Waves[0].Ticks = append(ep.Waves[0].Ticks, TickRow{ID: "ep-z10", Title: "fresh", Status: tick.StatusOpen})
+	apply(m, SnapshotMsg{Snapshot: grown})
+
+	apply(m, key("j"))
+	got, ok := m.Selected()
+	if !ok || got.ID != "ep-z10" {
+		t.Fatalf("new tick selection = %q (%v), want ep-z10", got.ID, ok)
+	}
+	if !strings.Contains(m.View(), "ep-z10") {
+		t.Fatalf("new tick not visible without resizing:\n%s", m.View())
+	}
+}
+
+// tallBoard is a board far taller than a 12-line terminal: 10 epics with one
+// tick each (ep-a through ep-j), plus a last epic ep-z carrying 10 ticks.
+// Every epic is open so every tick is a selectable row.
+func tallBoard() Snapshot {
+	var epics []EpicBoard
+	for _, id := range []string{"ep-a", "ep-b", "ep-c", "ep-d", "ep-e", "ep-f", "ep-g", "ep-h", "ep-i", "ep-j"} {
+		epics = append(epics, EpicBoard{
+			Epic:  id,
+			Title: id + " title",
+			Waves: []WaveRow{{Number: 1, Ticks: []TickRow{{ID: id + "0", Title: id + " tick", Status: tick.StatusOpen}}}},
+		})
+	}
+	z := EpicBoard{Epic: "ep-z", Title: "ep-z title"}
+	var zticks []TickRow
+	for i := range 10 {
+		zticks = append(zticks, TickRow{ID: fmt.Sprintf("ep-z%d", i), Title: "tick", Status: tick.StatusOpen})
+	}
+	z.Waves = []WaveRow{{Number: 1, Ticks: zticks}}
+	epics = append(epics, z)
+	return Snapshot{RepoRoot: "/repo", LoadedAt: fixedTime, Epics: epics}
 }
 
 func TestQuitKeys(t *testing.T) {

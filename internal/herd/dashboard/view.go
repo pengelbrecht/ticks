@@ -63,20 +63,53 @@ func (m *Model) render() string {
 	b.WriteString(m.header())
 	b.WriteString("\n")
 
-	body := m.body()
-	// Leave room for the header (2 lines), the blank line and the footer.
-	if budget := m.height - 5; budget > 0 && len(body) > budget {
-		hidden := len(body) - budget + 1
-		body = append(body[:budget-1], metaStyle.Render(fmt.Sprintf("  … %d more lines (resize to see them)", hidden)))
+	lines, _ := m.boardLines()
+	window := m.boardWindow(len(lines))
+	start := m.boardScroll
+	if start > len(lines) {
+		start = len(lines)
 	}
-	for _, line := range body {
+	end := start + window
+	if end > len(lines) {
+		end = len(lines)
+	}
+	for _, line := range lines[start:end] {
 		b.WriteString(truncate(line, m.width))
+		b.WriteString("\n")
+	}
+	if window < len(lines) {
+		hidden := len(lines) - window
+		b.WriteString(truncate(metaStyle.Render(fmt.Sprintf("  … %d more lines (j/k to scroll)", hidden)), m.width))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
 	b.WriteString(truncate(metaStyle.Render("j/k move · enter details / fold epic · g/G first/last · r reload · q quit · read-only"), m.width))
 	return b.String()
+}
+
+// boardBudget is how many body lines [Model.render] has room for when the
+// board fits on screen: the terminal height minus the header (2 lines), the
+// blank separator, the blank line before the footer, and the footer itself —
+// matching the `height - 5` the board always used.
+func (m *Model) boardBudget() int {
+	budget := m.height - 5
+	if budget < 1 {
+		budget = 1
+	}
+	return budget
+}
+
+// boardWindow is how many content lines render. It is the full [Model.boardBudget]
+// when the board fits on screen, otherwise one less so the "… more lines"
+// indicator has a line of its own — it replaces a content line, exactly like
+// the truncation it supersedes, so the total stays within the terminal height.
+func (m *Model) boardWindow(total int) int {
+	w := m.boardBudget()
+	if w < 2 || total <= w {
+		return w
+	}
+	return w - 1
 }
 
 // header is the two-line status bar: what is being watched, and how the board
@@ -143,21 +176,26 @@ func (m *Model) header() string {
 	return out
 }
 
-// body renders the epic blocks as a flat line list so the height clamp can cut
-// it without disturbing the layout.
-func (m *Model) body() []string {
+// boardLines renders the epic blocks as a flat line list and, in parallel,
+// the body-line index of each selectable row. The cursor ordering matches
+// [Model.rows]: each epic's header, then its ticks when expanded. Decorations
+// (blank separators, wave labels, the workers block) occupy body lines but no
+// cursor rows, which is why the two lists are separate.
+func (m *Model) boardLines() ([]string, []int) {
 	if len(m.snap.Epics) == 0 {
 		if m.snap.LoadedAt.IsZero() {
-			return []string{metaStyle.Render("  loading…")}
+			return []string{metaStyle.Render("  loading…")}, nil
 		}
-		return []string{metaStyle.Render("  no epics with run state in " + m.snap.RepoRoot)}
+		return []string{metaStyle.Render("  no epics with run state in " + m.snap.RepoRoot)}, nil
 	}
 
 	var lines []string
+	var cursorLines []int
 	cursorIx := 0
 	for _, e := range m.snap.Epics {
 		open := m.expanded(e)
 		lines = append(lines, "", m.epicLine(e, open, cursorIx == m.cursor))
+		cursorLines = append(cursorLines, len(lines)-1)
 		cursorIx++
 		if !open {
 			continue
@@ -169,6 +207,7 @@ func (m *Model) body() []string {
 			lines = append(lines, waveStyle.Render("  "+waveLabel(w.Number)))
 			for _, t := range w.Ticks {
 				lines = append(lines, m.tickLine(t, cursorIx == m.cursor))
+				cursorLines = append(cursorLines, len(lines)-1)
 				cursorIx++
 			}
 		}
@@ -179,7 +218,7 @@ func (m *Model) body() []string {
 			}
 		}
 	}
-	return lines
+	return lines, cursorLines
 }
 
 // epicLine renders one epic header: the selection marker, the chevron that

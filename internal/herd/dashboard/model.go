@@ -124,6 +124,11 @@ type Model struct {
 	// the key handler and a snapshot refresh call.
 	mode         viewMode
 	detailScroll int
+	// boardScroll is the board body's scroll offset: which body line sits at
+	// the top of the window. It follows the cursor through
+	// [Model.scrollCursorIntoView], so j/k/g/G always keep the selected row
+	// on screen instead of letting a tall board truncate rows out of reach.
+	boardScroll int
 
 	quitting bool
 }
@@ -233,6 +238,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// panes still on the board.
 		m.pruneLive()
 		m.clampCursor()
+		m.scrollCursorIntoView()
 		// This is the one place the safety re-list feeds the event
 		// mechanism: a newly spawned worker's pane becomes watched here.
 		m.watcher.Track(m.panes())
@@ -313,13 +319,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "j", "down":
 		m.moveCursor(1)
+		m.scrollCursorIntoView()
 	case "k", "up":
 		m.moveCursor(-1)
+		m.scrollCursorIntoView()
 	case "g", "home":
 		m.cursor = 0
+		m.scrollCursorIntoView()
 	case "G", "end":
 		m.cursor = len(m.rows()) - 1
 		m.clampCursor()
+		m.scrollCursorIntoView()
 	case "r":
 		return m, m.load()
 	}
@@ -549,6 +559,48 @@ func (m *Model) clampCursor() {
 	}
 	if m.cursor >= n {
 		m.cursor = n - 1
+	}
+}
+
+// scrollCursorIntoView moves [Model.boardScroll] so the selected row's body
+// line is inside the visible window. It is called after every cursor move and
+// after a snapshot reload (which can grow or shrink the board), mirroring how
+// [Model.clampDetailScroll] re-bounds the detail view.
+func (m *Model) scrollCursorIntoView() {
+	if m.mode == modeDetail {
+		return
+	}
+	lines, cursorLines := m.boardLines()
+	if m.cursor < 0 || m.cursor >= len(cursorLines) {
+		m.clampBoardScroll()
+		return
+	}
+	line := cursorLines[m.cursor]
+	window := m.boardWindow(len(lines))
+	if line < m.boardScroll {
+		m.boardScroll = line
+		return
+	}
+	if line >= m.boardScroll+window {
+		m.boardScroll = line - window + 1
+	}
+	m.clampBoardScroll()
+}
+
+// clampBoardScroll bounds [Model.boardScroll] to the board's rendered content:
+// never negative, never past the point where the last body line is already on
+// screen. It is idempotent and safe to call on an empty board.
+func (m *Model) clampBoardScroll() {
+	if m.boardScroll < 0 {
+		m.boardScroll = 0
+	}
+	lines, _ := m.boardLines()
+	max := len(lines) - m.boardWindow(len(lines))
+	if max < 0 {
+		max = 0
+	}
+	if m.boardScroll > max {
+		m.boardScroll = max
 	}
 }
 
