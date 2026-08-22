@@ -1,0 +1,14 @@
+{
+  "id": "kya",
+  "title": "POST /api/wave does not verify the requested ticks belong to the run's epic",
+  "description": "Found by the orchestrator reviewing tick wiy's diff (the code that landed after oun's final review, so no review had seen it).\n\ncloud/factory/src/wave-request.ts checks a lot, and correctly: the caller's identity comes from the run's own gateway token so a container cannot name a run it is not; `epic` must equal the run's epic; `pass` is a bounded positive integer; `base_sha` matches BASE_SHA_PATTERN; the lease is VERIFIED rather than acquired; the write is read back before the container is told its wave landed.\n\nWhat it does not check is that each id in `tick_ids` actually belongs to that epic. The local path does — 'tk cloud spawn' step 2 is 'every named tick must exist and belong to the epic' — so the two dispatch doors disagree about the same invariant.\n\nImpact is low and bounded: the caller is the run's own orchestrator, the ids come from its own 'tk graph', and the lease check means only one run per project can ask at all. But the effect of a confused or drifted container is that a run for epic A boots worker containers on epic B's ticks, in the same repository, under A's budget — and the tick-level manifests would name ticks the run has no business touching. The epic field is checked precisely to stop that class; the tick ids are the other half of it.\n\nWorth fixing because this is a NEW authenticated dispatch surface, and the cheapest moment to close a validation gap on one is before anything depends on the looser behaviour.\n\nNote the reviewer's own uncertainty: the Worker cannot read .tick/ to answer 'does tick X belong to epic A' without either fetching the pushed branch or trusting a record it already has. If there is no cheap authoritative answer inside the Worker, say so and close this as won't-fix with the reasoning — an honest 'the container is the authority here, and here is why that is safe' is an acceptable outcome. What is not acceptable is the two doors silently disagreeing with no note saying which is right.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "acceptance_criteria": "Either POST /api/wave rejects tick ids outside the run's epic with a test pinning it, or the divergence from tk cloud spawn is documented in wave-request.ts's header with the reason the container is trusted here.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T13:57:13.317412Z",
+  "updated_at": "2026-08-22T13:57:13.317412Z"
+}
