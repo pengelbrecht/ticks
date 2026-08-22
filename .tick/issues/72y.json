@@ -2,6 +2,7 @@
   "id": "72y",
   "title": "Tooling defects found during the factory run",
   "description": "Four defects in tk and the herd substrate, all found by RUNNING the factory epics rather than by testing them. Grouped so they get one review and one closeout instead of four ad-hoc fixes.\n\n  201  herd dashboard truncates the epic list instead of scrolling it\n  09w  tk herd collect boundary check conflates tracker state with project config\n  5jo  herd agent names collide across repos (tick-\u003cid\u003e is a global namespace)\n  3nh  support herdr protocol 20 (server auto-updated to 0.8.2 mid-run)\n\nCommon thread worth stating: each one is invisible to the test suite and only appears with a real multi-repo, multi-runner, live-server workload. 201 hides work from the operator, 09w trains the operator to wave through boundary violations, 5jo can silently bind one repo to another repos worker, and 3nh hard-stops every in-flight run when a background upgrade lands. They are ordinary bugs individually; together they are the difference between a demo and something you can leave running.",
+  "notes": "2026-08-22 06:56 - runner-state: substrate=harness requested=harness config=auto source=TICKS_SUBSTRATE reason=explicit-override",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -9,5 +10,5 @@
   "acceptance_criteria": "The dashboard reaches every epic and tick on a roadmap taller than the viewport; a tick editing .tick/config.md or .tick/runners.toml collects clean while one editing tick state still fails closed; two repos sharing a tick id run concurrently without wait/collect/reconcile crossing between them; tk herd works against herdr 0.8.2 with internal/herd green and a documented compatibility policy.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T21:13:06.202128Z",
-  "updated_at": "2026-08-19T21:13:06.202128Z"
+  "updated_at": "2026-08-22T06:56:57.062564849Z"
 }
