@@ -151,7 +151,13 @@ it (`src/run-workflow.ts`):
   submission is something an agent can make. A submitted cost budget counts as
   configured, so a run whose gateway cost telemetry cannot be read refuses to
   boot rather than spending unmeasured. A budget parked by `--queue` is stored
-  with the entry and travels to ignition.
+  with the entry and travels to ignition. **A cloud wave's worker containers
+  are bounded by that same allowance (tick 5fg):** each worker's harness budget
+  is what the run has LEFT, capped by the measured 90-minute default (or a
+  deployment's `RUN_WORKER_BUDGET_MS`), and the wave waits exactly one push
+  margin longer. It used to be a flat 30-minute constant that ignored
+  `--max-wall-clock` entirely, which killed three healthy containers at ~29
+  minutes on a run submitted with 90.
 - **Exhaustion is a clean stop, identical to `POST /api/runs/:id/stop` (D15).**
   Both trip the same branch: the in-flight work gets `RUN_STOP_GRACE_MS` to
   land, then a `closeout` orchestrator reconciles and runs review and closeout

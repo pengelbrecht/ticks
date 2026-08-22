@@ -98,7 +98,19 @@ export const DEFAULT_PROBE_POLL_MS = 2_000;
  */
 export const DEFAULT_CONFIRM_TIMEOUT_MS = 180_000;
 export const DEFAULT_CONFIRM_POLL_MS = 2_000;
-export const DEFAULT_WAIT_TIMEOUT_MS = 30 * 60_000;
+/**
+ * How long a caller who names no timeout watches one worker.
+ *
+ * Kept equal to `waveWaitTimeoutMs(DEFAULT_WORKER_HARNESS_BUDGET_MS)` in
+ * worker-boot.ts — the measured 90-minute harness budget plus the push margin
+ * — and pinned there by a guard test rather than imported, because
+ * worker-boot.ts already takes its types from this module and a value import
+ * back would close the cycle. It was thirty minutes, which is shorter than a
+ * real tick takes (tick 5fg): a default that kills healthy work is worse than
+ * no default at all, and `run-workflow.ts` now passes its own derived number
+ * on every dispatch regardless.
+ */
+export const DEFAULT_WAIT_TIMEOUT_MS = 91 * 60_000;
 export const DEFAULT_WAIT_POLL_MS = 15_000;
 
 /** Injectable so a test drives the polling loops without real wall-clock time. */

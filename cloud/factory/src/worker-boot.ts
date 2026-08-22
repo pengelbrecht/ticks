@@ -123,20 +123,92 @@ export type WorkerBootInput = {
    */
   setup?: WorkerSetupMode;
   /**
-   * The wave's wait timeout, if the caller bounds one.
+   * How long this worker's harness may WORK, if the caller bounds it.
    *
-   * The container is given a slightly SHORTER bound of its own, because the
-   * dispatcher's timeout ends in `teardownWorker` killing the container and a
-   * killed container pushes nothing. Bounding the harness just under the wait
-   * turns a hung agent into a pushed branch and a report — the difference
-   * between a lost tick and a legible one. Derived here so the two bounds are
-   * one decision rather than two constants that drift apart.
+   * The agent's budget is the decision (`workerHarnessBudgetMs`); the wave's
+   * wait is derived from it (`waveWaitTimeoutMs`), not the other way round.
+   * They were one constant until tick 5fg, which made "how long may the agent
+   * work" a hostage of "how long does the supervisor wait before reconciling"
+   * — two different jobs, and the constant answered neither from measurement.
    */
-  wait_timeout_ms?: number;
+  harness_budget_ms?: number;
 };
 
-/** How much of the wave's wait window is reserved for committing and pushing. */
+/**
+ * How much of the wave's wait window is reserved for committing and pushing.
+ *
+ * The dispatcher's wait timeout ends in `teardownWorker` KILLING the
+ * container, and a killed container pushes nothing. This margin is what turns
+ * that into a pushed branch and a legible report instead. It worked exactly as
+ * designed on run run_2e66e765 — three killed containers still produced three
+ * readable branches — so it is deliberately unchanged by tick 5fg.
+ */
 export const WORKER_PUSH_MARGIN_MS = 60_000;
+
+/**
+ * The default ceiling on one worker's harness budget, in ms.
+ *
+ * Justified by this repository's own measurement, not by taste. Tick y45
+ * recorded a COMPLETE one-tick epic at **78 minutes** on
+ * `deepseek-v4-pro-0813`, and {@link WORKER_DEFAULT_MODEL} is the FLASH model,
+ * which takes more steps than pro for the same work. Ninety minutes is that
+ * measurement plus a small allowance for the extra steps.
+ *
+ * The number this replaced was thirty minutes, and it was not a safety margin:
+ * on run run_2e66e765 (2026-08-22, epic 72y, ticks 201/5jo/5qj) all three
+ * containers drove the loop competently — 393+ model calls each, real tool
+ * use, 95-99% prompt cache — and all three were killed `exit 124` with zero
+ * work commits, just before they would have committed. That is the most
+ * expensive failure available: the run pays for every token and keeps nothing.
+ */
+export const DEFAULT_WORKER_HARNESS_BUDGET_MS = 90 * 60_000;
+
+/**
+ * The floor a DERIVED budget never drops below.
+ *
+ * A bound of a few seconds fails every worker rather than rescuing any. When a
+ * run is genuinely out of time the thing that stops its wave is the wall-clock
+ * trip (`cloudWaveTrip`, tick k24), which cancels the batch and tears the
+ * containers down — not a harness budget of nine seconds.
+ */
+export const MIN_WORKER_HARNESS_BUDGET_MS = 5 * 60_000;
+
+/**
+ * How long one worker's harness may work, from the run's own allowance.
+ *
+ * `remaining_wall_clock_ms` is what the RUN has left, so a worker can never be
+ * given more time than the run it belongs to — a worker that outlives its run
+ * is a container the wall-clock trip has to kill, which is the failure this
+ * derivation exists to stop. `cap_ms` is the deployment's own ceiling on any
+ * single worker (`RUN_WORKER_BUDGET_MS`), defaulting to the measured
+ * {@link DEFAULT_WORKER_HARNESS_BUDGET_MS}: a generous run allowance is not a
+ * licence to hand ONE tick the whole run.
+ */
+export function workerHarnessBudgetMs(
+  input: { remaining_wall_clock_ms?: number; cap_ms?: number } = {}
+): number {
+  const cap =
+    input.cap_ms !== undefined && Number.isFinite(input.cap_ms) && input.cap_ms > 0
+      ? input.cap_ms
+      : DEFAULT_WORKER_HARNESS_BUDGET_MS;
+  const remaining = input.remaining_wall_clock_ms;
+  if (remaining === undefined || !Number.isFinite(remaining)) return cap;
+  const usable = remaining - WORKER_PUSH_MARGIN_MS;
+  if (usable >= cap) return cap;
+  return Math.max(MIN_WORKER_HARNESS_BUDGET_MS, Math.floor(usable));
+}
+
+/**
+ * How long the wave watches a container that may work for `harnessBudgetMs`.
+ *
+ * Exactly the push margin longer, and in that order: the agent's budget is the
+ * decision and the supervisor's patience follows it. Deriving it the other way
+ * round is what made a thirty-minute observation window silently also be every
+ * agent's working life.
+ */
+export function waveWaitTimeoutMs(harnessBudgetMs: number): number {
+  return harnessBudgetMs + WORKER_PUSH_MARGIN_MS;
+}
 
 /**
  * A worker container's own default harness — cross-provider, unlike `claude`
@@ -175,14 +247,16 @@ export const WORKER_DEFAULT_HARNESS = "omp";
 export const WORKER_DEFAULT_MODEL = "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731";
 
 /**
- * The container's own harness bound, in whole seconds, derived from the wave's
- * wait timeout. Zero (unbounded) when the caller bounds nothing or when the
- * window is too small to reserve a push margin from — a bound of a few seconds
- * would fail every worker rather than rescue any.
+ * The container's own harness bound, in whole seconds — `TICKS_WORKER_TIMEOUT`.
+ *
+ * Zero (unbounded) when the caller bounds nothing, which is what an unset
+ * variable means to the entrypoint.
  */
-export function workerHarnessTimeoutSeconds(waitTimeoutMs?: number): number {
-  if (waitTimeoutMs === undefined || waitTimeoutMs <= WORKER_PUSH_MARGIN_MS) return 0;
-  return Math.floor((waitTimeoutMs - WORKER_PUSH_MARGIN_MS) / 1000);
+export function workerHarnessTimeoutSeconds(harnessBudgetMs?: number): number {
+  if (harnessBudgetMs === undefined || !Number.isFinite(harnessBudgetMs) || harnessBudgetMs <= 0) {
+    return 0;
+  }
+  return Math.floor(harnessBudgetMs / 1000);
 }
 
 /**
@@ -224,7 +298,7 @@ export function workerBootEnv(input: WorkerBootInput): Record<string, string> {
   for (const [name, value] of optional) {
     if (value !== undefined && value !== "") env[name] = value;
   }
-  const timeout = workerHarnessTimeoutSeconds(input.wait_timeout_ms);
+  const timeout = workerHarnessTimeoutSeconds(input.harness_budget_ms);
   if (timeout > 0) env.TICKS_WORKER_TIMEOUT = String(timeout);
   return env;
 }

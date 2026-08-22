@@ -129,6 +129,14 @@ declare namespace Cloudflare {
      * step cap, and lowering it makes a run stop cleanly sooner, not fail.
      */
     RUN_MAX_OBSERVATIONS?: string;
+    /**
+     * A ceiling on what any ONE worker container's harness may spend, in ms
+     * (tick 5fg). Unset on a real deployment: the default is derived from
+     * measurement (`DEFAULT_WORKER_HARNESS_BUDGET_MS`) and bounded by the
+     * run's own remaining wall clock, which is the bound that matters. Set it
+     * to stop a single long tick from eating a generous run allowance.
+     */
+    RUN_WORKER_BUDGET_MS?: string;
     /** Harness kind and model the orchestrator sandbox is started with. */
     RUN_HARNESS?: string;
     RUN_MODEL?: string;

@@ -115,6 +115,7 @@ func (f *workerFixture) writeStubs() {
   printf 'CWD=%s\n' "$PWD"
   for a in "$@"; do printf 'ARG=%s\n' "$a"; done
 } > "$TICKS_TEST_RECORD"
+if [ -n "${TICKS_TEST_WORKER_DIRTY:-}" ]; then printf 'half a tick\n' > partial.txt; fi
 if [ -n "${TICKS_TEST_WORKER_SLEEP:-}" ]; then sleep "$TICKS_TEST_WORKER_SLEEP"; fi
 if [ -n "${TICKS_TEST_WORKER_COMMIT:-}" ]; then
   printf 'work\n' > worked.txt
@@ -219,6 +220,16 @@ func (f *workerFixture) remoteFile(branch, path string) (string, bool) {
 		return "", false
 	}
 	return string(out), true
+}
+
+// remoteLog returns the branch's commit subjects on origin, newest first.
+func (f *workerFixture) remoteLog(branch string) []string {
+	f.t.Helper()
+	out := git(f.t, f.source, "log", "--format=%s", branch)
+	if strings.TrimSpace(out) == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSpace(out), "\n")
 }
 
 func (f *workerFixture) tkCalls() string {
@@ -561,5 +572,61 @@ func TestWorkerBoundsTheHarnessAndStillPushes(t *testing.T) {
 	branch := WorkerBranch(f.epic, f.tick)
 	if _, ok := f.remoteFile(branch, WorkerResultFile(f.tick)); !ok {
 		t.Error("a bounded worker pushed nothing, which is what the bound exists to prevent")
+	}
+}
+
+// ---------------------------------------------------------- the salvage ---
+
+// tick 5fg. Run run_2e66e765's three containers each made 393+ real model
+// calls and were then killed by the bound above. Everything the harness had
+// written but not yet committed was destroyed with the container: the script
+// COUNTED the dirty paths into the report header and then threw them away.
+//
+// A container about to be destroyed is the wrong place to leave a file. The
+// work is committed on its own, clearly labelled, so a reviewer can keep it or
+// drop it — either is better than the run paying for work it does not keep.
+func TestWorkerSalvagesUncommittedWorkRatherThanDiscardingIt(t *testing.T) {
+	f := newWorkerFixture(t)
+	delete(f.env, "TICKS_TEST_WORKER_COMMIT")
+	f.env["TICKS_TEST_WORKER_DIRTY"] = "1"
+	f.env["TICKS_TEST_WORKER_EXIT"] = "124"
+	out, code := f.run()
+	if code != ExitWorkerAgent {
+		t.Fatalf("a killed harness gave exit %d, want %d:\n%s", code, ExitWorkerAgent, out)
+	}
+	branch := WorkerBranch(f.epic, f.tick)
+	if _, ok := f.remoteFile(branch, "partial.txt"); !ok {
+		t.Error("the harness's uncommitted work never reached origin; it died with the container")
+	}
+	report, ok := f.remoteFile(branch, WorkerResultFile(f.tick))
+	if !ok {
+		t.Fatal("no report reached origin at all")
+	}
+	// The header counts what the agent left behind BEFORE the salvage, so a
+	// reader can tell agent commits from container-salvaged ones.
+	mustContain(t, report, "uncommitted path(s)", "the container's own facts")
+	mustContain(t, out, "salvag", "the salvage saying it happened")
+}
+
+// The salvage must never swallow the report: that file is committed on its own
+// with the agent's STATUS line intact, and a salvage commit that carried it
+// would make the report indistinguishable from the work.
+func TestWorkerSalvageLeavesTheReportItsOwnCommit(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env["TICKS_TEST_WORKER_DIRTY"] = "1"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	branch := WorkerBranch(f.epic, f.tick)
+	subjects := f.remoteLog(branch)
+	if len(subjects) == 0 {
+		t.Fatal("no commits on origin")
+	}
+	if !strings.Contains(subjects[0], "worker report") {
+		t.Errorf("the tip commit is %q, want the report's own commit", subjects[0])
+	}
+	if _, ok := f.remoteFile(branch, "partial.txt"); !ok {
+		t.Error("the uncommitted work was not salvaged")
 	}
 }

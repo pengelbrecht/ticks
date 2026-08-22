@@ -115,7 +115,13 @@ import {
   type OrchestratorPhase,
   type SandboxProcessState,
 } from "./sandbox";
-import { workerTask, workerWorkSpec } from "./worker-boot";
+import {
+  DEFAULT_WORKER_HARNESS_BUDGET_MS,
+  waveWaitTimeoutMs,
+  workerHarnessBudgetMs,
+  workerTask,
+  workerWorkSpec,
+} from "./worker-boot";
 import { MAX_RUN_WAVES } from "./wave-request";
 import { workerCollector } from "./worker-collect";
 import {
@@ -249,6 +255,12 @@ export type RunConfig = {
   max_observations: number;
   harness: string | null;
   model: string | null;
+  /**
+   * A deployment's own ceiling on what any ONE worker container's harness may
+   * spend (`RUN_WORKER_BUDGET_MS`), or null for the measured default. See
+   * {@link cloudWaveBudget}.
+   */
+  worker_budget_ms: number | null;
 };
 
 /**
@@ -352,6 +364,12 @@ export function runConfig(env: Env, override: RunBudgetOverride = {}): RunConfig
     max_observations: positiveVar(env, "RUN_MAX_OBSERVATIONS", MAX_OBSERVATIONS, true),
     harness: textVar(env, "RUN_HARNESS"),
     model: textVar(env, "RUN_MODEL"),
+    // Null rather than a number, so `cloudWaveBudget` can tell "this
+    // deployment named a ceiling" from "use the measured default" — an
+    // unusable value is ignored exactly as every other budget var's is.
+    worker_budget_ms: hasPositiveVar(env, "RUN_WORKER_BUDGET_MS", true)
+      ? positiveVar(env, "RUN_WORKER_BUDGET_MS", DEFAULT_WORKER_HARNESS_BUDGET_MS, true)
+      : null,
   };
 }
 
@@ -1496,13 +1514,35 @@ async function drainAndKill(
 const CLOUD_DISPATCH_RETRIES = { retries: { limit: 1, delay: 2_000, backoff: "constant" } } as const;
 
 /**
- * How long one worker container is watched before its wave gives up on it —
- * `dispatchWave`'s own default (0ds). The container is told the SAME number
- * (`workerHarnessTimeoutSeconds`, minus the push margin) so its own harness
- * bound and the wave's wait bound are one decision, not two that can drift
- * (`worker-boot.ts`'s own reasoning for `wait_timeout_ms`).
+ * What one worker container in this run may spend: how long its harness may
+ * WORK, and how long its wave watches it (tick 5fg).
+ *
+ * These were one constant — `CLOUD_WAVE_WAIT_TIMEOUT_MS = 30 * 60_000` — and
+ * the harness bound was that constant minus the push margin, so every worker
+ * got ~29 minutes no matter what the tick was or what the run's own
+ * `--max-wall-clock` said. Run run_2e66e765 was submitted with 90 minutes and
+ * its three containers were still killed `exit 124` at ~29, each having made
+ * 393+ real model calls and committed nothing.
+ *
+ * Two bounds doing two jobs, derived in the order they actually depend on each
+ * other. The AGENT'S budget is decided first, from what the run has LEFT
+ * (`workerHarnessBudgetMs`: never more than the run, never more than the
+ * deployment's per-worker ceiling, defaulting to the measured 90 minutes); the
+ * supervisor's patience is then that budget plus the push margin, which keeps
+ * the mechanism that turns a timeout into a pushed branch rather than a
+ * destroyed container.
  */
-const CLOUD_WAVE_WAIT_TIMEOUT_MS = 30 * 60_000;
+export function cloudWaveBudget(
+  config: Pick<RunConfig, "max_wall_clock_ms" | "worker_budget_ms">,
+  elapsedMs: number
+): { harness_budget_ms: number; wait_timeout_ms: number } {
+  const remaining = Math.max(0, config.max_wall_clock_ms - Math.max(0, elapsedMs));
+  const harness_budget_ms = workerHarnessBudgetMs({
+    remaining_wall_clock_ms: remaining,
+    ...(config.worker_budget_ms === null ? {} : { cap_ms: config.worker_budget_ms }),
+  });
+  return { harness_budget_ms, wait_timeout_ms: waveWaitTimeoutMs(harness_budget_ms) };
+}
 
 /** Splits a wave into batches of at most `width`, preserving order. */
 export function chunkWave(tickIDs: string[], width: number): string[][] {
@@ -1781,6 +1821,12 @@ export async function superviseCloudWave(
       // it alone — never dropped. A tick missing from a wave's outcomes is a
       // tick the board and the run record cannot account for.
       const untouched = settled(reconciled).map((item) => settledOutcome(item, taskFor(item.tick_id)));
+      // What this batch's containers may spend, computed HERE rather than
+      // hoisted: a Workflow step that ran, died and re-ran has to be sized by
+      // the wall clock the run has left NOW, not by what it had left when the
+      // wave started. Recomputed per batch for the same reason — batch 3 does
+      // not get batch 1's allowance.
+      const waveBudget = cloudWaveBudget(context.config, Date.now() - context.started_at_ms);
       // One canceller for the whole batch, built fresh inside the step so a
       // retry of it gets a fresh one rather than an already-latched verdict.
       const cancel = waveCanceller(
@@ -1822,10 +1868,10 @@ export async function superviseCloudWave(
             ...(context.config.model === null ? {} : { model: context.config.model }),
             ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
             sandbox_image: context.sandbox_image,
-            wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS,
+            harness_budget_ms: waveBudget.harness_budget_ms,
           }),
         {
-          wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS,
+          wait_timeout_ms: waveBudget.wait_timeout_ms,
           cancel,
           adopt: (task) => adopted.get(task.tick_id) ?? null,
           // The manifest lands before each container is addressed, so the

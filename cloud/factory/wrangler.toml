@@ -104,7 +104,16 @@ RUN_QUEUE_TTL_MS = "1800000"
 # first uncapped run billed $49.80 against a $25 ceiling because the cost query
 # stopped after one page (see cts); a runaway under these numbers costs single
 # digits. Raise them once a measured run shows what real work actually costs.
-RUN_MAX_WALL_CLOCK_MS = "2700000"
+#
+# The wall clock is that raise, and the measurement asked for it (tick 5fg).
+# Forty-five minutes could not hold ONE tick: y45 recorded a complete one-tick
+# epic at 78 minutes on `deepseek-v4-pro`, and per-tick containers run *flash*,
+# which takes more steps. A run submitted with `--max-wall-clock 90m` was
+# silently clamped to 45 here and its three workers were killed at ~29 minutes
+# with 393+ model calls each and nothing committed. Four hours holds a couple
+# of batches of real ticks plus orchestration; the COST ceiling below is
+# unchanged and remains the bound that protects the money.
+RUN_MAX_WALL_CLOCK_MS = "14400000"
 RUN_MAX_COST_USD = "8"
 # How long the in-flight work has to land before a clean stop kills the
 # orchestrator. Nothing durable is lost either way — tracker state is committed
