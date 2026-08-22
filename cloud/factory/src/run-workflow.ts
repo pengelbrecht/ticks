@@ -62,6 +62,7 @@ import {
   writeCombinedHarnessLog,
   writeReconcileRecord,
   writeRunRecord,
+  writeWaveOutcomes,
   type RunRecord,
 } from "./artifacts";
 import { getRun, recordRunProgress, updateRunState } from "./db";
@@ -1723,8 +1724,26 @@ export async function superviseCloudWave(
         },
         collector
       );
+      const all_outcomes = [...batch_outcomes, ...untouched];
+
+      // Record what dispatch actually returned, before anything interprets it.
+      //
+      // Tick ys3 twice instrumented a branch the live failure did not take, and
+      // seven live runs produced no diagnosis. This is at the return site, so
+      // whatever path an outcome came from it is in this array. Best-effort:
+      // a wave must not fail because its telemetry could not be written.
+      if (env.ARTIFACTS !== undefined) {
+        try {
+          await writeWaveOutcomes(env.ARTIFACTS, params.project, params.run_id, i + 1, all_outcomes);
+        } catch (error) {
+          console.error(
+            `factory run-workflow: ${params.run_id} could not record batch ${i + 1} outcomes: ${String(error)}`
+          );
+        }
+      }
+
       return {
-        outcomes: [...batch_outcomes, ...untouched],
+        outcomes: all_outcomes,
         cancelled: cancel.cancelled,
         reconcile: reconciled.summary,
       };

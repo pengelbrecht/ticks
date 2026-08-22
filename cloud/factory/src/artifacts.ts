@@ -345,6 +345,36 @@ export type WorkerManifest = {
   };
 };
 
+/**
+ * Every outcome `dispatchWave` returned for one batch, verbatim.
+ *
+ * Written at the RETURN SITE rather than inside any branch of `spawnWorker`,
+ * because two attempts to explain a failing wave (tick `ys3`) each
+ * instrumented a path the live failure did not take, and seven live runs
+ * produced no diagnosis as a result. Whatever path an outcome came from, it is
+ * in the array this records — so this cannot miss the way a branch can.
+ *
+ * Best-effort by construction: a wave must not fail because its telemetry
+ * could not be written.
+ */
+export function waveOutcomesKey(project: string, runID: string, batch: number): string {
+  return `${runPrefix(project, runID)}artifacts/wave/${String(batch).padStart(3, "0")}.json`;
+}
+
+export async function writeWaveOutcomes(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  batch: number,
+  outcomes: unknown
+): Promise<void> {
+  await bucket.put(
+    waveOutcomesKey(project, runID, batch),
+    JSON.stringify({ run_id: runID, batch, at: new Date().toISOString(), outcomes }, null, 2),
+    { httpMetadata: { contentType: "application/json" } }
+  );
+}
+
 export function workerManifestKey(project: string, runID: string, tickID: string): string {
   return `${runPrefix(project, runID)}artifacts/${tickID}/manifest.json`;
 }
