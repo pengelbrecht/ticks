@@ -67,3 +67,41 @@ Measured here: `implement`/`balanced` at **$0.28/tick** on
 And keep BYOK where the platform genuinely falls short — on this account
 nothing was good enough for `review` and `closeout`. See
 [[cloud-factory-billing]] for which wallet each choice spends from.
+
+## Cost per completed tick, measured on real ticks (2026-08-22)
+
+The `$0.28/tick` figure above came from benchmark-shaped work. The first cloud
+runs whose substrate actually worked put `deepseek-v4-flash` on three real ticks
+from this repo, with a 90-minute budget each:
+
+| Tick | What it is | Outcome |
+|---|---|---|
+| `5jo` | qualify herdr agent names per repo | **finished**, correct implementation |
+| `201` | scrolling in a bubbletea TUI | killed at the bound, 0 commits |
+| `5qj` | workerd lifecycle noise in vitest | killed at the bound, 4 paths salvaged |
+
+**One in three.** Flash ground through 90 minutes of 94–99%-cached calls on the
+other two without converging. So the honest number is not `$0.28/tick` — it is
+`$0.28` times however many attempts convergence takes, and for a tick flash
+cannot finish, the cost per completed tick is **unbounded**.
+
+### The rule this produces
+
+**A model that does not converge costs 100% of its tokens for 0% of the work.**
+That comparison dominates any per-token ranking. Rank on cost per *finished*
+tick and count the failures in the denominator, or the cheap model wins on paper
+while losing money.
+
+The `WORKER_DEFAULT_MODEL` therefore moved to `deepseek-v4-pro-0813` (tick
+`1cd`), which `y45` had already placed at `implement.strong`. Pro is roughly
+2.4x flash per task and delivers about half its post-warm cache opportunities
+against flash's 23/23 — so on a long agentic run the real multiple is worse than
+the headline. It is still the cheaper choice for work flash cannot finish.
+
+### What is still owed
+
+This is a default, not a routing decision. `[roles.implement].tiers` already
+expresses per-tick tiering for LOCAL workers; the cloud path has no plumbing for
+it, so every container gets the same model whether its tick is a one-line fix or
+a TUI rewrite. Per-tick tier selection on the cloud substrate is the Phase 3
+candidate that would make the flash rung pay for itself again.
