@@ -121,6 +121,8 @@ import {
   waveWaitTimeoutMs,
   workerHarnessBudgetMs,
   workerTask,
+  workerHarness,
+  workerModel,
   workerWorkSpec,
 } from "./worker-boot";
 import { MAX_RUN_WAVES } from "./wave-request";
@@ -272,6 +274,19 @@ export type RunConfig = {
    * {@link cloudWaveBudget}.
    */
   worker_budget_ms: number | null;
+  /**
+   * This deployment's standing choice of harness and model for a per-tick
+   * WORKER container (`RUN_WORKER_HARNESS`/`RUN_WORKER_MODEL`), or null to
+   * leave the built-in default standing (tick 1cd).
+   *
+   * Separate from `harness`/`model` above because they answer a different
+   * question: those are what THIS RUN asked for and apply to the orchestrator
+   * too, these are what this factory routes its workers at when a run asks for
+   * nothing. `workerHarness`/`workerModel` resolve the two together —
+   * run submission > deployment var > built-in default.
+   */
+  worker_harness: string | null;
+  worker_model: string | null;
 };
 
 /**
@@ -384,6 +399,11 @@ export function runConfig(env: Env, override: RunBudgetOverride = {}): RunConfig
     worker_budget_ms: hasPositiveVar(env, "RUN_WORKER_BUDGET_MS", true)
       ? positiveVar(env, "RUN_WORKER_BUDGET_MS", DEFAULT_WORKER_HARNESS_BUDGET_MS, true)
       : null,
+    // Null rather than the constant, for the same reason as the budget above:
+    // "this deployment named a worker model" and "use the built-in default"
+    // are different facts, and only `workerModel` gets to collapse them.
+    worker_harness: textVar(env, "RUN_WORKER_HARNESS"),
+    worker_model: textVar(env, "RUN_WORKER_MODEL"),
   };
 }
 
@@ -1955,8 +1975,16 @@ async function runWaveBatch(
             run_id: params.run_id,
             gateway_base_url: context.gateway_base_url,
             gateway_token: input.token,
-            ...(context.config.harness === null ? {} : { harness: context.config.harness }),
-            ...(context.config.model === null ? {} : { model: context.config.model }),
+            // Resolved, not spread: a worker's route always has a concrete
+            // answer, and the ladder that produces it is
+            // run submission > deployment var > built-in default (tick 1cd).
+            // `context.config.harness`/`.model` are the run's own choice and
+            // still win; `RUN_WORKER_*` is this deployment's standing one;
+            // `WORKER_DEFAULT_*` is the floor. The orchestrator's own boot
+            // above deliberately does NOT read the worker vars — it is not a
+            // worker, and giving it their model was never the question.
+            harness: workerHarness(context.config.harness, context.config.worker_harness),
+            model: workerModel(context.config.model, context.config.worker_model),
             ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
             sandbox_image: context.sandbox_image,
             harness_budget_ms: waveBudget.harness_budget_ms,

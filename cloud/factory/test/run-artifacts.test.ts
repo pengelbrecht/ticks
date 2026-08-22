@@ -27,7 +27,11 @@ import {
 import {
   DEFAULT_WORKER_HARNESS_BUDGET_MS,
   MIN_WORKER_HARNESS_BUDGET_MS,
+  WORKER_DEFAULT_HARNESS,
+  WORKER_DEFAULT_MODEL,
   WORKER_PUSH_MARGIN_MS,
+  workerHarness,
+  workerModel,
 } from "../src/worker-boot";
 import {
   DEFAULT_SANDBOX_IMAGE,
@@ -576,8 +580,8 @@ describe("the per-repo sandbox declaration", () => {
  *
  * These pin both halves of the fix: the budget follows the run's wall-clock
  * allowance, and the default it falls back to clears the measurement (tick
- * y45: a COMPLETE one-tick epic at 78 minutes on deepseek-v4-pro, and the
- * worker default model is flash, which takes MORE steps than pro).
+ * y45: a COMPLETE one-tick epic at 78 minutes on deepseek-v4-pro, which tick
+ * 1cd made the worker default model).
  */
 describe("a cloud wave's worker budget", () => {
   const MINUTE = 60_000;
@@ -637,5 +641,53 @@ describe("a cloud wave's worker budget", () => {
 
     expect(budget.harness_budget_ms).toBe(MIN_WORKER_HARNESS_BUDGET_MS);
     expect(budget.wait_timeout_ms).toBeGreaterThan(0);
+  });
+
+  /**
+   * tick 1cd. The budget above is a deployment decision; the MODEL the budget
+   * is spent on was not — `WORKER_DEFAULT_MODEL` was a source constant, so
+   * changing which model every cloud worker runs meant editing TypeScript and
+   * redeploying the factory. These pin the var and the precedence.
+   */
+  describe("the worker model and harness are deployment vars (tick 1cd)", () => {
+    const PRO = "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813";
+    const FLASH = "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731";
+
+    it("is null when the deployment names none, so the built-in default stands", () => {
+      const config = runConfig({} as never);
+      expect(config.worker_model).toBeNull();
+      expect(config.worker_harness).toBeNull();
+      expect(workerModel(config.model, config.worker_model)).toBe(WORKER_DEFAULT_MODEL);
+      expect(workerModel(config.model, config.worker_model)).toBe(PRO);
+      expect(workerHarness(config.harness, config.worker_harness)).toBe(WORKER_DEFAULT_HARNESS);
+    });
+
+    it("reads RUN_WORKER_MODEL / RUN_WORKER_HARNESS from the deployment", () => {
+      const config = runConfig({
+        RUN_WORKER_MODEL: FLASH,
+        RUN_WORKER_HARNESS: "codex",
+      } as never);
+
+      expect(config.worker_model).toBe(FLASH);
+      expect(config.worker_harness).toBe("codex");
+      expect(workerModel(config.model, config.worker_model)).toBe(FLASH);
+      expect(workerHarness(config.harness, config.worker_harness)).toBe("codex");
+    });
+
+    // A whitespace-only var is an unset var, exactly as `textVar` treats
+    // RUN_MODEL — never an empty TICKS_MODEL export into the container.
+    it("ignores a blank var rather than exporting an empty model", () => {
+      const config = runConfig({ RUN_WORKER_MODEL: "   " } as never);
+      expect(config.worker_model).toBeNull();
+      expect(workerModel(config.model, config.worker_model)).toBe(WORKER_DEFAULT_MODEL);
+    });
+
+    // Precedence: run submission > deployment var > built-in default. The
+    // run's own `RUN_MODEL`/`--model` was already winning before this tick and
+    // must go on winning — a per-run choice outranks a standing one.
+    it("lets the run's own model outrank the deployment's worker var", () => {
+      const config = runConfig({ RUN_MODEL: FLASH, RUN_WORKER_MODEL: PRO } as never);
+      expect(workerModel(config.model, config.worker_model)).toBe(FLASH);
+    });
   });
 });

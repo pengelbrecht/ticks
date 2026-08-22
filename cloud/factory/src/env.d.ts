@@ -154,9 +154,29 @@ declare namespace Cloudflare {
      * to stop a single long tick from eating a generous run allowance.
      */
     RUN_WORKER_BUDGET_MS?: string;
-    /** Harness kind and model the orchestrator sandbox is started with. */
+    /**
+     * Harness kind and model a run is started with — the orchestrator sandbox,
+     * and any per-tick worker container the run dispatches unless the worker
+     * vars below are what the deployment wants instead. This is the run's own
+     * choice and it outranks them.
+     */
     RUN_HARNESS?: string;
     RUN_MODEL?: string;
+    /**
+     * This deployment's standing harness and model for a per-tick WORKER
+     * container (tick 1cd). Unset on a real deployment: the built-in default
+     * is `omp` on `deepseek-v4-pro-0813`, chosen on run_215b7cbff9's evidence
+     * that flash failed to converge on two of three real ticks inside a
+     * 90-minute budget — see `WORKER_DEFAULT_MODEL` in src/worker-boot.ts for
+     * the measurement and what pro costs.
+     *
+     * Set `RUN_WORKER_MODEL` to route workers somewhere else — back to
+     * `workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731` for a wave of small
+     * ticks, say — without editing TypeScript. Resolution order is
+     * run submission > deployment var > built-in default (`workerModel`).
+     */
+    RUN_WORKER_HARNESS?: string;
+    RUN_WORKER_MODEL?: string;
     /**
      * The `[[containers]] max_instances` ceiling from this file (tick b6e) —
      * a second declaration of the same number, because wrangler does not
