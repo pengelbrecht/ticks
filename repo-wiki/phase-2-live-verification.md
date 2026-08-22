@@ -75,3 +75,89 @@ this branch, then dispatch a real multi-tick wave (`tk cloud spawn` or
 teardown, and a deliberate reconcile (kill the orchestrator mid-wave, confirm
 the replacement adopts the live worker rather than double-dispatching it).
 That is the one thing 216 passing tests cannot stand in for.
+
+---
+
+# The wave that was actually dispatched (2026-08-22)
+
+The recommendation above was taken. Recorded here because the run refuted a
+hypothesis this repo had spent seven paid runs on, and because the numbers
+change the cost model.
+
+## Per-tick fan-out had never once succeeded, and the reason was one line
+
+Every worker container from the first seven runs died at boot with **exit 7**
+(`EXIT_MODEL`), and each run's diagnosis was inferred from a dispatch log that
+was never designed to answer the question. The actual cause:
+
+| Layer | What it resolved | Result |
+|---|---|---|
+| `cloud/sandbox/worker.sh` | `model_role="implement"` — correct; a worker must not run the orchestrator's frontier model | — |
+| `.tick/runners.toml` `[roles.implement]` | `kind="claude"`, `model="sonnet"` | provider `anthropic` |
+| the factory gateway | routes `workers-ai` only (`GATEWAY_ALLOWED_PROVIDERS` unset, no `ANTHROPIC_API_KEY`) | `probe_model` dies `EXIT_MODEL` |
+
+Deterministic: every worker, every wave. The orchestrator never hit it because
+`[orchestrator].model` is a `workers-ai/…` id and its probe returned HTTP 200
+in the very same run.
+
+**The trap to remember:** `[roles.implement]` is *shared* between the cloud
+worker and `tk herd spawn`'s local worker CLIs. Repointing it at a Workers AI
+model fixes the container and breaks every local run, because a local worker
+has no gateway credential. The fix therefore belongs to the FACTORY, not the
+repository: `workerBootEnv` defaults `TICKS_HARNESS=omp` and
+`TICKS_MODEL=workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731`, and
+`resolve_model` already gives a control-plane `TICKS_MODEL` priority over role
+routing, so no shell change was needed.
+
+Corollary worth stating plainly: **cloud workers must run `omp`, not `claude`.**
+`common.sh` refuses the `claude` harness against a non-anthropic provider by
+design, so "Workers AI only" and "workers run omp" are the same constraint.
+
+## What the run proved
+
+`run_2e66e765f74c4192b2b9a24a6e8415cf`, epic `72y`, wave `201,5jo,5qj,gm5`:
+
+- **Zero exit-7 boots.** Three containers booted, cloned, passed pre-flight
+  and probed green concurrently.
+- **`deepseek-v4-flash` sustains a real agentic loop** — 393+ calls with
+  genuine tool use (vitest runs, source reads). This is the first evidence for
+  flash as an *implementer*; every earlier data point was the orchestrator tier.
+- **Prompt cache 95–99%**, sustained. Compare the 60–65% that `v4-pro` runs
+  settled at, which `fxf` attributed largely to instance-side routing. This
+  matches `y45`'s probe exactly (flash 23/23 post-warm hits, v4-pro 12/24), so
+  **any per-tick cost model built on 60–65% is badly pessimistic for workers.**
+  A cached input token is 0.004 neurons against 0.120 uncached.
+- **Repository setup took 0s** on a warm cache — worth holding against `kuf`'s
+  finding that dependency install, not image pull, was the whole of the 3.74x
+  fan-out degradation at N=5.
+
+## What it refuted
+
+**A 30-minute worker budget kills real work just before it commits.** All three
+containers were killed at exit 124 with **zero work commits**, having done
+substantial real work. `CLOUD_WAVE_WAIT_TIMEOUT_MS = 30 * 60_000` and the
+harness bound derives from it — so the run's own `--max-wall-clock 90m` was
+ignored. `y45` had already measured a *complete one-tick epic* at 78 minutes on
+the faster-stepping `v4-pro`. Filed as `5fg`.
+
+This is the most expensive failure shape available: the run pays for every
+token and keeps none of the work. The push margin did its job — three legible
+branches with reports instead of three destroyed containers — so read the
+timeout as a budget error, not a substrate defect.
+
+## Observability, and why it mattered here
+
+Two ticks landed before this run and between them turned a seven-run mystery
+into a three-minute read:
+
+- **`ys3`** persists the dispatch *outcome* (launched, probe verdict, exit code)
+  at `dispatchWave`'s return site, where no branch can miss it. That is what
+  produced `exit_code: 7` instead of another inference.
+- **`0fg`** streams each container's own stdout/stderr to its own R2 key, read
+  with `tk cloud logs <run> --tick <id>`. That is what named *which* of
+  `common.sh`'s five `EXIT_MODEL` deaths it was.
+
+**Known gap:** the worker streams stop growing once the harness starts — every
+one ends at `Working...`. Boot diagnostics stream reliably, which is what `0fg`
+was for; the harness's own stdout does not reach R2 the way the orchestrator
+sandbox's does.
