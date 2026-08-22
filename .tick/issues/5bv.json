@@ -15,12 +15,13 @@
     "2xm",
     "dxk",
     "3gr",
-    "1cd"
+    "1cd",
+    "7zk"
   ],
   "parent": "1vn",
   "acceptance_criteria": "One cloud run, \u003e=3 worker containers in wave 1, \u003e=3 branches ready-to-merge, zero exit-7 boots, and a note on this tick recording per-container outcome, wall-clock and cost.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-22T10:19:39.719429Z",
-  "updated_at": "2026-08-22T21:46:30.86706Z",
+  "updated_at": "2026-08-22T23:02:00.946205Z",
   "started_at": "2026-08-22T11:47:26.665727Z"
 }

@@ -114,7 +114,7 @@ RUN_QUEUE_TTL_MS = "1800000"
 # couple of batches of real ticks plus orchestration; the COST ceiling below is
 # unchanged and remains the bound that protects the money.
 RUN_MAX_WALL_CLOCK_MS = "14400000"
-RUN_MAX_COST_USD = "8"
+RUN_MAX_COST_USD = "40"
 # How long the in-flight work has to land before a clean stop kills the
 # orchestrator. Nothing durable is lost either way — tracker state is committed
 # to the run branch — but a tick that is one commit from done deserves it.
