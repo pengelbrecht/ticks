@@ -51,6 +51,19 @@
  *    outcome rather than as a trip, so a wave that went perfectly is not
  *    recorded — in the index row, the dispatch log or `run.json` — as a run
  *    somebody stopped. `state` alone has to be readable.
+ * 8. **Fan-out is first-wave-only, and every surface says so (tick wiy).**
+ *    `context.cloud_wave` is resolved ONCE from `params.tick_ids` and the
+ *    closeout pass above is the unchanged Phase 1 `supervisePass`, which does
+ *    not re-derive or re-dispatch a wave — so an epic needing more than one
+ *    wave gets per-tick containers for the first, and the rest run as harness
+ *    subagents inside the closeout orchestrator's single sandbox. Deriving
+ *    waves 2+ here would mean porting readiness into TypeScript, which the
+ *    design doc decided against ("Where does `wave.Compute` run for the
+ *    dispatcher?"), so what ships instead is the claim being made out loud:
+ *    {@link CLOUD_WAVE_SCOPE} rides the run's status, its dispatch log and the
+ *    reason its closeout orchestrator is given. An unstated limit under a
+ *    heading reading "cloud substrate fan-out" is the same class of
+ *    reliably-misread signal as 074 and c5i.
  *
  * See docs/design/cloud-factory.md (Phase 1, UC1, UC1b, D14, D15, D19, D20).
  */
@@ -514,9 +527,54 @@ export type RunContext = {
    * `sandbox_image` is: the width is a configuration decision (two ceilings
    * reconciled — `resolveDispatchWidth`), and it cannot change mid-run without
    * the dispatch-log record of it becoming a lie.
+   *
+   * Resolved once is also resolved ONLY once, which is the whole of
+   * {@link CLOUD_WAVE_SCOPE}: nothing below re-derives this field, so the wave
+   * named at submission is the only one that fans out.
    */
   cloud_wave: CloudWavePlan | null;
 };
+
+/**
+ * What a cloud-submitted wave actually covers — said once, used everywhere
+ * (tick wiy).
+ *
+ * The Run Workflow resolves {@link RunContext.cloud_wave} once, before any
+ * container exists, and the closeout pass that every wave hands off to is the
+ * unchanged Phase 1 `supervisePass`: it re-derives nothing and dispatches no
+ * second wave. So an epic that needs more than one wave gets per-tick
+ * containers for the first one only. That is deliberate — computing waves 2+
+ * here means a second implementation of readiness in TypeScript, the exact
+ * cross-language failure `.tick/learnings.md` warns about, and the design doc
+ * put `wave.Compute` at the submitter for that reason — but it was true in
+ * silence, under a phase heading that reads like a promise that every wave
+ * fans out.
+ *
+ * So it is stated wherever a run speaks: the `epic-started` status the board
+ * draws, the `cloud_wave:width=` dispatch record a trace reads back, the
+ * handoff detail that becomes `run.json`'s `detail` and the closeout
+ * orchestrator's `TICKS_STOP_REASON`. `cmd/tk/cmd/cloud.go` says the SAME
+ * sentence before the submission is pushed, and both are pinned to
+ * `test/fixtures/cloud-wave-scope.json`: two surfaces phrasing one limit two
+ * ways is how the limit stops being legible.
+ */
+export const CLOUD_WAVE_SCOPE =
+  "fan-out is first-wave-only: this run dispatches exactly one wave of per-tick containers, " +
+  "and every tick it does not name — including ticks this wave unblocks — is implemented as " +
+  "a harness subagent inside the closeout orchestrator's single sandbox rather than as its " +
+  "own container";
+
+/**
+ * The same limit at badge length, for the one surface that has no room for a
+ * sentence: the board's first line about a run.
+ */
+export const CLOUD_WAVE_SCOPE_SHORT = "first wave only";
+
+/**
+ * And at token length, for the dispatch log — where entries are greppable
+ * decisions rather than prose, and `reason` is a closed enum.
+ */
+export const CLOUD_WAVE_SCOPE_TOKEN = "first-wave-only";
 
 /**
  * A resolved wave: which ticks, and how many of their containers may run at
@@ -699,6 +757,21 @@ export async function acquireContext(
       decision: `cloud_wave:width=${resolved.width}${resolved.capped ? ":capped" : ""}`,
       reason: null,
     });
+    // And, beside it, what the width line cannot say on its own (tick wiy):
+    // `cloud_wave:width=3` describes a fan-out with no edge to it, so a trace
+    // of a first-wave-only run read back as a full one. Its own entry rather
+    // than a suffix on the width decision, because that token is what an
+    // operator greps for and what three tests pin exactly; and its own entry
+    // rather than a `reason`, because `DispatchReason` is a closed enum of
+    // dispatch verdicts, not a free-text field. The sentence itself travels
+    // where there is room for it — the run record and the closeout
+    // orchestrator's stop reason, both below.
+    await logDispatch(env, {
+      run_id: params.run_id,
+      epic: params.epic,
+      decision: `cloud_wave:scope=${CLOUD_WAVE_SCOPE_TOKEN}`,
+      reason: null,
+    });
   }
 
   const context: RunContext = {
@@ -740,7 +813,8 @@ export async function acquireContext(
       status:
         cloud_wave === null
           ? "one orchestrator container"
-          : `${cloud_wave.tick_ids.length} tick(s), ${cloud_wave.width} at a time`,
+          : `${cloud_wave.tick_ids.length} tick(s), ${cloud_wave.width} at a time ` +
+            `(${CLOUD_WAVE_SCOPE_SHORT})`,
     }),
   ]);
 
@@ -1862,7 +1936,13 @@ export async function superviseCloudWave(
     kind: "handoff",
     detail:
       `the cloud wave dispatched ${outcomes.length} per-tick worker container(s): ` +
-      `${summarizeCloudWave(outcomes)}; handing off for review and closeout`,
+      `${summarizeCloudWave(outcomes)}; handing off for review and closeout — ` +
+      // The hand-off is the last place this run can say what it did not do,
+      // and it is read twice: by `run.json`/`tk cloud status`, and by the
+      // closeout orchestrator itself as `TICKS_STOP_REASON`. The second reader
+      // is the one inheriting every tick this wave did not name, so it is told
+      // plainly that it inherits them as subagents (tick wiy).
+      CLOUD_WAVE_SCOPE,
     boots: outcomes.length,
   };
 }

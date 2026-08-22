@@ -541,6 +541,19 @@ forever.
 `tk herd spawn` refuses a run whose workers are containers. Two dispatch verbs, each
 refusing the other's substrate, is what keeps two workers off one tick.
 
+**Fan-out from a *cloud-orchestrated* run is first-wave-only.** The two dispatch paths
+differ here, and the difference decides which one a long multi-wave epic wants.
+Driving from your terminal (`tk cloud spawn`, above), *you* are the orchestrator: you
+compute each wave and dispatch it, so every wave fans out into containers, for as many
+waves as the epic takes. Submitting the whole epic to the factory
+(`tk cloud run <epic> --tick-ids a,b,c`) hands the orchestration over, and that run
+resolves its wave once, at start: it dispatches exactly one wave of per-tick
+containers, and every tick it does not name — including ticks that wave unblocks — is
+implemented as a harness subagent inside its closeout orchestrator's single sandbox
+rather than as its own container. The run says so itself, in `--help`, on the line that
+reports the accepted wave, in its `epic-started` event and in what `tk cloud status`
+prints back. Submit a multi-wave epic a wave at a time, or drive it locally.
+
 ### Merging a cloud run: `tk cloud pr-body`
 
 A run is submitted from whatever branch you were standing on, and its run branch

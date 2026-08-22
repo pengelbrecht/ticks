@@ -1494,6 +1494,27 @@ Collected from the use cases; each appears above in context.
    orchestrator's single sandbox. An operator reading "Phase 2: cloud
    substrate fan-out" should not assume every wave of a multi-wave epic
    dispatches multiple containers; only the first does.
+
+   *Said out loud, not just here (tick wiy).* A limit that lives only in a
+   design document is a limit the operator meets for the first time in a run
+   record. So the run now states it on every surface it speaks through, in one
+   sentence pinned across both languages
+   (`cloud/factory/test/fixtures/cloud-wave-scope.json`, read by
+   `cloud/factory/test/run-workflow.test.ts` and
+   `cmd/tk/cmd/cloud_wave_scope_test.go`): `tk cloud run --tick-ids` says it in
+   `--help` and again on the line that reports the accepted wave, *before* the
+   push; the `epic-started` run event carries `(first wave only)` beside the
+   width, so the board's first word about a run is not an unqualified fan-out;
+   the dispatch log gains a `cloud_wave:scope=first-wave-only` entry beside the
+   existing `cloud_wave:width=` one, which described a fan-out with no edge to
+   it; and the hand-off detail — which becomes `run.json`'s `detail`, what
+   `tk cloud status <run>` prints, and the closeout orchestrator's own
+   `TICKS_STOP_REASON` — ends with the full sentence, so the agent inheriting
+   every tick the wave did not name is told plainly that it inherits them as
+   subagents. What is NOT changed is the behaviour: re-deriving a wave per pass
+   means computing readiness in the Worker, which is the open question above and
+   the cross-language port `.tick/learnings.md` warns against, so it stays a
+   follow-up rather than a thing smuggled in under a wording fix.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage
@@ -1528,7 +1549,10 @@ Order rationale: each phase is independently useful, and the risky loops
   orchestrator boot (`closeout` phase) after dispatching its one wave, which
   can itself compute and drive further waves under the `harness` substrate,
   but does not yet re-enter the per-tick cloud path for them. Both are
-  follow-up ticks, not silently assumed away.
+  follow-up ticks, not silently assumed away — and since tick wiy the second
+  one is not silently *shipped* either: the run, the CLI and the board all say
+  that fan-out is first-wave-only rather than leaving an operator to infer it
+  from a phase heading (see Phase 2 above).
 - **Multi-repo projects.** Everything above assumes project == one repo (as
   `internal/github` project detection does today). Factory 2.0-style
   cross-repo signals are out of scope until a real use case forces the issue.

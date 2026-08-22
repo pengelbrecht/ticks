@@ -12,6 +12,8 @@ import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import type { RepoRefs } from "../src/progress";
 import type { RepoConfigReader } from "../src/repo-config";
 import {
+  CLOUD_WAVE_SCOPE,
+  CLOUD_WAVE_SCOPE_TOKEN,
   MAX_SANDBOX_BOOTS,
   applyProgress,
   chunkWave,
@@ -33,6 +35,7 @@ import { WORKER_COMMAND, WORKER_PROBE_COMMAND, WORKER_PROBE_MARKER } from "../sr
 import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
 import { workerSandboxName } from "../src/worker-dispatch";
 import type { RunEventMessage, RunEventSink } from "../src/run-events";
+import scopeContract from "./fixtures/cloud-wave-scope.json";
 
 /**
  * The Run Workflow: boot one orchestrator sandbox, watch it, enforce the
@@ -1889,6 +1892,64 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     expect(log.some((entry) => entry.decision === "finished:completed")).toBe(true);
   });
 
+  /**
+   * Tick wiy (from the Phase 2 final review, oun).
+   *
+   * `context.cloud_wave` is resolved ONCE, from `params.tick_ids`, and the
+   * closeout pass runs the unchanged Phase 1 `supervisePass` without
+   * re-deriving or re-dispatching a second cloud wave — so an epic needing
+   * more than one wave gets per-tick containers for the FIRST wave only, and
+   * everything after it runs as harness subagents inside the closeout
+   * orchestrator's single sandbox. That is the shipped behaviour and is not
+   * being changed here (deriving waves 2+ in the Worker means porting
+   * readiness into TypeScript, which the design doc decided against). What was
+   * missing is that nothing anywhere SAID so: an operator reading "Phase 2:
+   * cloud substrate fan-out" reasonably assumes every wave fans out, and the
+   * runs where it silently does not are the long multi-wave epics where it
+   * matters most.
+   *
+   * So the limit is stated on every surface a run speaks through, in the one
+   * sentence `cmd/tk/cmd/cloud.go` is pinned to as well — same failure class
+   * as 074 and c5i (technically true, reliably misread), and the same fix.
+   */
+  it("says on every surface it speaks through that fan-out is first-wave-only", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    // The orchestrator that inherits the rest of the epic is told what it is
+    // inheriting: everything this wave did not name, and that it will be
+    // running those as subagents rather than dispatching containers for them.
+    expect(closeout.env.TICKS_STOP_REASON ?? "").toContain(CLOUD_WAVE_SCOPE);
+
+    orchestratorPushedWork(epic);
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("completed");
+
+    // The durable record an operator reads back with `tk cloud status <run>`.
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain(CLOUD_WAVE_SCOPE);
+
+    // And the durable dispatch record, queryable the same way the width is.
+    // The width line already existed and said nothing about scope, which is
+    // precisely how a trace of a first-wave-only run read as a full fan-out;
+    // it keeps its exact token and gets a sibling that names the limit.
+    const log = await listDispatchLogs(env.DB, runID, epic);
+    expect(log.some((entry) => entry.decision.startsWith("cloud_wave:width="))).toBe(true);
+    expect(log.some((entry) => entry.decision === `cloud_wave:scope=${CLOUD_WAVE_SCOPE_TOKEN}`)).toBe(
+      true
+    );
+  });
+
+  // One sentence, two independent tellers (the ignite verb before the push,
+  // and the run's own status afterwards). A limit phrased two ways stops being
+  // legible, and this repo has already paid for a fix that landed in one
+  // language only (`.tick/learnings.md`, "Cross-language parity").
+  it("states that limit in the same words the CLI does", () => {
+    expect(CLOUD_WAVE_SCOPE).toBe(scopeContract.note);
+  });
+
   // `finalize` runs inside `step.do("finalize", FINALIZE_RETRIES, ...)`: an
   // unguarded throw at its tail does not fail quietly, it fails the WHOLE
   // step, which Workflows retry — re-running the state update and lease
@@ -2277,6 +2338,11 @@ describe("a run streams run_event to the board", () => {
     });
     expect(started[0]!.taskId).toBeUndefined();
     expect(started[0]!.event.message).toContain(runID);
+    // The board's first word about a cloud run says what the wave covers AND
+    // what it does not: the ticks, the width, and that this is the run's only
+    // container wave (tick wiy).
+    expect(started[0]!.event.status).toContain("2 tick(s)");
+    expect(started[0]!.event.status).toContain(scopeContract.status_suffix);
 
     // Per-tick state: one dispatch and one verdict for each tick, attributed
     // to the worker substrate and scoped to its own tick.
