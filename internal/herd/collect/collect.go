@@ -134,7 +134,7 @@ func Collect(repoRoot string, m state.Manifest, manifestPath string) (Report, er
 		}
 		r.Commits = n
 
-		files, err := boundaryFiles(repoRoot, m.Base, ref)
+		files, err := boundaryFiles(repoRoot, ref)
 		if err != nil {
 			return r, err
 		}
@@ -213,10 +213,17 @@ func commitCount(repoRoot, base, ref string) (int, error) {
 }
 
 // boundaryFiles is the mandatory `.tick/` check, in the three-dot form the
-// adapter specifies: what the branch changed relative to the merge base, not
-// what the base has since gained.
-func boundaryFiles(repoRoot, base, ref string) ([]string, error) {
-	out, err := git(repoRoot, "diff", "--name-only", base+"..."+ref, "--", ".tick/")
+// adapter specifies: what the branch changed relative to its merge-base with
+// HEAD, not what the base has since gained.
+//
+// HEAD is the controller checkout's current integration commit, so the diff is
+// `merge-base(HEAD, ref)..ref`. When the worker merged the integration branch
+// to pick up a stale spawn base, the merge-base is that merge commit's tip and
+// the orchestrator's `.tick/` commits it brought in are excluded. When the
+// worker never merged and HEAD advanced past the spawn base, the merge-base is
+// still the spawn base and the worker's own changes remain the only diff.
+func boundaryFiles(repoRoot, ref string) ([]string, error) {
+	out, err := git(repoRoot, "diff", "--name-only", "HEAD..."+ref, "--", ".tick/")
 	if err != nil {
 		return nil, err
 	}
