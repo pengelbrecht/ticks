@@ -14,9 +14,9 @@
     "ko8"
   ],
   "parent": "w1z",
-  "acceptance_criteria": "A submitted epic runs its waves in one container per tick with the laptop closed: N ticks run concurrently, each pushing its own branch and RESULT file; a local orchestrator with substrate = cloud drives the same containers from a laptop and shares one lease with cloud runs; killing the orchestrator mid-wave produces a fresh one that adopts live workers and finishes the run; the board shows it live; and kuf reports cold, warm and hot start numbers with a recommendation on image size and caching.",
+  "acceptance_criteria": "A single cloud run of an epic with at least 3 ready ticks fans out to one worker CONTAINER per tick (not subagents in one sandbox), and at least 3 of those tick branches come back ready-to-merge. Every worker reaches a real model turn on a Workers AI model through the factory gateway — zero exit-7 boots. A second wave of the same run also fans out to containers. `tk cloud logs \u003crun\u003e` prints each worker container's own output, so a failed worker is diagnosable without paying for another run. Green: go build ./..., go test ./..., node scripts/check-public-repo.mjs, and the factory + UI vitest suites.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:17:51.495606599Z",
-  "updated_at": "2026-08-21T12:36:50.32953Z",
+  "updated_at": "2026-08-22T10:19:11.106059Z",
   "started_at": "2026-08-21T12:36:50.301539Z"
 }

@@ -1,0 +1,19 @@
+{
+  "id": "5bv",
+  "title": "Prove multi-sandbox fan-out end to end against the live factory",
+  "description": "The evidence run that Phase 2's definition of done requires, and that ihf cannot close without.\n\nEvery cloud run so far has been one tick or zero working containers. Dispatch a real epic with at least 3 ready ticks in wave 1 and at least one dependent tick behind them, so BOTH the fan-out and the second-wave path (wiy) are exercised in one run.\n\nRecord, in a note on this tick: run id, per-tick container outcome, wall-clock per container, whether wave 2 fanned out to containers or fell back to the single-sandbox closeout path, and the run's cost from gateway telemetry.\n\nBudget: this is a paid run. Keep the ticks small (toy-scale is fine — the subject under test is the substrate, not the code the workers write).",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "ys3",
+    "wiy",
+    "0fg"
+  ],
+  "parent": "1vn",
+  "acceptance_criteria": "One cloud run, \u003e=3 worker containers in wave 1, \u003e=3 branches ready-to-merge, zero exit-7 boots, and a note on this tick recording per-container outcome, wall-clock and cost.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T10:19:39.719429Z",
+  "updated_at": "2026-08-22T10:19:52.59696Z"
+}

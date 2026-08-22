@@ -1,0 +1,14 @@
+{
+  "id": "4qx",
+  "title": "tk herd collect reports a phantom boundary-violation after a worker merges the integration branch",
+  "description": "Reproduced live on epic 1vn, tick ys3, 2026-08-22.\n\n`tk herd collect ys3` reported:\n\n  tick      ys3  boundary-violation\n  branch    tick/ys3  (7 commit(s) beyond b83baa1f)\n  boundary  VIOLATION — the branch touches .tick/activity/activity.jsonl, .tick/issues/ys3.json\n\nThe worker touched neither. `git diff 22491bf1..tick/ys3 -- .tick/` is EMPTY; its whole diff against the current integration commit is two files under cloud/factory/. The .tick/ changes came from the ORCHESTRATOR's own commits (0b930782, cc883aba) and entered the branch through the `git merge epic/1vn` that the shared protocol REQUIRES of any worker whose worktree is behind.\n\nCause: the boundary diff is computed against the manifest's spawn base, which goes stale the moment the orchestrator commits tracker state — which it does constantly, because it owns .tick/ and writes runner-state notes, re-briefs and tick closes throughout a wave. So the check fires on essentially every re-briefed worker and every dependent-wave worker.\n\nWhy it matters beyond noise: this is the check that carries the .tick/-is-orchestrator-owned invariant. A check that cries wolf on correct workers trains the operator to wave violations through — the same failure mode tick 09w describes from a different angle. Two false positives in the same check is a pattern, not a coincidence; consider fixing them together.\n\nLikely fix: compute the boundary diff against the merge-base of the branch and the integration commit rather than the recorded spawn base — i.e. ask what the BRANCH introduced, not what changed since a commit the branch has since merged past. `git diff $(git merge-base \u003cintegration\u003e \u003cbranch\u003e)..\u003cbranch\u003e -- .tick/`. Verify against the case the recorded base is genuinely still correct (a worker that never merged).",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "72y",
+  "acceptance_criteria": "A worker that merges the integration branch after the orchestrator has committed tracker state collects clean; a worker that actually edits .tick/ still fails closed. Both pinned by tests.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T10:38:12.899587Z",
+  "updated_at": "2026-08-22T10:38:12.899587Z"
+}
