@@ -25,5 +25,9 @@
     "worker_setup": "TICKS_WORKER_SETUP"
   },
   "setup_modes": { "always": "always", "skip": "skip" },
+  "boundary": {
+    "tk_denied": "tk is not available to a worker agent",
+    "report_marker": "BOUNDARY VIOLATION ATTEMPTED"
+  },
   "exit_codes": { "push": 9, "no_work": 10, "agent": 11 }
 }

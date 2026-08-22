@@ -90,6 +90,39 @@ const (
 // runner-shaped actor namespace beside [Actor].
 const WorkerActor = "cloud:worker"
 
+// The boundary guard (tick dxk).
+//
+// A worker agent may not run `tk` and may not write under `.tick/`: the
+// orchestrator owns all tick state, and several workers of one wave each
+// closing their own tick produce conflicting writes to the same
+// `activity.jsonl` and issue files on branches that all merge into one
+// integration commit. That is the conflict class the invariant exists to
+// prevent, and D4's one-writer rule with it.
+//
+// It was a prose instruction until a real container ignored it — the worker
+// prompt forbids it in the second line of its Boundaries section, and
+// run_215b7cbff9dd405c80d738be45cccde5's tick 5jo ran `tk close` and committed
+// the result anyway. The container is ours end to end, so the boundary is now
+// ENFORCED there: the harness gets a PATH whose `tk` refuses, the clone gets a
+// hook that refuses a commit staging tracker state, and the container's own
+// salvage sweep leaves `.tick/` behind. None of it needs the agent's
+// cooperation, which is the point.
+//
+// The strings below are the guard's contract with its readers. The refusal is
+// what the agent is handed (and what the repository's tests assert it was);
+// the report marker is what carries the attempt to a HUMAN, because a
+// violation that is silently prevented trains nobody.
+const (
+	// WorkerTkDeniedMessage is what the harness's `tk` prints before refusing.
+	WorkerTkDeniedMessage = "tk is not available to a worker agent"
+
+	// WorkerBoundaryReportMarker heads the section the worker entrypoint
+	// prepends to `RESULT-<tick>.md` when the agent tried to cross the
+	// boundary. It is the string a reader — and `worker-collect.ts` — looks
+	// for, so it carries no tick id, path or count.
+	WorkerBoundaryReportMarker = "BOUNDARY VIOLATION ATTEMPTED"
+)
+
 // WorkerBranchPrefix is the namespace a per-tick worker's branch lives in. It
 // is the other half of the branch-name ownership test the factory applies to a
 // pull request (D9, with `tick-run/*` for run branches).

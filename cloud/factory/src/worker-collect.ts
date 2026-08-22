@@ -34,6 +34,22 @@ export type WorkerVerdict =
   | "boundary-violation"
   | "unknown";
 
+/**
+ * The line `cloud/sandbox/worker.sh` prepends to `RESULT-<tick>.md` when its
+ * boundary guard caught the agent trying to write tracker state (tick dxk).
+ *
+ * The guard exists because a real container ignored the prompt's Boundaries
+ * section — run_215b7cbff9dd405c80d738be45cccde5, tick 5jo, which ran
+ * `tk close` and committed the result. The container now refuses rather than
+ * asks, which means `boundary_files` below is EMPTY for exactly the runs a
+ * human most needs to hear about: the violation was prevented, so the branch
+ * is clean and the verdict is ready-to-merge. This marker is what carries it
+ * anyway. It is pinned in the shared worker-boot contract beside the probe
+ * marker, for the same reason that one is: two halves matching on a substring
+ * drift the moment only one of them is edited.
+ */
+export const BOUNDARY_REPORT_MARKER = "BOUNDARY VIOLATION ATTEMPTED";
+
 export const STATUS_DONE = "DONE";
 export const STATUS_DONE_WITH_CONCERNS = "DONE_WITH_CONCERNS";
 export const STATUS_NEEDS_CONTEXT = "NEEDS_CONTEXT";
@@ -64,6 +80,13 @@ export type WorkerReport = {
   status_line: string;
   /** `.tick/` paths the branch touches relative to the merge base. Non-empty is a violation. */
   boundary_files: string[];
+  /**
+   * Whether the worker's own report says its container CAUGHT the agent
+   * crossing the boundary. Independent of `boundary_files`, and usually the
+   * opposite of it: a caught attempt is a prevented one, so the branch is
+   * clean. Undefined when the report could not be read.
+   */
+  boundary_attempted?: boolean;
   detail: string;
 };
 
@@ -285,6 +308,7 @@ export async function collectFromGithub(env: Env, project: string, task: WorkerT
   const contents = await readFileAt(env, project, task.branch, report.result_path);
   if (contents.ok) {
     report.result_exists = true;
+    report.boundary_attempted = contents.text.includes(BOUNDARY_REPORT_MARKER);
     const parsed = parseStatus(contents.text);
     report.status = parsed.status;
     report.status_detail = parsed.detail;

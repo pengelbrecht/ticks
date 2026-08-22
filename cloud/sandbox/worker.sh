@@ -259,6 +259,188 @@ worker_repo_setup() {
 }
 
 # ---------------------------------------------------------------------------
+# The boundary guard
+#
+# `.tick/` is the ORCHESTRATOR's serialized state, and a worker may not write
+# it. The worker prompt says so in the second line of its Boundaries section —
+# and run_215b7cbff9dd405c80d738be45cccde5's tick 5jo, the first cloud worker
+# in this project's history to finish real work, ran `tk close` and committed
+# the result anyway (tick dxk). The instruction was right and was ignored, at
+# the tier this factory routes containers at. That is a fact to design around,
+# not a bug to file.
+#
+# WHY IT MATTERS MORE THAN ONE STRAY COMMIT. Several workers of one wave each
+# closing their own tick write the same `activity.jsonl` and the same issue
+# files on branches that all merge into one integration commit — the exact
+# conflict class the invariant exists to prevent, and D4's one-writer rule with
+# it. `worker-collect.ts` already refuses such a branch with
+# `boundary-violation`, the way `tk herd collect` does, so tracker state could
+# never have merged; what it could do, and did, is throw away a tick whose
+# implementation commit was good. The guard is what keeps the good commit.
+#
+# SO IT IS ENFORCED, NOT REQUESTED. The container is ours end to end, and the
+# split is clean: every `tk` this script needs — the version check, the model
+# cell, the toolchain, the repository setup, the pre-flight and the prompt —
+# runs BEFORE the harness starts, and nothing after it needs tk at all. So the
+# harness, and everything it spawns, gets a PATH whose first `tk` refuses,
+# while the container keeps its own. Three layers, because each closes a route
+# the one before it does not:
+#
+#   1. the shim   — the route the observed agent took, and every route through
+#                   the tracker CLI including ones nobody enumerated;
+#   2. the hook   — a direct write to `.tick/` that the agent then commits,
+#                   which no PATH edit can see;
+#   3. the sweep  — `.tick/` restored before the salvage, so the container's
+#                   own rescue commit (tick 5fg) cannot launder a violation
+#                   into a commit it authored itself.
+#
+# And every one of them is REPORTED. A boundary violation that is silently
+# prevented and never mentioned trains nobody; the report is this container's
+# only channel, so that is where the attempt goes.
+# ---------------------------------------------------------------------------
+# What the shim prints and what heads the report's section. Both are pinned in
+# internal/sandbox/worker.go — the repository's tests assert the agent was
+# handed this refusal and that the marker reached the report, and a string
+# edited in one place only would make those assertions test nothing.
+readonly BOUNDARY_TK_DENIED="tk is not available to a worker agent"
+readonly BOUNDARY_REPORT_MARKER="BOUNDARY VIOLATION ATTEMPTED"
+
+# Where the shim lives and where every layer records what it caught. A SIBLING
+# of the checkout, never inside it: a ledger under $workdir would be an
+# untracked file the salvage would commit and the report would then describe as
+# the agent's work.
+guard_dir=""
+boundary_ledger=""
+
+install_boundary_guard() {
+	if [[ -z ${workdir:-} ]]; then
+		warn "no checkout to guard; the boundary is only REQUESTED of the agent on this boot"
+		return 1
+	fi
+	guard_dir="${workdir}.guard"
+	boundary_ledger="$guard_dir/attempts"
+	# Named from $workdir, which require_common_inputs has already settled, and
+	# checked non-empty just above: an rm -rf whose argument could collapse to a
+	# bare suffix deserves both.
+	rm -rf "$guard_dir" 2>/dev/null || true
+	if ! mkdir -p "$guard_dir" 2>/dev/null; then
+		warn "could not create ${guard_dir}; on this boot the boundary is only REQUESTED of the agent, as prose, which is the thing tick dxk exists because it does not work"
+		guard_dir=""
+		boundary_ledger=""
+		return 1
+	fi
+	: >"$boundary_ledger"
+
+	# Layer 1. Resolved by name from the harness's PATH, so it shadows the
+	# real binary for the agent and for every child the agent's tool calls
+	# spawn. It finds its own ledger beside itself rather than through the
+	# environment, because an agent that unset a variable would otherwise get
+	# a refusal nobody hears about.
+	cat >"$guard_dir/tk" <<-'SHIM'
+		#!/usr/bin/env bash
+		# Installed by ticks-worker (tick dxk). The orchestrator owns tick state;
+		# a worker container's agent has no business in it, so this is what `tk`
+		# resolves to for the harness and everything it spawns.
+		set -u
+		_guard="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+		printf 'ran `tk %s`\n' "$*" >>"${_guard}/attempts" 2>/dev/null || true
+		{
+			printf 'ticks-worker: tk is not available to a worker agent.\n'
+			printf 'The orchestrator owns all tick state (the .tick/ directory): it opens,\n'
+			printf 'closes and annotates ticks. A worker that writes it produces conflicting\n'
+			printf 'writes across the wave, so this container refuses rather than asks.\n'
+			printf 'This attempt was recorded and will be reported to a human.\n'
+			printf 'Put whatever you were going to record in your RESULT file instead, and\n'
+			printf 'carry on with the tick.\n'
+		} >&2
+		exit 1
+	SHIM
+	chmod +x "$guard_dir/tk" 2>/dev/null || true
+
+	# Layer 2. Resolved through git rather than assumed at `.git/hooks`, so a
+	# repository that moved `core.hooksPath` gets the hook where git will
+	# actually look for it.
+	local hooks
+	hooks="$(git -C "$workdir" rev-parse --git-path hooks 2>/dev/null)" || hooks=""
+	[[ -n $hooks ]] || hooks=".git/hooks"
+	case "$hooks" in
+	/*) ;;
+	*) hooks="$workdir/$hooks" ;;
+	esac
+	if mkdir -p "$hooks" 2>/dev/null; then
+		# Unquoted heredoc: the ledger path is baked in, everything the hook
+		# evaluates at commit time is escaped.
+		cat >"$hooks/pre-commit" <<-HOOK
+			#!/usr/bin/env bash
+			# Installed by ticks-worker (tick dxk). Refuses any commit that stages a
+			# path the orchestrator owns. The container's own commits pass
+			# --no-verify: this exists to stop the AGENT, and the report and the
+			# salvage must reach origin whatever the agent did.
+			set -u
+			staged="\$(git diff --cached --name-only -- .tick 2>/dev/null)"
+			[ -n "\$staged" ] || exit 0
+			printf '%s\n' "\$staged" | while IFS= read -r p; do
+				[ -z "\$p" ] || printf 'staged %s for commit\n' "\$p" >>'$boundary_ledger' 2>/dev/null || true
+			done
+			{
+				printf 'ticks-worker: refusing this commit — it stages tracker state.\n'
+				printf 'The orchestrator owns the .tick/ directory; a worker branch that\n'
+				printf 'touches it is refused wholesale by collect, which would throw away\n'
+				printf 'the real work on this branch along with it.\n'
+				printf 'Refused paths:\n'
+				printf '%s\n' "\$staged" | sed 's/^/  /'
+				printf 'Unstage them (git reset -- .tick) and commit your work without them.\n'
+				printf 'This attempt was recorded and will be reported to a human.\n'
+			} >&2
+			exit 1
+		HOOK
+		chmod +x "$hooks/pre-commit" 2>/dev/null || true
+	else
+		warn "could not install the pre-commit boundary hook at ${hooks}"
+	fi
+
+	say "boundary guard installed: the agent's tk refuses, and a commit staging .tick/ is rejected"
+	return 0
+}
+
+# What the guard caught, one fact per line, newest layer last. Read AFTER the
+# harness and BEFORE the sweep, so the dirty tracker paths the agent left are
+# still there to be named.
+#
+# Three sources, because they answer three different questions: the ledger says
+# what was ATTEMPTED and refused, the branch diff says what got through anyway
+# (a guard is not a proof), and the worktree says what is sitting there for the
+# salvage to find.
+boundary_attempts() {
+	local line paths
+	if [[ -n $boundary_ledger && -r $boundary_ledger ]]; then
+		while IFS= read -r line; do
+			[[ -z $line ]] || printf 'the agent %s\n' "$line"
+		done <"$boundary_ledger"
+	fi
+	paths="$(git -C "$workdir" diff --name-only "${base_sha}...HEAD" -- .tick 2>/dev/null)"
+	while IFS= read -r line; do
+		[[ -z $line ]] || printf 'COMMITTED %s to this branch, which collect refuses the whole branch for\n' "$line"
+	done <<<"$paths"
+	# -uall, not the default: `git status` collapses a wholly untracked
+	# directory to `.tick/activity/`, and the report has to name the FILE the
+	# agent wrote — `activity.jsonl` is the one a reader recognises.
+	paths="$(git -C "$workdir" status --porcelain -uall -- .tick 2>/dev/null | sed 's/^...//')"
+	while IFS= read -r line; do
+		[[ -z $line ]] || printf 'left %s written in the worktree; the container restored it\n' "$line"
+	done <<<"$paths"
+}
+
+# Layer 3. Put `.tick/` back the way the clone had it — unstaged, reverted,
+# and with the agent's additions removed — so nothing downstream can carry it.
+# Best effort: a sweep that cannot run must never stop the report and the push.
+sweep_boundary_state() {
+	git -C "$workdir" reset -q -- .tick 2>/dev/null || true
+	git -C "$workdir" checkout -q -- .tick 2>/dev/null || true
+	git -C "$workdir" clean -qfd -- .tick 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # The prompt
 #
 # Rendered by `tk` out of the checkout at the base SHA, from the same template
@@ -317,6 +499,17 @@ run_harness() {
 		;;
 	esac
 
+	# The boundary guard's PATH, and ONLY here: the shim shadows `tk` for the
+	# harness and every child its tool calls spawn, while this script's own
+	# `tk` — already all spent, above — was resolved from the real one. Set and
+	# restored around the call rather than exported once, so a future step that
+	# needs the container's tk after the harness cannot silently get the shim.
+	local saved_path="$PATH"
+	if [[ -n $guard_dir ]]; then
+		PATH="$guard_dir:$PATH"
+		export PATH
+	fi
+
 	say "starting the $harness harness on tick ${tick_id} (branch ${worker_branch})"
 	if ((harness_timeout > 0)); then
 		bounded "$harness_timeout" "${cmd[@]}" </dev/null
@@ -328,6 +521,8 @@ run_harness() {
 		"${cmd[@]}" </dev/null
 		status=$?
 	fi
+	PATH="$saved_path"
+	export PATH
 	say "the $harness harness exited $status"
 	return $status
 }
@@ -391,13 +586,22 @@ salvage_uncommitted() {
 	fi
 	# The report is never part of the salvage; commit_report owns it.
 	git -C "$workdir" reset -q -- "$result_path" 2>/dev/null || true
+	# Nor is tracker state, ever. `sweep_boundary_state` has already restored
+	# `.tick/` by the time this runs; the unstage is the belt to its braces,
+	# because a salvage commit carrying tracker state would be a violation this
+	# container authored itself and signed with its own identity.
+	git -C "$workdir" reset -q -- .tick 2>/dev/null || true
 	if git -C "$workdir" diff --cached --quiet; then
 		# Nothing but the report was dirty. Distinct from a salvage that
 		# happened: the caller must not report a commit it did not make.
 		git -C "$workdir" reset -q 2>/dev/null || true
 		return 2
 	fi
-	if ! git -C "$workdir" commit -q -m "tick ${tick_id}: work in progress salvaged by ${ME} (harness exited ${status})"; then
+	# --no-verify: the guard's hook exists to stop the AGENT, and the
+	# container's own commits are the half that must reach origin whatever the
+	# agent did. It stages nothing under `.tick/` — the two resets above see to
+	# that — so there is nothing here for the hook to have caught.
+	if ! git -C "$workdir" commit -q --no-verify -m "tick ${tick_id}: work in progress salvaged by ${ME} (harness exited ${status})"; then
 		warn "could not commit the harness's uncommitted work; it is lost with this container"
 		git -C "$workdir" reset -q 2>/dev/null || true
 		return 1
@@ -422,8 +626,26 @@ write_fallback_report() {
 	warn "the harness wrote no ${result_path}; ${ME} wrote one recording that"
 }
 
+# The boundary section, written only when there is one. It is a signal, not a
+# header: a marker every report carried would tell a reader nothing on the
+# report where it matters. Quoted so it survives whatever markdown the agent
+# wrote, and placed with the other container facts, ABOVE the agent's words and
+# nowhere near its STATUS line.
+boundary_section() {
+	local notes="$1" line
+	printf '> **%s.** This agent tried to write tracker state, which the\n' "$BOUNDARY_REPORT_MARKER"
+	printf '> orchestrator owns. The container refused it, so nothing under `.tick/`\n'
+	printf '> should have reached this branch — but the attempt is reported rather than\n'
+	printf '> silently cleaned, because a model that ignored an explicit instruction is\n'
+	printf '> something a human has to see. What it did:\n>\n'
+	while IFS= read -r line; do
+		[[ -z $line ]] || printf '> - %s\n' "$line"
+	done <<<"$notes"
+	printf '\n'
+}
+
 prepend_container_facts() {
-	local status="$1" commits="$2" dirty="$3" salvaged="${4:-0}" salvage_note=""
+	local status="$1" commits="$2" dirty="$3" salvaged="${4:-0}" boundary="${5:-}" salvage_note=""
 	local tmp="$workdir/$result_path.ticks-worker"
 	if ((salvaged != 0)); then
 		salvage_note=", salvaged into their own commit"
@@ -433,6 +655,7 @@ prepend_container_facts() {
 		printf 'agent'"'"'s report, including its STATUS line, is unchanged below. -->\n\n'
 		printf '_%s: branch `%s`, base `%s`, harness `%s` exited %s, %s work commit(s), %s uncommitted path(s)%s._\n\n' \
 			"$ME" "$worker_branch" "$base_sha" "$harness" "$status" "$commits" "$dirty" "$salvage_note"
+		[[ -z $boundary ]] || boundary_section "$boundary"
 		cat "$workdir/$result_path"
 	} >"$tmp" && mv "$tmp" "$workdir/$result_path" || {
 		rm -f "$tmp"
@@ -449,7 +672,11 @@ commit_report() {
 		say "${result_path} is already committed on ${worker_branch}"
 		return 0
 	fi
-	git -C "$workdir" commit -q -m "tick ${tick_id}: worker report" -- "$result_path" || {
+	# --no-verify for the same reason the salvage passes it: the report is this
+	# container's only channel, and an agent that left tracker state staged
+	# must not be able to take the report down with it. The pathspec is what
+	# keeps the commit to the report alone.
+	git -C "$workdir" commit -q --no-verify -m "tick ${tick_id}: worker report" -- "$result_path" || {
 		warn "could not commit ${result_path}"
 		return 1
 	}
@@ -502,6 +729,8 @@ main() {
 	worker_repo_setup
 	run_preflight
 
+	install_boundary_guard
+
 	build_worker_prompt
 	run_harness "$prompt_text"
 	local harness_status=$?
@@ -511,6 +740,20 @@ main() {
 	local commits dirty reported=1
 	commits="$(work_commits)"
 	dirty="$(uncommitted_files)"
+	# Read BEFORE the sweep and the salvage, for the same reason the counts
+	# are: this is the account of what the AGENT did, and what the container
+	# put back on its way out is a separate fact.
+	local boundary_notes
+	boundary_notes="$(boundary_attempts)"
+	if [[ -n $boundary_notes ]]; then
+		warn "${BOUNDARY_REPORT_MARKER}: the agent tried to write tracker state; the container refused and the report says so"
+		printf '%s\n' "$boundary_notes" | sed "s/^/${ME}:   /"
+		sweep_boundary_state
+		# The dirty count is re-read: the sweep changed what is there, and a
+		# header claiming paths the salvage will not find describes a container
+		# that no longer exists.
+		dirty="$(uncommitted_files)"
+	fi
 	# Both read BEFORE the salvage: the header reports what the AGENT did, and
 	# what this container rescued on its way out is a separate fact.
 	local salvaged=0
@@ -521,7 +764,7 @@ main() {
 		write_fallback_report "$harness_status"
 		reported=0
 	fi
-	prepend_container_facts "$harness_status" "$commits" "$dirty" "$salvaged"
+	prepend_container_facts "$harness_status" "$commits" "$dirty" "$salvaged" "$boundary_notes"
 	commit_report
 	local pushed=0
 	push_branch || pushed=1

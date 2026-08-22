@@ -49,6 +49,10 @@ type workerContract struct {
 		Always string `json:"always"`
 		Skip   string `json:"skip"`
 	} `json:"setup_modes"`
+	Boundary struct {
+		TkDenied     string `json:"tk_denied"`
+		ReportMarker string `json:"report_marker"`
+	} `json:"boundary"`
 	ExitCodes struct {
 		Push   int `json:"push"`
 		NoWork int `json:"no_work"`
@@ -86,6 +90,13 @@ func TestWorkerBootContractMatchesThisPackage(t *testing.T) {
 		{"worker setup env", EnvWorkerSetup, c.Env.Setup},
 		{"setup always", WorkerSetupAlways, c.SetupModes.Always},
 		{"setup skip", WorkerSetupSkip, c.SetupModes.Skip},
+		// The boundary guard's two strings (tick dxk). Three readers again:
+		// the shell prints them, this package asserts the container did, and
+		// worker-collect.ts looks for the report marker to surface an attempt
+		// that its own `.tick/` diff — clean, because the guard worked — can
+		// no longer reveal.
+		{"tk denied", WorkerTkDeniedMessage, c.Boundary.TkDenied},
+		{"boundary report marker", WorkerBoundaryReportMarker, c.Boundary.ReportMarker},
 		{"branch", WorkerBranch(c.BranchExample.Epic, c.BranchExample.Tick), c.BranchExample.Branch},
 		{"result file", WorkerResultFile(c.ResultFileExample.Tick), c.ResultFileExample.Path},
 	} {
