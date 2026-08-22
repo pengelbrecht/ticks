@@ -180,6 +180,20 @@ is a third fact rather than a quiet version of either — the same distinction
 `run.cost_source` draws between a zero and an unknown. `tk cloud status <run>`
 prints the verdict beside the state.
 
+**A mandatory closeout is not a stop (tick 074).** A cloud wave always hands off
+to a `closeout` orchestrator boot, because per-tick workers implement and push
+and nothing else — nothing merges, runs the integrated gate or closes the epic
+out until a real orchestrator does. That handoff is the wave's *normal* ending,
+so it must not be reported as an interruption: while it travelled to the
+supervisor as a trip, every cloud run — including one whose containers all came
+back `ready-to-merge` — finalized as `stopped`, which reads back to an operator
+as a run somebody killed. A finished wave is a **handoff**: the run stays
+`running` through its closeout, the dispatch log says `handoff:closeout` rather
+than `stopping:*`, and a closeout that ran is offered as `completed` for D23
+above to confirm or downgrade against the refs. A wave a budget or an operator
+actually stopped is unchanged, and so is a handoff whose closeout did not
+finish — the epic never got its ending, and `stopped` is honest about that.
+
 **Worker agents.** One sandbox per tick: clone at the epic base, branch
 `tick/<epic-id>/<tick-id>`, implement, push branch + `RESULT-<tick-id>.md`,
 exit. Collect reads *only* what survived in git — commits, the result file,

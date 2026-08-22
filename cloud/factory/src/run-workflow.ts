@@ -45,6 +45,12 @@
  *    against the durable layer (src/progress.ts: the remote's refs, before and
  *    after). A run that stopped without advancing anything is `stopped`, and
  *    `completed` means the epic actually moved.
+ * 7. **A mandatory closeout is not a stop (tick 074).** A cloud wave always
+ *    hands off to a closeout orchestrator, because per-tick workers implement
+ *    and push and nothing else. That handoff travels as its own `handoff`
+ *    outcome rather than as a trip, so a wave that went perfectly is not
+ *    recorded — in the index row, the dispatch log or `run.json` — as a run
+ *    somebody stopped. `state` alone has to be readable.
  *
  * See docs/design/cloud-factory.md (Phase 1, UC1, UC1b, D14, D15, D19, D20).
  */
@@ -1015,7 +1021,19 @@ async function detectTrip(
 type PassOutcome =
   | { kind: "completed"; boots: number }
   | { kind: "failed"; detail: string; boots: number }
-  | { kind: "tripped"; trip: Trip; boots: number };
+  | { kind: "tripped"; trip: Trip; boots: number }
+  /**
+   * The pass finished everything it was for, and the run still owes the epic
+   * a closeout boot. Only `superviseCloudWave` produces one: per-tick workers
+   * implement and push and nothing else, so a wave that went perfectly is
+   * still not an ending.
+   *
+   * It exists because folding that into `tripped` — which was the shortest
+   * way to reach the mandatory closeout leg — made every successful wave
+   * finish in state `stopped` (tick 074). A handoff is not a stop, and the
+   * two must not share a carrier.
+   */
+  | { kind: "handoff"; detail: string; boots: number };
 
 type PassOptions = {
   label: string;
@@ -1522,14 +1540,20 @@ export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
  *
  * Returns a `PassOutcome` so `superviseRun` can fold it into the SAME
  * outcome-derivation logic the harness-substrate pass already has, rather
- * than growing a second one: a completed dispatch (or a mid-wave stop) is
- * reported as a `tripped` "stop", which sends `superviseRun` down its
- * existing closeout leg. That is deliberate, not a reuse of convenience —
- * per-tick workers only implement and push (tap); nothing merges, runs the
- * integrated gate, or does epic-level review and closeout the way a Phase 1
- * orchestrator does before it exits 0, so a REAL orchestrator boot in
- * `closeout` phase is mandatory after every cloud wave, not just an
- * interrupted one.
+ * than growing a second one. Both endings send `superviseRun` down its
+ * existing closeout leg — per-tick workers only implement and push (tap);
+ * nothing merges, runs the integrated gate, or does epic-level review and
+ * closeout the way a Phase 1 orchestrator does before it exits 0, so a REAL
+ * orchestrator boot in `closeout` phase is mandatory after every cloud wave,
+ * not just an interrupted one — but they arrive as DIFFERENT outcomes:
+ *
+ * - a mid-wave stop is `tripped`, and the run is stopping;
+ * - a wave that dispatched every batch is `handoff`, and the run is not.
+ *
+ * Tick 074 is that distinction. While both were `tripped`, the mandatory
+ * closeout made every successful wave terminate in `stopped` — technically
+ * true of the code path and false about the run, which is the class of signal
+ * that has already cost this session real time on `tk cloud trace` (c5i).
  *
  * Budgets and stops are enforced at BOTH scales (tick k24): `cloudWaveTrip`
  * runs between batches, and the same function is the wave's shared
@@ -1799,15 +1823,15 @@ export async function superviseCloudWave(
     };
   }
 
+  // Every batch ran and nothing stopped anything. That is a HANDOFF, not a
+  // trip: the wave is over because it is finished, and the closeout boot it
+  // hands to is the run's normal ending rather than the salvage of an
+  // interrupted one (tick 074).
   return {
-    kind: "tripped",
-    trip: {
-      kind: "stop",
-      hard: false,
-      detail:
-        `the cloud wave dispatched ${outcomes.length} per-tick worker container(s): ` +
-        `${summarizeCloudWave(outcomes)}; handing off for review and closeout`,
-    },
+    kind: "handoff",
+    detail:
+      `the cloud wave dispatched ${outcomes.length} per-tick worker container(s): ` +
+      `${summarizeCloudWave(outcomes)}; handing off for review and closeout`,
     boots: outcomes.length,
   };
 }
@@ -2010,8 +2034,12 @@ export function applyProgress(outcome: RunOutcome, progress: RunProgress): RunOu
     case "none":
       return {
         state: "stopped",
+        // The outcome's own account is kept, not replaced (tick 074): for a
+        // cloud wave it is the only place the per-tick verdicts are written
+        // down, and "nothing moved" without "here is what ran" leaves an
+        // operator with a stop and no way to tell which stop it was.
         detail:
-          `the orchestrator exited 0 but the epic did not move: ${progress.detail}. ` +
+          `${outcome.detail}, but the epic did not move: ${progress.detail}. ` +
           "An exit status is not completion",
         boots: outcome.boots,
       };
@@ -2076,24 +2104,52 @@ export async function superviseRun(
   } else if (work.kind === "failed") {
     outcome = { state: "failed", detail: work.detail, boots: work.boots };
   } else {
-    // The clean stop, identical for a budget and for an operator (D15). What
-    // differs is the reason the closeout orchestrator and the log are given.
-    const trip = work.trip;
-    await step.do("stop:record", OBSERVE_RETRIES, async () => {
-      await logDispatch(env, {
-        run_id: params.run_id,
-        epic: params.epic,
-        decision: trip.kind === "budget" ? `stopping:budget:${trip.budget}` : "stopping:operator",
-        reason: tripReason(trip),
+    // Two ways to arrive here, and they owe the epic the same closeout boot —
+    // but they are not the same event and must not be recorded as one.
+    //
+    // `tripped` is an interruption: the clean stop, identical for a budget and
+    // for an operator (D15). What differs is the reason the closeout
+    // orchestrator and the log are given.
+    //
+    // `handoff` is a cloud wave that finished. Nothing stopped it; the pass is
+    // over because per-tick workers do not close an epic out. Recording it as
+    // a stop — a `stopping` row, a `stopping:operator` log line, a terminal
+    // `stopped` — was tick 074's bug: every successful wave read back as a run
+    // somebody had killed.
+    const trip = work.kind === "tripped" ? work.trip : null;
+    const reason = work.kind === "tripped" ? work.trip.detail : work.detail;
+
+    if (trip === null) {
+      await step.do("handoff:record", OBSERVE_RETRIES, async () => {
+        await logDispatch(env, {
+          run_id: params.run_id,
+          epic: params.epic,
+          decision: "handoff:closeout",
+          reason: null,
+        });
+        // Deliberately NO `stopping` write: the run is still running, which is
+        // both true and what keeps its closeout credential spendable
+        // (`SPENDABLE_RUN_STATES`) and an operator's stop still meaningful
+        // (`ACTIVE_RUN_STATES`).
+        return { logged: true };
       });
-      await updateRunState(env.DB, params.run_id, "stopping");
-      return { logged: true };
-    });
+    } else {
+      await step.do("stop:record", OBSERVE_RETRIES, async () => {
+        await logDispatch(env, {
+          run_id: params.run_id,
+          epic: params.epic,
+          decision: trip.kind === "budget" ? `stopping:budget:${trip.budget}` : "stopping:operator",
+          reason: tripReason(trip),
+        });
+        await updateRunState(env.DB, params.run_id, "stopping");
+        return { logged: true };
+      });
+    }
 
     const closeout = await supervisePass(env, step, params, context, counter, {
       label: "closeout",
       phase: "closeout",
-      stop_reason: trip.detail,
+      stop_reason: reason,
       max_boots: MAX_CLOSEOUT_BOOTS,
       // A closeout must not be stopped by the budget that started it, or the
       // run would never reach review and closeout at all.
@@ -2108,14 +2164,26 @@ export async function superviseRun(
       closeout.kind === "completed"
         ? "review and closeout ran"
         : `review and closeout did not finish (${
-            closeout.kind === "failed"
-              ? closeout.detail
-              : // A tripped closeout has its own reason, and a hard stop's is
+            closeout.kind === "tripped"
+              ? // A tripped closeout has its own reason, and a hard stop's is
                 // the one an operator most needs to read back: the run stopped
                 // spending because they said so, not because a window elapsed.
                 closeout.trip.detail
+              : closeout.detail
           })`;
-    outcome = { state: "stopped", detail: `${trip.detail}; ${closed}`, boots: closeout.boots };
+    const detail = `${reason}; ${closed}`;
+
+    // A run that was stopped is `stopped` however well its closeout went — the
+    // stop is the truer fact about it. A HANDOFF whose closeout ran is a run
+    // that did everything it set out to do, so it is offered as `completed`
+    // and `applyProgress` below decides whether the durable layer agrees,
+    // exactly as it does for a Phase 1 orchestrator that exited 0 (tick ehy).
+    // A handoff whose closeout did NOT finish never reached review and
+    // closeout: the run really did stop short, and `stopped` is honest.
+    outcome =
+      trip === null && closeout.kind === "completed"
+        ? { state: "completed", detail, boots: closeout.boots }
+        : { state: "stopped", detail, boots: closeout.boots };
   }
 
   // Nothing above this line may call the run complete. The passes report what
