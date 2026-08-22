@@ -5,6 +5,8 @@ import {
   WORKER_ACTOR,
   WORKER_BRANCH_PREFIX,
   WORKER_COMMAND,
+  WORKER_DEFAULT_HARNESS,
+  WORKER_DEFAULT_MODEL,
   WORKER_EXIT,
   WORKER_PROBE_ARG,
   WORKER_PROBE_COMMAND,
@@ -99,9 +101,13 @@ describe("the boot environment", () => {
   // exported empty string defeats every default the entrypoint has.
   it("omits what the caller did not supply rather than exporting empty strings", () => {
     const env = workerBootEnv(boot);
-    for (const name of ["TICKS_MODEL", "GITHUB_TOKEN", "TICKS_WORKDIR", "TICKS_FACTORY_URL"]) {
+    for (const name of ["GITHUB_TOKEN", "TICKS_WORKDIR", "TICKS_FACTORY_URL"]) {
       expect(name in env).toBe(false);
     }
+    // TICKS_HARNESS/TICKS_MODEL are the exception — see the dedicated
+    // describe block below — but an explicit override still wins, and an
+    // explicit empty string still means "let the container decide" rather
+    // than "use the worker default".
     expect(workerBootEnv({ ...boot, model: "" }).TICKS_MODEL).toBeUndefined();
     expect(workerBootEnv({ ...boot, model: "anthropic/claude-fable-5" }).TICKS_MODEL).toBe(
       "anthropic/claude-fable-5"
@@ -111,6 +117,44 @@ describe("the boot environment", () => {
   it("runs the repository's setup unless the caller opts the wave out", () => {
     expect(workerBootEnv(boot).TICKS_WORKER_SETUP).toBe(contract.setup_modes.always);
     expect(workerBootEnv({ ...boot, setup: "skip" }).TICKS_WORKER_SETUP).toBe(contract.setup_modes.skip);
+  });
+
+  // tick ys3: per-tick container fan-out failed on EVERY wave, deterministically.
+  // The worker resolves `.tick/runners.toml`'s [roles.implement] cell
+  // (kind="claude", model="sonnet") whenever TICKS_MODEL is unset, and the
+  // factory gateway routes Workers AI only — no anthropic route, no
+  // ANTHROPIC_API_KEY. `probe_model` died EXIT_MODEL before the harness ever
+  // started. [roles.implement] is also what `tk herd spawn` resolves for
+  // LOCAL worker CLIs, which authenticate straight to Anthropic — repointing
+  // it at a workers-ai model would have fixed the container and broken every
+  // local epic run in the same commit. So the worker's own default lives
+  // here, in the factory, not in the repository's routing table.
+  describe("the worker's own harness and model default (tick ys3)", () => {
+    it("defaults an unconfigured worker to omp on the measured workers-ai model, never the repository's implement role", () => {
+      const env = workerBootEnv(boot);
+      expect(env.TICKS_HARNESS).toBe(WORKER_DEFAULT_HARNESS);
+      expect(env.TICKS_MODEL).toBe(WORKER_DEFAULT_MODEL);
+      // Locks the specific id tick y45 measured against this account's own
+      // `GET /ai/models/search` catalog, so a drift in the constant is a
+      // visible test failure rather than a silent routing change.
+      expect(WORKER_DEFAULT_HARNESS).toBe("omp");
+      expect(WORKER_DEFAULT_MODEL).toBe("workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731");
+    });
+
+    it("still lets the run config or an operator override the worker default", () => {
+      const env = workerBootEnv({
+        ...boot,
+        harness: "claude",
+        model: "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813",
+      });
+      expect(env.TICKS_HARNESS).toBe("claude");
+      expect(env.TICKS_MODEL).toBe("workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813");
+    });
+
+    it("the worker default is served through workerProbeSpec/workerWorkSpec too, since the probe must run in the real command's environment", () => {
+      expect(workerProbeSpec(boot).env?.TICKS_MODEL).toBe(WORKER_DEFAULT_MODEL);
+      expect(workerWorkSpec(boot).env?.TICKS_MODEL).toBe(WORKER_DEFAULT_MODEL);
+    });
   });
 });
 
