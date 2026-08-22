@@ -1,5 +1,8 @@
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
+import { readWorkerManifest } from "../src/artifacts";
+import { manifestRecorder } from "../src/reconcile";
 import type {
   OrchestratorSandbox,
   SandboxBinding,
@@ -312,6 +315,54 @@ describe("spawnWorker: the green-start trap", () => {
           reason: "wrong-output",
           detail: expect.stringContaining("8.19.2"),
           output: "8.19.2\n",
+        },
+      },
+    ]);
+  });
+
+  it("an SDK error during the probe is captured as a ProbeOutcome, not lost to an uncaught rejection (tick ys3)", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0ds");
+    // The real Sandbox SDK's process calls are network round trips and can
+    // reject outright, not only answer with the wrong content — a Durable
+    // Object hiccup, a container refusing a request mid-boot. Patching the
+    // booted sandbox (rather than the `sleep` callback) throws on the very
+    // first poll, before timing can matter.
+    const sandbox = await binding.get(name);
+    sandbox.getProcess = async () => {
+      throw new Error("container did not respond: 503");
+    };
+    const recorded: unknown[] = [];
+
+    const result = await spawnWorker(binding, name, task("0ds"), WORK_SPEC, {
+      probe_timeout_ms: 5_000,
+      probe_poll_ms: 1,
+      sleep: noWait,
+      record: {
+        async dispatched() {},
+        async started() {},
+        async probeFailed(t, sandboxName, probe) {
+          recorded.push({ tick_id: t.tick_id, sandboxName, probe });
+        },
+      },
+    });
+
+    expect(result.launched).toBe(false);
+    expect(result.process_id).toBeNull();
+    expect(result.probe.ok).toBe(false);
+    expect(result.probe.ok === false && result.probe.reason).toBe("probe-error");
+    expect(result.probe.ok === false && result.probe.detail).toContain("container did not respond: 503");
+    // Nothing was lost: the recorder still gets to persist this attempt's
+    // account of itself, exactly as it would for a wrong-output probe.
+    expect(recorded).toEqual([
+      {
+        tick_id: "0ds",
+        sandboxName: name,
+        probe: {
+          ok: false,
+          reason: "probe-error",
+          detail: expect.stringContaining("container did not respond: 503"),
+          output: "",
         },
       },
     ]);
@@ -1367,5 +1418,91 @@ describe("the dispatch manifest lands before the container does", () => {
     ).rejects.toThrow("R2 is unreachable");
 
     expect(binding.booted).toHaveLength(0);
+  });
+});
+
+describe("dispatchWave: a failed probe's output survives to the real R2 manifest (tick ys3)", () => {
+  // The gap this closes is a real one that unit-testing `spawnWorker` with a
+  // stub `record` (above) cannot catch: this tick shipped once already with
+  // `probeFailed` wired to a stub and to `manifestRecorder` in isolation, and
+  // TWO live re-runs against the real factory still showed no `probe_failure`
+  // on the manifest. Only driving the exact path production uses —
+  // `dispatchWave` with the real `manifestRecorder` writing to a real R2
+  // bucket — and reading the result back with `readWorkerManifest` proves the
+  // wiring end to end, the way `reconcile.test.ts`'s manifest test (which
+  // calls `manifestRecorder` directly, never through a dispatch) does not.
+  const PROJECT = "example-org/example-repo";
+
+  it("a wrong-output probe, dispatched through the wave, leaves probe_failure on the manifest a reconcile reads", async () => {
+    const binding = new FakeSandboxes();
+    const runID = "run_ys3_e2e_wrong_output";
+    const name = workerSandboxName(runID, "3nh");
+    const sleep: Sleeper = async () => {
+      const probe = binding.named(name).current;
+      probe.say("8.19.2\n");
+      probe.finish(0);
+    };
+    const collector = new FakeCollector();
+
+    const outcomes = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName(runID, tickID),
+      [task("3nh")],
+      () => WORK_SPEC,
+      {
+        probe_timeout_ms: 5_000,
+        probe_poll_ms: 1,
+        sleep,
+        record: manifestRecorder(env.ARTIFACTS, PROJECT, { run_id: runID, epic: "1vn", batch: 1 }),
+      },
+      collector
+    );
+
+    expect(outcomes[0]!.launched).toBe(false);
+
+    const manifest = await readWorkerManifest(env.ARTIFACTS, PROJECT, runID, "3nh");
+    expect(manifest).not.toBeNull();
+    expect(manifest!.probe_failure).toBeDefined();
+    expect(manifest!.probe_failure!.reason).toBe("wrong-output");
+    expect(manifest!.probe_failure!.output).toBe("8.19.2\n");
+    expect(manifest!.probe_failure!.detail).toContain("8.19.2");
+    // The rest of the manifest that `dispatched` wrote before the probe ran
+    // is still there — a probe failure augments the record, it does not
+    // replace it.
+    expect(manifest!.sandbox_name).toBe(name);
+    expect(manifest!.run_id).toBe(runID);
+  });
+
+  it("an SDK exception during the probe, dispatched through the wave, also lands on the manifest", async () => {
+    const binding = new FakeSandboxes();
+    const runID = "run_ys3_e2e_probe_error";
+    const name = workerSandboxName(runID, "3nh");
+    const sandbox = await binding.get(name);
+    sandbox.getProcess = async () => {
+      throw new Error("the sandbox did not answer");
+    };
+    const collector = new FakeCollector();
+
+    const outcomes = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName(runID, tickID),
+      [task("3nh")],
+      () => WORK_SPEC,
+      {
+        probe_timeout_ms: 5_000,
+        probe_poll_ms: 1,
+        sleep: noWait,
+        record: manifestRecorder(env.ARTIFACTS, PROJECT, { run_id: runID, epic: "1vn", batch: 1 }),
+      },
+      collector
+    );
+
+    expect(outcomes[0]!.launched).toBe(false);
+
+    const manifest = await readWorkerManifest(env.ARTIFACTS, PROJECT, runID, "3nh");
+    expect(manifest).not.toBeNull();
+    expect(manifest!.probe_failure).toBeDefined();
+    expect(manifest!.probe_failure!.reason).toBe("probe-error");
+    expect(manifest!.probe_failure!.detail).toContain("the sandbox did not answer");
   });
 });

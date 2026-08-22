@@ -289,7 +289,8 @@ export type ProbeOutcome =
         | "process-gone"
         | "timeout"
         | "boot-timeout"
-        | "cancelled";
+        | "cancelled"
+        | "probe-error";
       detail: string;
       output: string;
     };
@@ -528,13 +529,30 @@ export async function spawnWorker(
   await opts.record?.dispatched(task, sandboxName);
   const sandbox = await binding.get(sandboxName);
 
-  const probeStarted = await sandbox.startProcess(spec.probe.command, { env: spec.probe.env ?? {} });
-  const probe = await watchProbe(sandbox, probeStarted.id, spec.probe.expect, {
-    timeoutMs: opts.probe_timeout_ms ?? DEFAULT_PROBE_TIMEOUT_MS,
-    pollMs: opts.probe_poll_ms ?? DEFAULT_PROBE_POLL_MS,
-    sleep,
-    ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
-  });
+  let probe: ProbeOutcome;
+  try {
+    const probeStarted = await sandbox.startProcess(spec.probe.command, { env: spec.probe.env ?? {} });
+    probe = await watchProbe(sandbox, probeStarted.id, spec.probe.expect, {
+      timeoutMs: opts.probe_timeout_ms ?? DEFAULT_PROBE_TIMEOUT_MS,
+      pollMs: opts.probe_poll_ms ?? DEFAULT_PROBE_POLL_MS,
+      sleep,
+      ...(opts.cancel === undefined ? {} : { cancel: opts.cancel }),
+    });
+  } catch (error) {
+    // The real Sandbox SDK's `startProcess`/`getProcess`/`readOutput` are
+    // network round trips to the container and can reject outright — a Durable
+    // Object hiccup, a container that refuses a request mid-boot — not only
+    // answer with the wrong content. Uncaught, that exception unwound
+    // `spawnWorker` with no `ProbeOutcome` at all and nothing for `opts.record`
+    // to persist: the exact "unexplainable after the fact" failure this tick
+    // exists to end, just one step earlier than a wrong-output probe (tick ys3).
+    probe = {
+      ok: false,
+      reason: "probe-error",
+      detail: `the probe attempt raised an error before it produced any evaluable output: ${String(error)}`,
+      output: "",
+    };
+  }
   if (!probe.ok) {
     const cancelled = probe.reason === "cancelled" ? (opts.cancel?.cancelled ?? null) : null;
     // Persisted before this attempt's account of itself is lost: the
