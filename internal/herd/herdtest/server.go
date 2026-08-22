@@ -229,7 +229,7 @@ type Server struct {
 func New(t *testing.T, cfg Config) *Server {
 	t.Helper()
 	if cfg.Version == "" {
-		cfg.Version = "0.8.0"
+		cfg.Version = "0.8.2"
 	}
 	if cfg.Protocol == 0 {
 		cfg.Protocol = defaultProtocol

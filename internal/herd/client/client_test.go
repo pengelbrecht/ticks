@@ -15,8 +15,8 @@ func TestNewPerformsHandshake(t *testing.T) {
 	if got := c.ServerInfo().Protocol; got != ProtocolVersion {
 		t.Errorf("protocol = %d, want %d", got, ProtocolVersion)
 	}
-	if got := c.ServerInfo().Version; got != "0.8.0" {
-		t.Errorf("version = %q, want 0.8.0", got)
+	if got := c.ServerInfo().Version; got != "0.8.2" {
+		t.Errorf("version = %q, want 0.8.2", got)
 	}
 	if c.ServerInfo().Capabilities == nil || !c.ServerInfo().Capabilities.LiveHandoff {
 		t.Errorf("capabilities not decoded: %+v", c.ServerInfo().Capabilities)
@@ -38,7 +38,7 @@ func TestNewPerformsHandshake(t *testing.T) {
 }
 
 func TestNewFailsClosedOnProtocolMismatch(t *testing.T) {
-	for _, protocol := range []int{18, 20} {
+	for _, protocol := range []int{19, 21} {
 		srv := newFakeServer(t, func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
 			return respond(w, req.ID, pongResultProtocol(protocol))
 		})
