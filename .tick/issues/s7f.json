@@ -2,7 +2,8 @@
   "id": "s7f",
   "title": "Reconcile on orchestrator reboot: a dead orchestrator resumes from git",
   "description": "The orchestrator sandbox is EXPECTED to die — context exhaustion, container eviction, API failure. Phase 1 boots a replacement; Phase 2 must make the replacement correct.\n\nA fresh orchestrators first instruction is the reconcile protocol, in the documented evidence order: manifests, then git, then the live sandbox list. Cold reconstruction from git + .tick/ must ALWAYS work (axiom 1); snapshot/restore is an accelerator that may make it fast, never a correctness dependency.\n\nThe rule the herd substrate learned the hard way and this must inherit: a live worker is never redispatched, whatever its branch looks like — a branch with no commits is exactly what a worker that has not committed yet looks like. Phase 1 hit this for real when a worker died mid-turn with 643 uncommitted lines and settled looking finished.",
-  "status": "open",
+  "notes": "2026-08-22 06:04 - Seam (wave 6, three wide with bmo and t9s). You own reconcile-on-reboot in the Run Workflow. bmo owns the tk cloud verbs; t9s owns the TUI. This was deliberately held until k24 landed: resuming a dead orchestrator from git while a stop could not interrupt a batch would have layered recovery on top of a control gap, which is the ordering that produced the $49.80 run. Now that a wave answers to a stop mid-batch, recovery is safe to build. Read tpl's keeper (the run branch is pushed on a timer, so a dead orchestrator's work is already on origin) — that is what makes resuming from git possible at all, and the reconcile path should trust the durable layer and nothing else.",
+  "status": "in_progress",
   "priority": 2,
   "type": "feature",
   "owner": "noreply@anthropic.com",
@@ -15,5 +16,6 @@
   "acceptance_criteria": "Killing the orchestrator container mid-wave leads to a fresh one that adopts live workers rather than redispatching them, resumes the wave, and finishes the run; a worker that is mid-turn with an empty branch is never redispatched; the same recovery works with the snapshot deleted, only slower.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T02:35:09.914934Z",
-  "updated_at": "2026-08-21T17:43:04.266709Z"
+  "updated_at": "2026-08-22T04:04:59.406473Z",
+  "started_at": "2026-08-22T04:04:59.406473Z"
 }
