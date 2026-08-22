@@ -11,7 +11,14 @@ import { enrolProject, getRun, getRunProgress, listDispatchLogs, listRunGatewayT
 import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import type { RepoRefs } from "../src/progress";
 import type { RepoConfigReader } from "../src/repo-config";
-import { MAX_SANDBOX_BOOTS, chunkWave, resolveDispatchWidth, summarizeCloudWave } from "../src/run-workflow";
+import {
+  MAX_SANDBOX_BOOTS,
+  applyProgress,
+  chunkWave,
+  resolveDispatchWidth,
+  summarizeCloudWave,
+  type RunOutcome,
+} from "../src/run-workflow";
 import { roomFor, runStatus, startRun, stopRun, submitRun } from "../src/runs";
 import {
   DEFAULT_SANDBOX_IMAGE,
@@ -1636,6 +1643,29 @@ describe("chunkWave", () => {
   });
 });
 
+describe("applyProgress", () => {
+  const ran: RunOutcome = { state: "completed", detail: "the cloud wave ran 3 tick(s)", boots: 1 };
+
+  it("keeps the outcome's own detail when it downgrades a run that did not move", () => {
+    // Tick 074: the downgrade used to REPLACE the detail, which threw away the
+    // only account of what the run did — for a cloud wave, the per-tick
+    // verdicts. "Nothing moved" and "here is what ran" are both needed.
+    const downgraded = applyProgress(ran, {
+      state: "none",
+      detail: "no branch on origin changed",
+    });
+    expect(downgraded.state).toBe("stopped");
+    expect(downgraded.detail).toContain("the cloud wave ran 3 tick(s)");
+    expect(downgraded.detail).toContain("no branch on origin changed");
+    expect(downgraded.detail).toMatch(/exit status is not completion/i);
+  });
+
+  it("leaves a stop alone", () => {
+    const stopped: RunOutcome = { state: "stopped", detail: "the operator stopped it", boots: 1 };
+    expect(applyProgress(stopped, { state: "none", detail: "nothing moved" })).toEqual(stopped);
+  });
+});
+
 describe("summarizeCloudWave", () => {
   it("counts by verdict, and by not-launched separately from any verdict", () => {
     const outcome = (tickID: string, launched: boolean, verdict?: WorkerReport["verdict"]) => ({
@@ -1726,11 +1756,116 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
 
     closeout.exit(0);
     const run = await settled(runID);
+    // `stopped` here is the DURABLE layer's verdict, not the handoff's: this
+    // test never pushes anything, so the epic did not move (tick 074 —
+    // a wave that closes out over a remote that DID move is `completed`).
     expect(run.state).toBe("stopped");
 
     const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
     expect(record.detail).toContain("cloud wave dispatched 2");
     expect(record.detail).toContain("ready-to-merge");
+  });
+
+  /**
+   * Tick 074 (from b6e gap 5).
+   *
+   * Closeout is MANDATORY after a cloud wave, not conditional on something
+   * having gone wrong — so the wave reported itself to `superviseRun` as a
+   * trip, and every fully successful wave finished in state `stopped`.
+   * `progress`/`progress_detail` carried the truth, but an operator reading
+   * `state` alone saw a stop that never happened. This repo has already lost
+   * real time to exactly that shape of misleading-but-true signal (c5i).
+   */
+  it("reports a cloud wave that ran and closed out as completed, not stopped", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    // The closeout orchestrator is still told what it is closing out.
+    expect(closeout.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+
+    // The durable evidence that the epic moved — the same thing a Phase 1 run
+    // has to supply before an exit 0 becomes a completion (tick ehy).
+    orchestratorPushedWork(epic);
+    closeout.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.state).toBe("completed");
+    expect(record.progress).toBe("advanced");
+    // The wave's own evidence survives the promotion.
+    expect(record.detail).toContain("cloud wave dispatched 2");
+    expect(record.detail).toContain("ready-to-merge");
+    expect(record.detail).toContain("review and closeout ran");
+    // The board is told the same word the row says.
+    expect(await getRunProgress(env.DB, runID)).toMatchObject({ progress: "advanced" });
+  });
+
+  // A handoff is not a stop, so nothing may record it as one: `stopping` is a
+  // state an operator or a budget puts a run into, and a dispatch log that
+  // says `stopping:operator` for a wave nobody stopped is the same lie as the
+  // terminal state was.
+  it("does not record a successful handoff to closeout as a stop", async () => {
+    const { runID, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    // The run is still RUNNING while it closes out — it never stopped.
+    expect(await runState(runID)).toBe("running");
+
+    orchestratorPushedWork(epic);
+    closeout.exit(0);
+    expect((await settled(runID)).state).toBe("completed");
+
+    const log = await listDispatchLogs(env.DB, runID, epic);
+    expect(log.some((entry) => entry.decision === "handoff:closeout")).toBe(true);
+    expect(log.some((entry) => entry.decision.startsWith("stopping:"))).toBe(false);
+    expect(log.some((entry) => entry.decision === "finished:completed")).toBe(true);
+  });
+
+  // The honest word when the wave ran but the ending did not: the epic never
+  // got its review and closeout, so the run really did stop short.
+  it("still reports stopped when the wave's closeout does not finish", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    orchestratorPushedWork(epic);
+    // A configuration verdict: no replacement orchestrator is booted for it.
+    closeout.exit(3);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("cloud wave dispatched 1");
+    expect(record.detail).toContain("review and closeout did not finish");
+  });
+
+  // Promotion is still the durable layer's call, never the wave's. A wave
+  // whose containers all reported ready-to-merge over a remote that did not
+  // move is `stopped` — and the wave's evidence stays readable beside it, or
+  // the operator loses the very thing that says which stop this was.
+  it("does not promote a wave whose epic never moved, and keeps the wave evidence", async () => {
+    const { runID, project } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const closeout = await waitFor("the closeout orchestrator", async () =>
+      sandboxes.phase("closeout")
+    );
+    closeout.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.progress).toBe("none");
+    expect(record.detail).toContain("cloud wave dispatched 2");
+    expect(record.detail).toMatch(/exit status is not completion/i);
   });
 
   it("resolves the dispatch width from the deployment ceiling when no max_parallel is declared", async () => {
