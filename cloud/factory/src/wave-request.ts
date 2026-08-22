@@ -47,12 +47,33 @@
  * as a competitor is. So the invariant is stronger here than before, not
  * weaker: dispatch now REQUIRES the lease, where the Workflow's own first wave
  * merely inherited it from ignition.
+ *
+ * ## The wave, and the two doors agreeing about it (tick kya)
+ *
+ * Everything above is about the CALLER. The wave it names is checked too, and
+ * this door was originally the looser of the two: `tk cloud spawn` refuses a
+ * wave naming a tick that does not belong to the epic (step 2,
+ * `cloudSpawnCheckWave`) and this endpoint did not, so a container that had
+ * somehow drifted could boot workers on another epic's ticks inside this run's
+ * repository and budget — exactly the class the `epic` check above exists to
+ * stop, with the other half missing.
+ *
+ * `tick-membership.ts` closes it, and its header carries the argument for why
+ * a Worker with no checkout can answer the question honestly: the tick records
+ * are tracked files, and the commit to ask about is `base_sha` — the tree the
+ * wave's containers are about to clone. The one asymmetry that remains is
+ * deliberate and documented there: a tracker this Worker cannot READ (GitHub
+ * errored, no `.tick/` at that commit) allows the wave rather than refusing
+ * it, because a second reader of a Go-owned format must not fail a live run on
+ * its own authority. A tracker it can read and that says no refuses with a 400
+ * naming the ticks.
  */
 
 import { readWaveRequest, writeWaveRequest, type WaveRequest } from "./artifacts";
 import { authorizeGatewayRequest, type GatewayDenial } from "./gateway";
 import type { Env } from "./index";
 import { BASE_SHA_PATTERN, roomFor, tickIDsField } from "./runs";
+import { checkWaveMembership, trackerReader } from "./tick-membership";
 
 /**
  * How many waves one run may request.
@@ -178,6 +199,36 @@ export async function requestWave(env: Env, request: Request): Promise<WaveReque
       "lease_held_by",
       `the dispatch lease for ${run.project} is held by ${lease.run_id}, not ${run.run_id}; ` +
         "one arbiter per project (D4), and this run is not it"
+    );
+  }
+
+  // The wave itself (tick kya). Everything above this point checks the
+  // CALLER; this checks what it asked for, and it is the check `tk cloud
+  // spawn` step 2 makes at the other door — every named tick must belong to
+  // the epic. Last of the refusals because it is the only one that leaves the
+  // Worker, and a refusal that costs nothing is one that never reached the
+  // network.
+  //
+  // Read at `base_sha` rather than at the run's base: the tree the wave's
+  // containers will clone is the tree whose `.tick/` decides what they are
+  // implementing, so it is the tree the question has to be asked of. See
+  // tick-membership.ts on why an unreadable tracker allows the wave — it is a
+  // second reader of a Go-owned format, and a non-answer must not refuse a
+  // wave the container's own authoritative check already passed.
+  const membership = await checkWaveMembership(
+    trackerReader(env),
+    run.project,
+    run.epic,
+    raw.base_sha,
+    tickIDs
+  );
+  if (membership.state === "outside") {
+    return refuse(400, "tick_outside_epic", membership.detail);
+  }
+  if (membership.state === "unreadable") {
+    console.error(
+      `factory wave: run ${run.run_id} dispatching ${tickIDs.length} tick(s) unverified — ` +
+        `the tracker for epic ${run.epic} could not be read at ${raw.base_sha}: ${membership.detail}`
     );
   }
 

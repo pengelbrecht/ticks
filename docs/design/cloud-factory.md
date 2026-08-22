@@ -1563,6 +1563,23 @@ Order rationale: each phase is independently useful, and the risky loops
   the run's gateway token kills its ability to request a wave exactly as it
   kills its ability to spend (D17).
 
+  **The wave itself is checked too (tick kya).** Everything above is about the
+  caller; `tick_ids` was originally taken as given, while `tk cloud spawn` at
+  the other door refuses a tick that does not belong to the epic. Both doors
+  now make that refusal. The Worker has no checkout, but it does not need one:
+  a tick's record is a tracked file (`.tick/issues/<id>.json`) naming its
+  `parent`, and this Worker already reads tracked files at a commit through
+  GitHub's contents API — so membership is the same ancestor walk Go makes,
+  asked of `base_sha`, which is the tree the wave's containers are about to
+  clone and read each tick out of. A tick outside the epic is a 400 naming it.
+  A tracker the Worker cannot READ (GitHub errored, no `.tick/` at that commit,
+  a record its parser does not understand) does NOT refuse the wave: this is a
+  second reader of a Go-owned format, the same position `[sandbox].image`
+  reading is in, and the rule there applies here — a file it cannot read must
+  not fail a run on its own authority. The layout the two readers share is
+  pinned by a fixture from both suites, so a change in Go cannot silently turn
+  every verdict into "unreadable".
+
   What is still open: the wave a run STARTS with is still the submitter's.
   `tk cloud run --tick-ids` and `tk cloud spawn` both take a wave the
   orchestrator computed rather than computing one, and neither accepts a wave

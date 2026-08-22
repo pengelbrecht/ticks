@@ -82,6 +82,15 @@ declare namespace Cloudflare {
      */
     WORKER_COLLECTOR?: import("./worker-collect").WorkerCollector;
     /**
+     * The reader `POST /api/wave` proves a requested wave's ticks belong to
+     * the run's epic with: their tracked `.tick/issues/<id>.json` records at
+     * the commit the wave's containers will clone (tick kya).
+     *
+     * Unset on a deployment, which reads GitHub's contents API directly. A
+     * seam for the same reason `REPO_CONFIG` is one.
+     */
+    TICK_TRACKER?: import("./tick-membership").TrackerReader;
+    /**
      * Where the RunRoom forwards a run's `run_event` stream (tick bne).
      *
      * Unset on a deployment that reports to a board, which posts to

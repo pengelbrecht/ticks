@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   readHarnessOutput,
   readRunRecord,
+  readWaveRequest,
   reconcileKey,
   type RunRecord,
 } from "../src/artifacts";
@@ -35,6 +36,7 @@ import {
   WORKER_PROBE_MARKER,
   WORKER_PUSH_MARGIN_MS,
 } from "../src/worker-boot";
+import { EPIC_TYPE, type TrackerReader } from "../src/tick-membership";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
 import { workerSandboxName } from "../src/worker-dispatch";
 import type { RunEventMessage, RunEventSink } from "../src/run-events";
@@ -331,6 +333,35 @@ class FakeRepoConfig implements RepoConfigReader {
 }
 
 /**
+ * The tracker as GitHub would serve it at one commit (tick kya): one JSON
+ * record per tick, which is how `POST /api/wave` proves the ticks a container
+ * asks for belong to the run's epic.
+ *
+ * Empty by default, and that is the 99% path here rather than an omission: an
+ * unreadable tracker is a NON-answer, so a wave the module cannot check is
+ * dispatched rather than refused. Only the tests that are about the check
+ * populate one.
+ */
+class FakeTracker implements TrackerReader {
+  private readonly records = new Map<string, Record<string, unknown>>();
+
+  tick(id: string, parent: string, type = "task"): this {
+    this.records.set(id, { id, title: id, status: "open", type, parent });
+    return this;
+  }
+
+  epic(id: string): this {
+    this.records.set(id, { id, title: id, status: "open", type: EPIC_TYPE });
+    return this;
+  }
+
+  async read(_project: string, _ref: string, tickID: string): Promise<string | null> {
+    const record = this.records.get(tickID);
+    return record === undefined ? null : JSON.stringify(record);
+  }
+}
+
+/**
  * A cloud wave's per-tick verdicts, faked (tick b6e): the durable git layer
  * `collectFromGithub` would read, without a real repository.
  *
@@ -438,6 +469,7 @@ const BASE_SHA = "a".repeat(40);
 let sandboxes: FakeSandboxes;
 let repo: FakeRepo;
 let repoConfig: FakeRepoConfig;
+let tracker: FakeTracker;
 const saved: Record<string, unknown> = {};
 
 /** Overrides a binding for one test, remembering what to put back. */
@@ -519,6 +551,12 @@ beforeEach(() => {
   // default, which is the 99% path: the deployment's image stands.
   repoConfig = new FakeRepoConfig();
   set("REPO_CONFIG", repoConfig);
+  // The tracker `POST /api/wave` checks a requested wave against. Knows
+  // nothing by default — see FakeTracker: a tracker that cannot be read does
+  // not refuse a wave, so every test that is not about the check is unaffected
+  // by it, and none of them reaches for GitHub.
+  tracker = new FakeTracker();
+  set("TICK_TRACKER", tracker);
   set("SANDBOX_IMAGE", undefined);
   set("AI_GATEWAY_BASE_URL", GATEWAY);
   set("CLOUDFLARE_API_TOKEN", undefined);
@@ -2055,6 +2093,74 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     integrate.exit(0);
     await settled(runID);
     expect(sandboxes.booted.some((s) => s.name.includes("-tick-bbb"))).toBe(false);
+  });
+
+  /**
+   * Tick kya — the two dispatch doors, agreeing about the wave.
+   *
+   * Everything else this endpoint checks is about the CALLER: its token, its
+   * epic, its pass, its base, its lease. The wave itself went unchecked, while
+   * `tk cloud spawn` at the other door has always refused a tick that does not
+   * belong to the epic. A container that had drifted could therefore boot
+   * workers on another epic's ticks — in this run's repository, on this run's
+   * budget, pushing `tick/<this epic>/<that epic's tick>`.
+   *
+   * The refusal is not the end of the pass. A wave that asked for one thing
+   * too many must leave the container able to ask again for the rest, because
+   * the only clean way a cloud run ends is a pass that asks for nothing — and
+   * a refusal indistinguishable from "the epic is finished" would end runs
+   * that were not.
+   */
+  it("refuses a wave naming a tick outside the run's epic, and takes the corrected one", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
+    const integrate = await wavePass(1);
+
+    // The tracker at the commit the wave's containers would clone: `bbb` is
+    // this epic's, `out` belongs to another epic in the same repository.
+    tracker.epic(epic).tick("bbb", epic).epic("zzz").tick("out", "zzz");
+
+    const MERGED_SHA = "c".repeat(40);
+    const refused = await requestNextWave(integrate, {
+      epic,
+      pass: 1,
+      base_sha: MERGED_SHA,
+      tick_ids: ["bbb", "out"],
+    });
+    expect(refused.status).toBe(400);
+    const denial = (await refused.json()) as { error: string; detail: string };
+    // A distinct class with the offending id in it — not "invalid_request",
+    // and not a message that leaves the container guessing which tick it was.
+    expect(denial.error).toBe("tick_outside_epic");
+    expect(denial.detail).toContain("out");
+    expect(denial.detail).toContain(`do not belong to epic ${epic}`);
+
+    // Nothing was recorded: a refused wave is not a half-dispatched one.
+    expect(await readWaveRequest(env.ARTIFACTS, project, runID, 1)).toBeNull();
+
+    // The container drops the tick that was not its business and asks again.
+    const asked = await requestNextWave(integrate, {
+      epic,
+      pass: 1,
+      base_sha: MERGED_SHA,
+      tick_ids: ["bbb"],
+    });
+    expect(asked.status).toBe(202);
+    integrate.exit(0);
+
+    // Wave 2 is the corrected wave, and only it.
+    await waitFor("wave 2's container for bbb", async () => {
+      try {
+        return sandboxes.named(workerSandboxName(runID, "bbb"));
+      } catch {
+        return null;
+      }
+    });
+    expect(sandboxes.booted.some((s) => s.name.includes("-tick-out"))).toBe(false);
+
+    const finish = await wavePass(2);
+    orchestratorPushedWork(epic);
+    finish.exit(0);
+    await settled(runID);
   });
 
   // A handoff is not a stop, so nothing may record it as one: `stopping` is a
