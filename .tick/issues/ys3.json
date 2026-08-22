@@ -1,0 +1,13 @@
+{
+  "id": "ys3",
+  "title": "CRITICAL: worker containers fail their probe and the reason is thrown away",
+  "description": "Per-tick container fan-out has never once succeeded. Reproduced three times on 2026-08-22 against the live factory, including with a single worker so contention is not a factor:\n\n  07:34:31.208  dispatched\n  07:34:33.063  task-started - worker container dispatched for 3nh\n  07:34:54.615  cloud_reconcile:1:1 never-dispatched\n  07:34:54.746  handoff:closeout\n\n23 seconds against a 418-second probe budget, so this is NOT the 7go timeout — the probe RAN and failed. The timing matches a warm boot (17.8s measured by kuf) plus a fast probe failure. Manifests are written with a real process_id, so startProcess returned; the container came up and ticks-worker --probe did not print WORKER_PROBE_MARKER.\n\nTWO DEFECTS, AND THE SECOND IS WHY THE FIRST IS STILL OPEN.\n\n1. The probe fails. Leading hypothesis, unconfirmed: the Dockerfile verifies ticks-worker --probe at BUILD time with the container default environment, and it passes there. At runtime the dispatcher calls startProcess(command, {env: workerBootEnv(...)}). If the real Sandbox SDK REPLACES the process environment rather than merging it, PATH is lost — the absolute path to ticks-worker still resolves, but the tk, git and harness lookups inside its probe do not, and it exits without the marker. FakeSandboxes does not model that, which is why 533 tests are green. Verify against the SDK before writing code; do not trust this hypothesis.\n\n2. The probe output is discarded. ProbeOutcome.output holds exactly what the container said and nothing persists it — not to R2 beside the manifest, not to the dispatch log, not to a run event. So a failed probe is unexplainable after the fact, and diagnosing it costs a live paid run plus wrangler tail (which captured 6,625 HTTP records and none of the Workflow console output). FIX THIS FIRST, then re-run once and read the answer. The orchestrator burned three runs and roughly \\$3-4 guessing at what one persisted string would have said.\n\nAlso fix the misleading verdict: reconcile reports never-dispatched for a container that WAS dispatched and did answer. Same class as 074 and c5i — technically true, reliably misread.",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T08:04:46.539782Z",
+  "updated_at": "2026-08-22T08:04:46.539782Z"
+}
