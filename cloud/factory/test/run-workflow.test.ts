@@ -2503,7 +2503,7 @@ describe("a supervisor that dies mid-wave adopts live workers instead of redispa
     expect(sandboxes.booted.filter((s) => s.name.includes("-tick-"))).toHaveLength(2);
 
     const logged = await listDispatchLogs(env.DB, runID, "ko8");
-    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile:"))!;
+    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile_plan:"))!;
     expect(reconciled.decision).toContain("2 live-worker");
 
     const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
@@ -2545,7 +2545,7 @@ describe("a supervisor that dies mid-wave adopts live workers instead of redispa
     // fresh container that continues it — a second CONTAINER for the tick,
     // never a second branch.
     const logged = await listDispatchLogs(env.DB, runID, "ko8");
-    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile:"))!;
+    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile_plan:"))!;
     expect(reconciled.decision).toContain("1 dead-with-work");
 
     const containers = sandboxes.booted.filter((s) => s.name.endsWith("-tick-aaa"));
@@ -2573,7 +2573,7 @@ describe("a supervisor that dies mid-wave adopts live workers instead of redispa
     // The worker had already pushed a mergeable branch before the supervisor
     // lost it, so the replacement addressed no second container at all.
     const logged = await listDispatchLogs(env.DB, runID, "ko8");
-    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile:"))!;
+    const reconciled = logged.find((entry) => entry.decision.startsWith("cloud_reconcile_plan:"))!;
     expect(reconciled.decision).toContain("1 already-landed");
     // The replacement DID address the container — asking what is running in it
     // is the third evidence source and there is no way to ask without

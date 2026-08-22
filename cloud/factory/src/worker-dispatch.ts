@@ -466,6 +466,21 @@ export type WorkerRecorder = {
   dispatched(task: WorkerTask, sandboxName: string): Promise<void>;
   /** Called as soon as the work process exists, before anything waits on it. */
   started(task: WorkerTask, sandboxName: string, processID: string): Promise<void>;
+  /**
+   * Called when the green-start probe fails, before `spawnWorker` returns.
+   *
+   * Optional, and best-effort by design (mirrors `started`): the fact that
+   * this container is not launched is already carried in `SpawnResult` and
+   * must reach the caller whether or not this succeeds. What it adds is
+   * durability — `ProbeOutcome.output` otherwise lives only in this
+   * function's stack and vanishes with the Workflow step, which is why a
+   * failed probe used to be unexplainable after the fact (tick ys3).
+   */
+  probeFailed?(
+    task: WorkerTask,
+    sandboxName: string,
+    probe: Extract<ProbeOutcome, { ok: false }>
+  ): Promise<void>;
 };
 
 export type SpawnResult = {
@@ -522,6 +537,10 @@ export async function spawnWorker(
   });
   if (!probe.ok) {
     const cancelled = probe.reason === "cancelled" ? (opts.cancel?.cancelled ?? null) : null;
+    // Persisted before this attempt's account of itself is lost: the
+    // container this probe ran in is torn down by the caller right after,
+    // and its stdout goes nowhere else (tick ys3).
+    await opts.record?.probeFailed?.(task, sandboxName, probe);
     return {
       tick_id: task.tick_id,
       sandbox_name: sandboxName,

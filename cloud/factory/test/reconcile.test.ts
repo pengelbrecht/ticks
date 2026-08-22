@@ -542,6 +542,35 @@ describe("the manifest store", () => {
     // The rest of the manifest survives the update.
     expect(second.dispatched_at).toBe(first.dispatched_at);
   });
+
+  it("records a failed probe's output beside the manifest (tick ys3)", async () => {
+    const runID = "run_probe_failure";
+    const recorder = manifestRecorder(env.ARTIFACTS, PROJECT, {
+      run_id: runID,
+      epic: EPIC,
+      batch: 1,
+    });
+    const task = workerTask(EPIC, "3nh", BASE);
+    const name = workerSandboxName(runID, "3nh");
+
+    await recorder.dispatched(task, name);
+    await recorder.probeFailed!(task, name, {
+      ok: false,
+      reason: "wrong-output",
+      detail: "the probe exited 0 without producing \"ticks-worker-probe-ok\": PATH resolved but tk did not",
+      output: "8.19.2\n",
+    });
+    const manifest_ = (await readWorkerManifest(env.ARTIFACTS, PROJECT, runID, "3nh"))!;
+
+    expect(manifest_.probe_failure).toBeDefined();
+    expect(manifest_.probe_failure!.reason).toBe("wrong-output");
+    expect(manifest_.probe_failure!.output).toBe("8.19.2\n");
+    expect(manifest_.probe_failure!.detail).toContain("ticks-worker-probe-ok");
+    // The rest of the manifest — written by `dispatched` before the probe
+    // ever ran — survives: a probe failure does not erase what was known.
+    expect(manifest_.sandbox_name).toBe(name);
+    expect(manifest_.batch).toBe(1);
+  });
 });
 
 describe("summarizeReconcile", () => {
