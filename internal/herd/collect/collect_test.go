@@ -62,6 +62,29 @@ func commitOnBranch(t *testing.T, repo, branch, base string, files map[string]st
 	run(t, repo, "git", "checkout", "-q", "-")
 }
 
+// mergeIntoBranch merges other into branch and returns to the previously
+// checked-out ref, mirroring commitOnBranch. It is how a worker pulls the
+// integration branch when its spawn base is stale.
+func mergeIntoBranch(t *testing.T, repo, branch, other string) {
+	t.Helper()
+	run(t, repo, "git", "checkout", "-q", branch)
+	run(t, repo, "git", "merge", "-q", "--no-ff", "-m", "merge "+other, other)
+	run(t, repo, "git", "checkout", "-q", "-")
+}
+
+// commitOnExistingBranch commits files on an already-created branch and
+// returns to the previously checked-out ref, mirroring commitOnBranch.
+func commitOnExistingBranch(t *testing.T, repo, branch string, files map[string]string) {
+	t.Helper()
+	run(t, repo, "git", "checkout", "-q", branch)
+	for name, body := range files {
+		writeFile(t, filepath.Join(repo, name), body)
+	}
+	run(t, repo, "git", "add", "-A")
+	run(t, repo, "git", "commit", "-m", "work on "+branch)
+	run(t, repo, "git", "checkout", "-q", "-")
+}
+
 // worktreeWithResult is the worker's report artifact, in a directory standing
 // in for the path herdr chose. Collect must not care that it is not a real
 // git worktree: it reads the recorded path, it does not derive one.
@@ -239,6 +262,60 @@ func TestCollectIgnoresTickChangesOnTheBaseSide(t *testing.T) {
 	}
 	if r.Verdict != ReadyToMerge {
 		t.Errorf("verdict = %q, want %q", r.Verdict, ReadyToMerge)
+	}
+}
+
+// TestCollectIgnoresTrackerStateMergedFromIntegration pins tick 4qx: a worker
+// that merged the integration branch after the orchestrator advanced HEAD must
+// not be flagged for the tracker commits that merge brought in. The merge-base
+// of the boundary diff is HEAD, not the stale spawn base.
+func TestCollectIgnoresTrackerStateMergedFromIntegration(t *testing.T) {
+	repo, base := newRepo(t)
+	commitOnBranch(t, repo, "tick/nhk", base, map[string]string{"src/a.go": "package a\n"})
+	// The orchestrator's own tracker commit lands on main afterwards.
+	writeFile(t, filepath.Join(repo, ".tick", "ticks", "nhk.json"), "{}\n")
+	run(t, repo, "git", "add", "-A")
+	run(t, repo, "git", "commit", "-m", "tracker state")
+	// The worker merges the integration branch to pick up the missing base.
+	mergeIntoBranch(t, repo, "tick/nhk", "main")
+	wt := worktreeWithResult(t, "nhk", "STATUS: DONE\n")
+
+	r, err := Collect(repo, manifest("nhk", "tick/nhk", base, wt), "")
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(r.BoundaryFiles) != 0 {
+		t.Errorf("boundary files = %v, want none — the .tick/ commits were merged from integration",
+			r.BoundaryFiles)
+	}
+	if r.Verdict != ReadyToMerge {
+		t.Errorf("verdict = %q, want %q", r.Verdict, ReadyToMerge)
+	}
+}
+
+// TestCollectStillFlagsWorkerEditAfterMerge pins the flip side of tick 4qx:
+// the fix opens the door for tracker state brought in by a merge, but a worker
+// that edits .tick/ itself still fails closed.
+func TestCollectStillFlagsWorkerEditAfterMerge(t *testing.T) {
+	repo, base := newRepo(t)
+	commitOnBranch(t, repo, "tick/nhk", base, map[string]string{"src/a.go": "package a\n"})
+	writeFile(t, filepath.Join(repo, ".tick", "ticks", "nhk.json"), "{}\n")
+	run(t, repo, "git", "add", "-A")
+	run(t, repo, "git", "commit", "-m", "tracker state")
+	mergeIntoBranch(t, repo, "tick/nhk", "main")
+	// The worker then writes under .tick/ itself.
+	commitOnExistingBranch(t, repo, "tick/nhk", map[string]string{".tick/ticks/x.md": "worker wrote this\n"})
+	wt := worktreeWithResult(t, "nhk", "STATUS: DONE\n")
+
+	r, err := Collect(repo, manifest("nhk", "tick/nhk", base, wt), "")
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(r.BoundaryFiles) != 1 || r.BoundaryFiles[0] != ".tick/ticks/x.md" {
+		t.Errorf("boundary files = %v, want the worker's own .tick/ path", r.BoundaryFiles)
+	}
+	if r.Verdict != BoundaryViolation {
+		t.Errorf("verdict = %q, want %q", r.Verdict, BoundaryViolation)
 	}
 }
 
