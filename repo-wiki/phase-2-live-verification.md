@@ -161,3 +161,52 @@ into a three-minute read:
 one ends at `Working...`. Boot diagnostics stream reliably, which is what `0fg`
 was for; the harness's own stdout does not reach R2 the way the orchestrator
 sandbox's does.
+
+## The defect that was hiding behind all the others
+
+Both live runs ended the same way, and the run record never said so:
+
+    GET /accounts/<acc>/workflows/ticks-run/instances/<run_id>
+    status: errored
+    error:  {"message": "Execution timed out after 600000ms", "name": "Error"}
+    last step: cloud:dispatch:0-1
+
+**Cloudflare Workflows caps a single step's execution at 10 minutes.**
+`superviseCloudWave` wraps `dispatchWave` in one `step.do()`, and `dispatchWave`
+blocks until the whole wave settles — up to 90 minutes since `5fg`. So the
+cloud-wave path is architecturally guaranteed to kill its own supervisor on any
+wave that takes longer than ten minutes, which is every real wave.
+
+Note the counter-intuitive interaction: **raising the worker budget made this
+worse.** A longer wave is a longer blocking step. `5fg` is still right — killing
+agents at 29 minutes was a real defect — but the two fixes only help together.
+
+### What one dead supervisor looked like from outside
+
+Every symptom below was previously read as a separate problem:
+
+| Symptom | Actual cause |
+|---|---|
+| `tk cloud status` says `running` for 97 minutes | only the Workflow writes that column, and it is dead |
+| containers still making model calls long after | orphaned; nothing collects or tears them down |
+| `lease: null` on a "live" run | nothing left alive to renew it |
+| a run stuck in `stopping` forever | a hard stop asks the Workflow to wind down; there is none |
+
+### The rule
+
+**Read the Workflow instance, not the run record, when a cloud run misbehaves.**
+The run record is written *by* the thing that may have died — it cannot report
+its own death. The instance API is read-only and needs only
+`factory_cloudflare_api_token`.
+
+More generally: a supervisor's own liveness must be observable from outside the
+supervisor. This one had no such channel, so seven runs of diagnosis went into
+the workers while the thing watching them was already gone.
+
+### The pattern that does work
+
+`supervisePass` on the single-sandbox path has supervised multi-hour runs
+without tripping the cap: `MAX_OBSERVATIONS` with a stretching `pollDelay`, each
+observation its own short step. Long waits belong across many bounded steps,
+re-deriving state from the durable layer each time so a retried or resumed step
+does not depend on a closure that no longer exists.
