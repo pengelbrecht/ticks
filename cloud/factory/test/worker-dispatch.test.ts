@@ -84,6 +84,12 @@ class FakeSandbox implements OrchestratorSandbox {
     return process === undefined ? null : process.view;
   }
 
+  /** The live sandbox list — the reconcile protocol's third source (tick s7f). */
+  async listProcesses(): Promise<SandboxProcessView[]> {
+    if (this.vanished) return [];
+    return this.processes.map((p) => ({ ...p.view, command: p.command }));
+  }
+
   async readOutput(id: string, offset: number): Promise<SandboxOutput> {
     const process = this.processes.find((p) => p.id === id);
     if (process === undefined || this.vanished) return { text: "", offset };
@@ -1097,5 +1103,177 @@ describe("dispatchWave: a batch in flight is interruptible", () => {
       // still there.
       expect(collector.seenDestroyed.get(outcome.tick_id)).toBe(false);
     }
+  });
+});
+
+// -------------------------------------------------- adoption and manifests ---
+
+/**
+ * Taking over a live worker instead of replacing it (tick s7f).
+ *
+ * The reconcile protocol decides WHICH workers are live; this is the seam that
+ * makes acting on that decision possible at all. Everything downstream of
+ * acquiring the process is deliberately unchanged — the wave waits, collects
+ * and tears down an adopted worker exactly as it does one it launched.
+ */
+describe("dispatchWave: adopting a live worker", () => {
+  it("starts nothing at all in a container it adopts", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "aaa");
+    // A worker a dead supervisor left mid-tick, in a container that already
+    // exists — which is what `binding.get` returns to its replacement.
+    const sandbox = (await binding.get(name)) as unknown as FakeSandbox;
+    const work = await sandbox.startProcess(WORK_SPEC.command, { env: {} });
+
+    const sleep: Sleeper = async () => {
+      const process = binding.named(name).processes.find((p) => p.id === work.id)!;
+      if (process.state === "running") process.finish(0);
+    };
+
+    const collector = new FakeCollector();
+    const outcomes = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName("run1", tickID),
+      [task("aaa")],
+      () => WORK_SPEC,
+      {
+        probe_timeout_ms: 2_000,
+        probe_poll_ms: 1,
+        confirm_timeout_ms: 2_000,
+        confirm_poll_ms: 1,
+        wait_poll_ms: 1,
+        sleep,
+        adopt: () => ({ process_id: work.id, detail: "a worker process is running" }),
+      },
+      collector
+    );
+
+    const outcome = outcomes[0]!;
+    expect(outcome.adopted).toBe(true);
+    expect(outcome.launched).toBe(true);
+    expect(outcome.process_id).toBe(work.id);
+    // No second worker, and no probe: the container was left exactly as the
+    // dead supervisor left it.
+    expect(binding.named(name).processes).toHaveLength(1);
+    // And the rest of the cycle ran unchanged.
+    expect(outcome.wait?.state).toBe("completed");
+    expect(collector.asked.map((t) => t.tick_id)).toEqual(["aaa"]);
+    expect(outcome.teardown.destroyed).toBe(true);
+  });
+
+  it("launches normally for a task the plan does not adopt", async () => {
+    const binding = new FakeSandboxes();
+    const sleep: Sleeper = async () => {
+      for (const sandbox of binding.booted) {
+        const process = sandbox.processes.at(-1);
+        if (process === undefined || process.state !== "running") continue;
+        if (process.command === PROBE_SPEC.command) {
+          process.say("READY\n");
+          process.finish(0);
+        } else {
+          process.say("working\n");
+          process.finish(0);
+        }
+      }
+    };
+
+    const outcomes = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName("run1", tickID),
+      [task("aaa")],
+      () => WORK_SPEC,
+      {
+        probe_timeout_ms: 2_000,
+        probe_poll_ms: 1,
+        confirm_timeout_ms: 2_000,
+        confirm_poll_ms: 1,
+        wait_poll_ms: 1,
+        sleep,
+        adopt: () => null,
+      },
+      new FakeCollector()
+    );
+
+    expect(outcomes[0]!.adopted).toBe(false);
+    expect(outcomes[0]!.launched).toBe(true);
+  });
+});
+
+describe("the dispatch manifest lands before the container does", () => {
+  // The ordering IS the guarantee. A manifest written after the boot would
+  // leave a window in which a running container has no durable record, and a
+  // reconcile reading no manifest correctly concludes nothing was dispatched
+  // — and boots a second worker onto the same tick.
+  it("records the dispatch before the sandbox is addressed, and the process after it starts", async () => {
+    const binding = new FakeSandboxes();
+    const trace: string[] = [];
+    const sleep: Sleeper = async () => {
+      for (const sandbox of binding.booted) {
+        const process = sandbox.processes.at(-1);
+        if (process === undefined || process.state !== "running") continue;
+        if (process.command === PROBE_SPEC.command) {
+          process.say("READY\n");
+          process.finish(0);
+        } else {
+          process.say("working\n");
+          process.finish(0);
+        }
+      }
+    };
+
+    await spawnWorker(
+      new Proxy(binding, {
+        get(target, property, receiver) {
+          if (property === "get") {
+            return async (name: string) => {
+              trace.push(`address:${name}`);
+              return target.get(name);
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      workerSandboxName("run1", "aaa"),
+      task("aaa"),
+      WORK_SPEC,
+      {
+        probe_timeout_ms: 2_000,
+        probe_poll_ms: 1,
+        confirm_timeout_ms: 2_000,
+        confirm_poll_ms: 1,
+        sleep,
+        record: {
+          async dispatched(t, name) {
+            trace.push(`manifest:${t.tick_id}:${name}`);
+          },
+          async started(t, _name, processID) {
+            trace.push(`process:${t.tick_id}:${processID}`);
+          },
+        },
+      }
+    );
+
+    expect(trace[0]).toBe(`manifest:aaa:${workerSandboxName("run1", "aaa")}`);
+    expect(trace[1]).toBe(`address:${workerSandboxName("run1", "aaa")}`);
+    expect(trace[2]).toMatch(/^process:aaa:/);
+  });
+
+  it("aborts the dispatch rather than booting a container no manifest names", async () => {
+    const binding = new FakeSandboxes();
+
+    await expect(
+      spawnWorker(binding, workerSandboxName("run1", "aaa"), task("aaa"), WORK_SPEC, {
+        sleep: noWait,
+        record: {
+          async dispatched() {
+            throw new Error("R2 is unreachable");
+          },
+          async started() {},
+        },
+      })
+    ).rejects.toThrow("R2 is unreachable");
+
+    expect(binding.booted).toHaveLength(0);
   });
 });

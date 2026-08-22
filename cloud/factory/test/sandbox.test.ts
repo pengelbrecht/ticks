@@ -38,6 +38,9 @@ function fakeSdkSandbox(overrides: Partial<SdkSandbox> = {}) {
     async getProcess() {
       return record;
     },
+    async listProcesses() {
+      return record === null ? [] : [record];
+    },
     async getProcessLogs() {
       return { stdout, stderr, processId: "p1" };
     },

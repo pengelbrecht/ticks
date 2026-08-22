@@ -192,6 +192,52 @@ The observation cadence starts at 15s and backs off to 5m — fast where failure
 and first output happen, affordable across a multi-hour run within Cloudflare's
 per-instance step cap. `RUN_POLL_INTERVAL_MS` overrides it with a fixed gap.
 
+### The reconcile protocol (`src/reconcile.ts`)
+
+A supervisor that dies mid-wave is replaced by one that runs the same dispatch
+step again — a completed `step.do` is checkpointed and never re-runs, but one
+that was *in flight* when the isolate died starts from the top, and
+`cloud:dispatch:<n>` is the step that boots containers. So the wave establishes
+what is actually going on before it starts anything, on **every** attempt at
+that step, from durable state only:
+
+1. **Worker manifests** (`runs/<project>/<run>/artifacts/<tick>/manifest.json`)
+   — the authority on what was *dispatched*. Written **before** the tick's
+   container is addressed, because addressing a container is what provisions
+   it: an absent manifest is therefore a durable statement that no container
+   exists for that tick, and nothing else in the protocol can say that. It is
+   also why a tick no manifest names is never probed — probing it would boot
+   the container the reconcile exists to avoid booting.
+2. **Git** — the authority on what *work exists*, read through the same
+   `WorkerCollector` a live wave collects with. Never a container's terminal
+   output.
+3. **The live sandbox list** (`OrchestratorSandbox.listProcesses`) — the
+   authority on what is *still running*, asked only of containers a manifest
+   names.
+
+Every tick lands in exactly one class: `live-worker`, `already-landed`,
+`dead-with-work`, `stale-no-work`, `never-dispatched`, `unknown`. Two rules
+matter more than the labels:
+
+- **A live worker is never redispatched, whatever its branch looks like.** The
+  process list is consulted before git, and a branch with no commits is exactly
+  what a worker that has not committed yet looks like — Phase 1 paid for that
+  when a worker died mid-turn holding 643 uncommitted lines and settled looking
+  finished. A live worker is *adopted*: the wave waits on the process that is
+  already there, so the container gets no second probe and no second worker.
+- **"Cannot tell" is never folded into "nothing is there".** A container whose
+  process list cannot be read, a remote that answers 503, a manifest listing
+  that failed — each is `unknown`, reported with both sides of the
+  contradiction, proposing no mutation at all.
+
+Cold reconstruction always works (axiom 1). Nothing depends on a container
+surviving or a snapshot restoring: an evicted container reports no live
+process, the plan falls through to the git evidence, and the tick is dispatched
+again onto its **existing** branch, which `cloud/sandbox/worker.sh` adopts from
+origin. That is the same recovery, only slower — paid for in whatever the dead
+container had not pushed. Each batch's verdict is recorded in the dispatch log
+as `cloud_reconcile:<batch>:<counts>`.
+
 ### The evidence seam
 
 Progress is read through `RepoRefs` (`src/progress.ts`) for the same reason the

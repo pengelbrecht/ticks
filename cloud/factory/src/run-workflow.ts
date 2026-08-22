@@ -76,6 +76,14 @@ import {
   type RefSnapshot,
   type RunProgress,
 } from "./progress";
+import {
+  adoptions,
+  dispatchable,
+  manifestRecorder,
+  reconcileWave,
+  settled,
+  settledOutcome,
+} from "./reconcile";
 import { readDeclaredMaxParallel, readDeclaredSandboxImage } from "./repo-config";
 import {
   epicCompleted,
@@ -1487,7 +1495,18 @@ function tripFromCancellation(cancellation: WaveCancellation): Trip {
 export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
   const counts = new Map<string, number>();
   for (const outcome of outcomes) {
-    const label = outcome.launched ? outcome.collect.verdict : "not-launched";
+    // A tick the reconcile settled and one this wave adopted are both reported
+    // as what they are, never folded into "not-launched": an operator reading
+    // a recovered run has to be able to see which containers it did not have
+    // to boot (tick s7f).
+    const label =
+      outcome.settled !== undefined
+        ? outcome.settled
+        : outcome.adopted
+          ? `${outcome.collect.verdict} (adopted)`
+          : outcome.launched
+            ? outcome.collect.verdict
+            : "not-launched";
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   return [...counts.entries()]
@@ -1585,7 +1604,46 @@ export async function superviseCloudWave(
     const dispatched = await step.do(`cloud:dispatch:${i}`, CLOUD_DISPATCH_RETRIES, async () => {
       const binding = sandboxBinding(env);
       if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
-      const tasks = batch.map((tick) => workerTask(params.epic, tick, params.base_sha));
+      const taskFor = (tick: string) => workerTask(params.epic, tick, params.base_sha);
+      const sandboxNameFor = (tick: string) => workerSandboxName(params.run_id, tick);
+
+      // The reconcile protocol, run INSIDE this step and on every attempt at
+      // it (tick s7f).
+      //
+      // That placement is the whole point. A Workflow step that completes is
+      // checkpointed and never runs again, but a step that was IN FLIGHT when
+      // the isolate died runs from the top — and this is the step that boots
+      // containers. Without a reconcile here, a supervisor replacing one that
+      // died mid-batch addresses the same per-tick sandbox names and starts a
+      // second worker process in each of them, on the same branch, with the
+      // first one still working. A reconcile hoisted into its own step would
+      // be no better: its verdict would be the checkpointed one, taken before
+      // the containers it describes existed.
+      //
+      // So the evidence is re-established from the durable layer every time
+      // this step runs, and only the ticks the plan says to dispatch are
+      // dispatched.
+      const reconciled = await reconcileWave({
+        bucket: env.ARTIFACTS,
+        project: params.project,
+        run_id: params.run_id,
+        epic: params.epic,
+        tick_ids: batch,
+        binding,
+        collector,
+        sandboxNameFor,
+        taskFor,
+      });
+      const adopted = adoptions(reconciled);
+      const acting = new Set([
+        ...dispatchable(reconciled).map((item) => item.tick_id),
+        ...adopted.keys(),
+      ]);
+      const tasks = batch.filter((tick) => acting.has(tick)).map(taskFor);
+      // Every tick the plan left alone, reported with the evidence that left
+      // it alone — never dropped. A tick missing from a wave's outcomes is a
+      // tick the board and the run record cannot account for.
+      const untouched = settled(reconciled).map((item) => settledOutcome(item, taskFor(item.tick_id)));
       // One canceller for the whole batch, built fresh inside the step so a
       // retry of it gets a fresh one rather than an already-latched verdict.
       const cancel = waveCanceller(
@@ -1627,10 +1685,34 @@ export async function superviseCloudWave(
             sandbox_image: context.sandbox_image,
             wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS,
           }),
-        { wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS, cancel },
+        {
+          wait_timeout_ms: CLOUD_WAVE_WAIT_TIMEOUT_MS,
+          cancel,
+          adopt: (task) => adopted.get(task.tick_id) ?? null,
+          // The manifest lands before each container is addressed, so the
+          // next reconcile — this step's own retry included — can see it.
+          record: manifestRecorder(env.ARTIFACTS, params.project, {
+            run_id: params.run_id,
+            epic: params.epic,
+            batch: i + 1,
+          }),
+        },
         collector
       );
-      return { outcomes: batch_outcomes, cancelled: cancel.cancelled };
+      return {
+        outcomes: [...batch_outcomes, ...untouched],
+        cancelled: cancel.cancelled,
+        reconcile: reconciled.summary,
+      };
+    });
+    await step.do(`cloud:reconciled:${i}`, OBSERVE_RETRIES, async () => {
+      await logDispatch(env, {
+        run_id: params.run_id,
+        epic: params.epic,
+        decision: `cloud_reconcile:${i + 1}:${dispatched.reconcile}`,
+        reason: null,
+      });
+      return { logged: true };
     });
     outcomes.push(...dispatched.outcomes);
 
@@ -1649,15 +1731,20 @@ export async function superviseCloudWave(
       publishRunEvents(
         env,
         params.project,
-        dispatched.outcomes.map((outcome) =>
-          tickCompleted({
+        dispatched.outcomes.map((outcome) => {
+          // A tick the reconcile settled without addressing a container was
+          // not "not-launched": its verdict is what the durable layer said
+          // about it, and an `already-landed` tick showing as unlaunched
+          // would draw a merged branch as a failure (tick s7f).
+          const reported = outcome.launched || outcome.settled !== undefined;
+          return tickCompleted({
             epic: params.epic,
             tick: outcome.collect.tick_id,
-            verdict: outcome.launched ? outcome.collect.verdict : "not-launched",
+            verdict: reported ? outcome.collect.verdict : "not-launched",
             status: outcome.collect.status,
-            detail: outcome.launched ? outcome.collect.detail : outcome.detail,
-          })
-        )
+            detail: reported ? outcome.collect.detail : outcome.detail,
+          });
+        })
       )
     );
 
@@ -1691,12 +1778,16 @@ export async function superviseCloudWave(
     return { revoked };
   });
 
-  if (outcomes.length > 0 && outcomes.every((outcome) => !outcome.launched)) {
+  // Only containers this wave actually ATTEMPTED can fail a green-start probe.
+  // A tick the reconcile adopted or settled never ran one, and counting it as
+  // a probe failure would fail a run whose work is sitting in git (tick s7f).
+  const attempted = outcomes.filter((outcome) => outcome.settled === undefined && !outcome.adopted);
+  if (attempted.length > 0 && attempted.every((outcome) => !outcome.launched)) {
     return {
       kind: "failed",
       detail:
         `every worker container in the cloud wave failed its green-start probe ` +
-        `(${outcomes.length} tick(s)) — a configuration failure, so no closeout was attempted`,
+        `(${attempted.length} tick(s)) — a configuration failure, so no closeout was attempted`,
       // Zero ORCHESTRATOR sandboxes, which is what `boots` means to
       // `finalize`'s teardown loop (`sandboxName(run_id, boot)`) — every
       // worker container this wave booted is already torn down by

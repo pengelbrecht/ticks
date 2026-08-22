@@ -382,6 +382,26 @@ export type SpawnOptions = {
   sleep?: Sleeper;
   /** The wave's shared cancellation seam; absent means nothing can interrupt. */
   cancel?: Canceller;
+  /** Where this dispatch is recorded durably, for a later reconcile (tick s7f). */
+  record?: WorkerRecorder;
+};
+
+/**
+ * The durable record of a dispatch — the manifest a reconcile reads first
+ * (src/reconcile.ts).
+ *
+ * A seam rather than an R2 call, for the same reason `WorkerCollector` is one:
+ * the ORDERING is the thing worth testing, and it is the whole point.
+ * `dispatched` is awaited BEFORE the container is addressed, because
+ * addressing one provisions it — so an absent manifest is a durable statement
+ * that no container exists for that tick, which is what lets a replacement
+ * supervisor boot one without risking a second worker.
+ */
+export type WorkerRecorder = {
+  /** Called before `binding.get`. A failure here must abort the dispatch. */
+  dispatched(task: WorkerTask, sandboxName: string): Promise<void>;
+  /** Called as soon as the work process exists, before anything waits on it. */
+  started(task: WorkerTask, sandboxName: string, processID: string): Promise<void>;
 };
 
 export type SpawnResult = {
@@ -393,6 +413,12 @@ export type SpawnResult = {
   confirm: ConfirmOutcome | null;
   /** The real work process id, present exactly when `launched` is true. */
   process_id: string | null;
+  /**
+   * True when this outcome took over a worker that was ALREADY running rather
+   * than starting one (tick s7f). No probe was run and no process was started;
+   * the container was left exactly as the dead supervisor left it.
+   */
+  adopted: boolean;
   /** Set when the wave was cancelled during this spawn, or before it started. */
   cancelled: WaveCancellation | null;
   detail: string;
@@ -415,6 +441,12 @@ export async function spawnWorker(
   opts: SpawnOptions = {}
 ): Promise<SpawnResult> {
   const sleep = opts.sleep ?? defaultSleeper;
+  // The manifest lands BEFORE the container is addressed. `binding.get`
+  // provisions on this substrate, so a crash in the other order would leave a
+  // running container that no durable record names — and a reconcile reading
+  // no manifest would correctly conclude nothing was dispatched and boot a
+  // second one (src/reconcile.ts).
+  await opts.record?.dispatched(task, sandboxName);
   const sandbox = await binding.get(sandboxName);
 
   const probeStarted = await sandbox.startProcess(spec.probe.command, { env: spec.probe.env ?? {} });
@@ -433,6 +465,7 @@ export async function spawnWorker(
       probe,
       confirm: null,
       process_id: null,
+      adopted: false,
       cancelled,
       detail:
         cancelled === null ? `green-start trap: ${probe.detail}` : `wave cancelled: ${probe.detail}`,
@@ -440,6 +473,10 @@ export async function spawnWorker(
   }
 
   const work = await sandbox.startProcess(spec.command, { env: spec.env ?? {} });
+  // Recorded before anything waits on it: `confirmDispatch` can take a minute,
+  // and a supervisor that died inside it would otherwise leave a manifest that
+  // names a container but not the process running in it.
+  await opts.record?.started(task, sandboxName, work.id);
   const confirm = await confirmDispatch(sandbox, work.id, {
     timeoutMs: opts.confirm_timeout_ms ?? DEFAULT_CONFIRM_TIMEOUT_MS,
     pollMs: opts.confirm_poll_ms ?? DEFAULT_CONFIRM_POLL_MS,
@@ -459,6 +496,7 @@ export async function spawnWorker(
     probe,
     confirm,
     process_id: work.id,
+    adopted: false,
     // The real command IS running in this container, so it is launched — and
     // that is exactly why the cancellation has to be reported: the caller owes
     // this one a teardown before it does anything else.
@@ -578,16 +616,72 @@ export async function teardownWorker(
 export type WaveOptions = SpawnOptions & {
   wait_timeout_ms?: number;
   wait_poll_ms?: number;
+  /**
+   * A worker already running for this tick, from the reconcile plan
+   * (src/reconcile.ts). Returning one turns the whole spawn half of the cycle
+   * off for that task: no probe, no second process, nothing started — the
+   * wave waits on what is there, collects it and tears it down exactly as if
+   * it had launched it itself.
+   *
+   * This is the rule the herd substrate learned the hard way, at the one
+   * place that could break it: a live worker is never redispatched, whatever
+   * its branch looks like.
+   */
+  adopt?: (task: WorkerTask) => Adoption | null;
+};
+
+/** A worker this wave takes over rather than starts. */
+export type Adoption = {
+  /** The running work process, from the container's own live process list. */
+  process_id: string;
+  /** Why this tick is being adopted — carried into the outcome's `detail`. */
+  detail: string;
 };
 
 export type WorkerWaveOutcome = SpawnResult & {
   wait: WaitOutcome | null;
   collect: WorkerReport;
   teardown: TeardownOutcome;
+  /**
+   * The reconcile class that settled this tick without addressing a container
+   * at all (tick s7f) — `already-landed` for work that is in git, `unknown`
+   * for evidence a human has to resolve. Absent for every tick the wave
+   * actually dispatched or adopted.
+   */
+  settled?: string;
 };
 
 /** A container the wave never addressed: nothing was booted, so nothing is torn down. */
-const NOT_ADDRESSED: TeardownOutcome = { killed: false, destroyed: false, liveness: null };
+export const NOT_ADDRESSED: TeardownOutcome = { killed: false, destroyed: false, liveness: null };
+
+/**
+ * The outcome of adopting a worker that was already running.
+ *
+ * `launched` is true because the container IS running this tick's work — the
+ * field means "a work process for this tick exists in this container", not "we
+ * are the ones who started it". A collect that read the branch would otherwise
+ * be filed under a wave that never launched anything.
+ */
+function adoptedSpawn(
+  task: WorkerTask,
+  sandboxName: string,
+  adoption: Adoption
+): SpawnResult {
+  return {
+    tick_id: task.tick_id,
+    sandbox_name: sandboxName,
+    launched: true,
+    // No probe was run: the container proved itself when it was first
+    // dispatched, and re-probing a container that is mid-tick would start a
+    // second process in it for no reason.
+    probe: { ok: true },
+    confirm: { confirmed: true, detail: adoption.detail },
+    process_id: adoption.process_id,
+    adopted: true,
+    cancelled: null,
+    detail: `adopted a live worker: ${adoption.detail}`,
+  };
+}
 
 async function dispatchOneWorker(
   binding: SandboxBinding,
@@ -610,6 +704,7 @@ async function dispatchOneWorker(
       probe: { ok: false, reason: "cancelled", detail: before.detail, output: "" },
       confirm: null,
       process_id: null,
+      adopted: false,
       cancelled: before,
       detail: `wave cancelled before this container was addressed: ${before.detail}`,
       wait: null,
@@ -618,7 +713,15 @@ async function dispatchOneWorker(
     };
   }
 
-  const spawned = await spawnWorker(binding, sandboxName, task, spec, opts);
+  // A worker that is ALREADY running for this tick is taken over, never
+  // replaced. Everything downstream — the wait, the collect, the teardown — is
+  // unchanged, which is the point: adoption is a different way to acquire a
+  // process, not a different lifecycle.
+  const adoption = opts.adopt?.(task) ?? null;
+  const spawned =
+    adoption === null
+      ? await spawnWorker(binding, sandboxName, task, spec, opts)
+      : adoptedSpawn(task, sandboxName, adoption);
 
   let wait: WaitOutcome | null = null;
   if (spawned.cancelled === null && spawned.launched && spawned.process_id !== null) {
@@ -667,6 +770,11 @@ async function dispatchOneWorker(
  * container's environment, which is the exact bug that would make "one
  * container per tick" boot N containers that all implement the SAME tick
  * (tick b6e).
+ *
+ * `opts.adopt` is the reconcile plan's other half (tick s7f): a task it
+ * answers for is taken over rather than started, so a supervisor replacing one
+ * that died mid-wave never puts a second worker on a tick that already has a
+ * live one.
  *
  * `opts.cancel` is the wave's interrupt (tick k24). Without it a batch of up
  * to `max_instances` containers runs to completion no matter what an operator
