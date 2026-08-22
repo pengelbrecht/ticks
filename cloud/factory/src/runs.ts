@@ -119,10 +119,10 @@ export const MIN_QUEUE_TTL_MS = 100;
 export const MAX_QUEUE_TTL_MS = 86_400_000;
 
 /** A pushed commit, in full 40-hex form — the submission boundary is a pushed SHA (D3). */
-const BASE_SHA_PATTERN = /^[0-9a-f]{40}$/;
+export const BASE_SHA_PATTERN = /^[0-9a-f]{40}$/;
 
 /** A tick id: 3-4 lowercase base36 characters, mirroring `internal/tick.IDGenerator`. */
-const TICK_ID_PATTERN = /^[a-z0-9]{3,4}$/;
+export const TICK_ID_PATTERN = /^[a-z0-9]{3,4}$/;
 
 /**
  * The most ticks one cloud wave may name (tick b6e).
@@ -408,7 +408,7 @@ export function parseSubmission(body: unknown): SubmissionParse {
  * reason `sandboxNameFor` addresses a sandbox by tick id — two tasks racing
  * to boot the identically-named container is not "one container per tick".
  */
-function tickIDsField(value: unknown, into: (v: string[]) => void): string | null {
+export function tickIDsField(value: unknown, into: (v: string[]) => void): string | null {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value)) return "tick_ids must be an array of tick ids";
   if (value.length === 0) return null;

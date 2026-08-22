@@ -1488,33 +1488,17 @@ Collected from the use cases; each appears above in context.
    a small multi-tick epic, then read `tk cloud status`/`tk factory dashboard`
    against it.
 
-   Also worth naming, not a defect: only wave 1 of a cloud-submitted epic gets
-   real per-tick fan-out today (see "computing that wave" above) — waves 2+ of
-   the same run fall back to the `harness` substrate inside the closeout
-   orchestrator's single sandbox. An operator reading "Phase 2: cloud
-   substrate fan-out" should not assume every wave of a multi-wave epic
-   dispatches multiple containers; only the first does.
-
-   *Said out loud, not just here (tick wiy).* A limit that lives only in a
-   design document is a limit the operator meets for the first time in a run
-   record. So the run now states it on every surface it speaks through, in one
-   sentence pinned across both languages
-   (`cloud/factory/test/fixtures/cloud-wave-scope.json`, read by
-   `cloud/factory/test/run-workflow.test.ts` and
-   `cmd/tk/cmd/cloud_wave_scope_test.go`): `tk cloud run --tick-ids` says it in
-   `--help` and again on the line that reports the accepted wave, *before* the
-   push; the `epic-started` run event carries `(first wave only)` beside the
-   width, so the board's first word about a run is not an unqualified fan-out;
-   the dispatch log gains a `cloud_wave:scope=first-wave-only` entry beside the
-   existing `cloud_wave:width=` one, which described a fan-out with no edge to
-   it; and the hand-off detail — which becomes `run.json`'s `detail`, what
-   `tk cloud status <run>` prints, and the closeout orchestrator's own
-   `TICKS_STOP_REASON` — ends with the full sentence, so the agent inheriting
-   every tick the wave did not name is told plainly that it inherits them as
-   subagents. What is NOT changed is the behaviour: re-deriving a wave per pass
-   means computing readiness in the Worker, which is the open question above and
-   the cross-language port `.tick/learnings.md` warns against, so it stays a
-   follow-up rather than a thing smuggled in under a wording fix.
+   **Every wave fans out, not just the first (tick wiy).** The review above
+   found that `context.cloud_wave` was resolved once from the submitted
+   `tick_ids` and never re-derived, so waves 2+ of a multi-wave epic ran as
+   harness subagents inside the closeout orchestrator's single sandbox. That is
+   now the alternating loop in `superviseWaveLoop`: a container wave, then an
+   orchestrator pass in the new `wave` phase that integrates what the wave
+   pushed and computes the next one, then that wave, and so on until a pass
+   asks for none — which is how a cloud run now ENDS. See "Where does
+   `wave.Compute` run for the dispatcher?" below for why the readiness half
+   runs in Go inside the container rather than as a TypeScript port, and
+   `src/wave-request.ts` for why the in-run dispatch needs no second lease.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage
@@ -1528,8 +1512,10 @@ Order rationale: each phase is independently useful, and the risky loops
 
 ## Open questions
 
-- **Where does `wave.Compute` run for the dispatcher?** Decided, narrowly, by
-  tick b6e (the Run Workflow's `dispatchWave` call site): NOT in the Worker.
+- **Where does `wave.Compute` run for the dispatcher?** DECIDED (tick wiy): it
+  runs **inside the orchestrator**, which is the second of the two branches
+  UC7's own sentence left open ("it compiles to the Worker via a thin port or
+  runs inside the orchestrator, decision deferred"). Not in the Worker.
   `RunWorkflowParams.tick_ids` carries an already-resolved wave in from the
   submission, and readiness is computed where `tk graph`/`wave.Compute`
   already runs correctly and is already tested — the submitter — rather than
@@ -1544,15 +1530,44 @@ Order rationale: each phase is independently useful, and the risky loops
   `tick_ids` column, so a parked cloud-wave submission would ignite as a plain
   single-sandbox run with the fan-out silently dropped, and both the edge (400)
   and the CLI (before the push) refuse the pair instead. A submitter that wants
-  ITERATIVE fan-out (wave 2 after wave 1 merges, not just one wave per run) is
-  also not addressed — b6e's cloud-wave pass always hands off to a real
-  orchestrator boot (`closeout` phase) after dispatching its one wave, which
-  can itself compute and drive further waves under the `harness` substrate,
-  but does not yet re-enter the per-tick cloud path for them. Both are
-  follow-up ticks, not silently assumed away — and since tick wiy the second
-  one is not silently *shipped* either: the run, the CLI and the board all say
-  that fan-out is first-wave-only rather than leaving an operator to infer it
-  from a phase heading (see Phase 2 above).
+  ITERATIVE fan-out (wave 2 after wave 1 merges, not just one wave per run) IS
+  addressed, by tick wiy, and it is what settled the question above. The
+  orchestrator container holds the real Go `tk`, so it computes its own next
+  wave with `tk graph`/`tk next` against the tracker state it has just merged —
+  which is also the only place that state exists, since nothing upstream of the
+  container knows what the integrated gate accepted. It cannot boot containers
+  (only the Worker holds the `SANDBOXES` binding), so `tk cloud spawn` from
+  inside a run RECORDS the wave with the run's own supervisor
+  (`POST /api/wave`) and the Workflow dispatches it through the same
+  checkpointed, budget-enforced, revocable path the submitted wave takes. A run
+  therefore alternates: wave → `wave`-phase orchestrator pass → wave → … until
+  a pass requests none, which is the run's clean ending. Bounded by
+  `MAX_RUN_WAVES`, and every wave answers to the same budget and stop checks
+  the first one does.
+
+  **The lease, and why D4 is untouched.** The in-run dispatch never acquires a
+  lease. A cloud run already holds its project's, so a second submission would
+  be refused by its own run — and granting it one would break "one arbiter per
+  project" from inside the run the arbiter exists to protect. The endpoint
+  verifies the caller IS the holder instead: the credential is the run's own
+  gateway token (so the token decides which run is speaking, and a container
+  cannot name a run it is not), the run must still be active, and the RunRoom
+  must still name it as the project's lease holder. That is a stricter rule
+  than the local path's, not a looser one — `tk cloud spawn` from a laptop
+  TAKES a lease, while this path has to already be the arbiter. The same
+  credential choice is what makes an operator's stop reach dispatch: revoking
+  the run's gateway token kills its ability to request a wave exactly as it
+  kills its ability to spend (D17).
+
+  What is still open: the wave a run STARTS with is still the submitter's.
+  `tk cloud run --tick-ids` and `tk cloud spawn` both take a wave the
+  orchestrator computed rather than computing one, and neither accepts a wave
+  alongside `--queue` (the queued-submission record has no `tick_ids` column,
+  so a parked cloud-wave submission would ignite as a plain single-sandbox run
+  with the fan-out silently dropped; the edge answers the pair with a 400 and
+  the CLI refuses it before the push). A submission that computed its own first
+  wave — or a `tk cloud run` with no wave at all that fans out from pass 1 —
+  is the remaining follow-up.
 - **Multi-repo projects.** Everything above assumes project == one repo (as
   `internal/github` project detection does today). Factory 2.0-style
   cross-repo signals are out of scope until a real use case forces the issue.

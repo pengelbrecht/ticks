@@ -219,6 +219,12 @@ func cloudRunEnded(state string) bool {
 // answer from "the wave failed", and an orchestrator branching on the exit
 // code must be able to tell them apart.
 func cloudWaveManifests(root, epicID string, tickIDs []string) ([]cloudstate.Manifest, error) {
+	// The wave this container was booted to fan in, if the control plane named
+	// one. Consulted FIRST, because inside a run it is the authoritative
+	// answer and the local directory is guaranteed empty (tick wiy).
+	if inherited := cloudInheritedManifests(epicID, tickIDs); len(inherited) > 0 {
+		return inherited, nil
+	}
 	var found []cloudstate.Manifest
 	if strings.TrimSpace(epicID) != "" {
 		manifests, err := cloudstate.List(root, epicID)
@@ -275,6 +281,49 @@ func cloudWaveManifests(root, epicID string, tickIDs []string) ([]cloudstate.Man
 			where, cloudstate.RelDir)
 	}
 	return found, nil
+}
+
+// cloudInheritedManifests is the wave an in-run orchestrator pass inherited,
+// used when this checkout has no local manifests for it (tick wiy).
+//
+// Every pass of a cloud run is a fresh container and `.tick/logs/` is
+// git-ignored, so the pass that must fan a wave back in is never the container
+// that dispatched it. Without this, `tk cloud collect` would answer "was this
+// wave spawned from another checkout?" about a wave the same run had just run
+// — technically true of the checkout, false about the run, and the class of
+// misread this repository has paid for twice (074, c5i).
+//
+// It is not a fallback for a missing manifest in general: it returns nothing
+// unless the CONTROL PLANE named the wave in this container's environment, so
+// every refusal the local path makes still stands.
+func cloudInheritedManifests(epicID string, tickIDs []string) []cloudstate.Manifest {
+	in, ok := cloudInRunContext()
+	if !ok {
+		return nil
+	}
+	if strings.TrimSpace(epicID) != "" && epicID != in.epic {
+		return nil
+	}
+	manifests := in.inheritedManifests()
+	if len(tickIDs) == 0 {
+		return manifests
+	}
+	wanted := make(map[string]bool, len(tickIDs))
+	for _, id := range tickIDs {
+		wanted[id] = true
+	}
+	filtered := make([]cloudstate.Manifest, 0, len(tickIDs))
+	for _, m := range manifests {
+		if wanted[m.Tick] {
+			filtered = append(filtered, m)
+		}
+	}
+	// All or nothing: a partial answer would let a verb report on some of the
+	// ticks it was asked about and stay silent on the rest.
+	if len(filtered) != len(tickIDs) {
+		return nil
+	}
+	return filtered
 }
 
 // cloudWaveOpen resolves the repository, the wave and (when configured) the

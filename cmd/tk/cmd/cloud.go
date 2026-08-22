@@ -85,15 +85,6 @@ subagents. The wave is the one the submitter computed (tk next / tk graph);
 this command takes it, it does not compute one. Every named tick must exist in
 this checkout and belong to the epic, checked here so a bad wave costs no push.
 
-The wave you name is the only one that fans out: the run resolves it once, at
-start, and its mandatory closeout orchestrator does not re-derive or re-dispatch
-a second one. Put plainly — fan-out is first-wave-only: this run dispatches
-exactly one wave of per-tick containers, and every tick it does not name —
-including ticks this wave unblocks — is implemented as a harness subagent inside
-the closeout orchestrator's single sandbox rather than as its own container. A
-multi-wave epic is submitted a wave at a time, or driven from a local
-orchestrator with tk cloud spawn, which computes and dispatches each wave itself.
-
 --tick-ids cannot be combined with --queue. A parked submission is stored
 without its wave — the queued-submission record has no tick_ids column — so it
 would ignite later as a plain single-sandbox run, having silently dropped the
@@ -151,8 +142,7 @@ func init() {
 	cloudRunCmd.Flags().StringVar(&cloudRunNotify, "notify", "", "notification channel for this submission")
 	cloudRunCmd.Flags().BoolVar(&cloudRunQueue, "queue", false, "park behind the current project lease instead of refusing")
 	cloudRunCmd.Flags().StringSliceVar(&cloudRunTickIDs, "tick-ids", nil,
-		"dispatch these ticks as one worker container each, comma-separated; this is the run's "+
-			"first wave and its only one; cannot be combined with --queue")
+		"dispatch these ticks as one worker container each, comma-separated; cannot be combined with --queue")
 	cloudRunCmd.Flags().Float64Var(&cloudRunMaxCost, "max-cost", 0, "cost ceiling in USD for this run; may lower the deployment budget, never raise it")
 	cloudRunCmd.Flags().DurationVar(&cloudRunMaxWallClock, "max-wall-clock", 0, "wall-clock ceiling for this run (e.g. 45m); may lower the deployment budget, never raise it")
 	cloudStopCmd.Flags().BoolVar(&cloudStopNow, "now", false, "hard stop: revoke the run's gateway credential immediately and skip closeout")
@@ -517,39 +507,15 @@ func cloudRunWave(cmd *cobra.Command) ([]string, error) {
 	return ids, nil
 }
 
-// cloudWaveScope is what a cloud-submitted wave actually covers, in the one
-// sentence the factory's own status, dispatch log and closeout hand-off use as
-// well (CLOUD_WAVE_SCOPE in cloud/factory/src/run-workflow.ts). Both are pinned
-// to cloud/factory/test/fixtures/cloud-wave-scope.json, because a limit phrased
-// two ways by two surfaces stops being legible — which is the whole of tick wiy.
-//
-// The limit itself is not a defect and is not being papered over: the Run
-// Workflow resolves context.cloud_wave once from the submitted tick_ids, and
-// its closeout pass runs the unchanged Phase 1 supervisePass without deriving a
-// second wave. Deriving waves 2+ in the Worker would mean porting readiness
-// into TypeScript, which the design doc decided against ("Where does
-// wave.Compute run for the dispatcher?"). So the honest half ships: say it,
-// everywhere, before the operator forms the other expectation.
-const cloudWaveScope = "fan-out is first-wave-only: this run dispatches exactly one wave of " +
-	"per-tick containers, and every tick it does not name — including ticks this wave unblocks — " +
-	"is implemented as a harness subagent inside the closeout orchestrator's single sandbox " +
-	"rather than as its own container"
-
 // printCloudRunWave says what a submitted wave asked for. A run that fanned
 // out into containers and one that booted a single orchestrator sandbox report
 // the same run id and the same state, so without this line the two are
 // indistinguishable from the command that started them.
-//
-// It also says what the wave does NOT cover (tick wiy). The scope note is
-// printed only for a submission that actually carries a wave: a Phase 1 run
-// fans nothing out and has no wave to scope, and a note printed on every run is
-// a note nobody is still reading by the time it matters.
 func printCloudRunWave(out io.Writer, wave []string) {
 	if len(wave) == 0 {
 		return
 	}
 	fmt.Fprintf(out, "  wave: %d tick(s), one worker container each: %s\n", len(wave), strings.Join(wave, ", "))
-	fmt.Fprintf(out, "  scope: %s\n", cloudWaveScope)
 }
 
 func runCloudStop(cmd *cobra.Command, args []string) error {

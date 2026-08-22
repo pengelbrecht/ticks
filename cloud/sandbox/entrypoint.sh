@@ -108,8 +108,8 @@ require_inputs() {
 	# An unknown phase is a control-plane bug, and a control-plane bug must not
 	# become a run that quietly does the wrong thing with credentials.
 	case "$phase" in
-	run | reconcile | closeout) ;;
-	*) die $EXIT_CONFIG "unknown boot phase '$phase' (TICKS_PHASE) — expected run, reconcile or closeout" ;;
+	run | reconcile | wave | closeout) ;;
+	*) die $EXIT_CONFIG "unknown boot phase '$phase' (TICKS_PHASE) — expected run, reconcile, wave or closeout" ;;
 	esac
 }
 
@@ -268,6 +268,33 @@ re-dispatch a worker that is still alive.
 PROMPT
 }
 
+# Why 'tk cloud spawn' does not block here, said once so no prompt has to
+# explain it twice.
+#
+# Only the control plane holds the SANDBOXES binding, so this container cannot
+# boot its own siblings. `tk cloud spawn` RECORDS the wave with the run's
+# supervisor, which dispatches it — checkpointed, budget-enforced, killable —
+# after this pass exits. So the pass ending is the handshake, not a failure,
+# and 'tk cloud wait' would sit here watching for containers that have not been
+# booted yet.
+dispatch_protocol() {
+	cat <<'PROMPT'
+The dispatch protocol, which is not the local one:
+
+- 'tk cloud spawn' here does not boot anything and does not block. It records
+  the wave with this run's supervisor, which boots the containers after this
+  pass exits. Exit 0 as soon as spawn succeeds.
+- Do NOT run 'tk cloud wait' or 'tk cloud collect' on a wave you just
+  requested: its containers do not exist yet. You will be booted again once
+  they have run, and THAT pass collects them.
+- One wave per pass. Requesting a wave and then continuing to work is how two
+  orchestrators end up on one tick.
+- If spawn is refused, do not exit as if it succeeded: read the reason. A
+  refusal means this run may not dispatch, so finish the epic on what is
+  already merged instead.
+PROMPT
+}
+
 # Shared tail: the facts every phase needs, stated identically so a reboot and a
 # first boot cannot drift apart on them.
 prompt_footer() {
@@ -278,6 +305,13 @@ prompt_footer() {
 	local guidance
 	if [[ $substrate_resolved == "herdr" ]]; then
 		guidance="Dispatch through herdr as references/herdr-runner.md specifies; the checkout's config is read, never rewritten."
+	elif [[ $substrate_resolved == "cloud" ]]; then
+		# The control plane set this deliberately, for a boot it is prepared to
+		# dispatch a wave for (tick wiy). It is never inferred from the
+		# checkout: a container that read its repository's `substrate = "cloud"`
+		# pin and concluded it should boot sibling containers would be fanning
+		# out with nothing arbitrating it.
+		guidance="Dispatch each wave as one cloud worker container per tick with 'tk cloud spawn <epic> --ticks a,b,c'. Do not dispatch subagents and do not edit .tick/runners.toml. This container cannot boot containers itself — spawn RECORDS the wave with the run's supervisor, which boots it after this pass exits (see the dispatch protocol below)."
 	else
 		guidance="The checkout's own pin is for runs where it applies; this sandbox has no herdr server. Do not probe for one, do not edit .tick/runners.toml, and do not stop over the mismatch — dispatch workers as subagents of this harness, in this container."
 	fi
@@ -337,6 +371,35 @@ collect, merge, integrated gate, close, review, closeout.
 $(prompt_footer)
 PROMPT
 		;;
+	wave)
+		cat <<PROMPT
+You are the ticks orchestrator for a cloud run, between container waves.
+Work in ${workdir}.
+
+$(reconcile_instruction)
+
+What just happened: ${stop_reason:-a wave of per-tick worker containers ran}.
+
+Your job this pass, in order:
+
+  1. Collect and merge what that wave pushed ('tk cloud collect', then merge
+     each ready-to-merge branch into ${run_branch}), run the integrated gate,
+     close the ticks that landed, and PUSH ${run_branch}. Commit tracker state
+     immediately after every mutation batch.
+  2. Compute the next wave with 'tk graph ${epic}' / 'tk next' — readiness is
+     computed HERE, by tk, against the tracker state you have just written.
+     Nothing
+     upstream of this container knows what your merge actually landed.
+  3. If a next wave exists, dispatch it with
+     'tk cloud spawn ${epic} --ticks <ids>' and then EXIT 0 immediately.
+  4. If nothing is left to dispatch, finish the epic instead: run its review
+     and closeout process ticks, leave the tracker consistent with the branch,
+     open the PR with 'tk cloud pr-body', and exit 0.
+
+$(dispatch_protocol)
+$(prompt_footer)
+PROMPT
+		;;
 	closeout)
 		cat <<PROMPT
 You are the ticks orchestrator for a cloud run that is STOPPING CLEANLY.
@@ -373,6 +436,7 @@ start_harness() {
 	# The branch the keeper pushes, named for everything the harness spawns:
 	# one spelling from the clone to the worker that merges into it.
 	export TICKS_RUN_BRANCH="$run_branch"
+	if [[ -n $run_pass ]]; then export TICKS_PASS="$run_pass"; fi
 	if [[ -n $factory_url ]]; then export TICKS_FACTORY_URL="$factory_url"; fi
 	if [[ -n $factory_token ]]; then export TICKS_FACTORY_TOKEN="$factory_token"; fi
 	if [[ -n $factory_project ]]; then export TICKS_FACTORY_PROJECT="$factory_project"; fi

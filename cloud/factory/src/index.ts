@@ -30,7 +30,7 @@
  * docs/design/cloud-factory.md.
  */
 
-import { authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
+import { WAVE_PATH, authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
 import { HARNESS_TAIL_MAX_BYTES, readHarnessTail } from "./artifacts";
 import {
   enrolProject,
@@ -42,6 +42,7 @@ import {
 } from "./db";
 import { proxyModelRequest } from "./gateway";
 import { observeRoute } from "./observe";
+import { requestWave } from "./wave-request";
 import { RunWorkflow } from "./run-workflow";
 import {
   RunRoom,
@@ -724,6 +725,19 @@ export default {
         return methodNotAllowed(["GET", "HEAD"]);
       }
       return await health(env);
+    }
+
+    // The in-run dispatch door (tick wiy). Placed beside the other
+    // token-exempt routes and before the /api/runs table, because it is
+    // authorized by a run credential rather than the operator's, and reading
+    // it as an /api/runs sub-path would put it behind the wrong gate.
+    if (url.pathname === WAVE_PATH) {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      const result = await requestWave(env, request);
+      if (!result.ok) {
+        return Response.json({ error: result.error, detail: result.detail }, { status: result.status });
+      }
+      return Response.json({ wave: result.request }, { status: 202 });
     }
 
     if (url.pathname === "/api/channels/telegram/webhook") {

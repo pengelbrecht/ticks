@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -12,8 +12,6 @@ import { GATEWAY_PATH_PREFIX, proxyModelRequest } from "../src/gateway";
 import type { RepoRefs } from "../src/progress";
 import type { RepoConfigReader } from "../src/repo-config";
 import {
-  CLOUD_WAVE_SCOPE,
-  CLOUD_WAVE_SCOPE_TOKEN,
   MAX_SANDBOX_BOOTS,
   applyProgress,
   chunkWave,
@@ -35,7 +33,6 @@ import { WORKER_COMMAND, WORKER_PROBE_COMMAND, WORKER_PROBE_MARKER } from "../sr
 import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
 import { workerSandboxName } from "../src/worker-dispatch";
 import type { RunEventMessage, RunEventSink } from "../src/run-events";
-import scopeContract from "./fixtures/cloud-wave-scope.json";
 
 /**
  * The Run Workflow: boot one orchestrator sandbox, watch it, enforce the
@@ -584,7 +581,7 @@ async function ignite(
     lease_token: lease.lease.token,
     ...(overrides.tickIDs === undefined ? {} : { tick_ids: overrides.tickIDs }),
   });
-  return { runID, project, epic, started, room };
+  return { runID, project, epic, started, room, leaseToken: lease.lease.token };
 }
 
 async function waitFor<T>(
@@ -713,6 +710,56 @@ const PUSHED_SHA = "b".repeat(40);
  */
 function orchestratorPushedWork(epic = "ko8"): void {
   repo.push(`epic/${epic}`, PUSHED_SHA);
+}
+
+/**
+ * The integrate-and-plan orchestrator a cloud wave hands off to (tick wiy).
+ *
+ * A successful wave is followed by a `wave` pass, not a `closeout` one: the
+ * run is continuing, not being wound up. That pass integrates what the
+ * containers pushed and then either requests the next wave (through
+ * `POST /api/wave`, which these tests drive via `requestNextWave`) or exits
+ * having finished the epic. `closeout` still exists and still boots — for a
+ * stop, a budget trip, and a run that hit its wave ceiling.
+ */
+async function wavePass(pass = 1): Promise<FakeProcess> {
+  return waitFor(`the integrate-and-plan orchestrator for pass ${pass}`, async () => {
+    for (const sandbox of sandboxes.booted) {
+      for (const process of sandbox.processes) {
+        if (process.env.TICKS_PHASE === "wave" && process.env.TICKS_PASS === String(pass)) {
+          return process;
+        }
+      }
+    }
+    return null;
+  });
+}
+
+/**
+ * What the orchestrator does at the end of a `wave` pass: compute the next
+ * wave with Go's own `wave.Compute` (`tk graph`) and ask the factory to
+ * dispatch it.
+ *
+ * Driven through `SELF.fetch` rather than by calling `requestWave` directly,
+ * because half of what this proves is that a SANDBOX can reach the door at
+ * all: the route is exempt from the operator's factory token and authorized
+ * by the run's own gateway credential, and a test that bypassed the worker's
+ * auth gate would prove nothing about either.
+ */
+async function requestNextWave(
+  process: FakeProcess,
+  body: { epic: string; pass: number; base_sha: string; tick_ids: string[] }
+): Promise<Response> {
+  return SELF.fetch("https://factory.example.com/api/wave", {
+    method: "POST",
+    headers: {
+      // Exactly what the container holds: TICKS_FACTORY_TOKEN is the run's
+      // gateway token, never the operator's factory token.
+      authorization: `Bearer ${process.env.TICKS_FACTORY_TOKEN}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 /** Waits until a sandbox has been booted and started the orchestrator. */
@@ -1814,12 +1861,22 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     expect([...new Set(collector.asked.map((t) => t.tick_id))].sort()).toEqual(["aaa", "bbb"]);
 
     // Per-tick workers only implement and push (tap); nothing merges or
-    // closes the epic out, so a real orchestrator boots for that.
-    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
-    expect(closeout.env.TICKS_EPIC).toBe(epic);
-    expect(closeout.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+    // closes the epic out, so a real orchestrator boots for that — and since
+    // tick wiy it boots to CONTINUE the epic, not to wind the run up.
+    const integrate = await wavePass();
+    expect(integrate.env.TICKS_EPIC).toBe(epic);
+    expect(integrate.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+    // It is told it may dispatch, and how to ask.
+    expect(integrate.env.TICKS_SUBSTRATE).toBe("cloud");
+    expect(integrate.env.TICKS_PASS).toBe("1");
+    expect(integrate.env.TICKS_FACTORY_URL).toBeDefined();
+    // The credential it dispatches with is the run's own gateway token — never
+    // the operator's factory token (D17).
+    expect(integrate.env.TICKS_FACTORY_TOKEN).toBe(integrate.env.AI_GATEWAY_TOKEN);
+    // No closeout was needed: this pass IS the continuation.
+    expect(sandboxes.phase("closeout")).toBeUndefined();
 
-    closeout.exit(0);
+    integrate.exit(0);
     const run = await settled(runID);
     // `stopped` here is the DURABLE layer's verdict, not the handoff's: this
     // test never pushes anything, so the epic did not move (tick 074 —
@@ -1844,16 +1901,14 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
   it("reports a cloud wave that ran and closed out as completed, not stopped", async () => {
     const { runID, project, epic } = await ignite({ tickIDs: ["aaa", "bbb"] });
 
-    const closeout = await waitFor("the closeout orchestrator", async () =>
-      sandboxes.phase("closeout")
-    );
-    // The closeout orchestrator is still told what it is closing out.
-    expect(closeout.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+    const integrate = await wavePass();
+    // The continuation orchestrator is still told what it inherited.
+    expect(integrate.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
 
     // The durable evidence that the epic moved — the same thing a Phase 1 run
     // has to supply before an exit 0 becomes a completion (tick ehy).
     orchestratorPushedWork(epic);
-    closeout.exit(0);
+    integrate.exit(0);
 
     const run = await settled(runID);
     expect(run.state).toBe("completed");
@@ -1864,9 +1919,128 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     // The wave's own evidence survives the promotion.
     expect(record.detail).toContain("cloud wave dispatched 2");
     expect(record.detail).toContain("ready-to-merge");
-    expect(record.detail).toContain("review and closeout ran");
+    // No separate closeout boot to report: the continuation pass that
+    // integrated the wave is the one that finished the epic (tick wiy).
+    expect(record.detail).toContain("the orchestrator then finished the epic");
+    expect(sandboxes.phase("closeout")).toBeUndefined();
     // The board is told the same word the row says.
     expect(await getRunProgress(env.DB, runID)).toMatchObject({ progress: "advanced" });
+  });
+
+  /**
+   * Tick wiy — the whole point of the tick.
+   *
+   * Before this, `context.cloud_wave` was resolved once from the submitted
+   * `tick_ids` and nothing re-derived it: wave 1 of an epic reached
+   * containers and every wave after it ran as harness subagents inside one
+   * closeout sandbox. The fix is not a readiness port into TypeScript (the
+   * design doc decided against that, and `.tick/learnings.md` records the
+   * cross-language failure it invites) — it is the other door that doc left
+   * open: `wave.Compute` runs INSIDE the orchestrator, in the Go `tk` the
+   * container already carries, and the container asks the control plane to
+   * dispatch what it computed.
+   *
+   * This drives the full alternation: wave → integrate-and-plan → wave →
+   * integrate-and-finish, and asserts the thing that was false before —
+   * that wave 2's ticks each get their own CONTAINER.
+   */
+  it("dispatches wave 2 into per-tick containers too, at the base the orchestrator merged", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    // Wave 1: a container for the one submitted tick.
+    await waitFor("wave 1's container", async () => {
+      try {
+        return sandboxes.named(workerSandboxName(runID, "aaa"));
+      } catch {
+        return null;
+      }
+    });
+
+    // The orchestrator boots to integrate it — and is given what it needs to
+    // dispatch: the substrate override, its pass number, and its factory.
+    const integrate = await wavePass(1);
+    expect(integrate.env.TICKS_SUBSTRATE).toBe("cloud");
+    expect(integrate.env.TICKS_PASS).toBe("1");
+    expect(integrate.env.TICKS_FACTORY_PROJECT).toBe(project);
+
+    // It merges wave 1, pushes the run branch, computes wave 2 in Go, and
+    // asks. MERGED_SHA is the run branch head it pushed — NOT the run's base.
+    const MERGED_SHA = "c".repeat(40);
+    const asked = await requestNextWave(integrate, {
+      epic,
+      pass: 1,
+      base_sha: MERGED_SHA,
+      tick_ids: ["bbb", "ccc"],
+    });
+    expect(asked.status).toBe(202);
+    // Then it exits: the supervisor is what boots containers, so the pass
+    // ending IS the handshake, not a failure.
+    integrate.exit(0);
+
+    // The assertion this tick exists for: wave 2 is containers, one per tick.
+    for (const tick of ["bbb", "ccc"]) {
+      const sandbox = await waitFor(`wave 2's container for ${tick}`, async () => {
+        try {
+          return sandboxes.named(workerSandboxName(runID, tick));
+        } catch {
+          return null;
+        }
+      });
+      const work = sandbox.processes.find((p) => p.command === WORKER_COMMAND)!;
+      expect(work.env.TICKS_TICK).toBe(tick);
+      // And each stands on wave 1's merged work. A wave-2 container cloning
+      // the run's ORIGINAL base would implement its tick against a tree its
+      // dependencies never landed in — a wrong wave, not a slow one.
+      expect(work.env.TICKS_BASE_SHA).toBe(MERGED_SHA);
+    }
+
+    // Wave 2 integrates in its own pass, which asks for nothing: the epic is
+    // finished, and the run ends without a separate closeout boot.
+    const finish = await wavePass(2);
+    expect(finish.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+    orchestratorPushedWork(epic);
+    finish.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    // Both waves' verdicts survive into the record an operator reads back.
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("2 container waves");
+    expect(record.detail).toContain("dispatched 1 per-tick worker container(s)");
+    expect(record.detail).toContain("dispatched 2 per-tick worker container(s)");
+
+    // And the second wave is a first-class dispatch decision, not a silent one.
+    const log = await listDispatchLogs(env.DB, runID, epic);
+    expect(log.some((entry) => entry.decision.startsWith("cloud_wave:next=1:2@"))).toBe(true);
+  });
+
+  // A pass that asks for nothing has finished the epic. That is the ONLY way a
+  // cloud run ends cleanly, so it must not be reachable by accident: a request
+  // that was refused must leave the container able to tell.
+  it("refuses a wave from a run that no longer holds the project's dispatch lease", async () => {
+    const { runID, project, epic, leaseToken } = await ignite({ tickIDs: ["aaa"] });
+    const integrate = await wavePass(1);
+
+    // The run's lease, gone out from under it — the shape of a container that
+    // kept working after its run stopped being the project's arbiter. D4 is
+    // one arbiter per project, and this endpoint enforces it by REQUIRING the
+    // caller to be the holder rather than by taking a second lease.
+    await roomFor(env, project).releaseDispatchLease({ run_id: runID, token: leaseToken });
+
+    const refused = await requestNextWave(integrate, {
+      epic,
+      pass: 1,
+      base_sha: "c".repeat(40),
+      tick_ids: ["bbb"],
+    });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe("lease_lost");
+
+    // No wave was dispatched for the refusal: the run finishes on wave 1.
+    integrate.exit(0);
+    await settled(runID);
+    expect(sandboxes.booted.some((s) => s.name.includes("-tick-bbb"))).toBe(false);
   });
 
   // A handoff is not a stop, so nothing may record it as one: `stopping` is a
@@ -1876,78 +2050,17 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
   it("does not record a successful handoff to closeout as a stop", async () => {
     const { runID, epic } = await ignite({ tickIDs: ["aaa"] });
 
-    const closeout = await waitFor("the closeout orchestrator", async () =>
-      sandboxes.phase("closeout")
-    );
-    // The run is still RUNNING while it closes out — it never stopped.
+    const integrate = await wavePass();
+    // The run is still RUNNING while it continues — it never stopped.
     expect(await runState(runID)).toBe("running");
 
     orchestratorPushedWork(epic);
-    closeout.exit(0);
+    integrate.exit(0);
     expect((await settled(runID)).state).toBe("completed");
 
     const log = await listDispatchLogs(env.DB, runID, epic);
-    expect(log.some((entry) => entry.decision === "handoff:closeout")).toBe(true);
     expect(log.some((entry) => entry.decision.startsWith("stopping:"))).toBe(false);
     expect(log.some((entry) => entry.decision === "finished:completed")).toBe(true);
-  });
-
-  /**
-   * Tick wiy (from the Phase 2 final review, oun).
-   *
-   * `context.cloud_wave` is resolved ONCE, from `params.tick_ids`, and the
-   * closeout pass runs the unchanged Phase 1 `supervisePass` without
-   * re-deriving or re-dispatching a second cloud wave — so an epic needing
-   * more than one wave gets per-tick containers for the FIRST wave only, and
-   * everything after it runs as harness subagents inside the closeout
-   * orchestrator's single sandbox. That is the shipped behaviour and is not
-   * being changed here (deriving waves 2+ in the Worker means porting
-   * readiness into TypeScript, which the design doc decided against). What was
-   * missing is that nothing anywhere SAID so: an operator reading "Phase 2:
-   * cloud substrate fan-out" reasonably assumes every wave fans out, and the
-   * runs where it silently does not are the long multi-wave epics where it
-   * matters most.
-   *
-   * So the limit is stated on every surface a run speaks through, in the one
-   * sentence `cmd/tk/cmd/cloud.go` is pinned to as well — same failure class
-   * as 074 and c5i (technically true, reliably misread), and the same fix.
-   */
-  it("says on every surface it speaks through that fan-out is first-wave-only", async () => {
-    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
-
-    const closeout = await waitFor("the closeout orchestrator", async () =>
-      sandboxes.phase("closeout")
-    );
-    // The orchestrator that inherits the rest of the epic is told what it is
-    // inheriting: everything this wave did not name, and that it will be
-    // running those as subagents rather than dispatching containers for them.
-    expect(closeout.env.TICKS_STOP_REASON ?? "").toContain(CLOUD_WAVE_SCOPE);
-
-    orchestratorPushedWork(epic);
-    closeout.exit(0);
-    expect((await settled(runID)).state).toBe("completed");
-
-    // The durable record an operator reads back with `tk cloud status <run>`.
-    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
-    expect(record.detail).toContain(CLOUD_WAVE_SCOPE);
-
-    // And the durable dispatch record, queryable the same way the width is.
-    // The width line already existed and said nothing about scope, which is
-    // precisely how a trace of a first-wave-only run read as a full fan-out;
-    // it keeps its exact token and gets a sibling that names the limit.
-    const log = await listDispatchLogs(env.DB, runID, epic);
-    expect(log.some((entry) => entry.decision.startsWith("cloud_wave:width="))).toBe(true);
-    expect(log.some((entry) => entry.decision === `cloud_wave:scope=${CLOUD_WAVE_SCOPE_TOKEN}`)).toBe(
-      true
-    );
-  });
-
-  // One sentence, two independent tellers (the ignite verb before the push,
-  // and the run's own status afterwards). A limit phrased two ways stops being
-  // legible, and this repo has already paid for a fix that landed in one
-  // language only (`.tick/learnings.md`, "Cross-language parity").
-  it("states that limit in the same words the CLI does", () => {
-    expect(CLOUD_WAVE_SCOPE).toBe(scopeContract.note);
   });
 
   // `finalize` runs inside `step.do("finalize", FINALIZE_RETRIES, ...)`: an
@@ -1967,9 +2080,9 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
 
     const failure = failEveryDispatchLogInsert((decision) => decision.startsWith("finished:"));
 
-    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
+    const integrate = await wavePass();
     orchestratorPushedWork(epic);
-    closeout.exit(0);
+    integrate.exit(0);
 
     const run = await settled(runID);
     expect(run.state).toBe("completed");
@@ -1986,15 +2099,24 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
   });
 
   // The honest word when the wave ran but the ending did not: the epic never
-  // got its review and closeout, so the run really did stop short.
-  it("still reports stopped when the wave's closeout does not finish", async () => {
+  // got its review and closeout, so the run really did stop short. Since tick
+  // wiy the pass that dies is the one integrating the wave — and it owes the
+  // epic a closeout boot exactly as a budget trip does, because containers
+  // have already pushed branches that would otherwise sit with no tracker
+  // state.
+  it("still reports stopped when the pass integrating a wave does not finish", async () => {
     const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
 
+    const integrate = await wavePass();
+    orchestratorPushedWork(epic);
+    // A configuration verdict: no replacement orchestrator is booted for it.
+    integrate.exit(3);
+
+    // A continuation pass that died takes the run down the closeout leg it
+    // always had — the wave ran, the ending did not.
     const closeout = await waitFor("the closeout orchestrator", async () =>
       sandboxes.phase("closeout")
     );
-    orchestratorPushedWork(epic);
-    // A configuration verdict: no replacement orchestrator is booted for it.
     closeout.exit(3);
 
     const run = await settled(runID);
@@ -2012,10 +2134,8 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
   it("does not promote a wave whose epic never moved, and keeps the wave evidence", async () => {
     const { runID, project } = await ignite({ tickIDs: ["aaa", "bbb"] });
 
-    const closeout = await waitFor("the closeout orchestrator", async () =>
-      sandboxes.phase("closeout")
-    );
-    closeout.exit(0);
+    const integrate = await wavePass();
+    integrate.exit(0);
 
     const run = await settled(runID);
     expect(run.state).toBe("stopped");
@@ -2036,8 +2156,7 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     });
     expect(logged.decision).toBe("cloud_wave:width=5");
 
-    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
-    closeout.exit(0);
+    (await wavePass()).exit(0);
     expect((await settled(runID)).state).toBe("stopped");
   });
 
@@ -2052,8 +2171,7 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     });
     expect(logged.decision).toBe("cloud_wave:width=2:capped");
 
-    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
-    closeout.exit(0);
+    (await wavePass()).exit(0);
     expect((await settled(runID)).state).toBe("stopped");
   });
 
@@ -2068,8 +2186,7 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     });
     expect(logged.decision).toBe("cloud_wave:width=1");
 
-    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
-    closeout.exit(0);
+    (await wavePass()).exit(0);
     expect((await settled(runID)).state).toBe("stopped");
   });
 
@@ -2338,11 +2455,6 @@ describe("a run streams run_event to the board", () => {
     });
     expect(started[0]!.taskId).toBeUndefined();
     expect(started[0]!.event.message).toContain(runID);
-    // The board's first word about a cloud run says what the wave covers AND
-    // what it does not: the ticks, the width, and that this is the run's only
-    // container wave (tick wiy).
-    expect(started[0]!.event.status).toContain("2 tick(s)");
-    expect(started[0]!.event.status).toContain(scopeContract.status_suffix);
 
     // Per-tick state: one dispatch and one verdict for each tick, attributed
     // to the worker substrate and scoped to its own tick.

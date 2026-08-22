@@ -51,19 +51,6 @@
  *    outcome rather than as a trip, so a wave that went perfectly is not
  *    recorded — in the index row, the dispatch log or `run.json` — as a run
  *    somebody stopped. `state` alone has to be readable.
- * 8. **Fan-out is first-wave-only, and every surface says so (tick wiy).**
- *    `context.cloud_wave` is resolved ONCE from `params.tick_ids` and the
- *    closeout pass above is the unchanged Phase 1 `supervisePass`, which does
- *    not re-derive or re-dispatch a wave — so an epic needing more than one
- *    wave gets per-tick containers for the first, and the rest run as harness
- *    subagents inside the closeout orchestrator's single sandbox. Deriving
- *    waves 2+ here would mean porting readiness into TypeScript, which the
- *    design doc decided against ("Where does `wave.Compute` run for the
- *    dispatcher?"), so what ships instead is the claim being made out loud:
- *    {@link CLOUD_WAVE_SCOPE} rides the run's status, its dispatch log and the
- *    reason its closeout orchestrator is given. An unstated limit under a
- *    heading reading "cloud substrate fan-out" is the same class of
- *    reliably-misread signal as 074 and c5i.
  *
  * See docs/design/cloud-factory.md (Phase 1, UC1, UC1b, D14, D15, D19, D20).
  */
@@ -71,6 +58,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 
 import {
+  readWaveRequest,
   writeHarnessSegment,
   writeCombinedHarnessLog,
   writeReconcileRecord,
@@ -127,6 +115,7 @@ import {
   type SandboxProcessState,
 } from "./sandbox";
 import { workerTask, workerWorkSpec } from "./worker-boot";
+import { MAX_RUN_WAVES } from "./wave-request";
 import { workerCollector } from "./worker-collect";
 import {
   dispatchWave,
@@ -191,6 +180,17 @@ export const DEFAULT_MAX_WALL_CLOCK_MS = 21_600_000; // 6 hours
 export const DEFAULT_MAX_COST_USD = 25;
 /** How long the in-flight work has to land before a clean stop kills it. */
 export const DEFAULT_STOP_GRACE_MS = 300_000; // 5 minutes
+/**
+ * What a dispatching orchestrator pass is told `TICKS_SUBSTRATE` is (tick wiy).
+ *
+ * The container's own default is `harness` and that default is load-bearing:
+ * left to infer from a checkout that declares `substrate = "cloud"`, an
+ * orchestrator container would read "my workers are cloud sandboxes" and "I am
+ * one of them" as the same statement. This is the control plane saying
+ * otherwise, explicitly, for a pass it is prepared to dispatch a wave for.
+ */
+const CLOUD_SUBSTRATE = "cloud";
+
 /** A closeout that has not closed out in this long is not going to. */
 export const DEFAULT_CLOSEOUT_MS = 1_800_000; // 30 minutes
 
@@ -527,54 +527,9 @@ export type RunContext = {
    * `sandbox_image` is: the width is a configuration decision (two ceilings
    * reconciled — `resolveDispatchWidth`), and it cannot change mid-run without
    * the dispatch-log record of it becoming a lie.
-   *
-   * Resolved once is also resolved ONLY once, which is the whole of
-   * {@link CLOUD_WAVE_SCOPE}: nothing below re-derives this field, so the wave
-   * named at submission is the only one that fans out.
    */
   cloud_wave: CloudWavePlan | null;
 };
-
-/**
- * What a cloud-submitted wave actually covers — said once, used everywhere
- * (tick wiy).
- *
- * The Run Workflow resolves {@link RunContext.cloud_wave} once, before any
- * container exists, and the closeout pass that every wave hands off to is the
- * unchanged Phase 1 `supervisePass`: it re-derives nothing and dispatches no
- * second wave. So an epic that needs more than one wave gets per-tick
- * containers for the first one only. That is deliberate — computing waves 2+
- * here means a second implementation of readiness in TypeScript, the exact
- * cross-language failure `.tick/learnings.md` warns about, and the design doc
- * put `wave.Compute` at the submitter for that reason — but it was true in
- * silence, under a phase heading that reads like a promise that every wave
- * fans out.
- *
- * So it is stated wherever a run speaks: the `epic-started` status the board
- * draws, the `cloud_wave:width=` dispatch record a trace reads back, the
- * handoff detail that becomes `run.json`'s `detail` and the closeout
- * orchestrator's `TICKS_STOP_REASON`. `cmd/tk/cmd/cloud.go` says the SAME
- * sentence before the submission is pushed, and both are pinned to
- * `test/fixtures/cloud-wave-scope.json`: two surfaces phrasing one limit two
- * ways is how the limit stops being legible.
- */
-export const CLOUD_WAVE_SCOPE =
-  "fan-out is first-wave-only: this run dispatches exactly one wave of per-tick containers, " +
-  "and every tick it does not name — including ticks this wave unblocks — is implemented as " +
-  "a harness subagent inside the closeout orchestrator's single sandbox rather than as its " +
-  "own container";
-
-/**
- * The same limit at badge length, for the one surface that has no room for a
- * sentence: the board's first line about a run.
- */
-export const CLOUD_WAVE_SCOPE_SHORT = "first wave only";
-
-/**
- * And at token length, for the dispatch log — where entries are greppable
- * decisions rather than prose, and `reason` is a closed enum.
- */
-export const CLOUD_WAVE_SCOPE_TOKEN = "first-wave-only";
 
 /**
  * A resolved wave: which ticks, and how many of their containers may run at
@@ -582,6 +537,15 @@ export const CLOUD_WAVE_SCOPE_TOKEN = "first-wave-only";
  */
 export type CloudWavePlan = {
   tick_ids: string[];
+  /**
+   * The commit this wave's containers clone at.
+   *
+   * The submitted wave uses the run's base. Every wave AFTER it uses the run
+   * branch head its orchestrator pass pushed (tick wiy) — a wave-2 worker that
+   * cloned the original base would implement its tick against a tree wave 1's
+   * merged work never landed in, which is not a slow wave, it is a wrong one.
+   */
+  base_sha: string;
   width: number;
   /** True when `[orchestration].max_parallel` asked for more than the deployment can serve. */
   capped: boolean;
@@ -744,6 +708,7 @@ export async function acquireContext(
     const resolved = resolveDispatchWidth(factoryMaxInstances(env), declaredParallel.max_parallel);
     cloud_wave = {
       tick_ids: params.tick_ids,
+      base_sha: params.base_sha,
       width: resolved.width,
       capped: resolved.capped,
       detail: resolved.detail,
@@ -755,21 +720,6 @@ export async function acquireContext(
       run_id: params.run_id,
       epic: params.epic,
       decision: `cloud_wave:width=${resolved.width}${resolved.capped ? ":capped" : ""}`,
-      reason: null,
-    });
-    // And, beside it, what the width line cannot say on its own (tick wiy):
-    // `cloud_wave:width=3` describes a fan-out with no edge to it, so a trace
-    // of a first-wave-only run read back as a full one. Its own entry rather
-    // than a suffix on the width decision, because that token is what an
-    // operator greps for and what three tests pin exactly; and its own entry
-    // rather than a `reason`, because `DispatchReason` is a closed enum of
-    // dispatch verdicts, not a free-text field. The sentence itself travels
-    // where there is room for it — the run record and the closeout
-    // orchestrator's stop reason, both below.
-    await logDispatch(env, {
-      run_id: params.run_id,
-      epic: params.epic,
-      decision: `cloud_wave:scope=${CLOUD_WAVE_SCOPE_TOKEN}`,
       reason: null,
     });
   }
@@ -813,8 +763,7 @@ export async function acquireContext(
       status:
         cloud_wave === null
           ? "one orchestrator container"
-          : `${cloud_wave.tick_ids.length} tick(s), ${cloud_wave.width} at a time ` +
-            `(${CLOUD_WAVE_SCOPE_SHORT})`,
+          : `${cloud_wave.tick_ids.length} tick(s), ${cloud_wave.width} at a time`,
     }),
   ]);
 
@@ -1094,7 +1043,15 @@ async function detectTrip(
 // ------------------------------------------------------------ the passes ---
 
 type PassOutcome =
-  | { kind: "completed"; boots: number }
+  /**
+   * `detail` is optional and is the pass's own account of what it did. A
+   * single orchestrator pass has nothing to add — it finished the epic, which
+   * is what `completed` already says. A wave LOOP does: the per-tick verdicts
+   * of every wave it ran are written down nowhere else, and a completion that
+   * dropped them would leave an operator with a green run and no way to see
+   * which containers produced it (tick wiy, keeping tick 074's evidence).
+   */
+  | { kind: "completed"; boots: number; detail?: string }
   | { kind: "failed"; detail: string; boots: number }
   | { kind: "tripped"; trip: Trip; boots: number }
   /**
@@ -1108,7 +1065,22 @@ type PassOutcome =
    * finish in state `stopped` (tick 074). A handoff is not a stop, and the
    * two must not share a carrier.
    */
-  | { kind: "handoff"; detail: string; boots: number };
+  | {
+      kind: "handoff";
+      detail: string;
+      boots: number;
+      /**
+       * Whether the pass reached its own end or died on the way (tick wiy).
+       *
+       * Both owe the epic a closeout — "there is no abandon path" applies to a
+       * continuation pass that crashed exactly as it applies to a budget trip
+       * — but they are not the same run. A clean handoff may still be promoted
+       * to `completed` when the durable layer agrees; one carrying a dead pass
+       * may not, whatever its closeout does, because the run did not do what
+       * it set out to do. Absent means clean.
+       */
+      clean?: boolean;
+    };
 
 type PassOptions = {
   label: string;
@@ -1120,6 +1092,27 @@ type PassOptions = {
   pass_max_ms: number | null;
   /** What running out of observations means for this pass. */
   on_exhausted: "stop" | "fail";
+  /**
+   * Which wave this pass is allowed to ask for, if it may ask at all (tick
+   * wiy). Absent means it may not: the container is booted without
+   * `TICKS_PASS`, and the dispatch endpoint refuses a request that carries no
+   * pass number. A closeout is exactly such a pass — it is winding the run up,
+   * not continuing it.
+   */
+  pass?: number;
+  /**
+   * `TICKS_SUBSTRATE` for this pass. Absent leaves the container's own
+   * `harness` default standing, which is the correct default for every pass
+   * that is not driving a container wave.
+   */
+  substrate?: string;
+  /**
+   * The wave this pass inherits — what the control plane just dispatched, so
+   * the container can fan it back in without the local manifests that died
+   * with the previous container.
+   */
+  wave_ticks?: string[];
+  wave_base_sha?: string;
 };
 
 /** Mutable across passes so sandbox names and R2 segment folders never collide. */
@@ -1180,8 +1173,19 @@ async function supervisePass(
     const name = sandboxName(params.run_id, boot);
     // Only the very first boot of a run is a plain `run`; every later one
     // reconciles first, whatever the pass asked for.
+    //
+    // `closeout` and `wave` are the exceptions, and for the same reason: both
+    // already begin with the reconcile protocol in their own prompt, and both
+    // carry an instruction that `reconcile` does not have and the run depends
+    // on — wind this run up, or integrate the last wave and ask for the next.
+    // Flattening either into `reconcile` would boot a container that adopts
+    // the state correctly and then does the wrong thing with it.
     const phase: OrchestratorPhase =
-      options.phase === "closeout" ? "closeout" : boot === 1 ? "run" : "reconcile";
+      options.phase === "closeout" || options.phase === "wave"
+        ? options.phase
+        : boot === 1
+          ? "run"
+          : "reconcile";
 
     const booted = await step.do(`${options.label}:boot:${attempt}`, BOOT_RETRIES, async () => {
       const binding = sandboxBinding(env);
@@ -1218,6 +1222,19 @@ async function supervisePass(
           ...(context.config.harness === null ? {} : { harness: context.config.harness }),
           ...(context.config.model === null ? {} : { model: context.config.model }),
           sandbox_image: image,
+          // The dispatch half (tick wiy). Given per PASS, never per run: a
+          // container that may not ask for a wave is not told how to, and a
+          // closeout cannot be talked into starting one because it has no
+          // pass number, no substrate override and no factory URL to ask.
+          ...(options.substrate === undefined ? {} : { substrate: options.substrate }),
+          ...(options.pass === undefined ? {} : { pass: options.pass }),
+          ...(options.wave_ticks === undefined ? {} : { wave_ticks: options.wave_ticks }),
+          ...(options.wave_base_sha === undefined
+            ? {}
+            : { wave_base_sha: options.wave_base_sha }),
+          ...(options.pass === undefined || factoryBaseURL(env) === null
+            ? {}
+            : { factory_url: factoryBaseURL(env)!, factory_project: params.project }),
         }),
       });
       return { process_id: started.id, at_ms: Date.now() };
@@ -1643,10 +1660,24 @@ export async function superviseCloudWave(
   step: WorkflowStep,
   params: RunWorkflowParams,
   context: RunContext,
-  plan: CloudWavePlan
+  plan: CloudWavePlan,
+  /**
+   * Which wave of this run's epic this is — 0 for the submitted one, then 1, 2
+   * … as its orchestrator asks for more (tick wiy).
+   *
+   * It is in every step name below, and that is not cosmetic: a Workflow
+   * identifies a checkpoint by its step name, so a second wave reusing
+   * `cloud:dispatch:0` would replay the FIRST wave's checkpointed result and
+   * dispatch nothing at all while reporting that it had.
+   */
+  wave: number = 0
 ): Promise<PassOutcome> {
   const collector = workerCollector(env, params.project);
   const batches = chunkWave(plan.tick_ids, plan.width);
+  // The step-name namespace for this wave. Wave 0 keeps the original,
+  // unprefixed names so a run in flight across a deploy replays its
+  // checkpoints rather than re-dispatching its first wave.
+  const tag = wave === 0 ? "" : `${wave}:`;
   const outcomes: WorkerWaveOutcome[] = [];
   // How often a batch in flight looks for a reason to stop: the run's own
   // observation cadence, so a deployment that tightens one tightens both.
@@ -1659,11 +1690,11 @@ export async function superviseCloudWave(
     // Mirrors `supervisePass`'s own killcheck: a hard stop that stands — or a
     // budget already spent — refuses to credential ANOTHER batch, the same way
     // it refuses to credential another orchestrator boot (tick gyl).
-    const standing = await step.do(`cloud:killcheck:${i}`, OBSERVE_RETRIES, () =>
+    const standing = await step.do(`cloud:killcheck:${tag}${i}`, OBSERVE_RETRIES, () =>
       cloudWaveTrip(env, params, context, telemetry)
     );
     if (standing !== null) {
-      await step.do(`cloud:killrevoke:${i}`, OBSERVE_RETRIES, async () => {
+      await step.do(`cloud:killrevoke:${tag}${i}`, OBSERVE_RETRIES, async () => {
         const revoked = await revokeRunTokens(env, params.run_id, tripRevokeReason(standing));
         return { revoked };
       });
@@ -1684,15 +1715,21 @@ export async function superviseCloudWave(
     // token as part of minting a new one (D17's rotation), so calling it once
     // per worker would have concurrent workers killing each other's gateway
     // access mid-run.
-    const credential = await step.do(`cloud:credential:${i}`, BOOT_RETRIES, () =>
-      issueRunToken(env, { run_id: params.run_id, tick_id: params.epic, attempt: i + 1 })
+    const credential = await step.do(`cloud:credential:${tag}${i}`, BOOT_RETRIES, () =>
+      issueRunToken(env, {
+        run_id: params.run_id,
+        tick_id: params.epic,
+        // Wave and batch, so two waves' batches are distinguishable in the
+        // gateway's own logs rather than both reading as `attempt: 1`.
+        attempt: wave * 1000 + i + 1,
+      })
     );
 
     // The board learns which ticks are in flight BEFORE the containers are
     // booted, because a wave that boots and then wedges is exactly the run an
     // operator needs to see the shape of. One publish per batch, never one per
     // tick: a wave's events are generated together and one DO hop carries them.
-    await step.do(`cloud:events:started:${i}`, OBSERVE_RETRIES, async () =>
+    await step.do(`cloud:events:started:${tag}${i}`, OBSERVE_RETRIES, async () =>
       publishRunEvents(
         env,
         params.project,
@@ -1700,7 +1737,7 @@ export async function superviseCloudWave(
       )
     );
 
-    const dispatched = await step.do(`cloud:dispatch:${i}`, CLOUD_DISPATCH_RETRIES, async () => {
+    const dispatched = await step.do(`cloud:dispatch:${tag}${i}`, CLOUD_DISPATCH_RETRIES, async () => {
       const binding = sandboxBinding(env);
       if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
       const taskFor = (tick: string) => workerTask(params.epic, tick, params.base_sha);
@@ -1772,7 +1809,9 @@ export async function superviseCloudWave(
         (task) =>
           workerWorkSpec({
             repo_url: context.repo_url,
-            base_sha: params.base_sha,
+            // The PLAN's base, not the submission's: wave 2 stands on wave 1's
+            // merged work (tick wiy).
+            base_sha: plan.base_sha,
             epic: params.epic,
             tick: task.tick_id,
             run_id: params.run_id,
@@ -1793,7 +1832,7 @@ export async function superviseCloudWave(
           record: manifestRecorder(env.ARTIFACTS, params.project, {
             run_id: params.run_id,
             epic: params.epic,
-            batch: i + 1,
+            batch: wave * 1000 + i + 1,
           }),
         },
         collector
@@ -1808,7 +1847,13 @@ export async function superviseCloudWave(
       // a wave must not fail because its telemetry could not be written.
       if (env.ARTIFACTS !== undefined) {
         try {
-          await writeWaveOutcomes(env.ARTIFACTS, params.project, params.run_id, i + 1, all_outcomes);
+          await writeWaveOutcomes(
+            env.ARTIFACTS,
+            params.project,
+            params.run_id,
+            wave * 1000 + i + 1,
+            all_outcomes
+          );
         } catch (error) {
           console.error(
             `factory run-workflow: ${params.run_id} could not record batch ${i + 1} outcomes: ${String(error)}`
@@ -1822,7 +1867,7 @@ export async function superviseCloudWave(
         reconcile: reconciled.summary,
       };
     });
-    await step.do(`cloud:reconciled:${i}`, OBSERVE_RETRIES, async () => {
+    await step.do(`cloud:reconciled:${tag}${i}`, OBSERVE_RETRIES, async () => {
       // `dispatched.reconcile` is the PLAN, established from the durable
       // layer BEFORE this batch's containers were addressed (the big comment
       // above `reconcileWave` explains why it has to run there). This step
@@ -1838,7 +1883,7 @@ export async function superviseCloudWave(
       await logDispatch(env, {
         run_id: params.run_id,
         epic: params.epic,
-        decision: `cloud_reconcile_plan:${i + 1}:${dispatched.reconcile}`,
+        decision: `cloud_reconcile_plan:${tag}${i + 1}:${dispatched.reconcile}`,
         reason: null,
       });
       return { logged: true };
@@ -1856,7 +1901,7 @@ export async function superviseCloudWave(
     // cancelled mid-batch is exactly when an operator most needs the board to
     // show what the containers that did run actually produced. Returning first
     // would hide a cancelled batch's real outcomes behind the cancellation.
-    await step.do(`cloud:events:collected:${i}`, OBSERVE_RETRIES, async () =>
+    await step.do(`cloud:events:collected:${tag}${i}`, OBSERVE_RETRIES, async () =>
       publishRunEvents(
         env,
         params.project,
@@ -1881,7 +1926,7 @@ export async function superviseCloudWave(
       const trip = tripFromCancellation(dispatched.cancelled);
       // Idempotent with the canceller's own revoke: that one is fast, this one
       // is checkpointed, and a replayed Workflow only ever runs the second.
-      await step.do(`cloud:cancelrevoke:${i}`, OBSERVE_RETRIES, async () => {
+      await step.do(`cloud:cancelrevoke:${tag}${i}`, OBSERVE_RETRIES, async () => {
         const revoked = await revokeRunTokens(env, params.run_id, tripRevokeReason(trip));
         return { revoked };
       });
@@ -1902,7 +1947,7 @@ export async function superviseCloudWave(
   // same way a clean stop revokes the work pass's token before closeout boots
   // (tick gyl) — dead hygiene, not a functional requirement, since nobody
   // holds it once the last batch's containers are torn down.
-  await step.do("cloud:revoke:done", OBSERVE_RETRIES, async () => {
+  await step.do(`cloud:revoke:done:${tag}`, OBSERVE_RETRIES, async () => {
     const revoked = await revokeRunTokens(env, params.run_id, "stopped");
     return { revoked };
   });
@@ -1934,17 +1979,205 @@ export async function superviseCloudWave(
   // interrupted one (tick 074).
   return {
     kind: "handoff",
+    // What this wave DID, and nothing about what happens next: since tick wiy
+    // a wave can be followed by an integrate-and-plan pass that requests
+    // another one, or by review and closeout, and the caller is what knows
+    // which. Baking "handing off for review and closeout" in here made every
+    // wave claim to be the last.
     detail:
       `the cloud wave dispatched ${outcomes.length} per-tick worker container(s): ` +
-      `${summarizeCloudWave(outcomes)}; handing off for review and closeout — ` +
-      // The hand-off is the last place this run can say what it did not do,
-      // and it is read twice: by `run.json`/`tk cloud status`, and by the
-      // closeout orchestrator itself as `TICKS_STOP_REASON`. The second reader
-      // is the one inheriting every tick this wave did not name, so it is told
-      // plainly that it inherits them as subagents (tick wiy).
-      CLOUD_WAVE_SCOPE,
+      `${summarizeCloudWave(outcomes)}`,
     boots: outcomes.length,
   };
+}
+
+/**
+ * The whole fan-out: wave, integrate, wave, integrate — until the epic is done
+ * (tick wiy).
+ *
+ * ## What this replaced
+ *
+ * A cloud run used to dispatch the wave it was submitted with and then hand
+ * off to a single-sandbox closeout orchestrator, which ran everything the
+ * first wave had unblocked as harness subagents inside one container. Only
+ * wave 1 of a multi-wave epic ever reached a container, and the runs where
+ * that mattered most were the long ones.
+ *
+ * ## Why the loop is shaped like this
+ *
+ * The obvious loop — compute the next wave here and dispatch it — needs
+ * readiness in TypeScript, which is the cross-language port this repository
+ * has already paid for once (`.tick/learnings.md`) and which
+ * `docs/design/cloud-factory.md` decided against. The second door that doc
+ * left open is the one used: `wave.Compute` runs INSIDE the orchestrator, in
+ * the Go `tk` the container already carries.
+ *
+ * Which puts the two halves of a wave in two different places, and the
+ * alternation below is what joins them:
+ *
+ *  - only the orchestrator can decide the next wave. It is standing on the
+ *    merged run branch and it is the only party that knows what wave 1
+ *    actually landed, which tick the integrated gate rejected, and what that
+ *    left ready;
+ *  - only the Workflow can dispatch one. The `SANDBOXES` binding is here, and
+ *    so are the checkpoints, the budgets and the kill switch (D14/D15/D17). A
+ *    container that booted its own siblings would be fanning out with none of
+ *    that.
+ *
+ * So the orchestrator pass ENDS by asking (`src/wave-request.ts`), and this
+ * loop reads the request the moment the pass exits and dispatches it here.
+ * The pass exiting is not a failure and not a stop — it is the handshake. A
+ * pass that asks for nothing has finished the epic, and the run is over.
+ *
+ * The alternative — keeping one orchestrator container alive across waves
+ * while this supervisor dispatched underneath it — was rejected: the wave
+ * dispatch would have to run inside the watch loop that also drains the
+ * container's logs and renews the project lease, so a 30-minute wave would
+ * stall a lease renewal and hand the project to whatever came next. A pass per
+ * wave costs a container boot and buys a checkpoint, a bounded pass, and a
+ * reconcile against the durable layer at every wave boundary.
+ */
+async function superviseWaveLoop(
+  env: Env,
+  step: WorkflowStep,
+  params: RunWorkflowParams,
+  context: RunContext,
+  counter: BootCounter,
+  first: CloudWavePlan
+): Promise<PassOutcome> {
+  let plan = first;
+  // Every wave's own account, kept because nothing else records the per-tick
+  // verdicts (tick 074's evidence, through tick wiy's loop).
+  const ran_waves: string[] = [];
+
+  /** Everything the run's waves did so far, as one readable clause. */
+  const account = (): string =>
+    ran_waves.length === 1
+      ? ran_waves[0]!
+      : `${ran_waves.length} container waves — ${ran_waves.join("; then ")}`;
+
+  /**
+   * A trip or failure from anywhere in the loop, with the waves that already
+   * ran kept in front of it.
+   *
+   * Without this, a run stopped during wave 3 reports only wave 3's reason and
+   * an operator loses every verdict waves 1 and 2 produced — the same loss
+   * tick 074 fixed for the single-wave case and the reason `applyProgress`
+   * keeps an outcome's own account rather than replacing it.
+   */
+  const withHistory = (outcome: PassOutcome): PassOutcome => {
+    if (ran_waves.length === 0) return outcome;
+    const prefix = `${account()}; then `;
+    switch (outcome.kind) {
+      case "tripped":
+        return { ...outcome, trip: { ...outcome.trip, detail: `${prefix}${outcome.trip.detail}` } };
+      case "failed":
+      case "handoff":
+        return { ...outcome, detail: `${prefix}${outcome.detail}` };
+      case "completed":
+        return outcome.detail === undefined
+          ? { ...outcome, detail: `${account()}; the orchestrator then finished the epic` }
+          : outcome;
+    }
+  };
+
+  for (let wave = 0; ; wave++) {
+    const ran = await superviseCloudWave(env, step, params, context, plan, wave);
+    // A trip or a configuration failure ends the run the way it always did:
+    // `superviseRun`'s closeout leg. Only a handoff — a wave that dispatched
+    // every batch and stopped because it was finished — continues here.
+    if (ran.kind !== "handoff") return withHistory(ran);
+    ran_waves.push(ran.detail);
+
+    const pass = wave + 1;
+    // The integrate-and-plan pass. Its phase is `wave`, never `closeout`:
+    // closeout means a run being wound up early and its prompt forbids new
+    // work, and tick 074 already had to undo one conflation of "this finished"
+    // with "somebody stopped this".
+    const continued = await supervisePass(env, step, params, context, counter, {
+      label: `wave:${pass}`,
+      phase: "wave",
+      // What this pass inherits, in the container's own TICKS_STOP_REASON
+      // slot: the wave that just ran, and what it is expected to do with it.
+      stop_reason:
+        `${ran.detail}; integrate what they pushed, then request the next wave ` +
+        "or finish the epic",
+      max_boots: MAX_SANDBOX_BOOTS,
+      enforce_budgets: true,
+      pass_max_ms: null,
+      on_exhausted: "stop",
+      // What makes this pass able to ask for the next wave at all.
+      pass,
+      substrate: CLOUD_SUBSTRATE,
+      // And what it needs to fan the last one back in.
+      wave_ticks: plan.tick_ids,
+      wave_base_sha: plan.base_sha,
+    });
+    // A pass that TRIPPED takes the run down its existing closeout leg.
+    if (continued.kind === "tripped") return withHistory(continued);
+    // A pass that DIED owes the epic the same closeout, and must not simply
+    // end the run: containers have already pushed branches, and a run that
+    // stops there leaves merged-able work with no tracker state — the one
+    // outcome rule 3 says a stop must never produce. It is handed off as an
+    // unclean one, so nothing downstream can promote it to `completed`.
+    if (continued.kind === "failed") {
+      return withHistory({
+        kind: "handoff",
+        detail:
+          `the orchestrator integrating wave ${wave + 1} did not finish (${continued.detail})`,
+        boots: continued.boots,
+        clean: false,
+      });
+    }
+    if (continued.kind !== "completed") return withHistory(continued);
+
+    const next = await step.do(`cloud:waverequest:${pass}`, OBSERVE_RETRIES, async () => {
+      const request = await readWaveRequest(env.ARTIFACTS, params.project, params.run_id, pass);
+      // Returned as a nullable field rather than a bare null: a `step.do` that
+      // resolves to null and one that was never reached are indistinguishable
+      // in a replay, and this decides whether an epic continues.
+      return { request };
+    });
+    if (next.request === null) {
+      // The pass integrated the last wave, found nothing left to dispatch, and
+      // ran the epic's own review and closeout — that is what a `wave` pass
+      // does when it asks for no wave. There is no closeout boot to add: the
+      // run is complete, and `applyProgress` still decides whether the durable
+      // layer agrees (tick ehy).
+      return withHistory({ kind: "completed", boots: continued.boots });
+    }
+    if (pass >= MAX_RUN_WAVES) {
+      // A ceiling reached is a hand-off, not a failure: everything dispatched
+      // so far is real work that still needs merging and closing out.
+      return withHistory({
+        kind: "handoff",
+        detail:
+          `the run reached its ceiling of ${MAX_RUN_WAVES} container wave(s) with another ` +
+          `still requested (${next.request.tick_ids.length} tick(s)), so it is handing off ` +
+          "for review and closeout on what did run",
+        boots: continued.boots,
+      });
+    }
+
+    plan = {
+      tick_ids: next.request.tick_ids,
+      base_sha: next.request.base_sha,
+      // The width is a deployment decision and does not change mid-run — it is
+      // the same reconciliation of the same two ceilings that produced wave 1.
+      width: first.width,
+      capped: first.capped,
+      detail: first.detail,
+    };
+    await step.do(`cloud:wavenext:${pass}`, OBSERVE_RETRIES, async () => {
+      await logDispatch(env, {
+        run_id: params.run_id,
+        epic: params.epic,
+        decision: `cloud_wave:next=${pass}:${plan.tick_ids.length}@${plan.base_sha.slice(0, 12)}`,
+        reason: null,
+      });
+      return { logged: true };
+    });
+  }
 }
 
 // ------------------------------------------------------------- finalizing ---
@@ -2209,7 +2442,7 @@ export async function superviseRun(
   // the unchanged path — an ADDED one, not a replacement.
   const work =
     context.cloud_wave !== null
-      ? await superviseCloudWave(env, step, params, context, context.cloud_wave)
+      ? await superviseWaveLoop(env, step, params, context, counter, context.cloud_wave)
       : await supervisePass(env, step, params, context, counter, {
           label: "work",
           phase: "run",
@@ -2221,7 +2454,11 @@ export async function superviseRun(
 
   let outcome: RunOutcome;
   if (work.kind === "completed") {
-    outcome = { state: "completed", detail: "the orchestrator finished the epic", boots: work.boots };
+    outcome = {
+      state: "completed",
+      detail: work.detail ?? "the orchestrator finished the epic",
+      boots: work.boots,
+    };
   } else if (work.kind === "failed") {
     outcome = { state: "failed", detail: work.detail, boots: work.boots };
   } else {
@@ -2239,6 +2476,10 @@ export async function superviseRun(
     // somebody had killed.
     const trip = work.kind === "tripped" ? work.trip : null;
     const reason = work.kind === "tripped" ? work.trip.detail : work.detail;
+    // A handoff whose own pass died is still a handoff — it owes the epic a
+    // closeout — but it is not a run that finished what it started, so it is
+    // never promoted below (tick wiy).
+    const clean = work.kind !== "handoff" || work.clean !== false;
 
     if (trip === null) {
       await step.do("handoff:record", OBSERVE_RETRIES, async () => {
@@ -2302,7 +2543,7 @@ export async function superviseRun(
     // A handoff whose closeout did NOT finish never reached review and
     // closeout: the run really did stop short, and `stopped` is honest.
     outcome =
-      trip === null && closeout.kind === "completed"
+      trip === null && clean && closeout.kind === "completed"
         ? { state: "completed", detail, boots: closeout.boots }
         : { state: "stopped", detail, boots: closeout.boots };
   }

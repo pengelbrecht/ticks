@@ -96,6 +96,22 @@ export const TELEGRAM_WEBHOOK_PATH = "/api/channels/telegram/webhook";
  */
 export const GATEWAY_PREFIX = "/api/gateway";
 
+/**
+ * The in-run dispatch door (tick wiy), exempt from the FACTORY bearer token
+ * for exactly the reason `/api/gateway` is: its caller is a sandbox, and a
+ * sandbox must never hold the operator's token.
+ *
+ * It carries the same run-scoped gateway credential and is authorized by the
+ * same function, so an operator's stop — which revokes that token — reaches a
+ * run's ability to dispatch containers and not only its ability to spend.
+ *
+ * Note there is no run id in the path. The credential decides which run is
+ * speaking, so a container cannot ask for a wave on behalf of a run it is not;
+ * a path parameter would have made that a thing to check rather than a thing
+ * that cannot be expressed.
+ */
+export const WAVE_PATH = "/api/wave";
+
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
   /** Worker secret: the derived hash of the current factory token. */
@@ -270,6 +286,7 @@ export function isAuthExempt(pathname: string): boolean {
   if (pathname === HEALTH_PATH) return true;
   if (pathname === TELEGRAM_WEBHOOK_PATH) return true;
   if (pathname === GATEWAY_PREFIX || pathname.startsWith(`${GATEWAY_PREFIX}/`)) return true;
+  if (pathname === WAVE_PATH) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 
