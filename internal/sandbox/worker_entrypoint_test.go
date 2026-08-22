@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pengelbrecht/ticks/internal/herd/collect"
 )
 
 // End-to-end tests for cloud/sandbox/worker.sh — the per-tick worker container
@@ -417,6 +419,7 @@ func TestWorkerReportsAFailedHarnessSeparatelyFromAnEmptyBranch(t *testing.T) {
 func TestWorkerWritesAReportWhenTheHarnessDidNot(t *testing.T) {
 	f := newWorkerFixture(t)
 	delete(f.env, "TICKS_TEST_WORKER_RESULT")
+	delete(f.env, "TICKS_TEST_WORKER_COMMIT")
 	out, code := f.run()
 	if code != ExitWorkerAgent {
 		t.Fatalf("a harness that wrote no report gave exit %d, want %d:\n%s", code, ExitWorkerAgent, out)
@@ -428,6 +431,119 @@ func TestWorkerWritesAReportWhenTheHarnessDidNot(t *testing.T) {
 	}
 	mustContain(t, report, "STATUS: BLOCKED", "a status a collector can act on")
 	mustContain(t, report, "wrote no report", "why the report is not the agent's")
+}
+
+// tick 3gr. The fallback report is right to exist, and for a long time it said
+// one thing whatever had happened: BLOCKED, re-dispatch this tick. Run
+// run_215b7cbf's three workers all reported that, and only one of them
+// deserved it — 5jo exited 0 with two real work commits on its branch and was
+// told to re-run finished work, and 5qj had a salvaged tree that a re-dispatch
+// would have discarded. Distinct failure classes must not collapse into one
+// message (`.tick/learnings.md`, "Cloudflare"), and the facts that separate
+// them — the harness's exit status, the commits on the branch and whether a
+// salvage happened — are already in hand where the fallback is written.
+//
+// So: what survived decides the verdict, and only the shape where nothing
+// survived may advise a re-dispatch.
+func TestWorkerFallbackReportSeparatesTheShapesOfANoReportRun(t *testing.T) {
+	cases := []struct {
+		name string
+		// how the stand-in agent behaves
+		exit   string
+		commit bool
+		dirty  bool
+		// what the fallback must then say
+		status      string
+		wantExit    int
+		reDispatch  bool
+		wantDetails []string
+	}{
+		{
+			// run_215b7cbf's 201: nothing ran to completion and nothing
+			// landed. The only shape a re-dispatch is the right advice for.
+			name: "nothing landed", exit: "124", status: collect.StatusBlocked,
+			wantExit: ExitWorkerAgent, reDispatch: true,
+			wantDetails: []string{"exited 124", "nothing"},
+		},
+		{
+			// The same emptiness reached by a harness that claimed success.
+			name: "clean exit, nothing landed", exit: "0", status: collect.StatusBlocked,
+			wantExit: ExitWorkerAgent, reDispatch: true,
+			wantDetails: []string{"exited 0", "nothing"},
+		},
+		{
+			// 5jo. Exit 0 and real commits is work that landed; the gap is
+			// the agent's account of it, not the work.
+			name: "clean exit, work committed", exit: "0", commit: true,
+			status: collect.StatusDoneWithConcerns, wantExit: ExitWorkerAgent,
+			wantDetails: []string{"1 work commit(s)", "no agent report"},
+		},
+		{
+			// 5qj. A killed harness whose tree was salvaged: partial work on
+			// the branch that a re-dispatch would throw away.
+			name: "failed exit, work salvaged", exit: "124", dirty: true,
+			status: collect.StatusNeedsContext, wantExit: ExitWorkerAgent,
+			wantDetails: []string{"exited 124", "salvage"},
+		},
+		{
+			name: "failed exit, work committed", exit: "3", commit: true,
+			status: collect.StatusNeedsContext, wantExit: ExitWorkerAgent,
+			wantDetails: []string{"exited 3", "1 work commit(s)"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			// The whole point: the agent wrote no RESULT file.
+			delete(f.env, "TICKS_TEST_WORKER_RESULT")
+			delete(f.env, "TICKS_TEST_WORKER_COMMIT")
+			if tc.commit {
+				f.env["TICKS_TEST_WORKER_COMMIT"] = "1"
+			}
+			if tc.dirty {
+				f.env["TICKS_TEST_WORKER_DIRTY"] = "1"
+			}
+			f.env["TICKS_TEST_WORKER_EXIT"] = tc.exit
+
+			out, code := f.run()
+			if code != tc.wantExit {
+				t.Fatalf("exit %d, want %d:\n%s", code, tc.wantExit, out)
+			}
+			branch := WorkerBranch(f.epic, f.tick)
+			report, ok := f.remoteFile(branch, WorkerResultFile(f.tick))
+			if !ok {
+				t.Fatalf("no report reached origin at all:\n%s", out)
+			}
+			// Read with the collector's own parser: a status a container
+			// invents that collect cannot parse is no status at all.
+			status, detail, line := collect.ParseStatus(report)
+			if status != tc.status {
+				t.Errorf("status %q, want %q\n  line: %s\n  report:\n%s", status, tc.status, line, report)
+			}
+			if got := strings.Contains(detail, "re-dispatch"); got != tc.reDispatch {
+				verb := "advises"
+				if !tc.reDispatch {
+					verb = "must not advise"
+				}
+				t.Errorf("the status %s a re-dispatch; it %s one:\n  %s", map[bool]string{true: "advises", false: "does not advise"}[got], verb, line)
+			}
+			for _, want := range tc.wantDetails {
+				mustContain(t, report, want, "the fact that separates this shape from the others")
+			}
+			// Whatever landed still has to be on origin: the report is an
+			// account of the branch, never a substitute for it.
+			if tc.commit {
+				if _, ok := f.remoteFile(branch, "worked.txt"); !ok {
+					t.Error("the agent's committed work is not on the pushed branch")
+				}
+			}
+			if tc.dirty {
+				if _, ok := f.remoteFile(branch, "partial.txt"); !ok {
+					t.Error("the salvaged tree is not on the pushed branch")
+				}
+			}
+		})
+	}
 }
 
 // The worst outcome this script can produce: work that exists only in a

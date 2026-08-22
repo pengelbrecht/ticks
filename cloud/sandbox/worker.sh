@@ -610,20 +610,105 @@ salvage_uncommitted() {
 	return 0
 }
 
+# What survived, as a phrase a report can read — "2 work commit(s)", the
+# salvage, or both. Empty when nothing did, which is the whole distinction the
+# fallback below is built on.
+landed_phrase() {
+	local commits="$1" salvaged="$2" phrase=""
+	if ((commits > 0)); then
+		phrase="${commits} work commit(s)"
+	fi
+	if ((salvaged != 0)); then
+		if [[ -n $phrase ]]; then
+			phrase="${phrase} plus a tree ${ME} salvaged into its own commit"
+		else
+			phrase="a tree ${ME} salvaged into its own commit"
+		fi
+	fi
+	printf '%s' "$phrase"
+}
+
+# ---------------------------------------------------------------------------
+# The fallback report
+#
+# The report the container writes when the agent wrote none. It has to exist —
+# an absent report is indistinguishable from a container that never ran — but
+# for a long time it said ONE thing whatever had happened: BLOCKED,
+# re-dispatch. Run run_215b7cbf's three workers all carried that line and only
+# one of them earned it (tick 3gr):
+#
+#   201  exit 124, nothing on the branch     -> re-dispatch is right.
+#   5jo  exit 0, two real work commits       -> the work LANDED. "Re-dispatch"
+#        told an operator to pay to redo finished work.
+#   5qj  exit 124, a salvaged tree           -> partial work on the branch. A
+#        re-dispatch would have discarded it.
+#
+# So the verdict is decided by WHAT SURVIVED, not by the fact that the report
+# is missing, and only the shape where nothing survived may advise a
+# re-dispatch. Every fact this needs is already in hand at the call site: the
+# harness's exit status, the commits counted before the salvage, and whether
+# the salvage made a commit. Nothing new is gathered; the script simply stops
+# throwing the distinction away.
+#
+# The STATUS word is one of collect's four, because a status the collector
+# cannot parse is no status at all — and it stays independent of the verdict
+# collect computes from the branch (internal/herd/collect/doc.go): a reader
+# gets "ready-to-merge" beside "no agent account of it", which together say
+# exactly what happened.
+# ---------------------------------------------------------------------------
 write_fallback_report() {
-	local status="$1"
-	cat >"$workdir/$result_path" <<-REPORT
-		# ${tick_id}
+	local status="$1" commits="${2:-0}" salvaged="${3:-0}" landed
+	landed="$(landed_phrase "$commits" "$salvaged")"
 
-		The harness exited ${status} without writing ${result_path}. This report was
-		written by ${ME} so the tick's outcome reaches the durable layer at all — an
-		absent report is indistinguishable from a container that never ran.
+	{
+		printf '# %s\n\n' "$tick_id"
+		printf 'The harness exited %s without writing %s. This report was written by %s so\n' \
+			"$status" "$result_path" "$ME"
+		printf "the tick's outcome reaches the durable layer at all — an absent report is\n"
+		printf 'indistinguishable from a container that never ran.\n\n'
+		printf "Nothing here is the agent's own account of the work; there is none.\n\n"
+	} >"$workdir/$result_path"
 
-		Nothing here is the agent's own account of the work; there is none.
+	if [[ -z $landed ]]; then
+		# Nothing survived. The tick is unimplemented and the container is the
+		# only witness — the one shape a re-dispatch is the right advice for.
+		cat >>"$workdir/$result_path" <<-REPORT
+			Nothing landed on \`${worker_branch}\`: no work commits, and nothing uncommitted
+			to salvage. This tick is unimplemented.
 
-		STATUS: BLOCKED — the harness exited ${status} and wrote no report; re-dispatch this tick
+			STATUS: BLOCKED — the harness exited ${status}, wrote no report, and nothing landed on ${worker_branch}; re-dispatch this tick
+		REPORT
+		warn "the harness wrote no ${result_path} and nothing landed; ${ME} wrote one recording that"
+		return
+	fi
+
+	if ((status == 0)); then
+		# The 5jo shape. Exit 0 with work on the branch is a SUCCESS whose
+		# account is missing; the branch is reviewable on its own merits and
+		# running the tick again would redo finished work.
+		cat >>"$workdir/$result_path" <<-REPORT
+			The harness exited 0 and ${landed} landed on \`${worker_branch}\`. The work is
+			there and reviewable on its own merits; what is missing is the agent's account
+			of it. This is not an unimplemented tick — review the branch. Running it again
+			would redo work that is already on the branch.
+
+			STATUS: DONE_WITH_CONCERNS — the harness exited 0 and ${landed} landed on ${worker_branch}, but no agent report exists; review the branch, and note nothing describes the work but the diff
+		REPORT
+		warn "the harness exited 0 and wrote no ${result_path} while ${landed} landed; ${ME} reported the missing account, not a blocked tick"
+		return
+	fi
+
+	# The 5qj shape. A failed or killed harness with work on the branch: partial,
+	# and a human decides what to do with it. Both facts are named because
+	# either alone is misleading.
+	cat >>"$workdir/$result_path" <<-REPORT
+		The harness exited ${status} and ${landed} landed on \`${worker_branch}\`. That is
+		partial work, not an empty branch: review what landed before deciding anything,
+		because running this tick again from the base would discard it.
+
+		STATUS: NEEDS_CONTEXT — the harness exited ${status} and wrote no report, but ${landed} landed on ${worker_branch}; a human has to review what is there before this tick is run again
 	REPORT
-	warn "the harness wrote no ${result_path}; ${ME} wrote one recording that"
+	warn "the harness exited ${status} and wrote no ${result_path} while ${landed} landed; ${ME} reported partial work rather than an empty branch"
 }
 
 # The boundary section, written only when there is one. It is a signal, not a
@@ -761,7 +846,11 @@ main() {
 		salvage_uncommitted "$harness_status" && salvaged=1
 	fi
 	if [[ ! -f $workdir/$result_path ]]; then
-		write_fallback_report "$harness_status"
+		# The counts are what decide the verdict, so they are passed rather
+		# than re-read: `commits` is what the AGENT committed and `salvaged`
+		# what this container rescued, and a fallback that conflated them
+		# would be the collapse this shape exists to undo (tick 3gr).
+		write_fallback_report "$harness_status" "$commits" "$salvaged"
 		reported=0
 	fi
 	prepend_container_facts "$harness_status" "$commits" "$dirty" "$salvaged" "$boundary_notes"
