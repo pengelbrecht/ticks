@@ -279,7 +279,26 @@ describe("spawnWorker: the green-start trap", () => {
     expect(binding.named(name).processes).toHaveLength(1);
   });
 
-  it("a probe that never finishes is caught as a timeout, not trusted", async () => {
+  it("a probe that produced output but never finished is a timeout", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0ds");
+    // Something came back, so the container is up — it is the probe that stalled.
+    const sleep: Sleeper = async () => {
+      binding.named(name).processes[0]?.say("working");
+    };
+
+    const result = await spawnWorker(binding, name, task("0ds"), WORK_SPEC, {
+      probe_timeout_ms: 20,
+      probe_poll_ms: 5,
+      sleep,
+    });
+
+    expect(result.launched).toBe(false);
+    expect(result.probe.ok === false && result.probe.reason).toBe("timeout");
+    expect(binding.named(name).processes).toHaveLength(1);
+  });
+
+  it("a container that produced nothing at all is a boot timeout, not a green start (tick 7go)", async () => {
     const binding = new FakeSandboxes();
     const name = workerSandboxName("run1", "0ds");
     // No sleeper override: this genuinely waits ~20ms of wall clock, bounded
@@ -290,7 +309,11 @@ describe("spawnWorker: the green-start trap", () => {
     });
 
     expect(result.launched).toBe(false);
-    expect(result.probe.ok === false && result.probe.reason).toBe("timeout");
+    // The distinction the first real wave paid for: three healthy containers
+    // were reported as having started cleanly and done nothing, when they were
+    // still pulling a 1.1 GB image. Silence is "never got there", not "failed".
+    expect(result.probe.ok === false && result.probe.reason).toBe("boot-timeout");
+    expect(result.probe.ok === false && result.probe.detail).toMatch(/never reached its probe/);
     expect(binding.named(name).processes).toHaveLength(1);
   });
 

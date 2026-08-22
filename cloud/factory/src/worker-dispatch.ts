@@ -47,10 +47,52 @@ import type { WorkerCollector, WorkerReport, WorkerTask } from "./worker-collect
 
 // ------------------------------------------------------------- the timing ---
 
-export const DEFAULT_PROBE_TIMEOUT_MS = 30_000;
-export const DEFAULT_PROBE_POLL_MS = 1_000;
-export const DEFAULT_CONFIRM_TIMEOUT_MS = 60_000;
-export const DEFAULT_CONFIRM_POLL_MS = 1_000;
+/**
+ * The measured cold start of the orchestrator sandbox, in ms.
+ *
+ * Not a guess: `benchmarks/sandbox-start/2026-08-21-docker-amd64.json` records
+ * `modes.cold.median_total_s = 93.24`, of which 71.9s is the image pull
+ * (tick `kuf`). `internal/sandbox/benchmark_test.go` pins the budgets below
+ * against that artifact so the two cannot drift apart again.
+ */
+export const COLD_START_BENCHMARK_MS = 93_240;
+
+/**
+ * Per-sandbox slowdown at the widest wave the deployment allows.
+ *
+ * `fanout_degradation_vs_n1` in the same artifact: 1.00x / 2.22x / 3.74x at
+ * N=1/3/5, all of it in dependency install. A probe budget sized for a lone
+ * container is not a budget for the fifth container of a wave.
+ */
+export const FANOUT_DEGRADATION_FACTOR = 3.74;
+
+/**
+ * How long a worker container has to answer its probe.
+ *
+ * This was 30s, and every cold container in the first real wave was written
+ * off before it could boot: `run_1ce4fae5` dispatched three workers at
+ * 06:38:49 and reconcile classified 3 of 3 as never-dispatched at 06:39:13 —
+ * 21 seconds, against a 93.24s measured cold start. The number looked generous
+ * because the suite probes `FakeSandboxes`, which answers instantly; against a
+ * real Cloudflare Sandbox pulling a 1.1 GB compressed image it could never be
+ * met (tick `7go`).
+ *
+ * Derived rather than rounded: a cold start, degraded by the widest fan-out,
+ * plus headroom — because the cost of waiting too long is a slow wave, and the
+ * cost of not waiting long enough is declaring healthy containers dead.
+ */
+export const DEFAULT_PROBE_TIMEOUT_MS = Math.ceil(
+  COLD_START_BENCHMARK_MS * FANOUT_DEGRADATION_FACTOR * 1.2
+);
+export const DEFAULT_PROBE_POLL_MS = 2_000;
+/**
+ * Confirming real work starts happens on an already-warm container — the probe
+ * has answered by then — so this is sized for the work command's own startup,
+ * not for a boot. Still generous against the old 60s: a clone at the epic base
+ * plus a harness launch is not instant.
+ */
+export const DEFAULT_CONFIRM_TIMEOUT_MS = 180_000;
+export const DEFAULT_CONFIRM_POLL_MS = 2_000;
 export const DEFAULT_WAIT_TIMEOUT_MS = 30 * 60_000;
 export const DEFAULT_WAIT_POLL_MS = 15_000;
 
@@ -241,7 +283,13 @@ export type ProbeOutcome =
   | { ok: true }
   | {
       ok: false;
-      reason: "no-output" | "wrong-output" | "process-gone" | "timeout" | "cancelled";
+      reason:
+        | "no-output"
+        | "wrong-output"
+        | "process-gone"
+        | "timeout"
+        | "boot-timeout"
+        | "cancelled";
       detail: string;
       output: string;
     };
@@ -289,7 +337,23 @@ async function watchProbe(
       return evaluateProbeOutput(output, expect, view.exit_code);
     }
     if (Date.now() >= deadline) {
-      return { ok: false, reason: "timeout", detail: `the probe had not finished after ${opts.timeoutMs}ms`, output };
+      // A probe that produced NOTHING is a container that never got far enough
+      // to run it; a probe that produced something and stalled is a different
+      // fault with a different next action. Collapsing them would hand an
+      // operator "started cleanly and did nothing" for a container that was
+      // still pulling its image, which is what tick 7go was (see
+      // .tick/learnings.md on never collapsing distinct failure classes).
+      const booted = output.length > 0;
+      return {
+        ok: false,
+        reason: booted ? "timeout" : "boot-timeout",
+        detail: booted
+          ? `the probe produced output but had not finished after ${opts.timeoutMs}ms`
+          : `the container produced nothing in ${opts.timeoutMs}ms, longer than the measured ` +
+            `cold start of ${Math.round(COLD_START_BENCHMARK_MS / 1000)}s degraded for fan-out — ` +
+            `it never reached its probe rather than failing one`,
+        output,
+      };
     }
     const cancelled = await sleepUnlessCancelled(opts.pollMs, opts.sleep, opts.cancel);
     if (cancelled !== null) {

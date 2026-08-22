@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -310,4 +311,82 @@ func readBenchFile(t *testing.T, rel string) string {
 		t.Fatalf("reading %s: %v", rel, err)
 	}
 	return string(body)
+}
+
+// TestWorkerProbeBudgetCoversTheMeasuredColdStart pins the dispatch layer's
+// probe budget against the committed benchmark.
+//
+// Tick 7go: the budget was 30s while a cold container measurably takes 93.24s,
+// so the first real per-tick wave wrote off three healthy containers 21 seconds
+// after dispatching them. The suite could not see it — vitest probes
+// FakeSandboxes, which answers instantly — so the guard has to live here, where
+// the measured artifact and the shipped constant can be compared to each other.
+func TestWorkerProbeBudgetCoversTheMeasuredColdStart(t *testing.T) {
+	root := repoRoot(t)
+
+	raw, err := os.ReadFile(filepath.Join(root, benchRawDir, "2026-08-21-docker-amd64.json"))
+	if err != nil {
+		t.Fatalf("reading the committed sandbox-start benchmark: %v", err)
+	}
+	var artifact struct {
+		Modes struct {
+			Cold struct {
+				MedianTotalS float64 `json:"median_total_s"`
+			} `json:"cold"`
+		} `json:"modes"`
+	}
+	if err := json.Unmarshal(raw, &artifact); err != nil {
+		t.Fatalf("parsing the benchmark artifact: %v", err)
+	}
+	coldMS := artifact.Modes.Cold.MedianTotalS * 1000
+	if coldMS <= 0 {
+		t.Fatalf("the artifact records no cold-start median; got %v", coldMS)
+	}
+
+	src, err := os.ReadFile(filepath.Join(root, "cloud/factory/src/worker-dispatch.ts"))
+	if err != nil {
+		t.Fatalf("reading worker-dispatch.ts: %v", err)
+	}
+	declared := func(name string) float64 {
+		re := regexp.MustCompile(`(?m)^export const ` + name + ` = ([0-9_.]+);`)
+		m := re.FindSubmatch(src)
+		if m == nil {
+			t.Fatalf("worker-dispatch.ts no longer declares %s — if it was renamed, this guard has to follow it", name)
+		}
+		v, err := strconv.ParseFloat(strings.ReplaceAll(string(m[1]), "_", ""), 64)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		return v
+	}
+
+	benchmark := declared("COLD_START_BENCHMARK_MS")
+	fanout := declared("FANOUT_DEGRADATION_FACTOR")
+
+	// The constant must be what was actually measured, not a number that drifted.
+	if diff := benchmark - coldMS; diff > 1000 || diff < -1000 {
+		t.Errorf(
+			"COLD_START_BENCHMARK_MS is %.0f but the committed artifact measured %.0f — "+
+				"re-run scripts/bench_sandbox_start.py and update both together",
+			benchmark, coldMS,
+		)
+	}
+
+	// And the budget derived from it must still clear a cold start at the widest
+	// fan-out. This is the assertion tick 7go exists for.
+	budget := benchmark * fanout * 1.2
+	if budget <= coldMS {
+		t.Errorf(
+			"the probe budget (%.0fms) does not clear the measured cold start (%.0fms): "+
+				"every cold container in a wave would be declared never-dispatched",
+			budget, coldMS,
+		)
+	}
+	if budget < coldMS*fanout {
+		t.Errorf(
+			"the probe budget (%.0fms) does not clear a cold start degraded for fan-out "+
+				"(%.0fms x %.2f): the last container of a wide wave would be written off",
+			budget, coldMS, fanout,
+		)
+	}
 }
