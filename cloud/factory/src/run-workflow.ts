@@ -1730,10 +1730,22 @@ export async function superviseCloudWave(
       };
     });
     await step.do(`cloud:reconciled:${i}`, OBSERVE_RETRIES, async () => {
+      // `dispatched.reconcile` is the PLAN, established from the durable
+      // layer BEFORE this batch's containers were addressed (the big comment
+      // above `reconcileWave` explains why it has to run there). This step
+      // logs it only after `dispatched` (dispatch and all) has finished, so
+      // by wall clock it lands after whatever the dispatch attempt did — a
+      // probe failure included. "cloud_reconcile_plan" names it as the
+      // pre-dispatch snapshot it is: a bare "cloud_reconcile:1:1
+      // never-dispatched" sitting after a "task-started" line reads as a
+      // post-dispatch verdict ("the container was never dispatched") when it
+      // is really the trivial, correct fact that nothing had been dispatched
+      // YET when the plan was drawn (tick ys3; same misread class as 074 and
+      // c5i — technically true, reliably misread).
       await logDispatch(env, {
         run_id: params.run_id,
         epic: params.epic,
-        decision: `cloud_reconcile:${i + 1}:${dispatched.reconcile}`,
+        decision: `cloud_reconcile_plan:${i + 1}:${dispatched.reconcile}`,
         reason: null,
       });
       return { logged: true };

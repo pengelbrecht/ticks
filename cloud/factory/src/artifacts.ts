@@ -324,6 +324,25 @@ export type WorkerManifest = {
   process_id?: string;
   /** Set when a later attempt adopted a container this manifest already booted. */
   adopted_at?: string;
+  /**
+   * Set when this dispatch attempt's green-start probe failed — the only
+   * place `ProbeOutcome.output` survives the Workflow step that produced it
+   * (tick ys3).
+   *
+   * Before this field existed a failed probe was unexplainable after the
+   * fact: the container was torn down, its terminal output went nowhere, and
+   * the only way to learn what `ticks-worker --probe` actually printed was to
+   * re-run the wave and read a `wrangler tail` that (as observed on
+   * 2026-08-22) does not even capture Workflow console output. `reason` and
+   * `output` are `ProbeOutcome`'s own fields, carried here as plain strings
+   * so this module does not need to import `worker-dispatch.ts`'s type.
+   */
+  probe_failure?: {
+    reason: string;
+    detail: string;
+    output: string;
+    at: string;
+  };
 };
 
 export function workerManifestKey(project: string, runID: string, tickID: string): string {

@@ -279,6 +279,75 @@ describe("spawnWorker: the green-start trap", () => {
     expect(binding.named(name).processes).toHaveLength(1);
   });
 
+  it("persists a failed probe's output through the recorder — it is the only account of what the container printed (tick ys3)", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0ds");
+    const sleep: Sleeper = async () => {
+      const probe = binding.named(name).current;
+      probe.say("8.19.2\n");
+      probe.finish(0);
+    };
+    const recorded: unknown[] = [];
+
+    const result = await spawnWorker(binding, name, task("0ds"), WORK_SPEC, {
+      probe_timeout_ms: 5_000,
+      probe_poll_ms: 1,
+      sleep,
+      record: {
+        async dispatched() {},
+        async started() {},
+        async probeFailed(t, sandboxName, probe) {
+          recorded.push({ tick_id: t.tick_id, sandboxName, probe });
+        },
+      },
+    });
+
+    expect(result.launched).toBe(false);
+    expect(recorded).toEqual([
+      {
+        tick_id: "0ds",
+        sandboxName: name,
+        probe: {
+          ok: false,
+          reason: "wrong-output",
+          detail: expect.stringContaining("8.19.2"),
+          output: "8.19.2\n",
+        },
+      },
+    ]);
+  });
+
+  it("never calls probeFailed when the probe passes", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "0ds");
+    const sleep: Sleeper = async () => {
+      for (const sandbox of binding.booted) {
+        const process = sandbox.processes.at(-1);
+        if (process === undefined || process.state !== "running") continue;
+        process.say(process.command === PROBE_SPEC.command ? "READY\n" : "working\n");
+        process.finish(0);
+      }
+    };
+    let called = false;
+
+    await spawnWorker(binding, name, task("0ds"), WORK_SPEC, {
+      probe_timeout_ms: 5_000,
+      probe_poll_ms: 1,
+      confirm_timeout_ms: 5_000,
+      confirm_poll_ms: 1,
+      sleep,
+      record: {
+        async dispatched() {},
+        async started() {},
+        async probeFailed() {
+          called = true;
+        },
+      },
+    });
+
+    expect(called).toBe(false);
+  });
+
   it("a probe that produced output but never finished is a timeout", async () => {
     const binding = new FakeSandboxes();
     const name = workerSandboxName("run1", "0ds");

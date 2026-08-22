@@ -62,7 +62,13 @@ import {
 import type { OrchestratorSandbox, SandboxBinding } from "./sandbox";
 import { WORKER_COMMAND } from "./worker-boot";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "./worker-collect";
-import { NOT_ADDRESSED, type Adoption, type WorkerRecorder, type WorkerWaveOutcome } from "./worker-dispatch";
+import {
+  NOT_ADDRESSED,
+  type Adoption,
+  type ProbeOutcome,
+  type WorkerRecorder,
+  type WorkerWaveOutcome,
+} from "./worker-dispatch";
 
 // ------------------------------------------------------------ the classes ---
 
@@ -613,6 +619,38 @@ export function manifestRecorder(
       } catch (error) {
         console.error(
           `factory reconcile: ${run.run_id} could not record the work process of ` +
+            `${task.tick_id}: ${String(error)}`
+        );
+      }
+    },
+    async probeFailed(
+      task: WorkerTask,
+      sandboxName: string,
+      probe: Extract<ProbeOutcome, { ok: false }>
+    ): Promise<void> {
+      try {
+        const existing = await readWorkerManifest(bucket, project, run.run_id, task.tick_id);
+        await writeWorkerManifest(bucket, project, {
+          ...(existing ?? {
+            run_id: run.run_id,
+            epic: run.epic,
+            tick_id: task.tick_id,
+            sandbox_name: sandboxName,
+            branch: task.branch,
+            base_sha: task.base_sha,
+            batch: run.batch,
+            dispatched_at: new Date().toISOString(),
+          }),
+          probe_failure: {
+            reason: probe.reason,
+            detail: probe.detail,
+            output: probe.output,
+            at: new Date().toISOString(),
+          },
+        });
+      } catch (error) {
+        console.error(
+          `factory reconcile: ${run.run_id} could not record the probe failure of ` +
             `${task.tick_id}: ${String(error)}`
         );
       }
