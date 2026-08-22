@@ -72,6 +72,53 @@ export const COLD_START_BENCHMARK_MS = 93_240;
 export const FANOUT_DEGRADATION_FACTOR = 3.74;
 
 /**
+ * The same artifact's degradation curve, by wave width.
+ *
+ * {@link FANOUT_DEGRADATION_FACTOR} is the WIDEST point of this curve, and
+ * sizing every deployment's probe by it is what pushed a green-start probe and
+ * a dispatch confirm to 598s of the 600s a Workflow step may execute for
+ * (tick 2xm, src/workflow-limits.ts). A deployment that runs three containers
+ * at a time paid the five-container penalty for nothing.
+ *
+ * Read by {@link probeTimeoutMs}: measured points, linear between them, and
+ * the widest measured factor beyond the last one — never extrapolated past
+ * what the benchmark actually recorded.
+ */
+export const FANOUT_DEGRADATION: ReadonlyArray<{ width: number; factor: number }> = [
+  { width: 1, factor: 1.0 },
+  { width: 3, factor: 2.22 },
+  { width: 5, factor: FANOUT_DEGRADATION_FACTOR },
+];
+
+/**
+ * How long a worker container has to answer its probe, at a given wave width.
+ *
+ * Same derivation as {@link DEFAULT_PROBE_TIMEOUT_MS} — a measured cold start,
+ * degraded for fan-out, plus 20% headroom — but degraded for THIS wave's
+ * width rather than for the widest wave anyone has measured.
+ */
+export function probeTimeoutMs(width: number): number {
+  const clean = Number.isFinite(width) && width >= 1 ? width : 1;
+  const last = FANOUT_DEGRADATION[FANOUT_DEGRADATION.length - 1]!;
+  let factor = last.factor;
+  for (let i = 0; i < FANOUT_DEGRADATION.length; i++) {
+    const point = FANOUT_DEGRADATION[i]!;
+    if (clean <= point.width) {
+      const previous = FANOUT_DEGRADATION[i - 1];
+      if (previous === undefined) {
+        factor = point.factor;
+      } else {
+        const span = point.width - previous.width;
+        const along = (clean - previous.width) / span;
+        factor = previous.factor + (point.factor - previous.factor) * along;
+      }
+      break;
+    }
+  }
+  return Math.ceil(COLD_START_BENCHMARK_MS * factor * 1.2);
+}
+
+/**
  * How long a worker container has to answer its probe.
  *
  * This was 30s, and every cold container in the first real wave was written
@@ -736,6 +783,17 @@ export type WaitOutcome = {
   timed_out: boolean;
   /** Set when the wave was cancelled while this worker was still being watched. */
   cancelled: WaveCancellation | null;
+  /**
+   * How far into the worker's output this wait streamed.
+   *
+   * Carried out of the wait because a wave is watched across MANY bounded
+   * waits since tick 2xm — one per Workflow step — and the next one adopts
+   * this container rather than starting it. Restarting the cursor at zero
+   * would re-stream everything the container has printed so far into its R2
+   * key on every leg, which for a ninety-minute wave is the same log written
+   * thirteen times.
+   */
+  offset: number;
 };
 
 /**
@@ -791,23 +849,25 @@ export async function waitForWorker(
     const sandbox = await binding.get(sandboxName);
     await flush(sandbox);
     const view = await sandbox.getProcess(processID);
-    if (view === null) return { state: "gone", exit_code: null, timed_out: false, cancelled: null };
+    if (view === null) {
+      return { state: "gone", exit_code: null, timed_out: false, cancelled: null, offset };
+    }
     if (view.state === "completed" || view.state === "failed") {
       // Read once more now the process is over: whatever it printed on its way
       // out landed after the flush above, and that is the half of the log a
       // failed worker is read for.
       await flush(sandbox);
-      return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled: null };
+      return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled: null, offset };
     }
     if (Date.now() >= deadline) {
-      return { state: view.state, exit_code: view.exit_code, timed_out: true, cancelled: null };
+      return { state: view.state, exit_code: view.exit_code, timed_out: true, cancelled: null, offset };
     }
     // The wait is where a wave spends nearly all of its wall clock, and it is
     // therefore where an operator's stop was being ignored for up to
     // `timeoutMs` — thirty minutes of a batch nobody could interrupt.
     const cancelled = await sleepUnlessCancelled(pollMs, sleep, opts.cancel);
     if (cancelled !== null) {
-      return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled };
+      return { state: view.state, exit_code: view.exit_code, timed_out: false, cancelled, offset };
     }
   }
 }
@@ -875,6 +935,22 @@ export type WaveOptions = SpawnOptions & {
   wait_timeout_ms?: number;
   wait_poll_ms?: number;
   /**
+   * What happens to a container whose wait ran out (tick 2xm).
+   *
+   * `teardown` — the default, and the only behaviour before this tick — kills
+   * the process and destroys the container: the wait timeout IS the worker's
+   * deadline, so a worker still running at it has had its allowance.
+   *
+   * `leave` means this wait was not the worker's deadline but one bounded LEG
+   * of it, sized to fit inside a Cloudflare Workflow step (600s execution cap,
+   * src/workflow-limits.ts). The container is left exactly as it is, still
+   * working, for the next leg's reconcile to adopt. Nothing else changes: a
+   * cancelled wave still tears its containers down immediately, and the last
+   * leg of a wave still passes `teardown`, so a worker that outlives the whole
+   * wave budget is killed exactly as it always was.
+   */
+  on_wait_timeout?: "teardown" | "leave";
+  /**
    * A worker already running for this tick, from the reconcile plan
    * (src/reconcile.ts). Returning one turns the whole spawn half of the cycle
    * off for that task: no probe, no second process, nothing started — the
@@ -894,6 +970,13 @@ export type Adoption = {
   process_id: string;
   /** Why this tick is being adopted — carried into the outcome's `detail`. */
   detail: string;
+  /**
+   * How much of this container's output has already been streamed, when the
+   * adopter knows (tick 2xm's dispatch legs do: the previous leg's checkpointed
+   * `WaitOutcome` says so). Absent means the cursor is unknown and the stream
+   * restarts from the beginning — see {@link adoptedSpawn}.
+   */
+  output_offset?: number;
 };
 
 export type WorkerWaveOutcome = SpawnResult & {
@@ -911,6 +994,17 @@ export type WorkerWaveOutcome = SpawnResult & {
 
 /** A container the wave never addressed: nothing was booted, so nothing is torn down. */
 export const NOT_ADDRESSED: TeardownOutcome = { killed: false, destroyed: false, liveness: null };
+
+/**
+ * A container this LEG left running on purpose (tick 2xm).
+ *
+ * Shaped like `NOT_ADDRESSED` and meaning something else entirely: the
+ * container exists, a worker is still in it, and the next leg is going to
+ * adopt it. Named separately so a reader of an outcome — or of the wave
+ * outcomes artifact — can tell "no container" from "a container we chose not
+ * to kill yet".
+ */
+export const LEFT_RUNNING: TeardownOutcome = { killed: false, destroyed: false, liveness: null };
 
 /**
  * The outcome of adopting a worker that was already running.
@@ -933,14 +1027,17 @@ function adoptedSpawn(
     // dispatched, and re-probing a container that is mid-tick would start a
     // second process in it for no reason.
     probe: { ok: true },
-    confirm: { confirmed: true, detail: adoption.detail, offset: 0 },
+    confirm: { confirmed: true, detail: adoption.detail, offset: adoption.output_offset ?? 0 },
     process_id: adoption.process_id,
-    // Zero, not "wherever the dead supervisor got to": that cursor died with
-    // it. This attempt streams the adopted container from the beginning into
-    // its OWN attempt folder, so a reader may see the pre-adoption output
-    // twice — deliberately chosen over losing whatever the dead supervisor
-    // never flushed, which is the output closest to why it died.
-    output_offset: 0,
+    // Zero when the adopter cannot say where the stream got to — a DEAD
+    // supervisor's cursor died with it. This attempt then streams the adopted
+    // container from the beginning into its OWN attempt folder, so a reader
+    // may see the pre-adoption output twice: deliberately chosen over losing
+    // whatever the dead supervisor never flushed, which is the output closest
+    // to why it died. A live adopter that knows the cursor — one dispatch leg
+    // handing the wave to the next (tick 2xm) — passes it, and nothing is
+    // re-streamed.
+    output_offset: adoption.output_offset ?? 0,
     adopted: true,
     cancelled: null,
     detail: `adopted a live worker: ${adoption.detail}`,
@@ -1019,6 +1116,20 @@ async function dispatchOneWorker(
   // too, so a prior attempt's pushed work must still be found.
   const collect = await collector.collect(task);
 
+  // The one case a container survives its wait: this wait was a bounded LEG of
+  // the wave rather than the worker's deadline (tick 2xm). Killing here is what
+  // the whole leg mechanism exists to avoid — the worker is mid-tick and the
+  // next leg adopts it. Every other path still tears down, cancellation
+  // included, and so does the final leg.
+  if (
+    wait !== null &&
+    wait.timed_out &&
+    wait.cancelled === null &&
+    opts.on_wait_timeout === "leave"
+  ) {
+    return { ...spawned, wait, collect, teardown: LEFT_RUNNING };
+  }
+
   const teardown = await teardownWorker(binding, sandboxName, spawned.process_id);
 
   return { ...spawned, wait, collect, teardown };
@@ -1043,6 +1154,16 @@ async function dispatchOneWorker(
  * answers for is taken over rather than started, so a supervisor replacing one
  * that died mid-wave never puts a second worker on a tick that already has a
  * live one.
+ *
+ * `opts.on_wait_timeout` is what makes a wave that outlives one Cloudflare
+ * Workflow step possible at all (tick 2xm). This function BLOCKS until every
+ * container in the wave settles or its wait runs out, and a wave's wait is now
+ * up to ninety-one minutes ({@link DEFAULT_WAIT_TIMEOUT_MS}) against a 600s
+ * per-step execution cap (src/workflow-limits.ts) — so a caller inside a
+ * Workflow step calls this repeatedly with a leg-sized `wait_timeout_ms` and
+ * `on_wait_timeout: "leave"`, and each call re-establishes what is running
+ * from the durable layer and adopts it. Called once with a wave-sized timeout,
+ * as `superviseCloudWave` used to, it kills its own supervisor.
  *
  * `opts.cancel` is the wave's interrupt (tick k24). Without it a batch of up
  * to `max_instances` containers runs to completion no matter what an operator

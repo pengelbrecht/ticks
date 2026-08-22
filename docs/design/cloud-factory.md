@@ -211,7 +211,7 @@ evidence of work starting, not just process start), and **expiring liveness**
 |---|---|
 | Epic run lifecycle (waves, gates, merge, closeout) | Workflow instance |
 | Implementer per tick | Sandbox (named container: sleeps idle, wakes on demand, snapshot/restore) |
-| `herd wait` fan-in | Workflow step awaiting sandbox exits |
+| `herd wait` fan-in | Workflow steps awaiting sandbox exits — **many bounded steps, never one** (see below) |
 | `herd reconcile` | Fresh orchestrator sandbox + RunRoom DO alarm |
 | Pi durable lease (compare-and-delete file) | RunRoom DO state |
 | `.tick/pending/` + `.consumer.lock` flock | RunRoom DO + alarms |
@@ -220,6 +220,16 @@ evidence of work starting, not just process start), and **expiring liveness**
 | `defer_until`, escalation timeouts, `target_date` approach | DO alarms / scheduled tasks |
 | Morning sweeps, budget windows | Cron triggers |
 | Board live view | Existing `ProjectRoom` DO — the `run_event` protocol got its first producers in tick bne |
+
+A Workflow step may **execute** for ten minutes (`step.sleep` is durable and
+free; only execution counts), and a step that runs longer fails the whole
+instance — supervisor, run record and lease with it. The fan-in row above is
+therefore a sequence of bounded steps: a container works for up to ninety
+minutes, so the wait is spread across legs that each adopt what the last one
+left running, re-establishing the wave from the durable layer every time. The
+limit is `WORKFLOW_STEP_TIMEOUT_MS` in `cloud/factory/src/workflow-limits.ts`,
+which every timeout inside a step is budgeted through; tick 2xm is what it cost
+to learn that in production.
 
 Deliberately **not** used at this scale: Queues (Workflow fan-out covers
 dispatch) and KV (DO storage and D1 cover it). Workers AI is *not* on that
