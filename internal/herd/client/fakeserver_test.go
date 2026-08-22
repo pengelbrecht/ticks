@@ -28,7 +28,7 @@ type fakeHandler = herdtest.Handler
 // production UnixTransport and its newline framing rather than a stubbed Conn.
 type fakeServer = herdtest.Server
 
-// pongResult is the captured protocol-19 ping reply.
+// pongResult is the captured protocol-20 ping reply.
 const pongResult = herdtest.PongResult
 
 // newFakeServer starts a fake herdr server that answers every request with the

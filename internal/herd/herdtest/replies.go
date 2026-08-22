@@ -6,9 +6,9 @@ import (
 )
 
 // defaultProtocol is the herdr API protocol the captured fixtures were taken
-// from (herdr 0.8.0). It matches client.ProtocolVersion; a mismatch is what
+// from (herdr 0.8.2). It matches client.ProtocolVersion; a mismatch is what
 // the client's fail-closed handshake test drives deliberately.
-const defaultProtocol = 19
+const defaultProtocol = 20
 
 // Respond writes a success envelope wrapping the given result JSON.
 func Respond(w *ConnWriter, id, resultJSON string) error {
@@ -36,8 +36,8 @@ func RespondErr(w *ConnWriter, id, code, message string) error {
 	return w.WriteLine(string(body))
 }
 
-// PongResult is the captured protocol-19 ping reply, capabilities included.
-const PongResult = `{"type":"pong","version":"0.8.0","protocol":19,"capabilities":{"live_handoff":true,"detached_server_daemon":true}}`
+// PongResult is the captured protocol-20 ping reply, capabilities included.
+const PongResult = `{"type":"pong","version":"0.8.2","protocol":20,"capabilities":{"live_handoff":true,"detached_server_daemon":true}}`
 
 // PongResultProtocol builds a ping reply advertising an arbitrary protocol —
 // the input to the client's fail-closed handshake check.
@@ -75,7 +75,7 @@ func withWorktreeDefaults(wt Worktree) Worktree {
 
 // handlePing answers the handshake. Every consumer gets past it for free.
 func (s *Server) handlePing(_ *testing.T, req Request, w *ConnWriter) error {
-	if s.cfg.Protocol == defaultProtocol && s.cfg.Version == "0.8.0" {
+	if s.cfg.Protocol == defaultProtocol && s.cfg.Version == "0.8.2" {
 		return Respond(w, req.ID, PongResult)
 	}
 	return RespondJSON(w, req.ID, map[string]any{
