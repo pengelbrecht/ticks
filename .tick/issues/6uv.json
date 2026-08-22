@@ -1,0 +1,13 @@
+{
+  "id": "6uv",
+  "title": "reconcile classifies a busy container as unknown even when git says ready-to-merge",
+  "description": "Noted by the Phase 2 final review (oun) as an observation rather than a bug. classifyWorker in reconcile.ts treats a container busy with something other than the work command as unknown — which is safe, it never redispatches — but it does so even when git already shows that tick branch is ready-to-merge. In that narrow window reconcile escalates to a human for a tick whose evidence is already durable and conclusive. Prefer the durable layer when it is unambiguous.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T05:39:15.070356Z",
+  "updated_at": "2026-08-22T05:39:15.070356Z"
+}

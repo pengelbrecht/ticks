@@ -1,0 +1,13 @@
+{
+  "id": "wiy",
+  "title": "Only the first wave of a cloud-submitted epic fans out to containers",
+  "description": "Found by the Phase 2 final review (oun), verified directly in run-workflow.ts rather than taken from the design doc. context.cloud_wave is computed ONCE at run start from params.tick_ids, and the closeout pass always runs through the unchanged Phase 1 single-sandbox supervisePass without re-deriving or re-dispatching a second cloud wave. So an epic needing more than one wave gets per-tick containers for the first wave only; everything after runs inside the closeout orchestrator sandbox as harness-substrate subagents.\n\nNot a defect in what was built — b6e scoped it honestly — but an operator reading \"Phase 2: cloud substrate fan-out\" will reasonably assume every wave fans out, and the runs where it silently does not are exactly the long multi-wave epics where it matters most. Either re-derive the wave per pass, or say plainly in status and docs that fan-out is first-wave-only.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T05:39:15.038213Z",
+  "updated_at": "2026-08-22T05:39:15.038213Z"
+}
