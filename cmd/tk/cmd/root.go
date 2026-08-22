@@ -644,6 +644,21 @@ func ResetFlags() {
 	cloudPRBodyRunBase = ""
 	cloudPRBodyEpic = ""
 
+	// Reset cloud wave (spawn/wait/collect/reconcile) flags
+	cloudSpawnTicks = nil
+	cloudSpawnConfig = ""
+	cloudSpawnNotify = ""
+	cloudSpawnMaxCost = 0
+	cloudSpawnMaxClock = 0
+	cloudSpawnJSON = false
+	cloudWaitEpic = ""
+	cloudWaitTicks = nil
+	cloudWaitTimeout = defaultCloudWaitTimeoutMs
+	cloudWaitPoll = defaultCloudWaitPollMs
+	cloudWaitJSON = false
+	cloudCollectEpic, cloudCollectJSON = "", false
+	cloudReconcileEpic, cloudReconcileJSON = "", false
+
 	// Reset config migration flags
 	configMigrateApply = false
 	configMigrateWrite = false

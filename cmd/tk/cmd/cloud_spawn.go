@@ -1,0 +1,294 @@
+package cmd
+
+import (
+	"fmt"
+	"net/http"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	cloudlease "github.com/pengelbrecht/ticks/internal/cloud/lease"
+	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
+	"github.com/pengelbrecht/ticks/internal/tick"
+)
+
+var (
+	cloudSpawnTicks    []string
+	cloudSpawnConfig   string
+	cloudSpawnNotify   string
+	cloudSpawnJSON     bool
+	cloudSpawnMaxCost  float64
+	cloudSpawnMaxClock time.Duration
+)
+
+var cloudSpawnCmd = &cobra.Command{
+	Use:   "spawn <epic> --ticks ID[,ID...]",
+	Short: "Dispatch a wave of ticks as cloud worker containers, one per tick",
+	Long: `Dispatch a wave into the cloud substrate: one container per tick.
+
+This is the dispatch verb a LOCAL orchestrator uses (D19). A Claude Code, omp
+or Pi session on a laptop declares ` + "`[orchestration].substrate = \"cloud\"`" + ` and
+drives worker containers from here — local judgment, cloud hands. Nothing
+about the cloud substrate requires the orchestrator to be in the cloud too.
+
+What it does, in order, so that a refusal costs nothing:
+
+  1. the substrate  a run that dispatches herdr panes or harness subagents is
+                    refused (exit 9) before anything is read or pushed
+  2. the wave       every named tick must exist and belong to the epic
+  3. the arbiter    ONE lease per project (D4). An enrolled project is
+                    arbitrated by its RunRoom — the same lease a cloud run
+                    takes — and an un-enrolled one keeps the local file lease
+                    and cannot dispatch containers at all. Enrolment upgrades
+                    the arbiter; it never installs a second one. A checkout
+                    with no factory configured never touches the network here.
+  4. the push       the branch is pushed and every tick file of the epic is
+                    proven present on origin at the submitted commit
+  5. the dispatch   one submission carrying the wave, refused with the holder's
+                    run id when another run holds the project's lease
+
+Then one manifest per tick is written to .tick/logs/cloud/<epic>/<tick>.json
+(git-ignored local state, not tracker state) and the runner-state: note lines
+are printed.
+
+This command never runs 'tk'. Write the printed notes yourself.
+
+Nothing appears locally for a dispatched tick until its container pushes:
+no worktree, no pane, no local branch. That is the substrate working, not a
+stalled wave — fan back in with 'tk cloud wait', and read the durable layer
+with 'tk cloud collect'.
+
+Exit codes
+  0  the wave was dispatched and its manifests written
+  1  a refusal (lease held, project not enrolled), or the dispatch failed
+  2  invalid flags or arguments
+  3  not inside a git repository
+  4  no such epic or tick
+  9  this run does not dispatch through the cloud substrate
+
+Examples
+  tk cloud spawn 1vn --ticks bmo,s7f,t9s
+  tk cloud spawn 1vn --ticks bmo --notify telegram --json
+  tk cloud spawn 1vn --ticks bmo,s7f --max-cost 5.00 --max-wall-clock 45m`,
+	Args:         cobra.ExactArgs(1),
+	SilenceUsage: true,
+	RunE:         runCloudSpawn,
+}
+
+func init() {
+	cloudSpawnCmd.Flags().StringSliceVar(&cloudSpawnTicks, "ticks", nil,
+		"tick ids to dispatch, comma-separated (required) — the wave is computed by the orchestrator, not here")
+	cloudSpawnCmd.Flags().StringVar(&cloudSpawnConfig, "config", "",
+		"path to runners.toml (default: <repo>/.tick/runners.toml)")
+	cloudSpawnCmd.Flags().StringVar(&cloudSpawnNotify, "notify", "",
+		"notification channel for this wave")
+	cloudSpawnCmd.Flags().Float64Var(&cloudSpawnMaxCost, "max-cost", 0,
+		"cost ceiling in USD for this wave; may lower the deployment budget, never raise it")
+	cloudSpawnCmd.Flags().DurationVar(&cloudSpawnMaxClock, "max-wall-clock", 0,
+		"wall-clock ceiling for this wave (e.g. 45m); may lower the deployment budget, never raise it")
+	cloudSpawnCmd.Flags().BoolVar(&cloudSpawnJSON, "json", false,
+		"print the manifests and note lines as one JSON document")
+	cloudCmd.AddCommand(cloudSpawnCmd)
+}
+
+func runCloudSpawn(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+	epicID := args[0]
+
+	tickIDs, err := cloudSpawnWave(cloudSpawnTicks)
+	if err != nil {
+		return err
+	}
+	if cmd.Flags().Changed("max-cost") && cloudSpawnMaxCost <= 0 {
+		return NewExitError(ExitUsage, "--max-cost must be a positive amount in USD, got %v", cloudSpawnMaxCost)
+	}
+	if cmd.Flags().Changed("max-wall-clock") && cloudSpawnMaxClock <= 0 {
+		return NewExitError(ExitUsage, "--max-wall-clock must be a positive duration, got %s", cloudSpawnMaxClock)
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		return NewExitError(ExitNoRepo, "failed to detect repo root: %v", err)
+	}
+
+	// The substrate, first and cheapest. A run whose workers are herdr panes
+	// must not get containers as well — the mirror image of `tk herd spawn`'s
+	// own refusal, and for the same reason: two workers on one tick.
+	cfg, err := herdLoadConfig(root, cloudSpawnConfig)
+	if err != nil {
+		return ExitError{Code: ExitGeneric, Message: err.Error()}
+	}
+	if err := cloudSubstrateGate(cfg, "tk cloud spawn"); err != nil {
+		return err
+	}
+
+	if err := cloudSpawnCheckWave(root, epicID, tickIDs); err != nil {
+		return err
+	}
+
+	// The arbiter. Resolved before the push, so an un-enrolled checkout — the
+	// one that has to keep working offline — is answered from ~/.ticksrc alone.
+	arbiter, client, _, err := cloudArbiter(ctx)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	if !arbiter.Upgraded() {
+		return NewExitError(ExitGeneric, "%s", arbiter.DispatchRefusal())
+	}
+	fmt.Fprintln(errOut, arbiter.Explain())
+
+	baseSHA, project, requestedBy, err := prepareCloudSubmission(ctx, root, epicID)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+
+	submission := struct {
+		Project     string   `json:"project"`
+		Epic        string   `json:"epic"`
+		BaseSHA     string   `json:"base_sha"`
+		RequestedBy string   `json:"requested_by"`
+		TickIDs     []string `json:"tick_ids"`
+		Origin      string   `json:"origin"`
+		Notify      string   `json:"notify,omitempty"`
+		MaxCostUSD  float64  `json:"max_cost_usd,omitempty"`
+		MaxWallMS   int64    `json:"max_wall_clock_ms,omitempty"`
+	}{
+		Project: project, Epic: epicID, BaseSHA: baseSHA, RequestedBy: requestedBy,
+		TickIDs: tickIDs,
+		// The lease this dispatch takes is recorded as a LOCAL one: an
+		// operator reading `tk cloud status` has to be able to tell their own
+		// laptop session from a scheduled run before deciding to stop it.
+		Origin: string(cloudlease.OriginLocal),
+		Notify: strings.TrimSpace(cloudSpawnNotify), MaxCostUSD: cloudSpawnMaxCost,
+		MaxWallMS: cloudSpawnMaxClock.Milliseconds(),
+	}
+
+	data, err := client.request(ctx, http.MethodPost, "/api/runs", submission)
+	if err != nil {
+		if holder, held := cloudLeaseHolder(err); held {
+			return NewExitError(ExitGeneric, "%s", cloudlease.HeldError{Project: project, Holder: holder}.Error())
+		}
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	var response cloudSubmissionResponse
+	if err := decodeCloudJSON(data, &response); err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	runID := response.Run.RunID
+	if runID == "" {
+		runID = response.RunID
+	}
+	if runID == "" {
+		return NewExitError(ExitGeneric, "the factory accepted the wave but returned no run id")
+	}
+
+	manifests := make([]cloudstate.Manifest, 0, len(tickIDs))
+	notes := make([]string, 0, len(tickIDs))
+	for _, tickID := range tickIDs {
+		m := cloudstate.Manifest{
+			Tick: tickID, Epic: epicID, Project: project, RunID: runID,
+			Branch: cloudstate.BranchFor(epicID, tickID), Base: baseSHA,
+			Remote:      cloudstate.DefaultRemote,
+			LeaseOrigin: string(cloudlease.OriginLocal),
+			Arbiter:     string(arbiter.Kind),
+		}
+		if _, err := cloudstate.Write(root, m); err != nil {
+			return NewExitError(ExitIO, "%v", err)
+		}
+		manifests = append(manifests, m)
+		notes = append(notes, cloudstate.NoteLine(m))
+	}
+
+	if cloudSpawnJSON {
+		writeJSONLine(out, struct {
+			Run       string                 `json:"run_id"`
+			Epic      string                 `json:"epic"`
+			Manifests []cloudstate.Manifest  `json:"manifests"`
+			Notes     []string               `json:"notes"`
+			Lease     map[string]interface{} `json:"lease"`
+		}{runID, epicID, manifests, notes, map[string]interface{}{
+			"arbiter": string(arbiter.Kind), "origin": string(cloudlease.OriginLocal), "project": project,
+		}})
+		return nil
+	}
+
+	fmt.Fprintf(out, "Cloud wave dispatched: %s (%d tick(s) at %s)\n", runID, len(tickIDs), baseSHA)
+	for i, m := range manifests {
+		fmt.Fprintf(out, "  %s  %s  %s\n", m.Tick, m.Branch, cloudstate.RelPath(m.Epic, m.Tick))
+		fmt.Fprintf(out, "    %s\n", notes[i])
+	}
+	fmt.Fprintln(out, "Nothing appears locally until a container pushes; fan in with 'tk cloud wait --epic "+epicID+"'.")
+	return nil
+}
+
+// cloudSpawnWave normalises --ticks: at least one id, no duplicates, no blanks.
+func cloudSpawnWave(raw []string) ([]string, error) {
+	ids := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, entry := range raw {
+		id := strings.TrimSpace(entry)
+		if id == "" {
+			continue
+		}
+		if seen[id] {
+			return nil, NewExitError(ExitUsage, "--ticks names %s more than once; one container per tick", id)
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, NewExitError(ExitUsage,
+			"--ticks is required: 'tk cloud spawn' dispatches a wave the orchestrator computed (tk next / tk graph), not one it guesses")
+	}
+	return ids, nil
+}
+
+// cloudSpawnCheckWave proves the wave is real before anything is pushed: the
+// epic is an epic, and every named tick is a descendant of it.
+//
+// The descendant check is not pedantry. A container clones at the epic's base
+// and pushes `tick/<epic>/<tick>`, so a tick from another epic would be
+// implemented against a base its own epic never chose and land on a branch
+// named after an epic it does not belong to.
+func cloudSpawnCheckWave(root, epicID string, tickIDs []string) error {
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	epic, err := store.Read(epicID)
+	if err != nil {
+		return NewExitError(ExitNotFound, "cannot dispatch epic %q: %v", epicID, err)
+	}
+	if epic.Type != tick.TypeEpic {
+		return NewExitError(ExitGeneric, "cannot dispatch %q: it is not an epic", epicID)
+	}
+	all, err := store.List()
+	if err != nil {
+		return NewExitError(ExitGeneric, "cannot inspect ticks for epic %q: %v", epicID, err)
+	}
+	byID := make(map[string]tick.Tick, len(all))
+	for _, item := range all {
+		byID[item.ID] = item
+	}
+
+	outside := make([]string, 0)
+	for _, id := range tickIDs {
+		item, ok := byID[id]
+		if !ok {
+			return NewExitError(ExitNotFound, "no tick %q in this checkout", id)
+		}
+		if !cloudIsDescendant(item, epicID, byID) {
+			outside = append(outside, id)
+		}
+	}
+	if len(outside) > 0 {
+		sort.Strings(outside)
+		return NewExitError(ExitGeneric,
+			"%s do not belong to epic %s: a worker container clones at that epic's base and pushes tick/%s/<tick>, "+
+				"so dispatching them here would implement them against a base their own epic never chose",
+			strings.Join(outside, ", "), epicID, epicID)
+	}
+	return nil
+}

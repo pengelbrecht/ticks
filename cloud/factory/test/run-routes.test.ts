@@ -289,6 +289,51 @@ describe("submission on a free project", () => {
     });
   });
 
+  // D19 (tick bmo): the cloud substrate is drivable from a laptop. A local
+  // orchestrator's `tk cloud spawn` submission takes the SAME lease a
+  // Workflow-hosted run takes — one project, one arbiter — and the origin is
+  // what makes the holder legible to whoever gets refused next.
+  it("records a locally-driven wave as a local lease holder", async () => {
+    const project = await enrolled("local-origin");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { origin: "local", tick_ids: ["bmo", "s7f"] })
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { run: { run_id: string } };
+    await expect(roomFor(env, project).leaseStatus()).resolves.toMatchObject({
+      run_id: body.run.run_id,
+      epic: "ko8",
+      origin: "local",
+    });
+    // Same lease, same room: a second submission is refused and NAMES the
+    // local holder, which is what stops a laptop session and the 06:00 sweep
+    // from both being inside .tick/.
+    const second = await post("/api/runs", submission(project));
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      error: "lease_held",
+      holder: { run_id: body.run.run_id, origin: "local" },
+    });
+  });
+
+  it("defaults an unstated origin to cloud, as every submission before it was", async () => {
+    const project = await enrolled("default-origin");
+    const res = await post("/api/runs", submission(project));
+    expect(res.status).toBe(201);
+    await expect(roomFor(env, project).leaseStatus()).resolves.toMatchObject({ origin: "cloud" });
+  });
+
+  it("refuses an origin it cannot parse rather than rewriting it", async () => {
+    const project = await enrolled("bad-origin");
+    const res = await post("/api/runs", submission(project, { origin: "laptop" }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    await expect(roomFor(env, project).leaseStatus()).resolves.toBeNull();
+  });
+
   // The flags on `tk cloud run` are a per-invocation choice; nothing about
   // them is a redeploy, so they have to reach the Workflow's params.
   it("carries a per-run budget into the Workflow params", async () => {

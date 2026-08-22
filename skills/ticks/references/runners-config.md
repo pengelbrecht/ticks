@@ -465,7 +465,20 @@ What changes for a run under it:
 
 `harness` and `auto` are **not** refused by `tk herd spawn`, and the asymmetry is deliberate: neither is dispatched by a `tk` verb — harness workers are subagents of the orchestrating harness — so `tk herd spawn` on such a repository is an operator choosing herdr for one worker, not two substrates racing for one branch.
 
-**What is real today, and what is not.** The value parses, validates and resolves: `tk` agrees it means something, `tk sandbox substrate` prints `cloud`, and the runner-state note records it. What does not exist yet is the **local** dispatch path — the `tk cloud spawn / wait / collect / reconcile` verb family (D19) that would let a laptop session drive worker containers. Until it lands, a local orchestrator meeting `cloud` has no way to dispatch and must **stop and say so** rather than quietly running the wave on another substrate; the Workflow-hosted path fans a wave out from a submission carrying `tick_ids` and does not read this key. Declaring `cloud` today is therefore a statement of intent that `tk` will enforce rather than ignore — which is the point: a declared substrate and an actual substrate that can disagree with nothing reconciling them is the failure this value exists to close.
+**How a local orchestrator dispatches it.** The `tk cloud` verb family mirrors `tk herd`'s, one verb for one verb, so an orchestrator swapping substrates keeps its loop:
+
+```
+tk cloud spawn <epic> --ticks a,b,c   # one container per tick
+tk cloud wait --epic <epic>           # settles on the report each container pushed
+tk cloud collect --epic <epic>        # the same four verdicts, read off the pushed branches
+tk cloud reconcile --epic <epic>      # read-only recovery after the orchestrator dies
+```
+
+Two things differ from the herdr family, both because a container is destroyed when it exits. There is no worktree, so `collect` reads `RESULT-<tick-id>.md` **committed on the branch** rather than sitting in a working directory; and there is no process to watch, so `wait` settles on that pushed report rather than on an agent's lifecycle event. A fifth verdict, `unknown`, exists for evidence that could not be *read* — an unreachable remote is not a worker that failed.
+
+**One lease, wherever the orchestrator sits.** On a project enrolled with a factory, a local `tk cloud spawn` takes the **same** RunRoom lease a Workflow-hosted run takes, recorded with `origin: local` so a refusal names which kind of orchestrator is in the way; a second dispatch is refused with the holder's run id. An un-enrolled project keeps the local file lease and cannot dispatch containers at all — enrolment upgrades the arbiter and never installs a second one. A checkout with no factory configured makes no network call to learn this, which is what keeps the degenerate case (a fully local orchestrator, no cloud enrolment, on a plane) working forever.
+
+The Workflow-hosted path is the same substrate reached from the other side: it fans a wave out from a submission carrying `tick_ids`, which is exactly what `tk cloud spawn` sends.
 
 **A worker container is told `harness`, not left to inherit `cloud`.** The sandbox entrypoint defaults `TICKS_SUBSTRATE=harness` precisely so that a container booting on a cloud-declaring checkout does not dispatch containers of its own. The note records both halves: `runner-state: substrate=harness requested=harness config=cloud source=TICKS_SUBSTRATE reason=explicit-override`.
 

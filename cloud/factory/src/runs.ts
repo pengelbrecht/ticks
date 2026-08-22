@@ -49,6 +49,7 @@ import { modelRoutingComplaint, revokeRunTokens } from "./gateway";
 import type { Env } from "./index";
 import type {
   DispatchLeaseView,
+  LeaseOrigin,
   PendingEntry,
   QueuedSubmission,
   RunRoom,
@@ -237,6 +238,22 @@ export type RunSubmission = {
   max_wall_clock_ms?: number;
   /** The wave of ticks to fan out as per-tick cloud worker containers (tick b6e). */
   tick_ids?: string[];
+  /**
+   * Where the orchestrator that submitted this run sits (D19, tick bmo).
+   *
+   * The cloud substrate is drivable from anywhere: `tk cloud spawn` on a
+   * laptop dispatches worker containers and then drives the wave locally, and
+   * that submission takes the SAME RunRoom lease a Workflow-hosted run takes —
+   * one project, one arbiter, whatever the orchestrator's location. This field
+   * is what makes the two distinguishable afterwards, and it matters at
+   * exactly the moment someone is refused: "held by run X (local)" tells an
+   * operator their own laptop session is in the way, while "(cloud)" tells
+   * them the 06:00 sweep is, and those are different next actions.
+   *
+   * Absent means `cloud`, which is what every submission before this field
+   * was.
+   */
+  origin?: LeaseOrigin;
 };
 
 export type SubmissionParse =
@@ -335,6 +352,18 @@ export function parseSubmission(body: unknown): SubmissionParse {
   const tickIDsComplaint = tickIDsField(raw.tick_ids, (v) => (tickIDs = v));
   if (tickIDsComplaint !== null) return { ok: false, detail: tickIDsComplaint };
 
+  // An origin that cannot be parsed is refused rather than defaulted: the
+  // value's whole job is to say truthfully who holds the lease, and a
+  // submission whose claim about itself was silently rewritten to "cloud"
+  // would make a refusal name the wrong kind of orchestrator.
+  let origin: LeaseOrigin | undefined;
+  if (raw.origin !== undefined && raw.origin !== null) {
+    if (raw.origin !== "local" && raw.origin !== "cloud") {
+      return { ok: false, detail: `origin must be "local" or "cloud", got ${JSON.stringify(raw.origin)}` };
+    }
+    origin = raw.origin;
+  }
+
   // The RunRoom's queued-submission record (D22) has no `tick_ids` column —
   // queueing is for the project-lease-held case, and adding cloud-wave
   // support to that path is its own migration. Refusing loudly here is the
@@ -362,6 +391,7 @@ export function parseSubmission(body: unknown): SubmissionParse {
       ...(maxCost === undefined ? {} : { max_cost_usd: maxCost }),
       ...(maxWallClock === undefined ? {} : { max_wall_clock_ms: maxWallClock }),
       ...(tickIDs === undefined ? {} : { tick_ids: tickIDs }),
+      ...(origin === undefined ? {} : { origin }),
     },
   };
 }
@@ -669,7 +699,9 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
   const lease = await room.acquireDispatchLease({
     run_id: runID,
     epic: submission.epic,
-    origin: "cloud",
+    // The lease is the same lease wherever the orchestrator sits (D19); the
+    // origin only records which side asked for it.
+    origin: submission.origin ?? "cloud",
     requested_by: submission.requested_by,
     ttl_ms: BOOT_LEASE_TTL_MS,
   });
