@@ -2523,6 +2523,168 @@ describe("a cloud wave in flight answers to a stop and to a budget", () => {
 });
 
 /**
+ * THE defect behind every failed fan-out run (tick 2xm).
+ *
+ * A Cloudflare Workflow step may EXECUTE for ten minutes.
+ * `superviseCloudWave` called `dispatchWave` inside ONE `step.do`, and
+ * `dispatchWave` blocks until every container in the batch settles — up to
+ * ninety-one minutes since tick 5fg. So every wave that took longer than ten
+ * minutes killed its own supervisor:
+ *
+ *     status: errored
+ *     error:  {"message": "Execution timed out after 600000ms", "name": "Error"}
+ *     last step: cloud:dispatch:0-1
+ *
+ * and what an operator saw was a run frozen at `running` with `lease: null`,
+ * containers still making model calls half an hour after the supervisor died,
+ * and nothing collecting or tearing any of it down.
+ *
+ * These drive the REAL Workflow with containers that stay mid-tick, which is
+ * the only state in which "the wave outlived a step" means anything. The leg
+ * length is set tiny so the test spends milliseconds where a real wave spends
+ * seven minutes; nothing else about the shape changes.
+ */
+describe("a wave outlives one Workflow step instead of killing its supervisor", () => {
+  let collector: FakeWorkerCollector;
+
+  beforeEach(() => {
+    collector = new FakeWorkerCollector();
+    set("WORKER_COLLECTOR", collector);
+    // One leg of the wave, in miniature. A real deployment uses WAVE_LEG_MS
+    // (seven minutes); what matters here is that the wave takes MORE THAN ONE
+    // of them, which is what the containers below guarantee by never
+    // finishing on their own.
+    set("RUN_WAVE_LEG_MS", "200");
+  });
+
+  it("watches containers that outlast a leg across many bounded steps, adopting them each time", async () => {
+    // Containers that are genuinely mid-tick: they print and keep running,
+    // exactly as a worker implementing a tick does for an hour.
+    sandboxes.holdWork = true;
+    const { runID, project } = await ignite({ tickIDs: ["aaa", "bbb"] });
+
+    const names = ["aaa", "bbb"].map((tick) => workerSandboxName(runID, tick));
+    await waitFor("both worker containers to be mid-tick", async () => {
+      try {
+        return names.every((name) =>
+          sandboxes
+            .named(name)
+            .processes.some((p) => p.command === WORKER_COMMAND && p.state === "running")
+        )
+          ? true
+          : null;
+      } catch {
+        return null;
+      }
+    });
+
+    // THE ASSERTION THIS TICK EXISTS FOR. Every leg re-establishes the wave
+    // from the durable layer — that is what `listed` counts, the container's
+    // own process list being read by `reconcileWave`. Before this tick the
+    // wave was ONE step: the reconcile ran once and the supervisor then sat
+    // inside a single blocking call until Cloudflare killed it, so this
+    // counter would stop at one and never move again.
+    await waitFor(
+      "the wave to be re-established from the durable layer across several legs",
+      async () => (names.every((name) => sandboxes.named(name).listed >= 3) ? true : null),
+      20_000
+    );
+
+    // And it adopted, every time: not one tick got a second container, a
+    // second work process or a second green-start probe out of being watched
+    // across a dozen steps.
+    for (const name of names) {
+      const container = sandboxes.named(name);
+      expect(container.processes.filter((p) => p.command === WORKER_COMMAND)).toHaveLength(1);
+      expect(container.processes.filter((p) => p.command === WORKER_PROBE_COMMAND)).toHaveLength(1);
+      expect(container.destroyed).toBe(false);
+    }
+    expect(sandboxes.booted.filter((s) => s.name.includes("-tick-"))).toHaveLength(2);
+
+    // The containers finish, an hour later in a real run. The wave notices on
+    // its next leg, tears them down and hands off — with its supervisor still
+    // alive, which is the whole point.
+    for (const name of names) {
+      sandboxes.named(name).processes.find((p) => p.command === WORKER_COMMAND)!.exit(0);
+    }
+
+    const integrate = await wavePass(1);
+    expect(integrate.env.TICKS_STOP_REASON ?? "").toContain("cloud wave dispatched 2");
+    orchestratorPushedWork();
+    integrate.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    // Teardown still happens on the path that never existed before: a
+    // container left alive by one leg is destroyed by the leg that finds it
+    // finished, not abandoned.
+    for (const name of names) expect(sandboxes.named(name).destroyed).toBe(true);
+
+    // The wave's verdicts survive being spread across steps.
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("cloud wave dispatched 2");
+    expect(record.detail).toContain("ready-to-merge");
+
+    // And how many steps it took is recorded, because "the supervisor watched
+    // this the whole way" is the fact a stuck run needs to be able to prove.
+    const logged = await listDispatchLogs(env.DB, runID, "ko8");
+    const legs = logged.find((entry) => entry.decision.startsWith("cloud_wave_legs:"));
+    expect(legs).toBeDefined();
+    const count = Number(legs!.decision.split(":")[2]);
+    expect(count).toBeGreaterThanOrEqual(3);
+    // Leg 0 dispatched; every leg after it found the same two live workers.
+    expect(legs!.decision).toContain("2 live-worker");
+    // The pre-dispatch plan is still logged exactly as it was, and still says
+    // what leg 0 found: nothing dispatched yet (tick ys3's wording).
+    const plan = logged.find((entry) => entry.decision.startsWith("cloud_reconcile_plan:"))!;
+    expect(plan.decision).toContain("2 never-dispatched");
+  }, 60_000);
+
+  /**
+   * The kill switch, on the new geometry (tick k24's guarantee, re-proved).
+   *
+   * Cancellation used to live inside the one blocking call. It now lives
+   * inside each leg, and a wave spread across a dozen legs that could not be
+   * stopped in any of them would be a worse bug than the one this tick fixed.
+   */
+  it("still tears containers down mid-leg on a hard stop, many legs into a wave", async () => {
+    sandboxes.holdWork = true;
+    const { runID } = await ignite({ tickIDs: ["aaa"] });
+
+    const name = workerSandboxName(runID, "aaa");
+    const working = await waitFor("the worker container to be mid-tick", async () => {
+      try {
+        const process = sandboxes
+          .named(name)
+          .processes.find((p) => p.command === WORKER_COMMAND && p.state === "running");
+        return process ?? null;
+      } catch {
+        return null;
+      }
+    });
+    // Several legs in — the stop arrives at a supervisor that has already
+    // checkpointed and resumed the wave more than once.
+    await waitFor(
+      "the wave to run past its first leg",
+      async () => (sandboxes.named(name).listed >= 3 ? true : null),
+      20_000
+    );
+
+    await stopRun(env, runID, "operator", "hard");
+
+    await waitFor(
+      "the container to be killed and destroyed",
+      async () => (working.killed && sandboxes.named(name).destroyed ? true : null),
+      20_000
+    );
+
+    const run = await settled(runID);
+    expect(run.state).toBe("stopped");
+  }, 60_000);
+});
+
+/**
  * The board finally sees a live run (tick bne).
  *
  * These drive the REAL Workflow with a recording sink in the `RUN_EVENTS`

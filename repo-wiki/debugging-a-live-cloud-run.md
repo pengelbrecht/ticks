@@ -49,6 +49,44 @@ Two of the three were the orchestrator's, and in each case a worker disproved
 it for the cost of an hour. Write the hypothesis into the tick **labelled as a
 hypothesis**, with the evidence that would confirm or kill it.
 
+## Ask the Workflow instance, not the run record
+
+Added 2026-08-22 after tick `2xm`. A run record is written BY the supervisor,
+so a supervisor that died leaves a record frozen at its last honest value —
+`state: running`, `lease: null`, containers still working. Reading that record
+harder never produces the answer; the Workflow instance has it:
+
+```
+GET /accounts/<cloudflare-account-id>/workflows/ticks-run/instances/<run_id>
+```
+
+Read-only, needs only `factory_cloudflare_api_token`, costs nothing and needs
+no run. It returns the instance `status`, the failing `error` and the LAST STEP
+that ran. Two runs that had produced days of inference answered in one call:
+
+```
+status: errored
+error:  {"message": "Execution timed out after 600000ms", "name": "Error"}
+last step: cloud:dispatch:0-1
+```
+
+**600000ms is Cloudflare's per-step EXECUTION cap** — ten minutes, and it fails
+the whole INSTANCE, not just the step. Since `2xm` the number lives in
+`cloud/factory/src/workflow-limits.ts` with the behaviour written down and a
+guard test around it; a wave is now watched across bounded LEGS
+(`WAVE_LEG_MS`), each its own step, each adopting what the last one left
+running. `step.sleep` is free — only execution counts.
+
+**Rule:** any run stuck at `running` with no progress is a supervisor question
+before it is a container question. Ask the instance first. And when adding a
+step to that Workflow, take its timeout through `workflow-limits.ts` — the
+first version of the dispatch step was written because nothing in the package
+named the limit.
+
+**The counter-intuitive interaction:** raising the worker budget from 30 to 90
+minutes (`5fg`) made this WORSE. A longer wave is a longer blocking step. Both
+changes were correct and neither works alone.
+
 ## What the test suite cannot tell you
 
 `vitest` drives `FakeSandboxes`, which boots instantly, never pulls an image

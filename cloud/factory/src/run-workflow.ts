@@ -86,6 +86,7 @@ import {
   type RunProgress,
 } from "./progress";
 import {
+  NOT_ASKED,
   adoptions,
   dispatchable,
   manifestRecorder,
@@ -123,14 +124,18 @@ import {
   workerWorkSpec,
 } from "./worker-boot";
 import { MAX_RUN_WAVES } from "./wave-request";
-import { workerCollector } from "./worker-collect";
+import { workerCollector, type WorkerCollector } from "./worker-collect";
 import {
+  DEFAULT_CONFIRM_TIMEOUT_MS,
+  DEFAULT_WAIT_POLL_MS,
   dispatchWave,
+  probeTimeoutMs,
   waveCanceller,
   workerSandboxName,
   type WaveCancellation,
   type WorkerWaveOutcome,
 } from "./worker-dispatch";
+import { STEP_WORK_BUDGET_MS, shareStepBudget, stepBudget } from "./workflow-limits";
 
 // ------------------------------------------------------------- the shape ---
 
@@ -253,6 +258,12 @@ export type RunConfig = {
   poll_interval_ms: number | null;
   /** Looks per boot before the run is stopped cleanly rather than watched on. */
   max_observations: number;
+  /**
+   * How long one dispatch leg of a cloud wave watches its containers before
+   * checkpointing and starting another (tick 2xm). Bounded by what a single
+   * Cloudflare Workflow step may execute for; see `WAVE_LEG_MS`.
+   */
+  wave_leg_ms: number;
   harness: string | null;
   model: string | null;
   /**
@@ -362,6 +373,9 @@ export function runConfig(env: Env, override: RunBudgetOverride = {}): RunConfig
     closeout_ms: positiveVar(env, "RUN_CLOSEOUT_MS", DEFAULT_CLOSEOUT_MS, true),
     poll_interval_ms: poll === null ? null : positiveVar(env, "RUN_POLL_INTERVAL_MS", MIN_POLL_MS, true),
     max_observations: positiveVar(env, "RUN_MAX_OBSERVATIONS", MAX_OBSERVATIONS, true),
+    // Clamped, never trusted: a leg longer than a step may execute for is the
+    // bug this tick fixed, and a var is exactly how it would come back.
+    wave_leg_ms: stepBudget(positiveVar(env, "RUN_WAVE_LEG_MS", WAVE_LEG_MS, true)),
     harness: textVar(env, "RUN_HARNESS"),
     model: textVar(env, "RUN_MODEL"),
     // Null rather than a number, so `cloudWaveBudget` can tell "this
@@ -1667,6 +1681,441 @@ export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
 }
 
 /**
+ * How long ONE dispatch leg may watch a wave's containers.
+ *
+ * The number this exists to respect is Cloudflare's: a Workflow step may
+ * EXECUTE for ten minutes (`WORKFLOW_STEP_TIMEOUT_MS`), and a step that runs
+ * longer kills the whole instance — supervisor, run record, lease and all
+ * (tick 2xm, src/workflow-limits.ts). A wave's containers work for up to
+ * ninety minutes, so the wait is spread across legs of this length instead of
+ * being one blocking call.
+ *
+ * `STEP_WORK_BUDGET_MS` is what a step may be sized for; the minute held back
+ * here is for everything the leg does BESIDES waiting — the reconcile's git
+ * reads, the collect at the end of each container's cycle, the teardowns, and
+ * the R2 write of the leg's outcomes.
+ */
+export const WAVE_LEG_MS = STEP_WORK_BUDGET_MS - 60_000;
+
+/**
+ * The most legs one batch may burn.
+ *
+ * A backstop, not a budget: the wave's real bound is `wait_timeout_ms` (the
+ * worker budget plus the push margin) and the run's own wall clock, both
+ * enforced below. This only stops a pathological batch from spending the
+ * Workflow instance's whole step allowance — at a full leg it is more than
+ * four hours of watching, well past any wave budget this deployment can issue.
+ */
+export const MAX_WAVE_LEGS = 40;
+
+/**
+ * How many times one tick may have a container STARTED for it inside a batch.
+ *
+ * A leg that finds a tick's container gone redispatches it — that is the
+ * eviction recovery the reconcile protocol exists for (tick s7f). Unbounded,
+ * across a dozen legs, it is also a way to boot a dozen containers for one
+ * tick that cannot stay up. Two attempts: the first one, and the recovery.
+ */
+export const MAX_WORKER_DISPATCHES = 2;
+
+/**
+ * The bounded waits inside ONE dispatch leg's step, budgeted together.
+ *
+ * Two independently reasonable timeouts — a green-start probe sized for a cold
+ * container and a dispatch confirm sized for a harness launch — summed to 598s
+ * of the 600s a step may execute for, which is a step with no room for the
+ * reconcile in front of it. Sizing the probe for the width this wave actually
+ * runs at (`probeTimeoutMs`) is what buys the room back; `shareStepBudget` is
+ * the backstop that keeps the sum inside the cap for any width at all.
+ */
+export function waveSpawnBudget(width: number): {
+  probe_timeout_ms: number;
+  confirm_timeout_ms: number;
+} {
+  const shared = shareStepBudget(
+    { probe: probeTimeoutMs(width), confirm: DEFAULT_CONFIRM_TIMEOUT_MS },
+    `a cloud wave ${width} container(s) wide`
+  );
+  return { probe_timeout_ms: shared.probe!, confirm_timeout_ms: shared.confirm! };
+}
+
+/** What one batch of a wave did, folded across every leg it took. */
+type WaveBatchOutcome = {
+  /** One per tick in the batch, each from the leg that settled it. */
+  outcomes: WorkerWaveOutcome[];
+  /** Set when a stop or a budget cancelled the batch mid-flight. */
+  cancelled: WaveCancellation | null;
+  /** The reconcile summary leg 0 drew, for the dispatch log. */
+  reconcile: string;
+  /** Every leg's reconcile summary, in order — what each one found still live. */
+  legs: string[];
+};
+
+/**
+ * Runs one batch of a cloud wave, across as many bounded steps as it takes.
+ *
+ * THE SHAPE, and why it is not one step (tick 2xm). `dispatchWave` blocks
+ * until every container in the batch settles, and since tick 5fg that is up to
+ * ninety-one minutes. A Cloudflare Workflow step may EXECUTE for ten. The
+ * previous version of this code called `dispatchWave` inside a single
+ * `step.do`, so every real wave killed its own supervisor at minute ten:
+ * `status: errored, "Execution timed out after 600000ms"`, run record frozen
+ * at `running`, lease unrenewed, containers orphaned and still spending. Both
+ * live fan-out runs died exactly there.
+ *
+ * So a batch is a sequence of LEGS, each its own step, each sized to fit
+ * inside the cap:
+ *
+ *  - **leg 0 dispatches.** Reconcile, then boot the containers that need
+ *    booting and confirm their work started — and wait zero. Its cost is the
+ *    probe plus the confirm, budgeted together by `waveSpawnBudget`.
+ *  - **later legs watch.** Reconcile again, adopt every container that is
+ *    still running, and wait one `WAVE_LEG_MS`. A container still working when
+ *    the leg ends is LEFT RUNNING (`on_wait_timeout: "leave"`) for the next
+ *    leg to adopt; nothing is torn down for the crime of outliving a step.
+ *  - **the last leg is the wave's deadline.** It waits with the default
+ *    `teardown` policy, so a container that outlived the whole wave budget is
+ *    killed exactly as it always was.
+ *
+ * Every leg re-establishes the wave from the DURABLE LAYER — manifests, git,
+ * the container's own process list — rather than from anything held in a
+ * closure, because a step that was in flight when the isolate died runs again
+ * from the top and a resumed Workflow has none of the previous attempt's
+ * memory. That is the same `reconcileWave` call the single-step version made
+ * for the same reason (tick s7f); it now runs once per leg instead of once per
+ * batch, which is what turns "the supervisor died mid-wave" from a special
+ * case into the ordinary flow of control.
+ *
+ * What did NOT change, because a wave that cannot be stopped is worse than a
+ * wave that dies: cancellation is still `cloudWaveTrip` through a shared
+ * `waveCanceller` polled on the run's own cadence INSIDE each leg, the
+ * credential is still revoked before any teardown (tick gyl's ordering), a
+ * cancelled container is still torn down before anything else is done with it,
+ * and the outcomes of every leg are still written to R2 at the return site so
+ * a failing wave stays diagnosable (tick ys3).
+ */
+async function runWaveBatch(
+  env: Env,
+  step: WorkflowStep,
+  params: RunWorkflowParams,
+  context: RunContext,
+  plan: CloudWavePlan,
+  collector: WorkerCollector,
+  batch: string[],
+  input: {
+    wave: number;
+    index: number;
+    tag: string;
+    token: string;
+    telemetry: { complained: boolean };
+    cancel_poll_ms: number;
+  }
+): Promise<WaveBatchOutcome> {
+  const label = `${input.tag}${input.index}`;
+  const batchNumber = input.wave * 1000 + input.index + 1;
+  const spawnBudget = waveSpawnBudget(plan.width);
+  const legMs = context.config.wave_leg_ms;
+
+  /** The outcome that stands for each tick, replaced as later legs learn more. */
+  const merged = new Map<string, WorkerWaveOutcome>();
+  /** How far each container's output has been streamed, so no leg re-streams it. */
+  const offsets = new Map<string, number>();
+  /** Containers started per tick, against `MAX_WORKER_DISPATCHES`. */
+  const dispatches = new Map<string, number>();
+  const legs: string[] = [];
+  /** The ticks still being watched — every leg after the first acts only on these. */
+  let pending = [...batch];
+  let cancelled: WaveCancellation | null = null;
+  let firstPlan = "";
+  /** Leg 0's clock, and the wave window it computed. Both checkpointed values. */
+  let startedAtMs = 0;
+  /** When the leg that just ran started, on the same checkpointed clock. */
+  let lastLegAtMs = 0;
+  let waveWaitMs = 0;
+  let legCount = 2;
+
+  for (let leg = 0; leg < legCount && pending.length > 0; leg++) {
+    // The last leg is the wave's deadline: it may not start new containers, and
+    // whatever is still running when it ends is killed rather than left for a
+    // leg that will not come.
+    // Projected from CHECKPOINTED clocks — the leg that just ran reported the
+    // time it started — never from a live `Date.now()`, so a replayed Workflow
+    // decides the same legs are final as the original run did.
+    const projectedEndMs = lastLegAtMs === 0 ? 0 : lastLegAtMs + legMs;
+    const final =
+      leg === legCount - 1 || (waveWaitMs > 0 && projectedEndMs - startedAtMs >= waveWaitMs);
+    // Leg 0 keeps the original, unprefixed step name so a run in flight across
+    // a deploy replays its checkpoint rather than re-dispatching its batch.
+    const name = leg === 0 ? `cloud:dispatch:${label}` : `cloud:dispatch:${label}:${leg}`;
+    const legTicks = [...pending];
+    const priorOutcomes = [...merged.values()].filter(
+      (outcome) => !legTicks.includes(outcome.collect.tick_id)
+    );
+    const adoptOffsets = Object.fromEntries(offsets);
+    const started = Object.fromEntries(dispatches);
+
+    const ran = await step.do(name, CLOUD_DISPATCH_RETRIES, async () => {
+      const binding = sandboxBinding(env);
+      if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
+      const taskFor = (tick: string) => workerTask(params.epic, tick, params.base_sha);
+      const sandboxNameFor = (tick: string) => workerSandboxName(params.run_id, tick);
+      const at_ms = Date.now();
+
+      // The reconcile protocol, run INSIDE this step and on every attempt at
+      // it (tick s7f).
+      //
+      // That placement is the whole point. A Workflow step that completes is
+      // checkpointed and never runs again, but a step that was IN FLIGHT when
+      // the isolate died runs from the top — and this is the step that boots
+      // containers. Without a reconcile here, a supervisor replacing one that
+      // died mid-batch addresses the same per-tick sandbox names and starts a
+      // second worker process in each of them, on the same branch, with the
+      // first one still working. A reconcile hoisted into its own step would
+      // be no better: its verdict would be the checkpointed one, taken before
+      // the containers it describes existed.
+      //
+      // So the evidence is re-established from the durable layer every time
+      // this step runs, and only the ticks the plan says to dispatch are
+      // dispatched. Since tick 2xm that is once per LEG rather than once per
+      // batch, which is what lets leg N+1 pick up exactly the containers leg N
+      // left running.
+      const reconciled = await reconcileWave({
+        bucket: env.ARTIFACTS,
+        project: params.project,
+        run_id: params.run_id,
+        epic: params.epic,
+        tick_ids: legTicks,
+        binding,
+        collector,
+        sandboxNameFor,
+        taskFor,
+      });
+      const adopted = adoptions(reconciled);
+      // A container is started for a tick only while the batch has attempts
+      // left for it, and never on the final leg: the wave is ending, and a
+      // container booted into the last few seconds of it is pure spend.
+      const fresh = final
+        ? []
+        : dispatchable(reconciled)
+            .map((item) => item.tick_id)
+            .filter((tick) => (started[tick] ?? 0) < MAX_WORKER_DISPATCHES);
+      const acting = new Set([...fresh, ...adopted.keys()]);
+      const tasks = legTicks.filter((tick) => acting.has(tick)).map(taskFor);
+      // Every tick the plan left alone, reported with the evidence that left
+      // it alone — never dropped. A tick missing from a wave's outcomes is a
+      // tick the board and the run record cannot account for.
+      const untouched = settled(reconciled).map((item) =>
+        settledOutcome(item, taskFor(item.tick_id))
+      );
+      // What this batch's containers may spend, computed HERE rather than
+      // hoisted: a Workflow step that ran, died and re-ran has to be sized by
+      // the wall clock the run has left NOW, not by what it had left when the
+      // wave started. Recomputed per batch — and per leg — for the same
+      // reason: batch 3 does not get batch 1's allowance, and a container
+      // booted by leg 6 does not get leg 0's.
+      const waveBudget = cloudWaveBudget(context.config, Date.now() - context.started_at_ms);
+      // A leg either DISPATCHES or WAITS, never both, and that is what keeps
+      // it inside the step cap: spawning costs the probe plus the confirm, and
+      // a leg that then also waited a full leg would be sized past ten
+      // minutes — the exact arithmetic this tick exists to fix, one layer
+      // down. A leg that started something hands the waiting to the next one.
+      const waitMs = fresh.length > 0 ? 0 : legMs;
+      // One canceller for the whole leg, built fresh inside the step so a
+      // retry of it gets a fresh one rather than an already-latched verdict.
+      const cancel = waveCanceller(
+        async () => {
+          const trip = await cloudWaveTrip(env, params, context, input.telemetry);
+          return trip === null ? null : { reason: tripRevokeReason(trip), detail: trip.detail };
+        },
+        {
+          poll_ms: input.cancel_poll_ms,
+          // The money dies before the containers do. Destroying a container is
+          // the stronger stop but also the slower one, and every second of
+          // teardown is a second the harness inside it can still spend — so
+          // the credential is revoked the instant the wave is found cancelled,
+          // ahead of the teardowns (tick gyl's ordering, at wave scale). The
+          // step-level revoke below is the durable, replay-safe half.
+          on_cancel: async (cancellation) => {
+            await revokeRunTokens(env, params.run_id, cancellation.reason);
+          },
+        }
+      );
+      const batch_outcomes = await dispatchWave(
+        binding,
+        (tickID) => workerSandboxName(params.run_id, tickID),
+        tasks,
+        (task) =>
+          workerWorkSpec({
+            repo_url: context.repo_url,
+            // The PLAN's base, not the submission's: wave 2 stands on wave 1's
+            // merged work (tick wiy).
+            base_sha: plan.base_sha,
+            epic: params.epic,
+            tick: task.tick_id,
+            run_id: params.run_id,
+            gateway_base_url: context.gateway_base_url,
+            gateway_token: input.token,
+            ...(context.config.harness === null ? {} : { harness: context.config.harness }),
+            ...(context.config.model === null ? {} : { model: context.config.model }),
+            ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
+            sandbox_image: context.sandbox_image,
+            harness_budget_ms: waveBudget.harness_budget_ms,
+          }),
+        {
+          wait_timeout_ms: waitMs,
+          // A leg shorter than the default look interval must still get a
+          // look: `waitForWorker` checks its deadline between polls, so a
+          // 15-second poll inside a shorter leg would overrun the leg it is
+          // supposed to bound. Real legs are minutes long and keep the
+          // default cadence unchanged.
+          wait_poll_ms: waitMs > 0 ? Math.min(DEFAULT_WAIT_POLL_MS, waitMs) : DEFAULT_WAIT_POLL_MS,
+          // Everything still working when this leg's wait ends is left exactly
+          // as it is, for the next leg's reconcile to adopt — unless this is
+          // the wave's last leg, which IS the deadline and kills what it finds.
+          on_wait_timeout: final ? "teardown" : "leave",
+          ...spawnBudget,
+          cancel,
+          adopt: (task) => {
+            const adoption = adopted.get(task.tick_id);
+            if (adoption === undefined) return null;
+            const offset = adoptOffsets[task.tick_id];
+            // The cursor the PREVIOUS leg reached, so a ninety-minute wave
+            // streams each container's output once instead of once per leg.
+            return offset === undefined ? adoption : { ...adoption, output_offset: offset };
+          },
+          // The manifest lands before each container is addressed, so the
+          // next reconcile — this step's own retry, and every later leg —
+          // can see it.
+          record: manifestRecorder(env.ARTIFACTS, params.project, {
+            run_id: params.run_id,
+            epic: params.epic,
+            batch: batchNumber,
+          }),
+          // Each container's own stdout/stderr, streamed to its own R2 key as
+          // it appears (tick 0fg). The orchestrator sandbox has had this since
+          // D20; a worker's went nowhere, so a container that died at boot took
+          // the one message that explained it with it. One sink for the wave,
+          // one stream per tick: a shared key would interleave the batch's
+          // containers into nonsense.
+          ...(env.ARTIFACTS === undefined
+            ? {}
+            : { logs: workerLogSink(env.ARTIFACTS, params.project, params.run_id) }),
+        },
+        collector
+      );
+      const all_outcomes = [...batch_outcomes, ...untouched];
+
+      // Record what dispatch actually returned, before anything interprets it.
+      //
+      // Tick ys3 twice instrumented a branch the live failure did not take, and
+      // seven live runs produced no diagnosis. This is at the return site, so
+      // whatever path an outcome came from it is in this array. The batch's
+      // whole picture is written, not just this leg's, so the artifact reads
+      // as the state of the batch rather than of whichever leg wrote last.
+      // Best-effort: a wave must not fail because its telemetry could not be
+      // written.
+      if (env.ARTIFACTS !== undefined) {
+        try {
+          await writeWaveOutcomes(env.ARTIFACTS, params.project, params.run_id, batchNumber, [
+            ...priorOutcomes,
+            ...all_outcomes,
+          ]);
+        } catch (error) {
+          console.error(
+            `factory run-workflow: ${params.run_id} could not record batch ${input.index + 1} ` +
+              `leg ${leg} outcomes: ${String(error)}`
+          );
+        }
+      }
+
+      return {
+        outcomes: all_outcomes,
+        cancelled: cancel.cancelled,
+        reconcile: reconciled.summary,
+        at_ms,
+        wait_timeout_ms: waveBudget.wait_timeout_ms,
+        dispatched: fresh,
+      };
+    });
+
+    legs.push(ran.reconcile);
+    lastLegAtMs = ran.at_ms;
+    if (leg === 0) {
+      firstPlan = ran.reconcile;
+      startedAtMs = ran.at_ms;
+      waveWaitMs = ran.wait_timeout_ms;
+      // Enough legs to cover the wave's own window, plus one for the leg that
+      // only dispatched and one for the recovery leg an evicted container
+      // costs. Bounded by `MAX_WAVE_LEGS` whatever the arithmetic says.
+      legCount = Math.min(
+        MAX_WAVE_LEGS,
+        2 + Math.ceil(Math.max(waveWaitMs, 0) / Math.max(legMs, 1))
+      );
+    }
+    for (const tick of ran.dispatched) dispatches.set(tick, (dispatches.get(tick) ?? 0) + 1);
+
+    const stillRunning: string[] = [];
+    for (const outcome of ran.outcomes) {
+      const tick = outcome.collect.tick_id;
+      merged.set(tick, outcome);
+      const streamed = outcome.wait?.offset ?? outcome.output_offset ?? 0;
+      offsets.set(tick, Math.max(offsets.get(tick) ?? 0, streamed));
+      // A container this leg LEFT RUNNING: its wait ran out with nothing
+      // wrong, so it is mid-tick and the next leg adopts it. Anything else —
+      // a terminal state, a container that vanished, a failed probe, a
+      // cancellation — is this tick's answer for the batch.
+      if (
+        outcome.launched &&
+        outcome.settled === undefined &&
+        outcome.wait !== null &&
+        outcome.wait.timed_out &&
+        outcome.wait.cancelled === null
+      ) {
+        stillRunning.push(tick);
+      }
+    }
+    pending = stillRunning;
+
+    if (ran.cancelled !== null) {
+      cancelled = ran.cancelled;
+      break;
+    }
+  }
+
+  return {
+    outcomes: batch.map(
+      (tick) =>
+        merged.get(tick) ??
+        settledOutcome(
+          {
+            tick_id: tick,
+            class: "unknown",
+            action: "inspect",
+            redispatch: false,
+            adopt_process_id: null,
+            reason:
+              "the wave's legs ended without an outcome for this tick — nothing may vanish " +
+              "from a batch's account",
+            contradictions: [],
+            evidence: {
+              tick_id: tick,
+              manifest: null,
+              report: null,
+              liveness: NOT_ASKED,
+              branch: workerTask(params.epic, tick, params.base_sha).branch,
+              sandbox_name: workerSandboxName(params.run_id, tick),
+            },
+          },
+          workerTask(params.epic, tick, params.base_sha)
+        )
+    ),
+    cancelled,
+    reconcile: firstPlan,
+    legs,
+  };
+}
+
+/**
  * Dispatches a run's cloud wave: one container per tick, `plan.width` at a
  * time, through `dispatchWave` (0ds) — the call site tick b6e exists to wire
  * up.
@@ -1778,170 +2227,48 @@ export async function superviseCloudWave(
       )
     );
 
-    const dispatched = await step.do(`cloud:dispatch:${tag}${i}`, CLOUD_DISPATCH_RETRIES, async () => {
-      const binding = sandboxBinding(env);
-      if (binding === null) throw new Error("the SANDBOXES binding disappeared mid-run");
-      const taskFor = (tick: string) => workerTask(params.epic, tick, params.base_sha);
-      const sandboxNameFor = (tick: string) => workerSandboxName(params.run_id, tick);
-
-      // The reconcile protocol, run INSIDE this step and on every attempt at
-      // it (tick s7f).
-      //
-      // That placement is the whole point. A Workflow step that completes is
-      // checkpointed and never runs again, but a step that was IN FLIGHT when
-      // the isolate died runs from the top — and this is the step that boots
-      // containers. Without a reconcile here, a supervisor replacing one that
-      // died mid-batch addresses the same per-tick sandbox names and starts a
-      // second worker process in each of them, on the same branch, with the
-      // first one still working. A reconcile hoisted into its own step would
-      // be no better: its verdict would be the checkpointed one, taken before
-      // the containers it describes existed.
-      //
-      // So the evidence is re-established from the durable layer every time
-      // this step runs, and only the ticks the plan says to dispatch are
-      // dispatched.
-      const reconciled = await reconcileWave({
-        bucket: env.ARTIFACTS,
-        project: params.project,
-        run_id: params.run_id,
-        epic: params.epic,
-        tick_ids: batch,
-        binding,
-        collector,
-        sandboxNameFor,
-        taskFor,
-      });
-      const adopted = adoptions(reconciled);
-      const acting = new Set([
-        ...dispatchable(reconciled).map((item) => item.tick_id),
-        ...adopted.keys(),
-      ]);
-      const tasks = batch.filter((tick) => acting.has(tick)).map(taskFor);
-      // Every tick the plan left alone, reported with the evidence that left
-      // it alone — never dropped. A tick missing from a wave's outcomes is a
-      // tick the board and the run record cannot account for.
-      const untouched = settled(reconciled).map((item) => settledOutcome(item, taskFor(item.tick_id)));
-      // What this batch's containers may spend, computed HERE rather than
-      // hoisted: a Workflow step that ran, died and re-ran has to be sized by
-      // the wall clock the run has left NOW, not by what it had left when the
-      // wave started. Recomputed per batch for the same reason — batch 3 does
-      // not get batch 1's allowance.
-      const waveBudget = cloudWaveBudget(context.config, Date.now() - context.started_at_ms);
-      // One canceller for the whole batch, built fresh inside the step so a
-      // retry of it gets a fresh one rather than an already-latched verdict.
-      const cancel = waveCanceller(
-        async () => {
-          const trip = await cloudWaveTrip(env, params, context, telemetry);
-          return trip === null
-            ? null
-            : { reason: tripRevokeReason(trip), detail: trip.detail };
-        },
-        {
-          poll_ms: cancelPollMs,
-          // The money dies before the containers do. Destroying a container is
-          // the stronger stop but also the slower one, and every second of
-          // teardown is a second the harness inside it can still spend — so
-          // the credential is revoked the instant the wave is found cancelled,
-          // ahead of the teardowns (tick gyl's ordering, at wave scale). The
-          // step-level revoke below is the durable, replay-safe half.
-          on_cancel: async (cancellation) => {
-            await revokeRunTokens(env, params.run_id, cancellation.reason);
-          },
-        }
-      );
-      const batch_outcomes = await dispatchWave(
-        binding,
-        (tickID) => workerSandboxName(params.run_id, tickID),
-        tasks,
-        (task) =>
-          workerWorkSpec({
-            repo_url: context.repo_url,
-            // The PLAN's base, not the submission's: wave 2 stands on wave 1's
-            // merged work (tick wiy).
-            base_sha: plan.base_sha,
-            epic: params.epic,
-            tick: task.tick_id,
-            run_id: params.run_id,
-            gateway_base_url: context.gateway_base_url,
-            gateway_token: credential.token,
-            ...(context.config.harness === null ? {} : { harness: context.config.harness }),
-            ...(context.config.model === null ? {} : { model: context.config.model }),
-            ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
-            sandbox_image: context.sandbox_image,
-            harness_budget_ms: waveBudget.harness_budget_ms,
-          }),
-        {
-          wait_timeout_ms: waveBudget.wait_timeout_ms,
-          cancel,
-          adopt: (task) => adopted.get(task.tick_id) ?? null,
-          // The manifest lands before each container is addressed, so the
-          // next reconcile — this step's own retry included — can see it.
-          record: manifestRecorder(env.ARTIFACTS, params.project, {
-            run_id: params.run_id,
-            epic: params.epic,
-            batch: wave * 1000 + i + 1,
-          }),
-          // Each container's own stdout/stderr, streamed to its own R2 key as
-          // it appears (tick 0fg). The orchestrator sandbox has had this since
-          // D20; a worker's went nowhere, so a container that died at boot took
-          // the one message that explained it with it. One sink for the wave,
-          // one stream per tick: a shared key would interleave the batch's
-          // containers into nonsense.
-          ...(env.ARTIFACTS === undefined
-            ? {}
-            : { logs: workerLogSink(env.ARTIFACTS, params.project, params.run_id) }),
-        },
-        collector
-      );
-      const all_outcomes = [...batch_outcomes, ...untouched];
-
-      // Record what dispatch actually returned, before anything interprets it.
-      //
-      // Tick ys3 twice instrumented a branch the live failure did not take, and
-      // seven live runs produced no diagnosis. This is at the return site, so
-      // whatever path an outcome came from it is in this array. Best-effort:
-      // a wave must not fail because its telemetry could not be written.
-      if (env.ARTIFACTS !== undefined) {
-        try {
-          await writeWaveOutcomes(
-            env.ARTIFACTS,
-            params.project,
-            params.run_id,
-            wave * 1000 + i + 1,
-            all_outcomes
-          );
-        } catch (error) {
-          console.error(
-            `factory run-workflow: ${params.run_id} could not record batch ${i + 1} outcomes: ${String(error)}`
-          );
-        }
-      }
-
-      return {
-        outcomes: all_outcomes,
-        cancelled: cancel.cancelled,
-        reconcile: reconciled.summary,
-      };
+    const ran = await runWaveBatch(env, step, params, context, plan, collector, batch, {
+      wave,
+      index: i,
+      tag,
+      token: credential.token,
+      telemetry,
+      cancel_poll_ms: cancelPollMs,
     });
+    const dispatched = { outcomes: ran.outcomes, cancelled: ran.cancelled };
     await step.do(`cloud:reconciled:${tag}${i}`, OBSERVE_RETRIES, async () => {
-      // `dispatched.reconcile` is the PLAN, established from the durable
+      // `ran.reconcile` is the PLAN leg 0 drew, established from the durable
       // layer BEFORE this batch's containers were addressed (the big comment
       // above `reconcileWave` explains why it has to run there). This step
-      // logs it only after `dispatched` (dispatch and all) has finished, so
-      // by wall clock it lands after whatever the dispatch attempt did — a
-      // probe failure included. "cloud_reconcile_plan" names it as the
-      // pre-dispatch snapshot it is: a bare "cloud_reconcile:1:1
-      // never-dispatched" sitting after a "task-started" line reads as a
-      // post-dispatch verdict ("the container was never dispatched") when it
-      // is really the trivial, correct fact that nothing had been dispatched
-      // YET when the plan was drawn (tick ys3; same misread class as 074 and
-      // c5i — technically true, reliably misread).
+      // logs it only after every leg has finished, so by wall clock it lands
+      // after whatever the dispatch attempt did — a probe failure included.
+      // "cloud_reconcile_plan" names it as the pre-dispatch snapshot it is: a
+      // bare "cloud_reconcile:1:1 never-dispatched" sitting after a
+      // "task-started" line reads as a post-dispatch verdict ("the container
+      // was never dispatched") when it is really the trivial, correct fact
+      // that nothing had been dispatched YET when the plan was drawn (tick
+      // ys3; same misread class as 074 and c5i — technically true, reliably
+      // misread).
       await logDispatch(env, {
         run_id: params.run_id,
         epic: params.epic,
-        decision: `cloud_reconcile_plan:${tag}${i + 1}:${dispatched.reconcile}`,
+        decision: `cloud_reconcile_plan:${tag}${i + 1}:${ran.reconcile}`,
         reason: null,
       });
+      // What the batch cost in STEPS, and what each leg found when it
+      // re-established the wave from the durable layer (tick 2xm). A wave that
+      // needed more than one leg is the normal case for real containers — a
+      // tick takes longer than the ten minutes one step may execute for — and
+      // this line is how an operator sees that the supervisor watched it the
+      // whole way instead of dying inside a single blocking step.
+      if (ran.legs.length > 1) {
+        await logDispatch(env, {
+          run_id: params.run_id,
+          epic: params.epic,
+          decision: `cloud_wave_legs:${tag}${i + 1}:${ran.legs.length}:${ran.legs.join(" | ")}`,
+          reason: null,
+        });
+      }
       return { logged: true };
     });
     outcomes.push(...dispatched.outcomes);

@@ -651,7 +651,7 @@ describe("waitForWorker", () => {
     sandbox.current.finish(0);
 
     const outcome = await waitForWorker(binding, "s1", started.id, { timeoutMs: 5_000, pollMs: 1, sleep: noWait });
-    expect(outcome).toEqual({ state: "completed", exit_code: 0, timed_out: false, cancelled: null });
+    expect(outcome).toEqual({ state: "completed", exit_code: 0, timed_out: false, cancelled: null, offset: 0 });
   });
 
   it("times out rather than waiting forever on a process that never finishes", async () => {
@@ -671,7 +671,7 @@ describe("waitForWorker", () => {
     sandbox.vanished = true;
 
     const outcome = await waitForWorker(binding, "s1", started.id, { timeoutMs: 5_000, pollMs: 1, sleep: noWait });
-    expect(outcome).toEqual({ state: "gone", exit_code: null, timed_out: false, cancelled: null });
+    expect(outcome).toEqual({ state: "gone", exit_code: null, timed_out: false, cancelled: null, offset: 0 });
   });
 });
 
