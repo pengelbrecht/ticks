@@ -108,7 +108,7 @@ plans no waves and dispatches nobody), plus:
 |---|---|---|
 | `TICKS_TICK` | yes | The one tick this container implements. A worker with no tick refuses to boot (exit 2) rather than run something else's prompt. |
 | `TICKS_WORKER_SETUP` | no | `always` (default) or `skip` — whether this worker runs the repository's `[sandbox]` setup. See below. |
-| `TICKS_WORKER_TIMEOUT` | no | Seconds the harness may run before the container stops waiting and pushes what it has; `0` (default) leaves it unbounded. |
+| `TICKS_WORKER_TIMEOUT` | no | Seconds the harness may run before the container stops waiting and pushes what it has; `0` (default) leaves it unbounded. Derived per run from its wall-clock allowance — see below. |
 | `TICKS_WORKER_BRANCH` | derived | **Output, not input.** `tick/<epic>/<tick>`, exported for everything the harness spawns. |
 
 `TICKS_MODEL`, when unset, is resolved from the **`implement`** cell of the
@@ -140,8 +140,33 @@ wider than it (3 at the time of writing).
 container — and a killed container pushes nothing. A worker bounded just under
 the dispatcher's bound turns a hung agent into a pushed branch plus a report,
 which is the difference between a lost tick and a legible one.
-`workerHarnessTimeoutSeconds` in `worker-boot.ts` derives one from the other so
-the two bounds are a single decision rather than two constants that drift.
+
+**Two bounds, two jobs, derived in that order (tick 5fg).** The *harness*
+budget is how long the agent may work; the *wave wait* is how long the
+supervisor watches before reconciling. They used to be one constant — thirty
+minutes — with the harness bound derived from it, so every worker got ~29
+minutes regardless of the tick or of the run's own `--max-wall-clock`. Run
+`run_2e66e765` was submitted with 90 minutes and its three containers were
+still killed `exit 124` at ~29, each having made 393+ real model calls with
+95-99% prompt cache, and each committing nothing.
+
+Now `workerHarnessBudgetMs` decides the agent's budget first — never more than
+the run has LEFT, never more than the deployment's per-worker ceiling
+(`RUN_WORKER_BUDGET_MS`), defaulting to **90 minutes** because tick y45
+measured a *complete* one-tick epic at 78 minutes on `deepseek-v4-pro-0813` and
+the worker default model is *flash*, which takes more steps than pro. The
+wave's wait is then `waveWaitTimeoutMs` = that budget plus the push margin, so
+the margin still separates them and still converts a timeout into a branch.
+
+### The salvage
+
+Everything the harness wrote and did not commit is committed by the container
+before it pushes, on its own commit whose subject says the container made it
+(tick 5fg). It used to be *counted* into the report header and then destroyed
+with the container — the most expensive available failure, since the run paid
+for every token of it. A reviewer can keep the salvage commit or drop it; both
+beat paying for work that no longer exists. `RESULT-<tick>.md` is never part of
+it: that file gets its own commit, with the agent's `STATUS:` line untouched.
 
 ## The image's tk is built from the deployed source
 

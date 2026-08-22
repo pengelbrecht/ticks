@@ -362,6 +362,50 @@ uncommitted_files() {
 	printf '%s\n' "${count:-0}"
 }
 
+# ---------------------------------------------------------------------------
+# The salvage
+#
+# Everything the harness wrote and did not commit (tick 5fg).
+#
+# Run run_2e66e765's three containers each made 393+ real model calls with
+# genuine tool use and were then killed by the bound above. This script
+# COUNTED their dirty paths into the report header and then destroyed the
+# container with the files still in it — the most expensive possible failure,
+# because the run paid for the work and kept none of it.
+#
+# So the tree is committed before the report is, on its own commit, with a
+# subject that says a container made it rather than the agent. A reviewer can
+# keep it or drop it; both beat paying for work that no longer exists. The
+# report is excluded by an explicit unstage, because it is committed separately
+# with the agent's STATUS line intact and a salvage commit carrying it would
+# make the report indistinguishable from the work.
+#
+# Best effort throughout: a salvage that cannot be made must never stop the
+# report and the push, which are this container's actual contract.
+# ---------------------------------------------------------------------------
+salvage_uncommitted() {
+	local status="$1"
+	if ! git -C "$workdir" add -A; then
+		warn "could not stage the harness's uncommitted work; it is lost with this container"
+		return 1
+	fi
+	# The report is never part of the salvage; commit_report owns it.
+	git -C "$workdir" reset -q -- "$result_path" 2>/dev/null || true
+	if git -C "$workdir" diff --cached --quiet; then
+		# Nothing but the report was dirty. Distinct from a salvage that
+		# happened: the caller must not report a commit it did not make.
+		git -C "$workdir" reset -q 2>/dev/null || true
+		return 2
+	fi
+	if ! git -C "$workdir" commit -q -m "tick ${tick_id}: work in progress salvaged by ${ME} (harness exited ${status})"; then
+		warn "could not commit the harness's uncommitted work; it is lost with this container"
+		git -C "$workdir" reset -q 2>/dev/null || true
+		return 1
+	fi
+	say "salvaged the harness's uncommitted work into its own commit on ${worker_branch}"
+	return 0
+}
+
 write_fallback_report() {
 	local status="$1"
 	cat >"$workdir/$result_path" <<-REPORT
@@ -379,12 +423,16 @@ write_fallback_report() {
 }
 
 prepend_container_facts() {
-	local status="$1" commits="$2" dirty="$3" tmp="$workdir/$result_path.ticks-worker"
+	local status="$1" commits="$2" dirty="$3" salvaged="${4:-0}" salvage_note=""
+	local tmp="$workdir/$result_path.ticks-worker"
+	if ((salvaged != 0)); then
+		salvage_note=", salvaged into their own commit"
+	fi
 	{
 		printf '<!-- %s: container facts, prepended after the harness exited. The\n' "$ME"
 		printf 'agent'"'"'s report, including its STATUS line, is unchanged below. -->\n\n'
-		printf '_%s: branch `%s`, base `%s`, harness `%s` exited %s, %s work commit(s), %s uncommitted path(s)._\n\n' \
-			"$ME" "$worker_branch" "$base_sha" "$harness" "$status" "$commits" "$dirty"
+		printf '_%s: branch `%s`, base `%s`, harness `%s` exited %s, %s work commit(s), %s uncommitted path(s)%s._\n\n' \
+			"$ME" "$worker_branch" "$base_sha" "$harness" "$status" "$commits" "$dirty" "$salvage_note"
 		cat "$workdir/$result_path"
 	} >"$tmp" && mv "$tmp" "$workdir/$result_path" || {
 		rm -f "$tmp"
@@ -463,11 +511,17 @@ main() {
 	local commits dirty reported=1
 	commits="$(work_commits)"
 	dirty="$(uncommitted_files)"
+	# Both read BEFORE the salvage: the header reports what the AGENT did, and
+	# what this container rescued on its way out is a separate fact.
+	local salvaged=0
+	if ((dirty > 0)); then
+		salvage_uncommitted "$harness_status" && salvaged=1
+	fi
 	if [[ ! -f $workdir/$result_path ]]; then
 		write_fallback_report "$harness_status"
 		reported=0
 	fi
-	prepend_container_facts "$harness_status" "$commits" "$dirty"
+	prepend_container_facts "$harness_status" "$commits" "$dirty" "$salvaged"
 	commit_report
 	local pushed=0
 	push_branch || pushed=1
@@ -484,7 +538,10 @@ main() {
 	if ((harness_status != 0 || reported == 0)); then
 		exit $EXIT_AGENT
 	fi
-	if ((commits == 0)); then
+	# The salvage counts: this class is "the branch carries no work", and a
+	# rescued tree is work on the branch whoever the author was. What the AGENT
+	# did is in the report header, which is where that distinction belongs.
+	if ((commits == 0 && salvaged == 0)); then
 		warn "the harness exited 0 and committed nothing to ${worker_branch}; the report is on origin and the tick is not implemented"
 		exit $EXIT_NO_WORK
 	fi

@@ -29,7 +29,12 @@ import {
   type SandboxProcessState,
   type SandboxProcessView,
 } from "../src/sandbox";
-import { WORKER_COMMAND, WORKER_PROBE_COMMAND, WORKER_PROBE_MARKER } from "../src/worker-boot";
+import {
+  WORKER_COMMAND,
+  WORKER_PROBE_COMMAND,
+  WORKER_PROBE_MARKER,
+  WORKER_PUSH_MARGIN_MS,
+} from "../src/worker-boot";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "../src/worker-collect";
 import { workerSandboxName } from "../src/worker-dispatch";
 import type { RunEventMessage, RunEventSink } from "../src/run-events";
@@ -1988,6 +1993,15 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
       });
       const work = sandbox.processes.find((p) => p.command === WORKER_COMMAND)!;
       expect(work.env.TICKS_TICK).toBe(tick);
+      // tick 5fg: the container's own harness bound comes from the RUN's
+      // wall-clock allowance, not from a 30-minute constant. This suite runs
+      // with RUN_MAX_WALL_CLOCK_MS=600000, so a worker has to be bounded
+      // inside that — the failing run was given 90m and bounded its workers at
+      // ~29m, which is both too short for real work and unrelated to what the
+      // operator asked for.
+      const bound = Number(work.env.TICKS_WORKER_TIMEOUT);
+      expect(bound).toBeGreaterThan(0);
+      expect(bound * 1000).toBeLessThanOrEqual(600_000 - WORKER_PUSH_MARGIN_MS);
       // And each stands on wave 1's merged work. A wave-2 container cloning
       // the run's ORIGINAL base would implement its tick against a tree its
       // dependencies never landed in — a wrong wave, not a slow one.
