@@ -2,12 +2,14 @@
   "id": "074",
   "title": "A successful cloud-wave run reports stopped, never completed",
   "description": "From b6e gap 5. Closeout is mandatory rather than conditional on the cloud-wave path, so even a fully successful wave terminates in state stopped. progress and progress_detail still carry the real evidence, so nothing is lost — but an operator reading state alone sees every successful run as if it had been stopped, which is exactly the kind of misleading-but-technically-true signal that cost this session real time on tk cloud trace (c5i). Either make the terminal state honest or make the discrepancy impossible to misread.",
-  "status": "open",
+  "notes": "2026-08-22 06:47 - Seam (wave 7, two wide with pjq). You own the terminal-state logic in cloud/factory/src/run-workflow.ts. pjq owns cmd/tk/cmd/cloud.go. The problem is the same class this epic hit twice already and both times it cost real time: tk cloud trace answering a short id with a confident negative (c5i), and a killed herdr worker reporting agent_status done. A signal that is technically true and reliably misread is a defect. Closeout being mandatory on this path is fine; a successful wave reporting the same terminal state as a stopped one is not.",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T19:36:09.927082Z",
-  "updated_at": "2026-08-21T19:36:09.927082Z"
+  "updated_at": "2026-08-22T04:47:42.947236Z",
+  "started_at": "2026-08-22T04:47:42.947235Z"
 }
