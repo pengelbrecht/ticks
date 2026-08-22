@@ -11,7 +11,12 @@ import {
   WORKER_PROBE_ARG,
   WORKER_PROBE_COMMAND,
   WORKER_PROBE_MARKER,
+  WORKER_CANCEL_ARG,
+  WORKER_CANCEL_COMMAND,
+  WORKER_CANCEL_MARKER,
+  WORKER_CANCEL_REPORT_MARKER,
   WORKER_PUSH_MARGIN_MS,
+  workerCancelCommand,
   DEFAULT_WORKER_HARNESS_BUDGET_MS,
   MIN_WORKER_HARNESS_BUDGET_MS,
   waveWaitTimeoutMs,
@@ -49,6 +54,14 @@ describe("the worker boot contract", () => {
     expect(WORKER_PROBE_ARG).toBe(contract.probe_arg);
     expect(WORKER_PROBE_COMMAND).toBe(contract.probe_command);
     expect(WORKER_PROBE_MARKER).toBe(contract.probe_marker);
+    // The cancellation door (tick 7zk). Same three readers, same reason: a
+    // supervisor asking a container a question it does not answer looks,
+    // from outside, exactly like the silent destruction this door exists to
+    // end — three containers reading `no-commits` on run run_f7bd5a36.
+    expect(WORKER_CANCEL_ARG).toBe(contract.cancel_arg);
+    expect(WORKER_CANCEL_COMMAND).toBe(contract.cancel_command);
+    expect(WORKER_CANCEL_MARKER).toBe(contract.cancel_marker);
+    expect(WORKER_CANCEL_REPORT_MARKER).toBe(contract.cancel_report_marker);
     expect(WORKER_ACTOR).toBe(contract.worker_actor);
     expect(WORKER_BRANCH_PREFIX).toBe(contract.branch_prefix);
     // The boundary guard's two strings (tick dxk). The refusal is the
@@ -328,5 +341,50 @@ describe("the harness bound", () => {
     expect(workerHarnessTimeoutSeconds(0)).toBe(0);
     expect(workerBootEnv(boot).TICKS_WORKER_TIMEOUT).toBeUndefined();
     expect(workerBootEnv({ ...boot, harness_budget_ms: 0 }).TICKS_WORKER_TIMEOUT).toBeUndefined();
+  });
+});
+
+// tick 7zk. The reason a wave stopped travels into the container as a command
+// argument, so the branch it pushes says why it was cut short rather than
+// looking like an agent that gave up. It is a LABEL, so anything that is not
+// one is dropped rather than escaped: a reason needing escaping is not a
+// reason, and this string is composed into a command line.
+describe("the cancellation door", () => {
+  it("carries the wave's own reason", () => {
+    expect(workerCancelCommand("budget:cost")).toBe(
+      "/usr/local/bin/ticks-worker --cancel budget:cost"
+    );
+    expect(workerCancelCommand("stopped:hard")).toBe(
+      "/usr/local/bin/ticks-worker --cancel stopped:hard"
+    );
+  });
+
+  it("is the bare door when there is no reason to give", () => {
+    expect(workerCancelCommand()).toBe(WORKER_CANCEL_COMMAND);
+    expect(workerCancelCommand("")).toBe(WORKER_CANCEL_COMMAND);
+    expect(workerCancelCommand(null)).toBe(WORKER_CANCEL_COMMAND);
+  });
+
+  it("never composes anything but a label into the command line", () => {
+    expect(workerCancelCommand("budget:cost; rm -rf /")).toBe(
+      "/usr/local/bin/ticks-worker --cancel budget:costrm-rf"
+    );
+    expect(workerCancelCommand("$(curl evil)")).toBe(
+      "/usr/local/bin/ticks-worker --cancel curlevil"
+    );
+    expect(workerCancelCommand("x".repeat(500)).length).toBeLessThan(
+      WORKER_CANCEL_COMMAND.length + 70
+    );
+  });
+
+  // The container is told the door the same way it is told the probe: in the
+  // spec, never invented at the teardown site.
+  it("rides in the work spec beside the probe and the command", () => {
+    const spec = workerWorkSpec(boot);
+    expect(spec.salvage?.command).toBe(WORKER_CANCEL_COMMAND);
+    expect(spec.salvage?.marker).toBe(WORKER_CANCEL_MARKER);
+    // The same environment the real command gets: a door run in a different
+    // environment addresses a different container's state directory.
+    expect(spec.salvage?.env).toEqual(spec.env);
   });
 });

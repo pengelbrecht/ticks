@@ -77,7 +77,10 @@ var cloudRunCmd = &cobra.Command{
 into the Workflow that enforces budgets, so trying something cheap is a per-
 invocation choice rather than an edit to the deployment's own budget vars.
 They only ever lower it: the deployment ceiling still bounds the run, and a
-larger value is clamped to it. Omitting them leaves the ceiling standing.
+larger value is clamped to it. Omitting them leaves the ceiling standing. The
+EFFECTIVE budget — the number that will actually govern, after clamping — is
+printed on submission, so a flag the deployment lowered says so here rather
+than at the cancellation that ends the run.
 
 --tick-ids names a wave, and is what makes this run fan out into one worker
 container per tick instead of one orchestrator sandbox running harness-native
@@ -301,11 +304,33 @@ type cloudProjectStatus struct {
 	Queued  []cloudQueued `json:"queued"`
 }
 
+// cloudEffectiveBudget is what the factory says this run will ACTUALLY be bounded by
+// (tick 7zk).
+//
+// It is reported because a submission may only LOWER a budget: an operator who
+// asked for --max-cost 40 against a deployment ceiling of 8 gets a run bounded
+// at $8, and the number that governs used to appear for the first time in the
+// cancellation that ended the run. That is the third time in one epic a
+// deployment ceiling silently replaced an operator's number.
+//
+// A pointer, because a factory deployed before this existed answers without
+// the field, and printing "$0.00" at an older deployment would be worse than
+// printing nothing.
+type cloudEffectiveBudget struct {
+	MaxCostUSD     float64  `json:"max_cost_usd"`
+	MaxWallClockMS int64    `json:"max_wall_clock_ms"`
+	RequestedCost  *float64 `json:"requested_max_cost_usd"`
+	RequestedWall  *int64   `json:"requested_max_wall_clock_ms"`
+	CostClamped    bool     `json:"cost_clamped"`
+	WallClamped    bool     `json:"wall_clock_clamped"`
+}
+
 type cloudSubmissionResponse struct {
-	Run    cloudRunRecord `json:"run"`
-	RunID  string         `json:"run_id"`
-	Queued cloudQueued    `json:"queued"`
-	Holder cloudHolder    `json:"holder"`
+	Run    cloudRunRecord        `json:"run"`
+	RunID  string                `json:"run_id"`
+	Queued cloudQueued           `json:"queued"`
+	Holder cloudHolder           `json:"holder"`
+	Budget *cloudEffectiveBudget `json:"budget"`
 }
 
 // cloudRunImage is the orchestrator container image a run booted.
@@ -420,15 +445,18 @@ func runCloudRun(cmd *cobra.Command, args []string) error {
 		if response.Run.State != "" {
 			fmt.Fprintf(out, "  state: %s\n", response.Run.State)
 		}
+		printCloudRunBudget(out, response.Budget)
 		printCloudRunWave(out, wave)
 	case response.Queued.RunID != "":
 		fmt.Fprintf(out, "Cloud run queued: %s\n", response.Queued.RunID)
 		if response.Holder.RunID != "" {
 			fmt.Fprintf(out, "  waiting for: %s\n", response.Holder.RunID)
 		}
+		printCloudRunBudget(out, response.Budget)
 	default:
 		if response.RunID != "" {
 			fmt.Fprintf(out, "Cloud run started: %s\n", response.RunID)
+			printCloudRunBudget(out, response.Budget)
 			printCloudRunWave(out, wave)
 			break
 		}
@@ -516,6 +544,34 @@ func printCloudRunWave(out io.Writer, wave []string) {
 		return
 	}
 	fmt.Fprintf(out, "  wave: %d tick(s), one worker container each: %s\n", len(wave), strings.Join(wave, ", "))
+}
+
+// printCloudRunBudget says what this run will ACTUALLY be bounded by, and says
+// so when that is not what was asked for (tick 7zk).
+//
+// The clamp itself is right — a submission may lower a budget and never raise
+// one — but it was silent, and silence is what let an operator run an epic
+// believing it had $40 when it had $8. A ceiling that lowers a flag has to
+// announce itself at the moment the flag is typed, not in the cancellation
+// forty minutes later.
+func printCloudRunBudget(out io.Writer, budget *cloudEffectiveBudget) {
+	if budget == nil {
+		return
+	}
+	if budget.MaxCostUSD > 0 {
+		fmt.Fprintf(out, "  cost budget: $%.2f\n", budget.MaxCostUSD)
+	}
+	if budget.MaxWallClockMS > 0 {
+		fmt.Fprintf(out, "  wall-clock budget: %s\n", time.Duration(budget.MaxWallClockMS)*time.Millisecond)
+	}
+	if budget.CostClamped && budget.RequestedCost != nil {
+		fmt.Fprintf(out, "  note: --max-cost $%.2f was lowered to the deployment ceiling $%.2f (a submission may lower a budget, never raise it)\n",
+			*budget.RequestedCost, budget.MaxCostUSD)
+	}
+	if budget.WallClamped && budget.RequestedWall != nil {
+		fmt.Fprintf(out, "  note: --max-wall-clock %s was lowered to the deployment ceiling %s (a submission may lower a budget, never raise it)\n",
+			time.Duration(*budget.RequestedWall)*time.Millisecond, time.Duration(budget.MaxWallClockMS)*time.Millisecond)
+	}
 }
 
 func runCloudStop(cmd *cobra.Command, args []string) error {

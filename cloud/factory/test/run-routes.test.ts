@@ -351,6 +351,56 @@ describe("submission on a free project", () => {
     });
   });
 
+  /**
+   * tick 7zk. An operator asked for `--max-cost 40`, the deployment ceiling was
+   * 8, and the run was bounded at $8 — correct policy, applied silently. `tk
+   * cloud run` printed nothing about it, so the first place the number that
+   * actually governed appeared was the cancellation forty minutes later, which
+   * destroyed three working containers. It is the third time in one epic a
+   * deployment ceiling replaced an operator's number with no line saying so.
+   *
+   * The ceiling itself is deliberately not pinned here: what has to hold is
+   * that the submission ANSWERS with the number that will govern, whatever
+   * this deployment's ceiling happens to be.
+   */
+  it("answers with the budget the run will actually be bounded by", async () => {
+    const project = await enrolled("budget-effective");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { max_cost_usd: 2.5, max_wall_clock_ms: 2_700_000 })
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { budget: Record<string, unknown> };
+    expect(body.budget).toMatchObject({
+      max_cost_usd: 2.5,
+      max_wall_clock_ms: 2_700_000,
+      requested_max_cost_usd: 2.5,
+      cost_clamped: false,
+      wall_clock_clamped: false,
+    });
+  });
+
+  it("says when the deployment ceiling lowered what was asked for", async () => {
+    const project = await enrolled("budget-clamped");
+
+    // Far above any ceiling this deployment could carry, so the clamp is the
+    // thing under test rather than the particular number configured.
+    const res = await post("/api/runs", submission(project, { max_cost_usd: 100_000 }));
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      budget: { max_cost_usd: number; requested_max_cost_usd: number; cost_clamped: boolean };
+    };
+    expect(body.budget.cost_clamped).toBe(true);
+    expect(body.budget.requested_max_cost_usd).toBe(100_000);
+    // The effective number is the ceiling, and it is what the Workflow was
+    // handed to enforce — one clamp, reported, not a second opinion.
+    expect(body.budget.max_cost_usd).toBeLessThan(100_000);
+    expect(body.budget.max_cost_usd).toBeGreaterThan(0);
+  });
+
   it("refuses a budget that is not a positive number rather than dropping it", async () => {
     const project = await enrolled("budget-invalid");
 

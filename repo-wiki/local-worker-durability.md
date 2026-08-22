@@ -69,3 +69,45 @@ Dev builds go to `./bin/tk` (gitignored); the machine-wide install is a release
 action. Consequence while `3nh` is open: `bin/tk` is protocol 19 and cannot
 spawn against herdr 0.8.2, so spawn has to use the machine-wide binary. That
 is a bug being worked around, not a pattern to copy — see `rhe` and `3nh`.
+
+## What survives a SUPERVISOR-side stop in the cloud (tick 7zk)
+
+The container-side durability above has a twin on the cloud path, and it was
+missing until run `run_f7bd5a36c98f44f598cd6cc560b82712`.
+
+Two different things can end a cloud worker, and until this tick only one of
+them preserved anything:
+
+| door | what runs | proven |
+|---|---|---|
+| the WORKER's own bound (`TICKS_WORKER_TIMEOUT`) | sweep → salvage commit → report → push | tick `5fg`, run 3, tick `5qj` → commit `adfedff5` |
+| the SUPERVISOR cancels the wave (budget, stop) | *nothing* — `killProcess` then `destroy` | run `run_f7bd5a36`: 3 containers, `$8.00`, zero output |
+
+Run 5's record, verbatim: `cancelled: budget:cost`, `wait: {state: "running"}`,
+`collect: {verdict: "no-commits", branch_exists: false}` — three times. Every
+line true, and the whole reads like three containers that did nothing.
+
+**The fix is a third thing the supervisor can say.** `ticks-worker --cancel
+<reason>` is a second process started inside the container; it lodges the
+request and signals the *harness*, so the entrypoint returns from its harness
+call exactly as it does at its own bound and the existing salvage path runs.
+`salvageWorker` holds a bounded window (60s) and destroys the container
+afterwards either way.
+
+**Why a grace window here does not contradict tick `gyl`.** `gyl` says revoke
+BEFORE the window, because the window is time a runaway spends. That is about
+MONEY, and it still holds: the revoke is `waveCanceller`'s `on_cancel`, which
+runs before any container is asked anything. A container whose gateway token is
+revoked gets `403 run_token_revoked` and cannot make a model call — the only
+thing it can do in the window is finish a `git push`. Revoke → grace → destroy
+gives both properties; the ordering is what makes the window safe, not its
+length.
+
+**Rule:** a substrate that can only kill can only lose work. Before adding a
+teardown path, ask what the thing being destroyed was in the middle of, and
+whether there is already a graceful stop it knows how to perform.
+
+**And when work is destroyed anyway, say the number.** A cancellation reports
+how many containers were mid-work and how many pushed nothing
+(`cloudWaveLoss`), because `no-commits` on its own is the same string a
+container that never started produces.

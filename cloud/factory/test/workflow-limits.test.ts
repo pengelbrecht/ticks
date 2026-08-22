@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_CONFIRM_TIMEOUT_MS,
   DEFAULT_PROBE_TIMEOUT_MS,
+  DEFAULT_SALVAGE_GRACE_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
   FANOUT_DEGRADATION_FACTOR,
   COLD_START_BENCHMARK_MS,
@@ -65,6 +66,20 @@ describe("the 10-minute Workflow step limit is a named, guarded constant", () =>
     expect(WAVE_LEG_MS).toBeLessThan(STEP_WORK_BUDGET_MS);
     // And a wave never runs out of legs before it runs out of budget.
     expect(MAX_WAVE_LEGS * WAVE_LEG_MS).toBeGreaterThan(DEFAULT_WAIT_TIMEOUT_MS);
+  });
+
+  /**
+   * tick 7zk's arithmetic. A leg cancelled at its very last second then holds
+   * every container's salvage window open INSIDE the same step, and the step
+   * that matters most — the one ending a run that has just spent its whole
+   * budget — is exactly the one that must not be the step that kills the
+   * supervisor. So the window is held back from the leg, not added to it.
+   */
+  it("leaves room for a cancelled leg's salvage window inside the same step", () => {
+    expect(fitsInStep(WAVE_LEG_MS + DEFAULT_SALVAGE_GRACE_MS)).toBe(true);
+    // And still room beyond that for the leg's reconcile, collects, teardowns
+    // and its R2 write, which the window does not replace.
+    expect(WAVE_LEG_MS + DEFAULT_SALVAGE_GRACE_MS).toBeLessThan(STEP_WORK_BUDGET_MS);
   });
 
   /**

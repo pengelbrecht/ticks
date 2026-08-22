@@ -18,7 +18,7 @@ way, at model prices.
 |---|---|
 | `Dockerfile` | The image. Every version and checksum is pinned in one ARG block. |
 | `entrypoint.sh` | Installed as `/usr/local/bin/ticks-orchestrator` — the ORCHESTRATOR run entrypoint. |
-| `worker.sh` | Installed as `/usr/local/bin/ticks-worker` — the PER-TICK WORKER run entrypoint, and `--probe`. |
+| `worker.sh` | Installed as `/usr/local/bin/ticks-worker` — the PER-TICK WORKER run entrypoint, plus `--probe` and `--cancel`. |
 | `common.sh` | Installed as `/usr/local/share/ticks/common.sh` — the role-neutral half both entrypoints source. A library, not an entrypoint. |
 | `preflight.sh` | Installed as `/usr/local/bin/ticks-preflight` — the Environment pre-flight. |
 | `build.sh` | Builds and optionally pushes, tagged with the tk version the Dockerfile pins. |
@@ -98,6 +98,41 @@ The probe deliberately makes **no model call** and does **no clone**. It runs
 once per sandbox in a wave, and the model round-trip is already proved during
 the boot itself, where a failure has a route to blame.
 
+### The cancellation door (`--cancel`)
+
+`ticks-worker --cancel <reason>` is how the SUPERVISOR asks a container to stop
+and push before destroying it. It is started as its own process inside the same
+container, lodges the request, and sends the *harness* — never the entrypoint —
+a `SIGTERM`, then a `SIGKILL` if it will not stop. The boot then returns from
+its harness call exactly as it does when its own `TICKS_WORKER_TIMEOUT` fires,
+and everything after it runs: the boundary sweep, the salvage commit, the report
+and the push. It prints:
+
+```
+ticks-worker: ticks-worker-cancel-requested reason=<reason>
+```
+
+**Why it exists.** Run `run_f7bd5a36` tripped its cost budget while three
+containers were all mid-tick. The supervisor did the right thing — revoke the
+credential, then tear the containers down — and the run kept nothing: no
+branch, no report, no salvage, `$8.00` for zero output. The salvage itself was
+already there and already proven (tick `5fg`); it had no door the supervisor
+could knock on, because `killProcess` and `destroy` both mean *the work is
+gone*.
+
+**Why a grace window does not weaken the kill switch.** The run's gateway
+credential is revoked *before* the ask (tick `gyl`), so a container inside the
+window is answered `403 run_token_revoked` by the gateway and cannot make a
+model call at all. The only thing it can still do is finish a `git push`. The
+money dies first; the work is rescued second. The window is bounded on the
+supervisor's side (`DEFAULT_SALVAGE_GRACE_MS`, 60s) and the container's side
+(`TICKS_WORKER_CANCEL_KILL_S`, 10s to `SIGTERM` before `SIGKILL`).
+
+A container cancelled *before* its harness starts never starts one: the request
+is on disk, and the boot checks for it. It still pushes a report, because a
+cancelled container that pushes nothing is indistinguishable from one that was
+never dispatched.
+
 ### Worker inputs
 
 Everything in *Entrypoint contract* below applies, minus `TICKS_PHASE`,
@@ -109,6 +144,8 @@ plans no waves and dispatches nobody), plus:
 | `TICKS_TICK` | yes | The one tick this container implements. A worker with no tick refuses to boot (exit 2) rather than run something else's prompt. |
 | `TICKS_WORKER_SETUP` | no | `always` (default) or `skip` — whether this worker runs the repository's `[sandbox]` setup. See below. |
 | `TICKS_WORKER_TIMEOUT` | no | Seconds the harness may run before the container stops waiting and pushes what it has; `0` (default) leaves it unbounded. Derived per run from its wall-clock allowance — see below. |
+| `TICKS_WORKER_STATE_DIR` | no | Where the container keeps the harness pid and any lodged cancellation, so `--cancel` (a second process) can find them. Defaults to `/tmp/ticks-worker`; overridden only by the repository's tests. |
+| `TICKS_WORKER_CANCEL_KILL_S` | no | Seconds `--cancel` waits after `SIGTERM` before `SIGKILL` (default 10). |
 | `TICKS_WORKER_BRANCH` | derived | **Output, not input.** `tick/<epic>/<tick>`, exported for everything the harness spawns. |
 
 `TICKS_MODEL`, when unset, is resolved from the **`implement`** cell of the

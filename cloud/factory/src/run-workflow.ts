@@ -129,6 +129,7 @@ import { MAX_RUN_WAVES } from "./wave-request";
 import { workerCollector, type WorkerCollector } from "./worker-collect";
 import {
   DEFAULT_CONFIRM_TIMEOUT_MS,
+  DEFAULT_SALVAGE_GRACE_MS,
   DEFAULT_WAIT_POLL_MS,
   dispatchWave,
   probeTimeoutMs,
@@ -404,6 +405,54 @@ export function runConfig(env: Env, override: RunBudgetOverride = {}): RunConfig
     // are different facts, and only `workerModel` gets to collapse them.
     worker_harness: textVar(env, "RUN_WORKER_HARNESS"),
     worker_model: textVar(env, "RUN_WORKER_MODEL"),
+  };
+}
+
+/**
+ * The budget a submission will ACTUALLY run under (tick 7zk).
+ *
+ * An operator asked for `--max-cost 40` and got $8, because `RUN_MAX_COST_USD`
+ * was 8 and a submission may only lower a budget. That is the correct policy
+ * and it was applied silently: `tk cloud run` printed nothing about $8, and the
+ * first place the real number appeared was the cancellation that ended the run.
+ * It is the third time in this epic a deployment ceiling replaced an operator's
+ * number with no line anywhere saying so (tick 5fg found two for wall clock),
+ * and `.tick/learnings.md` now carries the rule: when a bound does not take
+ * effect, enumerate every layer that can lower it.
+ *
+ * So the submission path answers with the number that will govern, and says
+ * when it is not the number that was asked for. Nothing here decides anything —
+ * `runConfig` is still the one clamp — this only reports its result at the one
+ * moment an operator is still reading.
+ */
+export type EffectiveRunBudget = {
+  /** What this run may spend, in USD, after clamping. */
+  max_cost_usd: number;
+  /** What this run may take, in ms, after clamping. */
+  max_wall_clock_ms: number;
+  /** What the submission asked for, when it asked at all. */
+  requested_max_cost_usd: number | null;
+  requested_max_wall_clock_ms: number | null;
+  /** Whether the deployment ceiling lowered what was asked for. */
+  cost_clamped: boolean;
+  wall_clock_clamped: boolean;
+};
+
+export function effectiveRunBudget(env: Env, override: RunBudgetOverride = {}): EffectiveRunBudget {
+  const wallCeiling = positiveVar(env, "RUN_MAX_WALL_CLOCK_MS", DEFAULT_MAX_WALL_CLOCK_MS, true);
+  const costCeiling = positiveVar(env, "RUN_MAX_COST_USD", DEFAULT_MAX_COST_USD, false);
+  const config = runConfig(env, override);
+  const asked = (value: number | undefined): number | null =>
+    value === undefined || !Number.isFinite(value) || value <= 0 ? null : value;
+  const cost = asked(override.max_cost_usd);
+  const wall = asked(override.max_wall_clock_ms);
+  return {
+    max_cost_usd: config.max_cost_usd,
+    max_wall_clock_ms: config.max_wall_clock_ms,
+    requested_max_cost_usd: cost,
+    requested_max_wall_clock_ms: wall,
+    cost_clamped: cost !== null && cost > costCeiling,
+    wall_clock_clamped: wall !== null && wall > wallCeiling,
   };
 }
 
@@ -1676,6 +1725,81 @@ function tripFromCancellation(cancellation: WaveCancellation): Trip {
   return { kind: "stop", hard: true, detail: cancellation.detail };
 }
 
+/**
+ * What a cancellation cost this wave, counted rather than implied (tick 7zk).
+ *
+ * Run `run_f7bd5a36` reported three ticks as `no-commits` with
+ * `branch_exists: false`. That is true and it reads like three containers that
+ * did nothing, when in fact all three were working, all three were destroyed
+ * mid-tick, and the run had just spent its entire $8.00 allowance producing
+ * them. A silent `no-commits` is the wrong shape of fact for the most
+ * expensive failure this substrate has.
+ */
+export type CloudWaveLoss = {
+  /** Containers that were still working when the wave was cancelled. */
+  mid_work: number;
+  /** Of those, the ones whose branch carries work: the grace window paid. */
+  rescued: string[];
+  /** Of those, the ones destroyed with nothing on their branch: the work is gone. */
+  lost: string[];
+};
+
+/**
+ * Counts what a cancelled wave destroyed while it was still working.
+ *
+ * Mid-work is decided by what the container was DOING, never by the verdict: a
+ * tick whose worker was `running` when the wave was cancelled was mid-work
+ * whether or not its salvage then landed anything, and folding the two
+ * together is how "we destroyed live work" disappears into "the branch is
+ * empty".
+ */
+export function cloudWaveLoss(outcomes: WorkerWaveOutcome[]): CloudWaveLoss {
+  const rescued: string[] = [];
+  const lost: string[] = [];
+  let mid = 0;
+  for (const outcome of outcomes) {
+    if (outcome.cancelled === null || !outcome.launched) continue;
+    // Either the wait caught it running, or the salvage window found something
+    // alive to ask. A container already over when the wave stopped lost
+    // nothing and is not counted.
+    const working =
+      outcome.salvage?.requested === true ||
+      (outcome.salvage === undefined && outcome.wait?.state === "running");
+    if (!working) continue;
+    mid += 1;
+    if (outcome.collect.branch_exists && outcome.collect.commits > 0) {
+      rescued.push(outcome.collect.tick_id);
+    } else {
+      lost.push(outcome.collect.tick_id);
+    }
+  }
+  return { mid_work: mid, rescued, lost };
+}
+
+/**
+ * The same counts as a sentence an operator reads in the run's outcome.
+ *
+ * Empty when nothing was mid-work, so an ordinary stop between batches does
+ * not grow a clause about destruction that did not happen.
+ */
+export function describeCloudWaveLoss(loss: CloudWaveLoss): string {
+  if (loss.mid_work === 0) return "";
+  const parts = [`${loss.mid_work} container(s) were still working when they were cut`];
+  if (loss.rescued.length > 0) {
+    parts.push(
+      `${loss.rescued.length} pushed what they had inside the salvage window ` +
+        `(${loss.rescued.join(", ")})`
+    );
+  }
+  if (loss.lost.length > 0) {
+    parts.push(
+      `${loss.lost.length} were DESTROYED MID-WORK with nothing on their branch, so that ` +
+        `work is lost and the run paid for it (${loss.lost.join(", ")})`
+    );
+  }
+  return parts.join("; ");
+}
+
 /** A short, greppable summary of what a wave's containers actually did. */
 export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
   const counts = new Map<string, number>();
@@ -1714,8 +1838,15 @@ export function summarizeCloudWave(outcomes: WorkerWaveOutcome[]): string {
  * here is for everything the leg does BESIDES waiting — the reconcile's git
  * reads, the collect at the end of each container's cycle, the teardowns, and
  * the R2 write of the leg's outcomes.
+ *
+ * `DEFAULT_SALVAGE_GRACE_MS` is held back on top of it (tick 7zk). A leg that
+ * is cancelled at its very last second then holds every container's grace
+ * window open INSIDE the same step, and a leg sized without it would put the
+ * one step that matters most — the one ending a run that has just spent its
+ * whole budget — past the cap that kills the supervisor. The window is only
+ * ever paid on a cancelled leg; the arithmetic has to survive it anyway.
  */
-export const WAVE_LEG_MS = STEP_WORK_BUDGET_MS - 60_000;
+export const WAVE_LEG_MS = STEP_WORK_BUDGET_MS - 60_000 - DEFAULT_SALVAGE_GRACE_MS;
 
 /**
  * The most legs one batch may burn.
@@ -2341,13 +2472,36 @@ export async function superviseCloudWave(
         const revoked = await revokeRunTokens(env, params.run_id, tripRevokeReason(trip));
         return { revoked };
       });
+      // What the cancellation destroyed, said out loud (tick 7zk). A budget
+      // trip is the most expensive failure this substrate has — the run has by
+      // definition just spent its entire allowance — and until this line the
+      // only account of it was three ticks reading `no-commits`, which is what
+      // a container that never started looks like. The loss is counted from
+      // the outcomes and logged as its own dispatch decision, so it is
+      // greppable in D1 as well as readable in the run's ending.
+      const loss = cloudWaveLoss(outcomes);
+      const lossDetail = describeCloudWaveLoss(loss);
+      if (lossDetail !== "") {
+        await step.do(`cloud:waveloss:${tag}${i}`, OBSERVE_RETRIES, async () => {
+          await logDispatch(env, {
+            run_id: params.run_id,
+            epic: params.epic,
+            decision: `cloud_wave_loss:${tag}${i + 1}:${lossDetail}`,
+            // `budget_exhausted` only when that is what did it: the reason
+            // column is a closed vocabulary and a stop is not a budget.
+            reason: trip.kind === "budget" ? "budget_exhausted" : null,
+          });
+          return { logged: true };
+        });
+      }
       return {
         kind: "tripped",
         trip: {
           ...trip,
           detail:
             `${trip.detail}, so the cloud wave was cancelled mid-batch and its containers ` +
-            `were torn down (${outcomes.length}/${plan.tick_ids.length} tick(s) dispatched)`,
+            `were torn down (${outcomes.length}/${plan.tick_ids.length} tick(s) dispatched)` +
+            (lossDetail === "" ? "" : ` — ${lossDetail}`),
         },
         boots: outcomes.length,
       };

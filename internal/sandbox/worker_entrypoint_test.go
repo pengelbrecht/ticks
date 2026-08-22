@@ -3,15 +3,38 @@
 package sandbox
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/pengelbrecht/ticks/internal/herd/collect"
 )
+
+// safeBuffer collects a still-running container's output while the test reads
+// it. `exec.Cmd` writes from its own goroutine, so a plain bytes.Buffer here is
+// a data race the moment a test looks at the output before the process ends.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // End-to-end tests for cloud/sandbox/worker.sh — the per-tick worker container
 // entrypoint (tick tap).
@@ -119,6 +142,15 @@ func (f *workerFixture) writeStubs() {
 } > "$TICKS_TEST_RECORD"
 if [ -n "${TICKS_TEST_WORKER_DIRTY:-}" ]; then printf 'half a tick\n' > partial.txt; fi
 if [ -n "${TICKS_TEST_WORKER_SLEEP:-}" ]; then sleep "$TICKS_TEST_WORKER_SLEEP"; fi
+# An agent that is WORKING when something else decides it should stop. It waits
+# on a gate file in short slices rather than one long sleep for two reasons: a
+# signal reaches a bash script only between foreground commands, and a long
+# sleep left orphaned by a kill would hold this process's stdout pipe open long
+# after the process itself is gone.
+if [ -n "${TICKS_TEST_WORKER_HOLD:-}" ]; then
+  n=0
+  while [ ! -f "$TICKS_TEST_WORKER_HOLD" ] && [ "$n" -lt 600 ]; do sleep 0.05; n=$((n+1)); done
+fi
 if [ -n "${TICKS_TEST_WORKER_COMMIT:-}" ]; then
   printf 'work\n' > worked.txt
   git add worked.txt
@@ -745,4 +777,130 @@ func TestWorkerSalvageLeavesTheReportItsOwnCommit(t *testing.T) {
 	if _, ok := f.remoteFile(branch, "partial.txt"); !ok {
 		t.Error("the uncommitted work was not salvaged")
 	}
+}
+
+// ------------------------------------------------ the cancellation door ---
+
+// tick 7zk. Run run_f7bd5a36's cost budget tripped while three containers were
+// all still working. The supervisor did everything right — it revoked the
+// run's credential and then destroyed the containers — and the run kept
+// nothing: no branch, no report, no salvage, $8.00 spent for zero output.
+//
+// The salvage below the harness already existed and was already proven (tick
+// 5fg, run 3, commit adfedff5). What was missing was a way for the SUPERVISOR
+// to reach it: it could kill the process or destroy the container, and both of
+// those mean the work is gone. `ticks-worker --cancel` is the third thing to
+// say, and this is the proof that saying it lands the work on origin.
+func TestWorkerCancelledMidHarnessSalvagesReportsAndPushes(t *testing.T) {
+	f := newWorkerFixture(t)
+	state := filepath.Join(f.root, "state")
+	f.env[EnvWorkerStateDir] = state
+	f.env["TICKS_WORKER_CANCEL_KILL_S"] = "2"
+	// An agent that has written something and committed nothing — the shape
+	// every one of run_f7bd5a36's three containers was in when it was
+	// destroyed.
+	delete(f.env, "TICKS_TEST_WORKER_COMMIT")
+	delete(f.env, "TICKS_TEST_WORKER_RESULT")
+	f.env["TICKS_TEST_WORKER_DIRTY"] = "1"
+	f.env["TICKS_TEST_WORKER_HOLD"] = filepath.Join(f.root, "never")
+
+	cmd := f.command()
+	var out safeBuffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill() }()
+
+	// The harness is running once the container has recorded its pid — the one
+	// fact a second process inside it needs, and the reason the entrypoint runs
+	// the harness in the background at all.
+	pidFile := filepath.Join(state, "harness.pid")
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if _, err := os.Stat(pidFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the container never recorded a harness pid:\n%s", out.String())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// The supervisor's ask, as its own process in the same container.
+	cancelOut, cancelCode := f.run(WorkerCancelArg, "budget:cost")
+	if cancelCode != 0 {
+		t.Fatalf("--cancel exited %d, want 0:\n%s", cancelCode, cancelOut)
+	}
+	mustContain(t, cancelOut, WorkerCancelMarker, "the door saying it took the ask")
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		code := 0
+		if exit, ok := err.(*exec.ExitError); ok {
+			code = exit.ExitCode()
+		} else if err != nil {
+			t.Fatalf("waiting on the cancelled worker: %v\n%s", err, out.String())
+		}
+		if code != ExitWorkerAgent {
+			t.Fatalf("a cancelled worker exited %d, want %d:\n%s", code, ExitWorkerAgent, out.String())
+		}
+	case <-time.After(90 * time.Second):
+		t.Fatalf("the cancelled container never finished:\n%s", out.String())
+	}
+
+	body := out.String()
+	mustContain(t, body, "budget:cost", "the container naming why it was stopped")
+	mustContain(t, body, "salvag", "the salvage running on the supervisor's door too")
+
+	branch := WorkerBranch(f.epic, f.tick)
+	if _, ok := f.remoteFile(branch, "partial.txt"); !ok {
+		t.Fatalf("the cancelled container pushed nothing; its work died with it:\n%s", body)
+	}
+	report, ok := f.remoteFile(branch, WorkerResultFile(f.tick))
+	if !ok {
+		t.Fatal("a cancelled container pushed work with no report beside it")
+	}
+	// A reader of this branch must be able to tell a tick its AGENT abandoned
+	// from a tick the RUN cut short: partial work from the two looks identical
+	// and calls for opposite next actions.
+	mustContain(t, report, WorkerCancelReportMarker, "the report saying the run stopped this")
+	mustContain(t, report, "budget:cost", "the report naming the reason")
+}
+
+// The cheapest stop there is. A container cancelled before its harness started
+// must not start one: that model call is spend on work already destined for the
+// bin, which is the thing tick gyl's ordering exists to prevent.
+func TestWorkerCancelledBeforeItStartsNeverRunsTheHarness(t *testing.T) {
+	f := newWorkerFixture(t)
+	state := filepath.Join(f.root, "state")
+	f.env[EnvWorkerStateDir] = state
+
+	// Lodged before the boot, which is what a supervisor that cancelled during
+	// the clone or the dependency install leaves behind.
+	cancelOut, cancelCode := f.run(WorkerCancelArg, "stopped:hard")
+	if cancelCode != 0 {
+		t.Fatalf("--cancel exited %d, want 0:\n%s", cancelCode, cancelOut)
+	}
+	mustContain(t, cancelOut, "no harness is running", "the door saying there was nothing to stop yet")
+
+	out, code := f.run()
+	if code != ExitWorkerAgent {
+		t.Fatalf("exit %d, want %d:\n%s", code, ExitWorkerAgent, out)
+	}
+	if f.harnessRecord() != "" {
+		t.Errorf("the harness ran in a container that was already cancelled:\n%s", f.harnessRecord())
+	}
+	mustContain(t, out, "not starting it", "the container refusing to start a harness it was told to stop")
+	// It still pushes: a cancelled container that pushes nothing is
+	// indistinguishable from one that was never dispatched.
+	branch := WorkerBranch(f.epic, f.tick)
+	report, ok := f.remoteFile(branch, WorkerResultFile(f.tick))
+	if !ok {
+		t.Fatalf("a cancelled container left no report on origin:\n%s", out)
+	}
+	mustContain(t, report, WorkerCancelReportMarker, "the report saying the run stopped this")
 }

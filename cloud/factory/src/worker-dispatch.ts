@@ -583,10 +583,32 @@ export async function confirmDispatch(
 
 // ------------------------------------------------------------------ spawn ---
 
+/**
+ * How a container is asked to stop and push before it is destroyed (tick 7zk).
+ *
+ * `command` is the door WITHOUT its reason; the reason is appended here, from
+ * the `WaveCancellation` that closed the wave, because only the dispatcher
+ * knows it. `marker` is the string the container prints once the request is
+ * lodged — the same content-not-exit-code rule the green-start probe follows,
+ * applied to the other end of a container's life.
+ */
+export type SalvageSpec = {
+  command: string;
+  env?: Record<string, string>;
+  marker?: string;
+};
+
 export type WorkSpec = {
   probe: ProbeSpec;
   command: string;
   env?: Record<string, string>;
+  /**
+   * Absent means this container cannot be asked to stop politely, and a
+   * cancelled wave goes straight to `teardownWorker` exactly as it did before
+   * this tick. Present is what turns a destroyed container into a pushed
+   * branch (`salvageWorker`).
+   */
+  salvage?: SalvageSpec;
 };
 
 export type SpawnOptions = {
@@ -888,6 +910,226 @@ export async function checkLiveness(
   return { alive: view.state === "running", state: view.state };
 }
 
+// -------------------------------------------------------------- salvage ---
+
+/**
+ * How long a cancelled container has to commit and push before it is destroyed.
+ *
+ * The same sixty seconds `WORKER_PUSH_MARGIN_MS` reserves for the same work at
+ * the other door (worker-boot.ts): a bounded harness stops just under the
+ * wave's wait so the container can still commit, report and push, and that
+ * margin has already worked live — run `run_2e66e765`'s three killed
+ * containers each produced a readable branch. This is that margin, spent on
+ * behalf of a container the SUPERVISOR is stopping instead of one stopping
+ * itself.
+ *
+ * It is not a hole in the kill switch. `.tick/learnings.md` ("Cost, budgets
+ * and kill switches") says to revoke BEFORE the grace window, because that
+ * window is time a runaway spends — and the ordering here obeys it exactly:
+ * `waveCanceller`'s `on_cancel` revokes the run's gateway token the instant
+ * the wave is found cancelled, which is before any of this runs. A container
+ * whose token is revoked is answered `403 run_token_revoked` by the gateway,
+ * so the only thing it can do in this window is finish a git push. The money
+ * dies first; the work is rescued second.
+ */
+export const DEFAULT_SALVAGE_GRACE_MS = 60_000;
+
+/** How often the window looks to see whether the container is done. */
+export const DEFAULT_SALVAGE_POLL_MS = 2_000;
+
+/**
+ * What one container did with its grace window.
+ *
+ * Recorded per tick and carried into the wave's outcomes artifact, because the
+ * question this tick exists to answer — "did the run keep what it paid for?" —
+ * has to be answerable after the containers are gone.
+ */
+export type SalvageOutcome = {
+  /** Whether the container was actually asked. False when there was nothing to ask. */
+  requested: boolean;
+  /** Whether the worker process ended inside the window. */
+  settled: boolean;
+  /** How long the window was actually held open. */
+  waited_ms: number;
+  /** The worker process's state when the window closed. */
+  state: SandboxProcessState | "gone" | "not-running";
+  detail: string;
+};
+
+/** The container was never asked, because there was no live worker to ask. */
+export const NOT_SALVAGED: SalvageOutcome = {
+  requested: false,
+  settled: false,
+  waited_ms: 0,
+  state: "not-running",
+  detail: "no live worker process to ask",
+};
+
+/**
+ * Asks one cancelled container to stop and push, and waits, bounded, for it.
+ *
+ * THE ASYMMETRY THIS CLOSES. `cloud/sandbox/worker.sh` already salvages
+ * uncommitted work into its own commit, writes a report and pushes when the
+ * WORKER's own bound fires — tick 5fg, proven live on run 3, where tick 5qj's
+ * four dirty paths survived as commit adfedff5. None of it ran when the
+ * SUPERVISOR ended the wave: `teardownWorker` kills the process and destroys
+ * the container, and the work dies inside it. Run `run_f7bd5a36` is what that
+ * costs — three containers, all working, all destroyed, `no-commits` on every
+ * tick, $8.00 for nothing.
+ *
+ * So the ask comes first and the destruction second. What is asked is a
+ * SIGNAL, not a kill: a second process in the same container which lodges the
+ * request and stops the harness, so the entrypoint runs its own existing
+ * salvage path. This function's job is to hold the window open for it and to
+ * record what happened either way.
+ *
+ * Best effort throughout: every failure here degrades to the behaviour before
+ * this tick (destroy the container) rather than stopping the teardown. A wave
+ * that cannot be torn down is worse than a wave that loses a tick's work.
+ */
+export async function salvageWorker(
+  binding: SandboxBinding,
+  sandboxName: string,
+  processID: string | null,
+  spec: SalvageSpec | undefined,
+  opts: {
+    /** The machine-readable reason the wave stopped, handed to the container. */
+    reason?: string;
+    graceMs?: number;
+    pollMs?: number;
+    sleep?: Sleeper;
+    /** This container's output stream, so the push it makes is readable later. */
+    log?: WorkerLogWriter;
+    /** How far that stream has already been read — never restart at 0 (tick 0fg). */
+    offset?: number;
+  } = {}
+): Promise<SalvageOutcome> {
+  if (processID === null || spec === undefined) {
+    return {
+      ...NOT_SALVAGED,
+      detail:
+        processID === null
+          ? "no worker process was running in this container"
+          : "this container was not booted with a salvage door",
+    };
+  }
+
+  const sleep = opts.sleep ?? defaultSleeper;
+  const graceMs = Math.max(opts.graceMs ?? DEFAULT_SALVAGE_GRACE_MS, 0);
+  const pollMs = Math.max(opts.pollMs ?? DEFAULT_SALVAGE_POLL_MS, 1);
+  let offset = opts.offset ?? 0;
+
+  const sandbox = await binding.get(sandboxName);
+  const flush = async (): Promise<void> => {
+    if (opts.log === undefined) return;
+    try {
+      const chunk = await drain(sandbox, processID, offset, opts.log);
+      offset = chunk.offset;
+    } catch (error) {
+      console.error(
+        `factory worker-dispatch: could not read ${sandboxName}'s output during its salvage window: ${String(error)}`
+      );
+    }
+  };
+
+  // A fresh look, immediately before the ask, for the same reason
+  // `teardownWorker` takes one before it kills: an observation from the wait
+  // that just ended is already stale by the time the collect and the
+  // cancellation bookkeeping in front of this have run.
+  const before = await sandbox.getProcess(processID);
+  if (before === null || before.state !== "running") {
+    await flush();
+    return {
+      requested: false,
+      settled: true,
+      waited_ms: 0,
+      state: before === null ? "gone" : before.state,
+      detail:
+        "the worker was already over when the wave was cancelled; nothing was mid-flight to rescue",
+    };
+  }
+
+  let started = false;
+  let asked = "";
+  try {
+    const reason = (opts.reason ?? "").trim();
+    const command = reason === "" ? spec.command : `${spec.command} ${reason}`;
+    const door = await sandbox.startProcess(command, { env: spec.env ?? {} });
+    started = true;
+    asked = command;
+    // What the door itself said, read once after a single poll. It is small,
+    // it is the evidence that the container understood the ask, and it is kept
+    // in this outcome rather than streamed into the worker's own log — that
+    // stream belongs to one process and a second one interleaved into it would
+    // corrupt the cursor every later leg resumes from.
+    await sleep(Math.min(pollMs, graceMs));
+    const said = await sandbox.readOutput(door.id, 0).catch(() => ({ text: "", offset: 0 }));
+    if (spec.marker !== undefined && said.text !== "" && !said.text.includes(spec.marker)) {
+      console.error(
+        `factory worker-dispatch: ${sandboxName} did not answer the salvage ask with ` +
+          `${JSON.stringify(spec.marker)}: ${excerpt(said.text)}`
+      );
+    }
+  } catch (error) {
+    console.error(
+      `factory worker-dispatch: could not ask ${sandboxName} to stop and push: ${String(error)}`
+    );
+  }
+
+  if (!started) {
+    return {
+      requested: false,
+      settled: false,
+      waited_ms: 0,
+      state: "running",
+      detail: `the salvage ask could not be started in ${sandboxName}; the container is destroyed with its work`,
+    };
+  }
+
+  const startedAt = Date.now();
+  for (;;) {
+    await flush();
+    const view = await sandbox.getProcess(processID);
+    const waited = Date.now() - startedAt;
+    if (view === null) {
+      return {
+        requested: true,
+        settled: true,
+        waited_ms: waited,
+        state: "gone",
+        detail: `the worker process was gone ${waited}ms after being asked to stop and push`,
+      };
+    }
+    if (view.state === "completed" || view.state === "failed") {
+      // One more read now it is over: the push is the LAST thing the container
+      // prints, so a stream that stopped at the state change stops one line
+      // before the line worth having.
+      await flush();
+      return {
+        requested: true,
+        settled: true,
+        waited_ms: waited,
+        state: view.state,
+        detail:
+          `the container stopped, committed and pushed within ${waited}ms of being asked ` +
+          `(${asked}); whatever it had is on its branch`,
+      };
+    }
+    if (waited >= graceMs) {
+      return {
+        requested: true,
+        settled: false,
+        waited_ms: waited,
+        state: view.state,
+        detail:
+          `the container was still running ${graceMs}ms after being asked to stop and push; ` +
+          `it is destroyed now, and anything it had not pushed is lost`,
+      };
+    }
+    await sleep(Math.min(pollMs, graceMs - waited));
+  }
+}
+
 export type TeardownOutcome = {
   killed: boolean;
   destroyed: boolean;
@@ -951,6 +1193,15 @@ export type WaveOptions = SpawnOptions & {
    */
   on_wait_timeout?: "teardown" | "leave";
   /**
+   * How long a cancelled container is given to commit and push before it is
+   * destroyed (tick 7zk). Defaults to {@link DEFAULT_SALVAGE_GRACE_MS}. Zero
+   * asks the container to stop and destroys it without waiting, which is the
+   * behaviour before this tick with one extra process started.
+   */
+  salvage_grace_ms?: number;
+  /** How often that window looks; defaults to {@link DEFAULT_SALVAGE_POLL_MS}. */
+  salvage_poll_ms?: number;
+  /**
    * A worker already running for this tick, from the reconcile plan
    * (src/reconcile.ts). Returning one turns the whole spawn half of the cycle
    * off for that task: no probe, no second process, nothing started — the
@@ -983,6 +1234,13 @@ export type WorkerWaveOutcome = SpawnResult & {
   wait: WaitOutcome | null;
   collect: WorkerReport;
   teardown: TeardownOutcome;
+  /**
+   * What this container's grace window did, present exactly when the wave was
+   * cancelled while this container existed (tick 7zk). Absent everywhere else:
+   * a container that finished, or that a leg left running, was never asked to
+   * stop, and reporting a salvage for it would describe a window nobody held.
+   */
+  salvage?: SalvageOutcome;
   /**
    * The reconcile class that settled this tick without addressing a container
    * at all (tick s7f) — `already-landed` for work that is in git, `unknown`
@@ -1085,9 +1343,13 @@ async function dispatchOneWorker(
       ? await spawnWorker(binding, sandboxName, task, spec, opts)
       : adoptedSpawn(task, sandboxName, adoption);
 
+  // Bound once for the whole cycle: the wait streams this container's output,
+  // and so does the salvage window after a cancellation — the same tick's
+  // stream, so the same writer and the same cursor.
+  const log = opts.logs?.forTick(task.tick_id);
+
   let wait: WaitOutcome | null = null;
   if (spawned.cancelled === null && spawned.launched && spawned.process_id !== null) {
-    const log = opts.logs?.forTick(task.tick_id);
     wait = await waitForWorker(binding, sandboxName, spawned.process_id, {
       timeoutMs: opts.wait_timeout_ms,
       pollMs: opts.wait_poll_ms,
@@ -1100,14 +1362,30 @@ async function dispatchOneWorker(
 
   const cancelled = spawned.cancelled ?? wait?.cancelled ?? null;
   if (cancelled !== null) {
-    // Teardown FIRST, collect after — the reverse of the ordinary order below.
-    // Collect makes GitHub round trips; on a hard stop or a blown budget those
-    // are seconds a container keeps spending in. Killing the process and
-    // destroying the container is what actually ends the spend, so it happens
-    // before anything else, and what landed is read from git afterwards —
-    // git does not forget while we tear a container down.
+    // REVOKE, THEN GRACE, THEN DESTROY (tick 7zk).
+    //
+    // The revoke has already happened: it is `waveCanceller`'s `on_cancel`,
+    // awaited before `check` answers and therefore before this line is
+    // reached, which is tick gyl's ordering — the money dies before the
+    // containers do. What that ordering BUYS is this window: a container whose
+    // gateway token is revoked cannot make a model call, so the seconds spent
+    // here cannot be spent on the model. They can only be spent finishing a
+    // git push, and that is exactly what run_f7bd5a36 needed and did not get.
+    //
+    // Then teardown, still before collect — the reverse of the ordinary order
+    // below. Collect makes GitHub round trips, and reading git while a
+    // container is still up buys nothing: git does not forget while we tear a
+    // container down.
+    const salvage = await salvageWorker(binding, sandboxName, spawned.process_id, spec.salvage, {
+      reason: cancelled.reason,
+      ...(opts.salvage_grace_ms === undefined ? {} : { graceMs: opts.salvage_grace_ms }),
+      ...(opts.salvage_poll_ms === undefined ? {} : { pollMs: opts.salvage_poll_ms }),
+      ...(opts.sleep === undefined ? {} : { sleep: opts.sleep }),
+      ...(log === undefined ? {} : { log }),
+      offset: wait?.offset ?? spawned.output_offset ?? 0,
+    });
     const teardown = await teardownWorker(binding, sandboxName, spawned.process_id);
-    return { ...spawned, cancelled, wait, collect: await collector.collect(task), teardown };
+    return { ...spawned, cancelled, wait, salvage, collect: await collector.collect(task), teardown };
   }
 
   // Collect ALWAYS runs, whatever spawn/wait decided: a green-start trap or

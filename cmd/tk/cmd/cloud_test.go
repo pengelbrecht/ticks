@@ -667,6 +667,68 @@ func TestCloudRunCarriesPerRunBudgetOverridesInTheSubmission(t *testing.T) {
 	}
 }
 
+// tick 7zk. The operator asked for --max-cost 40 and got $8, because the
+// deployment's RUN_MAX_COST_USD was 8 and a submission may only lower a budget.
+// The policy is right; the silence was not. The number that will actually
+// govern has to appear at the moment the flag is typed, not in the cancellation
+// that ends the run — the third time in one epic a deployment ceiling replaced
+// an operator's number with no line anywhere saying so.
+func TestCloudRunPrintsTheEffectiveBudgetItWillActuallyRunUnder(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method != http.MethodPost || request.Path != "/api/runs" {
+			return http.StatusNotFound, map[string]any{"error": "not_found"}
+		}
+		return http.StatusCreated, map[string]any{
+			"run": map[string]any{"run_id": "run_clamped", "state": "starting"},
+			"budget": map[string]any{
+				"max_cost_usd":                8,
+				"max_wall_clock_ms":           14_400_000,
+				"requested_max_cost_usd":      40,
+				"requested_max_wall_clock_ms": nil,
+				"cost_clamped":                true,
+				"wall_clock_clamped":          false,
+			},
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	out := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1", "--max-cost", "40"}); err != nil {
+		t.Fatalf("cloud run: %v", err)
+	}
+	printed := out.String()
+	// The number that governs.
+	if !strings.Contains(printed, "cost budget: $8.00") {
+		t.Errorf("the effective cost budget is not printed:\n%s", printed)
+	}
+	if !strings.Contains(printed, "wall-clock budget: 4h0m0s") {
+		t.Errorf("the effective wall-clock budget is not printed:\n%s", printed)
+	}
+	// And that it is not the number that was asked for.
+	if !strings.Contains(printed, "--max-cost $40.00 was lowered") {
+		t.Errorf("the clamp is not reported:\n%s", printed)
+	}
+}
+
+// A factory deployed before the budget was reported answers without it. Saying
+// "$0.00" there would be worse than saying nothing.
+func TestCloudRunSaysNothingAboutABudgetTheFactoryDidNotReport(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_old"}}
+	})
+	configureCloudFactory(t, endpoint)
+	out := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1"}); err != nil {
+		t.Fatalf("cloud run: %v", err)
+	}
+	if strings.Contains(out.String(), "budget") {
+		t.Errorf("a budget line was invented for a factory that reported none:\n%s", out.String())
+	}
+}
+
 func TestCloudRunRefusesANonPositiveBudgetBeforeSubmitting(t *testing.T) {
 	setupCloudRepo(t, true)
 	var calls int

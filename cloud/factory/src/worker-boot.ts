@@ -44,6 +44,72 @@ export const WORKER_PROBE_COMMAND = `${WORKER_COMMAND} ${WORKER_PROBE_ARG}`;
  */
 export const WORKER_PROBE_MARKER = "ticks-worker-probe-ok";
 
+// ------------------------------------------------- the cancellation door ---
+
+/**
+ * The argument that turns {@link WORKER_COMMAND} into the cancellation door
+ * (tick 7zk).
+ *
+ * Until this existed the supervisor could say exactly two things to a worker
+ * container — kill the process, destroy the container — and both of them mean
+ * "this container's work is gone". Run `run_f7bd5a36` paid $8.00 for three
+ * containers that were all still working when the cost budget tripped and kept
+ * nothing: no branch, no report, no salvage, a silent `no-commits` on every
+ * tick. The salvage that would have rescued them already existed and was
+ * already proven live (tick 5fg, run 3, commit adfedff5) — it just had no door
+ * the supervisor could knock on.
+ *
+ * This is the third thing to say: STOP AND PUSH NOW. Started as its own
+ * process inside the container, it lodges the request and asks the HARNESS to
+ * stop, so the entrypoint returns from its harness call exactly as it does at
+ * its own bound and everything after it — sweep, salvage, report, push — runs.
+ */
+export const WORKER_CANCEL_ARG = "--cancel";
+
+/** The door, without a reason. `workerCancelCommand` adds one. */
+export const WORKER_CANCEL_COMMAND = `${WORKER_COMMAND} ${WORKER_CANCEL_ARG}`;
+
+/**
+ * What the container prints once the request is lodged.
+ *
+ * Content, never an exit code — the same rule {@link WORKER_PROBE_MARKER}
+ * exists for, applied to the other end of a container's life.
+ */
+export const WORKER_CANCEL_MARKER = "ticks-worker-cancel-requested";
+
+/**
+ * What the pushed report carries when the SUPERVISOR stopped the container.
+ *
+ * A branch cut short by the run and a branch abandoned by its agent carry the
+ * same partial work and call for opposite next actions, so the container says
+ * which it was.
+ */
+export const WORKER_CANCEL_REPORT_MARKER = "CANCELLED BY THE SUPERVISOR";
+
+/** Where the container keeps the harness pid the door needs to find. */
+export const WORKER_STATE_DIR_ENV = "TICKS_WORKER_STATE_DIR";
+
+/**
+ * A cancellation reason, reduced to something safe to hand a shell.
+ *
+ * The reason travels from `WaveCancellation.reason` — `budget:cost`,
+ * `stopped:hard` — which is a machine-readable token by construction. It is
+ * still filtered rather than trusted: this string becomes an argument in a
+ * command line the control plane composes, and a `WaveCancellation` is built
+ * from a stop record a caller supplied. Anything outside the token alphabet is
+ * dropped, not escaped, because a reason is a label and a label that needed
+ * escaping is not one.
+ */
+export function workerCancelReason(reason?: string | null): string {
+  return (reason ?? "").replace(/[^A-Za-z0-9:._-]/g, "").slice(0, 64);
+}
+
+/** The command that asks one container to stop and push, with its reason. */
+export function workerCancelCommand(reason?: string | null): string {
+  const token = workerCancelReason(reason);
+  return token === "" ? WORKER_CANCEL_COMMAND : `${WORKER_CANCEL_COMMAND} ${token}`;
+}
+
 /** What the worker entrypoint exports as TK_ACTOR. */
 export const WORKER_ACTOR = "cloud:worker";
 
@@ -419,5 +485,15 @@ export function workerProbeSpec(input: WorkerBootInput): ProbeSpec {
  */
 export function workerWorkSpec(input: WorkerBootInput): WorkSpec {
   const env = workerBootEnv(input);
-  return { probe: { command: WORKER_PROBE_COMMAND, env, expect: WORKER_PROBE_MARKER }, command: WORKER_COMMAND, env };
+  return {
+    probe: { command: WORKER_PROBE_COMMAND, env, expect: WORKER_PROBE_MARKER },
+    command: WORKER_COMMAND,
+    env,
+    // How this container is asked to stop and push before it is destroyed
+    // (tick 7zk). Carried in the spec rather than assembled at the teardown
+    // site for the same reason `command` is: the dispatcher is TOLD what to
+    // run in a container, it does not invent it. The reason is appended by
+    // the caller, which is the only party that knows why the wave stopped.
+    salvage: { command: WORKER_CANCEL_COMMAND, env, marker: WORKER_CANCEL_MARKER },
+  };
 }

@@ -90,6 +90,55 @@ const (
 // runner-shaped actor namespace beside [Actor].
 const WorkerActor = "cloud:worker"
 
+// The cancellation door (tick 7zk).
+//
+// The supervisor could say two things to a worker container — kill the process,
+// destroy the container — and both of them mean "this container's work is
+// gone". Run run_f7bd5a36 paid $8.00 for three containers that were all still
+// working when the cost budget tripped and kept nothing: no branch, no report,
+// no salvage. The salvage itself already existed (tick 5fg) and runs when the
+// WORKER's own bound fires; nothing ran it when the SUPERVISOR ended the wave.
+//
+// [WorkerCancelCommand] is the missing third thing to say: STOP AND PUSH NOW.
+// It is a second process started inside the same container, which lodges the
+// request and asks the harness — never the entrypoint — to stop, so the
+// entrypoint returns from its harness call exactly as it does at its own bound
+// and every line after it (sweep, salvage, report, push) runs.
+//
+// It is safe to hold a window open for because of the ORDER around it: the
+// run's gateway credential is revoked before the ask (tick gyl), so a
+// container in the window cannot make a model call at all — it can only finish
+// a git push. Money dies first, work is rescued second.
+const (
+	// WorkerCancelArg turns [WorkerCommand] into the cancellation door. It
+	// takes one optional argument, the machine-readable reason a wave was
+	// cancelled (`budget:cost`, `stopped:hard`, …).
+	WorkerCancelArg = "--cancel"
+
+	// WorkerCancelMarker is what the cancellation door prints once the request
+	// is lodged, so the dispatcher can tell a container that took the ask from
+	// one that could not. Content, not an exit code — the same rule the
+	// green-start probe's marker exists for.
+	WorkerCancelMarker = "ticks-worker-cancel-requested"
+
+	// WorkerCancelReportMarker heads the section the entrypoint prepends to
+	// `RESULT-<tick>.md` when the supervisor stopped the container. A reader of
+	// the branch has to be able to tell a tick its agent abandoned from a tick
+	// the RUN cut short: the two call for opposite next actions.
+	WorkerCancelReportMarker = "CANCELLED BY THE SUPERVISOR"
+
+	// EnvWorkerStateDir is where the container keeps the two facts a second
+	// process inside it has to find — the harness's pid, and whether a
+	// cancellation has been lodged. It has a fixed default because the two
+	// processes share nothing else; it is overridable only so the repository's
+	// tests can drive several workers at once.
+	EnvWorkerStateDir = "TICKS_WORKER_STATE_DIR"
+)
+
+// WorkerCancelCommand is what the dispatcher starts inside a container it is
+// about to destroy, to ask it to stop and push what it has.
+func WorkerCancelCommand() string { return WorkerCommand + " " + WorkerCancelArg }
+
 // The boundary guard (tick dxk).
 //
 // A worker agent may not run `tk` and may not write under `.tick/`: the

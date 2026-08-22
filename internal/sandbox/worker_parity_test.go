@@ -28,6 +28,10 @@ type workerContract struct {
 	ProbeArg            string `json:"probe_arg"`
 	ProbeCommand        string `json:"probe_command"`
 	ProbeMarker         string `json:"probe_marker"`
+	CancelArg           string `json:"cancel_arg"`
+	CancelCommand       string `json:"cancel_command"`
+	CancelMarker        string `json:"cancel_marker"`
+	CancelReportMarker  string `json:"cancel_report_marker"`
 	WorkerActor         string `json:"worker_actor"`
 	BranchPrefix        string `json:"branch_prefix"`
 	BranchExample       struct {
@@ -44,6 +48,7 @@ type workerContract struct {
 		WorkerBranch string `json:"worker_branch"`
 		Timeout      string `json:"worker_timeout"`
 		Setup        string `json:"worker_setup"`
+		StateDir     string `json:"worker_state_dir"`
 	} `json:"env"`
 	SetupModes struct {
 		Always string `json:"always"`
@@ -82,12 +87,24 @@ func TestWorkerBootContractMatchesThisPackage(t *testing.T) {
 		{"probe arg", WorkerProbeArg, c.ProbeArg},
 		{"probe command", WorkerProbeCommand(), c.ProbeCommand},
 		{"probe marker", WorkerProbeMarker, c.ProbeMarker},
+		// The cancellation door (tick 7zk). Three readers again: the shell
+		// answers `--cancel`, this package asserts the contract, and
+		// worker-boot.ts is what tells worker-dispatch.ts the command to start
+		// inside a container it is about to destroy. A drift here is a
+		// supervisor politely asking a container a question it does not
+		// answer — which reads, from outside, exactly like the silent
+		// destruction this tick exists to end.
+		{"cancel arg", WorkerCancelArg, c.CancelArg},
+		{"cancel command", WorkerCancelCommand(), c.CancelCommand},
+		{"cancel marker", WorkerCancelMarker, c.CancelMarker},
+		{"cancel report marker", WorkerCancelReportMarker, c.CancelReportMarker},
 		{"worker actor", WorkerActor, c.WorkerActor},
 		{"branch prefix", WorkerBranchPrefix, c.BranchPrefix},
 		{"tick env", EnvTick, c.Env.Tick},
 		{"worker branch env", EnvWorkerBranch, c.Env.WorkerBranch},
 		{"worker timeout env", EnvWorkerTimeout, c.Env.Timeout},
 		{"worker setup env", EnvWorkerSetup, c.Env.Setup},
+		{"worker state dir env", EnvWorkerStateDir, c.Env.StateDir},
 		{"setup always", WorkerSetupAlways, c.SetupModes.Always},
 		{"setup skip", WorkerSetupSkip, c.SetupModes.Skip},
 		// The boundary guard's two strings (tick dxk). Three readers again:

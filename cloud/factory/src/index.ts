@@ -48,7 +48,7 @@ import {
 import { proxyModelRequest } from "./gateway";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
-import { RunWorkflow } from "./run-workflow";
+import { RunWorkflow, effectiveRunBudget } from "./run-workflow";
 import {
   RunRoom,
   type MessageRef,
@@ -165,17 +165,36 @@ async function submitRoute(request: Request, env: Env): Promise<Response> {
   if (!parsed.ok) return badRequest(parsed.detail);
 
   const result = await submitRun(env, parsed.submission);
+  // The budget this submission will ACTUALLY run under (tick 7zk). Computed
+  // from the same `runConfig` clamp the Workflow applies, and reported at the
+  // one moment an operator is still reading: `--max-cost 40` against a
+  // deployment ceiling of 8 is a run bounded at $8, and until this line the
+  // first place that number appeared was the cancellation that ended the run.
+  const budget = effectiveRunBudget(env, {
+    ...(parsed.submission.max_cost_usd === undefined
+      ? {}
+      : { max_cost_usd: parsed.submission.max_cost_usd }),
+    ...(parsed.submission.max_wall_clock_ms === undefined
+      ? {}
+      : { max_wall_clock_ms: parsed.submission.max_wall_clock_ms }),
+  });
   switch (result.outcome) {
     case "started":
       return Response.json(
-        { run: result.started.run, workflow: result.started.workflow },
+        { run: result.started.run, workflow: result.started.workflow, budget },
         { status: 201 }
       );
     case "queued":
       // 202: accepted, not running. The holder is named either way, so the
-      // operator knows what it is waiting behind.
+      // operator knows what it is waiting behind — and the budget it will
+      // ignite under, which the clamp decides now and not at ignition.
       return Response.json(
-        { queued: result.queued, holder: result.holder, reason: `lease_held_by:${result.holder.run_id}` },
+        {
+          queued: result.queued,
+          holder: result.holder,
+          reason: `lease_held_by:${result.holder.run_id}`,
+          budget,
+        },
         { status: 202 }
       );
     case "refused":

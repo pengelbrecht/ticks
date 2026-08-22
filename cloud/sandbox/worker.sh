@@ -74,6 +74,29 @@ unset _ticks_here _ticks_common _candidate
 readonly WORKER_PROBE_MARKER="ticks-worker-probe-ok"
 
 # ---------------------------------------------------------------------------
+# The cancellation markers
+#
+# The two strings the supervisor's side of the cancellation door is pinned to,
+# alongside the probe marker and for the same reason: a word one half prints
+# and the other half looks for must be declared once and carried across the
+# languages by `test/fixtures/worker-boot-contract.json`.
+#
+# WORKER_CANCEL_MARKER is what `--cancel` prints when it has lodged the
+# request, so the dispatcher can tell "the container took the ask" from "the
+# container could not". WORKER_CANCEL_REPORT_MARKER is what the pushed report
+# carries, so a human reading a branch knows the tick was cut short by the run
+# rather than abandoned by its agent.
+# ---------------------------------------------------------------------------
+readonly WORKER_CANCEL_MARKER="ticks-worker-cancel-requested"
+readonly WORKER_CANCEL_REPORT_MARKER="CANCELLED BY THE SUPERVISOR"
+
+# The status a harness the supervisor stopped is reported as. 128+SIGTERM, the
+# same number the shell reports for a process TERMed by anything else — a
+# cancelled container must not invent a status class the rest of the script
+# then has to special-case.
+readonly HARNESS_CANCELLED_STATUS=143
+
+# ---------------------------------------------------------------------------
 # Exit codes this role adds to common.sh's 2-8
 #
 # The classes a worker can end in that an orchestrator cannot. Each is a
@@ -125,6 +148,20 @@ harness_timeout="${TICKS_WORKER_TIMEOUT:-0}"
 # pay none of it. Either way the elapsed cost is printed, so the next person
 # tuning this reads a number from a boot log instead of re-deriving it.
 setup_mode="${TICKS_WORKER_SETUP:-always}"
+# Where this container keeps the two small facts a SECOND process inside it has
+# to be able to find: which pid the harness is, and whether the supervisor has
+# asked this container to stop and push (see "The cancellation door" below).
+#
+# A fixed path rather than something derived from the workdir, because
+# `ticks-worker --cancel` is started by the dispatcher as its own process and
+# shares nothing with the boot it is stopping except this script's defaults.
+# Overridable only so the repository's tests can run several workers at once.
+state_dir="${TICKS_WORKER_STATE_DIR:-/tmp/ticks-worker}"
+# How long `--cancel` waits for the harness to go down politely before it
+# insists. Seconds, and small: the grace window the SUPERVISOR holds open is
+# the budget this has to fit inside, and every second spent here is a second
+# not spent committing and pushing.
+cancel_kill_after="${TICKS_WORKER_CANCEL_KILL_S:-10}"
 
 # Filled in by adopt_worker_branch: the branch this tick's commits land on and
 # the branch collect reads, and how many commits an earlier attempt had already
@@ -472,10 +509,121 @@ build_worker_prompt() {
 }
 
 # ---------------------------------------------------------------------------
+# The cancellation door (tick 7zk)
+#
+# THE ASYMMETRY THIS CLOSES. When the WORKER's own bound fires, everything
+# below — the sweep, the salvage, the report, the push — runs, and tick 5fg
+# proved it live: run 3's tick 5qj had four dirty paths rescued into commit
+# adfedff5. When the SUPERVISOR ends the wave, none of it ran: the container
+# was destroyed with the work inside it. Run `run_f7bd5a36` paid $8.00 for
+# three containers that were all still working when the cost budget tripped,
+# and kept nothing — no branch, no report, no salvage. Same loss, different
+# door, and this is the door.
+#
+# WHY A GRACE WINDOW IS NOT A HOLE IN THE KILL SWITCH. Tick gyl's rule is that
+# the credential dies BEFORE the containers do, because every second between
+# "stop" and "destroyed" is a second a runaway keeps spending. That argument is
+# about MONEY, and it is still obeyed: `waveCanceller`'s `on_cancel` revokes
+# the run's gateway token the instant the wave is found cancelled, ahead of
+# anything below. A container whose token is revoked cannot make a model call —
+# the gateway answers it `403 run_token_revoked` — so the only thing it can
+# still do in the window is finish a git push. Revoke, then grace, then
+# destroy: the money dies first and the work is rescued second, and the two
+# properties do not trade against each other.
+#
+# WHY IT IS A SIGNAL AND NOT SIGKILL. The sandbox seam offers `killProcess` and
+# `destroy`, and both of them mean "this container's work is gone". What was
+# missing was a way to say STOP AND PUSH NOW. `ticks-worker --cancel` is that
+# way: a second process in the same container that lodges the request and asks
+# the harness — never this script — to stop, so the boot below returns from
+# `run_harness` exactly as it does when its own bound fires, and every line
+# after it runs.
+# ---------------------------------------------------------------------------
+state_ready() {
+	[[ -d $state_dir ]] || mkdir -p "$state_dir" 2>/dev/null
+}
+
+record_harness_pid() {
+	state_ready || return 0
+	printf '%s\n' "$1" >"$state_dir/harness.pid" 2>/dev/null || true
+}
+
+clear_harness_pid() {
+	rm -f "$state_dir/harness.pid" 2>/dev/null || true
+}
+
+# Whether the supervisor has asked this container to stop, and what it said.
+cancel_requested() { [[ -f $state_dir/cancelled ]]; }
+cancel_reason() {
+	[[ -r $state_dir/cancelled ]] || return 0
+	sed -n 1p "$state_dir/cancelled" 2>/dev/null
+}
+
+# `ticks-worker --cancel <reason>`, run by the dispatcher inside a container it
+# is about to destroy.
+#
+# It takes none of the boot's inputs and touches neither the gateway nor the
+# checkout: a container being cancelled may be anywhere in its boot, including
+# before it has one. It always lodges the request first, so a container that
+# has not started its harness yet never starts it — the cheapest possible stop.
+#
+# Best effort throughout, and never fatal: this process failing must not be
+# what stops the container being torn down.
+run_cancel() {
+	local reason="${1:-cancelled}" pid="" waited=0
+	# `--cancel` never goes through require_inputs, so its one number is
+	# validated where it is used rather than nowhere.
+	[[ $cancel_kill_after =~ ^[0-9]+$ ]] || cancel_kill_after=10
+	if ! state_ready; then
+		warn "cannot create ${state_dir}; this container cannot be asked to stop politely"
+		return 1
+	fi
+	printf '%s\n' "$reason" >"$state_dir/cancelled" 2>/dev/null || {
+		warn "could not record the cancellation in ${state_dir}"
+		return 1
+	}
+	say "$WORKER_CANCEL_MARKER reason=${reason}"
+
+	[[ -r $state_dir/harness.pid ]] && pid="$(sed -n 1p "$state_dir/harness.pid" 2>/dev/null)"
+	if [[ -z $pid || ! $pid =~ ^[0-9]+$ ]]; then
+		say "no harness is running in this container yet; the request is lodged, so one will not be started"
+		return 0
+	fi
+	if ! kill -0 "$pid" 2>/dev/null; then
+		say "the harness (pid ${pid}) has already stopped; this container is already past it"
+		return 0
+	fi
+
+	# SIGTERM, not SIGKILL: the harness is being asked to stop, and an agent
+	# that flushes on the way out is worth the second it costs.
+	kill -TERM "$pid" 2>/dev/null || true
+	say "asked the harness (pid ${pid}) to stop; this container's own salvage, report and push run next"
+	while ((waited < cancel_kill_after)); do
+		if ! kill -0 "$pid" 2>/dev/null; then
+			say "the harness stopped ${waited}s after being asked"
+			return 0
+		fi
+		sleep 1
+		waited=$((waited + 1))
+	done
+	# And then insist. The window the supervisor is holding open is spent on
+	# committing and pushing, not on waiting for a harness that will not stop.
+	kill -KILL "$pid" 2>/dev/null || true
+	warn "the harness did not stop within ${cancel_kill_after}s of being asked; killed it so this container can still push what it has"
+	return 0
+}
+
+# ---------------------------------------------------------------------------
 # The harness
 #
-# Foreground, not exec'd, and bounded when the caller bounded it: everything
-# this script exists to do happens after it returns.
+# Not exec'd, and bounded when the caller bounded it: everything this script
+# exists to do happens after it returns.
+#
+# It runs in the BACKGROUND and is waited on, which looks like a detail and is
+# the whole cancellation door: `$!` is the pid `--cancel` needs, and there is
+# no other way for a second process in this container to learn it. Foreground
+# is otherwise identical — stdout is the same fd, `wait` returns the same
+# status, and a harness killed by a signal reports 128+signum either way.
 # ---------------------------------------------------------------------------
 run_harness() {
 	local prompt="$1" status
@@ -499,6 +647,15 @@ run_harness() {
 		;;
 	esac
 
+	# The cheapest stop there is. A container the supervisor cancelled while it
+	# was still cloning, installing or probing already has the request lodged,
+	# and starting a harness now would be spending on work that is about to be
+	# thrown away — the model call this whole door exists to prevent.
+	if cancel_requested; then
+		warn "the supervisor cancelled this container before its harness started ($(cancel_reason)); not starting it"
+		return $HARNESS_CANCELLED_STATUS
+	fi
+
 	# The boundary guard's PATH, and ONLY here: the shim shadows `tk` for the
 	# harness and every child its tool calls spawn, while this script's own
 	# `tk` — already all spent, above — was resolved from the real one. Set and
@@ -511,15 +668,26 @@ run_harness() {
 	fi
 
 	say "starting the $harness harness on tick ${tick_id} (branch ${worker_branch})"
-	if ((harness_timeout > 0)); then
-		bounded "$harness_timeout" "${cmd[@]}" </dev/null
-		status=$?
-		if ((status == 124)); then
-			warn "the harness did not finish within ${harness_timeout}s; stopping it here so this container still pushes what it has"
-		fi
+	# Composed rather than run through `bounded`, because the pid has to be the
+	# thing a signal reaches. Backgrounding a shell FUNCTION would make `$!` the
+	# subshell wrapping it, and a TERM to that subshell would leave `timeout`
+	# and the harness under it running — an orphan agent in a container nobody
+	# is watching any more. `timeout` forwards the signal it receives to the
+	# command it manages, so one pid is enough either way.
+	local run=()
+	if ((harness_timeout > 0)) && command -v timeout >/dev/null 2>&1; then
+		run=(timeout "$harness_timeout" "${cmd[@]}")
 	else
-		"${cmd[@]}" </dev/null
-		status=$?
+		run=("${cmd[@]}")
+	fi
+	"${run[@]}" </dev/null &
+	local pid=$!
+	record_harness_pid "$pid"
+	wait "$pid"
+	status=$?
+	clear_harness_pid
+	if ((harness_timeout > 0)) && ((status == 124)); then
+		warn "the harness did not finish within ${harness_timeout}s; stopping it here so this container still pushes what it has"
 	fi
 	PATH="$saved_path"
 	export PATH
@@ -729,8 +897,23 @@ boundary_section() {
 	printf '\n'
 }
 
+# The cancellation section, written only when the supervisor stopped this
+# container. Like the boundary section it is a signal rather than a header: a
+# reader of this branch has to be able to tell a tick its agent abandoned from
+# a tick the RUN cut short, because the two call for opposite next actions.
+cancel_section() {
+	local reason="$1"
+	printf '> **%s** (`%s`). The wave was cancelled while this container was\n' \
+		"$WORKER_CANCEL_REPORT_MARKER" "$reason"
+	printf '> still working. Its gateway credential was revoked first, so it could no\n'
+	printf '> longer make a model call; what it had was salvaged, committed and pushed\n'
+	printf '> inside the window the supervisor held open before the container was\n'
+	printf '> destroyed. Whatever is on this branch is therefore PARTIAL by\n'
+	printf '> construction — the agent did not decide to stop.\n\n'
+}
+
 prepend_container_facts() {
-	local status="$1" commits="$2" dirty="$3" salvaged="${4:-0}" boundary="${5:-}" salvage_note=""
+	local status="$1" commits="$2" dirty="$3" salvaged="${4:-0}" boundary="${5:-}" cancelled="${6:-}" salvage_note=""
 	local tmp="$workdir/$result_path.ticks-worker"
 	if ((salvaged != 0)); then
 		salvage_note=", salvaged into their own commit"
@@ -740,6 +923,7 @@ prepend_container_facts() {
 		printf 'agent'"'"'s report, including its STATUS line, is unchanged below. -->\n\n'
 		printf '_%s: branch `%s`, base `%s`, harness `%s` exited %s, %s work commit(s), %s uncommitted path(s)%s._\n\n' \
 			"$ME" "$worker_branch" "$base_sha" "$harness" "$status" "$commits" "$dirty" "$salvage_note"
+		[[ -z $cancelled ]] || cancel_section "$cancelled"
 		[[ -z $boundary ]] || boundary_section "$boundary"
 		cat "$workdir/$result_path"
 	} >"$tmp" && mv "$tmp" "$workdir/$result_path" || {
@@ -790,6 +974,14 @@ main() {
 		run_probe
 		exit $?
 	fi
+	# Answered before `require_inputs` and before anything is resolved: a
+	# container being cancelled may be at any point in its boot, including
+	# before it has a checkout, and a cancellation that refused because
+	# TICKS_TICK was unset would be a stop that did not stop anything.
+	if [[ ${1:-} == "--cancel" ]]; then
+		run_cancel "${2:-cancelled}"
+		exit $?
+	fi
 
 	say "worker ${run_id}: tick ${tick_id:-<unset>} of epic ${epic} at ${base_sha} (harness ${harness})"
 	require_inputs
@@ -822,6 +1014,15 @@ main() {
 
 	# From here on nothing may stop this script early: whatever happened, the
 	# durable layer gets the branch and the report.
+	#
+	# Read FIRST, because everything below is different when it is set: this is
+	# a container the run cut short, not an agent that gave up, and the branch
+	# it is about to push has to say which (tick 7zk).
+	local cancelled_reason
+	cancelled_reason="$(cancel_reason)"
+	if [[ -n $cancelled_reason ]]; then
+		warn "the supervisor cancelled this container (${cancelled_reason}); salvaging, reporting and pushing what it has before it is destroyed"
+	fi
 	local commits dirty reported=1
 	commits="$(work_commits)"
 	dirty="$(uncommitted_files)"
@@ -853,7 +1054,7 @@ main() {
 		write_fallback_report "$harness_status" "$commits" "$salvaged"
 		reported=0
 	fi
-	prepend_container_facts "$harness_status" "$commits" "$dirty" "$salvaged" "$boundary_notes"
+	prepend_container_facts "$harness_status" "$commits" "$dirty" "$salvaged" "$boundary_notes" "$cancelled_reason"
 	commit_report
 	local pushed=0
 	push_branch || pushed=1

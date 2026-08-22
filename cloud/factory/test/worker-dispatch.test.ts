@@ -11,16 +11,19 @@ import type {
   SandboxProcessView,
 } from "../src/sandbox";
 import {
+  DEFAULT_SALVAGE_GRACE_MS,
   checkLiveness,
   confirmDispatch,
   dispatchWave,
   evaluateProbeOutput,
+  salvageWorker,
   spawnWorker,
   teardownWorker,
   waitForWorker,
   waveCanceller,
   workerSandboxName,
   type Canceller,
+  type SalvageSpec,
   type Sleeper,
   type WaveCancellation,
   type WorkerLogSink,
@@ -213,6 +216,25 @@ const noWait: Sleeper = async () => {};
 
 const PROBE_SPEC = { command: "tk --version", expect: "READY" };
 const WORK_SPEC: WorkSpec = { probe: PROBE_SPEC, command: "ticks-worker", env: { TICKS_TICK_ID: "0ds" } };
+
+/**
+ * The door a container is asked to stop and push through (tick 7zk). Spelled
+ * here the way `workerWorkSpec` spells it, so a test that asserts the command
+ * is asserting the thing a real wave starts.
+ */
+const SALVAGE_SPEC: SalvageSpec = {
+  command: "/usr/local/bin/ticks-worker --cancel",
+  env: { TICKS_TICK_ID: "0ds" },
+  marker: "ticks-worker-cancel-requested",
+};
+
+/** A worker container that CAN be asked to stop and push. */
+const SALVAGEABLE_SPEC: WorkSpec = { ...WORK_SPEC, salvage: SALVAGE_SPEC };
+
+/** The door process a container was asked through, if it was asked at all. */
+function doorIn(sandbox: FakeSandbox): FakeProcess | undefined {
+  return sandbox.processes.find((p) => p.command.startsWith(SALVAGE_SPEC.command));
+}
 
 function task(tickID: string): WorkerTask {
   return { tick_id: tickID, branch: `tick/1vn/${tickID}`, base_sha: "a".repeat(40) };
@@ -860,6 +882,12 @@ function cancelsAfter(after: number, cancellation: WaveCancellation): { probe: (
 }
 
 const STOPPED: WaveCancellation = { reason: "stopped:hard", detail: "a hard stop stands" };
+
+/** The cancellation run run_f7bd5a36 actually died of, verbatim (tick 7zk). */
+const BUDGET: WaveCancellation = {
+  reason: "budget:cost",
+  detail: "the cost budget is exhausted: $8.00 of $8.00",
+};
 
 describe("waveCanceller", () => {
   it("latches: once cancelled it never asks again", async () => {
@@ -1692,5 +1720,261 @@ describe("a worker container's own output is streamed while it runs", () => {
 
     expect(result.probe.ok).toBe(true);
     expect(result.launched).toBe(true);
+  });
+});
+
+// ------------------------------------------------------- the salvage window ---
+
+/**
+ * tick 7zk: a cancelled container is ASKED to stop and push before it is
+ * destroyed.
+ *
+ * Run run_f7bd5a36 is the case. Three containers, all booted green, all
+ * working, and the cost budget tripped at $8.00 of $8.00. The supervisor did
+ * everything right — revoke first, then tear down, exactly the ordering tick
+ * gyl argued for — and the run kept nothing: `no-commits`, `branch_exists:
+ * false`, three times. The salvage that would have rescued them already
+ * existed in `cloud/sandbox/worker.sh` and already had live proof behind it
+ * (tick 5fg, run 3, commit adfedff5); what it did not have was a door the
+ * SUPERVISOR could knock on. These cases are that door.
+ *
+ * The tension is resolved by ORDER, not by trading one property for the other:
+ * the credential is revoked before the window opens, so a container inside it
+ * cannot make a model call at all — the only thing it can still do is finish a
+ * git push.
+ */
+describe("salvageWorker: the grace window between revoke and destroy", () => {
+  it("asks the container to stop and push, and waits for it to finish", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "aaa");
+    const sandbox = (await binding.get(name)) as FakeSandbox;
+    const work = await sandbox.startProcess("ticks-worker", { env: {} });
+
+    // The container answers the door and then does what worker.sh does: it
+    // commits what it has, writes its report and pushes.
+    const sleep: Sleeper = async () => {
+      const door = doorIn(sandbox);
+      if (door === undefined) return;
+      door.say("ticks-worker: ticks-worker-cancel-requested reason=budget:cost\n");
+      const running = sandbox.processes.find((p) => p.id === work.id)!;
+      if (running.state !== "running") return;
+      running.say("ticks-worker: pushed tick/1vn/aaa to origin\n");
+      running.finish(11);
+    };
+
+    const outcome = await salvageWorker(binding, name, work.id, SALVAGE_SPEC, {
+      reason: "budget:cost",
+      pollMs: 1,
+      sleep,
+    });
+
+    expect(outcome.requested).toBe(true);
+    expect(outcome.settled).toBe(true);
+    expect(outcome.state).toBe("failed");
+    // The reason travels INTO the container, so the branch it pushes says why
+    // it stopped rather than looking like an agent that gave up.
+    expect(doorIn(sandbox)?.command).toBe("/usr/local/bin/ticks-worker --cancel budget:cost");
+  });
+
+  // The window is BOUNDED, which is the other half of why it is safe: a
+  // container that will not stop does not get to hold a cancelled run open.
+  it("destroys nothing but stops waiting when the window closes", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "aaa");
+    const sandbox = (await binding.get(name)) as FakeSandbox;
+    const work = await sandbox.startProcess("ticks-worker", { env: {} });
+
+    const outcome = await salvageWorker(binding, name, work.id, SALVAGE_SPEC, {
+      reason: "budget:cost",
+      // Zero is the bound under test: the window closes on its own terms and
+      // the caller goes on to tear the container down.
+      graceMs: 0,
+      pollMs: 1,
+      sleep: noWait,
+    });
+
+    expect(outcome.requested).toBe(true);
+    expect(outcome.settled).toBe(false);
+    expect(outcome.state).toBe("running");
+    expect(outcome.detail).toContain("lost");
+    // The window does not destroy anything: that is `teardownWorker`'s job and
+    // it still runs after this.
+    expect(sandbox.destroyed).toBe(false);
+  });
+
+  // A container that already finished lost nothing, and asking it to stop
+  // would start a process in a container about to be destroyed for no reason.
+  it("asks nothing of a container that was already over", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "aaa");
+    const sandbox = (await binding.get(name)) as FakeSandbox;
+    const work = await sandbox.startProcess("ticks-worker", { env: {} });
+    sandbox.current.finish(0);
+
+    const outcome = await salvageWorker(binding, name, work.id, SALVAGE_SPEC, {
+      reason: "budget:cost",
+      sleep: noWait,
+    });
+
+    expect(outcome.requested).toBe(false);
+    expect(outcome.settled).toBe(true);
+    expect(doorIn(sandbox)).toBeUndefined();
+  });
+
+  // A container booted without a door behaves exactly as it did before this
+  // tick: nothing is started in it, and the caller destroys it.
+  it("asks nothing of a container with no salvage door", async () => {
+    const binding = new FakeSandboxes();
+    const name = workerSandboxName("run1", "aaa");
+    const sandbox = (await binding.get(name)) as FakeSandbox;
+    const work = await sandbox.startProcess("ticks-worker", { env: {} });
+
+    const outcome = await salvageWorker(binding, name, work.id, undefined, { sleep: noWait });
+
+    expect(outcome.requested).toBe(false);
+    expect(sandbox.processes).toHaveLength(1);
+  });
+
+  // The window is sized for a commit and a push, not for a tick.
+  it("is bounded by a window sized for a push, not for work", () => {
+    expect(DEFAULT_SALVAGE_GRACE_MS).toBeGreaterThan(0);
+    expect(DEFAULT_SALVAGE_GRACE_MS).toBeLessThanOrEqual(60_000);
+  });
+});
+
+describe("dispatchWave: a cancelled wave rescues before it destroys", () => {
+  it("asks every live container to push, then tears it down, then reads git", async () => {
+    const binding = new FakeSandboxes();
+    const tasks = [task("aaa"), task("bbb")];
+    const collector = new FakeCollector();
+    collector.watch = binding;
+    const inWait = () =>
+      tasks.every(
+        (t) =>
+          binding.gets.filter((name) => name === workerSandboxName("run1", t.tick_id)).length >= 2
+      );
+    // What the revocation saw when it ran. tick gyl's ordering is the whole
+    // reason the window below is safe, so it is asserted rather than assumed:
+    // the money must be dead before any container is asked to keep working for
+    // another second.
+    let doorsWhenRevoked = -1;
+    const cancel = waveCanceller(async () => (inWait() ? BUDGET : null), {
+      poll_ms: 0,
+      on_cancel: async () => {
+        doorsWhenRevoked = binding.booted.filter((s) => doorIn(s) !== undefined).length;
+      },
+    });
+
+    const sleep: Sleeper = async () => {
+      for (const sandbox of binding.booted) {
+        const door = doorIn(sandbox);
+        if (door !== undefined) {
+          door.say("ticks-worker: ticks-worker-cancel-requested reason=budget:cost\n");
+          // The container does what worker.sh does when its harness stops: it
+          // salvages, reports and pushes, and only then exits.
+          const work = sandbox.processes.find(
+            (p) => p.command === WORK_SPEC.command && p.state === "running"
+          );
+          work?.say("ticks-worker: salvaged the harness's uncommitted work\n");
+          work?.finish(11);
+          continue;
+        }
+        const proc = sandbox.processes.at(-1);
+        if (proc === undefined || proc.state !== "running") continue;
+        if (proc.command === PROBE_SPEC.command) {
+          proc.say("READY\n");
+          proc.finish(0);
+        } else {
+          proc.say("implementing\n");
+        }
+      }
+    };
+
+    const outcomes = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName("run1", tickID),
+      tasks,
+      () => SALVAGEABLE_SPEC,
+      {
+        probe_timeout_ms: 2_000,
+        probe_poll_ms: 1,
+        confirm_timeout_ms: 2_000,
+        confirm_poll_ms: 1,
+        wait_timeout_ms: 30 * 60_000,
+        wait_poll_ms: 15_000,
+        salvage_poll_ms: 1,
+        sleep,
+        cancel,
+      },
+      collector
+    );
+
+    // The credential died before any container was asked for anything.
+    expect(doorsWhenRevoked).toBe(0);
+
+    for (const outcome of outcomes) {
+      expect(outcome.cancelled).toEqual(BUDGET);
+      // Asked, and it answered inside the window.
+      expect(outcome.salvage?.requested).toBe(true);
+      expect(outcome.salvage?.settled).toBe(true);
+      // And then destroyed, which is still what happens to a cancelled
+      // container — the window changes when, never whether.
+      expect(outcome.teardown.destroyed).toBe(true);
+      // Nothing had to be killed: the container stopped on its own, which is
+      // the difference between a pushed branch and a lost one.
+      expect(outcome.teardown.killed).toBe(false);
+      expect(collector.seenDestroyed.get(outcome.collect.tick_id)).toBe(true);
+    }
+    for (const sandbox of binding.booted) {
+      expect(doorIn(sandbox)?.command).toBe("/usr/local/bin/ticks-worker --cancel budget:cost");
+    }
+  });
+
+  // The behaviour before this tick, still available and still correct for a
+  // container that cannot be asked: kill it and destroy it.
+  it("kills and destroys a container with no door, exactly as before", async () => {
+    const binding = new FakeSandboxes();
+    const collector = new FakeCollector();
+    const cancel = waveCanceller(
+      async () =>
+        binding.gets.filter((name) => name === workerSandboxName("run1", "aaa")).length >= 2
+          ? BUDGET
+          : null,
+      { poll_ms: 0 }
+    );
+    const sleep: Sleeper = async () => {
+      for (const sandbox of binding.booted) {
+        const proc = sandbox.processes.at(-1);
+        if (proc === undefined || proc.state !== "running") continue;
+        if (proc.command === PROBE_SPEC.command) {
+          proc.say("READY\n");
+          proc.finish(0);
+        } else {
+          proc.say("implementing\n");
+        }
+      }
+    };
+
+    const outcomes = await dispatchWave(
+      binding,
+      (tickID) => workerSandboxName("run1", tickID),
+      [task("aaa")],
+      () => WORK_SPEC,
+      {
+        probe_timeout_ms: 2_000,
+        probe_poll_ms: 1,
+        confirm_timeout_ms: 2_000,
+        confirm_poll_ms: 1,
+        wait_timeout_ms: 30 * 60_000,
+        wait_poll_ms: 15_000,
+        sleep,
+        cancel,
+      },
+      collector
+    );
+
+    expect(outcomes[0]!.salvage?.requested).toBe(false);
+    expect(outcomes[0]!.teardown.killed).toBe(true);
+    expect(outcomes[0]!.teardown.destroyed).toBe(true);
   });
 });

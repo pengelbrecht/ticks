@@ -18,6 +18,8 @@ import {
   chunkWave,
   resolveDispatchWidth,
   summarizeCloudWave,
+  cloudWaveLoss,
+  describeCloudWaveLoss,
   type RunOutcome,
 } from "../src/run-workflow";
 import { roomFor, runStatus, startRun, stopRun, submitRun } from "../src/runs";
@@ -31,6 +33,8 @@ import {
   type SandboxProcessView,
 } from "../src/sandbox";
 import {
+  WORKER_CANCEL_COMMAND,
+  WORKER_CANCEL_MARKER,
   WORKER_COMMAND,
   WORKER_PROBE_COMMAND,
   WORKER_PROBE_MARKER,
@@ -122,6 +126,20 @@ class FakeSandbox implements OrchestratorSandbox {
       } else if (command === WORKER_COMMAND) {
         process.say("implementing\n");
         if (!this.holdWork) process.exit(0);
+      } else if (command.startsWith(WORKER_CANCEL_COMMAND)) {
+        // tick 7zk: a real container ANSWERS the cancellation door. It lodges
+        // the request, stops its harness, salvages, reports and pushes, and
+        // the work process then exits — which is the only reason the
+        // supervisor's grace window ever closes early. A fake that ignored the
+        // ask would model a container that never answers, and every cancelled
+        // wave here would sit out the whole window in real time.
+        process.say(`${WORKER_CANCEL_MARKER} reason=cancelled\n`);
+        process.exit(0);
+        for (const running of this.processes) {
+          if (running.command !== WORKER_COMMAND || running.state !== "running") continue;
+          running.say("salvaged the harness's uncommitted work, pushed\n");
+          running.exit(11);
+        }
       }
     }
     return process.view;
@@ -1847,6 +1865,95 @@ describe("summarizeCloudWave", () => {
   });
 });
 
+/**
+ * tick 7zk. Run run_f7bd5a36's own record: three containers, `cancelled:
+ * budget:cost`, `wait: {state: "running"}`, `collect: {verdict: "no-commits",
+ * branch_exists: false}`. Every line of that is true and the whole reads like
+ * three containers that did nothing — which is what a container that never
+ * started looks like, and is the opposite of what happened. The run had just
+ * spent its entire $8.00 allowance producing the work it then destroyed.
+ *
+ * So the loss is COUNTED from what the containers were doing, never inferred
+ * from the verdict, and the run's ending says the number out loud.
+ */
+describe("cloudWaveLoss: a cancellation says what it destroyed", () => {
+  const cut = (
+    tickID: string,
+    opts: {
+      state?: "running" | "completed";
+      commits?: number;
+      salvaged?: boolean;
+      launched?: boolean;
+    } = {}
+  ) => ({
+    tick_id: tickID,
+    sandbox_name: `s-${tickID}`,
+    launched: opts.launched ?? true,
+    probe: { ok: true } as const,
+    confirm: null,
+    process_id: "p1",
+    adopted: false,
+    cancelled: { reason: "budget:cost", detail: "the cost budget is exhausted: $8.00 of $8.00" },
+    detail: "",
+    wait: {
+      state: (opts.state ?? "running") as "running" | "completed",
+      exit_code: null,
+      timed_out: false,
+      cancelled: { reason: "budget:cost", detail: "exhausted" },
+      offset: 0,
+    },
+    collect: {
+      ...defaultWorkerReport(tickID),
+      branch_exists: (opts.commits ?? 0) > 0,
+      commits: opts.commits ?? 0,
+    },
+    teardown: { killed: false, destroyed: true, liveness: null },
+    ...(opts.salvaged === undefined
+      ? {}
+      : {
+          salvage: {
+            requested: true,
+            settled: opts.salvaged,
+            waited_ms: 100,
+            state: (opts.salvaged ? "failed" : "running") as "failed" | "running",
+            detail: "",
+          },
+        }),
+  });
+
+  it("counts what was mid-work, and separates what was rescued from what was lost", () => {
+    const loss = cloudWaveLoss([
+      cut("09w", { salvaged: true, commits: 2 }),
+      cut("gm5", { salvaged: false, commits: 0 }),
+      cut("3nh", { salvaged: false, commits: 0 }),
+    ]);
+    expect(loss.mid_work).toBe(3);
+    expect(loss.rescued).toEqual(["09w"]);
+    expect(loss.lost).toEqual(["gm5", "3nh"]);
+  });
+
+  // Run 5 exactly, and the sentence it should have produced instead of three
+  // silent `no-commits` lines.
+  it("says so plainly when every container was destroyed mid-work", () => {
+    const loss = cloudWaveLoss([cut("09w"), cut("gm5"), cut("3nh")]);
+    const said = describeCloudWaveLoss(loss);
+    expect(said).toContain("3 container(s) were still working");
+    expect(said).toContain("DESTROYED MID-WORK");
+    expect(said).toContain("09w");
+  });
+
+  // A container that had already finished lost nothing, and counting it would
+  // turn an ordinary stop into a report of destruction that did not happen.
+  it("counts nothing for a container that was already over, or never launched", () => {
+    const loss = cloudWaveLoss([
+      cut("aaa", { state: "completed", commits: 1 }),
+      cut("bbb", { launched: false }),
+    ]);
+    expect(loss.mid_work).toBe(0);
+    expect(describeCloudWaveLoss(loss)).toBe("");
+  });
+});
+
 describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
   let collector: FakeWorkerCollector;
 
@@ -2463,14 +2570,27 @@ describe("a cloud wave in flight answers to a stop and to a budget", () => {
     // The operator pulls the switch while both containers are mid-tick.
     await stopRun(env, runID, "operator", "hard");
 
-    // Both are killed and their containers destroyed — without waiting for the
+    // Both are stopped and their containers destroyed — without waiting for the
     // batch, which would never have finished on its own.
+    //
+    // "Stopped", not "killed": since tick 7zk a live container is ASKED to
+    // stop and push before it is destroyed, and one that takes the ask ends
+    // itself. Killing is the fallback for a container that will not, and the
+    // assertion is about the work ending, never about which of the two did it.
     await waitFor("both worker containers to be torn down", async () =>
-      working.every((p) => p!.killed) &&
+      working.every((p) => p!.state !== "running") &&
       ["aaa", "bbb"].every((tick) => sandboxes.named(workerSandboxName(runID, tick)).destroyed)
         ? true
         : null
     );
+    // And each was asked before it was destroyed — the door run_f7bd5a36 did
+    // not have.
+    for (const tick of ["aaa", "bbb"]) {
+      const asked = sandboxes
+        .named(workerSandboxName(runID, tick))
+        .processes.some((p) => p.command.startsWith(WORKER_CANCEL_COMMAND));
+      expect(asked).toBe(true);
+    }
 
     // …and the credential died with them, so anything that survived the kill
     // cannot spend another cent.
@@ -2674,8 +2794,8 @@ describe("a wave outlives one Workflow step instead of killing its supervisor", 
     await stopRun(env, runID, "operator", "hard");
 
     await waitFor(
-      "the container to be killed and destroyed",
-      async () => (working.killed && sandboxes.named(name).destroyed ? true : null),
+      "the container to be stopped and destroyed",
+      async () => (working.state !== "running" && sandboxes.named(name).destroyed ? true : null),
       20_000
     );
 

@@ -14,6 +14,10 @@
   "probe_arg": "--probe",
   "probe_command": "/usr/local/bin/ticks-worker --probe",
   "probe_marker": "ticks-worker-probe-ok",
+  "cancel_arg": "--cancel",
+  "cancel_command": "/usr/local/bin/ticks-worker --cancel",
+  "cancel_marker": "ticks-worker-cancel-requested",
+  "cancel_report_marker": "CANCELLED BY THE SUPERVISOR",
   "worker_actor": "cloud:worker",
   "branch_prefix": "tick/",
   "branch_example": { "epic": "1vn", "tick": "tap", "branch": "tick/1vn/tap" },
@@ -22,7 +26,8 @@
     "tick": "TICKS_TICK",
     "worker_branch": "TICKS_WORKER_BRANCH",
     "worker_timeout": "TICKS_WORKER_TIMEOUT",
-    "worker_setup": "TICKS_WORKER_SETUP"
+    "worker_setup": "TICKS_WORKER_SETUP",
+    "worker_state_dir": "TICKS_WORKER_STATE_DIR"
   },
   "setup_modes": { "always": "always", "skip": "skip" },
   "boundary": {
