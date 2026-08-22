@@ -1447,6 +1447,53 @@ Collected from the use cases; each appears above in context.
    stored without its wave. NOT landed: *computing* that wave; neither
    `tk cloud run` nor `tk cloud spawn` derives a readiness set, both take the
    one the orchestrator computed.
+
+   *As built, verified at final review (tick oun, 2026-08-22):* every claim
+   above checks out in the code and its tests — the green-start trap checks
+   probe CONTENT not exit code (`worker-dispatch.ts`'s `evaluateProbeOutput`),
+   confirmed dispatch waits for the probe marker before counting a container
+   launched, and expiring liveness re-probes a worker's process state
+   immediately before `killProcess`/`destroy` rather than trusting an earlier
+   observation (`teardownWorker`). `reconcile.ts`'s evidence order (manifests →
+   git → live sandbox list) is real and a live worker is never redispatched,
+   whatever its branch looks like. The lease genuinely is one lease:
+   `cloud_spawn.go` acquires the RunRoom lease with `LeaseOrigin: local`, the
+   same DO an origin-`cloud` run takes, and `internal/cloud/lease.Resolve`
+   never makes a network call when no factory is configured. `run_event` stays
+   observability — no route in `index.ts` exposes `publishRunEvents` to an
+   inbound caller, it is DO-internal to the Run Workflow's own emission calls,
+   and it never throws. `go test ./internal/cloud/... ./internal/sandbox/...`,
+   `go test ./cmd/tk/cmd/... -run TestCloud`, and `cd cloud/factory && npx
+   vitest run` (531/531) all pass clean at this SHA.
+
+   What this review could NOT do is the live half of "verify against a REAL
+   deployment and a REAL multi-container wave" the way tick kuf's benchmark or
+   Phase 1's final review did: the deployed factory
+   (`ticks-factory.pe-1a0.workers.dev`, confirmed live and healthy via
+   `GET /health`) 404s on `GET /api/observe` — the route tick t9s added — which
+   means it has not been redeployed since wave 6, so none of wave 6's or wave
+   7's code (bmo/s7f/t9s/k24/ddv/pjq/074) has ever run against real Cloudflare
+   infrastructure; every "as built" claim for those ticks rests on
+   `vitest`/`wrangler dev`/local Docker (`docs/sandbox-start-benchmark.md`
+   says so explicitly: "The backend is Docker on the operator's own host, not
+   Cloudflare"). The factory's own run history (`GET /api/runs`) has nothing
+   dispatched after tick b6e's per-tick containers landed, either — the most
+   recent real run (`run_a1f8759...`, epic gj9, 2026-08-21T10:44–12:14)
+   predates b6e by eleven hours and is exactly the "reports stopped, not
+   completed" symptom tick 074 was filed to fix. A reviewer without `tk`
+   access and without authority to redeploy shared production infrastructure
+   cannot close this gap; it is recorded here as what final review found
+   rather than silently assumed away, the way b6e's four gaps were. The
+   follow-up is mechanical: `tk factory deploy`, then a real `tk cloud run` on
+   a small multi-tick epic, then read `tk cloud status`/`tk factory dashboard`
+   against it.
+
+   Also worth naming, not a defect: only wave 1 of a cloud-submitted epic gets
+   real per-tick fan-out today (see "computing that wave" above) — waves 2+ of
+   the same run fall back to the `harness` substrate inside the closeout
+   orchestrator's single sandbox. An operator reading "Phase 2: cloud
+   substrate fan-out" should not assume every wave of a multi-wave epic
+   dispatches multiple containers; only the first does.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage

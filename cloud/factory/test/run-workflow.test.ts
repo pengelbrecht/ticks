@@ -441,6 +441,68 @@ function set(name: string, value: unknown): void {
   (env as unknown as Record<string, unknown>)[name] = value;
 }
 
+/**
+ * Makes EVERY `INSERT INTO dispatch_log` whose `decision` matches throw, on
+ * the real D1 binding — every other statement (including dispatch-log
+ * inserts with a non-matching decision) still hits the real database. A
+ * persistent failure, not a one-shot: a Workflow step retry re-runs the same
+ * code, so a test that only fails the first attempt cannot tell a bug that
+ * self-heals on retry from one that is actually fixed — both would let the
+ * run settle. Only a write that never succeeds tells them apart: the old,
+ * unguarded `await logDispatch(...)` at the tail of `finalize` retried the
+ * WHOLE step (and so re-ran everything above it) up to `FINALIZE_RETRIES`
+ * times; the fixed, caught write lets `finalize` succeed on its first and
+ * only attempt regardless. Returns the attempt counter so a test can assert
+ * on it directly rather than on a state a retry could still reach eventually.
+ */
+function failEveryDispatchLogInsert(matches: (decision: string) => boolean): { attempts(): number } {
+  const db = env.DB as D1Database;
+  let attempts = 0;
+  set(
+    "DB",
+    new Proxy(db, {
+      get(target, property, receiver) {
+        if (property !== "prepare") {
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+        return (sql: string) => {
+          const stmt = target.prepare(sql);
+          if (!sql.includes("INSERT INTO dispatch_log")) return stmt;
+          return new Proxy(stmt, {
+            get(stmtTarget, stmtProperty, stmtReceiver) {
+              if (stmtProperty !== "bind") {
+                const value = Reflect.get(stmtTarget, stmtProperty, stmtReceiver);
+                return typeof value === "function" ? value.bind(stmtTarget) : value;
+              }
+              return (...args: unknown[]) => {
+                const bound = (stmtTarget.bind as (...a: unknown[]) => D1PreparedStatement)(
+                  ...args
+                );
+                const decision = args[2];
+                if (typeof decision !== "string" || !matches(decision)) return bound;
+                return new Proxy(bound, {
+                  get(boundTarget, boundProperty, boundReceiver) {
+                    if (boundProperty !== "run") {
+                      const value = Reflect.get(boundTarget, boundProperty, boundReceiver);
+                      return typeof value === "function" ? value.bind(boundTarget) : value;
+                    }
+                    return async () => {
+                      attempts++;
+                      throw new Error("simulated dispatch_log write failure");
+                    };
+                  },
+                });
+              };
+            },
+          });
+        };
+      },
+    })
+  );
+  return { attempts: () => attempts };
+}
+
 beforeEach(() => {
   sandboxes = new FakeSandboxes();
   set("SANDBOXES", sandboxes);
@@ -1825,6 +1887,41 @@ describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
     expect(log.some((entry) => entry.decision === "handoff:closeout")).toBe(true);
     expect(log.some((entry) => entry.decision.startsWith("stopping:"))).toBe(false);
     expect(log.some((entry) => entry.decision === "finished:completed")).toBe(true);
+  });
+
+  // `finalize` runs inside `step.do("finalize", FINALIZE_RETRIES, ...)`: an
+  // unguarded throw at its tail does not fail quietly, it fails the WHOLE
+  // step, which Workflows retry — re-running the state update and lease
+  // release `finalize` already completed, as many as `FINALIZE_RETRIES`
+  // times over. A D1 hiccup on one audit-log insert must not be able to do
+  // that, the same way a board publish or a lease-release failure already
+  // cannot (both are logged and swallowed a few lines away). `run.state`
+  // alone cannot prove this: `updateRunState` runs BEFORE the dispatch-log
+  // write either way, so even the old, buggy code would leave the row
+  // reading `completed` after its first (retried) attempt. What the bug
+  // actually cost was `finalize` running more than once — so the count of
+  // attempts is the assertion, not the eventual state.
+  it("writes its finishing dispatch-log entry exactly once, even when every attempt fails", async () => {
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"] });
+
+    const failure = failEveryDispatchLogInsert((decision) => decision.startsWith("finished:"));
+
+    const closeout = await waitFor("the closeout orchestrator", async () => sandboxes.phase("closeout"));
+    orchestratorPushedWork(epic);
+    closeout.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    // The real assertion: `finalize` ran to completion on its FIRST attempt.
+    // The old code would have retried this write up to `FINALIZE_RETRIES`
+    // times (all failing, since the D1 failure here is permanent) before the
+    // Workflow gave up on the step — re-running the state update and lease
+    // release each time. One attempt means one run of `finalize`, full stop.
+    expect(failure.attempts()).toBe(1);
+
+    // And the lease finalize releases in that one call did let go.
+    expect(await roomFor(env, project).leaseStatus()).toBeNull();
   });
 
   // The honest word when the wave ran but the ending did not: the epic never

@@ -1904,6 +1904,23 @@ export async function finalize(
     }),
   ]);
 
+  // The dispatch log's own closing line, written before the row goes terminal
+  // for the same reason the board event is: a caller who polls state and sees
+  // it flip to a terminal value must find `finished:<state>` already in the
+  // log, not a window where the row says done and the log does not yet agree.
+  // Best-effort like the release below — losing one audit line must not cost
+  // the run its terminal state.
+  await logDispatch(env, {
+    run_id: params.run_id,
+    epic: params.epic,
+    decision: `finished:${outcome.state}`,
+    reason: null,
+  }).catch((error: unknown) => {
+    console.error(
+      `factory run-workflow: ${params.run_id} could not log its finish decision: ${String(error)}`
+    );
+  });
+
   await updateRunState(env.DB, params.run_id, outcome.state, endedAt);
   // The evidence the state was decided from, stamped beside it: an operator
   // reading `stopped` has to be able to see whether the run stopped having done
@@ -1975,13 +1992,6 @@ export async function finalize(
       `factory run-workflow: ${params.run_id} could not release its lease: ${String(error)}`
     );
   }
-
-  await logDispatch(env, {
-    run_id: params.run_id,
-    epic: params.epic,
-    decision: `finished:${outcome.state}`,
-    reason: null,
-  });
 }
 
 // -------------------------------------------------------------- the run ---
