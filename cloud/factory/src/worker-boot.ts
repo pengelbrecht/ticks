@@ -150,9 +150,11 @@ export const WORKER_PUSH_MARGIN_MS = 60_000;
  *
  * Justified by this repository's own measurement, not by taste. Tick y45
  * recorded a COMPLETE one-tick epic at **78 minutes** on
- * `deepseek-v4-pro-0813`, and {@link WORKER_DEFAULT_MODEL} is the FLASH model,
- * which takes more steps than pro for the same work. Ninety minutes is that
- * measurement plus a small allowance for the extra steps.
+ * `deepseek-v4-pro-0813`, which is now {@link WORKER_DEFAULT_MODEL} itself
+ * (tick 1cd). Ninety minutes is that measurement plus a small allowance, and
+ * it stays where it is: a deployment that routes workers back to flash
+ * through `RUN_WORKER_MODEL` needs MORE time than pro, not less, so lowering
+ * this on the model change would break the configuration it enables.
  *
  * The number this replaced was thirty minutes, and it was not a safety margin:
  * on run run_2e66e765 (2026-08-22, epic 72y, ticks 201/5jo/5qj) all three
@@ -218,7 +220,7 @@ export function waveWaitTimeoutMs(harnessBudgetMs: number): number {
 export const WORKER_DEFAULT_HARNESS = "omp";
 
 /**
- * A worker container's own default model when the run config names none.
+ * A worker container's own default model when nothing else names one.
  *
  * Deliberately NOT `.tick/runners.toml`'s `[roles.implement]` (`kind =
  * "claude"`, `model = "sonnet"`): that table is shared with `tk herd spawn`'s
@@ -232,19 +234,105 @@ export const WORKER_DEFAULT_HARNESS = "omp";
  * `[roles.implement]` itself was the trap: it would have fixed the cloud
  * container and broken every local epic run in the same commit. A cloud
  * worker's harness and model come from the FACTORY, never from the
- * repository's implement role — this constant is that route, applied in
- * `workerBootEnv` only when the caller supplies none, so an operator's or the
- * run config's explicit choice still wins.
+ * repository's implement role.
  *
- * `deepseek-v4-flash-0731`: measured against this account's own
- * `GET /ai/models/search` catalog by tick y45
- * (`docs/workers-ai-model-selection.md`), not assumed — 53.3 DeepSWE v1.1
- * (`deepseek-v4-pro-0813`, the orchestrator's own model, scores 63.0 but at
- * roughly 3x the price) with 23/23 post-warm prompt-cache hits, the best of
- * six models probed; `qwen3.8-27b` is disqualified outright at 0/27 cache
- * hits, fatal for an agentic loop regardless of score.
+ * It is a DEFAULT, not the route: {@link workerModel} resolves the run's own
+ * choice first, then the deployment's `RUN_WORKER_MODEL`, then this. Tick 1cd
+ * added the middle rung, because until then changing which model every cloud
+ * worker runs meant editing this line and redeploying the factory.
+ *
+ * **Why `deepseek-v4-pro-0813`, and what it costs.** Run
+ * `run_215b7cbff9dd405c80d738be45cccde5` (2026-08-22) is the first cloud run
+ * whose substrate worked end to end: three real ticks, 90-minute budgets,
+ * workers on `deepseek-v4-flash-0731`. Result — `201` exit 124 at the bound
+ * with zero work commits, `5jo` exit 0 with real correct work, `5qj` exit 124
+ * with zero commits and four paths salvaged. **One of three**, and not on toy
+ * ticks (201 is scrolling in a bubbletea TUI, 5qj is a workerd lifecycle
+ * problem in vitest): flash ground through 90 minutes of 94-99%-cached calls
+ * without converging on two of them. Everything around the model worked, so
+ * that is a model-capability result. Tick y45 predicted this exact shape and
+ * had already placed the two models — flash at `implement.balanced`/`economy`,
+ * pro at `implement.strong` — on 53.3 against 63.0 DeepSWE v1.1.
+ *
+ * The price is real and is not hidden here. On y45's own per-completed-tick
+ * model (`docs/workers-ai-model-selection.md`), pro costs **$0.851/tick
+ * against flash's $0.283 — 3.0x**, and the true multiple on a long agentic run
+ * is WORSE than that, because pro delivered only **12 of 24** post-warm
+ * prompt-cache opportunities against flash's **23/23**, and a cached input
+ * token bills at a thirtieth of an uncached one. The comparison that decides
+ * it is not cost per token: **a worker that does not converge costs 100% of
+ * its tokens for 0% of the work**, and that was two of the three containers.
+ *
+ * This is NOT "always use the expensive model". The end state is per-tick tier
+ * selection, which `[roles.implement].tiers` already expresses for local
+ * workers and the cloud path has no plumbing for — see the note on
+ * {@link workerModel} for exactly what it needs. Until then a deployment that
+ * knows its wave is cheap sets `RUN_WORKER_MODEL` back to flash, which is the
+ * rung tick 1cd added.
+ *
+ * Both models are Workers AI, so both stay on the Cloudflare credit and the
+ * operator's Phase 2 constraint is unaffected either way.
  */
-export const WORKER_DEFAULT_MODEL = "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731";
+export const WORKER_DEFAULT_MODEL = "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813";
+
+/**
+ * Whether a configured route string was actually supplied.
+ *
+ * Blank is unset, matching `run-workflow.ts`'s `textVar`: an exported empty
+ * `TICKS_MODEL` is not "let the container decide", it is a defeated default.
+ */
+function configured(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+/**
+ * Which harness one worker container is actually told to run.
+ *
+ * @see workerModel for the precedence, which is the same for both.
+ */
+export function workerHarness(
+  run?: string | null,
+  deployment?: string | null
+): string {
+  return configured(run) ?? configured(deployment) ?? WORKER_DEFAULT_HARNESS;
+}
+
+/**
+ * Which model one worker container is actually told to run.
+ *
+ * **Precedence, highest first, and the order is deliberate:**
+ *
+ * 1. **the run submission** — what THIS run asked for (`context.config.model`,
+ *    from `RUN_MODEL` or an operator's `--model`). It already outranked the
+ *    constant before tick 1cd and it still does: a choice made about one run
+ *    outranks a standing one.
+ * 2. **the deployment variable** — `RUN_WORKER_MODEL`, this factory's standing
+ *    choice of worker model. The rung tick 1cd added, so the answer to "which
+ *    model do cloud workers run" is `wrangler.toml` plus a deploy rather than
+ *    a source edit, exactly as `RUN_WORKER_BUDGET_MS` and the other budgets
+ *    already work.
+ * 3. **the built-in default** — {@link WORKER_DEFAULT_MODEL}, which is the
+ *    fallback and stays the fallback.
+ *
+ * **What per-tick tier selection would need, and why it is not this tick.**
+ * All three rungs above are per-RUN: every container in a wave gets the same
+ * model, so a one-line tick pays pro's rate and a hard one cannot ask for it.
+ * `[roles.implement].tiers` already expresses the answer for local workers.
+ * Reaching it from here needs four things the cloud path does not have: (a) a
+ * per-tick tier on the wave plan — the plan carries `tick_id`/`base_sha` and
+ * nothing about difficulty, so something has to decide the tier and the only
+ * evidence available at dispatch is the tracker record; (b) a tier -> model
+ * table the FACTORY owns, not the checkout's, for ys3's reason — the
+ * repository's table routes local CLIs straight to Anthropic; (c) `WorkSpec`
+ * construction per task rather than per wave, which `workerWorkSpec` already
+ * is (it is called with `(task) => ...`), so this part is free; and (d) a
+ * per-tick budget, since a flash worker needs MORE wall clock than pro, and
+ * {@link workerHarnessBudgetMs} currently sizes every container in a batch
+ * identically. Good Phase 3 candidate.
+ */
+export function workerModel(run?: string | null, deployment?: string | null): string {
+  return configured(run) ?? configured(deployment) ?? WORKER_DEFAULT_MODEL;
+}
 
 /**
  * The container's own harness bound, in whole seconds — `TICKS_WORKER_TIMEOUT`.
@@ -268,6 +356,10 @@ export function workerHarnessTimeoutSeconds(harnessBudgetMs?: number): number {
  * for an unset model is the repository's `[roles.implement]`, and that route
  * is for local worker CLIs, not a factory-dispatched container. An empty
  * string is not the same as absent to a shell reading `${VAR:-default}`.
+ *
+ * The control plane resolves `harness`/`model` through {@link workerModel}
+ * before it gets here, so the fallback below is the last rung of the same
+ * ladder rather than a second, competing default.
  */
 export function workerBootEnv(input: WorkerBootInput): Record<string, string> {
   const env: Record<string, string> = {

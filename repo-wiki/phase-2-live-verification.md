@@ -104,10 +104,19 @@ in the very same run.
 worker and `tk herd spawn`'s local worker CLIs. Repointing it at a Workers AI
 model fixes the container and breaks every local run, because a local worker
 has no gateway credential. The fix therefore belongs to the FACTORY, not the
-repository: `workerBootEnv` defaults `TICKS_HARNESS=omp` and
-`TICKS_MODEL=workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731`, and
-`resolve_model` already gives a control-plane `TICKS_MODEL` priority over role
-routing, so no shell change was needed.
+repository: `workerBootEnv` defaults `TICKS_HARNESS=omp` and `TICKS_MODEL` to
+the factory's own worker model, and `resolve_model` already gives a
+control-plane `TICKS_MODEL` priority over role routing, so no shell change was
+needed.
+
+That default was flash (`deepseek-v4-flash-0731`) until tick `1cd`, which made
+it `deepseek-v4-pro-0813` on run 3's evidence below and added the rung that had
+been missing: `RUN_WORKER_MODEL` / `RUN_WORKER_HARNESS` are wrangler `[vars]`,
+so the worker's route is a deploy rather than a source edit. Resolution order
+is **run submission > deployment var > built-in default** (`workerModel` in
+`cloud/factory/src/worker-boot.ts`). Still no shell change — both vars are
+applied Worker-side, into the same `TICKS_MODEL`/`TICKS_HARNESS` the container
+already reads.
 
 Corollary worth stating plainly: **cloud workers must run `omp`, not `claude`.**
 `common.sh` refuses the `claude` harness against a non-anthropic provider by

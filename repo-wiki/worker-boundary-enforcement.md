@@ -17,10 +17,12 @@ The worker prompt forbids exactly this, in the second line of its Boundaries
 section (`internal/herd/spawn/prompt.go`): *"Do NOT run any `tk` command and do
 NOT touch the `.tick/` directory — the orchestrator owns all tick state."*
 
-**The instruction was right and was ignored.** The worker model is
-`deepseek-v4-flash`, the economy/balanced tier the factory has routed containers
-at since ys3. An instruction-following gap at that tier is a fact to design
-around, not a bug to file against the model.
+**The instruction was right and was ignored.** The worker model at the time was
+`deepseek-v4-flash`, the economy/balanced tier the factory routed containers at
+from ys3 until tick `1cd` moved the default to `deepseek-v4-pro-0813`. An
+instruction-following gap at that tier is a fact to design around, not a bug to
+file against the model — and it stays designed around, because
+`RUN_WORKER_MODEL` can route a deployment back to flash at any time.
 
 ## Why it is not just one stray commit
 

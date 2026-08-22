@@ -17,8 +17,10 @@ import {
   waveWaitTimeoutMs,
   workerBootEnv,
   workerBranch,
+  workerHarness,
   workerHarnessBudgetMs,
   workerHarnessTimeoutSeconds,
+  workerModel,
   workerProbeSpec,
   workerResultFile,
   workerTask,
@@ -144,26 +146,82 @@ describe("the boot environment", () => {
       const env = workerBootEnv(boot);
       expect(env.TICKS_HARNESS).toBe(WORKER_DEFAULT_HARNESS);
       expect(env.TICKS_MODEL).toBe(WORKER_DEFAULT_MODEL);
-      // Locks the specific id tick y45 measured against this account's own
-      // `GET /ai/models/search` catalog, so a drift in the constant is a
-      // visible test failure rather than a silent routing change.
+      // Locks the specific id, so a drift in the constant is a visible test
+      // failure rather than a silent routing change. It moved flash -> pro in
+      // tick 1cd on run_215b7cbff9's evidence; see the block below.
       expect(WORKER_DEFAULT_HARNESS).toBe("omp");
-      expect(WORKER_DEFAULT_MODEL).toBe("workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731");
+      expect(WORKER_DEFAULT_MODEL).toBe("workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813");
     });
 
     it("still lets the run config or an operator override the worker default", () => {
       const env = workerBootEnv({
         ...boot,
         harness: "claude",
-        model: "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813",
+        model: "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
       });
       expect(env.TICKS_HARNESS).toBe("claude");
-      expect(env.TICKS_MODEL).toBe("workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813");
+      expect(env.TICKS_MODEL).toBe("workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731");
     });
 
     it("the worker default is served through workerProbeSpec/workerWorkSpec too, since the probe must run in the real command's environment", () => {
       expect(workerProbeSpec(boot).env?.TICKS_MODEL).toBe(WORKER_DEFAULT_MODEL);
       expect(workerWorkSpec(boot).env?.TICKS_MODEL).toBe(WORKER_DEFAULT_MODEL);
+    });
+  });
+
+  // tick 1cd. ys3 was right to put the worker's route in the factory rather
+  // than in `[roles.implement]`, but it left it a SOURCE constant: changing
+  // which model every cloud worker runs meant editing this file and
+  // redeploying. Run run_215b7cbff9 (2026-08-22) is why that matters — three
+  // real ticks, 90-minute budgets, workers on flash: 201 exit 124 with no
+  // commits, 5jo exit 0 with correct work, 5qj exit 124 with 4 paths salvaged.
+  // One of three. The substrate was fine; the model was the limit.
+  describe("the worker's route is deployment configuration, not a source edit (tick 1cd)", () => {
+    const PRO = "workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813";
+    const FLASH = "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731";
+
+    it("falls back to the built-in default when neither the run nor the deployment names one", () => {
+      expect(workerModel(null, null)).toBe(WORKER_DEFAULT_MODEL);
+      expect(workerModel(null, null)).toBe(PRO);
+      expect(workerHarness(null, null)).toBe(WORKER_DEFAULT_HARNESS);
+      expect(workerModel(undefined, undefined)).toBe(WORKER_DEFAULT_MODEL);
+      expect(workerHarness(undefined, undefined)).toBe(WORKER_DEFAULT_HARNESS);
+    });
+
+    it("takes the deployment's variable over the built-in default", () => {
+      expect(workerModel(null, FLASH)).toBe(FLASH);
+      expect(workerHarness(null, "claude")).toBe("claude");
+    });
+
+    // The order this tick had to preserve: an operator who submits a run with
+    // an explicit model is making a decision ABOUT THAT RUN, and it outranks
+    // the deployment's standing choice. run submission > deployment var >
+    // built-in default.
+    it("lets the run's own choice outrank the deployment variable", () => {
+      expect(workerModel(FLASH, PRO)).toBe(FLASH);
+      expect(workerHarness("codex", "omp")).toBe("codex");
+    });
+
+    // Same rule `textVar` applies to every other var: a var set to whitespace
+    // is a var that was not set, never an empty TICKS_MODEL export.
+    it("treats a blank value as unset at both levels", () => {
+      expect(workerModel("", FLASH)).toBe(FLASH);
+      expect(workerModel("   ", "  ")).toBe(WORKER_DEFAULT_MODEL);
+      expect(workerHarness("", "")).toBe(WORKER_DEFAULT_HARNESS);
+      expect(workerModel(" " + FLASH + " ", null)).toBe(FLASH);
+    });
+
+    // The resolved value has to be a real string the container can export:
+    // whatever `workerModel` returns goes straight into `workerBootEnv`, and
+    // an empty export defeats every default the entrypoint has.
+    it("resolves to something a boot environment can actually carry", () => {
+      const env = workerBootEnv({
+        ...boot,
+        harness: workerHarness(null, "omp"),
+        model: workerModel(null, FLASH),
+      });
+      expect(env.TICKS_HARNESS).toBe("omp");
+      expect(env.TICKS_MODEL).toBe(FLASH);
     });
   });
 });
@@ -172,9 +230,10 @@ describe("the harness budget (tick 5fg)", () => {
   const MINUTE = 60_000;
 
   // The measurement, not taste: tick y45 recorded a COMPLETE one-tick epic at
-  // 78 minutes on deepseek-v4-pro, and the worker default model is FLASH,
-  // which takes more steps than pro for the same work. A default under 78
-  // minutes is a decision to kill real work.
+  // 78 minutes on deepseek-v4-pro, which tick 1cd made the worker default. A
+  // default under 78 minutes is a decision to kill real work — and a
+  // deployment that routes workers back to flash through RUN_WORKER_MODEL
+  // needs MORE than this, not less.
   it("defaults to a budget above the 78-minute measurement when no wall clock bounds it", () => {
     expect(workerHarnessBudgetMs()).toBe(DEFAULT_WORKER_HARNESS_BUDGET_MS);
     expect(DEFAULT_WORKER_HARNESS_BUDGET_MS).toBeGreaterThanOrEqual(78 * MINUTE);
