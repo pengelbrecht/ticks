@@ -41,6 +41,7 @@ import {
   type EnrolledProject,
 } from "./db";
 import { proxyModelRequest } from "./gateway";
+import { observeRoute } from "./observe";
 import { RunWorkflow } from "./run-workflow";
 import {
   RunRoom,
@@ -736,6 +737,13 @@ export default {
     // the control plane (D17).
     if (segments[0] === "api" && segments[1] === "gateway") {
       return await proxyModelRequest(env, request, segments.slice(2));
+    }
+
+    // One read that draws a board frame for `tk factory dashboard` (tick t9s).
+    // Read-only, like status, logs and trace: it composes records other code
+    // wrote and cannot steer a run.
+    if (segments[0] === "api" && segments[1] === "observe" && segments.length === 2) {
+      return await observeRoute(request, env);
     }
 
     if (segments[0] === "api" && segments[1] === "projects") {

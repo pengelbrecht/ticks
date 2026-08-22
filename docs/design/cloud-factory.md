@@ -656,6 +656,7 @@ counted together:
 |---|---|---|
 | what the container printed | `tk cloud logs <run>` | the harness stream in R2 (D20) |
 | what the model said and decided | `tk cloud trace <run>` | AI Gateway logs, filtered on `metadata.run_id` (D17) |
+| what the factory is doing right now | `tk factory dashboard` | one composed read, `GET /api/observe`: the run listing, a focused run's Workflow phase, image digest and boot attempt, the RunRoom's gates, the `dispatch_log` refusals and the `run_event` tail (tick t9s) |
 
 **Flow.**
 
@@ -685,6 +686,22 @@ counted together:
   mechanical trap — an operator writing a tick to the default branch mid-run is
   writing to a branch the run cannot see, since the run is pinned to `base_sha`
   and commits to `tick-run/<epic-id>`.
+- **The board is observability, never authority (tick t9s).** `tk factory
+  dashboard` watches a deployed factory from a local terminal — runs, phase,
+  harness output, gates and refusals — and takes no actions at all: its
+  factory surface is two GETs, so no key on it can start, stop or steer a run.
+  That is a property, not a policy: the board is not the completion authority
+  (`worker-collect.ts` is), and a frame is up to a couple of seconds old, so an
+  action taken from it would be an action taken on a stale view. If it ever
+  gains actions they route through the same closed command surface below, not a
+  private path. It must also degrade rather than blank: a failed read keeps the
+  last known frame and labels it stale with its age, and a board started while
+  the factory is ALREADY unreachable reads back the frame the previous session
+  cached on disk, labelled the same way — an operator debugging a broken
+  factory is exactly who is reading it. The cost it shows is AI Gateway
+  telemetry or nothing; a failed telemetry read renders no cost rather than a
+  zero, for the same reason `run_event.metrics.costUsd` may only come from
+  `gatewayMetrics`.
 - **Observation is not command; `logs` and `trace` do not widen the vocabulary.**
   D21 fixes the operator-to-orchestrator COMMAND vocabulary at `run`, `stop`,
   `status` and `answer`. `tk cloud logs` and `tk cloud trace` are read-only

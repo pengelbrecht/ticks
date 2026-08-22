@@ -252,6 +252,7 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk factory deploy` | Deploy the cloud factory into your own Cloudflare account (see below) |
 | `tk factory setup` | Walk the factory's credential ladder — deployment, GitHub PAT, AI Gateway — verifying each rung live (see below) |
 | `tk factory status` | Report what the factory has configured and whether each credential still works (see below) |
+| `tk factory dashboard` | Watch the factory from a local terminal: runs, phase, harness output, gates and refusals — read-only, and stale-labelled when the factory is unreachable (see below) |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
 | `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
 | `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
@@ -404,6 +405,35 @@ prefix, false of the run, and reads as "this run has no telemetry".
 Both are read-only. They observe a run and cannot steer one, which is why they
 do not widen the closed `run`/`stop`/`status`/`answer` command vocabulary the
 cloud surface is built on.
+
+#### Watching the factory: `tk factory dashboard`
+
+Reading one run after the fact is not the same as watching the factory work.
+`tk factory dashboard` is the cloud counterpart to `tk herd dashboard`, in a
+local terminal, with the same keys and the same fold behaviour:
+
+```
+tk factory dashboard                     # every project with runs
+tk factory dashboard --project owner/repo
+tk factory dashboard --interval 5000 --no-cost
+```
+
+It shows the **runs** (id, project, epic, state, elapsed, cost so far, and who
+holds the project lease), the **phase** each is on — the Workflow state, the
+boot attempt, and the image digest it actually booted — the **harness output**
+tailed live from R2 and following the selection, the **gates** waiting for an
+answer with their tick and, once settled, whether the phone or the terminal
+answered, and the **refusals** from `dispatch_log` with their policy reason, so
+a factory that is declining work explains itself.
+
+Two things about it are deliberate. It is **read-only**: every request it makes
+is a GET, no key commands a run, and the board is not the completion authority
+— closeout is. And it **works when the factory does not**: a failed read keeps
+the last known state, labels it `STALE` with its age and says what went wrong,
+and a board opened while the factory is already down reads back the frame the
+previous session left on disk, labelled the same way. Cost comes from AI
+Gateway telemetry (the record `trace` reads, so it needs the same Cloudflare
+API token); a telemetry read that failed shows no cost rather than `$0.00`.
 
 | Flag | Effect |
 |---|---|

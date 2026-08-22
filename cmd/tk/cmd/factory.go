@@ -38,7 +38,14 @@ var factoryCmd = &cobra.Command{
 
 The factory is a deployable, not a service: it runs in your own Cloudflare
 account, on your compute, with your model keys. ticks.sh never operates one.
-See docs/design/cloud-factory.md.`,
+See docs/design/cloud-factory.md.
+
+  deploy  put it in your account   |  status     what is configured, and works
+  setup   walk the credentials     |  dashboard  watch it run, read-only
+
+'tk factory dashboard' is observation, like 'tk cloud status/logs/trace': it
+watches a deployed factory from a local terminal and cannot steer one, so the
+operator-to-orchestrator command vocabulary stays run/stop/status/answer.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
