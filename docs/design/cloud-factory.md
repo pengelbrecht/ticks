@@ -1426,9 +1426,13 @@ Collected from the use cases; each appears above in context.
    lease and is refused with that reason, and a checkout with no factory
    configured makes no network call at all. `tk cloud spawn` also refuses a
    run that dispatches herdr panes, with the same exit 9 — the two dispatch
-   verbs each refuse the other's substrate. NOT landed: populating a wave from
-   a locally-computed readiness set on `tk cloud run` (tick pjq); `tk cloud
-   spawn` takes the wave the orchestrator computed, and does not compute one.
+   verbs each refuse the other's substrate. The operator's own ignite verb
+   reaches the same path: `tk cloud run <epic> --tick-ids a,b,c` (tick pjq)
+   carries a wave into a cloud-orchestrated submission, and refuses `--queue`
+   alongside it for the reason the factory does — a parked submission is
+   stored without its wave. NOT landed: *computing* that wave; neither
+   `tk cloud run` nor `tk cloud spawn` derives a readiness set, both take the
+   one the orchestrator computed.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage
@@ -1449,11 +1453,15 @@ Order rationale: each phase is independently useful, and the risky loops
   already runs correctly and is already tested — the submitter — rather than
   ported a second time into TypeScript (`.tick/learnings.md`'s "Cross-language
   parity, parsers and formats" is exactly the failure class a second port
-  risks). What is still open: `tk cloud run` naming a wave and passing
-  `--tick-ids` (tick pjq) does not exist yet. `tk cloud spawn --ticks` (tick
-  bmo) reaches the same submission field from the CLI, so `tick_ids` is no
-  longer reachable only by calling `POST /api/runs` directly — but it takes a
-  wave the orchestrator has already computed rather than computing one. A submitter that wants
+  risks). What is still open: computing the wave.
+  `tk cloud spawn --ticks` (tick bmo) and `tk cloud run --tick-ids` (tick pjq)
+  both reach the submission field from the CLI, so `tick_ids` is no longer
+  reachable only by calling `POST /api/runs` directly — but each takes a wave
+  the orchestrator has already computed rather than computing one. Neither
+  accepts a wave alongside `--queue`: the queued-submission record has no
+  `tick_ids` column, so a parked cloud-wave submission would ignite as a plain
+  single-sandbox run with the fan-out silently dropped, and both the edge (400)
+  and the CLI (before the push) refuse the pair instead. A submitter that wants
   ITERATIVE fan-out (wave 2 after wave 1 merges, not just one wave per run) is
   also not addressed — b6e's cloud-wave pass always hands off to a real
   orchestrator boot (`closeout` phase) after dispatching its one wave, which
