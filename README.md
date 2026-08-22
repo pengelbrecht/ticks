@@ -541,6 +541,22 @@ forever.
 `tk herd spawn` refuses a run whose workers are containers. Two dispatch verbs, each
 refusing the other's substrate, is what keeps two workers off one tick.
 
+**Every wave fans out, wherever the orchestrator sits.** A cloud-orchestrated run
+(`tk cloud run <epic> --tick-ids a,b,c`) does not stop at the wave it was submitted
+with: it alternates between container waves and a short orchestrator pass that merges
+what the last wave pushed, runs the integrated gate, and computes the next wave with
+`tk graph` — in Go, inside the container, against the tracker state it has just
+updated, because nothing outside the container knows what the gate actually accepted.
+That pass dispatches with the same `tk cloud spawn` you would type yourself, and the
+run ends when a pass finds nothing left to dispatch and closes the epic out.
+
+The one thing that differs inside a run: `tk cloud spawn` there takes **no second
+lease**. The run already holds the project's, so the factory verifies it is still the
+holder rather than granting another — one arbiter per project, and an orchestrator
+that has lost the lease is refused exactly as a competitor would be. It also does not
+boot the containers itself (only the control plane can), so the wave starts once the
+pass exits and the next pass fans it in.
+
 ### Merging a cloud run: `tk cloud pr-body`
 
 A run is submitted from whatever branch you were standing on, and its run branch

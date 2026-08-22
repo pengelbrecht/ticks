@@ -409,6 +409,80 @@ export async function writeWaveOutcomes(
   );
 }
 
+/**
+ * A wave the run's own orchestrator asked for, from inside its container
+ * (tick wiy).
+ *
+ * This is the handshake that makes every wave of a multi-wave epic fan out
+ * into containers rather than only the first. Readiness is computed in Go,
+ * where `wave.Compute` already lives and is already tested, by the
+ * orchestrator standing on the merged run branch — the only party that knows
+ * what wave 1 actually landed. It cannot boot containers itself (only the
+ * Worker holds the `SANDBOXES` binding), so it records what it wants here and
+ * the Workflow dispatches it through the same checkpointed, budget-enforced,
+ * stop-enforced path the first wave takes.
+ *
+ * Keyed by PASS, not overwritten in place. A Workflow step that completes is
+ * checkpointed and never runs again, but the R2 object beside it has no
+ * version: a step that read "the wave request" by a fixed name could, on
+ * replay, read a LATER pass's request and dispatch it twice. The pass number
+ * is in the key, so a replay reads the object it read the first time.
+ */
+export type WaveRequest = {
+  run_id: string;
+  epic: string;
+  /** Which orchestrator pass asked. Wave 1 (the submitted one) is pass 0. */
+  pass: number;
+  /**
+   * The commit the wave's containers clone at.
+   *
+   * Emphatically not the run's submitted base: a wave-2 worker must stand on
+   * wave 1's merged work or it will implement a tick against a tree its
+   * dependencies never landed in. This is the run branch's head as the
+   * orchestrator pushed it.
+   */
+  base_sha: string;
+  tick_ids: string[];
+  requested_at: string;
+};
+
+export function waveRequestKey(project: string, runID: string, pass: number): string {
+  return `${runPrefix(project, runID)}artifacts/wave-request/${String(pass).padStart(3, "0")}.json`;
+}
+
+export async function writeWaveRequest(
+  bucket: R2Bucket,
+  project: string,
+  request: WaveRequest
+): Promise<void> {
+  await bucket.put(
+    waveRequestKey(project, request.run_id, request.pass),
+    JSON.stringify(request, null, 2),
+    { httpMetadata: { contentType: "application/json" } }
+  );
+}
+
+/**
+ * The wave requested by one pass, or null if that pass asked for none.
+ *
+ * "None" is the normal way a cloud run ENDS: an orchestrator that finds no
+ * ready tick left has finished the epic, and the absence of this object is how
+ * it says so. So an unreadable bucket must not be mistaken for it — a read
+ * that throws is propagated rather than folded into null, because a dispatch
+ * loop that treats an R2 hiccup as "the epic is done" would drop the tail of
+ * every epic it happened to.
+ */
+export async function readWaveRequest(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  pass: number
+): Promise<WaveRequest | null> {
+  const object = await bucket.get(waveRequestKey(project, runID, pass));
+  if (object === null) return null;
+  return (await object.json()) as WaveRequest;
+}
+
 export function workerManifestKey(project: string, runID: string, tickID: string): string {
   return `${runPrefix(project, runID)}artifacts/${tickID}/manifest.json`;
 }

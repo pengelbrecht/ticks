@@ -32,8 +32,15 @@ import type { Env } from "./index";
  * cleanly" are variables, not messages the harness has to be listening for. The
  * phase is never the agent's decision: budget and stop enforcement live here
  * (D14/D15), never in a prompt. Mirrors `sandbox.Phase*` in Go.
+ *
+ * `wave` is the continuation pass a cloud run alternates with its container
+ * waves (tick wiy): integrate what the last wave pushed, then compute and
+ * request the next one, or finish the epic if none remains. It is deliberately
+ * NOT `closeout` — a closeout is a run being wound up early and its prompt
+ * forbids new work, and conflating "this wave finished" with "somebody stopped
+ * this run" is the mistake tick 074 already had to undo once.
  */
-export type OrchestratorPhase = "run" | "reconcile" | "closeout";
+export type OrchestratorPhase = "run" | "reconcile" | "wave" | "closeout";
 
 /**
  * The image reference a run boots when the deployment asks for nothing else.
@@ -452,6 +459,62 @@ export type OrchestratorEnvInput = {
    * under a control-plane read that could not reach the tracked config.
    */
   sandbox_image?: string;
+  /**
+   * Which substrate this orchestrator dispatches its workers through
+   * (`TICKS_SUBSTRATE`), overriding `[orchestration].substrate` in the
+   * checkout.
+   *
+   * Absent means the container's own default — `harness`, its subagents in
+   * this container — which is the load-bearing default
+   * (`cloud/sandbox/entrypoint.sh`): left to infer, an orchestrator booted on
+   * a checkout that declares `substrate = "cloud"` would read "my workers are
+   * cloud sandboxes" and "I am one of them" as the same statement, and
+   * dispatch containers from inside a container with nothing arbitrating it.
+   *
+   * `cloud` is that permission, given explicitly by the control plane to a run
+   * it is prepared to dispatch waves for (tick wiy). It is not a hint the
+   * agent may take: the Workflow is what boots the containers, and it does so
+   * only for a wave the run asked for through the factory.
+   */
+  substrate?: string;
+  /**
+   * How many container waves this run has already dispatched, so this pass can
+   * name the wave it is requesting (`TICKS_PASS`).
+   *
+   * The Workflow reads back exactly the request stamped with this number,
+   * which is what keeps a replayed step from re-consuming an earlier pass's
+   * wave — a Workflow step that completes is checkpointed, but the R2 object
+   * beside it is not versioned by the replay.
+   */
+  pass?: number;
+  /**
+   * The factory this run belongs to, so `tk` inside the container can reach
+   * its own control plane (`tk cloud spawn`, `tk ask`).
+   *
+   * Note what the token is NOT: the operator's factory token. A container
+   * holding that could enrol projects, submit runs and read every other run's
+   * logs, and D17 exists so that a leaked sandbox environment leaks something
+   * run-scoped and revocable. So the credential here is the run's own gateway
+   * token — the same one a stop revokes — and the in-run dispatch endpoint
+   * authenticates it exactly as the model proxy does. A revoked run cannot
+   * dispatch a wave any more than it can make a model call.
+   */
+  factory_url?: string;
+  factory_project?: string;
+  /**
+   * The wave this pass inherits: the ticks the control plane just dispatched,
+   * and the commit their containers cloned at.
+   *
+   * A `tk cloud wait`/`collect`/`reconcile` reads the manifests
+   * `tk cloud spawn` wrote under `.tick/logs/cloud/`, which is git-ignored
+   * local state — and every pass of a cloud run is a FRESH container, so that
+   * state is gone by the time the pass that must collect the wave boots. The
+   * control plane is the one party that certainly knows what it dispatched, so
+   * it says so here rather than leaving the container to infer a wave from a
+   * directory it cannot have (tick wiy).
+   */
+  wave_ticks?: string[];
+  wave_base_sha?: string;
 };
 
 /**
@@ -495,6 +558,25 @@ export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, str
   if (input.cache_dir !== undefined && input.cache_dir !== "") env.TICKS_CACHE_DIR = input.cache_dir;
   if (input.sandbox_image !== undefined && input.sandbox_image !== "") {
     env.TICKS_SANDBOX_IMAGE = input.sandbox_image;
+  }
+  if (input.substrate !== undefined && input.substrate !== "") {
+    env.TICKS_SUBSTRATE = input.substrate;
+  }
+  if (input.pass !== undefined) env.TICKS_PASS = String(input.pass);
+  if (input.factory_url !== undefined && input.factory_url !== "") {
+    env.TICKS_FACTORY_URL = input.factory_url;
+    // The run's own gateway credential, deliberately reused rather than a
+    // second secret: one revocation has to kill both spending and dispatch.
+    env.TICKS_FACTORY_TOKEN = input.gateway_token;
+  }
+  if (input.factory_project !== undefined && input.factory_project !== "") {
+    env.TICKS_FACTORY_PROJECT = input.factory_project;
+  }
+  if (input.wave_ticks !== undefined && input.wave_ticks.length > 0) {
+    env.TICKS_WAVE_TICKS = input.wave_ticks.join(",");
+  }
+  if (input.wave_base_sha !== undefined && input.wave_base_sha !== "") {
+    env.TICKS_WAVE_BASE = input.wave_base_sha;
   }
   return env;
 }

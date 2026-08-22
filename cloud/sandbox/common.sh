@@ -73,6 +73,11 @@ booted_image="${TICKS_SANDBOX_IMAGE:-}"
 # run a repository whose operator channel is local-only; when present, tk ask
 # mirrors its pending entry into the factory RunRoom and watches that DO for
 # phone or terminal answers.
+# Which container wave this boot may ask for (tick wiy). Set only on a `wave`
+# phase boot; the in-run dispatch endpoint refuses a request carrying no pass,
+# so "may this container dispatch" is decided by the control plane rather than
+# by the agent inside it.
+run_pass="${TICKS_PASS:-}"
 factory_url="${TICKS_FACTORY_URL:-}"
 factory_token="${TICKS_FACTORY_TOKEN:-}"
 factory_project="${TICKS_FACTORY_PROJECT:-}"

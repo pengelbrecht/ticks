@@ -205,6 +205,17 @@ describe("exempt paths", () => {
     expect(isAuthExempt("/HEALTH")).toBe(false);
   });
 
+  // The in-run dispatch door (tick wiy). Exempt from the FACTORY token for the
+  // reason /api/gateway is — its caller is a sandbox, and a sandbox must never
+  // hold the credential that commands the whole control plane — and NOT
+  // unauthenticated: it carries the run's own gateway token instead.
+  it("exempts the in-run wave door exactly, and nothing beside it", () => {
+    expect(isAuthExempt("/api/wave")).toBe(true);
+    expect(isAuthExempt("/api/waves")).toBe(false);
+    expect(isAuthExempt("/api/wave/run_1")).toBe(false);
+    expect(isAuthExempt("/api/wave-request")).toBe(false);
+  });
+
   // Phase 3 gives these per-source shared secrets; until then they are exempt
   // because GitHub/Telegram/Sentry cannot carry the operator's bearer token.
   it("exempts webhook routes on a path boundary only", () => {
@@ -281,6 +292,34 @@ describe("route middleware", () => {
       expect(res.status, `${path} must accept the token`).not.toBe(401);
       expect(res.status, `${path} must accept the token`).not.toBe(503);
     }
+  });
+
+  // Exempt from the factory token is not open. A caller with no credential at
+  // all is refused by the endpoint's own authorization, which is the same one
+  // model traffic answers to — so a revoked run cannot dispatch a wave any
+  // more than it can make a model call.
+  it("still refuses an uncredentialled wave request", async () => {
+    const res = await SELF.fetch(`${BASE}/api/wave`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ epic: "ko8", pass: 1, base_sha: "a".repeat(40), tick_ids: ["aaa"] }),
+    });
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toMatchObject({ error: "run_token_required" });
+  });
+
+  // And the operator's own token is not a way in either: this door speaks one
+  // credential, and it is the run's.
+  it("refuses a wave request bearing the operator's factory token", async () => {
+    const res = await SELF.fetch(`${BASE}/api/wave`, {
+      method: "POST",
+      headers: { ...bearer(token).headers, "content-type": "application/json" },
+      body: JSON.stringify({ epic: "ko8", pass: 1, base_sha: "a".repeat(40), tick_ids: ["aaa"] }),
+    });
+
+    expect(res.status).toBe(401);
+    await expect(res.json()).resolves.toMatchObject({ error: "run_token_unknown" });
   });
 
   it("rejects a wrong token with the invalid_token challenge", async () => {

@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -53,6 +55,23 @@ What it does, in order, so that a refusal costs nothing:
 Then one manifest per tick is written to .tick/logs/cloud/<epic>/<tick>.json
 (git-ignored local state, not tracker state) and the runner-state: note lines
 are printed.
+
+INSIDE a cloud run's own orchestrator container this verb takes a different
+door, and the difference matters (tick wiy). It does not submit a run and does
+not take a lease: this run already holds the project's lease, so a second
+submission would be refused by its own run and would nest a Workflow inside
+this one. It asks this run's supervisor to dispatch the wave instead, and the
+supervisor verifies that this run is still the project's arbiter before it
+boots anything — one lease, one arbiter, D4 unchanged.
+
+Two consequences an in-run orchestrator has to get right:
+
+  - nothing boots while you wait. Only the control plane holds the container
+    binding, so the containers start after this pass EXITS. Exit 0 as soon as
+    spawn succeeds; do not call 'tk cloud wait' on a wave you just requested.
+  - the next pass fans it in. You will be booted again once the containers have
+    run, with the wave named in your environment, and THAT pass collects,
+    merges and computes the wave after it.
 
 This command never runs 'tk'. Write the printed notes yourself.
 
@@ -129,6 +148,13 @@ func runCloudSpawn(cmd *cobra.Command, args []string) error {
 
 	if err := cloudSpawnCheckWave(root, epicID, tickIDs); err != nil {
 		return err
+	}
+
+	// Inside a cloud run, this is a different dispatch entirely (tick wiy):
+	// the run's own supervisor boots the containers, under the lease this run
+	// already holds, with no new run and no second lease. See cloud_inrun.go.
+	if in, ok := cloudInRunContext(); ok {
+		return runCloudSpawnInRun(ctx, out, errOut, root, epicID, tickIDs, in)
 	}
 
 	// The arbiter. Resolved before the push, so an un-enrolled checkout — the
@@ -290,5 +316,57 @@ func cloudSpawnCheckWave(root, epicID string, tickIDs []string) error {
 				"so dispatching them here would implement them against a base their own epic never chose",
 			strings.Join(outside, ", "), epicID, epicID)
 	}
+	return nil
+}
+
+// runCloudSpawnInRun is `tk cloud spawn` from inside a cloud run's own
+// orchestrator container.
+//
+// Everything before this point is identical to the local path — the substrate
+// gate, and the proof that every named tick exists and belongs to the epic —
+// because those refusals are about the wave, not about who is dispatching it.
+// What changes is the arbiter and the dispatch:
+//
+//   - no lease is taken. This run already holds the project's dispatch lease
+//     and would be refused by itself; the endpoint verifies it is still the
+//     holder instead (D4, one arbiter per project, unweakened).
+//   - no run is submitted. A second run would nest a whole Workflow, closeout
+//     container and budget inside this one.
+//   - nothing boots here. Only the control plane holds the container binding,
+//     so the wave is RECORDED and dispatched once this pass exits — which is
+//     why the last thing printed is an instruction to exit rather than a
+//     suggestion to wait.
+func runCloudSpawnInRun(
+	ctx context.Context,
+	out, errOut io.Writer,
+	root, epicID string,
+	tickIDs []string,
+	in cloudInRun,
+) error {
+	// The same push and proof the local path makes, and for the same reason: a
+	// container clones the commit this returns, so every tick file of the epic
+	// has to be present on origin at it. This is also what makes the wave land
+	// on the run branch head the orchestrator just merged rather than on the
+	// run's original base.
+	baseSHA, _, _, err := prepareCloudSubmission(ctx, root, epicID)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+
+	if err := in.requestWave(ctx, baseSHA, tickIDs); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(errOut, "Dispatching under run %s's own lease: this run is the project's arbiter, "+
+		"so no second lease is taken.\n", in.runID)
+	fmt.Fprintf(out, "Cloud wave requested: %d tick(s) at %s\n", len(tickIDs), baseSHA)
+	for _, tickID := range tickIDs {
+		fmt.Fprintf(out, "  %s  %s\n", tickID, cloudstate.BranchFor(epicID, tickID))
+	}
+	// The one thing an orchestrator must not get wrong here. Containers are
+	// booted by the supervisor AFTER this pass exits, so `tk cloud wait` would
+	// watch for containers that do not exist yet.
+	fmt.Fprintln(out, "The containers are booted by this run's supervisor once this pass exits.")
+	fmt.Fprintln(out, "Do not wait or collect now: exit 0, and the next pass fans this wave in.")
 	return nil
 }

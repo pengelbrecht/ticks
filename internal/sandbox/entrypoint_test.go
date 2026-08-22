@@ -894,6 +894,62 @@ func TestEntrypointBootsTheCloseoutPhase(t *testing.T) {
 	}
 }
 
+// Tick wiy: the pass BETWEEN container waves.
+//
+// It is a phase of its own rather than a `reconcile` or a `closeout`, and both
+// distinctions are load-bearing. A `reconcile` adopts state and continues, but
+// knows nothing about dispatching the next wave; a `closeout` is a run being
+// wound up and its prompt forbids exactly the new work this pass exists to
+// start. Conflating either would boot a container that adopts the state
+// correctly and then does the wrong thing with it.
+func TestEntrypointBootsTheWavePhase(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvPhase] = PhaseWave
+	f.env[EnvSubstrate] = "cloud"
+	f.env["TICKS_TEST_SANDBOX_SUBSTRATE"] = "cloud"
+	f.env[EnvPass] = "2"
+	f.env[EnvStopReason] = "the cloud wave dispatched 3 per-tick worker container(s)"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, EnvPhase+"="+PhaseWave, "the phase is exported for the harness")
+	mustContain(t, rec, EnvPass+"=2", "the pass number authorises this container to dispatch")
+	mustContain(t, rec, "reconcile", "a wave boot adopts the pushed state first")
+	mustContain(t, rec, "dispatched 3 per-tick", "the prompt says what it inherited")
+	mustContain(t, rec, "tk cloud spawn", "the prompt names the dispatch verb")
+	mustContain(t, rec, "tk graph", "readiness is computed HERE, by tk")
+	// The one instruction that makes the handshake work: containers are booted
+	// by the supervisor after this pass exits, so waiting here waits forever.
+	mustContain(t, rec, "EXIT 0", "the prompt says to exit after dispatching")
+	mustContain(t, rec, "Do NOT run 'tk cloud wait'", "the prompt forbids waiting on a wave it just asked for")
+	// And unlike a closeout, it is allowed to start new work.
+	if strings.Contains(rec, "Do not start new work") {
+		t.Errorf("a wave pass was told not to start new work:\n%s", rec)
+	}
+}
+
+// The substrate a dispatching pass is given changes what the orchestrator is
+// told to do with its workers — and it comes from the control plane, never
+// from the checkout's own pin.
+func TestEntrypointTellsACloudSubstrateOrchestratorToSpawnContainers(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvSubstrate] = "cloud"
+	f.env["TICKS_TEST_SANDBOX_SUBSTRATE"] = "cloud"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "tk cloud spawn", "the prompt names the container dispatch verb")
+	// The harness-substrate instruction would be actively wrong here: this
+	// orchestrator's workers are sibling containers, not its own subagents.
+	if strings.Contains(rec, "dispatch workers as subagents of this harness") {
+		t.Errorf("a cloud-substrate orchestrator was told to dispatch subagents:\n%s", rec)
+	}
+}
+
 // An unknown phase is a Workflow bug, and a Workflow bug must not become a run
 // that quietly does the wrong thing.
 func TestEntrypointRefusesAnUnknownPhase(t *testing.T) {

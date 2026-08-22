@@ -594,6 +594,22 @@ config=cloud source=TICKS_SUBSTRATE reason=explicit-override`. A control plane
 that genuinely wants a container to fan work out into sibling worker containers
 says so by setting `TICKS_SUBSTRATE=cloud` explicitly.
 
+**And since tick wiy it does exactly that, for one kind of boot.** A `wave`
+phase container — the pass a cloud run boots between container waves — is given
+`TICKS_SUBSTRATE=cloud`, a `TICKS_PASS` number, and its factory endpoint, and
+its prompt tells it to dispatch the next wave with `tk cloud spawn`. Nothing
+about the default changed: permission is the control plane's to give, per boot,
+and a container that was not given a pass number is refused by the dispatch
+endpoint however its checkout is pinned and whatever the agent inside it
+believes. A `closeout` gets no pass, which is what keeps a run being wound up
+from starting new work even if its prompt were argued around.
+
+Note what such a container still cannot do: boot a sibling itself. `tk cloud
+spawn` inside a run records the wave with the run's own supervisor, which boots
+it after the pass exits — so the containers are still dispatched by the one
+party holding the `SANDBOXES` binding, the checkpoints, the budgets and the
+kill switch.
+
 The other `[orchestration]` key a cloud boot inherits, `max_parallel`, is
 honoured as-is: under the harness substrate it is concurrent subagents inside
 this one sandbox rather than independent panes. The resolution prints it for the
