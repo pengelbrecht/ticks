@@ -272,6 +272,23 @@ describe("a live worker is never redispatched, whatever its branch looks like", 
     expect(item.redispatch).toBe(false);
     expect(item.contradictions[0]).toContain(WORKER_PROBE_COMMAND);
   });
+
+  it("prefers durable git evidence over a busy container when git is already conclusive", () => {
+    // tick oun: the container being busy with something other than the work
+    // command is a safe reason not to redispatch, but it is not a reason to
+    // escalate to a human when git already shows the tick landed.
+    const item = classifyWorker(
+      evidence({
+        liveness: live({ work_process_id: null, running: [WORKER_PROBE_COMMAND] }),
+        report: report("s7f"),
+      })
+    );
+
+    expect(item.class).toBe("already-landed");
+    expect(item.action).toBe("skip");
+    expect(item.redispatch).toBe(false);
+    expect(item.contradictions).toEqual([]);
+  });
 });
 
 // -------------------------------------------------------- the dead classes ---
