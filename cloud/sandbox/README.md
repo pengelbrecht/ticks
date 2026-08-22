@@ -168,6 +168,63 @@ for every token of it. A reviewer can keep the salvage commit or drop it; both
 beat paying for work that no longer exists. `RESULT-<tick>.md` is never part of
 it: that file gets its own commit, with the agent's `STATUS:` line untouched.
 
+### The boundary guard
+
+**A worker agent cannot run `tk` and cannot commit under `.tick/`. This is
+enforced by the container, not asked for in the prompt.**
+
+The worker prompt has always forbidden it, in the second line of its Boundaries
+section: *"Do NOT run any `tk` command and do NOT touch the `.tick/` directory —
+the orchestrator owns all tick state."* In
+`run_215b7cbff9dd405c80d738be45cccde5` the first cloud worker in this project's
+history to finish real work made a correct, substantial implementation commit
+and then ran `tk close` and committed the result, touching
+`.tick/activity/activity.jsonl` and `.tick/issues/5jo.json` (tick dxk). The
+instruction was right and was ignored, at the tier this factory routes
+containers at — a fact to design around rather than a bug to file.
+
+It matters more than one stray commit because several workers of one wave each
+closing their own tick write the same `activity.jsonl` and the same issue files
+on branches that all merge into one integration commit. That is the conflict
+class the invariant exists to prevent, and D4's one-writer rule with it.
+
+`worker-collect.ts` already refuses such a branch with `boundary-violation`, the
+way `tk herd collect` does, so tracker state could never have *merged*. What it
+could do, and did, is discard a tick whose implementation commit was good. The
+guard is what keeps the good commit.
+
+Three layers, installed after the checkout and before the prompt is built:
+
+| Layer | Closes |
+|---|---|
+| A `tk` shim, first on the harness's `PATH` | Every route through the tracker CLI, including ones nobody enumerated |
+| A `pre-commit` hook in the clone | A direct write to `.tick/` the agent then commits — invisible to any `PATH` edit |
+| A sweep of `.tick/` before the salvage | The container's own rescue commit laundering a violation into a commit it authored |
+
+The split between "the entrypoint's `tk`" and "the agent's `tk`" is clean
+because every `tk` this script needs — the version check, the model cell, the
+toolchain, `[sandbox]` setup, the pre-flight and the prompt — runs *before* the
+harness starts, and nothing after it needs `tk` at all. So `PATH` is rewritten
+around the harness call alone and restored afterwards; the container keeps its
+own binary throughout. The container's own commits pass `--no-verify`: the hook
+exists to stop the agent, and the report and the salvage must reach origin
+whatever the agent did.
+
+**Every attempt is reported.** A boundary violation that is silently prevented
+and never mentioned trains nobody, so the entrypoint prepends a
+`BOUNDARY VIOLATION ATTEMPTED` block to `RESULT-<tick>.md` naming what was
+tried, above the agent's own words and nowhere near its `STATUS:` line. It is
+written only when there was an attempt — a marker every report carried would
+mean nothing on the report where it matters. `worker-collect.ts` reads the same
+marker into `WorkerReport.boundary_attempted`, because the guard working means
+the branch comes back clean and `ready-to-merge` for exactly the runs a human
+most needs to hear about.
+
+The refusal text and the report marker are pinned in
+`cloud/factory/test/fixtures/worker-boot-contract.json` beside the probe marker,
+for the same reason that one is: two halves matching on a substring drift the
+moment only one of them is edited.
+
 ## The image's tk is built from the deployed source
 
 **This is the mechanism that keeps the container's `tk` in step with the bundle

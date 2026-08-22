@@ -24,6 +24,7 @@ import {
   workerTask,
   workerWorkSpec,
 } from "../src/worker-boot";
+import { BOUNDARY_REPORT_MARKER } from "../src/worker-collect";
 import { DEFAULT_WAIT_TIMEOUT_MS, evaluateProbeOutput } from "../src/worker-dispatch";
 
 const boot = {
@@ -48,6 +49,11 @@ describe("the worker boot contract", () => {
     expect(WORKER_PROBE_MARKER).toBe(contract.probe_marker);
     expect(WORKER_ACTOR).toBe(contract.worker_actor);
     expect(WORKER_BRANCH_PREFIX).toBe(contract.branch_prefix);
+    // The boundary guard's two strings (tick dxk). The refusal is the
+    // container's alone — it is asserted against the shell in
+    // internal/sandbox — but the report marker is read on THIS side, so both
+    // are pinned here for the same reason the probe marker is.
+    expect(BOUNDARY_REPORT_MARKER).toBe(contract.boundary.report_marker);
     expect(WORKER_EXIT.push).toBe(contract.exit_codes.push);
     expect(WORKER_EXIT.no_work).toBe(contract.exit_codes.no_work);
     expect(WORKER_EXIT.agent).toBe(contract.exit_codes.agent);

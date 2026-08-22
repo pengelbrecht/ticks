@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  BOUNDARY_REPORT_MARKER,
   collectFromGithub,
   githubWorkerCollector,
   needsHuman,
@@ -251,6 +252,50 @@ describe("collectFromGithub", () => {
       const report = await collectFromGithub(env, PROJECT, { tick_id: "0ds", branch: BRANCH, base_sha: BASE });
       expect(report.verdict).toBe("boundary-violation");
       expect(report.boundary_files).toEqual([".tick/issues/0ds.json"]);
+    } finally {
+      github.restore();
+    }
+  });
+
+  // Tick dxk. The container now REFUSES the violation instead of asking the
+  // agent not to commit it, which inverts what this collector sees: the branch
+  // comes back clean and ready-to-merge for exactly the runs where a model
+  // ignored an explicit instruction. Without this, the guard's whole point —
+  // that the attempt reaches a human — would end at the report file nobody
+  // greps.
+  it("surfaces a prevented boundary violation the report declares, on a branch that is otherwise clean", async () => {
+    const body = [
+      "_ticks-worker: branch `tick/1vn/0ds`, base `aaaa`, harness `omp` exited 0._",
+      "",
+      `> **${BOUNDARY_REPORT_MARKER}.** This agent tried to write tracker state.`,
+      "> - the agent ran `tk close 0ds`",
+      "",
+      "STATUS: DONE",
+    ].join("\n");
+    const github = stubGithub({
+      compare: compareOK(2, ["src/thing.go"]),
+      contents: { status: 200, body: { content: b64(body), encoding: "base64" } },
+    });
+    try {
+      const report = await collectFromGithub(env, PROJECT, { tick_id: "0ds", branch: BRANCH, base_sha: BASE });
+      // The guard worked, so the branch is mergeable and the verdict says so.
+      expect(report.verdict).toBe("ready-to-merge");
+      expect(report.boundary_files).toEqual([]);
+      // And the attempt is still visible.
+      expect(report.boundary_attempted).toBe(true);
+    } finally {
+      github.restore();
+    }
+  });
+
+  it("does not claim a boundary attempt on a report that never mentions one", async () => {
+    const github = stubGithub({
+      compare: compareOK(2),
+      contents: { status: 200, body: { content: b64("Implemented it.\n\nSTATUS: DONE"), encoding: "base64" } },
+    });
+    try {
+      const report = await collectFromGithub(env, PROJECT, { tick_id: "0ds", branch: BRANCH, base_sha: BASE });
+      expect(report.boundary_attempted).toBe(false);
     } finally {
       github.restore();
     }
