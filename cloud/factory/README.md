@@ -28,6 +28,7 @@ orchestrator sandbox, watches it, enforces the budgets and finalizes — see
 | `src/run-workflow.ts` | `RunWorkflow` — one durable instance per run: boot, watch, budgets, clean stop, finalize. Everything below it is disposable; this is not. |
 | `src/sandbox.ts` | The orchestrator sandbox seam: what a container has to be, and the environment `cloud/sandbox`'s entrypoint is started with. |
 | `src/artifacts.ts` | The R2 artifact tree, and the harness log stream written *during* the run. |
+| `src/observe.ts` | `GET /api/observe` — one read-only frame for `tk factory dashboard`: the listing, a focused run's phase/image/boot/gates, the `dispatch_log` refusals, and the `run_event` tail the room keeps. |
 | `src/env.d.ts` | Hand-written `Cloudflare.Env` (what `wrangler types` would generate). Keep in sync with `wrangler.toml`. |
 | `test/` | vitest + `@cloudflare/vitest-pool-workers`: real workerd, bindings read from `wrangler.toml`. |
 

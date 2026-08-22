@@ -114,6 +114,7 @@ func printUsage() {
 	fmt.Println("  tk factory deploy             Deploy the factory into your own Cloudflare account")
 	fmt.Println("  tk factory setup              Walk the credential ladder: deployment, GitHub PAT, AI Gateway")
 	fmt.Println("  tk factory status             Show what is configured and whether each credential works")
+	fmt.Println("  tk factory dashboard          Live read-only board: runs, phase, harness output, gates, refusals")
 	fmt.Println()
 	fmt.Println("Cloud Runs:")
 	fmt.Println("  tk cloud run <epic>           Push the current branch and start a cloud run")

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/pengelbrecht/ticks/internal/factory/dashboard"
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/skills"
 )
@@ -627,6 +628,11 @@ func ResetFlags() {
 	factoryStatusCheck = false
 	factoryStatusGitHubAPI = ""
 	factoryStatusCFAPIBase = ""
+	factoryDashboardProject = ""
+	factoryDashboardInterval = defaultFactoryDashboardIntervalMs
+	factoryDashboardCost = defaultFactoryDashboardCostMs
+	factoryDashboardTailBytes = dashboard.DefaultHarnessBytes
+	factoryDashboardNoCost = false
 
 	// Reset cloud flags
 	cloudRunNotify = ""
