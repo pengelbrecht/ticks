@@ -21,6 +21,7 @@
  * project's ENROLMENT record, not a config surface of its own.
  */
 
+import { optionOutcome, textOutcome } from "./free-text";
 import { withContext, type MessageContext } from "./message-context";
 
 import type {
@@ -244,27 +245,11 @@ export function parseTelegramAnswer(
   ) {
     return null;
   }
-  const text = message.text?.trim() ?? "";
-  if (text === "") return null;
-  const options = entry.question.options ?? [];
-  if (options.length === 0 || entry.question.allow_other === true) {
-    return {
-      question_id: entry.id,
-      outcome: { status: "answered", text },
-    };
-  }
-  const option = options.find(
-    (candidate) =>
-      candidate.id.toLowerCase() === text.toLowerCase() ||
-      candidate.label.toLowerCase() === text.toLowerCase()
-  );
-  return option === undefined
-    ? null
-    : { question_id: entry.id, outcome: optionOutcome(option) };
-}
-
-function optionOutcome(option: QuestionOption): Outcome {
-  return { status: "answered", text: option.label, option_ids: [option.id] };
+  // What the typed words MEAN on this question is shared with the bare-text
+  // path (`./free-text.ts`), so the same answer cannot settle the same gate
+  // two different ways depending on whether the operator swiped to reply.
+  const outcome = textOutcome(entry.question, message.text ?? "");
+  return outcome === null ? null : { question_id: entry.id, outcome };
 }
 
 /**

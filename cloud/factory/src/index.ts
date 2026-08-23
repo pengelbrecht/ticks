@@ -74,6 +74,12 @@ import {
   submitRun,
 } from "./runs";
 import {
+  bareTextOf,
+  renderFreeTextRefusal,
+  resolveFreeText,
+  type FreeTextCandidate,
+} from "./free-text";
+import {
   TELEGRAM_WEBHOOK_PATH,
   answerTelegramCallback,
   deliverTelegramQuestion,
@@ -818,8 +824,23 @@ async function telegramWebhookRoute(request: Request, env: Env): Promise<Respons
     return Response.json({ ok: true, dropped: true });
   }
 
+  // Free text points at nothing, so it is decided against every enrolled
+  // project at once rather than entry by entry: "exactly one open question" is
+  // a TOTAL over the deployment, and one open question in each of two projects
+  // is two. See ./free-text.ts for why guessing is forged consent.
+  const bare = bareTextOf(update);
+  const candidates: FreeTextCandidate[] = [];
+  const enrolments = new Map<string, EnrolledProject>();
+
   for (const project of await listEnrolledProjects(env.DB)) {
     const room = roomFor(env, project.project);
+    enrolments.set(project.project, project);
+    if (bare !== null) {
+      for (const entry of await room.listQuestions()) {
+        candidates.push({ project: project.project, entry });
+      }
+      continue;
+    }
     // Include history so a losing phone press can be told which surface won,
     // rather than receiving a generic stale-button acknowledgement.
     for (const entry of await room.listQuestions({ include_resolved: true })) {
@@ -857,8 +878,122 @@ async function telegramWebhookRoute(request: Request, env: Env): Promise<Respons
     }
   }
 
+  if (bare !== null) {
+    return await answerBareTelegramText(env, config, update, bare, candidates, enrolments);
+  }
+
   await acknowledgeTelegramCallback(env, update, "This question is already resolved.");
   return Response.json({ ok: true, matched: false });
+}
+
+/**
+ * Settles, or refuses to settle, one bare free-text message.
+ *
+ * Split out of the route because the decision it applies is the operator's
+ * rule and has to stay readable as one thing: one open question resolves, two
+ * or more refuse with the candidates named. There is no third branch that
+ * picks a "best" candidate, and there must never be one — an approval carries
+ * human provenance into the verdict guard, so answering the wrong question
+ * attributes the operator's consent to another project's gate.
+ */
+async function answerBareTelegramText(
+  env: Env,
+  config: ReturnType<typeof telegramConfig>,
+  update: TelegramWebhookUpdate,
+  text: string,
+  candidates: FreeTextCandidate[],
+  enrolments: Map<string, EnrolledProject>
+): Promise<Response> {
+  const resolution = resolveFreeText(text, candidates);
+  if (resolution.kind === "none") return Response.json({ ok: true, matched: false });
+
+  if (resolution.kind === "refused") {
+    await replyToTelegramMessage(env, update, renderFreeTextRefusal(resolution));
+    return Response.json({
+      ok: true,
+      answered: false,
+      refused: true,
+      reason: resolution.reason,
+      candidates: resolution.candidates.map((candidate) => ({
+        project: candidate.project,
+        question_id: candidate.entry.id,
+      })),
+    });
+  }
+
+  const candidate = resolution.candidate;
+  const result = await roomFor(env, candidate.project).answerQuestion({
+    id: candidate.entry.id,
+    outcome: resolution.outcome,
+    answered_by: "telegram",
+    telegram_user_id: config.user_id,
+  });
+  if (result.ok === false) {
+    // Another surface settled it between the read above and this write. Say so
+    // rather than going quiet: there is no callback spinner to acknowledge on
+    // a typed message, so silence would read as "answered".
+    const detail =
+      result.error === "already_answered"
+        ? `Nothing was answered: that question was already answered by ${result.answered_by}.`
+        : "Nothing was answered: that question is no longer open.";
+    await replyToTelegramMessage(env, update, detail);
+    return Response.json({
+      ok: true,
+      answered: false,
+      ...(result.error === "already_answered"
+        ? { already_answered: true, answered_by: result.answered_by }
+        : { error: result.error }),
+    });
+  }
+
+  const enrolment = enrolments.get(candidate.project);
+  try {
+    if (enrolment !== undefined) {
+      await settleTelegramQuestion(
+        env,
+        result.entry,
+        resolution.outcome,
+        questionRouting(enrolment, result.entry)
+      );
+    }
+  } catch (error) {
+    // The DO answer is durable; a failed edit is presentation only.
+    console.error(
+      `factory telegram: free-text settle failed for ${candidate.entry.id}: ${String(error)}`
+    );
+  }
+  return Response.json({
+    ok: true,
+    answered: true,
+    project: candidate.project,
+    question_id: candidate.entry.id,
+  });
+}
+
+/**
+ * Answers the operator's own message in the chat.
+ *
+ * Replying rather than posting loose puts the response next to what it is
+ * about and, in a forum, into the topic the operator typed in — without
+ * guessing a `message_thread_id` for a message that spans several projects'
+ * topics. No context line: a refusal that named ONE project would be read as
+ * being about that project.
+ */
+async function replyToTelegramMessage(
+  env: Env,
+  update: TelegramWebhookUpdate,
+  text: string
+): Promise<void> {
+  const message = update.message;
+  if (message === undefined) return;
+  try {
+    await sendTelegramReport(env, text, {
+      channel_id: String(message.chat.id),
+      message_id: String(message.message_id),
+    });
+  } catch (error) {
+    console.error(`factory telegram: free-text reply failed: ${String(error)}`);
+  }
 }
 
 /**
