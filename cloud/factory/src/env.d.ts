@@ -282,5 +282,25 @@ declare namespace Cloudflare {
     TELEGRAM_WEBHOOK_SECRET?: string;
     /** Test/deployment override; defaults to api.telegram.org. */
     TELEGRAM_API_BASE_URL?: string;
+    /**
+     * The shared secret GitHub signs every webhook delivery with (tick vuz).
+     *
+     * A Worker secret, not a `[vars]` value, and optional in the type for the
+     * same reason every other credential here is: an un-provisioned deployment
+     * must fail closed at the point of use. `src/github-issues.ts` answers 503
+     * and ingests nothing without it — a factory that cannot tell GitHub apart
+     * from anyone else who can POST JSON must accept nothing, not everything.
+     */
+    GITHUB_WEBHOOK_SECRET?: string;
+    /**
+     * The label a maintainer applies to say "this issue is for the machine"
+     * (wrangler `[vars]`, D7). Defaults to `tk` when unset.
+     *
+     * A deployment decision rather than a constant because the word belongs to
+     * the repository's own issue-triage vocabulary, and a repo that already
+     * uses `tk` for something else must be able to name a different one
+     * without a source edit.
+     */
+    GITHUB_CONSENT_LABEL?: string;
   }
 }

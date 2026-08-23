@@ -15,6 +15,8 @@
  *                             the run (read-only; it steers nothing — see D21)
  * - ANY  /api/gateway/*     - a run's model traffic, on its own run-scoped
  *                             gateway token (D17) — never the factory token
+ * - POST /api/hooks/github  - GitHub issues, behind the `tk` label consent
+ *                             boundary; HMAC-signed, never bearer-authenticated
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
  * - everything else        - requires `Authorization: Bearer <factory token>`
  *
@@ -46,6 +48,7 @@ import {
   type EnrolledProject,
 } from "./db";
 import { proxyModelRequest } from "./gateway";
+import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
 import { SignalInbox } from "./signal-inbox";
@@ -800,6 +803,14 @@ export default {
 
     if (url.pathname === "/api/channels/telegram/webhook") {
       return await telegramWebhookRoute(request, env);
+    }
+
+    // GitHub issue ingestion (tick vuz). Exempt from the factory bearer token
+    // for the same reason Telegram's webhook is — GitHub cannot carry the
+    // operator's credential — and authenticated instead by the HMAC signature
+    // over the raw body, which the route verifies before it parses anything.
+    if (url.pathname === GITHUB_WEBHOOK_PATH) {
+      return await githubWebhookRoute(request, env);
     }
 
     const segments = url.pathname.split("/").filter((segment) => segment !== "");

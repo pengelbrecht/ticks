@@ -106,6 +106,20 @@ RUN_QUEUE_TTL_MS = "1800000"
 # lost update. Bounds and the default live in src/signal-inbox.ts.
 SIGNAL_COMMIT_RETRY_MS = "250"
 
+# The label a maintainer applies to a GitHub issue to say "this one is for the
+# machine" (tick vuz, D7). The label IS the consent boundary: an issue without
+# it is not a signal however it is worded, and removing it stops future
+# ingestion, because the label on the issue is the whole of that state.
+#
+# Stated here rather than left to the code's default so the deployable config
+# says which word a maintainer has to type. A repository that already uses `tk`
+# for something else renames it here and re-labels; nothing else moves.
+#
+# The webhook's shared secret is NOT here and never will be: it is a Worker
+# secret (`wrangler secret put GITHUB_WEBHOOK_SECRET`), and a deployment
+# without one ingests nothing rather than trusting an unsigned POST.
+GITHUB_CONSENT_LABEL = "tk"
+
 # Which providers the gateway will route. Left unset on purpose: the default is
 # `workers-ai` alone, the one rung billed to the operator's own Cloudflare
 # account instead of by a vendor in cash, so no edit to a model id can quietly
