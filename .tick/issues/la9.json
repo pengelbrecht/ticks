@@ -2,8 +2,8 @@
   "id": "la9",
   "title": "Draft-tick triage: a signal becomes a proposal a human accepts or discards",
   "description": "The human gate between 'something arrived' and 'the factory spent money on it'.\n\nAn ingested signal lands as a DRAFT tick and is presented in the operator channel with inline Create and Dispatch buttons. Create accepts it into the tracker as a normal open tick; Dispatch accepts it and starts a run. Discard leaves nothing behind but the dedup record, so the same signal does not re-propose forever.\n\nWhy a draft rather than a tick with a flag: a draft has not entered the ready queue, so it cannot be picked up by tk next or swept into a wave before a human has looked. Make that property structural rather than conventional.\n\nInline callbacks carry the question/draft id, so routing is unambiguous even in a shared chat (this is why it does not depend on the free-text rules). It DOES depend on spq's project legibility — a Create button under a message that does not say which project it belongs to is a trap.",
-  "notes": "2026-08-23 16:47 - Sequenced after yu8 by the orchestrator: both edit the Telegram message/callback path, and yu8 owns how an inbound message is correlated to a question. Building the draft's buttons on top of a settled correlation rule is cheaper than merging two versions of it.",
-  "status": "open",
+  "notes": "2026-08-23 16:47 - Sequenced after yu8 by the orchestrator: both edit the Telegram message/callback path, and yu8 owns how an inbound message is correlated to a question. Building the draft's buttons on top of a settled correlation rule is cheaper than merging two versions of it.\n2026-08-23 17:01 - runner-state: substrate=herdr kind=claude branch=tick/la9 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-la9 workspace=wFF base=5d87451c6a8f76be4bc3db8306d65368b9bf8c3b agent=tick-la9 pane=wFF:p1 session=6fa9e6bf-5f84-461e-a1f3-b763c3a8edae",
+  "status": "in_progress",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -16,5 +16,6 @@
   "acceptance_criteria": "A signal appears as a draft with Create/Dispatch/Discard; Create produces an open tick; Dispatch produces an open tick and a run; Discard leaves only the dedup record; no draft is ever visible to tk next or to a wave.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:53:43.236977Z",
-  "updated_at": "2026-08-23T14:47:31.22356Z"
+  "updated_at": "2026-08-23T15:01:50.012801Z",
+  "started_at": "2026-08-23T15:01:50.012801Z"
 }

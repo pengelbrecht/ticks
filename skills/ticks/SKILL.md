@@ -70,6 +70,7 @@ A project's run config lives in two tracked files in `.tick/`, split by who read
 - **`[evidence.acceptance]`** — optional closeout authorization, mapping each stable acceptance item id to the id of the one command that proves it (`A1 = "go"`). Nothing outside this file authorizes shell — not tracker prose, not a model's suggestion — and an item with no mapping is unverified, which leaves closeout and the epic open.
 - **`[environment.commands]`** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
 - **`[orchestrator]`, `[orchestration]`, `[roles.*]`** — which substrate orchestrates the run and which worker serves each role and tier.
+- **`[signals.sources.*]`** — webhook senders this repo accepts signals from, so their deliveries become draft ticks: a signature scheme (naming a Worker *secret binding*, never a secret), a mapping from payload paths to tick fields, and the `external_ref` path the signal funnel dedups on. Registering the source, in a file the repo reviews, *is* the consent boundary.
 
 `.tick/config.md` — the prose half:
 

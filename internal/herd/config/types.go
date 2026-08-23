@@ -159,6 +159,7 @@ type Config struct {
 	Evidence      *Evidence        `toml:"evidence"`
 	Environment   *Environment     `toml:"environment"`
 	Sandbox       *Sandbox         `toml:"sandbox"`
+	Signals       *Signals         `toml:"signals"`
 }
 
 // Orchestrator records which harness/kind the config was written for. It is
@@ -270,6 +271,73 @@ type Sandbox struct {
 	Setup []*Command `toml:"setup"`
 }
 
+// Signals is the repository's own signal ingestion configuration: the webhook
+// senders it accepts deliveries from (tick 0vb).
+//
+// This table is read by the cloud factory Worker, not by tk — a webhook
+// arrives at the control plane, and the only reader that can act on a
+// declaration is the one holding the request. tk decodes and validates it for
+// the reason it validates everything else here: a repository must learn its
+// config is wrong from `tk` at author time, not from a delivery silently
+// refused three weeks later. `cloud/factory/src/webhook-sources.ts` is the
+// second reader, and `cloud/factory/test/fixtures/signal-source-cases.json`
+// is the golden file both must agree on.
+//
+// Like [Sandbox], it deliberately does NOT get a format version of its own:
+// version 2 has not shipped in a release yet ([MinTkVersion] names the one
+// that will carry it), so no binary exists that reads version 2 and has never
+// heard of [signals]. Bumping would lock out readers for nothing.
+type Signals struct {
+	// Sources are the declared webhook senders, by source name. The name is
+	// half the funnel's dedup key and appears in the delivery URL.
+	Sources map[string]*SignalSource `toml:"sources"`
+}
+
+// SignalSource is one declared webhook sender.
+//
+// Three things, and the split between them is fixed per key so no value is
+// ever ambiguous:
+//
+//   - The SIGNATURE SCHEME — Secret, Header, Algorithm, Encoding, Prefix.
+//   - The MAPPING — ExternalRef, Title and Description are PATHS INTO THE
+//     PAYLOAD (`data.issue.title`), never literal text.
+//   - The CONSTANTS — Type, Priority and Labels are values, never paths.
+//
+// Secret is the NAME of a Worker secret binding, never a secret. This file is
+// tracked and, for most repositories, public: a shared secret written into it
+// is a shared secret published. The `SIGNAL_SECRET_` prefix is enforced so a
+// declaration cannot nominate an unrelated credential the deployment holds.
+type SignalSource struct {
+	Secret      string   `toml:"secret"`
+	Header      string   `toml:"header"`
+	Algorithm   string   `toml:"algorithm"`
+	Encoding    string   `toml:"encoding"`
+	Prefix      string   `toml:"prefix"`
+	ExternalRef string   `toml:"external_ref"`
+	Title       string   `toml:"title"`
+	Description string   `toml:"description"`
+	Type        string   `toml:"type"`
+	Priority    *int     `toml:"priority"`
+	Labels      []string `toml:"labels"`
+}
+
+// SignalSourceNames reports the declared source names in sorted order. It is
+// nil-safe.
+func (c *Config) SignalSourceNames() []string {
+	if c == nil || c.Signals == nil {
+		return nil
+	}
+	return sortedKeys(c.Signals.Sources)
+}
+
+// SignalSource reports one declared source, or nil. It is nil-safe.
+func (c *Config) SignalSource(name string) *SignalSource {
+	if c == nil || c.Signals == nil {
+		return nil
+	}
+	return c.Signals.Sources[name]
+}
+
 // SandboxImage reports the declared image reference, or "" for the
 // version-pinned base image. It is nil-safe.
 func (c *Config) SandboxImage() string {
@@ -310,9 +378,8 @@ func (c *Config) DeclaredVersion() int {
 
 // RequiredVersion reports the lowest format version that can express this
 // config: [CommandSurfaceVersion] once `[testing]`, `[evidence]`,
-// `[environment]` or `[sandbox]` is present, [MinVersion] for a routing-only
-// file. It is
-// nil-safe.
+// `[environment]`, `[sandbox]` or `[signals]` is present, [MinVersion] for a
+// routing-only file. It is nil-safe.
 //
 // This is what [Migrate] writes, and why it does not bump a routing-only
 // file: a version an older tk can read is a version it should be allowed to
@@ -321,7 +388,8 @@ func (c *Config) RequiredVersion() int {
 	if c == nil {
 		return MinVersion
 	}
-	if c.Testing != nil || c.Evidence != nil || c.Environment != nil || c.Sandbox != nil {
+	if c.Testing != nil || c.Evidence != nil || c.Environment != nil || c.Sandbox != nil ||
+		c.Signals != nil {
 		return CommandSurfaceVersion
 	}
 	return MinVersion

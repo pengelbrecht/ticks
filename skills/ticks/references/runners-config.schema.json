@@ -9,7 +9,7 @@
     "version": {
       "type": "integer",
       "enum": [1, 2],
-      "description": "Config format version. Omitted means 1. Version 2 introduced the command surface (`[testing]`, `[evidence]`, `[environment]`) and `[sandbox]`, which shipped in the same release, so a file carrying any of those tables must declare 2 — that is what lets a reader too old to know them fail with one line telling its operator to upgrade, instead of reporting every key it does not recognise. A reader must therefore check this field BEFORE it checks shape, and must stop rather than guess when the value is newer than it understands. Within a version it understands, an unknown key remains an error: the gate is about ordering, not about relaxing additionalProperties."
+      "description": "Config format version. Omitted means 1. Version 2 introduced the command surface (`[testing]`, `[evidence]`, `[environment]`), `[sandbox]` and `[signals]`, which shipped in the same release, so a file carrying any of those tables must declare 2 — that is what lets a reader too old to know them fail with one line telling its operator to upgrade, instead of reporting every key it does not recognise. A reader must therefore check this field BEFORE it checks shape, and must stop rather than guess when the value is newer than it understands. Within a version it understands, an unknown key remains an error: the gate is about ordering, not about relaxing additionalProperties."
     },
     "orchestrator": {
       "$ref": "#/$defs/Orchestrator"
@@ -31,6 +31,9 @@
     },
     "sandbox": {
       "$ref": "#/$defs/Sandbox"
+    },
+    "signals": {
+      "$ref": "#/$defs/Signals"
     }
   },
   "required": ["roles"],
@@ -262,6 +265,90 @@
           "maxItems": 32,
           "items": { "$ref": "#/$defs/Command" },
           "description": "Idempotent, cache-populating commands run once per sandbox, in order, after the checkout and before the harness starts (`pnpm install --frozen-lockfile`, `go mod download`). An ARRAY, not a keyed table: order is the contract and nothing references a setup command by id. This is provisioning, which `[environment]` deliberately cannot express — an Environment check is verification only, `test, do not ask`. A failing setup command stops the run: a wave started on a half-provisioned sandbox fails in every worker instead."
+        }
+      }
+    },
+    "Signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The webhook senders this repository accepts signals from (tick 0vb) \u2014 the general case behind the built-in GitHub and Telegram sources. A declaration here is what turns a third party's POST into a draft tick: the cloud factory serves `POST /api/hooks/source/<owner>/<repo>/<name>` for each one, verifies the signature scheme the declaration names, maps the payload onto tick fields, and hands the result to the same funnel every other source uses \u2014 which dedups on `(source, external_ref)`, so there is never a second dedup. Registering the source IS the consent boundary: GitHub can express per-item consent through a maintainer's label because it has a permission model behind labelling, and a generic sender has none, so the act of declaring it here \u2014 in a tracked file the repository reviews \u2014 is where a human agrees to the volume. Absent means this repository accepts no generic webhooks, which is the 99% path. The factory Worker is the reader that acts on it; tk validates it at author time so a wrong declaration fails at the CLI rather than at a delivery three weeks later.",
+      "properties": {
+        "sources": {
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "additionalProperties": { "$ref": "#/$defs/SignalSource" },
+          "description": "The declared senders, keyed by source name. The name is half the funnel's dedup key and is the last path segment of the delivery URL, so it is lowercase \u2014 and it must not be `github` or `telegram`, because a source sharing a built-in name would share its dedup key space. That last rule is a loader check, not a schema one: JSON Schema cannot express it."
+        }
+      }
+    },
+    "SignalSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret", "header", "external_ref", "title"],
+      "description": "One declared webhook sender. Three things, and which is which is FIXED PER KEY so no value is ever ambiguous between them: the SIGNATURE SCHEME (`secret`, `header`, `algorithm`, `encoding`, `prefix`); the MAPPING, where `external_ref`, `title` and `description` are PATHS INTO THE PAYLOAD and never literal text; and the CONSTANTS `type`, `priority` and `labels`, which are values and never paths. An unknown key fails the whole declaration closed \u2014 a typo'd `header` silently ignored is an unauthenticated door.",
+      "properties": {
+        "secret": {
+          "type": "string",
+          "pattern": "^SIGNAL_SECRET_[A-Z0-9_]{1,48}$",
+          "description": "The NAME of the Worker secret holding the shared secret \u2014 NEVER the secret itself. This file is tracked and usually public, so a secret written into it is a secret published; the deployment holds the value (`wrangler secret put SIGNAL_SECRET_<SOURCE>`) and answers 503, ingesting nothing, for a declared source whose secret it does not have. The `SIGNAL_SECRET_` prefix is enforced so a declaration cannot nominate an unrelated credential the deployment happens to hold, such as its GitHub token."
+        },
+        "header": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,62}$",
+          "description": "The request header carrying the signature, matched case-insensitively as headers are. A valid signature presented in a different header does not verify: the scheme is the whole agreement, not the digest alone."
+        },
+        "algorithm": {
+          "enum": ["hmac-sha256", "hmac-sha512"],
+          "default": "hmac-sha256",
+          "description": "The MAC over the RAW request body. The body is read once as text and verified before anything is parsed \u2014 re-serialising parsed JSON does not reproduce the signed bytes."
+        },
+        "encoding": {
+          "enum": ["hex", "base64"],
+          "default": "hex",
+          "description": "How the sender writes the digest down."
+        },
+        "prefix": {
+          "type": "string",
+          "maxLength": 16,
+          "default": "",
+          "description": "A literal the sender writes before the digest (`sha256=`, `v1=`). Empty \u2014 the default \u2014 is the many senders that write it bare. It is compared, not stripped and ignored: a delivery whose prefix is wrong is signed under a scheme this door did not agree to."
+        },
+        "external_ref": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]*(\\.[A-Za-z0-9_][A-Za-z0-9_-]*)*$",
+          "maxLength": 200,
+          "description": "A payload path to the sender's OWN stable id for this delivery's subject \u2014 `data.issue.id`, not a delivery id, which changes on every retry. It becomes half the funnel's dedup key, so a redelivery of the same subject comes back `duplicate` with the original tick's id and commits nothing. A payload with no scalar at this path is refused rather than filed, because a signal that cannot be deduped would file a tick per retry."
+        },
+        "title": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]*(\\.[A-Za-z0-9_][A-Za-z0-9_-]*)*$",
+          "maxLength": 200,
+          "description": "A payload path to the text the tick is titled with. A PATH, never the title: prose written here is refused at author time rather than resolving to nothing at delivery time."
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]*(\\.[A-Za-z0-9_][A-Za-z0-9_-]*)*$",
+          "maxLength": 200,
+          "description": "A payload path to the sender's prose, if it has any. It reaches exactly one destination \u2014 the tick description \u2014 and gets there sanitised and quoted behind `> `, because it is text a stranger wrote reaching a surface a human then acts on with a button. Omitted means the tick carries no body."
+        },
+        "type": {
+          "enum": ["bug", "feature", "task", "epic", "chore"],
+          "default": "task",
+          "description": "A CONSTANT the ingested tick's type is set to \u2014 never read from the payload. Every structural field of a signal comes from this declaration or is a constant, which is what stops payload text selecting its own priority, type or attribution."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "default": 2,
+          "description": "A CONSTANT the ingested tick's priority is set to. Same rule as `type`."
+        },
+        "labels": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "description": "CONSTANT tick labels put on every tick from this source. Deliberately not read from the payload: tick labels are dispatcher vocabulary, and a sender's own labels mean something in the sender's system that nobody here intended."
         }
       }
     },
