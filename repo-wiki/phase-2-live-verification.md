@@ -219,3 +219,45 @@ without tripping the cap: `MAX_OBSERVATIONS` with a stretching `pollDelay`, each
 observation its own short step. Long waits belong across many bounded steps,
 re-deriving state from the durable layer each time so a retried or resumed step
 does not depend on a closure that no longer exists.
+
+## Second-wave fan-out, and the lease that made it impossible
+
+The last clause of Phase 2's definition of done, proven on
+`run_b5a315a0fd9d4a53a19f6ae137eb2861` (2026-08-23). Designed as a deliberate
+two-wave run: submit **one** tick, so a second wave can only exist if the
+in-sandbox orchestrator derives and dispatches it.
+
+    wave 1   cloud:dispatch:0-1        one container (5jo) → branch pushed
+    pass     wave:1:lease:1-1 {ok:true}
+             wave:1:wait/watch 0..3    the pass runs `tk graph` in the sandbox
+                                        and calls POST /api/wave
+    wave 2   cloud:dispatch:1:0-1      containers for 201 and 4qx, probe ok
+
+    DISPATCH BATCHES: ['0', '1']
+
+### The lease bug this uncovered, which had nothing to do with wave logic
+
+The first attempt failed at `wave:1:lease:1-1 → {"ok":false}`, tripping with
+**"the dispatch lease was lost to another run"** fifteen seconds after the pass
+booted. That message is misleading and cost a diagnosis step:
+
+- `BOOT_LEASE_TTL_MS` is **10 minutes**, set at submission.
+- A container wave now runs **60–90 minutes**.
+- Nothing on the `superviseCloudWave` path renewed it.
+
+Nobody took the lease. **It lapsed**, and the code reported a lapse as a theft —
+the fourth time this epic collapsed two distinct failure classes into one
+message. The fix (`7n7`) renews the lease from the wave's own legs and reports
+expiry and theft differently.
+
+Note the ordering trap in the fix: renewing on *every* cancellation poll broke
+two of `s7f`'s adopt-don't-redispatch tests by turning a bounded wait into a
+hang. The heartbeat has to be **paced**, not tied to the poll. A bisect settled
+that it was a real regression and not the flakiness it looked like — the
+pre-change commit ran the file 81/81 clean on the first try.
+
+### Why one submitted tick is the right shape for this proof
+
+A multi-tick wave can finish without ever needing a second wave, so it proves
+nothing about iteration. One tick forces the question. It is also the cheapest
+possible proof of the most expensive-to-reach property.
