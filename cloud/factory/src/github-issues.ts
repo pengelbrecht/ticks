@@ -60,6 +60,16 @@
 import { getEnrolledProject } from "./db";
 import { submitSignal, type Signal, type SignalOutcome } from "./signal-inbox";
 import { escapeHTML } from "./telegram";
+import {
+  MAX_UNTRUSTED_CHARS,
+  MAX_UNTRUSTED_LINES,
+  TRUNCATION_MARKER,
+  UNTRUSTED_LINE_PREFIX,
+  quoteUntrusted,
+  sanitizeUntrusted,
+  sanitizeUntrustedLine,
+} from "./untrusted-text";
+import { signBody, verifySignature, type SignatureScheme } from "./webhook-signature";
 
 import type { Env } from "./index";
 
@@ -85,22 +95,20 @@ const SIGNATURE_PREFIX = "sha256=";
  * `MAX_SIGNAL_DESCRIPTION`, because quoting adds two bytes per line and a
  * description that overflows would be REFUSED by the funnel — turning a
  * hostile body into a way to make a consented issue unfilable.
+ *
+ * The values live in `untrusted-text.ts` since tick 0vb: every source has a
+ * hostile-text field, and two copies of a bound is two bounds.
  */
-export const MAX_ISSUE_BODY_CHARS = 8_000;
-export const MAX_ISSUE_BODY_LINES = 400;
-export const TRUNCATION_MARKER = "[truncated by the ticks factory]";
+export const MAX_ISSUE_BODY_CHARS = MAX_UNTRUSTED_CHARS;
+export const MAX_ISSUE_BODY_LINES = MAX_UNTRUSTED_LINES;
+export { TRUNCATION_MARKER };
 
 /**
  * The prefix on every line of reporter-written text, in the tick description
- * and in the channel render alike.
- *
- * One prefix rather than two because the invariant is one sentence: a line
- * that starts with this is the reporter's, a line that does not is the
- * factory's. `> ` also renders as a blockquote on every markdown surface the
- * description reaches, so the same character is doing the same job for a human
- * as for the test.
+ * and in the channel render alike. Shared with every other source since tick
+ * 0vb — see `untrusted-text.ts` for why it is one prefix and not two.
  */
-export const UNTRUSTED_LINE_PREFIX = "> ";
+export { UNTRUSTED_LINE_PREFIX };
 
 /** What GitHub allows in a login. A login that is not one is a payload to refuse. */
 const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
@@ -133,29 +141,24 @@ export function consentLabel(env: Pick<Env, "GITHUB_CONSENT_LABEL">): string {
 
 // ---------------------------------------------------------- the signature ---
 
+/**
+ * GitHub's scheme, as one value of the shared shape (tick 0vb).
+ *
+ * Named rather than inlined because it is now data: the generic registry in
+ * `webhook-sources.ts` builds the same shape out of a repository's declaration,
+ * and this constant is what says GitHub is a source like any other — it simply
+ * did not have to be declared.
+ */
+export const GITHUB_SIGNATURE_SCHEME: SignatureScheme = {
+  algorithm: "hmac-sha256",
+  header: SIGNATURE_HEADER,
+  encoding: "hex",
+  prefix: SIGNATURE_PREFIX,
+};
+
 /** The `sha256=<hex>` value GitHub sends for `body` under `secret`. */
 export async function githubSignature(secret: string, body: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const mac = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
-  return (
-    SIGNATURE_PREFIX +
-    [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
-  );
-}
-
-/** Length-then-XOR comparison, so a wrong signature costs the same time as any other. */
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+  return signBody(GITHUB_SIGNATURE_SCHEME, secret, body);
 }
 
 /**
@@ -163,107 +166,25 @@ function constantTimeEqual(a: string, b: string): boolean {
  *
  * A missing or malformed header is false, never "skip the check": the
  * signature is the only thing standing between this route and anyone who can
- * POST JSON, and an unsigned delivery must never be the cheap path.
+ * POST JSON, and an unsigned delivery must never be the cheap path. Both rules
+ * now live in `webhook-signature.ts`, which every door shares.
  */
 export async function verifyGitHubSignature(
   secret: string,
   body: string,
   header: string | null
 ): Promise<boolean> {
-  if (typeof header !== "string") return false;
-  const presented = header.trim();
-  if (!presented.startsWith(SIGNATURE_PREFIX)) return false;
-  return constantTimeEqual(await githubSignature(secret, body), presented);
+  return verifySignature(GITHUB_SIGNATURE_SCHEME, secret, body, header);
 }
 
 // ------------------------------------------------------- untrusted text ---
 
-/**
- * Everything that can move a line break, hide a character or reverse the
- * reading order of one.
- *
- * The bidirectional overrides matter as much as the control codes: `U+202E`
- * renders the text after it right-to-left, which is how a quoted line can be
- * made to *look* like it starts somewhere else entirely while every byte of it
- * still sits inside the quote. Tab and newline survive; nothing else in the
- * C0/C1 ranges does.
- */
-const INVISIBLE =
-  /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
-
-/** Every way a payload can express "new line", folded to the one this module quotes. */
-function normalizeNewlines(text: string): string {
-  return text.replace(/\r\n|\r|\u2028|\u2029|\u0085/g, "\n");
-}
-
-/**
- * Reporter-written prose, made safe to carry — but NOT yet safe to place at
- * column 0. That is {@link quoteUntrusted}'s job, and the split is deliberate:
- * this function has no way to promise the caller quoted it.
- */
-export function sanitizeUntrusted(
-  raw: unknown,
-  bounds: { maxChars?: number; maxLines?: number } = {}
-): string {
-  if (typeof raw !== "string") return "";
-  const maxChars = bounds.maxChars ?? MAX_ISSUE_BODY_CHARS;
-  const maxLines = bounds.maxLines ?? MAX_ISSUE_BODY_LINES;
-
-  let text = normalizeNewlines(raw).replace(INVISIBLE, "");
-  // Lone surrogates survive JSON but not a round trip through TextEncoder;
-  // dropping them here keeps the committed record byte-stable.
-  text = text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
-  // Trailing whitespace per line, then runs of blank lines: a body padded with
-  // 4,000 empty lines is a way to push the real content out of a message.
-  text = text
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+$/, ""))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  let truncated = false;
-  if (text.length > maxChars) {
-    let cut = text.slice(0, maxChars);
-    // Never end on a lone high surrogate.
-    if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
-    text = cut;
-    truncated = true;
-  }
-  const lines = text.split("\n");
-  if (lines.length > maxLines) {
-    text = lines.slice(0, maxLines).join("\n");
-    truncated = true;
-  }
-  return truncated ? `${text}\n${TRUNCATION_MARKER}` : text;
-}
-
-/**
- * A single line of reporter-written text — a title, a login that failed its
- * pattern, anything that must not carry a newline into a rendered message.
- */
-export function sanitizeUntrustedLine(raw: unknown, maxChars: number): string {
-  if (typeof raw !== "string") return "";
-  const text = normalizeNewlines(raw)
-    .replace(INVISIBLE, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
-}
-
-/**
- * Puts every line of `text` behind {@link UNTRUSTED_LINE_PREFIX}.
- *
- * Applied unconditionally — a line that already starts with the prefix is
- * simply prefixed again. Stripping an existing one would hand the reporter a
- * way to reach column 0 by writing it themselves.
- */
-export function quoteUntrusted(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => `${UNTRUSTED_LINE_PREFIX}${line}`)
-    .join("\n");
-}
+// `sanitizeUntrusted`, `sanitizeUntrustedLine` and `quoteUntrusted` moved to
+// `untrusted-text.ts` in tick 0vb, unchanged. They were never GitHub-specific:
+// every source has a field a stranger wrote, and three copies of the
+// bidirectional-character list would drift. Re-exported here so this module's
+// vocabulary is unchanged for its callers and its tests.
+export { quoteUntrusted, sanitizeUntrusted, sanitizeUntrustedLine };
 
 // ------------------------------------------------------------ the verdict ---
 

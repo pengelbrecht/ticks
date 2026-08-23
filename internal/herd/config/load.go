@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 // ValidationError is one shape violation, naming the dotted TOML path that
@@ -219,6 +222,7 @@ func validate(cfg *Config, md toml.MetaData) ValidationErrors {
 	validateOrchestration(cfg, md, add)
 	validateRoles(cfg, md, add)
 	validateCommands(cfg, md, add)
+	validateSignals(cfg, add)
 
 	sort.SliceStable(errs, func(i, j int) bool { return errs[i].Path < errs[j].Path })
 	return errs
@@ -607,6 +611,113 @@ func undecodedKeys(md toml.MetaData) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// The patterns and enums a declared webhook source is held to. Mirrored in
+// cloud/factory/src/webhook-sources.ts, which is the reader that ACTS on a
+// declaration; the golden cases both must agree on live in
+// cloud/factory/test/fixtures/signal-source-cases.json.
+//
+// signalSecretPattern is the load-bearing one. `.tick/runners.toml` is a
+// tracked file, so the declaration names a Worker secret BINDING and never a
+// secret; the prefix is what stops a declaration nominating an unrelated
+// credential the deployment happens to hold.
+var (
+	signalSourceNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	signalSecretPattern     = regexp.MustCompile(`^SIGNAL_SECRET_[A-Z0-9_]{1,48}$`)
+	signalHeaderPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,62}$`)
+	signalPathPattern       = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*(\.[A-Za-z0-9_][A-Za-z0-9_-]*)*$`)
+)
+
+// SignalAlgorithms and SignalEncodings are the signature schemes a declaration
+// may name, in schema order.
+var (
+	SignalAlgorithms = []string{"hmac-sha256", "hmac-sha512"}
+	SignalEncodings  = []string{"hex", "base64"}
+)
+
+// SignalReservedSources are the source names this product already serves. A
+// repository may not declare one: the funnel dedups on
+// (source, external_ref), so a second `github` would share its key space.
+var SignalReservedSources = []string{"github", "telegram"}
+
+// MaxSignalSources bounds one repository's registry. A registry, not a router.
+const MaxSignalSources = 16
+
+// MaxSignalPathSegments bounds one payload path.
+const MaxSignalPathSegments = 12
+
+// signalTickTypes is the tick `type` vocabulary a declaration may name, taken
+// from the package that owns it rather than restated — a source declaring a
+// type tk would reject is a source that files unusable records.
+var signalTickTypes = []string{tick.TypeBug, tick.TypeFeature, tick.TypeTask, tick.TypeEpic, tick.TypeChore}
+
+func validateSignals(cfg *Config, add addFunc) {
+	if cfg.Signals == nil {
+		return
+	}
+	names := sortedKeys(cfg.Signals.Sources)
+	if len(names) > MaxSignalSources {
+		add("signals.sources", fmt.Sprintf("%d sources declared, past the %d a repository may declare", len(names), MaxSignalSources))
+	}
+	for _, name := range names {
+		base := "signals.sources." + name
+		if !signalSourceNamePattern.MatchString(name) {
+			add(base, fmt.Sprintf("%q is not a usable source name (lowercase letters, digits, - and _) — it is half the funnel's dedup key", name))
+		}
+		if slices.Contains(SignalReservedSources, name) {
+			add(base, fmt.Sprintf("%q names a source the factory already serves; a second one would share its dedup key space", name))
+		}
+		src := cfg.Signals.Sources[name]
+		if src == nil {
+			add(base, "must be a table")
+			continue
+		}
+		checkPattern(add, base+".secret", src.Secret, signalSecretPattern,
+			"the NAME of a Worker secret (this file is tracked, so a secret written into it is a secret published)")
+		checkPattern(add, base+".header", src.Header, signalHeaderPattern, "a header name")
+		if src.Algorithm != "" && !slices.Contains(SignalAlgorithms, src.Algorithm) {
+			add(base+".algorithm", fmt.Sprintf("%q is not one of %s", src.Algorithm, strings.Join(SignalAlgorithms, ", ")))
+		}
+		if src.Encoding != "" && !slices.Contains(SignalEncodings, src.Encoding) {
+			add(base+".encoding", fmt.Sprintf("%q is not one of %s", src.Encoding, strings.Join(SignalEncodings, ", ")))
+		}
+		if len(src.Prefix) > 16 {
+			add(base+".prefix", "must not be longer than 16 characters")
+		}
+		checkSignalPath(add, base+".external_ref", src.ExternalRef, true)
+		checkSignalPath(add, base+".title", src.Title, true)
+		checkSignalPath(add, base+".description", src.Description, false)
+		if src.Type != "" && !slices.Contains(signalTickTypes, src.Type) {
+			add(base+".type", fmt.Sprintf("%q is not one of %s", src.Type, strings.Join(signalTickTypes, ", ")))
+		}
+		if src.Priority != nil && (*src.Priority < 0 || *src.Priority > 4) {
+			add(base+".priority", fmt.Sprintf("must be an integer 0-4, got %d", *src.Priority))
+		}
+		if len(src.Labels) > 8 {
+			add(base+".labels", "at most 8 labels")
+		}
+	}
+}
+
+// checkSignalPath holds a mapping key to being a PATH into the payload rather
+// than literal text. Narrow on purpose: prose written where a path was
+// expected is refused here, at author time, instead of resolving to nothing at
+// delivery time.
+func checkSignalPath(add addFunc, path, value string, required bool) {
+	if value == "" {
+		if required {
+			add(path, "is required and must be a payload path (dot-separated field names, e.g. `data.issue.title`)")
+		}
+		return
+	}
+	if !signalPathPattern.MatchString(value) {
+		add(path, fmt.Sprintf("%q is not a payload path — this key names WHERE in the payload the value comes from, never the value itself", value))
+		return
+	}
+	if len(strings.Split(value, ".")) > MaxSignalPathSegments {
+		add(path, fmt.Sprintf("has more than %d segments", MaxSignalPathSegments))
+	}
 }
 
 func sortedKeys[V any](m map[string]V) []string {

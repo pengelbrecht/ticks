@@ -120,6 +120,19 @@ SIGNAL_COMMIT_RETRY_MS = "250"
 # without one ingests nothing rather than trusting an unsigned POST.
 GITHUB_CONSENT_LABEL = "tk"
 
+# Generic webhook sources (tick 0vb) have NO entry here at all, and that is the
+# design rather than an omission. WHICH sources exist is the repository's
+# decision, declared in its own tracked `.tick/runners.toml` as
+# `[signals.sources.<name>]`; this deployment only has to hold the shared
+# secret each declaration names, as a Worker secret:
+#
+#   wrangler secret put SIGNAL_SECRET_SENTRY
+#
+# The declaration names the BINDING, never the value — `runners.toml` is
+# tracked and usually public. A declared source whose secret this deployment
+# does not hold answers 503 and ingests nothing, exactly as an unconfigured
+# GitHub webhook does.
+
 # Which providers the gateway will route. Left unset on purpose: the default is
 # `workers-ai` alone, the one rung billed to the operator's own Cloudflare
 # account instead of by a vendor in cash, so no edit to a model id can quietly

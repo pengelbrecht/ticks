@@ -302,5 +302,22 @@ declare namespace Cloudflare {
      * without a source edit.
      */
     GITHUB_CONSENT_LABEL?: string;
+    /**
+     * The shared secrets for the generic webhook sources a repository declares
+     * in its own `.tick/runners.toml` (tick 0vb).
+     *
+     * Worker secrets, one per declared source, named `SIGNAL_SECRET_<SOURCE>`.
+     * They are an index signature rather than named keys because the set is
+     * open: which sources exist is the REPOSITORY's decision, made in a file
+     * this deployment does not own, so no fixed list here could be right.
+     *
+     * The declaration names the binding, never the value — `runners.toml` is
+     * tracked and public, and a secret written into it is a secret published.
+     * `src/webhook-sources.ts` bounds what a repository may nominate to this
+     * prefix so a declaration cannot reach for `GITHUB_TOKEN` or
+     * `FACTORY_TOKEN_HASH`, and answers 503 for a source whose secret this
+     * deployment does not hold.
+     */
+    [signalSecret: `SIGNAL_SECRET_${string}`]: string | undefined;
   }
 }

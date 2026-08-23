@@ -17,6 +17,9 @@
  *                             gateway token (D17) — never the factory token
  * - POST /api/hooks/github  - GitHub issues, behind the `tk` label consent
  *                             boundary; HMAC-signed, never bearer-authenticated
+ * - POST /api/hooks/source/:owner/:repo/:name - a webhook source the repository
+ *                             declares in its own `.tick/runners.toml`; signed
+ *                             with the scheme that declaration names
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
  * - everything else        - requires `Authorization: Bearer <factory token>`
  *
@@ -49,6 +52,7 @@ import {
 } from "./db";
 import { proxyModelRequest } from "./gateway";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
+import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
 import { SignalInbox } from "./signal-inbox";
@@ -959,6 +963,18 @@ export default {
     // over the raw body, which the route verifies before it parses anything.
     if (url.pathname === GITHUB_WEBHOOK_PATH) {
       return await githubWebhookRoute(request, env);
+    }
+
+    // Generic webhook sources (tick 0vb): the general case behind Telegram and
+    // GitHub. Exempt from the bearer token for the same reason, and
+    // authenticated by the signature scheme the repository's own tracked
+    // `.tick/runners.toml` declares for that source. Matched by prefix, and
+    // AFTER the exact-match GitHub path above so the two cannot shadow.
+    if (
+      url.pathname === WEBHOOK_SOURCE_PREFIX ||
+      url.pathname.startsWith(`${WEBHOOK_SOURCE_PREFIX}/`)
+    ) {
+      return await webhookSourceRoute(request, env);
     }
 
     // Webhook mode's control surface, authenticated (see isAuthExempt: only

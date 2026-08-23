@@ -35,6 +35,15 @@
  * declaration this module misses just means the deployment's own ceiling
  * stands, and `kji`'s claim-time enforcement inside each worker is still the
  * authoritative check no dispatch-side miss can bypass.
+ *
+ * A THIRD reader now shares this file's reader seam and deliberately does NOT
+ * share that best-effort rule: `src/webhook-sources.ts` reads
+ * `[signals.sources.*]` (tick 0vb) to decide whether an unauthenticated POST
+ * becomes a tick. It has no backstop, because there is no later, more
+ * authoritative reader in a webhook's path — so an unreadable file there is a
+ * 503 that ingests nothing, never a shrug. Both rules are right for their
+ * caller, and the difference is exactly whether something downstream can still
+ * catch a miss.
  */
 
 import { GITHUB_API_BASE_URL } from "./progress";
@@ -64,8 +73,15 @@ export const MAX_CONFIG_BYTES = 256_000;
  * `env.REPO_CONFIG`.
  */
 export interface RepoConfigReader {
-  /** The file's text, or null when the repository does not have one at `ref`. */
-  read(project: string, ref: string): Promise<string | null>;
+  /**
+   * The file's text, or null when the repository does not have one at `ref`.
+   *
+   * `ref` is null for "the repository's default branch", which is what a
+   * webhook read wants (tick 0vb): a delivery from a third-party sender names
+   * no commit, and the branch a repository's maintainers merge to is the only
+   * defensible place to read its own declaration from.
+   */
+  read(project: string, ref: string | null): Promise<string | null>;
 }
 
 /** The reader this deployment uses: a test's fake, or GitHub. */
@@ -94,21 +110,25 @@ export function githubRepoConfig(env: Env): RepoConfigReader {
   }
 
   return {
-    async read(project: string, ref: string): Promise<string | null> {
+    async read(project: string, ref: string | null): Promise<string | null> {
+      // No `ref` query at all for a default-branch read: GitHub's contents API
+      // reads the default branch when the parameter is absent, and `?ref=`
+      // with an empty value is a 422, not the same thing.
       const url =
         `${base}/repos/${project}/contents/${RUNNERS_CONFIG_PATH}` +
-        `?ref=${encodeURIComponent(ref)}`;
+        (ref === null ? "" : `?ref=${encodeURIComponent(ref)}`);
       const response = await fetch(url, { headers });
       if (response.status === 404) return null;
       if (!response.ok) {
         throw new Error(
-          `GitHub answered HTTP ${response.status} for ${RUNNERS_CONFIG_PATH} of ${project} at ${ref}`
+          `GitHub answered HTTP ${response.status} for ${RUNNERS_CONFIG_PATH} of ${project} at ` +
+            `${ref ?? "the default branch"}`
         );
       }
       const text = await response.text();
       if (text.length > MAX_CONFIG_BYTES) {
         throw new Error(
-          `${RUNNERS_CONFIG_PATH} of ${project} at ${ref} is ${text.length} bytes, ` +
+          `${RUNNERS_CONFIG_PATH} of ${project} at ${ref ?? "the default branch"} is ${text.length} bytes, ` +
             `past the ${MAX_CONFIG_BYTES} this reader will read`
         );
       }

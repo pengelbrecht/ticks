@@ -336,7 +336,16 @@ export function loadRunnerConfig(root: string, env: Environment = process.env): 
 
 /** The tables whose presence means a repo has migrated its command surface. */
 const COMMAND_TABLES = ["testing", "evidence", "environment"] as const;
-const ROOT_KEYS = ["version", "orchestrator", "orchestration", "roles", "testing", "evidence", "environment", "sandbox"];
+// `signals` is accepted and NOT validated here (tick 0vb). This reader
+// dispatches `pi` in this process; it never serves a webhook, so a declared
+// signal source is not its business — and a fourth copy of that table's rules
+// is exactly the drift the shared parity fixture exists to prevent. The two
+// readers that DO act on it validate it: `internal/herd/config` at author
+// time, and `cloud/factory/src/webhook-sources.ts` at delivery time, against
+// `cloud/factory/test/fixtures/signal-source-cases.json`. What this reader
+// must not do is reject a file only because it carries a table it does not
+// consume.
+const ROOT_KEYS = ["version", "orchestrator", "orchestration", "roles", "testing", "evidence", "environment", "sandbox", "signals"];
 const SANDBOX_KEYS = ["image", "toolchain", "setup"];
 const IMAGE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/;
 const TOOL_SPEC_PATTERN = /^[a-z0-9][a-z0-9_.+-]*@[A-Za-z0-9][A-Za-z0-9_.+-]*$/;
