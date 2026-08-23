@@ -10,6 +10,12 @@ declare namespace Cloudflare {
   interface Env {
     /** One RunRoom per project: dispatch lease + pending questions. */
     RUN_ROOMS: DurableObjectNamespace<import("./run-room").RunRoom>;
+    /**
+     * One SignalInbox per project: the funnel a signal becomes a tick through
+     * (tick 8sm). It serialises this control plane's writes to a project's
+     * `.tick/` and dedups redeliveries on `(source, external_ref)`.
+     */
+    SIGNAL_INBOXES: DurableObjectNamespace<import("./signal-inbox").SignalInbox>;
     /** Run artifacts: prompts, events.jsonl, reports, diffs. */
     ARTIFACTS: R2Bucket;
     /** Signals, dispatch log, run index, project enrolment. */
@@ -90,6 +96,17 @@ declare namespace Cloudflare {
      * seam for the same reason `REPO_CONFIG` is one.
      */
     TICK_TRACKER?: import("./tick-membership").TrackerReader;
+    /**
+     * The writer the SignalInbox commits a signal's tick record with: one
+     * CREATE of `.tick/issues/<id>.json` through GitHub's contents API (tick
+     * 8sm).
+     *
+     * Unset on a deployment, which writes to GitHub directly. A seam for the
+     * same reason `TICK_TRACKER` is one — and the only way the rules worth
+     * testing here (ordering under concurrency, dedup on redelivery, retry
+     * against a run pushing tracker state) are exercisable at all.
+     */
+    TICK_WRITER?: import("./tracker-write").TrackerWriter;
     /**
      * Where the RunRoom forwards a run's `run_event` stream (tick bne).
      *
@@ -193,6 +210,13 @@ declare namespace Cloudflare {
      * default live in src/runs.ts.
      */
     RUN_QUEUE_TTL_MS?: string;
+    /**
+     * How long a signal's commit waits between attempts, in ms (tick 8sm). A
+     * wrangler `[vars]` value: how long to wait out a cloud run pushing
+     * tracker state is a property of how a repository is used. Bounds and the
+     * default live in src/signal-inbox.ts.
+     */
+    SIGNAL_COMMIT_RETRY_MS?: string;
     /**
      * Worker secret (not a wrangler.toml binding): the salted PBKDF2 record for
      * the current factory token — `pbkdf2-sha256$<iterations>$<salt>$<key>`.

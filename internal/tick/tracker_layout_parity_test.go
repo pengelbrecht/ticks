@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,12 +53,26 @@ type trackerLayout struct {
 		Path string `json:"path"`
 	} `json:"record_path_example"`
 	Fields struct {
-		ID     string `json:"id"`
-		Type   string `json:"type"`
-		Parent string `json:"parent"`
+		ID          string `json:"id"`
+		Type        string `json:"type"`
+		Parent      string `json:"parent"`
+		ExternalRef string `json:"external_ref"`
 	} `json:"fields"`
 	EpicType               string `json:"epic_type"`
 	ParentOmittedWhenEmpty bool   `json:"parent_omitted_when_empty"`
+	Written                struct {
+		RequiredFields              []string `json:"required_fields"`
+		DefaultStatus               string   `json:"default_status"`
+		DefaultType                 string   `json:"default_type"`
+		DefaultPriority             int      `json:"default_priority"`
+		IDAlphabet                  string   `json:"id_alphabet"`
+		IDMinLength                 int      `json:"id_min_length"`
+		IDMaxLength                 int      `json:"id_max_length"`
+		IDAttemptsPerLength         int      `json:"id_attempts_per_length"`
+		JSONIndent                  int      `json:"json_indent"`
+		ExternalRefSeparator        string   `json:"external_ref_separator"`
+		ExternalRefOmittedWhenEmpty bool     `json:"external_ref_omitted_when_empty"`
+	} `json:"written_by_the_control_plane"`
 }
 
 func readTrackerLayout(t *testing.T) trackerLayout {
@@ -141,5 +156,122 @@ func TestTrackerLayoutRecordFieldsMatchFixture(t *testing.T) {
 	}
 	if rootless[layout.Fields.Type] != layout.EpicType {
 		t.Fatalf("an epic's %s is %v, want %q", layout.Fields.Type, rootless[layout.Fields.Type], layout.EpicType)
+	}
+}
+
+// The control plane does not only READ this format since tick 8sm: the signal
+// funnel (cloud/factory/src/tracker-write.ts) mints a tick id and encodes a
+// record, then commits it to .tick/issues/<id>.json through GitHub's contents
+// API. A signal arriving at the factory and `tk create` on a laptop are the
+// same act by different doors, so the record the door over there writes has to
+// be one this package would have written itself.
+//
+// The pin is stricter than the reader's for a reason. A reader that
+// misunderstands the format answers "unreadable" and allows a wave; a WRITER
+// that misunderstands it puts a record into the operator's repository that Go
+// would have refused — and it is committed by then.
+
+// The alphabet and the length bounds the Worker mints ids from are this
+// package's, so an id filed by a signal is one `tk` would have minted.
+func TestTrackerLayoutIDMintingMatchesFixture(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	if layout.Written.IDAlphabet != base36Chars {
+		t.Fatalf("fixture id alphabet is %q, this package mints from %q",
+			layout.Written.IDAlphabet, base36Chars)
+	}
+	if layout.Written.IDMinLength != minIDLength || layout.Written.IDMaxLength != maxIDLength {
+		t.Fatalf("fixture id lengths are %d-%d, this package uses %d-%d",
+			layout.Written.IDMinLength, layout.Written.IDMaxLength, minIDLength, maxIDLength)
+	}
+	if layout.Written.IDAttemptsPerLength != maxAttempts {
+		t.Fatalf("fixture tries %d candidates per length, this package tries %d",
+			layout.Written.IDAttemptsPerLength, maxAttempts)
+	}
+}
+
+// The defaults the Worker fills in are values this package's Validate accepts,
+// and the fields it always writes are the ones Validate insists on. A record
+// short of them is one the factory could commit and `tk` would then refuse to
+// read back, which is a corruption of .tick/ by any useful definition.
+func TestTrackerLayoutWrittenRecordSatisfiesValidate(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	now := time.Now().UTC()
+	filed := Tick{
+		ID:          "sig",
+		Title:       "a signal became a tick",
+		Status:      layout.Written.DefaultStatus,
+		Priority:    layout.Written.DefaultPriority,
+		Type:        layout.Written.DefaultType,
+		Owner:       "operator@example.com",
+		ExternalRef: "telegram" + layout.Written.ExternalRefSeparator + "8412",
+		CreatedBy:   "operator@example.com",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := filed.Validate(); err != nil {
+		t.Fatalf("a record the factory would commit is invalid here: %v", err)
+	}
+
+	encoded, err := json.Marshal(filed)
+	if err != nil {
+		t.Fatalf("marshal filed tick: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("decode filed tick: %v", err)
+	}
+	for _, field := range layout.Written.RequiredFields {
+		if _, ok := decoded[field]; !ok {
+			t.Fatalf("the fixture says every written record carries %q; this one does not", field)
+		}
+	}
+	if decoded[layout.Fields.ExternalRef] != filed.ExternalRef {
+		t.Fatalf("%s is %v, want %q", layout.Fields.ExternalRef,
+			decoded[layout.Fields.ExternalRef], filed.ExternalRef)
+	}
+
+	// A tick with no external ref omits the field, so the Worker's encoder must
+	// omit it too rather than writing "".
+	bare, err := json.Marshal(validTick("bar", TypeTask, ""))
+	if err != nil {
+		t.Fatalf("marshal bare tick: %v", err)
+	}
+	var bareDecoded map[string]any
+	if err := json.Unmarshal(bare, &bareDecoded); err != nil {
+		t.Fatalf("decode bare tick: %v", err)
+	}
+	if _, present := bareDecoded[layout.Fields.ExternalRef]; present != !layout.Written.ExternalRefOmittedWhenEmpty {
+		t.Fatalf("a tick with no external ref %s an %q field; fixture says external_ref_omitted_when_empty=%v",
+			map[bool]string{true: "has", false: "has no"}[present], layout.Fields.ExternalRef,
+			layout.Written.ExternalRefOmittedWhenEmpty)
+	}
+}
+
+// The bytes on disk. Both writers commit to the same file in the same
+// repository, so an indentation difference would turn every alternating write
+// into a whole-file diff nobody can review.
+func TestTrackerLayoutIndentMatchesFixture(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	root := t.TempDir()
+	store := NewStore(filepath.Join(root, ".tick"))
+	filed := validTick("ind", TypeTask, "")
+	if err := store.Write(filed); err != nil {
+		t.Fatalf("write tick: %v", err)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(root, ".tick", "issues", "ind.json"))
+	if err != nil {
+		t.Fatalf("read written tick: %v", err)
+	}
+
+	want, err := json.MarshalIndent(filed, "", strings.Repeat(" ", layout.Written.JSONIndent))
+	if err != nil {
+		t.Fatalf("marshal with the fixture's indent: %v", err)
+	}
+	if string(onDisk) != string(want) {
+		t.Fatalf("the Store's bytes are not %d-space indented JSON with no trailing newline;\n got: %q\nwant: %q",
+			layout.Written.JSONIndent, string(onDisk), string(want))
 	}
 }

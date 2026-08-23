@@ -27,6 +27,7 @@ describe("health route", () => {
     // bundle never declared.
     expect(body.bindings).toEqual({
       run_rooms: true,
+      signal_inboxes: true,
       artifacts: true,
       db: true,
       run_workflow: true,

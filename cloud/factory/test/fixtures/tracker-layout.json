@@ -13,11 +13,48 @@
     "layout change landing in Go alone would not break the factory loudly — it",
     "would silently turn every membership verdict into 'unreadable' and the check",
     "would stop refusing anything, with both suites still green. This fixture is",
-    "what makes that change fail a test instead."
+    "what makes that change fail a test instead.",
+    "",
+    "Since tick 8sm there is a WRITER on the TypeScript side too — the signal",
+    "funnel, which commits .tick/issues/<id>.json through the same contents API.",
+    "That half is pinned under 'written_by_the_control_plane' below, and it is a",
+    "stricter pin than the reader's: a reader that misunderstands the format",
+    "answers 'unreadable', while a writer that misunderstands it puts a malformed",
+    "record into someone's repository, which Go's own Store would have refused."
   ],
   "record_dir": ".tick/issues",
   "record_path_example": { "tick": "tap", "path": ".tick/issues/tap.json" },
-  "fields": { "id": "id", "type": "type", "parent": "parent" },
+  "fields": { "id": "id", "type": "type", "parent": "parent", "external_ref": "external_ref" },
   "epic_type": "epic",
-  "parent_omitted_when_empty": true
+  "parent_omitted_when_empty": true,
+  "written_by_the_control_plane": {
+    "why": [
+      "cloud/factory/src/tracker-write.ts mints an id and encodes a record that",
+      "Go's Store must accept unchanged, because the two write the same file in",
+      "the same repository — `tk create` on a laptop and a signal arriving at the",
+      "factory are the same act by different doors. Everything here is something",
+      "the TypeScript side hard-codes and Go owns."
+    ],
+    "required_fields": [
+      "id",
+      "title",
+      "status",
+      "priority",
+      "type",
+      "owner",
+      "created_by",
+      "created_at",
+      "updated_at"
+    ],
+    "default_status": "open",
+    "default_type": "task",
+    "default_priority": 2,
+    "id_alphabet": "abcdefghijklmnopqrstuvwxyz0123456789",
+    "id_min_length": 3,
+    "id_max_length": 4,
+    "id_attempts_per_length": 3,
+    "json_indent": 2,
+    "external_ref_separator": ":",
+    "external_ref_omitted_when_empty": true
+  }
 }

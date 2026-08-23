@@ -24,6 +24,16 @@ tag = "v1"
 # SQLite-backed storage — requires the recent compatibility_date above.
 new_sqlite_classes = ["RunRoom"]
 
+# One SignalInbox per project (idFromName(project)) — the funnel a signal
+# becomes a tick through (tick 8sm). Per project rather than per source,
+# because what has to be serialised is writes to ONE project's `.tick/`: two
+# sources delivering at once are exactly the collision this object exists to
+# order. It owns the in-memory commit queue and the (source, external_ref)
+# dedup index; the commit itself is GitHub's contents API (src/tracker-write.ts).
+[[durable_objects.bindings]]
+name = "SIGNAL_INBOXES"
+class_name = "SignalInbox"
+
 # The orchestrator sandbox a run boots (cloud/sandbox, Phase 1). The binding is
 # a Durable Object binding because that is what a container IS on this platform:
 # one Durable Object per container, addressed by name, whose class is the
@@ -38,6 +48,10 @@ class_name = "Sandbox"
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["Sandbox"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["SignalInbox"]
 
 # The container application the Sandbox class runs. `image` is a path to the
 # Dockerfile of cloud/sandbox, which is why `tk factory deploy` stages that tree
@@ -85,6 +99,12 @@ migrations_dir = "migrations"
 # decision. Bounds and the default live in src/runs.ts.
 [vars]
 RUN_QUEUE_TTL_MS = "1800000"
+
+# How long a signal's tick commit waits between attempts (tick 8sm). The
+# contents API is a compare-and-swap on the branch ref, so a cloud run pushing
+# tracker state at the same moment costs a signal a 409 and a retry, never a
+# lost update. Bounds and the default live in src/signal-inbox.ts.
+SIGNAL_COMMIT_RETRY_MS = "250"
 
 # Which providers the gateway will route. Left unset on purpose: the default is
 # `workers-ai` alone, the one rung billed to the operator's own Cloudflare

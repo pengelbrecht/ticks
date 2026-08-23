@@ -1,0 +1,538 @@
+import { env, runInDurableObject } from "cloudflare:test";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  SIGNAL_INBOX_QUEUE_LIMIT,
+  commitRetryMs,
+  inboxFor,
+  parseSignal,
+  submitSignal,
+  type Signal,
+  type SignalInbox,
+  type SignalOutcome,
+} from "../src/signal-inbox";
+import { MAX_COMMIT_ATTEMPTS, type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
+import { TICK_RECORD_DIR } from "../src/tick-membership";
+
+/**
+ * A repository as GitHub's contents API presents it: a set of paths, a branch
+ * ref that only moves forward, and the two refusals a create can get.
+ *
+ * It is also the instrument the ordering guarantee is measured with. `create`
+ * counts how many calls are inside it at once, which is the only way to tell a
+ * queue that actually serialises from one that merely returns its results in
+ * order.
+ */
+class FakeContents implements TrackerWriter {
+  readonly files = new Map<string, string>();
+  /** Paths in the order they were committed. */
+  readonly committed: string[] = [];
+  /** Every create call, in the order it was made. */
+  readonly attempted: string[] = [];
+  /** The high-water mark of concurrent creates. Must stay 1. */
+  concurrent = 0;
+  peakConcurrent = 0;
+  /** How long one create takes, so a racing caller has a window to interleave in. */
+  latencyMs = 0;
+  /** The next N creates are refused as a moving branch head, the way a run pushing does. */
+  conflicts = 0;
+  /** Runs on each refusal — where a test puts what the RUN committed while we were refused. */
+  onConflict: (() => void) | null = null;
+  private commitCount = 0;
+
+  /** What a cloud run's container does: commit tracker state itself. */
+  runCommits(path: string, content: string): void {
+    this.files.set(path, content);
+    this.commitCount += 1;
+  }
+
+  async create(
+    _project: string,
+    path: string,
+    input: { content: string; message: string; branch?: string }
+  ): Promise<TrackerWriteResult> {
+    this.attempted.push(path);
+    this.concurrent += 1;
+    this.peakConcurrent = Math.max(this.peakConcurrent, this.concurrent);
+    try {
+      if (this.latencyMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
+      }
+      if (this.conflicts > 0) {
+        this.conflicts -= 1;
+        this.onConflict?.();
+        return { state: "conflict", detail: "409: the branch head moved" };
+      }
+      if (this.files.has(path)) return { state: "exists", detail: `${path} exists` };
+      this.files.set(path, input.content);
+      this.committed.push(path);
+      this.commitCount += 1;
+      return {
+        state: "created",
+        commit_sha: `commit${this.commitCount}`,
+        content_sha: `blob${this.commitCount}`,
+      };
+    } finally {
+      this.concurrent -= 1;
+    }
+  }
+}
+
+let contents: FakeContents;
+const saved: Record<string, unknown> = {};
+
+function set(name: string, value: unknown): void {
+  if (!(name in saved)) saved[name] = (env as unknown as Record<string, unknown>)[name];
+  (env as unknown as Record<string, unknown>)[name] = value;
+}
+
+beforeEach(() => {
+  contents = new FakeContents();
+  set("TICK_WRITER", contents);
+  // No backoff: the retry RULE is what these tests are about, not the wait.
+  set("SIGNAL_COMMIT_RETRY_MS", "0");
+});
+
+afterEach(() => {
+  for (const [name, value] of Object.entries(saved)) {
+    (env as unknown as Record<string, unknown>)[name] = value;
+  }
+});
+
+/** Each test takes its own project, so one inbox's dedup index cannot leak into another. */
+let projectCounter = 0;
+function project(): string {
+  projectCounter += 1;
+  return `acme/repo-${projectCounter}`;
+}
+
+const signal = (over: Partial<Signal> & { project: string }): Signal => ({
+  source: "telegram",
+  external_ref: "8412",
+  title: "the deploy script drops the trailing newline",
+  created_by: "operator@example.com",
+  ...over,
+});
+
+const inbox = (name: string) => inboxFor(env as never, name);
+
+function recordAt(path: string): Record<string, unknown> {
+  const text = contents.files.get(path);
+  expect(text, `${path} is not in the repository`).toBeDefined();
+  return JSON.parse(text!) as Record<string, unknown>;
+}
+
+// --------------------------------------------------------------- the funnel ---
+
+describe("a signal becomes a tick", () => {
+  it("commits one record to .tick/issues and reports the commit", async () => {
+    const name = project();
+
+    const outcome = await inbox(name).submit(signal({ project: name }));
+
+    expect(outcome.state).toBe("created");
+    if (outcome.state !== "created") return;
+    expect(outcome.path).toBe(`${TICK_RECORD_DIR}/${outcome.tick_id}.json`);
+    expect(outcome.commit_sha).toBe("commit1");
+    expect(outcome.external_ref).toBe("telegram:8412");
+
+    const record = recordAt(outcome.path);
+    expect(record).toMatchObject({
+      id: outcome.tick_id,
+      title: "the deploy script drops the trailing newline",
+      status: "open",
+      type: "task",
+      priority: 2,
+      owner: "operator@example.com",
+      created_by: "operator@example.com",
+      // The whole dedup key, so the tracker itself says which signal this was.
+      external_ref: "telegram:8412",
+    });
+  });
+
+  it("carries what the source knew: epic, labels, priority, acceptance", async () => {
+    const name = project();
+
+    const outcome = await inbox(name).submit(
+      signal({
+        project: name,
+        parent: "hdt",
+        labels: ["factory", "signal"],
+        priority: 0,
+        type: "bug",
+        description: "the trailing newline is eaten by the heredoc",
+        acceptance_criteria: "a deploy leaves the file byte-identical",
+      })
+    );
+
+    expect(outcome.state).toBe("created");
+    if (outcome.state !== "created") return;
+    expect(recordAt(outcome.path)).toMatchObject({
+      parent: "hdt",
+      labels: ["factory", "signal"],
+      priority: 0,
+      type: "bug",
+      description: "the trailing newline is eaten by the heredoc",
+      acceptance_criteria: "a deploy leaves the file byte-identical",
+    });
+  });
+
+  it("commits to the branch the signal named, and to the default branch otherwise", async () => {
+    const name = project();
+    const branches: (string | undefined)[] = [];
+    const recording: TrackerWriter = {
+      create: async (p, path, input) => {
+        branches.push(input.branch);
+        return contents.create(p, path, input);
+      },
+    };
+    set("TICK_WRITER", recording);
+
+    await inbox(name).submit(signal({ project: name, external_ref: "1" }));
+    await inbox(name).submit(signal({ project: name, external_ref: "2", branch: "trunk" }));
+
+    expect(branches).toEqual([undefined, "trunk"]);
+  });
+});
+
+// ---------------------------------------------------------- the concurrency ---
+
+describe("two signals for one project arriving together", () => {
+  it("both become ticks, one commit at a time, with no lost update", async () => {
+    const name = project();
+    // A real network hop, so an unserialised inbox WOULD interleave here.
+    contents.latencyMs = 10;
+
+    const outcomes = await Promise.all([
+      inbox(name).submit(signal({ project: name, source: "telegram", external_ref: "a" })),
+      inbox(name).submit(signal({ project: name, source: "telegram", external_ref: "b" })),
+      inbox(name).submit(signal({ project: name, source: "github", external_ref: "c" })),
+    ]);
+
+    const created = outcomes.filter((o): o is Extract<SignalOutcome, { state: "created" }> => o.state === "created");
+    expect(created).toHaveLength(3);
+
+    // No lost update: three distinct ids, three records, all three in the tree.
+    const ids = new Set(created.map((o) => o.tick_id));
+    expect(ids.size).toBe(3);
+    expect(contents.committed).toHaveLength(3);
+    for (const outcome of created) {
+      expect(recordAt(outcome.path).id).toBe(outcome.tick_id);
+    }
+
+    // The guarantee itself: never two commits in flight at once.
+    expect(contents.peakConcurrent).toBe(1);
+  });
+
+  it("commits in the order the inbox admitted them", async () => {
+    const name = project();
+    contents.latencyMs = 5;
+
+    const outcomes = await Promise.all(
+      ["a", "b", "c", "d", "e"].map((ref) =>
+        inbox(name).submit(signal({ project: name, external_ref: ref, title: `signal ${ref}` }))
+      )
+    );
+
+    const created = outcomes.filter((o): o is Extract<SignalOutcome, { state: "created" }> => o.state === "created");
+    expect(created).toHaveLength(5);
+    // seq is assigned in the synchronous prefix of submit(), so it is arrival
+    // order; the commits then happen in that same order.
+    const bySeq = [...created].sort((l, r) => l.seq - r.seq);
+    expect(bySeq.map((o) => o.seq)).toEqual([...bySeq].map((_, i) => bySeq[0].seq + i));
+    expect(contents.committed).toEqual(bySeq.map((o) => o.path));
+    expect(contents.peakConcurrent).toBe(1);
+  });
+
+  it("keeps the queue moving when one signal's commit cannot settle", async () => {
+    const name = project();
+    // Enough refusals to exhaust the first signal's whole budget, and nothing
+    // after it: the second signal must still be committed.
+    contents.conflicts = MAX_COMMIT_ATTEMPTS;
+
+    const [first, second] = await Promise.all([
+      inbox(name).submit(signal({ project: name, external_ref: "a" })),
+      inbox(name).submit(signal({ project: name, external_ref: "b" })),
+    ]);
+
+    expect(first).toMatchObject({ state: "deferred", reason: "commit_unsettled" });
+    expect(second.state).toBe("created");
+    expect(contents.committed).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------- the dedup ---
+
+describe("the same signal delivered twice", () => {
+  it("creates one tick and reports the first one", async () => {
+    const name = project();
+
+    const first = await inbox(name).submit(signal({ project: name }));
+    const second = await inbox(name).submit(signal({ project: name }));
+
+    expect(first.state).toBe("created");
+    expect(second.state).toBe("duplicate");
+    if (first.state !== "created" || second.state !== "duplicate") return;
+    expect(second.tick_id).toBe(first.tick_id);
+    expect(second.deliveries).toBe(2);
+    expect(contents.committed).toHaveLength(1);
+  });
+
+  // The case a per-source dedup could not have handled: the redelivery arrives
+  // while the original is still in flight, so a check outside the serialiser
+  // would read an index the original had not written yet.
+  it("creates one tick even when the redelivery races the original", async () => {
+    const name = project();
+    contents.latencyMs = 10;
+
+    const outcomes = await Promise.all([
+      inbox(name).submit(signal({ project: name })),
+      inbox(name).submit(signal({ project: name })),
+      inbox(name).submit(signal({ project: name })),
+    ]);
+
+    expect(outcomes.filter((o) => o.state === "created")).toHaveLength(1);
+    expect(outcomes.filter((o) => o.state === "duplicate")).toHaveLength(2);
+    expect(contents.committed).toHaveLength(1);
+  });
+
+  it("does not confuse two sources that number their signals the same way", async () => {
+    const name = project();
+
+    const telegram = await inbox(name).submit(signal({ project: name, source: "telegram", external_ref: "42" }));
+    const github = await inbox(name).submit(signal({ project: name, source: "github", external_ref: "42" }));
+
+    expect(telegram.state).toBe("created");
+    expect(github.state).toBe("created");
+    expect(contents.committed).toHaveLength(2);
+  });
+
+  it("dedups per project, because two repositories are two trackers", async () => {
+    const one = project();
+    const two = project();
+
+    const first = await inbox(one).submit(signal({ project: one }));
+    const second = await inbox(two).submit(signal({ project: two }));
+
+    expect(first.state).toBe("created");
+    expect(second.state).toBe("created");
+  });
+
+  it("does not fold the case of an external ref, which is often a URL", async () => {
+    const name = project();
+
+    const lower = await inbox(name).submit(
+      signal({ project: name, source: "github", external_ref: "MDU6SXNzdWU0Mg" })
+    );
+    const upper = await inbox(name).submit(
+      signal({ project: name, source: "github", external_ref: "mdu6sxnzdwu0mg" })
+    );
+
+    expect(lower.state).toBe("created");
+    expect(upper.state).toBe("created");
+  });
+
+  it("answers a source asking whether it already filed this one", async () => {
+    const name = project();
+    const created = await inbox(name).submit(signal({ project: name }));
+
+    await expect(inbox(name).lookup("telegram", "8412")).resolves.toMatchObject({
+      tick_id: created.state === "created" ? created.tick_id : "",
+      deliveries: 1,
+    });
+    await expect(inbox(name).lookup("telegram", "nope")).resolves.toBeNull();
+  });
+
+  // The order the dedup row is written in is load-bearing: written before the
+  // commit, it would suppress the redelivery that is the only thing that could
+  // still file the tick the commit failed to write.
+  it("leaves an unsettled signal filable by its next delivery", async () => {
+    const name = project();
+    contents.conflicts = MAX_COMMIT_ATTEMPTS;
+
+    const first = await inbox(name).submit(signal({ project: name }));
+    const second = await inbox(name).submit(signal({ project: name }));
+
+    expect(first.state).toBe("deferred");
+    expect(second.state).toBe("created");
+    expect(contents.committed).toHaveLength(1);
+  });
+});
+
+// ------------------------------------------------- the run committing at once ---
+
+describe("a signal arriving while a run commits tracker state", () => {
+  it("does not corrupt .tick/: the run's commit stands and the tick lands on top", async () => {
+    const name = project();
+    const runsTick = `${TICK_RECORD_DIR}/r1n.json`;
+    const runsRecord = JSON.stringify({ id: "r1n", title: "the run's own tick" });
+    // Two refusals, and on each one the run wins the ref and commits — exactly
+    // the interleaving the tick names.
+    contents.conflicts = 2;
+    contents.onConflict = () => contents.runCommits(runsTick, runsRecord);
+
+    const outcome = await inbox(name).submit(signal({ project: name }));
+
+    expect(outcome.state).toBe("created");
+    if (outcome.state !== "created") return;
+    // The signal's record landed, after retrying the same id on top of the
+    // run's commits.
+    expect(outcome.attempts).toBe(3);
+    expect(recordAt(outcome.path).id).toBe(outcome.tick_id);
+    // And the run's own tracker state is exactly as the run left it: the
+    // funnel is create-only, so it cannot have overwritten it.
+    expect(contents.files.get(runsTick)).toBe(runsRecord);
+    // One record written per signal, however many attempts it took.
+    expect(contents.committed).toEqual([outcome.path]);
+  });
+
+  it("gives the signal back rather than filing half of it when the run never yields", async () => {
+    const name = project();
+    contents.conflicts = MAX_COMMIT_ATTEMPTS;
+
+    const outcome = await inbox(name).submit(signal({ project: name }));
+
+    expect(outcome).toMatchObject({ state: "deferred", reason: "commit_unsettled" });
+    if (outcome.state !== "deferred") return;
+    expect(outcome.detail).toContain("redelivering this signal is safe");
+    expect(contents.files.size).toBe(0);
+  });
+
+  // An id the tracker already holds — because a laptop's `tk create` minted it
+  // while this signal was in flight — is detected by the write itself, and the
+  // record already there is untouched.
+  it("never overwrites a record another writer already put at that id", async () => {
+    const name = project();
+    const existing = JSON.stringify({ id: "occupied", title: "written by tk create" });
+    const takeNextID: TrackerWriter = {
+      create: async (p, path, input) => {
+        // The first path this signal tries is already a file.
+        if (contents.attempted.length === 0) contents.files.set(path, existing);
+        return contents.create(p, path, input);
+      },
+    };
+    set("TICK_WRITER", takeNextID);
+
+    const outcome = await inbox(name).submit(signal({ project: name }));
+
+    expect(outcome.state).toBe("created");
+    if (outcome.state !== "created") return;
+    const taken = contents.attempted[0];
+    expect(outcome.path).not.toBe(taken);
+    expect(contents.files.get(taken)).toBe(existing);
+  });
+});
+
+// -------------------------------------------------------------- the refusals ---
+
+describe("what the funnel refuses", () => {
+  const cases: [string, Record<string, unknown>][] = [
+    ["a project that is not owner/repo", { project: "ticks" }],
+    ["no external ref", { external_ref: "" }],
+    ["no source", { source: "" }],
+    ["a source carrying the separator", { source: "tele:gram" }],
+    ["a source with a space in it", { source: "git hub" }],
+    ["a source that does not start with a letter or digit", { source: "-github" }],
+    ["no title", { title: "   " }],
+    ["no created_by", { created_by: "" }],
+    ["a priority outside 0-4", { priority: 9 }],
+    ["a type Go does not have", { type: "chore-ish" }],
+    ["a parent that is not a tick id", { parent: "not-a-tick" }],
+    ["a title longer than a title", { title: "x".repeat(500) }],
+  ];
+
+  for (const [what, over] of cases) {
+    it(`refuses ${what}`, async () => {
+      const name = project();
+
+      const outcome = await submitSignal(env as never, { ...signal({ project: name }), ...over });
+
+      expect(outcome.state).toBe("refused");
+      expect(contents.committed).toHaveLength(0);
+    });
+  }
+
+  it("refuses at the inbox too, not only at the front door", async () => {
+    const name = project();
+
+    const outcome = await inbox(name).submit({ ...signal({ project: name }), title: "" } as Signal);
+
+    expect(outcome).toMatchObject({ state: "refused", reason: "invalid_signal" });
+  });
+
+  it("normalises what it accepts: a source's case, a title's whitespace", () => {
+    const parsed = parseSignal({
+      project: "acme/ticks",
+      source: "TeleGram",
+      external_ref: " 8412 ",
+      title: "  a  signal\n became a tick  ",
+      created_by: "operator@example.com",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.signal.source).toBe("telegram");
+    expect(parsed.signal.external_ref).toBe("8412");
+    expect(parsed.signal.title).toBe("a signal became a tick");
+    // owner defaults to whoever the tick is attributed to.
+    expect(parsed.signal.owner).toBe("operator@example.com");
+  });
+
+  it("bounds the queue rather than holding an unbounded number of requests open", async () => {
+    const name = project();
+    contents.latencyMs = 20;
+
+    const flood = Array.from({ length: SIGNAL_INBOX_QUEUE_LIMIT + 5 }, (_, i) =>
+      inbox(name).submit(signal({ project: name, external_ref: `flood-${i}` }))
+    );
+    const outcomes = await Promise.all(flood);
+
+    const full = outcomes.filter((o) => o.state === "deferred" && o.reason === "inbox_full");
+    expect(full.length).toBeGreaterThan(0);
+    // Nothing was lost or half-written: every signal is either a tick or a
+    // deferral its source may redeliver.
+    expect(outcomes.every((o) => o.state === "created" || o.state === "deferred")).toBe(true);
+    expect(contents.committed).toHaveLength(outcomes.filter((o) => o.state === "created").length);
+  });
+});
+
+// ---------------------------------------------------------- state and status ---
+
+describe("what the inbox records", () => {
+  it("keeps an admission row per signal, settled with what happened", async () => {
+    const name = project();
+    await inbox(name).submit(signal({ project: name, external_ref: "a" }));
+    await inbox(name).submit(signal({ project: name, external_ref: "a" }));
+
+    const status = await inbox(name).status();
+
+    expect(status.object).toBe("SignalInbox");
+    expect(status.in_flight).toBe(0);
+    expect(status.deduped).toBe(1);
+    expect(status.recent.map((row) => row.state)).toEqual(["duplicate", "created"]);
+  });
+
+  it("stores the dedup index durably, in the object's own SQL", async () => {
+    const name = project();
+    await inbox(name).submit(signal({ project: name }));
+
+    let rows: { source: string; external_ref: string; tick_id: string }[] = [];
+    await runInDurableObject(inbox(name) as DurableObjectStub<SignalInbox>, (_instance, state) => {
+      rows = [
+        ...state.storage.sql.exec<{ source: string; external_ref: string; tick_id: string }>(
+          "SELECT source, external_ref, tick_id FROM signal_dedup"
+        ),
+      ];
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: "telegram", external_ref: "8412" });
+  });
+
+  it("reads the retry backoff from the deployment, ignoring a typo", () => {
+    expect(commitRetryMs({} as never)).toBe(250);
+    expect(commitRetryMs({ SIGNAL_COMMIT_RETRY_MS: "40" } as never)).toBe(40);
+    expect(commitRetryMs({ SIGNAL_COMMIT_RETRY_MS: "soon" } as never)).toBe(250);
+    expect(commitRetryMs({ SIGNAL_COMMIT_RETRY_MS: "-1" } as never)).toBe(250);
+  });
+});

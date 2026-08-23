@@ -48,6 +48,7 @@ import {
 import { proxyModelRequest } from "./gateway";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
+import { SignalInbox } from "./signal-inbox";
 import { RunWorkflow, effectiveRunBudget } from "./run-workflow";
 import {
   RunRoom,
@@ -102,6 +103,10 @@ async function health(env: Env): Promise<Response> {
     service: SERVICE,
     bindings: {
       run_rooms: Boolean(env.RUN_ROOMS),
+      // The signal funnel's per-project inbox (tick 8sm). A deployment
+      // without it has no serialised path to a project's `.tick/`, so every
+      // source built on top of it would be writing unordered.
+      signal_inboxes: Boolean(env.SIGNAL_INBOXES),
       artifacts: Boolean(env.ARTIFACTS),
       db: Boolean(env.DB),
       // The Run Workflow is bound by tick ldr; until then every submission
@@ -848,7 +853,7 @@ export default {
 // workerd accepts a Durable Object class and a Workflow entrypoint as named
 // exports of the entry module; anything else named here fails at boot, not at
 // deploy (see SERVICE above).
-export { RunRoom, RunWorkflow };
+export { RunRoom, RunWorkflow, SignalInbox };
 
 // The Sandbox SDK's own Durable Object class, which the `[[containers]]`
 // application in wrangler.toml attaches the orchestrator image to and the
