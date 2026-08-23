@@ -1,0 +1,17 @@
+{
+  "id": "spq",
+  "title": "Telegram webhook mode, and project legibility in every message",
+  "description": "Two things that must land together because they touch the same message-composition path, and splitting them would collide at merge.\n\nWEBHOOK MODE. The operator channel currently polls; Phase 3 needs the Worker to receive updates at the front door so a signal can become a draft tick without a local process. Move Telegram to webhook delivery, keeping the existing pairing and token handling.\n\nPROJECT LEGIBILITY, which the operator flagged as the thing that makes a shared chat usable at all. One bot and one chat now serve MANY projects, because one factory does. Machine routing is already unambiguous — RunRoom is per-project, question ids are unique by registration (afj), callback data carries the question id. What is missing is that nothing composes the project into the message TEXT, so two repos in one chat produce indistinguishable questions. Every gate message, report and completion must name project + epic + tick.\n\nTelegram Topics (forum mode) is the operator's preferred end state and is proven on their account: 'Topics' in the UI is 'forum' in the Bot API, a supergroup gives one topic per project via message_thread_id, and posting into an existing topic needs only that field. Design the per-project message_thread_id map AS PART OF PROJECT ENROLMENT, not as a fourth config surface — that instruction is from the operator and is a constraint, not a suggestion.\n\nKeep BOT PRIVACY MODE ON. In a group the bot then sees only commands and replies to its own messages, which is the desired blast radius; inline callbacks reach it regardless. The consequence is that reply-to becomes load-bearing rather than a nicety, which is exactly what the next tick depends on.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8sm"
+  ],
+  "parent": "hdt",
+  "acceptance_criteria": "A gate message from two different projects in one chat is unambiguous to a human reader; the bot receives updates by webhook; per-project topic routing is configured at enrolment; privacy mode stays on.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:53:17.294382Z",
+  "updated_at": "2026-08-23T04:53:17.294382Z"
+}

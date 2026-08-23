@@ -1,0 +1,18 @@
+{
+  "id": "0vb",
+  "title": "Generic webhook sources, registered in .tick/config.md",
+  "description": "The general case behind the two specific ones: a repository declares its own signal sources in .tick/config.md, and the Worker accepts webhooks for them.\n\nDo this AFTER GitHub ingestion deliberately — the concrete source teaches what the generic registration actually needs, and the epic has already paid once this year for a config surface designed before its first consumer existed.\n\nEach registered source needs a shared secret or signature scheme, a mapping from payload to draft-tick fields, and its own external_ref expression for dedup. Reuse the funnel's dedup rather than adding a second one.\n\n.tick/config.md is the runner-neutral contract file, so its schema rules apply: unknown keys fail closed, and the parser builds tables with Object.create(null) (the __proto__ lesson is already in learnings).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8sm",
+    "vuz"
+  ],
+  "parent": "hdt",
+  "acceptance_criteria": "A repo can declare a webhook source in .tick/config.md and have its payloads become draft ticks; an unsigned or wrongly-signed payload is refused; an unknown key in the source declaration fails closed; dedup is the funnel's, not a second implementation.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:53:43.316433Z",
+  "updated_at": "2026-08-23T04:53:43.316433Z"
+}

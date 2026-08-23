@@ -1,0 +1,18 @@
+{
+  "id": "la9",
+  "title": "Draft-tick triage: a signal becomes a proposal a human accepts or discards",
+  "description": "The human gate between 'something arrived' and 'the factory spent money on it'.\n\nAn ingested signal lands as a DRAFT tick and is presented in the operator channel with inline Create and Dispatch buttons. Create accepts it into the tracker as a normal open tick; Dispatch accepts it and starts a run. Discard leaves nothing behind but the dedup record, so the same signal does not re-propose forever.\n\nWhy a draft rather than a tick with a flag: a draft has not entered the ready queue, so it cannot be picked up by tk next or swept into a wave before a human has looked. Make that property structural rather than conventional.\n\nInline callbacks carry the question/draft id, so routing is unambiguous even in a shared chat (this is why it does not depend on the free-text rules). It DOES depend on spq's project legibility — a Create button under a message that does not say which project it belongs to is a trap.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8sm",
+    "spq"
+  ],
+  "parent": "hdt",
+  "acceptance_criteria": "A signal appears as a draft with Create/Dispatch/Discard; Create produces an open tick; Dispatch produces an open tick and a run; Discard leaves only the dedup record; no draft is ever visible to tk next or to a wave.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:53:43.236977Z",
+  "updated_at": "2026-08-23T04:53:43.236977Z"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "yu8",
+  "title": "Free-text answers resolve exactly one question, or refuse",
+  "description": "A CORRECTNESS tick, not a UX one, and the operator wrote the rules — implement them fail-closed, do not redesign them:\n\n- A Telegram reply-to a specific question message resolves THAT question. Deterministic; prefer it, and with privacy mode on it is the common path anyway.\n- Bare text with exactly ONE open question across all projects resolves it.\n- Bare text with TWO OR MORE open questions must REFUSE and list the candidates.\n\nNever guess. The reason is provenance: an approval carries human authority into the verdict guard, so a wrong guess attributes the operator's approval to another project's gate — it does not merely answer the wrong question, it forges consent. That is why this is P0 alongside the funnel and not a polish item.\n\nThe refusal must be useful: list the candidate questions with project + epic + tick and how to answer each unambiguously.",
+  "status": "open",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "spq"
+  ],
+  "parent": "hdt",
+  "acceptance_criteria": "Reply-to always resolves its own question; bare text with one open question resolves it; bare text with two or more refuses and lists candidates with enough context to disambiguate. All three pinned by tests, including the cross-project case.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:53:17.33286Z",
+  "updated_at": "2026-08-23T04:53:17.33286Z"
+}

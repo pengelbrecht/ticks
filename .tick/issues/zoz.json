@@ -1,0 +1,17 @@
+{
+  "id": "zoz",
+  "title": "Close out Phase 3: retro + plan the next epic",
+  "description": "Run the epic retro, fold learnings into .tick/learnings.md inside the 150-line cap (compact, do not append — Phase 2's closeout had to drop three entries to pay for five), verify the epic outside-in against its definition of done with a REAL ingested signal end to end, then flesh out the next feasible epic.\n\nPhase 2's closeout learned that the outside-in verification must be a live run, not a test suite, and that an honest 'this clause is not met, and here is the precise reason' is worth more than a green claim.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "csr"
+  ],
+  "parent": "hdt",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:54:05.070401Z",
+  "updated_at": "2026-08-23T04:54:05.070401Z"
+}

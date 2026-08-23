@@ -1,0 +1,17 @@
+{
+  "id": "hyi",
+  "title": "Trace IDs from the front door",
+  "description": "D20 in the design doc. Every signal that enters the factory gets a trace id at the edge, and it travels with the tick, the run, the wave and the worker so one identifier joins 'a message arrived' to 'a container did this'.\n\nPhase 2's retro is the argument for doing this early rather than last: seven runs were misdiagnosed because the record that would have answered the question was not joined to the thing that failed. Ingestion multiplies the number of places a request can come from, so the join has to exist before the sources do, not after.\n\nScope: mint at the edge, persist on the tick record and the run record, include in run events and in each worker's log stream, and surface in tk cloud logs/trace.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8sm"
+  ],
+  "parent": "hdt",
+  "acceptance_criteria": "A signal's trace id is recoverable from the tick it created, the run that implemented it and that run's worker logs, in one query each.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:52:56.963935Z",
+  "updated_at": "2026-08-23T04:52:56.963935Z"
+}
