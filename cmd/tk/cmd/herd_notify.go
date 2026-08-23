@@ -113,7 +113,7 @@ func runHerdNotify(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	herd, err := herdConnect(ctx, herdNotifySocket)
+	herd, err := herdConnect(ctx, herdNotifySocket, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}

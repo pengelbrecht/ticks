@@ -63,7 +63,7 @@ func newTestClient(t *testing.T, routes map[string]fakeHandler) (*Client, *fakeS
 // newTestClientOpts is newTestClient with caller-supplied options; SocketPath
 // is always overridden to point at the fake server.
 //
-// The fake runs strict: it answers ping from the captured protocol-19 reply so
+// The fake runs strict: it answers ping from the captured protocol-20 reply so
 // every test gets past the handshake for free, serves whatever the test
 // routed, and rejects everything else. Nothing about this package's behaviour
 // may depend on a reply the test did not ask for.

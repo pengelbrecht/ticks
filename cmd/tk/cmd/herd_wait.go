@@ -109,7 +109,7 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
 	stderr := cmd.ErrOrStderr()
 
-	herd, err := herdConnect(ctx, herdWaitSocket)
+	herd, err := herdConnect(ctx, herdWaitSocket, stderr)
 	if err != nil {
 		return err
 	}
