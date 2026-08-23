@@ -2,7 +2,7 @@
   "id": "hyi",
   "title": "Trace IDs from the front door",
   "description": "D20 in the design doc. Every signal that enters the factory gets a trace id at the edge, and it travels with the tick, the run, the wave and the worker so one identifier joins 'a message arrived' to 'a container did this'.\n\nPhase 2's retro is the argument for doing this early rather than last: seven runs were misdiagnosed because the record that would have answered the question was not joined to the thing that failed. Ingestion multiplies the number of places a request can come from, so the join has to exist before the sources do, not after.\n\nScope: mint at the edge, persist on the tick record and the run record, include in run events and in each worker's log stream, and surface in tk cloud logs/trace.",
-  "notes": "2026-08-23 15:57 - Re-sequenced by the orchestrator at wave 2: now blocked by spq and vuz rather than running beside them. Two reasons. The seam — trace ids thread through the signal path, the run path and the worker path, which is exactly the set of files a Telegram source and a GitHub source are both editing, so running all three together guarantees merge conflicts in the files that matter most. And the substance — a trace id that has to join 'a message arrived' to 'a container did this' is better threaded through sources that exist than through ones being written beside it.",
+  "notes": "2026-08-23 15:57 - Re-sequenced by the orchestrator at wave 2: now blocked by spq and vuz rather than running beside them. Two reasons. The seam — trace ids thread through the signal path, the run path and the worker path, which is exactly the set of files a Telegram source and a GitHub source are both editing, so running all three together guarantees merge conflicts in the files that matter most. And the substance — a trace id that has to join 'a message arrived' to 'a container did this' is better threaded through sources that exist than through ones being written beside it.\n2026-08-23 16:47 - Sequenced last in the epic on purpose. Trace ids thread through the signal path, both sources, the run path and the worker path — the union of every other tick's files. Running it last means threading through code that exists rather than code being written beside it, and it is the one tick where a merge conflict would be with everything at once.",
   "status": "open",
   "priority": 1,
   "type": "task",
@@ -10,11 +10,13 @@
   "blocked_by": [
     "8sm",
     "spq",
-    "vuz"
+    "vuz",
+    "la9",
+    "0vb"
   ],
   "parent": "hdt",
   "acceptance_criteria": "A signal's trace id is recoverable from the tick it created, the run that implemented it and that run's worker logs, in one query each.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:52:56.963935Z",
-  "updated_at": "2026-08-23T13:57:59.098635Z"
+  "updated_at": "2026-08-23T14:47:31.253088Z"
 }
