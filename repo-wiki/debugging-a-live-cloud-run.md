@@ -139,11 +139,24 @@ seconds after the wave pass booted. **Nobody took the lease** — no run started
 in that window (`GET /api/runs`) and the project's lease read back `null`
 afterwards. It expired at ~00:40Z and sat unheld for seventy minutes.
 
-Renewal now lives in `cloudWaveTrip`, which is both the between-batch check and
-the in-flight cancellation probe, so it runs on the run's own poll cadence
-throughout a wave. The ttl asked for is `renewalTtl(wave_leg_ms)` — it outlives
-a whole leg, so a leg that dispatches without waiting (and therefore never
-polls) still cannot let the lease lapse under it.
+Renewal now hangs off `cloudWaveTrip` (`waveLeaseHeartbeat`), which is both the
+between-batch check and the in-flight cancellation probe, so it is reached from
+everywhere a wave passes through. The ttl asked for is
+`renewalTtl(wave_leg_ms)` — three legs, so a leg that dispatches without
+waiting cannot let the lease lapse under it.
+
+**It is paced, and that pacing is load-bearing.** `cloudWaveTrip` is polled on
+the run's own cadence — 15s deployed, **25ms under test** — so renewing on
+every call meant one RunRoom write plus one DO alarm re-arm per poll. The
+RunRoom is a single-threaded Durable Object and the whole factory suite shares
+one workerd runtime: that rate saturated the room and wedged unrelated tests in
+`run-workflow.test.ts` into 60s timeouts (tick s7f's adopt-don't-redispatch
+cases among them). The heartbeat therefore renews once per **ttl/3** and is a
+free no-op otherwise — two heartbeats may be missed before the lease is
+anywhere near lapsing.
+
+**Rule:** never put an unpaced write behind a function that is also a poll
+probe. Check what else calls it, and at what cadence, before adding an RPC.
 
 **Reading the evidence:** a renewal failure now says WHICH failure it is.
 `RenewLeaseResult` carries `lost: "expired" | "taken"`, and the `:lease:` steps

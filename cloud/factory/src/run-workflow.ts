@@ -1749,11 +1749,72 @@ export function chunkWave(tickIDs: string[], width: number): string[][] {
  * A renewal that could not be MADE is not a trip — same fail-open rule as
  * `hardStopRecord` and `waveCanceller`. A renewal that came back lost is.
  */
+/**
+ * The shared, in-memory state one wave's checks pass between themselves.
+ *
+ * Not checkpointed and not meant to be. `complained` dedupes a log line;
+ * `renewed_at_ms` paces the lease heartbeat. Both are safe to lose on a
+ * replay: a fresh object costs one extra log line and one extra renewal, and
+ * neither changes what the wave decides.
+ */
+export type WaveWatch = {
+  complained: boolean;
+  /** When the lease was last renewed, so the heartbeat runs on its own cadence. */
+  renewed_at_ms?: number;
+};
+
+/**
+ * The run's heartbeat on its project, at the cadence a heartbeat wants
+ * (tick 7n7).
+ *
+ * `runs.ts` acquires the dispatch lease for ten minutes and everything after
+ * that depends on something renewing it. `observe` does that on the
+ * watched-orchestrator path. On the container-wave path NOTHING did — a leg
+ * only ever addressed sandboxes — so a wave of real containers, sixty to
+ * ninety minutes of it, ran its whole length under a lease that had lapsed
+ * after ten, and the run silently stopped being its project's arbiter while
+ * its containers worked on. Measured on run_659b7cf2: fifteen dispatch legs,
+ * 00:30:35Z to 01:50:59Z, with no lease step between any of them.
+ *
+ * It hangs off `cloudWaveTrip` because that is the one thing already called
+ * from everywhere a wave passes through — every batch boundary and, as the
+ * shared cancellation probe, every poll of every leg. But it must NOT run at
+ * that function's rate: the probe polls on the run's own cadence (15s
+ * deployed, 25ms under test), and one RunRoom write plus one DO alarm re-arm
+ * per poll is both pointless — the ttl is three legs long — and heavy enough
+ * to wedge the shared workerd runtime the suite runs in. So it renews once
+ * per third of a ttl and is a free no-op the rest of the time.
+ *
+ * Returns the loss when a renewal came back lost, `null` otherwise. A renewal
+ * that could not be MADE is not a loss: same fail-open rule as
+ * `hardStopRecord` and `waveCanceller` — a failed read has never been a stop.
+ */
+async function waveLeaseHeartbeat(
+  env: Env,
+  params: RunWorkflowParams,
+  context: RunContext,
+  watch: WaveWatch
+): Promise<{ lost: LeaseLostReason; holder: string | null } | null> {
+  const ttl = renewalTtl(context.config.wave_leg_ms);
+  const now = Date.now();
+  // A third of the ttl: two whole heartbeats may be missed — to a slow leg, a
+  // failed read, a replayed step — before the lease is anywhere near lapsing.
+  if (watch.renewed_at_ms !== undefined && now - watch.renewed_at_ms < ttl / 3) return null;
+
+  const renewal = await renewRunLease(env, params, ttl);
+  if (renewal === null) return null;
+  if (renewal.ok) {
+    watch.renewed_at_ms = now;
+    return null;
+  }
+  return { lost: renewal.lost, holder: renewal.holder };
+}
+
 async function cloudWaveTrip(
   env: Env,
   params: RunWorkflowParams,
   context: RunContext,
-  telemetry: { complained: boolean }
+  telemetry: WaveWatch
 ): Promise<Trip | null> {
   const stop = await hardStopRecord(env, params);
   if (stop !== null) {
@@ -1764,8 +1825,8 @@ async function cloudWaveTrip(
     };
   }
 
-  const renewal = await renewRunLease(env, params, renewalTtl(context.config.wave_leg_ms));
-  if (renewal !== null && renewal.ok === false) return leaseLostTrip(renewal);
+  const renewal = await waveLeaseHeartbeat(env, params, context, telemetry);
+  if (renewal !== null) return leaseLostTrip(renewal);
 
   const elapsed = Date.now() - context.started_at_ms;
   if (elapsed >= context.config.max_wall_clock_ms) {
@@ -2058,7 +2119,7 @@ async function runWaveBatch(
     index: number;
     tag: string;
     token: string;
-    telemetry: { complained: boolean };
+    telemetry: WaveWatch;
     cancel_poll_ms: number;
   }
 ): Promise<WaveBatchOutcome> {
@@ -2431,7 +2492,7 @@ export async function superviseCloudWave(
   // How often a batch in flight looks for a reason to stop: the run's own
   // observation cadence, so a deployment that tightens one tightens both.
   const cancelPollMs = context.config.poll_interval_ms ?? MIN_POLL_MS;
-  const telemetry = { complained: false };
+  const telemetry: WaveWatch = { complained: false };
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i]!;
