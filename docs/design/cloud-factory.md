@@ -121,13 +121,35 @@ a shared bot "would need a hosted relay in front of it"
 
 One consequence worth naming: **GitHub credentials become the user's problem
 to provision, so the default must be low-friction.** The per-run installation
-tokens in D11 presuppose a GitHub App, and "create your own GitHub App" is a
-heavy first-run ask. The pragmatic ladder: start with a fine-grained PAT
-scoped to the target repo (easy, adequate for a personal factory), document
-the personal-GitHub-App upgrade path for those who want per-run token minting
-and the two credential grades enforced at the platform level. `tk factory
-setup` walks whichever rung the user picks — exactly as `tk channel setup
-telegram` walks BotFather today.
+tokens in D11 presuppose a GitHub App, and the first reading of that was
+"create your own GitHub App is a heavy first-run ask", which put a hand-created
+fine-grained PAT at the bottom of the ladder.
+
+That reading holds only if EVERY USER registers an App. It does not hold if
+ticks ships one. **ticks ships a public OAuth client id for a ticks GitHub App,
+and `tk factory setup` runs the DEVICE FLOW**: print a code, the operator
+approves it at github.com/login/device and picks which repositories the factory
+may use. That is how `gh` authenticates, and it is both easier and narrower than
+what it replaces — a fine-grained PAT is a multi-screen form for one repository,
+and `gh auth token` (already on the machine) carries `admin:org` and every repo
+the user can see, which is why it is rejected on blast radius rather than on
+convenience.
+
+The constraint that shapes it: **INSTALLATION tokens need the App's PRIVATE
+KEY** — and a shared App must never ship that key, because any holder of it
+could mint tokens against every installation. **USER-TO-SERVER tokens via the
+device flow need only the PUBLIC client id**, and are still bounded by the App's
+declared permissions and by the repositories chosen at install. So the shipped
+rung is user-to-server; the private-key rung stays the documented upgrade for an
+operator who registers their own App, where the key and the blast radius are
+both theirs.
+
+It is compatible with the deployment model on its own terms: GitHub hosts the
+approval, so ticks.sh still operates nothing and no secret is distributed —
+"a deployable, not a deployment" is intact. `--github-token` remains the manual
+escape hatch (GHES, policy-restricted orgs, scripted installs), and a build that
+ships no client id falls back to the PAT prompt rather than offering a flow that
+cannot complete. See docs/factory-credentials.md.
 
 ## The three-layer liveness model
 
@@ -1338,7 +1360,7 @@ Collected from the use cases; each appears above in context.
 | D8 | `external_ref` is the universal dedup key; recurring signals annotate and may escalate priority, never multiply ticks | UC3, UC6 |
 | D9 | Branch namespace (`tick/*`, `tick-run/*`) is the ownership test: drive ours to green, review theirs read-only | UC4, UC5 |
 | D10 | Flake gate + strike budget on the CI-failure loop live in the dispatcher, not the prompt | UC4 |
-| D11 | Two credential grades of sandbox: push-scoped (own work) vs read+comment (external review); never long-lived broad secrets in sandboxes. Personal deployments start on a repo-scoped fine-grained PAT; a personal GitHub App (per-run installation tokens) is the documented upgrade path | UC5, deployment model |
+| D11 | Two credential grades of sandbox: push-scoped (own work) vs read+comment (external review); never long-lived broad secrets in sandboxes. The shipped rung is a user-to-server token from the DEVICE FLOW against a ticks GitHub App (public client id only, repositories chosen at install); a hand-supplied PAT is the escape hatch, and the operator's OWN App — whose private key mints per-run installation tokens and which ticks therefore cannot ship — is the documented upgrade | UC5, deployment model |
 | D12 | Factory reviews; humans approve external merges — verdict-guard philosophy extended to code review | UC5 |
 | D13 | Ingestion thresholds (per source) and dispatch budgets (global) are separate valves | UC6 |
 | D14 | Dispatcher is deterministic, versioned policy in `.tick/config.md`; budget enforcement lives in the Workflow | UC7 |

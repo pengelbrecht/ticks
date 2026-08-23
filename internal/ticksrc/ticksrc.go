@@ -51,14 +51,38 @@ const (
 	// setup can offer to keep it. This file is 0600 and outside any repo; the
 	// mirror never goes anywhere else (see factory.SecretSinks).
 
-	// KeyFactoryGitHubToken is the fine-grained, repo-scoped PAT the factory
-	// clones and pushes with (the first rung of the D11 credential ladder).
+	// KeyFactoryGitHubToken is the credential the factory clones and pushes
+	// with (the shipped rung of the D11 credential ladder): a user-to-server
+	// token from the device flow, or a fine-grained PAT when one was supplied
+	// by hand.
 	KeyFactoryGitHubToken = "factory_github_token"
-	// KeyFactoryGitHubLogin is the account the PAT authenticated as — public
-	// identity, kept so status can report whose token is installed.
+	// KeyFactoryGitHubLogin is the account the credential authenticated as —
+	// public identity, kept so status can report whose token is installed.
 	KeyFactoryGitHubLogin = "factory_github_login"
-	// KeyFactoryGitHubRepo is the owner/repo the PAT was verified against.
+	// KeyFactoryGitHubRepo is the owner/repo the credential was verified
+	// against.
 	KeyFactoryGitHubRepo = "factory_github_repo"
+	// KeyFactoryGitHubAuth records HOW the credential was obtained —
+	// `device-flow` or `pat`. It is not cosmetic: only a device-flow
+	// credential can be renewed without a browser, and only a device-flow
+	// credential is bounded by the repositories chosen at install, so the two
+	// fail and recover differently and a report that cannot tell them apart
+	// names the wrong remedy.
+	KeyFactoryGitHubAuth = "factory_github_auth"
+	// KeyFactoryGitHubTokenExpires is when the stored credential stops working
+	// (RFC 3339). EMPTY MEANS IT DOES NOT EXPIRE — a GitHub App registered
+	// with user-token expiration off issues exactly that, and treating an
+	// absent deadline as "expired" would condemn the recommended
+	// configuration.
+	KeyFactoryGitHubTokenExpires = "factory_github_token_expires_at"
+	// KeyFactoryGitHubRefreshToken renews the credential above without a
+	// browser. It is a longer-lived secret than the token it mints, which is
+	// exactly why it stays on the operator's machine and is never pushed as a
+	// Worker secret or handed to a sandbox (D11).
+	KeyFactoryGitHubRefreshToken = "factory_github_refresh_token"
+	// KeyFactoryGitHubRefreshExpires is when the refresh token itself dies
+	// (RFC 3339), after which renewal is one browser approval again.
+	KeyFactoryGitHubRefreshExpires = "factory_github_refresh_token_expires_at"
 
 	// KeyFactoryGatewayURL is the operator's AI Gateway base URL (D17). It is
 	// not a secret in the cryptographic sense but it carries their Cloudflare

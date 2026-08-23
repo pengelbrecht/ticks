@@ -45,6 +45,31 @@ type fakeGitHub struct {
 	token  string
 	repo   string
 	calls  atomic.Int32
+
+	// extra holds credentials minted DURING a walk — a device-flow token the
+	// fake OAuth host granted — so the REST fake accepts what the flow just
+	// issued without the test pre-declaring it.
+	mu    sync.Mutex
+	extra map[string]bool
+}
+
+// accept teaches the REST fake about a credential minted mid-walk.
+func (g *fakeGitHub) accept(token string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.extra == nil {
+		g.extra = map[string]bool{}
+	}
+	g.extra[token] = true
+}
+
+func (g *fakeGitHub) accepts(header string) bool {
+	if header == "Bearer "+g.token {
+		return true
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return strings.HasPrefix(header, "Bearer ") && g.extra[strings.TrimPrefix(header, "Bearer ")]
 }
 
 func newFakeGitHub(t *testing.T, token, repo string) *fakeGitHub {
@@ -53,7 +78,7 @@ func newFakeGitHub(t *testing.T, token, repo string) *fakeGitHub {
 	g.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		if r.Header.Get("Authorization") != "Bearer "+g.token {
+		if !g.accepts(r.Header.Get("Authorization")) {
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]any{"message": "Bad credentials"})
 			return
@@ -209,6 +234,10 @@ type setupHarness struct {
 
 func newSetupHarness(t *testing.T, gatewayKey string) *setupHarness {
 	t.Helper()
+	// The rung the walk takes must come from the test, never from whatever App
+	// the developer running it happens to have exported.
+	t.Setenv(GitHubAppClientIDEnv, "")
+	t.Setenv(GitHubOAuthBaseEnv, "")
 	return &setupHarness{
 		harness:    newHarness(t),
 		github:     newFakeGitHub(t, testPAT, testRepo),

@@ -147,28 +147,38 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 	}
 
 	// GitHub.
-	token := cfg.Get(ticksrc.KeyFactoryGitHubToken)
+	stored := storedGitHubCredential(cfg)
 	repo := cfg.Get(ticksrc.KeyFactoryGitHubRepo)
 	report.GitHub = CredentialState{Name: "github"}
-	if token != "" {
+	if stored.Token != "" {
+		now := time.Now()
+		lifetime := DescribeGitHubLifetime(stored.ExpiresAt, now)
 		report.GitHub.Configured = true
-		report.GitHub.Summary = describeGitHub(cfg.Get(ticksrc.KeyFactoryGitHubLogin), repo)
+		report.GitHub.Summary = describeGitHub(stored.Auth, cfg.Get(ticksrc.KeyFactoryGitHubLogin), repo)
 		switch {
 		case opts.Offline:
-			report.GitHub.Detail = "not checked (--offline)"
+			report.GitHub.Detail = "not checked (--offline) — " + lifetime
+		case !stored.ExpiresAt.IsZero() && !stored.ExpiresAt.After(now):
+			// A passed deadline is a LOCAL fact, and a rejection on its own.
+			// Waiting for the probe to agree would report "live" for a
+			// credential the operator has to renew before the next run, which
+			// is the state this rung exists to surface.
+			report.GitHub.Checked = true
+			report.GitHub.Detail = fmt.Sprintf("rejected: %s — run `tk factory setup` to renew it%s",
+				lifetime, renewalCost(stored))
 		default:
 			report.GitHub.Checked = true
-			login, err := probeGitHubUser(ctx, client, apiBase, token)
+			login, err := probeGitHubUser(ctx, client, apiBase, stored.Token)
 			if err != nil {
 				report.GitHub.Detail = "rejected: " + err.Error()
 				break
 			}
 			if repo == "" {
 				report.GitHub.OK = true
-				report.GitHub.Detail = fmt.Sprintf("live (@%s); no repository recorded to check the scope against", login)
+				report.GitHub.Detail = fmt.Sprintf("live (@%s), %s; no repository recorded to check the scope against", login, lifetime)
 				break
 			}
-			push, err := probeGitHubRepo(ctx, client, apiBase, token, repo)
+			push, err := probeGitHubRepo(ctx, client, apiBase, stored.Token, repo)
 			switch {
 			case err != nil:
 				report.GitHub.Detail = fmt.Sprintf("rejected for %s: %v", repo, err)
@@ -176,7 +186,7 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 				report.GitHub.Detail = fmt.Sprintf("rejected: read-only on %s — the factory could not push", repo)
 			default:
 				report.GitHub.OK = true
-				report.GitHub.Detail = fmt.Sprintf("live (@%s), can write to %s", login, repo)
+				report.GitHub.Detail = fmt.Sprintf("live (@%s), can write to %s, %s", login, repo, lifetime)
 			}
 		}
 	}
@@ -330,8 +340,26 @@ func orUnchecked(detail string) string {
 	return detail
 }
 
-func describeGitHub(login, repo string) string {
-	parts := []string{"fine-grained PAT"}
+// renewalCost says what renewing will actually take, because "run setup again"
+// means two different things: a silent refresh for a device-flow credential
+// with a live refresh token, and a browser for anything else.
+func renewalCost(stored githubCredential) string {
+	switch {
+	case stored.Auth != AuthDeviceFlow:
+		return " with a new token"
+	case stored.RefreshToken != "" && (stored.RefreshExpiresAt.IsZero() || stored.RefreshExpiresAt.After(time.Now())):
+		return " — no browser needed, its refresh token is still live"
+	default:
+		return " — one approval at github.com/login/device"
+	}
+}
+
+func describeGitHub(auth, login, repo string) string {
+	kind := "fine-grained PAT"
+	if auth == AuthDeviceFlow {
+		kind = "device flow (user-to-server token)"
+	}
+	parts := []string{kind}
 	if login != "" {
 		parts = append(parts, "@"+login)
 	}
