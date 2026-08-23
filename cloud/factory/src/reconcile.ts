@@ -56,9 +56,11 @@
 import {
   listWorkerManifests,
   readWorkerManifest,
+  writeWorkerLogHeader,
   writeWorkerManifest,
   type WorkerManifest,
 } from "./artifacts";
+import { traceBanner } from "./trace";
 import type { OrchestratorSandbox, SandboxBinding } from "./sandbox";
 import { WORKER_COMMAND } from "./worker-boot";
 import type { WorkerCollector, WorkerReport, WorkerTask } from "./worker-collect";
@@ -600,20 +602,54 @@ export function settledOutcome(item: ReconcileItem, task: WorkerTask): WorkerWav
 export function manifestRecorder(
   bucket: R2Bucket,
   project: string,
-  run: { run_id: string; epic: string; batch: number }
+  run: { run_id: string; epic: string; batch: number; trace_id?: string }
 ): WorkerRecorder {
+  const traced = run.trace_id === undefined || run.trace_id === "" ? {} : { trace_id: run.trace_id };
   return {
     async dispatched(task: WorkerTask, sandboxName: string): Promise<void> {
       await writeWorkerManifest(bucket, project, {
         run_id: run.run_id,
         epic: run.epic,
         tick_id: task.tick_id,
+        ...traced,
         sandbox_name: sandboxName,
         branch: task.branch,
         base_sha: task.base_sha,
         batch: run.batch,
         dispatched_at: new Date().toISOString(),
       });
+      // The same id, in the TEXT an operator reads (tick hyi). Written here
+      // because this is the last moment the control plane holds before the
+      // container is addressed, and written by the control plane at all
+      // because the container is the thing being diagnosed: one that dies in
+      // its image pull or fails its probe prints nothing, and those are the
+      // logs anyone opens.
+      //
+      // Best effort, unlike the manifest above. A manifest that did not land
+      // hides a live container from the next reconcile, which is a
+      // correctness problem; a banner that did not land costs a reader one
+      // lookup, and failing a wave over it would be the diagnostic taking
+      // down the thing it exists to diagnose.
+      if (run.trace_id === undefined || run.trace_id === "") return;
+      try {
+        await writeWorkerLogHeader(
+          bucket,
+          project,
+          run.run_id,
+          task.tick_id,
+          traceBanner({
+            trace_id: run.trace_id,
+            run_id: run.run_id,
+            epic: run.epic,
+            tick_id: task.tick_id,
+          })
+        );
+      } catch (error) {
+        console.error(
+          `factory reconcile: ${run.run_id} could not head ${task.tick_id}'s log stream ` +
+            `with its trace id: ${String(error)}`
+        );
+      }
     },
     async started(task: WorkerTask, sandboxName: string, processID: string): Promise<void> {
       try {
@@ -628,6 +664,7 @@ export function manifestRecorder(
             base_sha: task.base_sha,
             batch: run.batch,
             dispatched_at: new Date().toISOString(),
+            ...traced,
           }),
           process_id: processID,
         });

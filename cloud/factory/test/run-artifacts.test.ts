@@ -547,7 +547,10 @@ describe("the per-repo sandbox declaration", () => {
     // The submission carries exactly the closed field set; nothing else
     // survives parsing, so nothing else can reach the Workflow's params.
     expect(Object.keys(parsed.submission).sort()).toEqual(
-      ["base_sha", "epic", "project", "queue", "requested_by"].sort()
+      // `trace_id` is minted by the parser, not accepted from the body unless
+      // it is a well-formed trace id (tick hyi) — it is part of the closed
+      // field set, not an escape from it.
+      ["base_sha", "epic", "project", "queue", "requested_by", "trace_id"].sort()
     );
     expect(JSON.stringify(parsed.submission)).not.toContain("evil.example.com");
 

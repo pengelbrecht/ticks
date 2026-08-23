@@ -467,6 +467,15 @@ async function igniteDraft(
     epic: parent ?? tickID,
     base_sha: commitSHA,
     requested_by: requestedBy,
+    // THE FAR SIDE OF THE DISCONTINUITY (D20, tick hyi). This id was minted
+    // when a message arrived, possibly days ago, and has been sitting in the
+    // inbox's draft row ever since; the press that got here was made by a
+    // different person on a different surface from a different request. It is
+    // read out of durable state and handed on, and `parseSubmission` keeps a
+    // supplied id rather than minting — which is the whole reason it keeps one.
+    // A draft admitted before trace ids existed carries none, and the
+    // submission mints its own rather than pretending to a chain it lacks.
+    ...(draft.trace_id === "" ? {} : { trace_id: draft.trace_id }),
     queue: false,
     ...(parent === undefined ? {} : { tick_ids: [tickID] }),
   });

@@ -69,16 +69,20 @@ func configureTraceGateway(t *testing.T) {
 
 func traceRow(id, created string, tokensIn, cached, tokensOut int, cost float64) map[string]any {
 	return map[string]any{
-		"id":             id,
-		"created_at":     created,
-		"model":          "@cf/qwen/qwen3-coder",
-		"provider":       "workers-ai",
-		"success":        true,
-		"cost":           cost,
-		"tokens_in":      tokensIn,
-		"tokens_out":     tokensOut,
-		"duration":       9000,
-		"metadata":       map[string]string{"run_id": "run_62c289d1e57942cea5fef6c1a508a0fd", "tick_id": "l4l"},
+		"id":         id,
+		"created_at": created,
+		"model":      "@cf/qwen/qwen3-coder",
+		"provider":   "workers-ai",
+		"success":    true,
+		"cost":       cost,
+		"tokens_in":  tokensIn,
+		"tokens_out": tokensOut,
+		"duration":   9000,
+		"metadata": map[string]string{
+			"run_id":   "run_62c289d1e57942cea5fef6c1a508a0fd",
+			"tick_id":  "l4l",
+			"trace_id": "tr_0123456789abcdef0123456789abcdef",
+		},
 		"usage_metadata": map[string]any{"input_cached_tokens": cached},
 	}
 }
@@ -450,4 +454,61 @@ func TestCloudTraceNamesACallWhoseBodyCouldNotBeRead(t *testing.T) {
 		t.Errorf("the calls table was dropped along with the body:\n%s", output)
 	}
 	t.Logf("rendered trace:\n%s", output)
+}
+
+// The chain this run's model traffic belongs to (D20, tick hyi).
+//
+// Read off the CALLS rather than asked of the factory, because this command
+// deliberately talks to the operator's own AI Gateway and to nothing else —
+// which is the whole reason it can still answer for a run whose control plane
+// is unreachable. The gateway proxy stamps the id out of the run's own row, so
+// the log rows carry it.
+func TestCloudTraceStatesTheRunsTraceID(t *testing.T) {
+	setupCloudRepo(t, false)
+	configureTraceGateway(t)
+	traceRunGateway(t)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd"}); err != nil {
+		t.Fatalf("cloud trace: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "trace: tr_0123456789abcdef0123456789abcdef") {
+		t.Fatalf("the run's trace id was not stated:\n%s", buf.String())
+	}
+}
+
+// Two chains on one run id means something stamped the wrong one. It is
+// REPORTED, never averaged away: quietly showing the first would hide the one
+// bug this identifier exists to make impossible, and a trace that lies is
+// worse than no trace at all.
+func TestCloudTraceReportsMoreThanOneChainOnARun(t *testing.T) {
+	setupCloudRepo(t, false)
+	configureTraceGateway(t)
+	newTraceGateway(t, func(request traceGatewayRequest) (int, any) {
+		if strings.HasSuffix(request.Path, "/request") || strings.HasSuffix(request.Path, "/response") {
+			return http.StatusOK, traceRequestBody(1)
+		}
+		first := traceRow("call1", "2026-08-20T10:00:00Z", 40000, 0, 120, 0.20)
+		second := traceRow("call2", "2026-08-20T10:05:00Z", 60000, 30000, 200, 0.30)
+		second["metadata"] = map[string]string{
+			"run_id":   "run_62c289d1e57942cea5fef6c1a508a0fd",
+			"tick_id":  "l4l",
+			"trace_id": "tr_ffffffffffffffffffffffffffffffff",
+		}
+		return http.StatusOK, map[string]any{"success": true, "result": []any{second, first}}
+	})
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "trace", "run_62c289d1e57942cea5fef6c1a508a0fd"}); err != nil {
+		t.Fatalf("cloud trace: %v\n%s", err, buf.String())
+	}
+	output := buf.String()
+	if !strings.Contains(output, "MORE THAN ONE CHAIN") {
+		t.Fatalf("two trace ids on one run were not reported:\n%s", output)
+	}
+	for _, id := range []string{"tr_0123456789abcdef0123456789abcdef", "tr_ffffffffffffffffffffffffffffffff"} {
+		if !strings.Contains(output, id) {
+			t.Fatalf("the disagreement does not name %s:\n%s", id, output)
+		}
+	}
 }

@@ -50,6 +50,7 @@ describe("factory D1 query layer", () => {
       started_at: "2026-08-19T12:00:00.000Z",
       ended_at: null,
       cost_usd: 1.25,
+      trace_id: "tr_0123456789abcdef0123456789abcdef",
     };
 
     await insertRun(env.DB, run);
@@ -108,6 +109,7 @@ describe("factory D1 query layer", () => {
       started_at: "2026-08-19T12:00:00.000Z",
       ended_at: null,
       cost_usd: 0,
+      trace_id: null,
     };
     await insertRun(env.DB, run);
 

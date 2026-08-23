@@ -471,7 +471,7 @@ start_harness() {
 }
 
 main() {
-	say "run ${run_id}: epic ${epic} at ${base_sha} (harness ${harness}, phase ${phase})"
+	say "run ${run_id}: epic ${epic} at ${base_sha} (harness ${harness}, phase ${phase})$(trace_note)"
 	require_inputs
 	require_gateway
 	configure_model_routing

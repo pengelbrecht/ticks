@@ -819,6 +819,11 @@ type RunEventMessage struct {
 	// Task ID (if task-level event)
 	TaskId *string `json:"taskId,omitempty,omitzero" yaml:"taskId,omitempty" mapstructure:"taskId,omitempty"`
 
+	// Trace id joining this event to the message that caused the run and to the
+	// containers working on it (D20). Absent for a run that belongs to no traced
+	// chain.
+	TraceId *string `json:"traceId,omitempty,omitzero" yaml:"traceId,omitempty" mapstructure:"traceId,omitempty"`
+
 	// Type corresponds to the JSON schema field "type".
 	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
 }

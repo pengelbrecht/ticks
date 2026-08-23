@@ -49,7 +49,12 @@ type workerContract struct {
 		Timeout      string `json:"worker_timeout"`
 		Setup        string `json:"worker_setup"`
 		StateDir     string `json:"worker_state_dir"`
+		TraceID      string `json:"trace_id"`
 	} `json:"env"`
+	Trace struct {
+		BannerMarker  string `json:"banner_marker"`
+		BannerExample string `json:"banner_example"`
+	} `json:"trace"`
 	SetupModes struct {
 		Always string `json:"always"`
 		Skip   string `json:"skip"`
@@ -105,6 +110,11 @@ func TestWorkerBootContractMatchesThisPackage(t *testing.T) {
 		{"worker timeout env", EnvWorkerTimeout, c.Env.Timeout},
 		{"worker setup env", EnvWorkerSetup, c.Env.Setup},
 		{"worker state dir env", EnvWorkerStateDir, c.Env.StateDir},
+		// The trace id's container half (tick hyi): the variable a worker boots
+		// with, and the marker heading its log stream. Three readers as ever —
+		// worker.sh prints the line, this package asserts the variable name,
+		// and worker-boot.ts is what sets it on the container.
+		{"trace id env", EnvTraceID, c.Env.TraceID},
 		{"setup always", WorkerSetupAlways, c.SetupModes.Always},
 		{"setup skip", WorkerSetupSkip, c.SetupModes.Skip},
 		// The boundary guard's two strings (tick dxk). Three readers again:

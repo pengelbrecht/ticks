@@ -24,7 +24,13 @@
   ],
   "record_dir": ".tick/issues",
   "record_path_example": { "tick": "tap", "path": ".tick/issues/tap.json" },
-  "fields": { "id": "id", "type": "type", "parent": "parent", "external_ref": "external_ref" },
+  "fields": {
+    "id": "id",
+    "type": "type",
+    "parent": "parent",
+    "external_ref": "external_ref",
+    "trace_id": "trace_id"
+  },
   "epic_type": "epic",
   "parent_omitted_when_empty": true,
   "written_by_the_control_plane": {
@@ -56,6 +62,37 @@
     "json_indent": 2,
     "external_ref_separator": ":",
     "external_ref_omitted_when_empty": true
+  },
+  "trace_id": {
+    "why": [
+      "Since tick hyi every signal that enters the factory is minted a trace id at",
+      "the edge, and that id is carried — never re-derived — onto the tick record,",
+      "the run record, the run's events and each worker container's log stream. It",
+      "is what joins 'a message arrived' to 'a container did this', which is the",
+      "join seven misdiagnosed Phase 2 runs did not have.",
+      "",
+      "It crosses the Go/TS boundary in both directions, which is why it is pinned",
+      "here rather than declared twice. The control plane MINTS it and writes it",
+      "into the record (cloud/factory/src/trace.ts, tracker-write.ts); Go owns the",
+      "record format it lands in (internal/tick.Tick.TraceID), refuses a malformed",
+      "one in Validate, and reads it back in `tk cloud logs` and `tk cloud trace`.",
+      "A prefix or width that drifted in one language would produce records the",
+      "other refuses, with both suites green — the exact failure .tick/learnings.md",
+      "records under 'Cross-language parity'.",
+      "",
+      "Omitted when empty, and empty is the COMMON case: a tick `tk create` filed",
+      "on a laptop is not a signal arriving at a front door, and minting an id for",
+      "it would claim a causal chain that does not exist.",
+      "",
+      "The container half of the same id — the TICKS_TRACE_ID a worker boots with",
+      "and the banner heading its log stream — is pinned in worker-boot-contract.json",
+      "instead, beside the rest of the boot contract its three readers share."
+    ],
+    "prefix": "tr_",
+    "hex_length": 32,
+    "pattern": "^tr_[0-9a-f]{32}$",
+    "example": "tr_0123456789abcdef0123456789abcdef",
+    "omitted_when_empty": true
   },
   "human_gate": {
     "why": [

@@ -235,3 +235,86 @@ func TestCloudLogsRefusesAnEmptyTick(t *testing.T) {
 		t.Fatalf("a refused read still called the factory: %#v", *requests)
 	}
 }
+
+// The trace id, on every read (D20, tick hyi).
+//
+// This is the third of the three joins the tick's acceptance criterion asks
+// for: from a run's worker logs back to the message that caused the run. The
+// id is served from the run's INDEX ROW rather than scraped out of the log
+// text, because a log read is bounded from the END — so on the long-running
+// container an operator most wants the id for, the stream's own banner is the
+// first thing to fall off the budget. The row answers whatever the tail
+// happens to hold, which is the difference between one query and a grep that
+// sometimes works.
+func TestCloudLogsStatesTheRunsTraceID(t *testing.T) {
+	setupCloudRepo(t, false)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusOK, map[string]any{
+			"run_id": "run_live", "state": "running",
+			"trace_id": "tr_0123456789abcdef0123456789abcdef",
+			"text":     "booting orchestrator\n", "bytes": 21, "total_bytes": 21,
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_live"}); err != nil {
+		t.Fatalf("cloud logs: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "tr_0123456789abcdef0123456789abcdef") {
+		t.Fatalf("the run's trace id was not stated:\n%s", output)
+	}
+	// Above the log, where a piped read still sees it — the same rule the
+	// truncation note follows.
+	if strings.Index(output, "# trace:") > strings.Index(output, "booting orchestrator") {
+		t.Fatalf("the trace id is printed after the log:\n%s", output)
+	}
+}
+
+// A container that printed NOTHING is exactly the case Phase 2 could not
+// diagnose, so the id is stated there too: "this container printed nothing" is
+// a finding, and a finding an operator cannot join to the message that asked
+// for it is the failure this tick exists to end.
+func TestCloudLogsStatesTheTraceIDEvenWithNoOutput(t *testing.T) {
+	setupCloudRepo(t, false)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusOK, map[string]any{
+			"run_id": "run_quiet", "state": "failed",
+			"trace_id": "tr_00000000000000000000000000000abc",
+			"text":     "", "bytes": 0, "total_bytes": 0,
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_quiet"}); err != nil {
+		t.Fatalf("cloud logs: %v", err)
+	}
+	if !strings.Contains(buf.String(), "tr_00000000000000000000000000000abc") {
+		t.Fatalf("an empty log did not state the trace id:\n%s", buf.String())
+	}
+}
+
+// A run that belongs to no chain says NOTHING, rather than "trace: none".
+// Every run started before this tick has no chain, and a line that always
+// prints is a line that never answers — an operator grepping for a trace id
+// would match it on every run in the factory.
+func TestCloudLogsSaysNothingWhenTheRunHasNoTraceID(t *testing.T) {
+	setupCloudRepo(t, false)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusOK, map[string]any{
+			"run_id": "run_old", "state": "completed",
+			"text": "a run from before the chain existed\n", "bytes": 36, "total_bytes": 36,
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_old"}); err != nil {
+		t.Fatalf("cloud logs: %v", err)
+	}
+	if strings.Contains(buf.String(), "trace") {
+		t.Fatalf("an untraced run mentioned a trace anyway:\n%s", buf.String())
+	}
+}

@@ -90,6 +90,21 @@ export const WORKER_CANCEL_REPORT_MARKER = "CANCELLED BY THE SUPERVISOR";
 export const WORKER_STATE_DIR_ENV = "TICKS_WORKER_STATE_DIR";
 
 /**
+ * The trace id a worker container boots with (D20, tick hyi).
+ *
+ * The container prints it in its own boot banner so a human reading the log
+ * sees the chain without a second lookup. It is corroboration, not the record:
+ * the control plane writes the same id as a header at the head of the
+ * container's R2 stream (`artifacts.ts`), because a container that dies before
+ * it prints anything is exactly the one being read.
+ *
+ * Pinned across the three readers by `test/fixtures/worker-boot-contract.json`
+ * — `internal/sandbox.EnvTraceID` and `cloud/sandbox/common.sh` are the other
+ * two.
+ */
+export const WORKER_TRACE_ID_ENV = "TICKS_TRACE_ID";
+
+/**
  * A cancellation reason, reduced to something safe to hand a shell.
  *
  * The reason travels from `WaveCancellation.reason` — `budget:cost`,
@@ -177,6 +192,8 @@ export type WorkerBootInput = {
   factory_url?: string;
   factory_token?: string;
   factory_project?: string;
+  /** The chain this container's work belongs to; see {@link WORKER_TRACE_ID_ENV}. */
+  trace_id?: string;
   /**
    * Whether this worker runs the repository's `[sandbox]` setup.
    *
@@ -452,6 +469,7 @@ export function workerBootEnv(input: WorkerBootInput): Record<string, string> {
     ["TICKS_FACTORY_URL", input.factory_url],
     ["TICKS_FACTORY_TOKEN", input.factory_token],
     ["TICKS_FACTORY_PROJECT", input.factory_project],
+    [WORKER_TRACE_ID_ENV, input.trace_id],
   ];
   for (const [name, value] of optional) {
     if (value !== undefined && value !== "") env[name] = value;

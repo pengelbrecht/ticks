@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pengelbrecht/ticks/internal/trace"
 )
 
 // The tracker's on-disk layout has a second reader since tick kya:
@@ -58,9 +60,17 @@ type trackerLayout struct {
 		Type        string `json:"type"`
 		Parent      string `json:"parent"`
 		ExternalRef string `json:"external_ref"`
+		TraceID     string `json:"trace_id"`
 	} `json:"fields"`
-	EpicType               string `json:"epic_type"`
-	ParentOmittedWhenEmpty bool   `json:"parent_omitted_when_empty"`
+	EpicType string `json:"epic_type"`
+	Trace    struct {
+		Prefix           string `json:"prefix"`
+		HexLength        int    `json:"hex_length"`
+		Pattern          string `json:"pattern"`
+		Example          string `json:"example"`
+		OmittedWhenEmpty bool   `json:"omitted_when_empty"`
+	} `json:"trace_id"`
+	ParentOmittedWhenEmpty bool `json:"parent_omitted_when_empty"`
 	HumanGate              struct {
 		Statuses        []string `json:"statuses"`
 		CommittedStatus string   `json:"committed_status"`
@@ -332,5 +342,144 @@ func TestHumanGateStatusVocabularyMatchesFixture(t *testing.T) {
 	if err := draft.Validate(); err == nil {
 		t.Fatalf("a tick with status %q validated; a draft must not be expressible as a record",
 			layout.HumanGate.RejectedStatus)
+	}
+}
+
+// The trace id (tick hyi) is the identifier that joins "a message arrived" to
+// "a container did this", and it crosses this boundary in BOTH directions:
+// cloud/factory/src/trace.ts mints it and cloud/factory/src/tracker-write.ts
+// writes it into the record, while this package owns the record format it
+// lands in, refuses a malformed one, and reads it back for `tk cloud logs` and
+// `tk cloud trace`.
+//
+// A prefix or a width that drifted in one language alone would produce records
+// the other refuses — with both suites green, because each would be internally
+// consistent. That is the exact failure .tick/learnings.md records under
+// "Cross-language parity", so the format is pinned here rather than declared
+// twice and hoped over.
+func TestTraceIDFormatMatchesFixture(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	if layout.Trace.Prefix != trace.Prefix {
+		t.Fatalf("fixture trace prefix is %q, this repository mints %q", layout.Trace.Prefix, trace.Prefix)
+	}
+	if layout.Trace.HexLength != trace.HexLength {
+		t.Fatalf("fixture trace id carries %d hex characters, this repository mints %d",
+			layout.Trace.HexLength, trace.HexLength)
+	}
+	if layout.Trace.Pattern != trace.Pattern.String() {
+		t.Fatalf("fixture trace pattern is %q, this repository validates with %q",
+			layout.Trace.Pattern, trace.Pattern.String())
+	}
+	if !trace.Valid(layout.Trace.Example) {
+		t.Fatalf("the fixture's own example %q is not a trace id here", layout.Trace.Example)
+	}
+	// Minted ids are ones this package accepts, in both directions: a format
+	// only one half can produce is not a shared format.
+	for i := 0; i < 32; i++ {
+		id := trace.New()
+		if !trace.Valid(id) {
+			t.Fatalf("this package minted %q and then refused it", id)
+		}
+	}
+	// Case is folded on the way in, unlike an external ref's — two cases of a
+	// hex id are two spellings of one value, and one causal chain must have
+	// exactly one spelling.
+	if got, ok := trace.Normalize("  " + strings.ToUpper(layout.Trace.Example) + " "); !ok || got != layout.Trace.Example {
+		t.Fatalf("Normalize(%q) = %q, %v; want the lowercase example", layout.Trace.Example, got, ok)
+	}
+	if _, ok := trace.Normalize("tr_not-hex"); ok {
+		t.Fatal("Normalize accepted a value that is not a trace id")
+	}
+}
+
+// The record carries the trace id under the name the fixture states, omits it
+// when there is none, and refuses one that is malformed.
+//
+// The refusal is the load-bearing half. The whole value of a trace id is that
+// ONE spelling identifies one causal chain, so a record carrying a near-miss
+// would look joined to a human and join to nothing in a query — which is worse
+// than carrying no id at all, because it is a false negative that reads as an
+// answer.
+func TestTrackerLayoutTraceIDFieldMatchesFixture(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	traced := validTick("trc", TypeTask, "")
+	traced.TraceID = layout.Trace.Example
+	if err := traced.Validate(); err != nil {
+		t.Fatalf("a tick carrying the fixture's trace id is invalid here: %v", err)
+	}
+	encoded, err := json.Marshal(traced)
+	if err != nil {
+		t.Fatalf("marshal traced tick: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("decode traced tick: %v", err)
+	}
+	if decoded[layout.Fields.TraceID] != layout.Trace.Example {
+		t.Fatalf("%s is %v, want %q", layout.Fields.TraceID,
+			decoded[layout.Fields.TraceID], layout.Trace.Example)
+	}
+
+	bare, err := json.Marshal(validTick("bre", TypeTask, ""))
+	if err != nil {
+		t.Fatalf("marshal bare tick: %v", err)
+	}
+	var bareDecoded map[string]any
+	if err := json.Unmarshal(bare, &bareDecoded); err != nil {
+		t.Fatalf("decode bare tick: %v", err)
+	}
+	if _, present := bareDecoded[layout.Fields.TraceID]; present != !layout.Trace.OmittedWhenEmpty {
+		t.Fatalf("a tick with no trace id %s a %q field; fixture says omitted_when_empty=%v",
+			map[bool]string{true: "has", false: "has no"}[present], layout.Fields.TraceID,
+			layout.Trace.OmittedWhenEmpty)
+	}
+
+	malformed := validTick("bad", TypeTask, "")
+	malformed.TraceID = strings.ToUpper(layout.Trace.Example)
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("a tick carrying an upper-case trace id validated; one chain must have one spelling")
+	}
+	malformed.TraceID = "not-a-trace-id"
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("a tick carrying a malformed trace id validated")
+	}
+}
+
+// The trace id's field position, which is a byte-level contract rather than a
+// cosmetic one. Both writers commit the same file in the same repository, so a
+// field the control plane emits in a different place turns every alternating
+// write into a whole-file diff nobody can review — the same argument the
+// indent test makes.
+func TestTrackerLayoutTraceIDFieldOrderMatchesFixture(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	filed := Tick{
+		ID:          "ord",
+		Title:       "a signal became a tick",
+		Status:      layout.Written.DefaultStatus,
+		Priority:    layout.Written.DefaultPriority,
+		Type:        layout.Written.DefaultType,
+		Owner:       "operator@example.com",
+		ExternalRef: "telegram" + layout.Written.ExternalRefSeparator + "8412",
+		TraceID:     layout.Trace.Example,
+		CreatedBy:   "operator@example.com",
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	encoded, err := json.MarshalIndent(filed, "", strings.Repeat(" ", layout.Written.JSONIndent))
+	if err != nil {
+		t.Fatalf("marshal filed tick: %v", err)
+	}
+	text := string(encoded)
+	refAt := strings.Index(text, `"`+layout.Fields.ExternalRef+`"`)
+	traceAt := strings.Index(text, `"`+layout.Fields.TraceID+`"`)
+	createdAt := strings.Index(text, `"created_by"`)
+	if refAt < 0 || traceAt < 0 || createdAt < 0 {
+		t.Fatalf("a filed record is missing one of external_ref/trace_id/created_by:\n%s", text)
+	}
+	if !(refAt < traceAt && traceAt < createdAt) {
+		t.Fatalf("trace_id must sit between external_ref and created_by, as cloud/factory/src/tracker-write.ts writes it:\n%s", text)
 	}
 }

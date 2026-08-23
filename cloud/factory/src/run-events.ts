@@ -103,6 +103,17 @@ export type RunEventMessage = {
   type: "run_event";
   epicId: string;
   taskId?: string;
+  /**
+   * The trace id this run carries (D20, tick hyi).
+   *
+   * On the stream because the board is where a human looks FIRST, and until
+   * this field existed the picture on a screen and the records that explain it
+   * shared no identifier — an operator watching a tick go red had to work back
+   * to a run id, then to a container, by hand. Absent for a run that belongs to
+   * no traced chain; carried, never minted, so an event names the same id as
+   * the tick record and the container's log.
+   */
+  traceId?: string;
   source: RunEventSource;
   event: RunEventData;
 };
@@ -135,12 +146,18 @@ function message(
   source: RunEventSource,
   epicID: string,
   taskID: string | null,
-  event: RunEventData
+  event: RunEventData,
+  traceID?: string
 ): RunEventMessage {
   return {
     type: "run_event",
     epicId: epicID,
     ...(taskID === null ? {} : { taskId: taskID }),
+    // Threaded through every builder rather than stamped on the batch in
+    // `publishRunEvents`: a batch is assembled from more than one run's worth
+    // of context in no path today, and a stamp applied at the sink would be a
+    // second place the id could be attached to the wrong run tomorrow.
+    ...(traceID === undefined || traceID === "" ? {} : { traceId: traceID }),
     source,
     event,
   };
@@ -155,14 +172,21 @@ export function epicStarted(input: {
   epic: string;
   run_id: string;
   status: string;
+  trace_id?: string;
   at?: string;
 }): RunEventMessage {
-  return message("cloud:orchestrator", input.epic, null, {
-    type: "epic-started",
-    timestamp: now(input.at),
-    status: input.status,
-    message: `run ${input.run_id} started`,
-  });
+  return message(
+    "cloud:orchestrator",
+    input.epic,
+    null,
+    {
+      type: "epic-started",
+      timestamp: now(input.at),
+      status: input.status,
+      message: `run ${input.run_id} started`,
+    },
+    input.trace_id
+  );
 }
 
 /**
@@ -180,17 +204,24 @@ export function epicCompleted(input: {
   detail: string;
   spend: SpendResult;
   duration_ms?: number;
+  trace_id?: string;
   at?: string;
 }): RunEventMessage {
   const metrics = gatewayMetrics(input.spend, input.duration_ms);
-  return message("cloud:orchestrator", input.epic, null, {
-    type: "epic-completed",
-    timestamp: now(input.at),
-    status: input.state,
-    message: input.detail,
-    success: input.state === "completed",
-    ...(metrics === null ? {} : { metrics }),
-  });
+  return message(
+    "cloud:orchestrator",
+    input.epic,
+    null,
+    {
+      type: "epic-completed",
+      timestamp: now(input.at),
+      status: input.state,
+      message: input.detail,
+      success: input.state === "completed",
+      ...(metrics === null ? {} : { metrics }),
+    },
+    input.trace_id
+  );
 }
 
 /** A per-tick worker container is being dispatched. */
@@ -198,15 +229,22 @@ export function tickStarted(input: {
   epic: string;
   tick: string;
   batch: number;
+  trace_id?: string;
   at?: string;
 }): RunEventMessage {
-  return message("cloud:worker", input.epic, input.tick, {
-    type: "task-started",
-    timestamp: now(input.at),
-    status: "dispatched",
-    iteration: input.batch,
-    message: `worker container dispatched for ${input.tick}`,
-  });
+  return message(
+    "cloud:worker",
+    input.epic,
+    input.tick,
+    {
+      type: "task-started",
+      timestamp: now(input.at),
+      status: "dispatched",
+      iteration: input.batch,
+      message: `worker container dispatched for ${input.tick}`,
+    },
+    input.trace_id
+  );
 }
 
 /**
@@ -224,18 +262,25 @@ export function tickCompleted(input: {
   verdict: string;
   status: string;
   detail: string;
+  trace_id?: string;
   at?: string;
 }): RunEventMessage {
-  return message("cloud:worker", input.epic, input.tick, {
-    type: "task-completed",
-    timestamp: now(input.at),
-    status: input.verdict,
-    success: input.verdict === "ready-to-merge",
-    message:
-      input.status === ""
-        ? input.detail
-        : `${input.status}${input.detail === "" ? "" : ` — ${input.detail}`}`,
-  });
+  return message(
+    "cloud:worker",
+    input.epic,
+    input.tick,
+    {
+      type: "task-completed",
+      timestamp: now(input.at),
+      status: input.verdict,
+      success: input.verdict === "ready-to-merge",
+      message:
+        input.status === ""
+          ? input.detail
+          : `${input.status}${input.detail === "" ? "" : ` — ${input.detail}`}`,
+    },
+    input.trace_id
+  );
 }
 
 // ----------------------------------------------------------------- the sink ---

@@ -176,6 +176,13 @@ export type QueuedSubmission = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  /**
+   * The trace id the submission carried (D20, tick hyi). Parked with the
+   * entry for the same reason its budget is: this run ignites from an ALARM,
+   * not from the request that parked it, so anything left on that request's
+   * stack is gone by the time the run exists.
+   */
+  trace_id?: string;
   notify?: string;
   /**
    * The submission's own budget (tick wn5). Parked with the entry rather than
@@ -196,6 +203,7 @@ export type QueueSubmissionRequest = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  trace_id?: string;
   notify?: string;
   max_cost_usd?: number;
   max_wall_clock_ms?: number;
@@ -404,6 +412,7 @@ type QueuedRecord = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  trace_id: string | null;
   notify: string | null;
   max_cost_usd: number | null;
   max_wall_clock_ms: number | null;
@@ -559,7 +568,8 @@ export class RunRoom extends DurableObject<Env> {
         max_wall_clock_ms INTEGER,
         blocked_by TEXT NOT NULL,
         queued_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at INTEGER NOT NULL,
+        trace_id TEXT
       );
       CREATE INDEX IF NOT EXISTS queued_submission_by_age ON queued_submission (queued_at);
       CREATE TABLE IF NOT EXISTS run_stop (
@@ -585,7 +595,7 @@ export class RunRoom extends DurableObject<Env> {
     // a column added after a room's first request would never appear in it —
     // and every project this factory has ever run has such a room. The add is
     // attempted and its "duplicate column name" is the expected answer.
-    for (const column of ["max_cost_usd REAL", "max_wall_clock_ms INTEGER"]) {
+    for (const column of ["max_cost_usd REAL", "max_wall_clock_ms INTEGER", "trace_id TEXT"]) {
       try {
         ctx.storage.sql.exec(`ALTER TABLE queued_submission ADD COLUMN ${column}`);
       } catch {
@@ -822,6 +832,7 @@ export class RunRoom extends DurableObject<Env> {
       epic: request.epic,
       base_sha: request.base_sha,
       requested_by: request.requested_by,
+      trace_id: request.trace_id ?? null,
       notify: request.notify ?? null,
       max_cost_usd: request.max_cost_usd ?? null,
       max_wall_clock_ms: request.max_wall_clock_ms ?? null,
@@ -835,8 +846,8 @@ export class RunRoom extends DurableObject<Env> {
     this.ctx.storage.sql.exec(
       `INSERT INTO queued_submission
          (run_id, project, epic, base_sha, requested_by, notify, max_cost_usd,
-          max_wall_clock_ms, blocked_by, queued_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          max_wall_clock_ms, blocked_by, queued_at, expires_at, trace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.run_id,
       record.project,
       record.epic,
@@ -847,7 +858,8 @@ export class RunRoom extends DurableObject<Env> {
       record.max_wall_clock_ms,
       record.blocked_by,
       record.queued_at,
-      record.expires_at
+      record.expires_at,
+      record.trace_id
     );
     await this.#armAlarm();
     return { ok: true, queued: this.#queuedView(record) };
@@ -1404,6 +1416,7 @@ export class RunRoom extends DurableObject<Env> {
         epic: next.epic,
         base_sha: next.base_sha,
         requested_by: next.requested_by,
+        ...(next.trace_id === null ? {} : { trace_id: next.trace_id }),
         ...(next.notify === null ? {} : { notify: next.notify }),
         ...(next.max_cost_usd === null ? {} : { max_cost_usd: next.max_cost_usd }),
         ...(next.max_wall_clock_ms === null
@@ -1436,6 +1449,9 @@ export class RunRoom extends DurableObject<Env> {
       epic: record.epic,
       base_sha: record.base_sha,
       requested_by: record.requested_by,
+      ...(record.trace_id === null || record.trace_id === undefined
+        ? {}
+        : { trace_id: record.trace_id }),
       ...(record.notify === null ? {} : { notify: record.notify }),
       ...(record.max_cost_usd === null ? {} : { max_cost_usd: record.max_cost_usd }),
       ...(record.max_wall_clock_ms === null

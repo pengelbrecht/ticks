@@ -41,6 +41,10 @@ readonly EXIT_MODEL=7
 readonly EXIT_HARNESS=8
 
 say() { printf '%s: %s\n' "$ME" "$*"; }
+# The trace id as a banner fragment, or nothing. A container with no trace id
+# says nothing rather than "trace=none": a reader greps this marker to find the
+# id, and a line that always matches is a line that never answers.
+trace_note() { [[ -n ${trace_id:-} ]] && printf ' ticks-trace: %s' "$trace_id"; return 0; }
 warn() { printf '%s: warning: %s\n' "$ME" "$*"; }
 die() {
 	local code="$1"
@@ -61,6 +65,13 @@ harness="${TICKS_HARNESS:-omp}"
 model="${TICKS_MODEL:-}"
 max_time="${TICKS_MAX_TIME:-}"
 run_id="${TICKS_RUN_ID:-unknown}"
+# The identifier that joins the message which produced this work to this
+# container (D20, tick hyi). Passed in and never minted here: it was minted at
+# whichever edge the work entered the factory through, and a container that
+# invented its own would name a chain nothing upstream shares. Empty when the
+# work entered through no traced edge, which every banner below reports as
+# absent rather than papering over with a placeholder.
+trace_id="${TICKS_TRACE_ID:-}"
 workdir="${TICKS_WORKDIR:-/work/repo}"
 cache_dir="${TICKS_CACHE_DIR:-/cache}"
 pinned_tk="${TICKS_TK_VERSION:-}"

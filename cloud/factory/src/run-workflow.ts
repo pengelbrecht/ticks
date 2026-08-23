@@ -929,6 +929,11 @@ export async function acquireContext(
     epic: run.epic,
     base_sha: run.base_sha,
     requested_by: run.requested_by,
+    // From the INDEX ROW, not from the Workflow params: the row is what
+    // `tk cloud logs` and `tk cloud status` answer from, so taking it from the
+    // same place keeps the two records unable to disagree about which chain
+    // this run belongs to.
+    ...(run.trace_id === null ? {} : { trace_id: run.trace_id }),
     ...(params.notify === undefined ? {} : { notify: params.notify }),
     started_at: run.started_at,
     state: "running",
@@ -946,6 +951,7 @@ export async function acquireContext(
     epicStarted({
       epic: params.epic,
       run_id: params.run_id,
+      ...(run.trace_id === null ? {} : { trace_id: run.trace_id }),
       status:
         cloud_wave === null
           ? "one orchestrator container"
@@ -1387,6 +1393,10 @@ async function supervisePass(
           gateway_base_url: context.gateway_base_url,
           gateway_token: credential.token,
           phase,
+          // The chain this container belongs to (tick hyi). Every boot of the
+          // orchestrator carries it, including a reconcile's replacement: the
+          // replacement is the same causal chain as the sandbox it succeeds.
+          ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
           ...(options.stop_reason === undefined ? {} : { stop_reason: options.stop_reason }),
           ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
           ...(context.config.harness === null ? {} : { harness: context.config.harness }),
@@ -2280,6 +2290,9 @@ async function runWaveBatch(
             ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
             sandbox_image: context.sandbox_image,
             harness_budget_ms: waveBudget.harness_budget_ms,
+            // Into the container, so everything it prints and every `tk` it
+            // runs belongs to a chain a reader can name (tick hyi).
+            ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
           }),
         {
           wait_timeout_ms: waitMs,
@@ -2310,6 +2323,12 @@ async function runWaveBatch(
             run_id: params.run_id,
             epic: params.epic,
             batch: batchNumber,
+            // Recorded on the manifest AND written as the head of the
+            // container's log stream, before the container is addressed. The
+            // manifest says what was dispatched; the banner puts the same id
+            // in the text an operator reads. A container that dies before it
+            // prints anything still leaves both (tick hyi).
+            ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
           }),
           // Each container's own stdout/stderr, streamed to its own R2 key as
           // it appears (tick 0fg). The orchestrator sandbox has had this since
@@ -2543,7 +2562,14 @@ export async function superviseCloudWave(
       publishRunEvents(
         env,
         params.project,
-        batch.map((tick) => tickStarted({ epic: params.epic, tick, batch: i + 1 }))
+        batch.map((tick) =>
+          tickStarted({
+            epic: params.epic,
+            tick,
+            batch: i + 1,
+            ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
+          })
+        )
       )
     );
 
@@ -2620,6 +2646,7 @@ export async function superviseCloudWave(
             verdict: reported ? outcome.collect.verdict : "not-launched",
             status: outcome.collect.status,
             detail: reported ? outcome.collect.detail : outcome.detail,
+            ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
           });
         })
       )
@@ -2968,6 +2995,7 @@ export async function finalize(
       state: outcome.state,
       detail: outcome.detail,
       spend: finalSpend,
+      ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
       ...(run?.started_at === undefined
         ? {}
         : { duration_ms: Math.max(0, Date.parse(endedAt) - Date.parse(run.started_at)) }),
@@ -3006,12 +3034,19 @@ export async function finalize(
     );
   });
 
+  // The index row first, the Workflow params second: the row is what every
+  // read surface answers from, and a run whose row was written before this
+  // field existed still has whatever its instance was created with.
+  const traceID = run?.trace_id ?? params.trace_id ?? "";
   const record: RunRecord = {
     run_id: params.run_id,
     project: params.project,
     epic: params.epic,
     base_sha: params.base_sha,
     requested_by: params.requested_by,
+    // The finished record names the chain too, so R2 alone answers "which
+    // message produced this run" for a run whose D1 row is long since read.
+    ...(traceID === "" ? {} : { trace_id: traceID }),
     ...(params.notify === undefined ? {} : { notify: params.notify }),
     started_at: run?.started_at ?? endedAt,
     state: outcome.state,

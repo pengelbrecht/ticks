@@ -20,6 +20,8 @@
 
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 
+import { WORKER_TRACE_ID_ENV } from "./worker-boot";
+
 import type { Env } from "./index";
 
 // -------------------------------------------------------------- the image ---
@@ -452,6 +454,11 @@ export type OrchestratorEnvInput = {
   workdir?: string;
   cache_dir?: string;
   /**
+   * The chain this run belongs to (D20, tick hyi), exported as
+   * `TICKS_TRACE_ID`. Absent for a run nothing traced.
+   */
+  trace_id?: string;
+  /**
    * The image the control plane booted. One-way — the container cannot change
    * what it is running — but not advisory: the entrypoint compares it against
    * the `[sandbox].image` its checkout declares, through the reader that owns
@@ -571,6 +578,13 @@ export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, str
   }
   if (input.factory_project !== undefined && input.factory_project !== "") {
     env.TICKS_FACTORY_PROJECT = input.factory_project;
+  }
+  // The chain this run belongs to (D20, tick hyi). The orchestrator container
+  // gets it for the same reason a worker does: everything it prints, and every
+  // `tk` it runs, is part of the same causal chain as the message that caused
+  // the run.
+  if (input.trace_id !== undefined && input.trace_id !== "") {
+    env[WORKER_TRACE_ID_ENV] = input.trace_id;
   }
   if (input.wave_ticks !== undefined && input.wave_ticks.length > 0) {
     env.TICKS_WAVE_TICKS = input.wave_ticks.join(",");

@@ -46,6 +46,7 @@ import {
   type RunProgressRecord,
 } from "./db";
 import { modelRoutingComplaint, revokeRunTokens } from "./gateway";
+import { carriedTraceID, parseTraceID } from "./trace";
 import type { Env } from "./index";
 import type {
   DispatchLeaseView,
@@ -155,6 +156,12 @@ export type RunWorkflowParams = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  /**
+   * The trace id this run carries into every container it boots (D20, tick
+   * hyi). Absent only for an instance created before the field existed — a
+   * live Workflow whose params were serialised by an older bundle.
+   */
+  trace_id?: string;
   notify?: string;
   /**
    * This submission's own budget (tick wn5), bounded by the deployment ceiling
@@ -229,6 +236,17 @@ export type RunSubmission = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  /**
+   * The identifier joining this run to whatever caused it (D20, tick hyi).
+   *
+   * Always present after {@link parseSubmission}, which is the OTHER edge
+   * beside `submitSignal`: a run submitted straight from `tk cloud run` has no
+   * signal behind it and would otherwise be the one thing in the factory
+   * nothing can be joined to. A submission that carries one — a dispatched
+   * draft does — keeps it, which is what makes the chain survive the days a
+   * proposal may sit before a person presses the button.
+   */
+  trace_id: string;
   notify?: string;
   queue: boolean;
   queue_ttl_ms?: number;
@@ -352,6 +370,28 @@ export function parseSubmission(body: unknown): SubmissionParse {
   const tickIDsComplaint = tickIDsField(raw.tick_ids, (v) => (tickIDs = v));
   if (tickIDsComplaint !== null) return { ok: false, detail: tickIDsComplaint };
 
+  // THE OTHER EDGE (D20, tick hyi). A run submitted directly — `tk cloud run`,
+  // the 06:00 sweep, an operator's own curl — has no signal behind it, so if
+  // nothing minted here it would be the one thing in the factory joinable to
+  // nothing. A submission that already carries an id keeps it: `drafts.ts`
+  // dispatches an accepted proposal with the id its signal was minted with,
+  // days earlier, and re-minting here would sever exactly the join this tick
+  // exists to make.
+  //
+  // A malformed value MINTS rather than refuses, unlike every budget field
+  // above. The asymmetry is deliberate and the reason is what each field does:
+  // a dropped budget makes an operator believe a run is capped when it is not,
+  // while a dropped trace id costs a join. Refusing a run because its
+  // diagnostic header was mistyped would be the diagnostic taking down the
+  // thing it exists to diagnose.
+  const traceID = carriedTraceID(raw.trace_id);
+  if (raw.trace_id !== undefined && raw.trace_id !== null && parseTraceID(raw.trace_id) === null) {
+    console.error(
+      `factory runs: submission for ${project} carried an unusable trace_id ` +
+        `${JSON.stringify(raw.trace_id)}; minted ${traceID} instead`
+    );
+  }
+
   // An origin that cannot be parsed is refused rather than defaulted: the
   // value's whole job is to say truthfully who holds the lease, and a
   // submission whose claim about itself was silently rewritten to "cloud"
@@ -385,6 +425,7 @@ export function parseSubmission(body: unknown): SubmissionParse {
       epic,
       base_sha: baseSha,
       requested_by: requestedBy,
+      trace_id: traceID,
       ...(notify === undefined ? {} : { notify }),
       queue: raw.queue === true,
       ...(queueTtl === undefined ? {} : { queue_ttl_ms: queueTtl }),
@@ -490,6 +531,8 @@ export type StartRunInput = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  /** Carried from the submission; see {@link RunSubmission.trace_id}. */
+  trace_id?: string;
   notify?: string;
   max_cost_usd?: number;
   max_wall_clock_ms?: number;
@@ -523,6 +566,11 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
     started_at: new Date().toISOString(),
     ended_at: null,
     cost_usd: 0,
+    // Written with the row rather than stamped afterwards: the index row is
+    // the durable answer to "which run implemented this trace", and a field
+    // filled in by a later update is a field a crash between the two leaves
+    // empty on exactly the run that needs explaining.
+    trace_id: input.trace_id ?? null,
   };
   await insertRun(env.DB, run);
 
@@ -538,6 +586,7 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
         epic: run.epic,
         base_sha: run.base_sha,
         requested_by: run.requested_by,
+        ...(run.trace_id === null ? {} : { trace_id: run.trace_id }),
         ...(input.notify === undefined ? {} : { notify: input.notify }),
         ...(input.max_cost_usd === undefined ? {} : { max_cost_usd: input.max_cost_usd }),
         ...(input.max_wall_clock_ms === undefined
@@ -716,6 +765,7 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
           epic: submission.epic,
           base_sha: submission.base_sha,
           requested_by: submission.requested_by,
+          trace_id: submission.trace_id,
           ...(submission.notify === undefined ? {} : { notify: submission.notify }),
           ...(submission.max_cost_usd === undefined
             ? {}
@@ -762,6 +812,11 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
     epic: submission.epic,
     base_sha: submission.base_sha,
     requested_by: submission.requested_by,
+    // Parked WITH the submission, for the same reason the draft row carries
+    // one: a queued run ignites later, from the RunRoom's alarm rather than
+    // from this request, and a trace id left on the stack here would not
+    // survive that gap.
+    trace_id: submission.trace_id,
     ...(submission.notify === undefined ? {} : { notify: submission.notify }),
     ...(submission.max_cost_usd === undefined ? {} : { max_cost_usd: submission.max_cost_usd }),
     ...(submission.max_wall_clock_ms === undefined

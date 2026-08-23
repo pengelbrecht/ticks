@@ -38,6 +38,11 @@ different records, and conflating them would give one command two answers:
   trace  what the model said and decided — the conversation, its tool calls
          and its token and cache accounting, read from AI Gateway
 
+Every read states the run's trace id when it has one (D20): the identifier
+minted when the signal arrived, carried onto the tick, the run and this
+container's own log stream, so one string joins a message in a chat to what a
+container printed.
+
 A truncated run id is resolved against the factory's run index first, so a
 prefix is never answered with "no run <prefix>".
 
@@ -56,9 +61,15 @@ func init() {
 }
 
 type cloudLogsResponse struct {
-	RunID      string `json:"run_id"`
-	Project    string `json:"project"`
-	State      string `json:"state"`
+	RunID   string `json:"run_id"`
+	Project string `json:"project"`
+	State   string `json:"state"`
+	// TraceID joins this run to the message that caused it (D20, tick hyi).
+	// Served from the run's INDEX ROW rather than scraped out of the log text:
+	// a log read is bounded from the end, so on the long-running container an
+	// operator most wants the id for, the stream's own banner is the first
+	// thing to fall off the budget.
+	TraceID    string `json:"trace_id"`
 	TickID     string `json:"tick_id"`
 	Text       string `json:"text"`
 	Bytes      int    `json:"bytes"`
@@ -119,6 +130,15 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// The chain this container's work belongs to, first and on every read
+	// (tick hyi). It is the whole point of the id: an operator holding a trace
+	// id from a chat message, a tick record or a board event can confirm in one
+	// line that this is the same chain, and one holding only a run id leaves
+	// with the id that joins it to the rest.
+	if note := cloudTraceNote(response.TraceID); note != "" {
+		fmt.Fprintln(out, note)
+	}
+
 	// Above the log, where a piped read still sees it: an operator debugging a
 	// wave does not know which containers got far enough to print, and the
 	// answer is worth having before a megabyte of orchestrator output.
@@ -155,6 +175,12 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 // is how an operator concludes the run produced nothing when they mistyped a
 // tick id.
 func reportEmptyCloudLog(out io.Writer, runID, tick string, response cloudLogsResponse) {
+	// Said even when there is no output at all: "this container printed
+	// nothing" is a finding, and a finding an operator cannot join to the
+	// message that asked for it is the Phase 2 failure exactly.
+	if note := cloudTraceNote(response.TraceID); note != "" {
+		fmt.Fprintln(out, note)
+	}
 	if tick == "" {
 		fmt.Fprintf(out, "No harness output is stored for %s (state: %s).\n", runID, stateOrUnknown(response.State))
 		if note := cloudWorkerStreamNote(runID, response.Streams); note != "" {
@@ -176,6 +202,19 @@ func reportEmptyCloudLog(out io.Writer, runID, tick string, response cloudLogsRe
 	}
 	fmt.Fprintf(out, "%s has no log stream for tick %s.\n", runID, tick)
 	fmt.Fprintln(out, cloudWorkerStreamNote(runID, response.Streams))
+}
+
+// cloudTraceNote states the run's trace id, or nothing at all.
+//
+// Nothing, rather than "trace: none", for a run that belongs to no traced
+// chain — every run started before tick hyi. A line that always prints is a
+// line that never answers, and an operator grepping for a trace id would match
+// it on every run in the factory.
+func cloudTraceNote(traceID string) string {
+	if strings.TrimSpace(traceID) == "" {
+		return ""
+	}
+	return fmt.Sprintf("# trace: %s", traceID)
 }
 
 // cloudWorkerStreamNote names the worker streams a run has, and how to read

@@ -78,6 +78,11 @@ export type RunRecord = {
   epic: string;
   base_sha: string;
   requested_by: string;
+  /**
+   * The trace id joining this run to the message that caused it (D20, tick
+   * hyi). Absent for a run that belongs to no traced chain.
+   */
+  trace_id?: string;
   notify?: string;
   started_at: string;
   state: string;
@@ -341,6 +346,16 @@ export type WorkerManifest = {
   run_id: string;
   epic: string;
   tick_id: string;
+  /**
+   * The trace id this container is working under (tick hyi).
+   *
+   * On the manifest as well as in the container's log banner because the two
+   * answer different questions: the banner says what the container printed,
+   * the manifest says what the control plane DISPATCHED. A container that
+   * never printed anything still has a manifest, and that manifest still names
+   * the chain — which is precisely the case Phase 2 could not diagnose.
+   */
+  trace_id?: string;
   /** The container this tick is addressed by — `workerSandboxName(run, tick)`. */
   sandbox_name: string;
   /** `tick/<epic>/<tick>` — what collect reads and what a redispatch continues. */
@@ -605,6 +620,49 @@ export function workerLogSegmentKey(
     `${workerLogStreamPrefix(project, runID, tickID)}` +
     `${pad(epoch, EPOCH_WIDTH)}/${pad(seq, SEQ_WIDTH)}.log`
   );
+}
+
+/**
+ * The epoch reserved for the control plane's own header segment.
+ *
+ * Zero, so it sorts before every real epoch (a wall-clock stamp is 13 digits
+ * and never zero), and therefore before every byte the container itself ever
+ * writes. A reader concatenating the prefix in key order gets the banner
+ * first, whichever supervisor attempt wrote the rest.
+ */
+export const CONTROL_PLANE_LOG_EPOCH = 0;
+
+/**
+ * Heads one worker container's log stream with its trace id, before the
+ * container is addressed (tick hyi).
+ *
+ * WRITTEN BY THE CONTROL PLANE, NOT PRINTED BY THE CONTAINER, and that is the
+ * whole design. The container is the thing being diagnosed: a container that
+ * dies in its image pull, or is refused by its probe, or hangs before its
+ * first `say`, prints nothing at all — and those are exactly the containers
+ * anyone reads a log for. A banner that depends on the container getting far
+ * enough to print it is missing from every log that matters. The container
+ * prints its own line too (`cloud/sandbox/worker.sh`), which corroborates this
+ * one rather than replacing it.
+ *
+ * Best effort by construction, like every other write in this module that a
+ * dispatch awaits: a log header that could not be stored must never be the
+ * reason a wave does not run.
+ */
+export async function writeWorkerLogHeader(
+  bucket: R2Bucket,
+  project: string,
+  runID: string,
+  tickID: string,
+  banner: string
+): Promise<boolean> {
+  if (banner === "") return false;
+  await bucket.put(
+    workerLogSegmentKey(project, runID, tickID, CONTROL_PLANE_LOG_EPOCH, 0),
+    banner,
+    { httpMetadata: { contentType: "text/plain; charset=utf-8" } }
+  );
+  return true;
 }
 
 /** One flush of a worker container's output. Empty text writes nothing. */

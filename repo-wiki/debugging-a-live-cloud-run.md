@@ -32,6 +32,48 @@ Six runs could not answer a question one persisted string would have.
 it away is durable state, not a log line. Persist it beside the artifact the
 decision is about.
 
+## Start from the trace id (tick `hyi`, 2026-08-23)
+
+Every signal that enters the factory is minted a trace id at the edge —
+`tr_` plus 32 hex — and it is carried, never re-derived, onto the tick record,
+the run row, the run's board events, every proxied model call's AI Gateway
+metadata, and each worker container's own log stream. It is the answer to the
+table above: the reason those six runs cost a day is that the record which
+would have explained them was not joined to the thing that failed.
+
+Three reads, one query each:
+
+```
+tk cloud logs <run>                # prints "# trace: tr_…" above the output
+tk cloud logs <run> --tick <id>    # the same id, on one container's stream
+tk cloud trace <run>               # "trace: tr_…" from the gateway rows
+git show <sha>:.tick/issues/<id>.json | jq .trace_id
+```
+
+Things worth knowing before relying on it:
+
+- **The id is read from the run's index ROW, not from the log text.** A log
+  read is bounded from the END, so on a long-running container the stream's own
+  banner is the first thing to fall off the budget — which is exactly the
+  container you most want the id for.
+- **The banner in a container's stream is written by the CONTROL PLANE**,
+  before the container is addressed, at segment `0000000000000/000000.log`. A
+  container that dies in its image pull or fails its probe prints nothing at
+  all, and those are the logs anyone opens. The container's own
+  `ticks-trace:` line corroborates it; it is not the record.
+- **Absent means "no chain", not "lost".** A `tk create`d tick and any run
+  started before this landed carry none, and every surface says nothing rather
+  than `trace: none` — a line that always prints is a line that never answers.
+- **`tk cloud trace` reports a run whose calls carry TWO ids** rather than
+  showing the first. One run is one chain; two means something stamped the
+  wrong one, which is the single bug the identifier exists to make impossible.
+
+The id survives the gap that makes this non-trivial: an ingested signal becomes
+a *draft* that may sit for days before a person presses Dispatch, so the id is
+parked in the inbox's `signal_draft.trace_id` and read back out by the dispatch
+path — it is durable state, not a request-scoped context. A queued submission
+crosses the same gap through `queued_submission.trace_id` in the RunRoom.
+
 ## A plausible cause is not a confirmed cause
 
 Three hypotheses in this epic were confident, well-argued and wrong:

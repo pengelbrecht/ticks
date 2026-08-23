@@ -409,6 +409,12 @@ async function logsRoute(url: URL, runID: string, env: Env): Promise<Response> {
       run_id: runID,
       project: run.project,
       state: run.state,
+      // From the RUN ROW, not scraped out of the log text (tick hyi). The
+      // stream carries a banner too, but a read is bounded from the END, so on
+      // a long-running container the banner is the first thing to fall off the
+      // budget — and the log an operator most wants the trace id for is the
+      // longest one. The row answers whatever the tail happens to contain.
+      trace_id: run.trace_id,
       tick_id: tick,
       ...worker,
       streams,
@@ -420,6 +426,7 @@ async function logsRoute(url: URL, runID: string, env: Env): Promise<Response> {
     run_id: runID,
     project: run.project,
     state: run.state,
+    trace_id: run.trace_id,
     ...output,
     streams,
   });

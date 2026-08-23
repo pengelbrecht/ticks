@@ -78,6 +78,21 @@ const (
 	// implement a tick — and a wave whose ticks touch no dependencies can opt
 	// out of paying it N times.
 	EnvWorkerSetup = "TICKS_WORKER_SETUP"
+	// EnvTraceID is the identifier that joins the message which produced this
+	// tick to the container now working on it (D20, tick hyi).
+	//
+	// It is passed IN, never minted here: the id was minted at whichever edge
+	// the work entered the factory through — an ingested signal or a run
+	// submission — and a container that minted its own would name a chain
+	// nothing upstream shares. Absent for work that entered through no traced
+	// edge, which the entrypoint treats as "say nothing" rather than
+	// inventing a value.
+	//
+	// The container prints it so a human reading the log sees it; the control
+	// plane also writes it as a banner at the head of the container's R2
+	// stream, because a container that crashes before it prints anything is
+	// exactly the one being read.
+	EnvTraceID = "TICKS_TRACE_ID"
 )
 
 // Values of [EnvWorkerSetup].

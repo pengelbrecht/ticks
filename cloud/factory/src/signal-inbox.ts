@@ -97,6 +97,8 @@ import {
   trackerWriter,
 } from "./tracker-write";
 
+import { carriedTraceID } from "./trace";
+
 import type { Env } from "./index";
 
 /**
@@ -170,6 +172,8 @@ export type SignalOutcome =
       draft_id: string;
       project: string;
       external_ref: string;
+      /** The id minted for this arrival, which every later record carries (tick hyi). */
+      trace_id: string;
     }
   /**
    * This `(source, external_ref)` has been seen. No second proposal was made,
@@ -187,11 +191,26 @@ export type SignalOutcome =
       external_ref: string;
       first_seen_at: string;
       deliveries: number;
+      /**
+       * The FIRST delivery's trace id, not this one's.
+       *
+       * Every delivery of one signal is the same causal chain, so they share
+       * an id: a redelivery that reported a fresh one would join to nothing
+       * that already exists, which is the failure the id is for.
+       */
+      trace_id: string;
     }
-  /** The signal itself is not filable. A redelivery of it will not be either. */
-  | { state: "refused"; reason: string; detail: string }
+  /**
+   * The signal itself is not filable. A redelivery of it will not be either.
+   *
+   * It still carries a trace id: the id is minted before the payload is
+   * parsed, so a source told "no" can quote one identifier to an operator who
+   * then finds the refusal in the Worker's log. A refusal nobody can look up
+   * is the shape of the Phase 2 failure at the very first hop.
+   */
+  | { state: "refused"; reason: string; detail: string; trace_id: string }
   /** Nothing was committed and the signal is still valid. Redeliver it. */
-  | { state: "deferred"; reason: string; detail: string };
+  | { state: "deferred"; reason: string; detail: string; trace_id: string };
 
 /** A validation verdict on a raw payload, before it costs an inbox hop. */
 export type SignalParse =
@@ -359,9 +378,23 @@ export async function submitSignal(
   raw: unknown,
   options: SubmitOptions = {}
 ): Promise<SignalOutcome> {
+  // MINTED HERE, before the payload is even parsed (D20, tick hyi). This
+  // function is the single front door every source pours into, which makes it
+  // the edge — and an id minted at the edge covers the refusal path too, so a
+  // source told "this is not filable" can still quote one identifier that
+  // appears in the Worker's log beside the reason.
+  //
+  // Not minted inside the Durable Object: an inbox hop that fails leaves the
+  // caller with nothing to name, and the refusals above never reach one.
+  const trace = carriedTraceID(options.trace_id);
   const parsed = parseSignal(raw);
-  if (!parsed.ok) return { state: "refused", reason: parsed.reason, detail: parsed.detail };
-  return inboxFor(env, parsed.signal.project).submit(parsed.signal, options);
+  if (!parsed.ok) {
+    return { state: "refused", reason: parsed.reason, detail: parsed.detail, trace_id: trace };
+  }
+  return inboxFor(env, parsed.signal.project).submit(parsed.signal, {
+    ...options,
+    trace_id: trace,
+  });
 }
 
 // ------------------------------------------------------------ the object ---
@@ -372,6 +405,8 @@ type DedupRow = {
   state: string;
   first_seen_at: number;
   deliveries: number;
+  /** The FIRST delivery's trace id — every redelivery reports this one. */
+  trace_id: string;
 };
 
 /**
@@ -407,6 +442,17 @@ export type Draft = {
   project: string;
   source: string;
   external_ref: string;
+  /**
+   * The trace id minted for the arrival this proposal came from (tick hyi).
+   *
+   * THIS COLUMN IS THE DISCONTINUITY. A signal arrives, becomes a draft, and
+   * then sits — possibly for days — until a person presses Create or Dispatch,
+   * and the run is started later, by a different actor, from a different
+   * surface. So the trace id cannot be a request-scoped value threaded on a
+   * stack: it has to be parked in durable state at the edge and read back out
+   * of it by the dispatch path. This is where it is parked.
+   */
+  trace_id: string;
   title: string;
   /** The tick type this would be filed as. The one field the human may retype. */
   type: string;
@@ -457,6 +503,8 @@ export type AdmissionRow = {
   state: string;
   tick_id: string | null;
   admitted_at: string;
+  /** The trace id this arrival was attributed to. */
+  trace_id: string;
 };
 
 export type InboxStatus = {
@@ -495,6 +543,16 @@ export type SubmitOptions = {
    * `github-issues.ts`, whose render is the anti-forgery invariant itself.
    */
   presentation?: string;
+  /**
+   * The trace id this arrival already has, if the caller minted one earlier
+   * (D20, tick hyi).
+   *
+   * Optional, and normally absent: {@link submitSignal} is the edge, so it
+   * mints. A source that logged an id BEFORE calling — because it did work of
+   * its own first, as `github-issues.ts` does when it resolves consent —
+   * passes that id here so one arrival does not end up with two.
+   */
+  trace_id?: string;
 };
 
 export class SignalInbox extends DurableObject<Env> {
@@ -521,6 +579,7 @@ export class SignalInbox extends DurableObject<Env> {
         first_seen_at INTEGER NOT NULL,
         last_seen_at INTEGER NOT NULL,
         deliveries INTEGER NOT NULL,
+        trace_id TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (source, external_ref)
       );
       CREATE TABLE IF NOT EXISTS signal_admission (
@@ -533,7 +592,8 @@ export class SignalInbox extends DurableObject<Env> {
         tick_id TEXT,
         commit_sha TEXT,
         detail TEXT,
-        settled_at INTEGER
+        settled_at INTEGER,
+        trace_id TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS signal_admission_by_state ON signal_admission (state);
       CREATE TABLE IF NOT EXISTS signal_draft (
@@ -554,9 +614,13 @@ export class SignalInbox extends DurableObject<Env> {
         message_id TEXT,
         decided_by TEXT,
         decided_at INTEGER,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        trace_id TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS signal_draft_by_state ON signal_draft (state);
+      -- One query from a trace id to the proposal it produced, which is the
+      -- first of the three joins tick hyi's acceptance criterion asks for.
+      CREATE INDEX IF NOT EXISTS signal_draft_by_trace ON signal_draft (trace_id);
     `);
     // The dedup index predates the human gate (tick 8sm), where a row was
     // written only after a commit and therefore always had a tick id. Since
@@ -576,6 +640,31 @@ export class SignalInbox extends DurableObject<Env> {
       // Every row that existed before the gate was a committed tick.
       ctx.storage.sql.exec("ALTER TABLE signal_dedup ADD COLUMN state TEXT NOT NULL DEFAULT 'created'");
     }
+    // The trace id (tick hyi) is younger than all three tables, and an inbox
+    // that already holds drafts must keep answering about them rather than be
+    // recreated. Added, defaulting to '' — which is the honest value: a signal
+    // admitted before trace ids existed has no chain to join, and inventing
+    // one here would claim a join that was never made.
+    this.#addColumn(ctx, "signal_dedup", "trace_id");
+    this.#addColumn(ctx, "signal_draft", "trace_id");
+    this.#addColumn(ctx, "signal_admission", "trace_id");
+  }
+
+  /**
+   * Adds one TEXT column to a table that may already have it.
+   *
+   * `CREATE TABLE IF NOT EXISTS` above is a no-op on an inbox that already
+   * exists, so a column added later would never appear in one — and every
+   * project this factory has ingested for has such an object.
+   */
+  #addColumn(ctx: DurableObjectState, table: string, column: string): void {
+    const columns = new Set(
+      [...ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`)].map((row) =>
+        String(row.name)
+      )
+    );
+    if (columns.has(column)) return;
+    ctx.storage.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
   }
 
   /**
@@ -590,8 +679,15 @@ export class SignalInbox extends DurableObject<Env> {
    * had: a redelivery racing its original is not a race, it is the next event.
    */
   async submit(signal: Signal, options: SubmitOptions = {}): Promise<SignalOutcome> {
+    // Carried, not minted: `submitSignal` is the edge and has already minted
+    // one. The fallback exists because this method is also an RPC surface —
+    // an inbox reached without going through the front door still produces a
+    // traceable draft rather than an untraceable one.
+    const trace = carriedTraceID(options.trace_id);
     const parsed = parseSignal(signal);
-    if (!parsed.ok) return { state: "refused", reason: parsed.reason, detail: parsed.detail };
+    if (!parsed.ok) {
+      return { state: "refused", reason: parsed.reason, detail: parsed.detail, trace_id: trace };
+    }
     const admitted = parsed.signal;
 
     const pending = this.#countDrafts("pending");
@@ -602,6 +698,7 @@ export class SignalInbox extends DurableObject<Env> {
         detail:
           `${admitted.project} already has ${pending} proposal(s) waiting for a human; nothing ` +
           "was lost, redeliver this one once some have been triaged",
+        trace_id: trace,
       };
     }
 
@@ -616,7 +713,21 @@ export class SignalInbox extends DurableObject<Env> {
         admitted.source,
         admitted.external_ref
       );
-      const seq = this.#admit(admitted, at, "duplicate", already.tick_id === "" ? null : already.tick_id);
+      // The ORIGINAL's trace id, not the one minted for this delivery. Every
+      // delivery of one signal is one causal chain, and a redelivery that
+      // reported a fresh id would hand its sender an identifier joined to
+      // nothing — the precise failure the id exists to prevent, reintroduced
+      // at the one hop where a duplicate is the normal case. The freshly
+      // minted id is dropped rather than recorded beside it, because two ids
+      // for one chain is not a trace.
+      const carried = already.trace_id === "" ? trace : already.trace_id;
+      const seq = this.#admit(
+        admitted,
+        at,
+        "duplicate",
+        already.tick_id === "" ? null : already.tick_id,
+        carried
+      );
       return {
         state: "duplicate",
         seq,
@@ -626,14 +737,15 @@ export class SignalInbox extends DurableObject<Env> {
         external_ref: formatExternalRef(admitted.source, admitted.external_ref),
         first_seen_at: new Date(Number(already.first_seen_at)).toISOString(),
         deliveries,
+        trace_id: carried,
       };
     }
 
-    const seq = this.#admit(admitted, at, "drafted", null);
+    const seq = this.#admit(admitted, at, "drafted", null, trace);
     const id = newDraftID();
     this.ctx.storage.sql.exec(
-      "INSERT INTO signal_draft (id, seq, project, source, external_ref, title, type, state, presentation, signal, created_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
+      "INSERT INTO signal_draft (id, seq, project, source, external_ref, title, type, state, presentation, signal, created_at, trace_id) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
       id,
       seq,
       admitted.project,
@@ -643,7 +755,8 @@ export class SignalInbox extends DurableObject<Env> {
       admitted.type ?? DEFAULT_TICK_TYPE,
       options.presentation ?? "",
       JSON.stringify(admitted),
-      at
+      at,
+      trace
     );
     // Written WITH the draft, in the same synchronous prefix, and with no tick
     // id because there is no tick. This ordering is the opposite of the
@@ -654,13 +767,14 @@ export class SignalInbox extends DurableObject<Env> {
     // DISCARD leaves something behind — a signal that is re-proposed forever
     // is the failure this record prevents.
     this.ctx.storage.sql.exec(
-      "INSERT INTO signal_dedup (source, external_ref, tick_id, commit_sha, first_seen_at, last_seen_at, deliveries, draft_id, state) " +
-        "VALUES (?, ?, '', '', ?, ?, 1, ?, 'draft')",
+      "INSERT INTO signal_dedup (source, external_ref, tick_id, commit_sha, first_seen_at, last_seen_at, deliveries, draft_id, state, trace_id) " +
+        "VALUES (?, ?, '', '', ?, ?, 1, ?, 'draft', ?)",
       admitted.source,
       admitted.external_ref,
       at,
       at,
-      id
+      id,
+      trace
     );
 
     return {
@@ -669,6 +783,7 @@ export class SignalInbox extends DurableObject<Env> {
       draft_id: id,
       project: admitted.project,
       external_ref: formatExternalRef(admitted.source, admitted.external_ref),
+      trace_id: trace,
     };
   }
 
@@ -676,11 +791,23 @@ export class SignalInbox extends DurableObject<Env> {
   async lookup(
     source: string,
     externalRef: string
-  ): Promise<{ tick_id: string; draft_id: string; state: string; deliveries: number } | null> {
+  ): Promise<{
+    tick_id: string;
+    draft_id: string;
+    state: string;
+    deliveries: number;
+    trace_id: string;
+  } | null> {
     const row = this.#dedup(source.trim().toLowerCase(), externalRef.trim());
     return row === null
       ? null
-      : { tick_id: row.tick_id, draft_id: row.draft_id, state: row.state, deliveries: row.deliveries };
+      : {
+          tick_id: row.tick_id,
+          draft_id: row.draft_id,
+          state: row.state,
+          deliveries: row.deliveries,
+          trace_id: row.trace_id,
+        };
   }
 
   async status(): Promise<InboxStatus> {
@@ -695,8 +822,9 @@ export class SignalInbox extends DurableObject<Env> {
         state: string;
         tick_id: string | null;
         admitted_at: number;
+        trace_id: string | null;
       }>(
-        "SELECT seq, source, external_ref, state, tick_id, admitted_at FROM signal_admission " +
+        "SELECT seq, source, external_ref, state, tick_id, admitted_at, trace_id FROM signal_admission " +
           "ORDER BY seq DESC LIMIT ?",
         STATUS_ADMISSION_LIMIT
       ),
@@ -707,6 +835,7 @@ export class SignalInbox extends DurableObject<Env> {
       state: row.state,
       tick_id: row.tick_id,
       admitted_at: new Date(Number(row.admitted_at)).toISOString(),
+      trace_id: row.trace_id ?? "",
     }));
     return {
       object: "SignalInbox",
@@ -899,15 +1028,22 @@ export class SignalInbox extends DurableObject<Env> {
   }
 
   /** Records one arrival and returns its `seq`. Synchronous, so seq is arrival order. */
-  #admit(signal: Signal, at: number, state: string, tickID: string | null): number {
+  #admit(
+    signal: Signal,
+    at: number,
+    state: string,
+    tickID: string | null,
+    traceID: string
+  ): number {
     this.ctx.storage.sql.exec(
-      "INSERT INTO signal_admission (source, external_ref, title, admitted_at, state, tick_id) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO signal_admission (source, external_ref, title, admitted_at, state, tick_id, trace_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
       signal.source,
       signal.external_ref,
       signal.title,
       at,
       state,
-      tickID
+      tickID,
+      traceID
     );
     return Number(
       [...this.ctx.storage.sql.exec<{ seq: number }>("SELECT last_insert_rowid() AS seq")][0].seq
@@ -917,12 +1053,17 @@ export class SignalInbox extends DurableObject<Env> {
   #dedup(source: string, externalRef: string): DedupRow | null {
     const rows = [
       ...this.ctx.storage.sql.exec<DedupRow>(
-        "SELECT tick_id, draft_id, state, first_seen_at, deliveries FROM signal_dedup WHERE source = ? AND external_ref = ?",
+        "SELECT tick_id, draft_id, state, first_seen_at, deliveries, trace_id FROM signal_dedup WHERE source = ? AND external_ref = ?",
         source,
         externalRef
       ),
     ];
-    return rows.length === 0 ? null : rows[0];
+    if (rows.length === 0) return null;
+    const row = rows[0]!;
+    // A row admitted before trace ids existed reads as no chain rather than as
+    // a chain nobody can find. Empty is the honest answer; the alternative is
+    // a fabricated id that joins to nothing.
+    return { ...row, trace_id: row.trace_id ?? "" };
   }
 
   #settle(seq: number, state: string, tickID: string | null, commitSHA: string | null, detail: string | null): void {
@@ -971,6 +1112,12 @@ export class SignalInbox extends DurableObject<Env> {
         parent: signal.parent,
         acceptance_criteria: signal.acceptance_criteria,
         external_ref: externalRef,
+        // Read back out of the draft row, days after it was minted, by a
+        // different actor on a different surface. This line is the far side of
+        // the discontinuity described on `Draft.trace_id`: nothing here mints,
+        // and the record the operator's repository ends up with names the
+        // message that proposed it.
+        ...(draft.trace_id === "" ? {} : { trace_id: draft.trace_id }),
         created_by: signal.created_by,
         at,
       },
@@ -1027,6 +1174,7 @@ type DraftRow = {
   project: string;
   source: string;
   external_ref: string;
+  trace_id: string | null;
   title: string;
   type: string;
   state: string;
@@ -1049,6 +1197,7 @@ function draftFromRow(row: DraftRow): Draft {
     project: row.project,
     source: row.source,
     external_ref: row.external_ref,
+    trace_id: row.trace_id ?? "",
     title: row.title,
     type: row.type,
     state: row.state as DraftState,

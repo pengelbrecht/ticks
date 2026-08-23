@@ -106,6 +106,15 @@ export type TickRecordInput = {
   acceptance_criteria?: string;
   /** The composite `<source>:<ref>` — see {@link formatExternalRef}. */
   external_ref: string;
+  /**
+   * The trace id the signal was minted with at the edge (D20, tick hyi).
+   *
+   * Carried, never minted here: by the time a record is encoded the id has
+   * already survived being parked as a draft, and a second one minted at the
+   * commit would join this tick to nothing that came before it. Absent for a
+   * record no ingested signal produced.
+   */
+  trace_id?: string;
   created_by: string;
   /** ISO-8601; both `created_at` and `updated_at` take it. */
   at: string;
@@ -140,6 +149,12 @@ export function encodeTickRecord(input: TickRecordInput): string {
   const acceptance = (input.acceptance_criteria ?? "").trim();
   if (acceptance !== "") record.acceptance_criteria = acceptance;
   record.external_ref = input.external_ref;
+  // Between `external_ref` and `created_by` because that is where Go's struct
+  // puts it (`internal/tick.Tick`), and this encoder's whole contract is that
+  // the two writers produce byte-identical records for the same values —
+  // field ORDER included, or every alternating write is a whole-file diff.
+  const trace = (input.trace_id ?? "").trim();
+  if (trace !== "") record.trace_id = trace;
   record.created_by = input.created_by;
   record.created_at = input.at;
   record.updated_at = input.at;

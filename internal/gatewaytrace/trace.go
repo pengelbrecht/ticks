@@ -156,6 +156,16 @@ type Call struct {
 	DurationMS   int     `json:"duration_ms"`
 	RunID        string  `json:"run_id"`
 	TickID       string  `json:"tick_id,omitempty"`
+	// TraceID is the identifier that joins this call to the message that
+	// caused the run and to the container that made it (D20, tick hyi). It is
+	// stamped on every proxied request by the factory's gateway proxy, out of
+	// the RUN ROW rather than out of anything a caller sent, so an agent
+	// cannot file its own spend under somebody else's chain.
+	//
+	// Empty for a call made by a run that predates trace ids. Empty rather
+	// than a placeholder, so "this run had no chain" and "this call belongs to
+	// chain X" stay different answers.
+	TraceID string `json:"trace_id,omitempty"`
 	// Raw is the log row exactly as the API sent it, for --json.
 	Raw json.RawMessage `json:"-"`
 }
@@ -274,6 +284,7 @@ func (c *Client) Calls(ctx context.Context, runID string) ([]Call, error) {
 				DurationMS:   row.Duration,
 				RunID:        row.Metadata["run_id"],
 				TickID:       row.Metadata["tick_id"],
+				TraceID:      row.Metadata["trace_id"],
 				Raw:          append(json.RawMessage(nil), raw...),
 			}
 			if parsed, err := time.Parse(time.RFC3339, row.CreatedAt); err == nil {

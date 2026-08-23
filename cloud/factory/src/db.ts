@@ -31,6 +31,19 @@ export interface Run {
   started_at: string;
   ended_at: string | null;
   cost_usd: number;
+  /**
+   * The identifier that joins this run to the message that produced it, and to
+   * everything it goes on to do (D20, tick hyi).
+   *
+   * Minted at an edge — an ingested signal, or the submission itself — and
+   * carried here; never minted at this layer, because a run that named its own
+   * chain would be joined to nothing upstream.
+   *
+   * Null for a run recorded before the column existed (migrations/0008). Null
+   * is the honest answer and is deliberately not backfilled: a run that
+   * belonged to no traced chain must not be made to look as though it did.
+   */
+  trace_id: string | null;
 }
 
 /**
@@ -67,8 +80,8 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
   await db
     .prepare(
       `INSERT INTO runs
-        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd, trace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       run.run_id,
@@ -79,7 +92,8 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
       run.state,
       run.started_at,
       run.ended_at,
-      run.cost_usd
+      run.cost_usd,
+      run.trace_id
     )
     .run();
 }
@@ -181,7 +195,7 @@ export async function getRun(db: D1Database, runId: string): Promise<Run | null>
   return db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd
+              started_at, ended_at, cost_usd, trace_id
        FROM runs
        WHERE run_id = ?`
     )
@@ -207,7 +221,7 @@ export async function updateRunCost(
        SET cost_usd = ?
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd`
+                 started_at, ended_at, cost_usd, trace_id`
     )
     .bind(costUsd, runId)
     .first<Run>();
@@ -428,7 +442,7 @@ export async function listRuns(
   const result = await db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd
+              started_at, ended_at, cost_usd, trace_id
        FROM runs${where}
        ORDER BY started_at DESC, run_id DESC
        LIMIT ?`
@@ -458,7 +472,7 @@ export async function updateRunState(
        SET state = ?, ended_at = COALESCE(?, ended_at)
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd`
+                 started_at, ended_at, cost_usd, trace_id`
     )
     .bind(state, endedAt, runId)
     .first<Run>();
