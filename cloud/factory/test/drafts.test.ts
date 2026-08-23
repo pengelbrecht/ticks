@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { enrolProject, getRun } from "../src/db";
@@ -8,6 +8,7 @@ import {
   draftKeyboard,
   draftTypeCallbackData,
   parseDraftCallback,
+  projectHandle,
   renderDraft,
 } from "../src/drafts";
 import {
@@ -16,7 +17,7 @@ import {
   UNTRUSTED_LINE_PREFIX,
   githubSignature,
 } from "../src/github-issues";
-import { inboxFor, type Draft } from "../src/signal-inbox";
+import { inboxFor, type Draft, type Signal, type SignalInbox } from "../src/signal-inbox";
 import { TELEGRAM_WEBHOOK_PATH } from "../src/telegram";
 import { type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
 import { type RunWorkflowInstance, type RunWorkflowParams } from "../src/runs";
@@ -276,12 +277,14 @@ describe("a signal arrives as a proposal, not as a tick", () => {
     expect(keyboard[0]!.map((button) => button.text)).toEqual(["Create", "Dispatch", "Discard"]);
     const data = (send.body.reply_markup as { inline_keyboard: { callback_data: string }[][] })
       .inline_keyboard[0]!.map((button) => button.callback_data);
-    // Every callback carries the draft id, so a press in a shared chat routes
-    // to exactly one proposal in exactly one project.
+    // Every callback names the PAIR it decides — this project's handle and
+    // this draft's id — so a press in a shared chat routes to exactly one
+    // proposal in exactly one project, structurally and not by keyspace odds.
+    const handle = projectHandle(project);
     expect(data).toEqual([
-      `d:${draft.id}:create`,
-      `d:${draft.id}:dispatch`,
-      `d:${draft.id}:discard`,
+      `d:${handle}:${draft.id}:create`,
+      `d:${handle}:${draft.id}:dispatch`,
+      `d:${handle}:${draft.id}:discard`,
     ]);
   });
 
@@ -303,7 +306,7 @@ describe("Create", () => {
   it("files one normal open tick and leaves no button to press again", async () => {
     const { project, draft } = await proposed();
 
-    const response = await press(draftCallbackData(draft.id, "create"));
+    const response = await press(draftCallbackData(project, draft.id, "create"));
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
@@ -331,11 +334,11 @@ describe("Create", () => {
   });
 
   it("cannot file the same proposal twice, however many times it is pressed", async () => {
-    const { draft } = await proposed();
+    const { project, draft } = await proposed();
 
     const [first, second] = await Promise.all([
-      press(draftCallbackData(draft.id, "create")),
-      press(draftCallbackData(draft.id, "create")),
+      press(draftCallbackData(project, draft.id, "create")),
+      press(draftCallbackData(project, draft.id, "create")),
     ]);
     const outcomes = [
       (await first.json()) as Record<string, unknown>,
@@ -351,7 +354,7 @@ describe("Create", () => {
     const { project, draft } = await proposed();
     contents.conflicts = 99;
 
-    const response = await press(draftCallbackData(draft.id, "create"));
+    const response = await press(draftCallbackData(project, draft.id, "create"));
 
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
       decided: false,
@@ -362,7 +365,7 @@ describe("Create", () => {
     expect((await inboxFor(env, project).getDraft(draft.id))?.state).toBe("pending");
 
     contents.conflicts = 0;
-    const again = await press(draftCallbackData(draft.id, "create"));
+    const again = await press(draftCallbackData(project, draft.id, "create"));
     expect((await again.json()) as Record<string, unknown>).toMatchObject({ decided: true });
   });
 });
@@ -371,7 +374,7 @@ describe("Dispatch", () => {
   it("files the tick and starts a run at the commit that carries it", async () => {
     const { project, draft } = await proposed();
 
-    const response = await press(draftCallbackData(draft.id, "dispatch"));
+    const response = await press(draftCallbackData(project, draft.id, "dispatch"));
 
     const body = (await response.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ decided: true, action: "dispatch", run_started: true });
@@ -396,7 +399,7 @@ describe("Dispatch", () => {
     // tick is still filed, because accepting it and igniting it are two acts.
     set("RUN_WORKFLOW", undefined);
 
-    const response = await press(draftCallbackData(draft.id, "dispatch"));
+    const response = await press(draftCallbackData(project, draft.id, "dispatch"));
 
     const body = (await response.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ decided: true, action: "dispatch", run_started: false });
@@ -410,7 +413,7 @@ describe("Discard", () => {
   it("files nothing, and the dedup record it leaves stops the signal re-proposing", async () => {
     const { project, draft } = await proposed();
 
-    const response = await press(draftCallbackData(draft.id, "discard"));
+    const response = await press(draftCallbackData(project, draft.id, "discard"));
 
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
       decided: true,
@@ -447,7 +450,7 @@ describe("the type is the one thing a human may change before filing", () => {
   it("retypes the proposal and files it as the retyped type", async () => {
     const { project, draft } = await proposed();
 
-    const retyped = await press(draftTypeCallbackData(draft.id, "feature"));
+    const retyped = await press(draftTypeCallbackData(project, draft.id, "feature"));
     expect((await retyped.json()) as Record<string, unknown>).toMatchObject({
       retyped: true,
       type: "feature",
@@ -459,17 +462,17 @@ describe("the type is the one thing a human may change before filing", () => {
       (edit.body.reply_markup as { inline_keyboard: unknown[][] }).inline_keyboard[0]
     ).toHaveLength(3);
 
-    const created = await press(draftCallbackData(draft.id, "create"));
+    const created = await press(draftCallbackData(project, draft.id, "create"));
     const body = (await created.json()) as Record<string, unknown>;
     expect(contents.records()[0]).toMatchObject({ id: body.tick_id, type: "feature" });
     void project;
   });
 
   it("refuses to retype a proposal that has already been decided", async () => {
-    const { draft } = await proposed();
-    await press(draftCallbackData(draft.id, "create"));
+    const { project, draft } = await proposed();
+    await press(draftCallbackData(project, draft.id, "create"));
 
-    const late = await press(draftTypeCallbackData(draft.id, "chore"));
+    const late = await press(draftTypeCallbackData(project, draft.id, "chore"));
 
     expect((await late.json()) as Record<string, unknown>).toMatchObject({
       retyped: false,
@@ -501,7 +504,7 @@ describe("no draft is ever visible to tk next or to a wave", () => {
     expect(await inboxFor(env, project).listDrafts({ state: "pending" })).toHaveLength(1);
     expect(contents.files.size).toBe(0);
 
-    await press(draftCallbackData(draft.id, "create"));
+    await press(draftCallbackData(project, draft.id, "create"));
     expect(contents.created).toHaveLength(1);
   });
 
@@ -509,8 +512,8 @@ describe("no draft is ever visible to tk next or to a wave", () => {
     const first = await proposed();
     const second = await proposed();
 
-    await press(draftCallbackData(first.draft.id, "create"));
-    await press(draftCallbackData(second.draft.id, "discard"));
+    await press(draftCallbackData(first.project, first.draft.id, "create"));
+    await press(draftCallbackData(second.project, second.draft.id, "discard"));
 
     // One record for the accepted one, none for the discarded one, and the
     // accepted one is a tick like any other: `tk next` may pick it up, which is
@@ -532,22 +535,30 @@ describe("no draft is ever visible to tk next or to a wave", () => {
 
 describe("the callback vocabulary", () => {
   it("reads its own presses and nobody else's", () => {
-    expect(parseDraftCallback("d:abc123:create")).toEqual({
+    expect(parseDraftCallback("d:1a2b3c4d:abc123:create")).toEqual({
       kind: "decide",
+      project_handle: "1a2b3c4d",
       draft_id: "abc123",
       action: "create",
     });
-    expect(parseDraftCallback("y:abc123:feature")).toEqual({
+    expect(parseDraftCallback("y:1a2b3c4d:abc123:feature")).toEqual({
       kind: "retype",
+      project_handle: "1a2b3c4d",
       draft_id: "abc123",
       type: "feature",
     });
     // A RunRoom question's press, which this surface must not answer.
     expect(parseDraftCallback("q:question-1:0")).toBeNull();
     expect(parseDraftCallback("r:4242:1")).toBeNull();
-    expect(parseDraftCallback("d:abc123:merge")).toBeNull();
-    expect(parseDraftCallback("d:NOT-HEX:create")).toBeNull();
+    expect(parseDraftCallback("d:1a2b3c4d:abc123:merge")).toBeNull();
+    expect(parseDraftCallback("d:1a2b3c4d:NOT-HEX:create")).toBeNull();
+    expect(parseDraftCallback("d:NOTHEXXX:abc123:create")).toBeNull();
     expect(parseDraftCallback(undefined)).toBeNull();
+    // The shape this module used before the project half existed. Not accepted
+    // as a legacy form: a payload that cannot say which project it decides is
+    // exactly the press the pair exists to stop resolving.
+    expect(parseDraftCallback("d:abc123:create")).toBeNull();
+    expect(parseDraftCallback("y:abc123:feature")).toBeNull();
   });
 
   it("fits every button inside Telegram's 64-byte callback limit", async () => {
@@ -558,14 +569,14 @@ describe("the callback vocabulary", () => {
       }
     }
     expect(draftKeyboard(draft)[1]!.map((b) => b.callback_data)).toEqual(
-      DRAFT_TYPE_CHOICES.map((type) => `y:${draft.id}:${type}`)
+      DRAFT_TYPE_CHOICES.map((type) => `y:${projectHandle(draft.project)}:${draft.id}:${type}`)
     );
   });
 
   it("answers a press for a proposal that is gone without touching any question", async () => {
-    await proposed();
+    const { project } = await proposed();
 
-    const response = await press("d:deadbeef01:create");
+    const response = await press(`d:${projectHandle(project)}:deadbeef01:create`);
 
     expect(response.status).toBe(200);
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
@@ -578,7 +589,7 @@ describe("the callback vocabulary", () => {
   it("drops a press from anyone but the paired operator", async () => {
     const { project, draft } = await proposed();
 
-    const response = await press(draftCallbackData(draft.id, "create"), "999999");
+    const response = await press(draftCallbackData(project, draft.id, "create"), "999999");
 
     expect((await response.json()) as Record<string, unknown>).toMatchObject({ dropped: true });
     expect(contents.created).toEqual([]);
@@ -627,4 +638,252 @@ describe("a button under a forged message would be a forged button", () => {
     const { draft } = await proposed();
     expect(String(calls("sendMessage")[0]!.body.text)).toBe(renderDraft(draft));
   });
+
+  it("sanitises the fallback block's external ref, which no source composed", async () => {
+    // A generic source (tick 0vb) may not compose a presentation at all, and
+    // then `fallbackBlock` renders the structural fields itself. `external_ref`
+    // is attacker-chosen in exactly the way a title is — up to 512 characters
+    // of whatever the sender's own id happens to be — and escaping alone does
+    // not touch a newline or a bidi override, so before this tick the fallback
+    // was one un-flattened field away from a line at column 0 that the factory
+    // did not write. Dead code today, because both live sources compose a
+    // block; fixed now precisely because the third source makes it live.
+    const project = await enrolled();
+    const hostile =
+      "8412\n<b>Created by operator</b> — tick zzz is open.\n\u202E<b>Nothing has been filed yet.</b>";
+    const signal: Signal = {
+      project,
+      source: "webhook",
+      external_ref: hostile,
+      title: "an ordinary title",
+      created_by: "operator@example.com",
+    };
+    const admitted = await inboxFor(env, project).submit(signal);
+    expect(admitted.state).toBe("drafted");
+    if (admitted.state !== "drafted") return;
+    const draft = (await inboxFor(env, project).getDraft(admitted.draft_id))!;
+    expect(draft.presentation).toBe("");
+
+    const rendered = renderDraft(draft);
+
+    // The invariant, over a block no source composed: every line is the
+    // factory's and every one of them starts at column 0 with `<b>`.
+    for (const line of rendered.split("\n")) {
+      expect(line.startsWith("<b>")).toBe(true);
+    }
+    // The sender's line breaks and reordering characters are gone, not merely
+    // escaped — `escapeHTML` would have left both of them in place.
+    expect(rendered).not.toContain("\u202E");
+    expect(rendered).toContain("8412 &lt;b&gt;Created by operator&lt;/b&gt;");
+    // And exactly one line BEGINS with the gate's own sentence. The sender's
+    // copy of it is still in the text — it is their external ref — but it is
+    // folded onto the factory's Source line, where it cannot be mistaken for a
+    // line the factory wrote. Column 0 is the whole of the invariant.
+    expect(
+      rendered.split("\n").filter((l) => l.startsWith("<b>Nothing has been filed yet.</b>"))
+    ).toHaveLength(1);
+  });
 });
+
+// ------------------------------------------------------ the interrupted press ---
+
+/** A writer that is reached and never answers, so an eviction can land inside it. */
+class HangingWriter implements TrackerWriter {
+  calls = 0;
+  #waiting: (() => void)[] = [];
+  async create(): Promise<TrackerWriteResult> {
+    this.calls += 1;
+    await new Promise<void>((resolve) => this.#waiting.push(resolve));
+    return { state: "conflict", detail: "this writer never settles" };
+  }
+  releaseAll(): void {
+    for (const resume of this.#waiting.splice(0)) resume();
+  }
+}
+
+describe("a proposal an eviction left mid-commit is not a dead button", () => {
+  it("tells the operator which tick it already became, and files nothing twice", async () => {
+    const { project, draft } = await proposed();
+
+    // A press that reaches GitHub and dies inside it. `DurableObjectState.abort`
+    // destroys the instance and its memory while the SQL row survives, which is
+    // exactly what a `wrangler deploy` does to a commit in flight.
+    const hanging = new HangingWriter();
+    set("TICK_WRITER", hanging);
+    const abandoned = press(draftCallbackData(project, draft.id, "create")).catch((e) => String(e));
+    for (let spin = 0; spin < 200 && hanging.calls === 0; spin += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(hanging.calls).toBe(1);
+    let candidates: string[] = [];
+    await runInDurableObject(
+      inboxFor(env, project) as DurableObjectStub<SignalInbox>,
+      (_instance, state) => {
+        candidates = JSON.parse(
+          [
+            ...state.storage.sql.exec<{ candidates: string | null }>(
+              "SELECT candidates FROM signal_draft WHERE id = ?",
+              draft.id
+            ),
+          ][0]!.candidates ?? "[]"
+        ) as string[];
+      }
+    );
+    try {
+      await runInDurableObject(
+        inboxFor(env, project) as DurableObjectStub<SignalInbox>,
+        (_instance, state) => {
+          (state as unknown as { abort(reason?: string): void }).abort("evicted mid-commit");
+        }
+      );
+    } catch {
+      // The abort breaks its own caller. That IS the eviction.
+    }
+    hanging.releaseAll();
+    await abandoned;
+    set("TICK_WRITER", contents);
+
+    // GitHub had in fact taken the write before the object died.
+    set("TICK_TRACKER", {
+      async read(_project: string, _ref: string, tickID: string): Promise<string | null> {
+        return tickID === candidates[0]
+          ? JSON.stringify({
+              id: tickID,
+              title: "already filed",
+              status: "open",
+              type: "bug",
+              owner: "operator@example.com",
+              external_ref: "github:I_kwDOABCD1234",
+              created_by: "operator@example.com",
+            })
+          : null;
+      },
+    });
+
+    const response = await press(draftCallbackData(project, draft.id, "create"));
+
+    // Before this tick the answer was "Already committing." forever: the
+    // operator was told the proposal had been handled, could not tell whether
+    // GitHub accepted the write, and the button did nothing ever again.
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      reconciled: true,
+      tick_id: candidates[0],
+      state: "created",
+    });
+    expect(contents.created).toEqual([]);
+    const edit = calls("editMessageText").at(-1)!;
+    expect(String(edit.body.text)).toContain(`Already filed as tick ${candidates[0]}`);
+    expect((edit.body.reply_markup as { inline_keyboard: unknown[] }).inline_keyboard).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------- the project binding ---
+
+/**
+ * Two project names whose {@link projectHandle} is the same 32-bit value.
+ *
+ * Found by search, and pinned here because a handle collision cannot be
+ * produced any other way and is exactly the case the binding must not decide
+ * from. `.tick/learnings.md`: rare is the case that goes untested and then
+ * happens.
+ */
+const COLLIDING = ["acme/collide-1162789", "acme/collide-1379192"] as const;
+
+async function enrolNamed(project: string): Promise<void> {
+  await enrolProject(env.DB, {
+    project,
+    enrolled_by: "operator@example.com",
+    enrolled_at: new Date().toISOString(),
+  });
+}
+
+describe("a press names the project it decides, not just the draft", () => {
+  it("will not decide a draft that belongs to a different project's handle", async () => {
+    const other = await enrolled();
+    const { project, draft } = await proposed();
+    expect(projectHandle(other)).not.toBe(projectHandle(project));
+
+    // The pair is (handle, draft id) and both halves are checked. Before this
+    // tick the payload named only the id and `findDraft` scanned every
+    // enrolled project taking the first inbox that answered, so this press
+    // would have decided the other project's proposal on a 48-bit coincidence.
+    const response = await press(`d:${projectHandle(other)}:${draft.id}:create`);
+
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      matched: false,
+      reason: "unknown_draft",
+    });
+    expect(contents.created).toEqual([]);
+    expect((await inboxFor(env, project).getDraft(draft.id))!.state).toBe("pending");
+  });
+
+  it("refuses a press that names two proposals rather than choosing one", async () => {
+    const [first, second] = COLLIDING;
+    expect(projectHandle(first)).toBe(projectHandle(second));
+    await enrolNamed(first);
+    await enrolNamed(second);
+
+    const admitted = await inboxFor(env, first).submit({
+      project: first,
+      source: "webhook",
+      external_ref: "1",
+      title: "a proposal in the first project",
+      created_by: "operator@example.com",
+    });
+    expect(admitted.state).toBe("drafted");
+    if (admitted.state !== "drafted") return;
+
+    // The 1-in-2^48 event, written in rather than waited for: the same draft id
+    // in the other project's inbox. A draft id is unique inside ONE inbox's
+    // table and nowhere else, which is the whole reason the callback has to
+    // name the pair.
+    await runInDurableObject(
+      inboxFor(env, second) as DurableObjectStub<SignalInbox>,
+      (_instance, state) => {
+        state.storage.sql.exec(
+          "INSERT INTO signal_draft (id, seq, project, source, external_ref, title, type, state, presentation, signal, created_at, trace_id) " +
+            "VALUES (?, 1, ?, 'webhook', '2', 'a proposal in the second project', 'task', 'pending', '', ?, ?, '')",
+          admitted.draft_id,
+          second,
+          JSON.stringify({
+            project: second,
+            source: "webhook",
+            external_ref: "2",
+            title: "a proposal in the second project",
+            created_by: "operator@example.com",
+          }),
+          Date.now()
+        );
+      }
+    );
+
+    const response = await press(`d:${projectHandle(first)}:${admitted.draft_id}:create`);
+
+    // Not "the first one that answered": a press that names two proposals is
+    // refused, so an approval is never attributed to the wrong project's gate.
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      decided: false,
+      reason: "ambiguous_draft",
+      projects: [...COLLIDING],
+    });
+    expect(contents.created).toEqual([]);
+    for (const project of COLLIDING) {
+      expect((await inboxFor(env, project).getDraft(admitted.draft_id))!.state).toBe("pending");
+    }
+  });
+
+  it("keeps the pair inside Telegram's 64-byte callback limit for a long project path", async () => {
+    const long = "a-very-long-organisation-name/a-very-long-repository-name-indeed";
+    for (const action of ["create", "dispatch", "discard"] as const) {
+      const data = draftCallbackData(long, "0123456789ab", action);
+      expect(new TextEncoder().encode(data).length).toBeLessThanOrEqual(64);
+    }
+    // A handle rather than the path itself, which is why it fits at all.
+    expect(projectHandle(long)).toHaveLength(8);
+    expect(projectHandle(long)).toMatch(/^[0-9a-f]{8}$/);
+    // And it is a pure function of the name, so a message posted before a
+    // redeploy still resolves after one.
+    expect(projectHandle(long)).toBe(projectHandle(long));
+  });
+});
+

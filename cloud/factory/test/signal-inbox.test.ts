@@ -12,7 +12,7 @@ import {
   type SignalInbox,
 } from "../src/signal-inbox";
 import { MAX_COMMIT_ATTEMPTS, type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
-import { TICK_RECORD_DIR } from "../src/tick-membership";
+import { TICK_RECORD_DIR, type TrackerReader } from "../src/tick-membership";
 
 /**
  * A repository as GitHub's contents API presents it: a set of paths, a branch
@@ -87,7 +87,74 @@ class FakeContents implements TrackerWriter {
   }
 }
 
+/**
+ * The tracker as a READER sees it — what the reconciler asks after an eviction.
+ *
+ * Separate from {@link FakeContents} on purpose: the recovery path's whole
+ * question is what the repository says, independently of what this Worker
+ * believes it wrote, and a fake that answered from the writer's own map could
+ * not express the case the reconciler exists for — a commit that landed while
+ * this side recorded nothing.
+ */
+class FakeTracker implements TrackerReader {
+  /** `<project>/<tick id>` to record text. */
+  readonly records = new Map<string, string>();
+  /** Every id this reader was asked about, in order. */
+  readonly reads: string[] = [];
+  /** When set, every read throws: GitHub is not answering. */
+  failure: string | null = null;
+
+  file(project: string, tickID: string, externalRef: string): void {
+    this.records.set(
+      `${project}/${tickID}`,
+      JSON.stringify({
+        id: tickID,
+        title: "a tick the tracker already holds",
+        status: "open",
+        priority: 2,
+        type: "task",
+        owner: "operator@example.com",
+        external_ref: externalRef,
+        created_by: "operator@example.com",
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      })
+    );
+  }
+
+  async read(project: string, _ref: string, tickID: string): Promise<string | null> {
+    this.reads.push(tickID);
+    if (this.failure !== null) throw new Error(this.failure);
+    return this.records.get(`${project}/${tickID}`) ?? null;
+  }
+}
+
+/**
+ * A writer that is reached and never answers.
+ *
+ * The instrument for the one failure `submit`'s redelivery argument does not
+ * cover: a human pressed Create, the commit went out, and the object died
+ * inside it. Held open so the test can abort the object at exactly the moment
+ * a real eviction would land — with the row claimed and nothing written back.
+ */
+class HangingWriter implements TrackerWriter {
+  calls = 0;
+  #waiting: (() => void)[] = [];
+
+  async create(): Promise<TrackerWriteResult> {
+    this.calls += 1;
+    await new Promise<void>((resolve) => this.#waiting.push(resolve));
+    return { state: "conflict", detail: "this writer never settles" };
+  }
+
+  /** Lets the abandoned attempt fall out of the runtime, so no test leaks one. */
+  releaseAll(): void {
+    for (const resume of this.#waiting.splice(0)) resume();
+  }
+}
+
 let contents: FakeContents;
+let tracker: FakeTracker;
 const saved: Record<string, unknown> = {};
 
 function set(name: string, value: unknown): void {
@@ -97,7 +164,11 @@ function set(name: string, value: unknown): void {
 
 beforeEach(() => {
   contents = new FakeContents();
+  tracker = new FakeTracker();
   set("TICK_WRITER", contents);
+  // Injected in every test, not only the recovery ones: without it the
+  // reconciler would reach api.github.com from the test runtime.
+  set("TICK_TRACKER", tracker);
   // No backoff: the retry RULE is what these tests are about, not the wait.
   set("SIGNAL_COMMIT_RETRY_MS", "0");
 });
@@ -675,5 +746,168 @@ describe("what the inbox records", () => {
     expect(commitRetryMs({ SIGNAL_COMMIT_RETRY_MS: "40" } as never)).toBe(40);
     expect(commitRetryMs({ SIGNAL_COMMIT_RETRY_MS: "soon" } as never)).toBe(250);
     expect(commitRetryMs({ SIGNAL_COMMIT_RETRY_MS: "-1" } as never)).toBe(250);
+  });
+});
+
+// ------------------------------------------------------ the interrupted press ---
+
+/**
+ * Leaves one draft exactly as an evicted Durable Object leaves it: `committing`
+ * in storage, with the commit it claimed neither settled nor written back, and
+ * with the instance that claimed it gone.
+ *
+ * The eviction is real, not simulated with a hand-written row —
+ * `DurableObjectState.abort()` destroys the instance and its memory while the
+ * SQL survives, which is precisely the asymmetry the recovery rests on. A row
+ * forged into `committing` would prove nothing about the state machine.
+ *
+ * Returns the candidate ids the claim persisted, which is what the tracker is
+ * then asked about.
+ */
+async function strandMidCommit(name: string, draftID: string): Promise<string[]> {
+  const hanging = new HangingWriter();
+  set("TICK_WRITER", hanging);
+  // Deliberately not awaited: this press never returns, which is the point.
+  const abandoned = inbox(name)
+    .decide(draftID, "create", HUMAN)
+    .then(
+      () => "settled",
+      (error) => String(error)
+    );
+  for (let spin = 0; spin < 200 && hanging.calls === 0; spin += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  expect(hanging.calls, "the commit never reached the writer").toBe(1);
+
+  let candidates: string[] = [];
+  await runInDurableObject(inbox(name) as DurableObjectStub<SignalInbox>, (_instance, state) => {
+    const rows = [
+      ...state.storage.sql.exec<{ state: string; candidates: string | null }>(
+        "SELECT state, candidates FROM signal_draft WHERE id = ?",
+        draftID
+      ),
+    ];
+    expect(rows[0]!.state).toBe("committing");
+    candidates = JSON.parse(rows[0]!.candidates ?? "[]") as string[];
+  });
+  expect(candidates.length).toBeGreaterThan(0);
+
+  try {
+    await runInDurableObject(inbox(name) as DurableObjectStub<SignalInbox>, (_instance, state) => {
+      (state as unknown as { abort(reason?: string): void }).abort("evicted mid-commit");
+    });
+  } catch {
+    // The abort breaks its own caller. That IS the eviction.
+  }
+  hanging.releaseAll();
+  await abandoned;
+  set("TICK_WRITER", contents);
+  return candidates;
+}
+
+describe("a press that died mid-commit is a question, not a decision", () => {
+  it("gives the proposal back when the commit never reached the tracker", async () => {
+    const name = project();
+    const [draftID] = await propose(name, [signal({ project: name })]);
+
+    await strandMidCommit(name, draftID!);
+    expect((await inbox(name).getDraft(draftID!))!.state).toBe("committing");
+
+    // Before this tick every later press was told `already_decided`: the
+    // operator was told the proposal had been handled while nothing was filed
+    // and nothing discarded, and the button was dead forever.
+    const decision = accepted(await inbox(name).decide(draftID!, "create", HUMAN));
+
+    expect(contents.committed).toHaveLength(1);
+    expect(recordAt(decision.path).external_ref).toBe("telegram:8412");
+    expect(decision.draft.state).toBe("created");
+    // The tracker was asked about every candidate the dead press claimed, and
+    // answered "no such record" for all of them — a definite no, which is what
+    // makes giving the proposal back safe rather than a second filing.
+    expect(tracker.reads.length).toBeGreaterThan(0);
+    const lookup = await inbox(name).lookup("telegram", "8412");
+    expect(lookup).toMatchObject({ state: "created", tick_id: decision.tick_id });
+  });
+
+  it("files nothing a second time when the interrupted commit had already landed", async () => {
+    const name = project();
+    const [draftID] = await propose(name, [signal({ project: name })]);
+
+    const candidates = await strandMidCommit(name, draftID!);
+    // What an eviction one instruction later looks like from outside: GitHub
+    // took the write, and this side recorded none of it.
+    tracker.file(name, candidates[0]!, "telegram:8412");
+
+    const decision = await inbox(name).decide(draftID!, "create", HUMAN);
+
+    expect(decision.state).toBe("reconciled");
+    if (decision.state !== "reconciled") return;
+    expect(decision.tick_id).toBe(candidates[0]);
+    // The whole point: no second record, because the first one exists.
+    expect(contents.committed).toEqual([]);
+    expect(decision.draft.state).toBe("created");
+    expect(decision.draft.tick_id).toBe(candidates[0]);
+    // And the dedup index now says what the repository says, so a redelivery
+    // of this signal reports the tick it became rather than an empty id.
+    expect(await inbox(name).lookup("telegram", "8412")).toMatchObject({
+      state: "created",
+      tick_id: candidates[0],
+    });
+  });
+
+  it("does not read a stranger's tick at a candidate path as its own", async () => {
+    const name = project();
+    const [draftID] = await propose(name, [signal({ project: name })]);
+
+    const candidates = await strandMidCommit(name, draftID!);
+    // `commitTickRecord` walks past ids that are already taken, so a record at
+    // a candidate path is very often somebody else's tick. The external ref is
+    // the dedup key and the only thing that can say whose it is.
+    tracker.file(name, candidates[0]!, "github:I_kwDOsomebodyelse");
+
+    const decision = accepted(await inbox(name).decide(draftID!, "create", HUMAN));
+
+    expect(contents.committed).toHaveLength(1);
+    expect(recordAt(decision.path).external_ref).toBe("telegram:8412");
+  });
+
+  it("refuses to guess while the tracker cannot be read, and recovers once it can", async () => {
+    const name = project();
+    const [draftID] = await propose(name, [signal({ project: name })]);
+    await strandMidCommit(name, draftID!);
+
+    tracker.failure = "GitHub answered HTTP 502 reading .tick/issues/abc.json";
+    const blind = await inbox(name).decide(draftID!, "create", HUMAN);
+
+    expect(blind.state).toBe("deferred");
+    if (blind.state !== "deferred") return;
+    expect(blind.reason).toBe("commit_unreconciled");
+    // A blip must not file a second tick, and must not settle the proposal on
+    // a guess either: nothing was written and the row is untouched.
+    expect(contents.committed).toEqual([]);
+    expect((await inbox(name).getDraft(draftID!))!.state).toBe("committing");
+
+    tracker.failure = null;
+    const decision = accepted(await inbox(name).decide(draftID!, "create", HUMAN));
+    expect(contents.committed).toHaveLength(1);
+    expect(decision.draft.state).toBe("created");
+  });
+
+  it("leaves a commit this instance is still running alone", async () => {
+    const name = project();
+    const [draftID] = await propose(name, [signal({ project: name })]);
+
+    // A live commit is ALSO a `committing` row, and reconciling one would race
+    // the commit it is asking about — the reconciler must answer only for rows
+    // whose instance is gone.
+    contents.gate = new Promise<void>((resolve) => setTimeout(resolve, 40));
+    const first = inbox(name).decide(draftID!, "create", HUMAN);
+    const second = await inbox(name).decide(draftID!, "create", HUMAN);
+
+    expect(second.state).toBe("already_decided");
+    expect(accepted(await first).draft.state).toBe("created");
+    expect(contents.committed).toHaveLength(1);
+    // Nothing was asked of the tracker: there was no question to answer.
+    expect(tracker.reads).toEqual([]);
   });
 });

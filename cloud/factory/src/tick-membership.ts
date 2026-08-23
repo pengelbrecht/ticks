@@ -89,6 +89,19 @@ export type TickRecord = {
   type: string;
   /** Empty when the tick has no parent — Go omits the field entirely. */
   parent: string;
+  /**
+   * The `<source>:<ref>` a signal was filed from, when one was.
+   *
+   * Not read by the membership walk. It is here because the funnel's own
+   * reconciler (`signal-inbox.ts`) asks this same reader whether a specific
+   * tick record is the one IT committed, and the external ref is the only
+   * field that answers that — a candidate id may have been taken by anybody.
+   * One parser of Go's format rather than two is the point; see
+   * `.tick/learnings.md` on formats read from both languages.
+   *
+   * Empty for a tick no signal produced, exactly as Go omits it.
+   */
+  external_ref: string;
 };
 
 /** Go's `tick.TypeEpic`. */
@@ -113,7 +126,8 @@ export function parseTickRecord(text: string): TickRecord | null {
   if (typeof record.id !== "string" || record.id === "") return null;
   const type = typeof record.type === "string" ? record.type : "";
   const parent = typeof record.parent === "string" ? record.parent : "";
-  return { id: record.id, type, parent };
+  const externalRef = typeof record.external_ref === "string" ? record.external_ref : "";
+  return { id: record.id, type, parent, external_ref: externalRef };
 }
 
 // ----------------------------------------------------------------- the seam ---
@@ -162,7 +176,13 @@ export function githubTrackerReader(env: Env): TrackerReader {
   return {
     async read(project: string, ref: string, tickID: string): Promise<string | null> {
       const path = tickRecordPath(tickID);
-      const url = `${base}/repos/${project}/contents/${path}?ref=${encodeURIComponent(ref)}`;
+      // An empty ref means "the repository's default branch", which is what
+      // the contents API does with no `?ref` at all — and emphatically not
+      // `?ref=`, which names a branch called "". Every membership check passes
+      // a real commit; the funnel's reconciler is the caller that has only a
+      // signal's optional branch, and for most signals that is unset.
+      const query = ref === "" ? "" : `?ref=${encodeURIComponent(ref)}`;
+      const url = `${base}/repos/${project}/contents/${path}${query}`;
       const response = await fetch(url, { headers });
       if (response.status === 404) return null;
       if (!response.ok) {

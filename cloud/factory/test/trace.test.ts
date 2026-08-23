@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { readWorkerLogTail, readWorkerManifest, type WorkerManifest } from "../src/artifacts";
 import { enrolProject, getRun } from "../src/db";
+import { draftCallbackData } from "../src/drafts";
 import { GATEWAY_METADATA_KEYS, gatewayMetadata } from "../src/gateway";
 import { manifestRecorder } from "../src/reconcile";
 import {
@@ -533,7 +534,7 @@ describe("the acceptance criterion", () => {
 
     // 2. A PERSON PRESSES DISPATCH — later, from a different surface, in a
     //    different request, as a different actor.
-    expect((await press(`d:${draft.id}:dispatch`)).status).toBe(200);
+    expect((await press(draftCallbackData(project, draft.id, "dispatch"))).status).toBe(200);
 
     // QUERY ONE — the tick it created. The record `tk` reads back names the
     // message that proposed it.

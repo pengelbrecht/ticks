@@ -19,15 +19,26 @@
  * (`internal/tick/tick.go`, pinned by the parity fixture), so it could not be
  * written as a record even by a writer that tried.
  *
- * ## Why the buttons carry the draft id
+ * ## Why the buttons carry the project AND the draft id
  *
- * Callback data is `d:<draft id>:<verb>`, so a press names exactly one
- * proposal in exactly one project. That is what makes this surface independent
- * of yu8's free-text rules: a typed message has to be disambiguated against
- * every open question in the deployment and refuses when it cannot, while a
- * press cannot be ambiguous in the first place. It is also why the id is
- * random rather than sequential — in a shared chat, a guessable id is a
- * button somebody else's press could land on.
+ * Callback data is `d:<project handle>:<draft id>:<verb>`, so a press names
+ * exactly one proposal in exactly one project. That is what makes this surface
+ * independent of yu8's free-text rules: a typed message has to be
+ * disambiguated against every open question in the deployment and refuses when
+ * it cannot, while a press cannot be ambiguous in the first place. It is also
+ * why the id is random rather than sequential — in a shared chat, a guessable
+ * id is a button somebody else's press could land on.
+ *
+ * The project half is younger than the draft half and it is there because the
+ * epic's stated property — an approval can never be attributed to the wrong
+ * project's gate — rested on nothing but keyspace odds without it. A draft id
+ * is 48 random bits and is unique only within ONE project's inbox table; a
+ * press that named only the id was resolved by asking every enrolled project
+ * in turn and taking the first inbox that answered, so two projects that both
+ * minted the same id would silently decide the wrong one's proposal. Naming
+ * the pair makes that structural rather than improbable: see
+ * {@link projectHandle} and {@link findDraft}, which refuse an ambiguous pair
+ * instead of picking from it.
  *
  * ## Why the message must name its project
  *
@@ -49,7 +60,6 @@
  */
 
 import { getEnrolledProject, listEnrolledProjects, type EnrolledProject } from "./db";
-import { sanitizeUntrustedLine } from "./github-issues";
 import { contextLine, type MessageContext } from "./message-context";
 import { parseSubmission, submitRun } from "./runs";
 import {
@@ -66,6 +76,11 @@ import {
   type InlineButton,
   type TelegramRuntimeEnv,
 } from "./telegram";
+// Straight from the shared module rather than through `github-issues.ts`'s
+// re-export: this surface renders drafts from EVERY source, and reaching the
+// generic sanitiser through one source's module is how the next reader learns
+// the wrong thing about who owns it.
+import { sanitizeUntrustedLine } from "./untrusted-text";
 
 import type { Env } from "./index";
 
@@ -73,6 +88,42 @@ import type { Env } from "./index";
 export const DRAFT_CALLBACK_PREFIX = "d";
 /** The callback namespace for retyping a proposal before it is filed. */
 export const DRAFT_TYPE_CALLBACK_PREFIX = "y";
+
+/** How many hex characters of {@link projectHandle} ride in a callback payload. */
+export const PROJECT_HANDLE_CHARS = 8;
+
+/**
+ * A short, stable stand-in for `owner/repo` inside a callback payload.
+ *
+ * Telegram caps `callback_data` at 64 bytes and a project path is unbounded
+ * prose (`some-long-organisation/some-long-repository` is ordinary), so the
+ * project cannot simply be concatenated in. This is a DERIVED handle rather
+ * than one assigned at enrolment for two reasons: it needs no new durable
+ * state, no migration and no backfill for projects already enrolled, and it
+ * cannot go stale — the handle of a project is a pure function of its name, so
+ * a message posted before a redeploy still resolves after one.
+ *
+ * FNV-1a, and deliberately not a cryptographic hash: this value is not a
+ * secret and guessing it buys nothing. The draft id is the unguessable half
+ * (48 random bits) and stays so; this half only has to SAY which project the
+ * press is for, and {@link findDraft} verifies it against the inbox that
+ * actually holds the draft. It is also synchronous, which `crypto.subtle` is
+ * not, so a keyboard can be rendered without an await.
+ *
+ * A collision between two enrolled projects is not a misattribution: it is a
+ * refusal. See {@link findDraft}.
+ */
+export function projectHandle(project: string): string {
+  // FNV-1a 32-bit. `Math.imul` keeps the multiply in 32-bit space, which a
+  // plain `*` does not once the product passes 2^53.
+  let hash = 0x811c9dc5;
+  const bytes = new TextEncoder().encode(project);
+  for (const byte of bytes) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(PROJECT_HANDLE_CHARS, "0");
+}
 
 /**
  * The types a human may retype a proposal to.
@@ -85,17 +136,17 @@ export const DRAFT_TYPE_CALLBACK_PREFIX = "y";
  */
 export const DRAFT_TYPE_CHOICES = ["bug", "feature", "task", "chore"] as const;
 
-/** What a press means. */
+/** What a press means. Every one of them names the PAIR it decides. */
 export type DraftCallback =
-  | { kind: "decide"; draft_id: string; action: DraftAction }
-  | { kind: "retype"; draft_id: string; type: string };
+  | { kind: "decide"; project_handle: string; draft_id: string; action: DraftAction }
+  | { kind: "retype"; project_handle: string; draft_id: string; type: string };
 
-export function draftCallbackData(draftID: string, action: DraftAction): string {
-  return `${DRAFT_CALLBACK_PREFIX}:${draftID}:${action}`;
+export function draftCallbackData(project: string, draftID: string, action: DraftAction): string {
+  return `${DRAFT_CALLBACK_PREFIX}:${projectHandle(project)}:${draftID}:${action}`;
 }
 
-export function draftTypeCallbackData(draftID: string, type: string): string {
-  return `${DRAFT_TYPE_CALLBACK_PREFIX}:${draftID}:${type}`;
+export function draftTypeCallbackData(project: string, draftID: string, type: string): string {
+  return `${DRAFT_TYPE_CALLBACK_PREFIX}:${projectHandle(project)}:${draftID}:${type}`;
 }
 
 /**
@@ -105,21 +156,31 @@ export function draftTypeCallbackData(draftID: string, type: string): string {
  * can offer the draft surface a press first and still hand a question's press
  * to the RunRoom: the two namespaces cannot collide, so neither has to know
  * about the other's ids.
+ *
+ * A three-part payload — this module's shape before the project handle was
+ * added — is also null. It is not accepted as a legacy form on purpose: a
+ * payload that cannot say which project it decides is exactly the press this
+ * change exists to stop resolving, and keeping a branch that resolves it
+ * anyway would keep the hole open for as long as one old message survives in
+ * the chat. The cost is that a proposal posted before the upgrade answers
+ * "that proposal is no longer here" — the signal itself is untouched in the
+ * inbox and `tk` can still show it.
  */
 export function parseDraftCallback(data: unknown): DraftCallback | null {
   if (typeof data !== "string") return null;
   const parts = data.split(":");
-  if (parts.length !== 3) return null;
-  const [namespace, draftID, verb] = parts as [string, string, string];
+  if (parts.length !== 4) return null;
+  const [namespace, handle, draftID, verb] = parts as [string, string, string, string];
+  if (!new RegExp(`^[0-9a-f]{${PROJECT_HANDLE_CHARS}}$`).test(handle)) return null;
   if (!/^[0-9a-f]{4,32}$/.test(draftID)) return null;
   if (namespace === DRAFT_CALLBACK_PREFIX) {
     return (DRAFT_ACTIONS as readonly string[]).includes(verb)
-      ? { kind: "decide", draft_id: draftID, action: verb as DraftAction }
+      ? { kind: "decide", project_handle: handle, draft_id: draftID, action: verb as DraftAction }
       : null;
   }
   if (namespace === DRAFT_TYPE_CALLBACK_PREFIX) {
     return (DRAFT_TYPE_CHOICES as readonly string[]).includes(verb)
-      ? { kind: "retype", draft_id: draftID, type: verb }
+      ? { kind: "retype", project_handle: handle, draft_id: draftID, type: verb }
       : null;
   }
   return null;
@@ -137,18 +198,41 @@ export function draftContext(draft: Draft): MessageContext {
 }
 
 /**
+ * How much of an external ref this block shows. A dedup key, not prose — the
+ * funnel accepts up to `MAX_EXTERNAL_REF` (512) characters of it, and a
+ * proposal is not the place to render all of them.
+ */
+export const MAX_RENDERED_EXTERNAL_REF = 120;
+
+/**
  * The block a source did not compose, composed from structural fields only.
  *
  * A fallback rather than the normal path: a source that knows which of its
- * text is untrusted renders its own (see `renderIssueDraft`). The title is
- * flattened and escaped here anyway, because this function has no way to
- * promise the caller did.
+ * text is untrusted renders its own (see `renderIssueDraft`). Every value that
+ * did not originate in this factory is flattened through
+ * {@link sanitizeUntrustedLine} and then escaped here anyway, because this
+ * function has no way to promise the caller did.
+ *
+ * `external_ref` is attacker-chosen exactly as the title is: it is whatever
+ * the source's own id for the delivery happens to be, and a generic source
+ * (tick 0vb) puts up to 512 characters of it in. Escaping alone is not enough
+ * — `escapeHTML` touches `&`, `<`, `>` and `"` and nothing else, so a raw
+ * newline in it would open a line at column 0 and a bidi override would
+ * reorder what follows, both of which are the forgery this module's invariant
+ * exists to make impossible. The sanitiser is what strips them, and every
+ * untrusted single-line value in this Worker goes through it.
+ *
+ * `project` and `source` are NOT untrusted: the funnel validates them against
+ * `PROJECT_PATTERN` and `SIGNAL_SOURCE_PATTERN` before a draft exists, so
+ * neither can carry a line break in the first place.
  */
 function fallbackBlock(draft: Draft): string {
   return [
     "<b>Draft tick — nothing runs until a human says so</b>",
     `<b>Project:</b> ${escapeHTML(draft.project)}`,
-    `<b>Source:</b> ${escapeHTML(draft.source)} — ${escapeHTML(draft.external_ref)}`,
+    `<b>Source:</b> ${escapeHTML(draft.source)} — ${escapeHTML(
+      sanitizeUntrustedLine(draft.external_ref, MAX_RENDERED_EXTERNAL_REF)
+    )}`,
     `<b>Title:</b> ${escapeHTML(sanitizeUntrustedLine(draft.title, 180))}`,
   ].join("\n");
 }
@@ -183,13 +267,13 @@ export function renderDecidedDraft(draft: Draft, footer: string): string {
 export function draftKeyboard(draft: Draft): InlineButton[][] {
   return [
     [
-      { text: "Create", callback_data: draftCallbackData(draft.id, "create") },
-      { text: "Dispatch", callback_data: draftCallbackData(draft.id, "dispatch") },
-      { text: "Discard", callback_data: draftCallbackData(draft.id, "discard") },
+      { text: "Create", callback_data: draftCallbackData(draft.project, draft.id, "create") },
+      { text: "Dispatch", callback_data: draftCallbackData(draft.project, draft.id, "dispatch") },
+      { text: "Discard", callback_data: draftCallbackData(draft.project, draft.id, "discard") },
     ],
     DRAFT_TYPE_CHOICES.map((type) => ({
       text: type === draft.type ? `• ${type}` : type,
-      callback_data: draftTypeCallbackData(draft.id, type),
+      callback_data: draftTypeCallbackData(draft.project, draft.id, type),
     })),
   ];
 }
@@ -242,16 +326,54 @@ async function settleDraftMessage(env: Env, draft: Draft, footer: string): Promi
 
 // ------------------------------------------------------------- the decision ---
 
-/** Which project's inbox holds this draft. */
+/**
+ * What resolving a press's `(project handle, draft id)` pair found.
+ *
+ * Three cases, not two: `ambiguous` is the one that makes the binding
+ * structural. See {@link findDraft}.
+ */
+export type DraftLookup =
+  | { state: "found"; enrolment: EnrolledProject; draft: Draft }
+  | { state: "unknown" }
+  | { state: "ambiguous"; projects: string[] };
+
+/**
+ * Resolves the pair a press names, or refuses to.
+ *
+ * The press carries a project handle and a draft id, and BOTH are checked: the
+ * enrolled projects are narrowed to the ones whose {@link projectHandle}
+ * matches, and only their inboxes are asked. That is the whole change from the
+ * scan this used to be, and it is what turns "the first inbox that answers" —
+ * a rule that silently decides another project's draft when two ids collide —
+ * into an answer about the pair the operator actually pressed.
+ *
+ * The handle is derived, so two enrolled projects CAN in principle share one.
+ * That is not a misattribution here, it is a refusal: if more than one of them
+ * holds a draft with this id, the press names two proposals and this function
+ * says so rather than choosing. An approval is therefore never attributed to
+ * the wrong project's gate — not improbably, but by construction. (One
+ * matching project holding the draft is the only case that decides anything,
+ * so a handle collision between projects that do NOT both hold the id costs
+ * nothing at all.)
+ */
 export async function findDraft(
   env: Env,
+  projectHandleWanted: string,
   draftID: string
-): Promise<{ enrolment: EnrolledProject; draft: Draft } | null> {
-  for (const enrolment of await listEnrolledProjects(env.DB)) {
+): Promise<DraftLookup> {
+  const candidates = (await listEnrolledProjects(env.DB)).filter(
+    (enrolment) => projectHandle(enrolment.project) === projectHandleWanted
+  );
+  const found: { enrolment: EnrolledProject; draft: Draft }[] = [];
+  for (const enrolment of candidates) {
     const draft = await inboxFor(env, enrolment.project).getDraft(draftID);
-    if (draft !== null) return { enrolment, draft };
+    if (draft !== null) found.push({ enrolment, draft });
   }
-  return null;
+  if (found.length === 0) return { state: "unknown" };
+  if (found.length > 1) {
+    return { state: "ambiguous", projects: found.map((hit) => hit.enrolment.project).sort() };
+  }
+  return { state: "found", enrolment: found[0]!.enrolment, draft: found[0]!.draft };
 }
 
 /** What the channel says back, and what the route reports. */
@@ -271,11 +393,32 @@ export async function handleDraftPress(
   callback: DraftCallback,
   decidedBy: string
 ): Promise<DraftPressResult> {
-  const found = await findDraft(env, callback.draft_id);
-  if (found === null) {
+  const found = await findDraft(env, callback.project_handle, callback.draft_id);
+  if (found.state === "unknown") {
     return {
       toast: "That proposal is no longer here.",
       body: { ok: true, draft: false, matched: false, reason: "unknown_draft" },
+    };
+  }
+  if (found.state === "ambiguous") {
+    // Nothing is decided and nothing is filed. Two enrolled projects hold a
+    // draft with this id behind one handle, so the press names two proposals —
+    // and deciding either of them would be exactly the misattribution this
+    // pair exists to prevent.
+    console.error(
+      `factory drafts: press ${callback.project_handle}:${callback.draft_id} names ` +
+        `${found.projects.join(" and ")}; nothing was decided`
+    );
+    return {
+      toast: "That press names more than one proposal. Nothing was decided.",
+      body: {
+        ok: false,
+        draft: true,
+        decided: false,
+        matched: false,
+        reason: "ambiguous_draft",
+        projects: found.projects,
+      },
     };
   }
   const { enrolment } = found;
@@ -379,6 +522,37 @@ async function presentDecision(
         action: "discard",
         draft_id: draft.id,
         project: draft.project,
+      },
+    };
+  }
+
+  if (decision.state === "reconciled") {
+    // A press that landed on a proposal an evicted instance left mid-commit,
+    // and the tracker says the commit had in fact landed. Nothing was filed by
+    // THIS press and nothing was started; what changed is that the inbox has
+    // caught up with the repository, and the message finally says which tick
+    // the proposal became instead of a button that does nothing forever.
+    const draft = decision.draft;
+    await settleDraftMessage(
+      env,
+      draft,
+      `<b>Already filed as tick ${escapeHTML(decision.tick_id)}</b> in ${escapeHTML(draft.project)}. ` +
+        "An earlier press committed it and this factory was interrupted before it could say so; " +
+        "the tracker has been checked and nothing was filed twice."
+    ).catch((error) =>
+      console.error(`factory drafts: reconcile render failed for ${draft.id}: ${String(error)}`)
+    );
+    return {
+      toast: `Already filed as tick ${decision.tick_id}.`,
+      body: {
+        ok: true,
+        draft: true,
+        decided: false,
+        reconciled: true,
+        draft_id: draft.id,
+        project: draft.project,
+        tick_id: decision.tick_id,
+        state: draft.state,
       },
     };
   }

@@ -71,6 +71,27 @@
  * second, persisted copy of the same work would only add a way for the funnel
  * to file a tick nobody asked for twice.
  *
+ * ## Eviction, and the one path redelivery does NOT cover
+ *
+ * That argument covers {@link SignalInbox.submit}, whose caller is a machine
+ * that retries. It does not extend one inch to {@link SignalInbox.decide},
+ * because the thing that started that work is a person pressing a button and
+ * nothing in the world presses it again. A decided draft is marked
+ * `committing` synchronously and the commit is a network call with backoff; a
+ * Durable Object may be evicted anywhere inside it (a `wrangler deploy` is
+ * enough), and then neither write-back runs. The row stays `committing`
+ * forever, every later press is told `already_decided`, and the operator is
+ * told the proposal was handled when nothing was filed AND nothing discarded.
+ *
+ * So a row found in `committing` that THIS instance is not working on is not a
+ * decision, it is a question, and {@link SignalInbox.decide} answers it before
+ * doing anything else — see `#reconcileCommitting`. The row alone cannot say
+ * whether the commit happened, so the reconciler does not guess from it: it
+ * asks the tracker, which is the only authority, using the candidate ids the
+ * claim persisted for exactly this purpose. Guessing "it committed" strands
+ * the signal behind a settled-looking row; guessing "it did not" files the
+ * tick twice. Asking is neither.
+ *
  * ## What it does NOT serialise, and why that is still safe
  *
  * A cloud run commits tracker state from a container, and no Durable Object is
@@ -96,6 +117,8 @@ import {
   tickIDCandidates,
   trackerWriter,
 } from "./tracker-write";
+
+import { parseTickRecord, trackerReader, type TrackerReader } from "./tick-membership";
 
 import { carriedTraceID } from "./trace";
 
@@ -417,6 +440,10 @@ type DedupRow = {
  * prefix, so the second sees a draft that is no longer `pending` and files
  * nothing. A commit that does not settle puts it back to `pending`, because
  * nothing was written and the operator may press again.
+ *
+ * It is also the one state that can outlive the instance that wrote it, which
+ * is why it is not terminal and never reads as a decision on its own — see
+ * this module's header, and `#reconcileCommitting`.
  */
 export const DRAFT_STATES = ["pending", "committing", "created", "dispatched", "discarded"] as const;
 export type DraftState = (typeof DRAFT_STATES)[number];
@@ -488,7 +515,13 @@ export type DraftDecision =
   | { state: "already_decided"; draft: Draft }
   | { state: "unknown_draft"; detail: string }
   /** Nothing was committed and the draft is still pending. The human may press again. */
-  | { state: "deferred"; reason: string; detail: string; draft: Draft };
+  | { state: "deferred"; reason: string; detail: string; draft: Draft }
+  /**
+   * A `committing` row left behind by an evicted instance was resolved against
+   * the tracker, and the commit HAD landed. The tick exists; this press filed
+   * nothing and started nothing.
+   */
+  | { state: "reconciled"; draft: Draft; tick_id: string };
 
 /** What editing a draft did. */
 export type DraftEdit =
@@ -565,6 +598,17 @@ export class SignalInbox extends DurableObject<Env> {
   #tail: Promise<unknown> = Promise.resolve();
   /** Accepted and not yet committed — what {@link SIGNAL_INBOX_QUEUE_LIMIT} bounds. */
   #inFlight = 0;
+  /**
+   * The drafts THIS instance is committing right now.
+   *
+   * In memory on purpose, and the whole trick: a `committing` row plus a live
+   * entry here is a commit in flight, and a `committing` row with no entry is a
+   * commit whose instance is gone — because this set is exactly what an
+   * eviction destroys and the row is exactly what it does not. Nothing else
+   * available to a later invocation tells those two apart, and treating them
+   * alike is either a stranded signal or a duplicate tick.
+   */
+  #committing = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -648,6 +692,13 @@ export class SignalInbox extends DurableObject<Env> {
     this.#addColumn(ctx, "signal_dedup", "trace_id");
     this.#addColumn(ctx, "signal_draft", "trace_id");
     this.#addColumn(ctx, "signal_admission", "trace_id");
+    // The candidate tick ids one press claimed, written in the SAME synchronous
+    // prefix as `state = 'committing'` so an eviction cannot separate the two.
+    // Without them a stranded row is unanswerable: `commitTickRecord` mints its
+    // ids at commit time, so nobody else knows which paths to look at, and
+    // GitHub's contents API cannot be asked "which record carries this external
+    // ref". With them the reconciler has an exact question to ask.
+    this.#addColumn(ctx, "signal_draft", "candidates");
   }
 
   /**
@@ -944,9 +995,19 @@ export class SignalInbox extends DurableObject<Env> {
     if (!(DRAFT_ACTIONS as readonly string[]).includes(action)) {
       return { state: "unknown_draft", detail: `no such decision: ${action}` };
     }
-    const draft = this.#draft(id.trim());
+    let draft = this.#draft(id.trim());
     if (draft === null) {
       return { state: "unknown_draft", detail: `no draft ${id} in this project's inbox` };
+    }
+    if (draft.state === "committing" && !this.#committing.has(draft.id)) {
+      // Not a decision — a question this instance inherited. Answer it against
+      // the tracker before this press is allowed to mean anything, because
+      // both readings of the row are wrong until something checks: report it
+      // as decided and a real signal is stranded behind a dead button; treat
+      // it as pending and a commit that DID land is filed a second time.
+      const reconciled = await this.#reconcileCommitting(draft);
+      if (reconciled.state !== "revived") return reconciled.decision;
+      draft = reconciled.draft;
     }
     if (draft.state !== "pending") return { state: "already_decided", draft };
 
@@ -984,17 +1045,26 @@ export class SignalInbox extends DurableObject<Env> {
     // Claimed in the synchronous prefix, before the first await: two presses of
     // the same button are two RPCs, and the second must find a draft that is no
     // longer pending rather than a second chance to file the same tick.
+    //
+    // The candidate ids are minted and written HERE rather than inside the
+    // commit, in the same prefix and for the same reason the state is: they
+    // are the only handle a later invocation has on what this press may have
+    // written, and a claim whose evidence lands one await later is a claim an
+    // eviction can separate from its evidence.
+    const candidates = tickIDCandidates();
     this.ctx.storage.sql.exec(
-      "UPDATE signal_draft SET state = 'committing', decided_by = ?, decided_at = ? WHERE id = ?",
+      "UPDATE signal_draft SET state = 'committing', decided_by = ?, decided_at = ?, candidates = ? WHERE id = ?",
       decidedBy,
       at,
+      JSON.stringify(candidates),
       draft.id
     );
+    this.#committing.add(draft.id);
 
     const claimed = this.#draft(draft.id)!;
     const work = this.#tail.then(
-      () => this.#accept(claimed, action),
-      () => this.#accept(claimed, action)
+      () => this.#accept(claimed, action, candidates),
+      () => this.#accept(claimed, action, candidates)
     );
     this.#tail = work.then(
       () => undefined,
@@ -1004,6 +1074,7 @@ export class SignalInbox extends DurableObject<Env> {
       return await work;
     } finally {
       this.#inFlight -= 1;
+      this.#committing.delete(draft.id);
     }
   }
 
@@ -1079,6 +1150,165 @@ export class SignalInbox extends DurableObject<Env> {
   }
 
   /**
+   * The candidate ids one `committing` claim persisted, or an empty list.
+   *
+   * Empty for a row stranded by an instance that predates this column — see
+   * `#reconcileCommitting`, which refuses to guess about one.
+   */
+  #candidates(id: string): string[] {
+    const rows = [
+      ...this.ctx.storage.sql.exec<{ candidates: string | null }>(
+        "SELECT candidates FROM signal_draft WHERE id = ?",
+        id
+      ),
+    ];
+    const raw = rows.length === 0 ? "" : (rows[0]!.candidates ?? "");
+    if (raw === "") return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** The three writes that turn an accepted draft into a filed tick. */
+  #recordCommitted(
+    draft: Draft,
+    action: DraftAction,
+    tickID: string,
+    commitSHA: string,
+    detail: string | null
+  ): void {
+    this.ctx.storage.sql.exec(
+      "UPDATE signal_draft SET state = ?, tick_id = ?, commit_sha = ?, candidates = '' WHERE id = ?",
+      action === "dispatch" ? "dispatched" : "created",
+      tickID,
+      commitSHA,
+      draft.id
+    );
+    this.ctx.storage.sql.exec(
+      "UPDATE signal_dedup SET tick_id = ?, commit_sha = ?, state = 'created' WHERE source = ? AND external_ref = ?",
+      tickID,
+      commitSHA,
+      draft.source,
+      draft.external_ref
+    );
+    this.#settle(draft.seq, "created", tickID, commitSHA === "" ? null : commitSHA, detail);
+  }
+
+  /**
+   * Resolves a `committing` row this instance is not working on.
+   *
+   * The row says a human pressed and says nothing about what happened next,
+   * and the two possibilities are opposite: the commit never went out, or it
+   * went out and the object died before either write-back ran. The tracker is
+   * the only thing that knows, so the tracker is asked — one read per
+   * candidate id the claim persisted, stopping at the first record whose
+   * `external_ref` is this draft's.
+   *
+   * The external ref, not the mere existence of a file at a candidate path:
+   * `commitTickRecord` walks past ids that are already taken (422 `exists`),
+   * so a record sitting at one of these paths may easily be somebody else's
+   * tick. The ref is the dedup key — `<source>:<ref>` — and a record carrying
+   * this draft's is this draft's tick and nothing else's.
+   *
+   * Three verdicts, and the third one is the honest one:
+   *
+   *  - a record with our ref: the commit landed. The draft is settled as
+   *    filed, with the dedup row and the admission row finally catching up.
+   *  - every candidate read cleanly and none is ours: nothing was committed.
+   *    Back to `pending`, and the press that found it goes on to decide.
+   *  - a read failed, or the claim recorded no candidates at all: no verdict.
+   *    The row stays `committing` and the caller is told to try again rather
+   *    than told a lie in either direction. A GitHub blip must not file a
+   *    second tick.
+   */
+  async #reconcileCommitting(
+    draft: Draft
+  ): Promise<{ state: "revived"; draft: Draft } | { state: "settled"; decision: DraftDecision }> {
+    // Claimed for the duration, so a second press arriving mid-reconcile is
+    // told "being filed right now" instead of starting a second reconcile that
+    // could revive the row underneath this one.
+    this.#committing.add(draft.id);
+    try {
+      const candidates = this.#candidates(draft.id);
+      if (candidates.length === 0) {
+        return {
+          state: "settled",
+          decision: {
+            state: "deferred",
+            reason: "commit_unreconcilable",
+            detail:
+              `draft ${draft.id} was left mid-commit by an instance that recorded no candidate ` +
+              `ids, so this inbox cannot ask the tracker whether ${formatExternalRef(draft.source, draft.external_ref)} ` +
+              "was filed; check .tick/issues/ for that external ref before pressing again",
+            draft,
+          },
+        };
+      }
+
+      const reader = trackerReader(this.env);
+      const ref = draft.signal.branch ?? "";
+      const wanted = formatExternalRef(draft.signal.source, draft.signal.external_ref);
+      let found: string | null = null;
+      try {
+        found = await findCommittedTick(reader, draft.project, ref, candidates, wanted);
+      } catch (error) {
+        return {
+          state: "settled",
+          decision: {
+            state: "deferred",
+            reason: "commit_unreconciled",
+            detail:
+              `draft ${draft.id} was left mid-commit and the tracker could not be read to say ` +
+              `whether it was filed (${String(error)}); nothing was changed, so pressing again is safe`,
+            draft,
+          },
+        };
+      }
+
+      if (found === null) {
+        // A definite no from a tracker this inbox could see: the commit never
+        // landed, so the proposal is exactly as undecided as it was before the
+        // press that died. Nothing about the dedup row changes — it has said
+        // `draft` with an empty tick id since admission, which is precisely
+        // the state a signal that was never filed should be in.
+        this.ctx.storage.sql.exec(
+          "UPDATE signal_draft SET state = 'pending', decided_by = NULL, decided_at = NULL, candidates = '' WHERE id = ?",
+          draft.id
+        );
+        this.#settle(
+          draft.seq,
+          "drafted",
+          null,
+          null,
+          `a commit claimed by ${draft.decided_by ?? "an operator"} did not reach the tracker; the proposal is pending again`
+        );
+        return { state: "revived", draft: this.#draft(draft.id)! };
+      }
+
+      // The commit DID land. The tick has existed all along; what was missing
+      // was every record of it on this side. The commit sha is not recoverable
+      // from a contents read, and an invented one would be worse than none.
+      const action: DraftAction = "create";
+      this.#recordCommitted(
+        draft,
+        action,
+        found,
+        "",
+        `reconciled after an interrupted commit: ${wanted} is filed as ${found}`
+      );
+      return {
+        state: "settled",
+        decision: { state: "reconciled", draft: this.#draft(draft.id)!, tick_id: found },
+      };
+    } finally {
+      this.#committing.delete(draft.id);
+    }
+  }
+
+  /**
    * One accepted draft's turn at the tracker.
    *
    * Runs alone — the chain in `decide` guarantees it — so a project's commits
@@ -1087,7 +1317,7 @@ export class SignalInbox extends DurableObject<Env> {
    * record, and it is reachable only from `decide`, which is reachable only
    * with a draft id a human pressed.
    */
-  async #accept(draft: Draft, action: DraftAction): Promise<DraftDecision> {
+  async #accept(draft: Draft, action: DraftAction, candidates: string[]): Promise<DraftDecision> {
     const signal = draft.signal;
     const externalRef = formatExternalRef(signal.source, signal.external_ref);
     const at = new Date().toISOString();
@@ -1096,7 +1326,10 @@ export class SignalInbox extends DurableObject<Env> {
       project: signal.project,
       branch: signal.branch,
       retryMs: commitRetryMs(this.env),
-      candidates: tickIDCandidates(),
+      // The ids the claim persisted, not a fresh draw. The reconciler's whole
+      // question — "did this press write one of these?" — is only answerable
+      // if the commit is confined to the ids the row already names.
+      candidates,
       record: {
         title: signal.title,
         description: signal.description,
@@ -1128,7 +1361,7 @@ export class SignalInbox extends DurableObject<Env> {
       // operator can press again. Leaving it `committing` would strand a real
       // signal behind a button that no longer does anything.
       this.ctx.storage.sql.exec(
-        "UPDATE signal_draft SET state = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?",
+        "UPDATE signal_draft SET state = 'pending', decided_by = NULL, decided_at = NULL, candidates = '' WHERE id = ?",
         draft.id
       );
       this.#settle(draft.seq, "unsettled", null, null, outcome.detail);
@@ -1140,21 +1373,7 @@ export class SignalInbox extends DurableObject<Env> {
       };
     }
 
-    this.ctx.storage.sql.exec(
-      "UPDATE signal_draft SET state = ?, tick_id = ?, commit_sha = ? WHERE id = ?",
-      action === "dispatch" ? "dispatched" : "created",
-      outcome.tick_id,
-      outcome.commit_sha,
-      draft.id
-    );
-    this.ctx.storage.sql.exec(
-      "UPDATE signal_dedup SET tick_id = ?, commit_sha = ?, state = 'created' WHERE source = ? AND external_ref = ?",
-      outcome.tick_id,
-      outcome.commit_sha,
-      draft.source,
-      draft.external_ref
-    );
-    this.#settle(draft.seq, "created", outcome.tick_id, outcome.commit_sha, null);
+    this.#recordCommitted(draft, action, outcome.tick_id, outcome.commit_sha, null);
 
     return {
       state: "accepted",
@@ -1166,6 +1385,39 @@ export class SignalInbox extends DurableObject<Env> {
       attempts: outcome.attempts,
     };
   }
+}
+
+/**
+ * The first candidate id whose tick record carries `externalRef`, or null.
+ *
+ * Sequential rather than parallel on purpose: this is a recovery path that
+ * runs after an eviction, the answer is almost always in the first candidate
+ * (an id collision is rare), and six concurrent contents reads against a
+ * repository a run may be pushing to buys nothing worth the burst.
+ *
+ * A read that throws is re-thrown, not skipped. "I could not read candidate 3"
+ * is not evidence that candidate 3 is not ours, and treating it as such is the
+ * duplicate-tick failure with extra steps.
+ */
+export async function findCommittedTick(
+  reader: TrackerReader,
+  project: string,
+  ref: string,
+  candidates: string[],
+  externalRef: string
+): Promise<string | null> {
+  for (const id of candidates) {
+    const text = await reader.read(project, ref, id);
+    if (text === null) continue;
+    const record = parseTickRecord(text);
+    // A record this reader cannot parse is not an answer about whose tick it
+    // is, and the walk must not conclude "not ours" from it.
+    if (record === null) {
+      throw new Error(`.tick/issues/${id}.json in ${project} is not a tick record this reader understands`);
+    }
+    if (record.external_ref === externalRef) return id;
+  }
+  return null;
 }
 
 type DraftRow = {
@@ -1188,6 +1440,8 @@ type DraftRow = {
   decided_by: string | null;
   decided_at: number | null;
   created_at: number;
+  /** JSON array of the candidate ids a `committing` claim persisted. */
+  candidates: string | null;
 };
 
 function draftFromRow(row: DraftRow): Draft {

@@ -1,11 +1,18 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// The two modules as TEXT, which is the only way to assert that a constant is
+// declared once: two copies of the same literal are equal at runtime, so a
+// runtime check could never have caught the duplication this pins.
+import authSource from "../src/auth.ts?raw";
+import telegramSource from "../src/telegram.ts?raw";
+import { TELEGRAM_WEBHOOK_PATH as TELEGRAM_WEBHOOK_PATH_FROM_TELEGRAM } from "../src/telegram";
 import {
   DEFAULT_ITERATIONS,
   HASH_SCHEME,
   MAX_ITERATIONS,
   MIN_ITERATIONS,
   PLATFORM_MAX_ITERATIONS,
+  TELEGRAM_WEBHOOK_PATH,
   TOKEN_PREFIX,
   authenticateFactoryRequest,
   deriveTokenHash,
@@ -225,6 +232,29 @@ describe("exempt paths", () => {
     expect(isAuthExempt("/api/hook")).toBe(false);
     expect(isAuthExempt("/api/channels/telegram/webhook")).toBe(true);
     expect(isAuthExempt("/api/channels/telegram/webhook/extra")).toBe(false);
+  });
+
+  /**
+   * Telegram's update path is decided in two places — exempted here, dispatched
+   * in `index.ts`, registered from `telegram.ts` — and it used to be WRITTEN in
+   * two places as well. They agreed, and drift would have failed closed (the
+   * route demanding a token Telegram cannot send, so the bot goes quiet with
+   * nothing in the log to say why), which is what makes it the maintenance
+   * hazard `.tick/learnings.md` records rather than a hole. One declaration
+   * removes the class outright, and the only honest way to assert "declared
+   * once" is to look at the source: two identical string literals are
+   * indistinguishable at runtime.
+   */
+  it("declares the Telegram webhook path exactly once, and exempts that one", () => {
+    const occurrences = (source: string): number =>
+      (source.match(/"\/api\/channels\/telegram\/webhook"/g) ?? []).length;
+
+    expect(occurrences(authSource)).toBe(1);
+    expect(occurrences(telegramSource)).toBe(0);
+    // The two modules therefore cannot disagree: one of them re-exports the
+    // other's binding, and this is the path the exemption is actually about.
+    expect(TELEGRAM_WEBHOOK_PATH_FROM_TELEGRAM).toBe(TELEGRAM_WEBHOOK_PATH);
+    expect(isAuthExempt(TELEGRAM_WEBHOOK_PATH_FROM_TELEGRAM)).toBe(true);
   });
 
   it("treats everything else as authenticated", () => {

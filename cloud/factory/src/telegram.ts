@@ -21,6 +21,7 @@
  * project's ENROLMENT record, not a config surface of its own.
  */
 
+import { TELEGRAM_WEBHOOK_PATH } from "./auth";
 import { optionOutcome, textOutcome } from "./free-text";
 import { withContext, type MessageContext } from "./message-context";
 
@@ -88,11 +89,15 @@ const DEFAULT_API_BASE_URL = "https://api.telegram.org";
 const CALLBACK_LIMIT = 64;
 
 /**
- * The path Telegram delivers updates to. Exported because registration has to
- * name the same path the router serves, and a typo there is a bot that goes
- * quiet with nothing in this Worker's logs to say so.
+ * The path Telegram delivers updates to. Re-exported, not re-declared: the
+ * literal lives in `auth.ts`, which is the module that decides this path skips
+ * the bearer check and which imports nothing so anyone may read it. Two copies
+ * of it is the duplicated-constant class `.tick/learnings.md` warns about —
+ * registration has to name the same path the router serves AND the same path
+ * auth exempts, and a typo in any of the three is a bot that goes quiet with
+ * nothing in this Worker's logs to say so.
  */
-export const TELEGRAM_WEBHOOK_PATH = "/api/channels/telegram/webhook";
+export { TELEGRAM_WEBHOOK_PATH };
 
 /**
  * The only updates this deployment asks for.
