@@ -318,3 +318,36 @@ is the surface; the lifecycle lives in the project's `SignalInbox`.
 - **The one affordance: retyping.** `github-issues.ts` hardcodes `type: "bug"` per UC3 and never reads
   it from the issue; the human retypes before filing rather than fixing a wrong tick afterwards. Only
   while pending — a filed tick is `tk update`'s business.
+
+## Epic hdt tick t2x (2026-08-23): consent is live, not photographed
+
+Decision on the Phase 3 final review's fifth finding (held back from the other four because it
+was a design choice, not a correction). **Taken: the fresh read.**
+
+- **A webhook payload is a photograph of the labels.** GitHub neither orders deliveries nor
+  bounds how late a retry arrives, so apply-then-remove produces a `labeled` payload that still
+  shows consent and can be processed *after* the `unlabeled` one. `github-issues.ts` now asks
+  GitHub what the issue carries NOW before proposing anything (`ISSUE_LABELS` seam, defaulting
+  to the issue-labels API in `githubRepoRefs`'s shape).
+- **Three answers, kept distinct.** A list decides it; 404/410 is `issue_not_visible` and settles
+  at 2xx (an issue this factory cannot see is not one whose consent it can confirm, and a
+  redelivery would 404 forever); a throw is `consent_unverifiable` at **503** so GitHub retries.
+  "Could not ask" never resolves to "trust the snapshot" — `webhook-sources.ts`'s rule for an
+  unreadable declaration, applied to a second system.
+- **The check is one-directional on purpose, and a test pins it.** It can *withdraw* consent the
+  snapshot claims, never *grant* consent the snapshot denies. Withdrawal is the safety property;
+  declining a just-labelled issue costs nothing because applying the label fires its own
+  delivery; and re-reading on the unlabelled path would spend an API call on every issue anyone
+  opens in the repository.
+- **The window is narrowed, not closed, and that is written down.** The label can still be removed
+  between the read and the funnel's D1 write — two systems, no conditional write over label
+  state. Minutes-to-hours becomes milliseconds. **What bounds the remainder is the human gate**:
+  a delivery past this point is a DRAFT, and nothing is filed and no run starts until someone
+  presses Create or Dispatch. A future fix that actually closes it would have to re-read at the
+  moment of the press, not narrow further at ingestion.
+- **The generic path never had the bug.** `webhookSourceRoute` fetches the repository's tracked
+  declaration fresh on every delivery, before it looks at the signature, so a source withdrawn or
+  re-keyed mid-flight takes effect on the next delivery. Now asserted by tests that would catch
+  the property being traded away for a cache.
+- **Operational consequence:** a *private* repository now needs `GITHUB_TOKEN` to ingest at all —
+  unauthenticated label reads 404 there, which reads as `issue_not_visible` and is ignored.
