@@ -1,0 +1,14 @@
+{
+  "id": "h3p",
+  "title": "runners.toml image-pattern and max_parallel validation is hand-mirrored Go/TS with no parity fixture",
+  "description": "INFORMATIONAL from the Phase 3 final review (tick csr).\n\ninternal/herd/config/load.go:100 and cloud/factory/src/repo-config.ts:151 carry an identical regex, with a comment saying it is mirrored from the other side, and no golden fixture tying them together. Every other Go/TS shape in this epic has one — the tracker-layout fixture, the worker-boot contract — so this is the single contract without a test that would catch drift directly.\n\nCurrently in sync, and backstopped by an independent boot-time check (the sandbox entrypoint refuses to boot if the declared image disagrees with what booted), so one-sided drift would fail loud rather than silent. That backstop is why this is informational and not a defect.\n\n.tick/learnings.md's rule is explicit: any constant or format crossing the Go/TS boundary needs a cross-implementation golden test, because both suites stay green while each is internally consistent.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "hdt",
+  "acceptance_criteria": "A golden fixture asserted from both Go and TypeScript pins the image pattern and max_parallel validation, in the same idiom as tracker-layout.json.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T16:46:27.09361Z",
+  "updated_at": "2026-08-23T16:46:27.09361Z"
+}

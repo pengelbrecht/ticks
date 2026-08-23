@@ -1,0 +1,14 @@
+{
+  "id": "t2x",
+  "title": "GitHub consent-label check is a captured snapshot, so a reordered delivery can ingest after withdrawal",
+  "description": "LOW from the Phase 3 final review (tick csr), confirmed, and deliberately NOT bundled with the other four because the fix is a design choice rather than a correction.\n\ncloud/factory/src/github-issues.ts:263-365. Consent is judged from each delivery's own captured label snapshot, never a live re-check. GitHub webhooks are not ordered and are retried after outages, so if a maintainer applies then quickly removes the tk label and the 'labeled' delivery arrives after the 'unlabeled' one was processed, the late payload still shows the label present at capture time and ingests.\n\nBounded by design: this can only ever produce a DRAFT. Nothing is filed and no run starts until a human presses Create or Dispatch, so it does not violate 'nothing runs without a human'. It does violate 'removing the label stops all future ingestion' read literally.\n\nThe fix is a fresh read of the issue's current labels at ingestion time, which trades a GitHub API call per delivery for correctness under reordering — worth deciding deliberately rather than doing reflexively. The same fresh-read question applies to the generic webhook-sources path when a source declaration changes mid-flight, and is untested there too.\n\nBoth paths currently test only same-order sequential deliveries.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "hdt",
+  "acceptance_criteria": "Either a delivery is judged against a fresh read of current consent, or the snapshot behaviour is documented as deliberate with the human gate named as what bounds it — and reordered-delivery tests exist for the GitHub path and the config-changed-mid-flight case for generic sources.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T16:46:27.063454Z",
+  "updated_at": "2026-08-23T16:46:27.063454Z"
+}

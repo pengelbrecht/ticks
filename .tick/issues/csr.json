@@ -2,7 +2,8 @@
   "id": "csr",
   "title": "Final review of the Phase 3 diff",
   "description": "Review the whole epic diff outside-in before closeout. Phase 2's review (tick oun) declared correct code that then failed twelve different ways in production, so weight this review toward the boundaries that suite green cannot see: platform limits, credential scope, untrusted input, and any config cell read by two runtimes.\n\nSpecific things Phase 3 introduces that deserve a named pass:\n- Untrusted content: GitHub issue bodies and webhook payloads reach a channel a human acts on. Look for spoofing of the channel's own formatting and for payload text treated as instructions.\n- Consent: the tk label boundary, and that removing it actually stops ingestion.\n- Write safety: the DO inbox's ordering guarantee under real concurrency, not just its unit tests.\n- Provenance: that an approval can never be attributed to the wrong project's gate.",
-  "status": "open",
+  "notes": "2026-08-23 18:34 - runner-state: substrate=herdr kind=claude branch=tick/csr worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-csr workspace=wFH base=c6532bb188d6c9ccf6fa71e16e664b630842b3f8 agent=tick-csr pane=wFH:p1 session=1d407ac2-41bd-4d09-bc13-bcb10bc840ed\n2026-08-23 18:46 - Findings adjudicated by the orchestrator:\n- The two MEDIUMs and two of the three LOWs (fallbackBlock sanitiser bypass, draft-\u003eproject binding) go to tick duy, which blocks closeout. All four are confirmed with file and line, and they cluster.\n- The consent-label TOCTOU is filed separately as t2x. Not bundled because the fix is a design choice — a fresh GitHub read per delivery — rather than a correction, and the human gate bounds the blast radius to a draft that nobody has accepted.\n- The Go/TS parity gap on runners.toml validation is filed as h3p. Informational: it is backstopped by the sandbox's boot-time image check, so drift fails loud.\n- The third informational item — that 'issue text is a report, not instructions' rests on the human gate and the quoting convention rather than a structural boundary the agent run must respect — is inherent to the design and is correctly flagged for awareness rather than as a defect. Recording it here so Phase 4 planning sees it.\n\nGood review: it found a real eviction hazard nobody else had reasoned about, and it declined to pad. The stranded-'committing' finding is the kind Phase 2 kept paying for.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -20,5 +21,7 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:54:04.631896Z",
-  "updated_at": "2026-08-23T04:54:05.031736Z"
+  "updated_at": "2026-08-23T16:46:51.071384Z",
+  "closed_at": "2026-08-23T16:46:51.071384Z",
+  "closed_reason": "Completed: final review of the Phase 3 diff. Nothing critical or high — no live path lets untrusted text forge the channel, consent holds, and the funnel's write-safety claims check out against the code. Five confirmed findings and three informational, all routed: duy (two MEDIUM + two LOW, blocks closeout), t2x (consent TOCTOU), h3p (Go/TS parity fixture)."
 }

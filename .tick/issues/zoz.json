@@ -7,11 +7,12 @@
   "type": "task",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "csr"
+    "csr",
+    "duy"
   ],
   "parent": "hdt",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:54:05.070401Z",
-  "updated_at": "2026-08-23T04:54:05.070401Z"
+  "updated_at": "2026-08-23T16:46:51.026518Z"
 }
