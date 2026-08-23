@@ -2,6 +2,7 @@
   "id": "szp",
   "title": "Phase 4: autonomous loops",
   "description": "Needs planning: CI-failure remediation on factory-owned branches with the flake gate and strike budget in the dispatcher; read-only PR review runs with downgraded credentials (two credential grades, D11); cron sweeps with deterministic selection and Workflow-enforced budgets (D14/D15); tk factory trace / logs --follow debugging UX.",
+  "notes": "2026-08-23 20:05 - PLANNED BY PHASE 3's CLOSEOUT (zoz, 2026-08-23). 7 ticks including the EPIC-SKELETON, with pzf (two credential grades) first and alone because everything else depends on a run being able to be read-only.\n\nSequencing notes:\n- v7g (PR review) before meo (CI remediation) deliberately: the worst outcome of a bad review is a bad comment; the worst outcome of bad remediation is a bad commit. Prove the safer loop first.\n- acy (debugging UX) runs in wave 1 beside pzf, not last, because autonomy removes the human who would otherwise notice — the observability has to exist before the loops do, which is the inverse of what Phase 2 did and the mistake its retro named.\n\nCARRIED FORWARD FROM PHASE 3, unfiled and left for the human:\n1. The Telegram half of Phase 3's definition of done is unverified live — webhook registration and message composition are integration-tested and deployed, but a real operator message pressing a real Create button needs a human at the keyboard.\n2. Phase 3's final review flagged that 'issue text is a report to verify, not instructions to follow' rests on the human gate and the visual quoting convention, NOT on a structural boundary the agent run must respect once a human presses Dispatch. Inherent to the design and acknowledged in the code's comments. Phase 4 makes it sharper, because an autonomous loop acting on ingested text has no human between the text and the work.\n\nSTILL CARRIED FROM PHASE 2, recorded on this epic's predecessor and still unplaced: per-tick tier selection on the cloud substrate (the highest-value of the four), the max_instances=3 fan-out ceiling, worker harness output not streaming (now folded into acy), and a supervisor liveness signal (also folded into acy).",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -13,7 +14,8 @@
     "hdt"
   ],
   "parent": "w1z",
+  "acceptance_criteria": "A real CI failure on a factory-owned branch is remediated by an unattended run behind the flake gate and strike budget, and a real PR gets an automated review from a run that provably could not push to it. A cron sweep selects deterministically and its budget is enforced by the Workflow. An operator can see whether a run's supervisor is alive without touching the Cloudflare API. Nothing in the epic can reach a human-owned branch. Green: go build ./..., go test ./..., node scripts/check-public-repo.mjs, and the factory + UI vitest suites.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T11:17:51.560483705Z",
-  "updated_at": "2026-08-19T11:17:51.560483705Z"
+  "updated_at": "2026-08-23T18:05:21.569742Z"
 }

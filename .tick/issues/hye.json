@@ -1,0 +1,17 @@
+{
+  "id": "hye",
+  "title": "Cron sweeps: deterministic selection, Workflow-enforced budgets",
+  "description": "D14/D15. A schedule picks work and runs it without anyone asking.\n\nTWO PROPERTIES THE DESIGN DOC IS EXPLICIT ABOUT, and both are about auditability rather than capability:\n- SELECTION IS DETERMINISTIC: priority, then age, then id. No model call, no judgement. 'Why did it pick these five' must have a boring answer.\n- BUDGETS ARE ENFORCED BY THE WORKFLOW, not by the prompt (D14). Phase 2 established what happens otherwise — a run that outlives its supervisor keeps spending, and the record it writes cannot report its own death.\n\nThe sweep policy shape from the design doc: a filter, max_ticks, budget_usd, tier and a completion gate. Phase 2's clamp lesson applies to every one of those numbers: report the EFFECTIVE budget after clamping, because an operator whose ceiling was silently replaced learns about it from a cancelled run.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "pzf"
+  ],
+  "parent": "szp",
+  "acceptance_criteria": "A cron sweep selects deterministically and the selection is explainable from the record alone; its budget is enforced by the Workflow and the effective value is reported; a sweep that trips its budget stops without losing the work already done.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T18:04:59.980165Z",
+  "updated_at": "2026-08-23T18:04:59.980165Z"
+}
