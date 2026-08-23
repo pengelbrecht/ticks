@@ -38,6 +38,14 @@ class FakeContents implements TrackerWriter {
   conflicts = 0;
   /** Runs on each refusal — where a test puts what the RUN committed while we were refused. */
   onConflict: (() => void) | null = null;
+  /**
+   * Held closed, no create settles. What the queue-bound test needs and a
+   * latency cannot give it: `latencyMs` makes a commit slow, which only makes
+   * a flood LIKELY to overlap, and under a loaded runtime the submissions
+   * arrive one at a time and every one of them settles before the next — so
+   * the bound is never reached and the test measures the scheduler.
+   */
+  gate: Promise<void> | null = null;
   private commitCount = 0;
 
   /** What a cloud run's container does: commit tracker state itself. */
@@ -58,6 +66,7 @@ class FakeContents implements TrackerWriter {
       if (this.latencyMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
       }
+      if (this.gate !== null) await this.gate;
       if (this.conflicts > 0) {
         this.conflicts -= 1;
         this.onConflict?.();
@@ -480,11 +489,26 @@ describe("what the funnel refuses", () => {
 
   it("bounds the queue rather than holding an unbounded number of requests open", async () => {
     const name = project();
-    contents.latencyMs = 20;
+    // Nothing settles until the flood has actually filled the inbox. Waiting on
+    // a latency instead made this a coin flip under a loaded runtime: the
+    // submissions were delivered one at a time, each settling before the next,
+    // so `in_flight` never reached the bound and no signal was ever refused.
+    let open!: () => void;
+    contents.gate = new Promise<void>((resolve) => {
+      open = () => resolve();
+    });
 
     const flood = Array.from({ length: SIGNAL_INBOX_QUEUE_LIMIT + 5 }, (_, i) =>
       inbox(name).submit(signal({ project: name, external_ref: `flood-${i}` }))
     );
+    // A refusal returns BEFORE the in-flight count is raised, so the count
+    // settles at the bound and this loop terminates.
+    for (let poll = 0; poll < 500; poll += 1) {
+      if ((await inbox(name).status()).in_flight >= SIGNAL_INBOX_QUEUE_LIMIT) break;
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    open();
+
     const outcomes = await Promise.all(flood);
 
     const full = outcomes.filter((o) => o.state === "deferred" && o.reason === "inbox_full");
