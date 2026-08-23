@@ -462,6 +462,52 @@ func TestUnrelatedAgentIsNotThisTicksWorker(t *testing.T) {
 	}
 }
 
+// TestLiveWorkerMatchesQualifiedName pins the new name shape: the manifest
+// records the repo-qualified agent, and a respawn of it still matches.
+func TestLiveWorkerMatchesQualifiedName(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m := newManifest("nhk", "tick/nhk")
+	m.Agent = "tick-my-repo-nhk"
+	m, path := manifestOnDisk(t, repo, m)
+	srv := newFakeHerd(t)
+	srv.setAgents(agent("tick-my-repo-nhk-r2", "working"))
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	p := plans[0]
+	if !p.Refused || p.Reason != LiveWorker {
+		t.Fatalf("plan = %+v, want a %s refusal for the qualified respawn", p, LiveWorker)
+	}
+	if !strings.Contains(p.Detail, "tick-my-repo-nhk-r2") {
+		t.Errorf("detail = %q, want it to name the live agent", p.Detail)
+	}
+}
+
+// TestForeignRepoWorkerIsNotMatched pins the fix's headline: a worker from
+// another repo holding the SAME tick id is not this tick's worker. The old
+// name shape would have matched `tick-nhk` for both.
+func TestForeignRepoWorkerIsNotMatched(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m := newManifest("nhk", "tick/nhk")
+	m.Agent = "tick-my-repo-nhk"
+	m, path := manifestOnDisk(t, repo, m)
+	srv := newFakeHerd(t)
+	// The other repo's worker for the same tick id, and an unrelated agent.
+	srv.setAgents(agent("tick-other-repo-nhk", "working"), agent("tick-q3x", "idle"))
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, false))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if plans[0].Refused {
+		t.Errorf("plan = %+v, want no refusal — the foreign worker must not be adopted", plans[0])
+	}
+}
+
 func TestRefusesBlockedWorker(t *testing.T) {
 	repo, base := newRepo(t)
 	workerBranch(t, repo, "tick/nhk", base, true)

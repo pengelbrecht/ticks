@@ -12,7 +12,7 @@ func baseOptions() Options {
 		RepoRoot:  "/repo",
 		Branch:    "tick/1aw",
 		Base:      "abc1234",
-		AgentName: "tick-1aw",
+		AgentName: "tick-repo-1aw",
 		Kind:      "claude",
 		Argv:      []string{"--permission-mode", "bypassPermissions", "--model", "sonnet"},
 		Prompt:    "implement the tick",
@@ -246,8 +246,8 @@ func TestRunValidatesAgentName(t *testing.T) {
 
 // TestAgentNameShape pins the name the wait engine matches on.
 func TestAgentNameShape(t *testing.T) {
-	if got := AgentName("1AW"); got != "tick-1aw" {
-		t.Errorf("AgentName = %q, want tick-1aw", got)
+	if got := AgentName("my-repo", "1AW"); got != "tick-my-repo-1aw" {
+		t.Errorf("AgentName = %q, want tick-my-repo-1aw", got)
 	}
 }
 

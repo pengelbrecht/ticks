@@ -302,10 +302,15 @@ func TestHerdSpawnEndToEnd(t *testing.T) {
 		t.Fatalf("output has no runner-state: note line:\n%s", out)
 	}
 	note := strings.TrimSpace(out[noteIdx:])
+	qualifier, err := spawn.RepoName(repo)
+	if err != nil {
+		t.Fatalf("RepoName: %v", err)
+	}
+	wantAgent := spawn.AgentName(qualifier, "a1w")
 	for _, w := range []string{
 		"substrate=herdr", "kind=claude", "branch=tick/a1w",
 		"worktree=/herdr/worktrees/repo/tick-a1w", "workspace=w7",
-		"agent=tick-a1w", "session=sess-abc",
+		"agent=" + wantAgent, "session=sess-abc",
 	} {
 		if !strings.Contains(note, w) {
 			t.Errorf("note %q missing %q", note, w)
@@ -321,7 +326,7 @@ func TestHerdSpawnEndToEnd(t *testing.T) {
 	if m.Tick != "a1w" || m.Epic != "gy1" || m.Branch != "tick/a1w" || m.Kind != "claude" || m.Model != "sonnet" {
 		t.Errorf("manifest = %+v, want the resolved routing", m)
 	}
-	if m.Agent != "tick-a1w" || m.PaneID != "w7:p1" || m.WorkspaceID != "w7" {
+	if m.Agent != wantAgent || m.PaneID != "w7:p1" || m.WorkspaceID != "w7" {
 		t.Errorf("manifest identifiers = %+v, want them read off the responses", m)
 	}
 	if m.AgentSession == nil || m.AgentSession.Value != "sess-abc" {

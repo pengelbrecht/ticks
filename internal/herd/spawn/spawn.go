@@ -86,7 +86,13 @@ var agentNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // AgentName renders the agent name for a tick. The wait engine matches on the
 // agent name, so this shape is a contract, not a label.
-func AgentName(tickID string) string { return "tick-" + strings.ToLower(tickID) }
+//
+// The repo qualifier is what keeps a herdr agent name unique across the repos
+// sharing one server: a tick id is only unique within its own repo, but an
+// agent name is global. Derive the qualifier with [RepoName].
+func AgentName(repo, tickID string) string {
+	return "tick-" + repo + "-" + strings.ToLower(tickID)
+}
 
 // Options is one worker's spawn.
 type Options struct {
