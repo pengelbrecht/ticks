@@ -97,6 +97,17 @@ declare namespace Cloudflare {
      */
     TICK_TRACKER?: import("./tick-membership").TrackerReader;
     /**
+     * The reader GitHub issue ingestion re-checks consent with at delivery
+     * time: the labels the issue carries NOW, not the ones its webhook payload
+     * photographed (tick t2x).
+     *
+     * Unset on a deployment, which reads GitHub's issue-labels API directly. A
+     * seam for the same reason `TICK_TRACKER` is one — and the only way the
+     * rule worth testing here is exercisable at all: a delivery that arrives
+     * after the label was removed cannot be staged against real GitHub.
+     */
+    ISSUE_LABELS?: import("./github-issues").IssueLabelReader;
+    /**
      * The writer the SignalInbox commits a signal's tick record with: one
      * CREATE of `.tick/issues/<id>.json` through GitHub's contents API (tick
      * 8sm).

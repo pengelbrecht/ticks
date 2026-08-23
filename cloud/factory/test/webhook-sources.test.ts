@@ -40,6 +40,11 @@ import parityCases from "./fixtures/signal-source-cases.json";
  *     first PROPOSAL, from `(source, external_ref)` in the SignalInbox —
  *     whatever the human did with it, including discarding it. There is no
  *     second dedup here to test, which is the point.
+ *
+ * A fifth was added by tick t2x: **the declaration is re-read per delivery**,
+ * so a source withdrawn or re-declared mid-flight takes effect on the very
+ * next delivery. That is the generic path's answer to the question vuz's
+ * consent label asks — see the last describe but one.
  */
 
 const BASE = "https://factory.example.com";
@@ -820,4 +825,103 @@ describe("the declaration reads the same here as it does in tk", () => {
       );
     });
   }
+});
+
+// -------------------------------- the declaration changes while deliveries fly ---
+
+/**
+ * A declaration edited mid-flight (tick t2x).
+ *
+ * The generic path's counterpart to GitHub's consent question, and it has a
+ * different answer for a structural reason. A GitHub delivery *carries* its
+ * consent — the labels as they were when the payload was captured — so
+ * `github-issues.ts` has to go and re-read them or it decides on a photograph.
+ * A delivery here carries nothing of the sort: the declaration lives in the
+ * repository's tracked `.tick/runners.toml`, and `webhookSourceRoute` fetches
+ * it fresh, at the default branch, before it will even look at the signature.
+ *
+ * So the property is already true and these tests are what say so out loud —
+ * and what would catch it being traded away for a cache. Every delivery is
+ * judged against the declaration as it stands right now, in both directions:
+ * withdrawing a source shuts its door on the next delivery, and rotating its
+ * secret invalidates a signature made with the old one.
+ */
+describe("the declaration is re-read per delivery, never cached across one", () => {
+  /** The same declaration with the `sentry` source taken back out. */
+  const WITHDRAWN = `version = 2
+
+[roles.implement]
+kind = "claude"
+`;
+
+  it("a source withdrawn between two deliveries shuts its door on the second", async () => {
+    const project = await enrolled();
+
+    const first = await deliver(project, payload());
+    expect(first.status).toBe(201);
+    expect(await proposals(project)).toBe(1);
+
+    // A maintainer removes the declaration. Nothing tells this Worker; it
+    // simply reads the file again on the next delivery.
+    config.source = WITHDRAWN;
+
+    const second = await deliver(project, payload({ id: "4519077999" }));
+
+    expect(second.status).toBe(404);
+    expect((await second.json()) as Record<string, unknown>).toMatchObject({
+      error: "unknown_source",
+    });
+    // Still one: the second delivery proposed nothing.
+    expect(await proposals(project)).toBe(1);
+    // Two deliveries, two reads of the tracked file, both at the default
+    // branch. A cache here would be the snapshot bug this tick is about.
+    expect(config.reads).toEqual([
+      { project, ref: null },
+      { project, ref: null },
+    ]);
+  });
+
+  it("a source re-declared against another secret refuses the old signature at once", async () => {
+    const project = await enrolled();
+
+    expect((await deliver(project, payload())).status).toBe(201);
+
+    // The declaration now names a different binding, and this deployment holds
+    // a different value under it. The sender has not been told yet.
+    const ROTATED = "SIGNAL_SECRET_SENTRY_NEXT";
+    set(ROTATED, "the-rotated-secret");
+    config.source = DECLARATION.replace(`secret = "${BINDING}"`, `secret = "${ROTATED}"`);
+
+    const stale = await deliver(project, payload({ id: "4519077998" }));
+
+    expect(stale.status).toBe(401);
+    expect(await proposals(project)).toBe(1);
+
+    // And a delivery signed with the new secret goes through, so the refusal
+    // above was the rotation taking effect and not the door breaking.
+    const fresh = await deliver(project, payload({ id: "4519077997" }), {
+      secret: "the-rotated-secret",
+    });
+    expect(fresh.status).toBe(201);
+    expect(await proposals(project)).toBe(2);
+  });
+
+  it("a declaration that stops being readable defers rather than falling back to the last good one", async () => {
+    const project = await enrolled();
+
+    expect((await deliver(project, payload())).status).toBe(201);
+
+    // GitHub stops answering. There IS a declaration this Worker read a
+    // moment ago, and it must not be used: the file is what says whether a
+    // delivery is authentic, so "could not read it" cannot mean "accept".
+    config.source = "THROW";
+
+    const response = await deliver(project, payload({ id: "4519077996" }));
+
+    expect(response.status).toBe(503);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      error: "source_config_unreadable",
+    });
+    expect(await proposals(project)).toBe(1);
+  });
 });

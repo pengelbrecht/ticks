@@ -19,11 +19,19 @@
  *
  *  - An unlabelled issue is *ignored*, at every action.
  *  - `unlabeled` NEVER ingests, even when other labels remain: a removal is
- *    never an act of consent. Once the label is gone, every later delivery for
- *    that issue arrives with the label absent and is ignored — which is what
- *    "removing the label stops future ingestion" means mechanically. There is
- *    no separate revocation state to keep in sync, because the label on the
- *    issue IS the state.
+ *    never an act of consent. There is no separate revocation state to keep
+ *    in sync, because the label on the issue IS the state.
+ *  - **Consent is re-read live, never decided on the delivery's snapshot**
+ *    (tick t2x). Every payload carries the labels as they were when GitHub
+ *    captured it, and GitHub neither orders deliveries nor bounds how late a
+ *    retried one arrives. So a `labeled` delivery captured before a maintainer
+ *    changed their mind can land minutes or hours *after* the `unlabeled` one,
+ *    still showing the label present. Before anything is proposed,
+ *    {@link ingestIssueEvent} asks GitHub what the issue carries NOW, and a
+ *    snapshot the live read contradicts ingests nothing. See
+ *    {@link IssueLabelReader} for the three answers it can get, why the check
+ *    is deliberately one-directional, and the residual window it narrows but
+ *    cannot close.
  *  - The repository must be enrolled with this factory. Consent from a
  *    maintainer of a repository the operator never enrolled is not consent for
  *    THIS factory to spend the operator's money.
@@ -59,6 +67,7 @@
 
 import { getEnrolledProject } from "./db";
 import { announceDraft } from "./drafts";
+import { GITHUB_API_BASE_URL } from "./progress";
 import { submitSignal, type Signal, type SignalOutcome } from "./signal-inbox";
 import { escapeHTML } from "./telegram";
 import {
@@ -459,6 +468,143 @@ export function renderIssueDraft(facts: IssueFacts, label: string): string {
   return [...header, quoted].join("\n");
 }
 
+// ------------------------------------------------------- the live re-read ---
+
+/**
+ * What the issue carries **now**, asked of GitHub at ingestion time.
+ *
+ * ## Why the snapshot is not enough
+ *
+ * A webhook payload is a photograph. GitHub does not order deliveries, and it
+ * redelivers after an outage with no bound on how late. Apply the label,
+ * change your mind, remove it: the `unlabeled` delivery can be processed
+ * first, and the `labeled` one — captured while the label was still on —
+ * arrives afterwards showing consent that no longer exists. Judged on its own
+ * snapshot it ingests. That is the hole this reader closes.
+ *
+ * ## Three answers, never collapsed into one
+ *
+ *  - **A list of names.** GitHub answered; the names are the whole current
+ *    truth, and whether the consent label is among them is the verdict.
+ *  - **`null`** — GitHub answered 404. The issue is deleted, transferred, or
+ *    private to a token this deployment does not hold. Either way this factory
+ *    cannot see it, and an issue it cannot see is not one whose consent it can
+ *    confirm. Settled: ignored, never retried, because a redelivery would 404
+ *    identically forever.
+ *  - **A throw.** GitHub could not be asked — a 5xx, a rate limit, a socket
+ *    that died. "Could not decide" must never resolve to "no labels" *or* to
+ *    "accept the snapshot": {@link ingestIssueEvent} answers `deferred`, and
+ *    the route turns that into the 503 that makes GitHub try again. Same rule,
+ *    same words, as `webhook-sources.ts` uses for an unreadable declaration.
+ *
+ * ## The check is deliberately one-directional
+ *
+ * It can only *withdraw* consent the snapshot claims — never *grant* consent
+ * the snapshot denies. A delivery whose own labels do not carry the consent
+ * label is ignored by {@link classifyIssueEvent} without asking GitHub
+ * anything.
+ *
+ * Two reasons, and both matter:
+ *
+ *  1. **Withdrawal is the safety property.** Ingesting an issue whose consent
+ *     was withdrawn is the bug; declining one whose label was applied a moment
+ *     ago costs nothing, because applying it fires a `labeled` delivery of its
+ *     own that arrives with the label in its snapshot.
+ *  2. **Cost.** Unlabelled issues are the overwhelming majority of a busy
+ *     repository's `issues` traffic. Re-reading on that path would spend a
+ *     GitHub API call on every issue anyone opens anywhere, to answer a
+ *     question whose wrong answer is harmless. This way the call is spent only
+ *     on the deliveries that would otherwise ingest.
+ *
+ * ## The window this narrows and does not close
+ *
+ * Stated plainly because a fix that claims to close a race it only narrows is
+ * worse than an honest snapshot: **the label can still be removed between this
+ * read and the funnel's write.** The read and the draft commit are in two
+ * different systems, GitHub offers no conditional write over label state, and
+ * the answer may itself be served from a cache a moment stale. What changes is
+ * the size of the window — from "however long GitHub takes to redeliver",
+ * unbounded and routinely minutes, to the milliseconds of one D1 write.
+ *
+ * What *bounds* the remainder is the same thing that bounded the snapshot
+ * version: a delivery past this point becomes a DRAFT and nothing more.
+ * Nothing is filed and no run starts until a human presses Create or Dispatch
+ * (tick la9). The live read is what makes the ordinary case correct; the human
+ * gate is what makes the residual millisecond safe.
+ */
+export type IssueLabelReader = {
+  current(project: string, number: number): Promise<string[] | null>;
+};
+
+/** GitHub's maximum page size for the labels listing. */
+const LABEL_PAGE_SIZE = 100;
+
+/**
+ * Pages the labels listing will walk before it refuses.
+ *
+ * A truncated listing is worse than no listing, for `progress.ts`'s reason
+ * sharpened: the name past the cut could be the consent label, and answering
+ * "not consented" from half the list is a verdict this reader has not earned.
+ * So the cap throws — which lands as `deferred`, not as a silent refusal.
+ */
+export const MAX_LABEL_PAGES = 4;
+
+/** The reader this deployment uses: a test's fake, or GitHub. */
+export function issueLabels(env: Env): IssueLabelReader {
+  const injected = env.ISSUE_LABELS;
+  return injected === undefined || injected === null ? githubIssueLabels(env) : injected;
+}
+
+/**
+ * GitHub's `issues/<number>/labels` listing.
+ *
+ * Unauthenticated for a public repository and authenticated when the factory
+ * holds the PAT it clones with — `githubRepoRefs`'s shape, header for header,
+ * because this is a read of the same kind against the same API.
+ */
+export function githubIssueLabels(env: Env): IssueLabelReader {
+  const base = (env.GITHUB_API_BASE_URL ?? GITHUB_API_BASE_URL).replace(/\/+$/, "");
+  const headers: Record<string, string> = {
+    accept: "application/vnd.github+json",
+    // GitHub rejects an API request with no user agent outright.
+    "user-agent": "ticks-factory",
+  };
+  const token = env.GITHUB_TOKEN;
+  if (typeof token === "string" && token.trim() !== "") {
+    headers.authorization = `Bearer ${token.trim()}`;
+  }
+
+  return {
+    async current(project: string, number: number): Promise<string[] | null> {
+      const names: string[] = [];
+      for (let page = 1; page <= MAX_LABEL_PAGES; page++) {
+        const url =
+          `${base}/repos/${project}/issues/${number}/labels` +
+          `?per_page=${LABEL_PAGE_SIZE}&page=${page}`;
+        const response = await fetch(url, { headers });
+        // 404 is an ANSWER — "this factory cannot see that issue" — and 410,
+        // which GitHub returns for a deleted issue, is the same answer.
+        if (response.status === 404 || response.status === 410) return null;
+        if (!response.ok) {
+          throw new Error(
+            `GitHub answered HTTP ${response.status} reading the labels of ${project}#${number}`
+          );
+        }
+        const body = (await response.json()) as unknown;
+        if (!Array.isArray(body)) {
+          throw new Error(`GitHub returned a non-list label listing for ${project}#${number}`);
+        }
+        names.push(...labelNames(body));
+        if (body.length < LABEL_PAGE_SIZE) return names;
+      }
+      throw new Error(
+        `${project}#${number} carries more than ${MAX_LABEL_PAGES * LABEL_PAGE_SIZE} labels, ` +
+          "so its consent cannot be read without truncating the listing"
+      );
+    },
+  };
+}
+
 // ------------------------------------------------------------ the ingestion ---
 
 export type IngestResult =
@@ -470,7 +616,13 @@ export type IngestResult =
       presentation: string;
     }
   | { state: "ignored"; reason: string; detail: string }
-  | { state: "refused"; reason: string; detail: string };
+  | { state: "refused"; reason: string; detail: string }
+  /**
+   * No verdict, and nothing recorded. The signal may still be valid, so the
+   * route answers 503 and GitHub redelivers — the one non-2xx outcome past the
+   * signature. See {@link IssueLabelReader}.
+   */
+  | { state: "deferred"; reason: string; detail: string };
 
 /**
  * One consented issue, all the way to the funnel.
@@ -479,6 +631,12 @@ export type IngestResult =
  * is a fact about this deployment, not about the payload: the same webhook is
  * correctly ingested by the factory that enrolled the repository and correctly
  * ignored by one that did not.
+ *
+ * The live consent re-read sits here for the mirror-image reason: it is a fact
+ * about the world at this instant rather than about the payload, so it cannot
+ * live in a pure function. `classifyIssueEvent` still answers everything the
+ * delivery alone can settle, and this is the one question it cannot —
+ * {@link IssueLabelReader} says why, and what the re-read does not fix.
  */
 export async function ingestIssueEvent(env: Env, payload: unknown): Promise<IngestResult> {
   const label = consentLabel(env);
@@ -496,6 +654,46 @@ export async function ingestIssueEvent(env: Env, payload: unknown): Promise<Inge
       detail:
         `${facts.project} is not enrolled with this factory; a maintainer's label is consent ` +
         "for the machine, not consent for a factory the operator never pointed at this repository",
+    };
+  }
+
+  // Consent, live (tick t2x). The payload's own labels got us this far; what
+  // decides is what the issue carries now. Deliberately after the enrolment
+  // check — an unenrolled repository must not be able to make this Worker
+  // fetch from GitHub once per delivery, the reason `webhook-sources.ts`
+  // orders its own two checks the same way.
+  let current: string[] | null;
+  try {
+    current = await issueLabels(env).current(facts.project, facts.number);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      state: "deferred",
+      reason: "consent_unverifiable",
+      detail:
+        `the labels ${facts.project}#${facts.number} carries now could not be read (${detail}); ` +
+        "nothing was ingested — this delivery's own snapshot is not evidence about consent " +
+        "at this moment, so an unreadable answer cannot mean accept",
+    };
+  }
+  if (current === null) {
+    return {
+      state: "ignored",
+      reason: "issue_not_visible",
+      detail:
+        `GitHub does not show ${facts.project}#${facts.number} to this factory — it is deleted, ` +
+        "transferred, or private to a token this deployment does not hold; an issue it cannot " +
+        "read is not one whose consent it can confirm",
+    };
+  }
+  if (!carriesLabel(current, label)) {
+    return {
+      state: "ignored",
+      reason: "consent_withdrawn_since_capture",
+      detail:
+        `${facts.project}#${facts.number} carried \`${label}\` when GitHub captured this ` +
+        `\`${facts.action}\` delivery and does not carry it now; deliveries are neither ` +
+        "ordered nor promptly delivered, and the label as it stands is the consent",
     };
   }
 
@@ -528,6 +726,10 @@ function json(body: unknown, status: number): Response {
  *    accepts nothing, rather than accepting everything.
  *  - **503** when the funnel came back `deferred` — nothing was committed and
  *    the signal is still valid, so a redelivery is exactly what should happen.
+ *  - **503** when the live consent re-read could not be made at all (tick
+ *    t2x). Same reason in a different system: no verdict was reached, nothing
+ *    was recorded, and "could not ask GitHub" must never resolve to "trust the
+ *    snapshot". See {@link IssueLabelReader}.
  */
 export async function githubWebhookRoute(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") {
@@ -574,6 +776,11 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
   }
 
   const result = await ingestIssueEvent(env, payload);
+  if (result.state === "deferred") {
+    // Nothing was decided and nothing recorded. A non-2xx is how GitHub is
+    // told to send this delivery again.
+    return json({ ok: false, ingested: false, reason: result.reason, detail: result.detail }, 503);
+  }
   if (result.state !== "ingested") {
     return json({ ok: true, ingested: false, reason: result.reason, detail: result.detail }, 200);
   }

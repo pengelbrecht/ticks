@@ -10,14 +10,18 @@ import {
   UNTRUSTED_LINE_PREFIX,
   classifyIssueEvent,
   consentLabel,
+  githubIssueLabels,
   githubSignature,
+  issueLabels,
   ingestIssueEvent,
   issueSignal,
   quoteUntrusted,
   renderIssueDraft,
   sanitizeUntrusted,
   verifyGitHubSignature,
+  MAX_LABEL_PAGES,
   type IssueFacts,
+  type IssueLabelReader,
 } from "../src/github-issues";
 import { inboxFor } from "../src/signal-inbox";
 import { type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
@@ -38,6 +42,10 @@ import { type TrackerWriteResult, type TrackerWriter } from "../src/tracker-writ
  *     must not render as it. The invariant is mechanical: unquoted lines are
  *     the factory's, quoted lines are the reporter's, and the count of the
  *     first does not move whatever is in the second.
+ *  4. **Consent is live, not photographed** (tick t2x). GitHub does not order
+ *     deliveries and redelivers after outages, so the tests below stage the
+ *     case the sequential ones cannot: a `labeled` payload whose own snapshot
+ *     still shows the label, processed after the removal. It must not ingest.
  */
 
 const BASE = "https://factory.example.com";
@@ -60,7 +68,28 @@ class FakeContents implements TrackerWriter {
   }
 }
 
+/**
+ * GitHub's answer to "what does this issue carry NOW" (tick t2x).
+ *
+ * Consent is re-read live at ingestion rather than taken from the delivery's
+ * own snapshot, so every test that ingests goes through this. Its default is
+ * the ordinary world — the label is still on — and a reordering test is one
+ * that moves `answer` between deliveries.
+ */
+class FakeLabels implements IssueLabelReader {
+  readonly calls: { project: string; number: number }[] = [];
+  /** Names, `null` for "GitHub will not show it", or an Error to throw. */
+  answer: string[] | null | Error = [DEFAULT_CONSENT_LABEL, "bug"];
+
+  async current(project: string, number: number): Promise<string[] | null> {
+    this.calls.push({ project, number });
+    if (this.answer instanceof Error) throw this.answer;
+    return this.answer;
+  }
+}
+
 let contents: FakeContents;
+let labels: FakeLabels;
 const saved: Record<string, unknown> = {};
 
 function set(name: string, value: unknown): void {
@@ -70,7 +99,9 @@ function set(name: string, value: unknown): void {
 
 beforeEach(() => {
   contents = new FakeContents();
+  labels = new FakeLabels();
   set("TICK_WRITER", contents);
+  set("ISSUE_LABELS", labels);
   set("SIGNAL_COMMIT_RETRY_MS", "0");
   set("GITHUB_WEBHOOK_SECRET", SECRET);
 });
@@ -149,6 +180,17 @@ async function accept(project: string, draftID: string): Promise<{ tick_id: stri
   expect(decision.state).toBe("accepted");
   if (decision.state !== "accepted") throw new Error(decision.state);
   return { tick_id: decision.tick_id, path: decision.path };
+}
+
+/**
+ * Nothing was proposed.
+ *
+ * Since tick la9 a refused delivery and a successful one both leave `.tick/`
+ * empty, so `contents.files` stopped being evidence that a refusal refused
+ * anything. What must be empty is the project's own draft list.
+ */
+async function proposals(project: string): Promise<number> {
+  return (await inboxFor(env, project).listDrafts()).length;
 }
 
 const facts = (over: Partial<IssueFacts> = {}): IssueFacts => ({
@@ -609,5 +651,268 @@ describe("issue text cannot forge the channel's own formatting", () => {
     if (result.state !== "ingested") return;
     expect(result.presentation).toContain(`<b>Project:</b> ${project}`);
     expect(factoryLines(result.presentation)).toHaveLength(6);
+  });
+});
+
+// ------------------------------------------ consent is live, not a snapshot ---
+
+/**
+ * Reordered deliveries (tick t2x).
+ *
+ * Every other test in this file delivers in the order the events happened.
+ * GitHub makes no such promise: deliveries are unordered and a retry after an
+ * outage can be arbitrarily late, so a `labeled` payload captured before a
+ * maintainer changed their mind can be processed after the `unlabeled` one and
+ * still shows the label present in its own `issue.labels`. Judged on that
+ * snapshot it ingests, which is what these tests exist to prevent.
+ *
+ * `FakeLabels` is the seam: it is what GitHub would answer to "what does this
+ * issue carry now", and moving it between two deliveries is the reordering.
+ */
+describe("consent is re-read live, never taken from the delivery's snapshot", () => {
+  /** The late payload: its own labels still carry consent, whatever the world says. */
+  const stale = (project: string): unknown =>
+    issuePayload(project, { action: "labeled", label: { name: DEFAULT_CONSENT_LABEL } });
+
+  it("a labeled delivery processed after the removal ingests nothing", async () => {
+    const project = await enrolled();
+
+    // The maintainer applies the label, then takes it straight back off. The
+    // removal is delivered first — GitHub does not order these.
+    const removal = await deliver(
+      issuePayload(
+        project,
+        { action: "unlabeled", label: { name: DEFAULT_CONSENT_LABEL } },
+        { labels: [{ name: "bug" }] }
+      )
+    );
+    expect(removal.status).toBe(200);
+    expect((await removal.json()) as Record<string, unknown>).toMatchObject({
+      reason: "consent_withdrawn",
+    });
+
+    // The world now: no consent label. The `labeled` delivery arrives late,
+    // photographed while it was still on.
+    labels.answer = ["bug"];
+    const late = await deliver(stale(project));
+
+    expect(late.status).toBe(200);
+    expect((await late.json()) as Record<string, unknown>).toMatchObject({
+      ok: true,
+      ingested: false,
+      reason: "consent_withdrawn_since_capture",
+    });
+    expect(await proposals(project)).toBe(0);
+    expect(contents.files.size).toBe(0);
+    // The verdict came from GitHub, about the issue the payload named.
+    expect(labels.calls).toEqual([{ project, number: 87 }]);
+  });
+
+  it("the same late delivery DOES ingest while the label is still on", async () => {
+    // The control the test above needs: without it, a delivery refused for any
+    // unrelated reason would look like the reordering rule working.
+    const project = await enrolled();
+
+    // Case-folded, because GitHub label names are unique case-insensitively
+    // and the live read must match consent the same way the snapshot does.
+    labels.answer = ["TK", "bug"];
+    const response = await deliver(stale(project));
+
+    expect(response.status).toBe(201);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      ingested: true,
+      drafted: true,
+    });
+    expect(await proposals(project)).toBe(1);
+  });
+
+  it("every ingesting action is judged against the live labels, not its own", async () => {
+    // `labeled` is not special: an `opened`, `reopened` or `edited` redelivery
+    // carries a snapshot too, and a stale one just as easily.
+    for (const action of ["opened", "reopened", "edited"]) {
+      const project = await enrolled();
+      labels.answer = ["bug"];
+
+      const response = await deliver(issuePayload(project, { action, label: undefined }));
+
+      expect(response.status).toBe(200);
+      expect((await response.json()) as Record<string, unknown>).toMatchObject({
+        ingested: false,
+        reason: "consent_withdrawn_since_capture",
+      });
+      expect(await proposals(project)).toBe(0);
+    }
+  });
+
+  it("an issue GitHub will not show this factory ingests nothing", async () => {
+    // Deleted, transferred, or private to a token this deployment does not
+    // hold. All three are one answer — 404 — and an issue this factory cannot
+    // read is not one whose consent it can confirm. Settled, so 2xx: a
+    // redelivery would 404 identically forever.
+    const project = await enrolled();
+    labels.answer = null;
+
+    const response = await deliver(stale(project));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      ok: true,
+      ingested: false,
+      reason: "issue_not_visible",
+    });
+    expect(await proposals(project)).toBe(0);
+  });
+
+  it("a consent check that could not be made defers, and never falls back to the snapshot", async () => {
+    const project = await enrolled();
+    labels.answer = new Error("GitHub answered HTTP 502");
+
+    const response = await deliver(stale(project));
+
+    // 503, not 200: no verdict was reached and nothing was recorded, so the
+    // right next step is for GitHub to send it again. Falling back to the
+    // payload's own labels here would reinstate exactly the hole this closes.
+    expect(response.status).toBe(503);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      ok: false,
+      ingested: false,
+      reason: "consent_unverifiable",
+    });
+    expect(await proposals(project)).toBe(0);
+
+    // And the redelivery, once GitHub is answering again, ingests normally.
+    labels.answer = [DEFAULT_CONSENT_LABEL];
+    const retry = await deliver(stale(project));
+    expect(retry.status).toBe(201);
+    expect(await proposals(project)).toBe(1);
+  });
+
+  it("the live read can withdraw consent but never grant it, and costs nothing when it cannot", async () => {
+    // The other half of the design, pinned so nobody "completes" it later: a
+    // delivery whose own labels do not carry consent is ignored WITHOUT asking
+    // GitHub anything — even when the label is on the issue right now.
+    // Declining costs nothing (applying the label fires its own `labeled`
+    // delivery), and re-reading here would spend an API call on every issue
+    // anyone opens in the repository.
+    const project = await enrolled();
+    labels.answer = [DEFAULT_CONSENT_LABEL];
+
+    const response = await deliver(
+      issuePayload(project, { action: "opened", label: undefined }, { labels: [{ name: "bug" }] })
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      ingested: false,
+      reason: "not_consented",
+    });
+    expect(labels.calls).toEqual([]);
+  });
+
+  it("nothing is re-read for a repository this factory never enrolled", async () => {
+    // Enrolment first, and not only as policy: without it anyone who can post
+    // a signed delivery could make this Worker fetch from any repository it
+    // can reach, once per request.
+    const response = await deliver(issuePayload("stranger/repo"));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({
+      reason: "project_not_enrolled",
+    });
+    expect(labels.calls).toEqual([]);
+  });
+});
+
+// -------------------------------------------------- the live reader itself ---
+
+/** Stands in for GitHub's issue-labels listing, one page at a time. */
+function stubGitHub(
+  pages: ({ name: string }[] | { status: number })[]
+): { urls: string[]; headers: Record<string, string>[]; restore: () => void } {
+  const urls: string[] = [];
+  const headers: Record<string, string>[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith("https://github.example.test")) return original(input as RequestInfo, init);
+    urls.push(url);
+    headers.push((init?.headers ?? {}) as Record<string, string>);
+    const page = Number(new URL(url).searchParams.get("page") ?? "1");
+    const answer = pages[page - 1] ?? [];
+    if (!Array.isArray(answer)) return Response.json({ message: "nope" }, { status: answer.status });
+    return Response.json(answer);
+  }) as typeof fetch;
+  return { urls, headers, restore: () => void (globalThis.fetch = original) };
+}
+
+describe("reading an issue's current labels", () => {
+  const reader = (): IssueLabelReader =>
+    githubIssueLabels({
+      GITHUB_API_BASE_URL: "https://github.example.test",
+      GITHUB_TOKEN: "ghp_repo_scoped",
+    } as never);
+
+  it("asks GitHub for the issue's labels, with the headers it requires", async () => {
+    const github = stubGitHub([[{ name: "tk" }, { name: "bug" }]]);
+    try {
+      await expect(reader().current("acme/widgets", 87)).resolves.toEqual(["tk", "bug"]);
+      expect(github.urls[0]).toContain("/repos/acme/widgets/issues/87/labels");
+      // GitHub rejects an API request with no user agent outright.
+      expect(github.headers[0]["user-agent"]).toBe("ticks-factory");
+      expect(github.headers[0].authorization).toBe("Bearer ghp_repo_scoped");
+    } finally {
+      github.restore();
+    }
+  });
+
+  it("reads an issue this factory cannot see as null, not as an error", async () => {
+    for (const status of [404, 410]) {
+      const github = stubGitHub([{ status }]);
+      try {
+        await expect(reader().current("acme/widgets", 87)).resolves.toBeNull();
+      } finally {
+        github.restore();
+      }
+    }
+  });
+
+  it("throws on any other non-2xx, because that is not an answer about consent", async () => {
+    const github = stubGitHub([{ status: 502 }]);
+    try {
+      await expect(reader().current("acme/widgets", 87)).rejects.toThrow(/HTTP 502/);
+    } finally {
+      github.restore();
+    }
+  });
+
+  it("pages until a short page proves the listing is exhausted", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => ({ name: `label-${i}` }));
+    const github = stubGitHub([full, [{ name: "tk" }]]);
+    try {
+      const names = await reader().current("acme/widgets", 87);
+      expect(names).toHaveLength(101);
+      expect(names).toContain("tk");
+      expect(github.urls).toHaveLength(2);
+    } finally {
+      github.restore();
+    }
+  });
+
+  it("refuses a listing it would have to truncate, rather than answering from half of it", async () => {
+    // The name past the cut could be the consent label, so "not consented"
+    // from a truncated listing is a verdict this reader has not earned.
+    const full = Array.from({ length: 100 }, (_, i) => ({ name: `label-${i}` }));
+    const github = stubGitHub(Array.from({ length: MAX_LABEL_PAGES + 1 }, () => full));
+    try {
+      await expect(reader().current("acme/widgets", 87)).rejects.toThrow(/more than/);
+    } finally {
+      github.restore();
+    }
+  });
+
+  it("is the reader a deployment uses, and the injected one when a test provides it", async () => {
+    const injected: IssueLabelReader = { current: async () => ["tk"] };
+    expect(issueLabels({ ISSUE_LABELS: injected } as never)).toBe(injected);
+    expect(issueLabels({} as never)).not.toBe(injected);
   });
 });

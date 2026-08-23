@@ -149,6 +149,10 @@ beforeEach(() => {
   set("TICK_WRITER", contents);
   set("SIGNAL_COMMIT_RETRY_MS", "0");
   set("GITHUB_WEBHOOK_SECRET", SECRET);
+  // Consent is re-read live at ingestion (tick t2x). These suites are not
+  // about that rule, so GitHub answers "the label is still on" throughout;
+  // `github-issues.test.ts` is where the reordered deliveries live.
+  set("ISSUE_LABELS", { current: async () => [DEFAULT_CONSENT_LABEL] });
   set("TELEGRAM_BOT_TOKEN", "test-bot-token");
   set("TELEGRAM_USER_ID", OPERATOR);
   set("TELEGRAM_CHAT_ID", CHAT);
