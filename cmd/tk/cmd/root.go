@@ -580,6 +580,9 @@ func ResetFlags() {
 	channelSetupAPIBase = ""
 	channelSetupTimeout = defaultPairTimeout
 	channelStatusOffline = false
+	channelSetupReclaim = false
+	factoryWebhookDelete = false
+	factoryWebhookStatus = false
 	channelStatusCheck = false
 	channelStatusAPIBase = ""
 	tellChannel = channelTelegram
@@ -587,6 +590,7 @@ func ResetFlags() {
 	tellFile = ""
 	tellCaption = ""
 	tellAs = ""
+	tellAbout = ""
 
 	// Reset ask flags
 	askQuestion = ""

@@ -14,6 +14,11 @@ instead has you create your own bot and pairs it directly with this machine.
 `tk` long-polls `api.telegram.org` itself; there is no daemon and no cloud
 component to stand up.
 
+Once the project is enrolled with a **cloud factory**, the consumer moves: the
+factory Worker takes the token's updates by webhook, and the local process stops
+polling. That is the same one-consumer rule, resolved in the other direction —
+see [Webhook mode](#webhook-mode).
+
 ## Setup
 
 1. Talk to [@BotFather](https://t.me/BotFather) on Telegram and create a bot
@@ -43,6 +48,79 @@ component to stand up.
 Because the sender of the `/start <code>` message becomes the bound operator,
 traffic from anyone else is dropped at the transport from then on — pairing is
 also the auth step.
+
+### Keep privacy mode ON
+
+Leave the bot's group privacy mode enabled — it is BotFather's default, and
+`/setprivacy -> Enable` puts it back. In a group the bot is then delivered only
+commands and replies to **its own** messages, which is the blast radius this
+design wants: a shared operator supergroup does not stream every unrelated word
+anyone types into a Worker that talks to a model.
+
+Inline button presses reach the bot regardless of privacy mode, so approval
+gates keep working untouched. What privacy mode DOES change is that **replying
+to the bot's message is load-bearing**, not a nicety: a free-text answer is
+correlated to its question by `reply_to_message`, so answer by replying to the
+question rather than by typing into the chat.
+
+The factory refuses to register its webhook for a bot whose privacy mode is off
+(`getMe` reports `can_read_all_group_messages`), and says so.
+
+## Webhook mode
+
+The Bot API allows exactly **one** update consumer per token: `setWebhook` and
+`getUpdates` are mutually exclusive. A local pairing polls; a cloud factory
+receives updates at its own front door, which is what lets a signal become a
+draft tick with no local process running at all.
+
+```bash
+tk factory webhook            # register (or re-register) the webhook
+tk factory webhook --status   # what Telegram believes it is
+tk factory webhook --delete   # withdraw it and go back to polling
+```
+
+Registration is done BY the factory rather than by this command: the bot token
+is a Worker secret, the URL Telegram has to reach is the deployment's own, and
+the privacy-mode check happens there. The Worker asks for `message` and
+`callback_query` only, sends `TELEGRAM_WEBHOOK_SECRET` as Telegram's
+`secret_token` (echoed on every delivery and checked at the door), and drops
+whatever queued while nothing was listening.
+
+Because registering stops every long poll on the same token,
+`tk channel setup telegram` refuses to pair while a webhook is registered and
+tells you what is holding it. `--reclaim` withdraws it and pairs anyway —
+register the webhook again afterwards, or the factory stops receiving answers.
+
+## One chat, many projects
+
+One bot and one chat now serve many projects, because one factory does. Two
+things keep that readable.
+
+**Every message names what it is about.** Gate messages, reports and completions
+carry a `owner/repo · epic <id> · tick <id>` header, so two repositories asking
+the same question do not produce two identical messages. `tk tell --about
+<tick-id>` reads the epic and tick off the tracker:
+
+```bash
+tk tell --about 8sm "worker landed, tests green"
+```
+
+**Each project can have its own topic.** Turn on *Topics* in a Telegram
+supergroup (`forum` in the Bot API), make one topic per project, and record its
+`message_thread_id` when you enrol the project with the factory — the topic map
+is part of enrolment, not a separate configuration surface:
+
+```bash
+curl -sS -X POST "$FACTORY_URL/api/projects" \
+  -H "Authorization: Bearer $FACTORY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"project":"acme/web","telegram_topic_id":17}'
+```
+
+Passing `"telegram_topic_id": null` clears it; leaving the field out of a later
+enrolment leaves the assignment alone. A project with no topic posts to the chat
+itself, so a deployment without Topics works unchanged — the header alone still
+tells the projects apart.
 
 ## Where secrets live
 
@@ -426,6 +504,11 @@ current channel supports.
 | `tk channel status` | Show what is configured, who it is paired with, and whether the token works |
 | `tk channel status --offline` | Show configuration without checking the token live |
 | `tk channel status --check` | Exit nonzero when a configured token is rejected |
+| `tk channel setup telegram --reclaim` | Withdraw a registered webhook so pairing can poll (re-register it afterwards) |
+| `tk factory webhook` | Point Telegram at your factory (checks the bot's privacy mode first) |
+| `tk factory webhook --status` | Report what Telegram believes the webhook is |
+| `tk factory webhook --delete` | Withdraw the webhook and hand updates back to polling |
+| `tk tell --about <tick-id>` | Name the epic and tick the announcement is about |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel |
 | `tk tell --format` | Send the announcement as MarkdownLite, rendered where the channel supports it |
 | `tk tell --file <path> [--caption "..."] [--as photo\|document]` | Upload a file or photo instead of a message |

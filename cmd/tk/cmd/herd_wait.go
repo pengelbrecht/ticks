@@ -135,6 +135,10 @@ func runHerdWait(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		// A relay question is about the agent, not a tick, so the project is
+		// the only thing there is to name — and with one bot serving every
+		// checkout, it is the thing worth naming.
+		labelChannel(relayChannel, operator.MessageContext{Project: messageProject()})
 		runCtx, relayCancel = context.WithCancel(ctx)
 		if relayChannel != nil {
 			consumerDone = make(chan error, 1)

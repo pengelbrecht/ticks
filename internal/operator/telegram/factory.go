@@ -52,9 +52,10 @@ type FactoryChannel struct {
 	client   *http.Client
 	interval time.Duration
 
-	mu   sync.Mutex
-	seen map[string]struct{}
-	refs map[operator.MessageRef]string
+	mu      sync.Mutex
+	context operator.MessageContext
+	seen    map[string]struct{}
+	refs    map[operator.MessageRef]string
 }
 
 // NewFactoryChannel validates a factory channel configuration.
@@ -97,6 +98,34 @@ func NewFactoryChannel(cfg FactoryConfig) (*FactoryChannel, error) {
 // Project is the canonical owner/repo this channel addresses.
 func (c *FactoryChannel) Project() string { return c.project }
 
+// UseMessageContext records which epic and tick this channel's messages are
+// about, implementing [operator.ContextualChannel].
+//
+// The project is NOT taken from here: a factory channel addresses one project
+// by construction, and the Worker composes the project into the message from
+// the enrolment record — which is also where that project's forum topic lives.
+// What the Worker cannot know is the epic, so that is what this carries.
+func (c *FactoryChannel) UseMessageContext(ctx operator.MessageContext) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.context = ctx
+}
+
+// epic returns the epic to label messages with, empty when none is known.
+func (c *FactoryChannel) epic() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.context.Epic
+}
+
+// messageTick is the tick a one-way report is about, empty when none is known.
+// A question carries its own tick on the pending entry and does not use this.
+func (c *FactoryChannel) messageTick() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.context.Tick
+}
+
 // Send posts a completion or one-way report to the paired Telegram chat.
 func (c *FactoryChannel) Send(ctx context.Context, text string) error {
 	return c.sendReport(ctx, operator.MessageRef{}, text)
@@ -113,10 +142,14 @@ func (c *FactoryChannel) sendReport(ctx context.Context, ref operator.MessageRef
 	if !ref.IsZero() {
 		reply = &ref
 	}
+	// The epic travels with the report so a completion in a chat several
+	// projects report into names what completed, not just that something did.
 	_, err := c.do(ctx, http.MethodPost, c.projectPath("reports"), struct {
-		Text string               `json:"text"`
-		Ref  *operator.MessageRef `json:"ref,omitempty"`
-	}{Text: text, Ref: reply}, nil)
+		Text   string               `json:"text"`
+		Epic   string               `json:"epic,omitempty"`
+		TickID string               `json:"tick_id,omitempty"`
+		Ref    *operator.MessageRef `json:"ref,omitempty"`
+	}{Text: text, Epic: c.epic(), TickID: c.messageTick(), Ref: reply}, nil)
 	return err
 }
 
@@ -130,6 +163,7 @@ func (c *FactoryChannel) RegisterPending(ctx context.Context, pending operator.P
 	_, err := c.do(ctx, http.MethodPost, c.projectPath("pending"), struct {
 		ID          string               `json:"id"`
 		TickID      string               `json:"tick_id,omitempty"`
+		Epic        string               `json:"epic,omitempty"`
 		AgentTarget string               `json:"agent_target,omitempty"`
 		Kind        operator.PendingKind `json:"kind"`
 		Awaiting    string               `json:"awaiting,omitempty"`
@@ -137,7 +171,7 @@ func (c *FactoryChannel) RegisterPending(ctx context.Context, pending operator.P
 		NotBefore   time.Time            `json:"not_before,omitzero"`
 		Notify      string               `json:"notify"`
 	}{
-		ID: pending.ID, TickID: pending.TickID, AgentTarget: pending.AgentTarget,
+		ID: pending.ID, TickID: pending.TickID, Epic: c.epic(), AgentTarget: pending.AgentTarget,
 		Kind: pending.Kind, Awaiting: pending.Awaiting, Question: pending.Question,
 		NotBefore: pending.NotBefore, Notify: "telegram",
 	}, &response)

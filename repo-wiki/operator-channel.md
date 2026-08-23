@@ -221,3 +221,50 @@ CLI: `tk tell --format|--file|--caption|--as`, `tk ask --photo --gate approve`. 
 signed off live by the operator over the channel itself. Gotchas documented: Telegram's
 text-file preview mojibakes BOM-less UTF-8 (display AND copy path; bytes intact);
 snake_case italics footgun (`_` has no word boundary — backtick identifiers).
+
+## Epic hdt tick spq (2026-08-23): webhook mode, and project legibility in every message
+
+Two things that had to land together because both rewrite message composition.
+
+- **The Worker's webhook route existed since the cloud operator bridge; nothing had ever
+  called `setWebhook`.** That was the whole gap. `POST /api/channels/telegram/webhook/registration`
+  (authenticated — a SIBLING path, because `isAuthExempt` exempts the update path by exact match
+  only) derives the URL from `FACTORY_BASE_URL` or the request's own origin, narrows
+  `allowed_updates` to `message`+`callback_query`, sends `TELEGRAM_WEBHOOK_SECRET` as
+  `secret_token`, and drops the pending backlog. `tk factory webhook [--status|--delete]` drives it.
+- **Privacy mode is checkable but not settable.** `getMe` returns `can_read_all_group_messages`,
+  which is privacy mode INVERTED; there is no API to change it (@BotFather `/setprivacy`). So
+  registration reads it and refuses (409 `telegram_privacy_mode_off`) rather than widening the
+  bot's reach silently. Consequence, and the seam tick yu8 builds on: **reply-to is the entire
+  correlation key for free text** — `parseTelegramAnswer` matches `reply_to_message.message_id`
+  against the entry's `ref.message_id`, and explicitly drops a "reply" carrying
+  `forum_topic_created` (a forum threads a topic's first message onto its own service message).
+- **setWebhook and getUpdates are mutually exclusive per token**, so pairing had to learn about it:
+  `tk channel setup telegram` now calls `getWebhookInfo` first and REFUSES with the registered URL
+  rather than spending its 5-minute window on 409s and reporting a timeout. `--reclaim` deletes the
+  webhook and tells the operator to register it again. `fakebot` models the 409 for the same reason.
+- **Legibility is a TEXT problem, not a routing problem.** Routing was already unambiguous (RunRoom
+  per project, unique question ids, callback data carries the id). Nothing composed the project INTO
+  the message, so two repos produced identical questions. Now every gate/report/completion carries
+  `owner/repo · epic <id> · tick <id>`.
+- **Two composers, one shared fixture.** `internal/operator/context.go` (`MessageContext`) and
+  `cloud/factory/src/message-context.ts` both write into the same chat, and a drift is invisible to
+  both suites — each keeps rendering a readable line. Pinned by
+  `cloud/factory/test/fixtures/message-context.json`, the same pattern as `tracker-layout.json`.
+- **The topic map is a FIELD OF ENROLMENT** (operator instruction, verbatim: not a fourth config
+  surface). `POST /api/projects` takes `telegram_topic_id`; value sets, `null` clears, absent leaves
+  alone (enrolment is re-run for unrelated reasons). Stored in its own table (`migrations/0007`)
+  because SQLite has no `ADD COLUMN IF NOT EXISTS` and this repo's migrations are re-runnable —
+  `db.ts` LEFT JOINs it back so it reads as a field everywhere else. Withdrawing a project drops it.
+- **`pending_question` grew an `epic` column** (additive ALTER in the DO constructor, "duplicate
+  column name" is the expected answer). The project is the room's identity and the tick is on the
+  entry; the epic was the one of the three nothing else could supply.
+- **The LOCAL channel gets legibility but NOT topics**, deliberately: a locally paired bot talks to
+  the operator in a private chat, and topics are a supergroup feature belonging to the factory's
+  shared chat. Giving the local channel its own topic map would have been the fourth config surface.
+- Local labelling is an optional capability (`operator.ContextualChannel`, a setter) rather than an
+  argument on `Send`/`AskDeliver`: the context is a property of the run, not of each message.
+  `tk tell --about <tick-id>` resolves epic+tick from the tracker; an epic names itself as the epic
+  and carries no tick; an unresolvable id costs the labels, never the announcement.
+- Gotcha found while landing it: `tk tell --file` with no `--caption` must stay uncaptioned — a
+  caption that is only a label is chrome under a file that says nothing.

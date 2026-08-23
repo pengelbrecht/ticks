@@ -558,3 +558,76 @@ func TestChannelCommandRegistered(t *testing.T) {
 		t.Errorf("channel is not a visible root command: %v", CommandNames())
 	}
 }
+
+// TestChannelSetupRefusesWhileAWebhookIsRegistered pins the handover between
+// the two delivery modes. The Bot API allows ONE update consumer per token, so
+// a registered webhook makes every getUpdates a 409 — pairing would burn its
+// whole window and report a timeout for a reason that has nothing to do with
+// the operator's phone.
+func TestChannelSetupRefusesWhileAWebhookIsRegistered(t *testing.T) {
+	channelTestHome(t)
+	channelTestRepo(t)
+	bot := fakebot.New()
+	defer bot.Close()
+	bot.SetWebhook(fakebot.Webhook{URL: "https://factory.example.com/api/channels/telegram/webhook"})
+
+	out := captureChannelIO(t, "")
+	err := ExecuteArgs([]string{
+		"channel", "setup", "telegram",
+		"--token", bot.Token,
+		"--api-base", bot.URL(),
+		"--pair-timeout", "2s",
+	})
+	if err == nil {
+		t.Fatalf("pairing succeeded against a bot in webhook mode\n%s", out.String())
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "webhook") || !strings.Contains(msg, "--reclaim") {
+		t.Errorf("refusal does not explain webhook mode or how to proceed: %q", msg)
+	}
+	if !strings.Contains(msg, "factory.example.com") {
+		t.Errorf("refusal does not name the registered webhook: %q", msg)
+	}
+	// Nothing was withdrawn behind the operator's back.
+	if bot.Webhook() == nil {
+		t.Error("the webhook was deleted without --reclaim")
+	}
+	// And nothing was written: a refused pairing leaves no configuration.
+	cfg := loadChannelConfig(t)
+	if _, ok := cfg.Channel("telegram"); ok {
+		t.Error("a refused pairing wrote a telegram entry")
+	}
+}
+
+// TestChannelSetupReclaimsTheWebhookWhenTold is the other half: --reclaim is
+// the operator saying they mean to take the factory off the air for a moment.
+func TestChannelSetupReclaimsTheWebhookWhenTold(t *testing.T) {
+	channelTestHome(t)
+	channelTestRepo(t)
+	bot := fakebot.New()
+	defer bot.Close()
+	bot.SetWebhook(fakebot.Webhook{URL: "https://factory.example.com/api/channels/telegram/webhook"})
+
+	out := captureChannelIO(t, "y\n")
+	pairWhenPrompted(t, bot, out, 424242, 919191)
+
+	if err := ExecuteArgs([]string{
+		"channel", "setup", "telegram",
+		"--token", bot.Token,
+		"--api-base", bot.URL(),
+		"--pair-timeout", "20s",
+		"--reclaim",
+	}); err != nil {
+		t.Fatalf("channel setup telegram --reclaim: %v\n%s", err, out.String())
+	}
+	if bot.Webhook() != nil {
+		t.Error("--reclaim did not withdraw the webhook")
+	}
+	if printed := out.String(); !strings.Contains(printed, "Register it again") {
+		t.Errorf("output does not tell the operator to re-register the webhook:\n%s", printed)
+	}
+	cfg := loadChannelConfig(t)
+	if _, ok := cfg.Channel("telegram"); !ok {
+		t.Error("pairing did not complete after reclaiming the webhook")
+	}
+}
