@@ -16,7 +16,10 @@
  * - ANY  /api/gateway/*     - a run's model traffic, on its own run-scoped
  *                             gateway token (D17) — never the factory token
  * - POST /api/hooks/github  - GitHub issues, behind the `tk` label consent
- *                             boundary; HMAC-signed, never bearer-authenticated
+ *                             boundary; HMAC-signed, never bearer-authenticated.
+ *                             A consented issue becomes a DRAFT a human
+ *                             accepts or discards in the channel (tick la9),
+ *                             never a tick on arrival
  * - POST /api/hooks/source/:owner/:repo/:name - a webhook source the repository
  *                             declares in its own `.tick/runners.toml`; signed
  *                             with the scheme that declaration names
@@ -51,6 +54,7 @@ import {
   type EnrolledProject,
 } from "./db";
 import { proxyModelRequest } from "./gateway";
+import { handleDraftPress, parseDraftCallback } from "./drafts";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
 import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
 import { observeRoute } from "./observe";
@@ -826,6 +830,18 @@ async function telegramWebhookRoute(request: Request, env: Env): Promise<Respons
   // update is dropped at the transport boundary, matching local Telegram mode.
   if (!isPairedTelegramUpdate(update, { user_id: config.user_id, chat_id: config.chat_id })) {
     return Response.json({ ok: true, dropped: true });
+  }
+
+  // A draft press is answered before anything else, and without consulting the
+  // RunRoom at all: `d:<draft id>:<verb>` names one proposal in one project, so
+  // there is nothing to disambiguate and no question to look for. This is the
+  // difference the triage surface was built on — a press cannot be ambiguous,
+  // which is why it does not depend on the free-text rules below (tick la9).
+  const press = parseDraftCallback(update.callback_query?.data);
+  if (press !== null) {
+    const result = await handleDraftPress(env, press, `telegram:${config.user_id}`);
+    await acknowledgeTelegramCallback(env, update, result.toast);
+    return Response.json(result.body);
   }
 
   // Free text points at nothing, so it is decided against every enrolled

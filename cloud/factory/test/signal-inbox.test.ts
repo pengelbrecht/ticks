@@ -7,9 +7,9 @@ import {
   inboxFor,
   parseSignal,
   submitSignal,
+  type DraftDecision,
   type Signal,
   type SignalInbox,
-  type SignalOutcome,
 } from "../src/signal-inbox";
 import { MAX_COMMIT_ATTEMPTS, type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
 import { TICK_RECORD_DIR } from "../src/tick-membership";
@@ -125,6 +125,43 @@ const signal = (over: Partial<Signal> & { project: string }): Signal => ({
 
 const inbox = (name: string) => inboxFor(env as never, name);
 
+/** Who the gate records as having pressed, in a test that is not about that. */
+const HUMAN = "telegram:424242";
+
+/**
+ * The whole path a signal takes since the human gate (tick la9): it is
+ * admitted as a proposal, and a person accepts it into the tracker.
+ *
+ * Every test below that is about the COMMIT goes through here, because that is
+ * where the commit is now. Nothing reaches the tracker writer without it.
+ */
+async function file(
+  name: string,
+  sig: Signal
+): Promise<Extract<DraftDecision, { state: "accepted" }> | DraftDecision> {
+  const admitted = await inbox(name).submit(sig);
+  expect(admitted.state).toBe("drafted");
+  if (admitted.state !== "drafted") throw new Error(`not drafted: ${admitted.state}`);
+  return inbox(name).decide(admitted.draft_id, "create", HUMAN);
+}
+
+/** The proposal ids of a batch of admitted signals, in admission order. */
+async function propose(name: string, sigs: Signal[]): Promise<string[]> {
+  const ids: string[] = [];
+  for (const sig of sigs) {
+    const admitted = await inbox(name).submit(sig);
+    expect(admitted.state).toBe("drafted");
+    if (admitted.state === "drafted") ids.push(admitted.draft_id);
+  }
+  return ids;
+}
+
+const accepted = (d: DraftDecision): Extract<DraftDecision, { state: "accepted" }> => {
+  expect(d.state).toBe("accepted");
+  if (d.state !== "accepted") throw new Error(`not accepted: ${d.state}`);
+  return d;
+};
+
 function recordAt(path: string): Record<string, unknown> {
   const text = contents.files.get(path);
   expect(text, `${path} is not in the repository`).toBeDefined();
@@ -133,17 +170,32 @@ function recordAt(path: string): Record<string, unknown> {
 
 // --------------------------------------------------------------- the funnel ---
 
-describe("a signal becomes a tick", () => {
-  it("commits one record to .tick/issues and reports the commit", async () => {
+describe("a signal becomes a proposal, and a human makes it a tick", () => {
+  it("admits it without touching the tracker at all", async () => {
     const name = project();
 
     const outcome = await inbox(name).submit(signal({ project: name }));
 
-    expect(outcome.state).toBe("created");
-    if (outcome.state !== "created") return;
+    expect(outcome.state).toBe("drafted");
+    if (outcome.state !== "drafted") return;
+    expect(outcome.external_ref).toBe("telegram:8412");
+    // The gate's whole point (tick la9): nothing is in the repository, so
+    // there is nothing for `tk next` or a wave to see.
+    expect(contents.attempted).toEqual([]);
+    expect(contents.files.size).toBe(0);
+
+    const draft = await inbox(name).getDraft(outcome.draft_id);
+    expect(draft).toMatchObject({ state: "pending", tick_id: null, title: signal({ project: name }).title });
+  });
+
+  it("commits one record to .tick/issues when a human accepts, and reports the commit", async () => {
+    const name = project();
+
+    const outcome = accepted(await file(name, signal({ project: name })));
+
     expect(outcome.path).toBe(`${TICK_RECORD_DIR}/${outcome.tick_id}.json`);
     expect(outcome.commit_sha).toBe("commit1");
-    expect(outcome.external_ref).toBe("telegram:8412");
+    expect(outcome.draft.state).toBe("created");
 
     const record = recordAt(outcome.path);
     expect(record).toMatchObject({
@@ -162,20 +214,21 @@ describe("a signal becomes a tick", () => {
   it("carries what the source knew: epic, labels, priority, acceptance", async () => {
     const name = project();
 
-    const outcome = await inbox(name).submit(
-      signal({
-        project: name,
-        parent: "hdt",
-        labels: ["factory", "signal"],
-        priority: 0,
-        type: "bug",
-        description: "the trailing newline is eaten by the heredoc",
-        acceptance_criteria: "a deploy leaves the file byte-identical",
-      })
+    const outcome = accepted(
+      await file(
+        name,
+        signal({
+          project: name,
+          parent: "hdt",
+          labels: ["factory", "signal"],
+          priority: 0,
+          type: "bug",
+          description: "the trailing newline is eaten by the heredoc",
+          acceptance_criteria: "a deploy leaves the file byte-identical",
+        })
+      )
     );
 
-    expect(outcome.state).toBe("created");
-    if (outcome.state !== "created") return;
     expect(recordAt(outcome.path)).toMatchObject({
       parent: "hdt",
       labels: ["factory", "signal"],
@@ -197,8 +250,8 @@ describe("a signal becomes a tick", () => {
     };
     set("TICK_WRITER", recording);
 
-    await inbox(name).submit(signal({ project: name, external_ref: "1" }));
-    await inbox(name).submit(signal({ project: name, external_ref: "2", branch: "trunk" }));
+    await file(name, signal({ project: name, external_ref: "1" }));
+    await file(name, signal({ project: name, external_ref: "2", branch: "trunk" }));
 
     expect(branches).toEqual([undefined, "trunk"]);
   });
@@ -206,19 +259,22 @@ describe("a signal becomes a tick", () => {
 
 // ---------------------------------------------------------- the concurrency ---
 
-describe("two signals for one project arriving together", () => {
+describe("two proposals accepted at once", () => {
   it("both become ticks, one commit at a time, with no lost update", async () => {
     const name = project();
     // A real network hop, so an unserialised inbox WOULD interleave here.
     contents.latencyMs = 10;
 
-    const outcomes = await Promise.all([
-      inbox(name).submit(signal({ project: name, source: "telegram", external_ref: "a" })),
-      inbox(name).submit(signal({ project: name, source: "telegram", external_ref: "b" })),
-      inbox(name).submit(signal({ project: name, source: "github", external_ref: "c" })),
+    const drafts = await propose(name, [
+      signal({ project: name, source: "telegram", external_ref: "a" }),
+      signal({ project: name, source: "telegram", external_ref: "b" }),
+      signal({ project: name, source: "github", external_ref: "c" }),
     ]);
+    const outcomes = await Promise.all(drafts.map((id) => inbox(name).decide(id, "create", HUMAN)));
 
-    const created = outcomes.filter((o): o is Extract<SignalOutcome, { state: "created" }> => o.state === "created");
+    const created = outcomes.filter(
+      (o): o is Extract<DraftDecision, { state: "accepted" }> => o.state === "accepted"
+    );
     expect(created).toHaveLength(3);
 
     // No lost update: three distinct ids, three records, all three in the tree.
@@ -233,39 +289,43 @@ describe("two signals for one project arriving together", () => {
     expect(contents.peakConcurrent).toBe(1);
   });
 
-  it("commits in the order the inbox admitted them", async () => {
+  it("commits in the order the presses arrived", async () => {
     const name = project();
     contents.latencyMs = 5;
 
-    const outcomes = await Promise.all(
+    const drafts = await propose(
+      name,
       ["a", "b", "c", "d", "e"].map((ref) =>
-        inbox(name).submit(signal({ project: name, external_ref: ref, title: `signal ${ref}` }))
+        signal({ project: name, external_ref: ref, title: `signal ${ref}` })
       )
     );
-
-    const created = outcomes.filter((o): o is Extract<SignalOutcome, { state: "created" }> => o.state === "created");
-    expect(created).toHaveLength(5);
     // seq is assigned in the synchronous prefix of submit(), so it is arrival
-    // order; the commits then happen in that same order.
-    const bySeq = [...created].sort((l, r) => l.seq - r.seq);
-    expect(bySeq.map((o) => o.seq)).toEqual([...bySeq].map((_, i) => bySeq[0].seq + i));
+    // order; accepting them in that order commits them in it.
+    const outcomes = await Promise.all(drafts.map((id) => inbox(name).decide(id, "create", HUMAN)));
+
+    const created = outcomes.map(accepted);
+    expect(created).toHaveLength(5);
+    const bySeq = [...created].sort((l, r) => l.draft.seq - r.draft.seq);
     expect(contents.committed).toEqual(bySeq.map((o) => o.path));
     expect(contents.peakConcurrent).toBe(1);
   });
 
-  it("keeps the queue moving when one signal's commit cannot settle", async () => {
+  it("keeps the queue moving when one commit cannot settle", async () => {
     const name = project();
-    // Enough refusals to exhaust the first signal's whole budget, and nothing
-    // after it: the second signal must still be committed.
+    // Enough refusals to exhaust the first press's whole budget, and nothing
+    // after it: the second must still be committed.
     contents.conflicts = MAX_COMMIT_ATTEMPTS;
 
-    const [first, second] = await Promise.all([
-      inbox(name).submit(signal({ project: name, external_ref: "a" })),
-      inbox(name).submit(signal({ project: name, external_ref: "b" })),
+    const drafts = await propose(name, [
+      signal({ project: name, external_ref: "a" }),
+      signal({ project: name, external_ref: "b" }),
     ]);
+    const [first, second] = await Promise.all(
+      drafts.map((id) => inbox(name).decide(id, "create", HUMAN))
+    );
 
     expect(first).toMatchObject({ state: "deferred", reason: "commit_unsettled" });
-    expect(second.state).toBe("created");
+    expect(second!.state).toBe("accepted");
     expect(contents.committed).toHaveLength(1);
   });
 });
@@ -273,24 +333,41 @@ describe("two signals for one project arriving together", () => {
 // ---------------------------------------------------------------- the dedup ---
 
 describe("the same signal delivered twice", () => {
-  it("creates one tick and reports the first one", async () => {
+  it("makes one proposal and reports the first one", async () => {
     const name = project();
 
     const first = await inbox(name).submit(signal({ project: name }));
     const second = await inbox(name).submit(signal({ project: name }));
 
-    expect(first.state).toBe("created");
+    expect(first.state).toBe("drafted");
     expect(second.state).toBe("duplicate");
-    if (first.state !== "created" || second.state !== "duplicate") return;
-    expect(second.tick_id).toBe(first.tick_id);
+    if (first.state !== "drafted" || second.state !== "duplicate") return;
+    expect(second.draft_id).toBe(first.draft_id);
+    expect(second.draft_state).toBe("draft");
+    expect(second.tick_id).toBeNull();
     expect(second.deliveries).toBe(2);
+    expect(await inbox(name).listDrafts()).toHaveLength(1);
+    expect(contents.committed).toHaveLength(0);
+  });
+
+  it("reports the tick once a human has accepted the proposal", async () => {
+    const name = project();
+    const outcome = accepted(await file(name, signal({ project: name })));
+
+    const redelivered = await inbox(name).submit(signal({ project: name }));
+
+    expect(redelivered).toMatchObject({
+      state: "duplicate",
+      draft_state: "created",
+      tick_id: outcome.tick_id,
+    });
     expect(contents.committed).toHaveLength(1);
   });
 
   // The case a per-source dedup could not have handled: the redelivery arrives
   // while the original is still in flight, so a check outside the serialiser
   // would read an index the original had not written yet.
-  it("creates one tick even when the redelivery races the original", async () => {
+  it("makes one proposal even when the redelivery races the original", async () => {
     const name = project();
     contents.latencyMs = 10;
 
@@ -300,19 +377,26 @@ describe("the same signal delivered twice", () => {
       inbox(name).submit(signal({ project: name })),
     ]);
 
-    expect(outcomes.filter((o) => o.state === "created")).toHaveLength(1);
+    // Admission is now entirely synchronous, so this is not even a race: the
+    // dedup read and the write that follows it are one prefix a Durable Object
+    // runs to completion before it delivers the next event.
+    expect(outcomes.filter((o) => o.state === "drafted")).toHaveLength(1);
     expect(outcomes.filter((o) => o.state === "duplicate")).toHaveLength(2);
-    expect(contents.committed).toHaveLength(1);
+    expect(await inbox(name).listDrafts()).toHaveLength(1);
+    expect(contents.committed).toHaveLength(0);
   });
 
   it("does not confuse two sources that number their signals the same way", async () => {
     const name = project();
 
-    const telegram = await inbox(name).submit(signal({ project: name, source: "telegram", external_ref: "42" }));
-    const github = await inbox(name).submit(signal({ project: name, source: "github", external_ref: "42" }));
+    const telegram = accepted(
+      await file(name, signal({ project: name, source: "telegram", external_ref: "42" }))
+    );
+    const github = accepted(
+      await file(name, signal({ project: name, source: "github", external_ref: "42" }))
+    );
 
-    expect(telegram.state).toBe("created");
-    expect(github.state).toBe("created");
+    expect(telegram.tick_id).not.toBe(github.tick_id);
     expect(contents.committed).toHaveLength(2);
   });
 
@@ -320,11 +404,11 @@ describe("the same signal delivered twice", () => {
     const one = project();
     const two = project();
 
-    const first = await inbox(one).submit(signal({ project: one }));
-    const second = await inbox(two).submit(signal({ project: two }));
+    const first = await file(one, signal({ project: one }));
+    const second = await file(two, signal({ project: two }));
 
-    expect(first.state).toBe("created");
-    expect(second.state).toBe("created");
+    expect(first.state).toBe("accepted");
+    expect(second.state).toBe("accepted");
   });
 
   it("does not fold the case of an external ref, which is often a URL", async () => {
@@ -337,33 +421,60 @@ describe("the same signal delivered twice", () => {
       signal({ project: name, source: "github", external_ref: "mdu6sxnzdwu0mg" })
     );
 
-    expect(lower.state).toBe("created");
-    expect(upper.state).toBe("created");
+    expect(lower.state).toBe("drafted");
+    expect(upper.state).toBe("drafted");
   });
 
-  it("answers a source asking whether it already filed this one", async () => {
+  it("answers a source asking whether it already saw this one", async () => {
     const name = project();
-    const created = await inbox(name).submit(signal({ project: name }));
+    const created = accepted(await file(name, signal({ project: name })));
 
     await expect(inbox(name).lookup("telegram", "8412")).resolves.toMatchObject({
-      tick_id: created.state === "created" ? created.tick_id : "",
+      tick_id: created.tick_id,
+      state: "created",
       deliveries: 1,
     });
     await expect(inbox(name).lookup("telegram", "nope")).resolves.toBeNull();
   });
 
-  // The order the dedup row is written in is load-bearing: written before the
-  // commit, it would suppress the redelivery that is the only thing that could
-  // still file the tick the commit failed to write.
-  it("leaves an unsettled signal filable by its next delivery", async () => {
+  // What Discard leaves behind, and why it is left behind: a settled signal
+  // whose source keeps redelivering must not be proposed again every time.
+  it("keeps the dedup record of a discarded proposal, with no tick behind it", async () => {
+    const name = project();
+    const admitted = await inbox(name).submit(signal({ project: name }));
+    if (admitted.state !== "drafted") throw new Error("not drafted");
+
+    await inbox(name).decide(admitted.draft_id, "discard", HUMAN);
+
+    await expect(inbox(name).lookup("telegram", "8412")).resolves.toMatchObject({
+      tick_id: "",
+      state: "discarded",
+    });
+    const redelivered = await inbox(name).submit(signal({ project: name }));
+    expect(redelivered).toMatchObject({ state: "duplicate", draft_state: "discarded", tick_id: null });
+    expect(await inbox(name).listDrafts()).toHaveLength(1);
+    expect(contents.committed).toHaveLength(0);
+  });
+
+  // Before the gate, the dedup row was written AFTER the commit so that a
+  // failed commit stayed redeliverable. The gate makes that unnecessary and
+  // the row is now written with the proposal: an unsettled commit leaves the
+  // proposal pending, so the thing that files the tick is the human pressing
+  // again, not the source delivering again.
+  it("leaves an unsettled acceptance pending, and accepts it on the next press", async () => {
     const name = project();
     contents.conflicts = MAX_COMMIT_ATTEMPTS;
+    const admitted = await inbox(name).submit(signal({ project: name }));
+    if (admitted.state !== "drafted") throw new Error("not drafted");
 
-    const first = await inbox(name).submit(signal({ project: name }));
-    const second = await inbox(name).submit(signal({ project: name }));
+    const first = await inbox(name).decide(admitted.draft_id, "create", HUMAN);
+    expect(first).toMatchObject({ state: "deferred", reason: "commit_unsettled" });
+    expect((await inbox(name).getDraft(admitted.draft_id))?.state).toBe("pending");
+    expect(contents.committed).toHaveLength(0);
 
-    expect(first.state).toBe("deferred");
-    expect(second.state).toBe("created");
+    contents.conflicts = 0;
+    const second = await inbox(name).decide(admitted.draft_id, "create", HUMAN);
+    expect(second.state).toBe("accepted");
     expect(contents.committed).toHaveLength(1);
   });
 });
@@ -380,10 +491,8 @@ describe("a signal arriving while a run commits tracker state", () => {
     contents.conflicts = 2;
     contents.onConflict = () => contents.runCommits(runsTick, runsRecord);
 
-    const outcome = await inbox(name).submit(signal({ project: name }));
+    const outcome = accepted(await file(name, signal({ project: name })));
 
-    expect(outcome.state).toBe("created");
-    if (outcome.state !== "created") return;
     // The signal's record landed, after retrying the same id on top of the
     // run's commits.
     expect(outcome.attempts).toBe(3);
@@ -395,15 +504,15 @@ describe("a signal arriving while a run commits tracker state", () => {
     expect(contents.committed).toEqual([outcome.path]);
   });
 
-  it("gives the signal back rather than filing half of it when the run never yields", async () => {
+  it("gives the proposal back rather than filing half of it when the run never yields", async () => {
     const name = project();
     contents.conflicts = MAX_COMMIT_ATTEMPTS;
 
-    const outcome = await inbox(name).submit(signal({ project: name }));
+    const outcome = await file(name, signal({ project: name }));
 
     expect(outcome).toMatchObject({ state: "deferred", reason: "commit_unsettled" });
     if (outcome.state !== "deferred") return;
-    expect(outcome.detail).toContain("redelivering this signal is safe");
+    expect(outcome.detail).toContain("accepting this draft again is safe");
     expect(contents.files.size).toBe(0);
   });
 
@@ -422,10 +531,8 @@ describe("a signal arriving while a run commits tracker state", () => {
     };
     set("TICK_WRITER", takeNextID);
 
-    const outcome = await inbox(name).submit(signal({ project: name }));
+    const outcome = accepted(await file(name, signal({ project: name })));
 
-    expect(outcome.state).toBe("created");
-    if (outcome.state !== "created") return;
     const taken = contents.attempted[0];
     expect(outcome.path).not.toBe(taken);
     expect(contents.files.get(taken)).toBe(existing);
@@ -487,20 +594,24 @@ describe("what the funnel refuses", () => {
     expect(parsed.signal.owner).toBe("operator@example.com");
   });
 
-  it("bounds the queue rather than holding an unbounded number of requests open", async () => {
+  it("bounds the commit queue rather than holding an unbounded number of presses open", async () => {
     const name = project();
-    // Nothing settles until the flood has actually filled the inbox. Waiting on
+    const drafts = await propose(
+      name,
+      Array.from({ length: SIGNAL_INBOX_QUEUE_LIMIT + 5 }, (_, i) =>
+        signal({ project: name, external_ref: `flood-${i}` })
+      )
+    );
+    // Nothing settles until the flood has actually filled the queue. Waiting on
     // a latency instead made this a coin flip under a loaded runtime: the
-    // submissions were delivered one at a time, each settling before the next,
-    // so `in_flight` never reached the bound and no signal was ever refused.
+    // presses were delivered one at a time, each settling before the next, so
+    // `in_flight` never reached the bound and nothing was ever refused.
     let open!: () => void;
     contents.gate = new Promise<void>((resolve) => {
       open = () => resolve();
     });
 
-    const flood = Array.from({ length: SIGNAL_INBOX_QUEUE_LIMIT + 5 }, (_, i) =>
-      inbox(name).submit(signal({ project: name, external_ref: `flood-${i}` }))
-    );
+    const flood = drafts.map((id) => inbox(name).decide(id, "create", HUMAN));
     // A refusal returns BEFORE the in-flight count is raised, so the count
     // settles at the bound and this loop terminates.
     for (let poll = 0; poll < 500; poll += 1) {
@@ -513,10 +624,10 @@ describe("what the funnel refuses", () => {
 
     const full = outcomes.filter((o) => o.state === "deferred" && o.reason === "inbox_full");
     expect(full.length).toBeGreaterThan(0);
-    // Nothing was lost or half-written: every signal is either a tick or a
-    // deferral its source may redeliver.
-    expect(outcomes.every((o) => o.state === "created" || o.state === "deferred")).toBe(true);
-    expect(contents.committed).toHaveLength(outcomes.filter((o) => o.state === "created").length);
+    // Nothing was lost or half-written: every proposal is either a tick or
+    // still pending, and pressing again is safe.
+    expect(outcomes.every((o) => o.state === "accepted" || o.state === "deferred")).toBe(true);
+    expect(contents.committed).toHaveLength(outcomes.filter((o) => o.state === "accepted").length);
   });
 });
 
@@ -525,20 +636,26 @@ describe("what the funnel refuses", () => {
 describe("what the inbox records", () => {
   it("keeps an admission row per signal, settled with what happened", async () => {
     const name = project();
+    const admitted = await inbox(name).submit(signal({ project: name, external_ref: "a" }));
     await inbox(name).submit(signal({ project: name, external_ref: "a" }));
-    await inbox(name).submit(signal({ project: name, external_ref: "a" }));
+    if (admitted.state !== "drafted") throw new Error("not drafted");
 
-    const status = await inbox(name).status();
+    const proposed = await inbox(name).status();
+    expect(proposed.object).toBe("SignalInbox");
+    expect(proposed.in_flight).toBe(0);
+    expect(proposed.pending_drafts).toBe(1);
+    expect(proposed.deduped).toBe(1);
+    expect(proposed.recent.map((row) => row.state)).toEqual(["duplicate", "drafted"]);
 
-    expect(status.object).toBe("SignalInbox");
-    expect(status.in_flight).toBe(0);
-    expect(status.deduped).toBe(1);
-    expect(status.recent.map((row) => row.state)).toEqual(["duplicate", "created"]);
+    await inbox(name).decide(admitted.draft_id, "create", HUMAN);
+    const settled = await inbox(name).status();
+    expect(settled.pending_drafts).toBe(0);
+    expect(settled.recent.map((row) => row.state)).toEqual(["duplicate", "created"]);
   });
 
   it("stores the dedup index durably, in the object's own SQL", async () => {
     const name = project();
-    await inbox(name).submit(signal({ project: name }));
+    await file(name, signal({ project: name }));
 
     let rows: { source: string; external_ref: string; tick_id: string }[] = [];
     await runInDurableObject(inbox(name) as DurableObjectStub<SignalInbox>, (_instance, state) => {

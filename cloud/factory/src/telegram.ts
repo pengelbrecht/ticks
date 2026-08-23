@@ -343,6 +343,61 @@ export async function sendTelegramReport(
   };
 }
 
+/** One inline-keyboard button: a label and the callback payload it sends back. */
+export type InlineButton = { text: string; callback_data: string };
+
+/**
+ * Sends one message whose text is ALREADY HTML, optionally with a keyboard.
+ *
+ * Distinct from `sendTelegramReport`, which escapes the text it is given: a
+ * draft's block is composed by the source that owns the untrusted text in it
+ * (`github-issues.ts` escapes and quotes as it renders), and escaping it a
+ * second time here would show the operator `&lt;b&gt;` instead of a message.
+ * The rule that keeps that safe is the one this module cannot enforce and the
+ * renderer can: no unescaped stranger's text ever reaches this function.
+ */
+export async function sendTelegramHTML(
+  env: TelegramRuntimeEnv,
+  html: string,
+  options: { topic_id?: string; keyboard?: InlineButton[][] } = {}
+): Promise<MessageRef> {
+  const config = telegramConfig(env);
+  const keyboard = options.keyboard ?? [];
+  const sent = await telegramCall<{ message_id: number }>(config, "sendMessage", {
+    chat_id: config.chat_id,
+    ...threadField({ ...(options.topic_id === undefined ? {} : { topic_id: options.topic_id }) }),
+    text: html,
+    parse_mode: "HTML",
+    ...(keyboard.length === 0 ? {} : { reply_markup: { inline_keyboard: keyboard } }),
+  });
+  return { channel_id: config.chat_id, message_id: String(sent.message_id) };
+}
+
+/**
+ * Rewrites a delivered message in place, keyboard and all.
+ *
+ * An empty keyboard is sent rather than omitted: a decided proposal whose
+ * buttons are still there is one that gets pressed twice.
+ */
+export async function editTelegramHTML(
+  env: TelegramRuntimeEnv,
+  ref: { channel_id?: string; message_id?: string },
+  html: string,
+  options: { keyboard?: InlineButton[][] } = {}
+): Promise<void> {
+  const config = telegramConfig(env);
+  if (ref.message_id === undefined || ref.message_id === "") return;
+  // No thread field on an edit: a message id already names the message, topic
+  // and all, and Telegram rejects the pair.
+  await telegramCall(config, "editMessageText", {
+    chat_id: ref.channel_id === undefined || ref.channel_id === "" ? config.chat_id : ref.channel_id,
+    message_id: Number(ref.message_id),
+    text: html,
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: options.keyboard ?? [] },
+  });
+}
+
 /** Acknowledges a callback so the Telegram client stops showing its spinner. */
 export async function answerTelegramCallback(
   env: TelegramRuntimeEnv,

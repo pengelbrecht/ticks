@@ -19,6 +19,7 @@ import {
   verifyGitHubSignature,
   type IssueFacts,
 } from "../src/github-issues";
+import { inboxFor } from "../src/signal-inbox";
 import { type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
 
 /**
@@ -135,6 +136,21 @@ async function deliver(
   });
 }
 
+/**
+ * A human at the gate (tick la9).
+ *
+ * Ingestion stops at a PROPOSAL now, so a test about what lands in `.tick/`
+ * has to press Create the way the operator channel does. That the press is
+ * needed at all is this file's other assertion: the tests below check
+ * `contents.files` is empty until it happens.
+ */
+async function accept(project: string, draftID: string): Promise<{ tick_id: string; path: string }> {
+  const decision = await inboxFor(env, project).decide(draftID, "create", "telegram:424242");
+  expect(decision.state).toBe("accepted");
+  if (decision.state !== "accepted") throw new Error(decision.state);
+  return { tick_id: decision.tick_id, path: decision.path };
+}
+
 const facts = (over: Partial<IssueFacts> = {}): IssueFacts => ({
   project: "acme/widgets",
   action: "labeled",
@@ -152,7 +168,7 @@ const facts = (over: Partial<IssueFacts> = {}): IssueFacts => ({
 // ------------------------------------------------- the consent boundary ---
 
 describe("the label is the boundary", () => {
-  it("a labelled issue becomes a tick", async () => {
+  it("a labelled issue becomes a draft, and a tick when a human accepts it", async () => {
     const project = await enrolled();
 
     const response = await deliver(issuePayload(project));
@@ -160,10 +176,16 @@ describe("the label is the boundary", () => {
     expect(response.status).toBe(201);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.ingested).toBe(true);
+    expect(body.drafted).toBe(true);
     expect(body.external_ref).toBe("github:I_kwDOABCD1234");
-    expect(typeof body.tick_id).toBe("string");
+    expect(typeof body.draft_id).toBe("string");
+    // Consent from a maintainer is consent to PROPOSE. Nothing is in the
+    // repository until a human presses Create (tick la9).
+    expect(body.tick_id).toBeUndefined();
+    expect(contents.files.size).toBe(0);
 
-    const record = JSON.parse(contents.files.get(body.path as string)!) as Record<string, unknown>;
+    const filed = await accept(project, body.draft_id as string);
+    const record = JSON.parse(contents.files.get(filed.path)!) as Record<string, unknown>;
     expect(record).toMatchObject({
       title: "CSV export drops rows with embedded newlines",
       type: "bug",
@@ -354,14 +376,16 @@ describe("one issue, one tick", () => {
 
     const first = await deliver(issuePayload(project));
     expect(first.status).toBe(201);
-    const created = (await first.json()) as Record<string, unknown>;
+    const drafted = (await first.json()) as Record<string, unknown>;
+    const filed = await accept(project, drafted.draft_id as string);
 
     const second = await deliver(issuePayload(project));
     expect(second.status).toBe(200);
     expect((await second.json()) as Record<string, unknown>).toMatchObject({
       ingested: false,
       reason: "duplicate",
-      tick_id: created.tick_id,
+      draft_id: drafted.draft_id,
+      tick_id: filed.tick_id,
     });
     expect(contents.files.size).toBe(1);
   });
@@ -371,7 +395,8 @@ describe("one issue, one tick", () => {
 
     const labelled = await deliver(issuePayload(project));
     expect(labelled.status).toBe(201);
-    const created = (await labelled.json()) as Record<string, unknown>;
+    const drafted = (await labelled.json()) as Record<string, unknown>;
+    const created = await accept(project, drafted.draft_id as string);
 
     // The reporter rewrites the title and body; GitHub reissues the same node id.
     const edited = await deliver(
@@ -426,7 +451,8 @@ describe("issue text is data, never instructions", () => {
 
     expect(response.status).toBe(201);
     const body = (await response.json()) as Record<string, unknown>;
-    const record = JSON.parse(contents.files.get(body.path as string)!) as Record<string, unknown>;
+    const filed = await accept(project, body.draft_id as string);
+    const record = JSON.parse(contents.files.get(filed.path)!) as Record<string, unknown>;
 
     // Every structural field is the factory's, not the reporter's.
     expect(record.priority).toBe(2);
@@ -483,6 +509,8 @@ describe("issue text is data, never instructions", () => {
     );
 
     expect(response.status).toBe(201);
+    const body = (await response.json()) as Record<string, unknown>;
+    await accept(project, body.draft_id as string);
     expect(contents.files.size).toBe(1);
   });
 });

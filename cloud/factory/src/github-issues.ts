@@ -37,8 +37,8 @@
  * exactly one destination, the tick's description, and it gets there quoted.
  *
  * *Never able to forge the operator channel's own formatting.* Tick la9 puts
- * Create/Dispatch buttons under these messages, so a message that can be
- * spoofed is a button that can be spoofed. {@link renderIssueDraft} therefore
+ * Create/Dispatch/Discard buttons under these messages, so a message that can
+ * be spoofed is a button that can be spoofed. {@link renderIssueDraft} therefore
  * has one invariant, asserted directly in the tests rather than described:
  * **every line the factory wrote begins at column 0, and every line the
  * reporter wrote begins with {@link UNTRUSTED_LINE_PREFIX}.** The body is
@@ -58,6 +58,7 @@
  */
 
 import { getEnrolledProject } from "./db";
+import { announceDraft } from "./drafts";
 import { submitSignal, type Signal, type SignalOutcome } from "./signal-inbox";
 import { escapeHTML } from "./telegram";
 import {
@@ -430,8 +431,9 @@ export function issueSignal(facts: IssueFacts, label: string): Signal {
  * and the tags in it arrive as `&lt;b&gt;` rather than as markup.
  *
  * Composition into an actual channel message (buttons, project topic routing)
- * belongs to ticks la9 and spq, which own that path. This returns the block
- * and sends nothing.
+ * belongs to `drafts.ts` (tick la9), which frames this block without touching
+ * it and adds only lines of its own at column 0. This returns the block and
+ * sends nothing.
  */
 export function renderIssueDraft(facts: IssueFacts, label: string): string {
   // Re-flattened here rather than trusted from the caller: this function is the
@@ -497,8 +499,13 @@ export async function ingestIssueEvent(env: Env, payload: unknown): Promise<Inge
     };
   }
 
-  const outcome = await submitSignal(env, issueSignal(facts, label));
-  return { state: "ingested", outcome, facts, presentation: renderIssueDraft(facts, label) };
+  // The rendered block travels WITH the signal, so the proposal the operator
+  // channel shows is the one this module composed under its forgery invariant
+  // — never a re-render by a module that does not know which half of the text
+  // a stranger wrote (tick la9).
+  const presentation = renderIssueDraft(facts, label);
+  const outcome = await submitSignal(env, issueSignal(facts, label), { presentation });
+  return { state: "ingested", outcome, facts, presentation };
 }
 
 // ----------------------------------------------------------------- the route ---
@@ -572,13 +579,17 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
   }
 
   const outcome = result.outcome;
-  if (outcome.state === "created") {
+  if (outcome.state === "drafted") {
+    // 201 for a created PROPOSAL, not a created tick: nothing is in the
+    // repository yet, and the `tick_id` this route used to return does not
+    // exist until a human presses Create (tick la9).
+    await announceDraft(env, outcome.project, outcome.draft_id);
     return json(
       {
         ok: true,
         ingested: true,
-        tick_id: outcome.tick_id,
-        path: outcome.path,
+        drafted: true,
+        draft_id: outcome.draft_id,
         external_ref: outcome.external_ref,
         presentation: result.presentation,
       },
@@ -591,6 +602,8 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
         ok: true,
         ingested: false,
         reason: "duplicate",
+        draft_id: outcome.draft_id,
+        draft_state: outcome.draft_state,
         tick_id: outcome.tick_id,
         external_ref: outcome.external_ref,
         deliveries: outcome.deliveries,
