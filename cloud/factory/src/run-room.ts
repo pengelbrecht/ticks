@@ -279,6 +279,13 @@ export type PendingResolution = {
 export type PendingEntry = {
   id: string;
   tick_id?: string;
+  /**
+   * The epic the question was asked from. Carried for one reason: a message in
+   * a chat that serves many projects has to name project + epic + tick, and
+   * the epic is the one of the three the entry cannot otherwise supply (the
+   * project is the room's own identity).
+   */
+  epic?: string;
   agent_target?: string;
   kind: PendingKind;
   awaiting?: string;
@@ -292,6 +299,7 @@ export type PendingEntry = {
 export type RegisterQuestionRequest = {
   id: string;
   tick_id?: string;
+  epic?: string;
   agent_target?: string;
   kind: PendingKind;
   awaiting?: string;
@@ -414,6 +422,7 @@ type StopRecord = {
 type QuestionRecord = {
   id: string;
   tick_id: string | null;
+  epic: string | null;
   agent_target: string | null;
   kind: string;
   awaiting: string | null;
@@ -525,6 +534,10 @@ export class RunRoom extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS pending_question (
         id TEXT PRIMARY KEY,
         tick_id TEXT,
+        -- The epic the question was asked from, so the Telegram message can
+        -- name project + epic + tick. The project is the room's own identity;
+        -- the epic is not derivable from anything else the entry holds.
+        epic TEXT,
         agent_target TEXT,
         kind TEXT NOT NULL,
         awaiting TEXT,
@@ -578,6 +591,12 @@ export class RunRoom extends DurableObject<Env> {
       } catch {
         // The column is already there: this room was created with it.
       }
+    }
+    try {
+      ctx.storage.sql.exec("ALTER TABLE pending_question ADD COLUMN epic TEXT");
+    } catch {
+      // Same: a room that predates the epic column gets it here, and one that
+      // does not answers "duplicate column name", which is the expected reply.
     }
   }
 
@@ -959,6 +978,7 @@ export class RunRoom extends DurableObject<Env> {
     const record: QuestionRecord = {
       id,
       tick_id: request.tick_id ?? null,
+      epic: request.epic ?? null,
       agent_target: request.agent_target ?? null,
       kind,
       awaiting: request.awaiting ?? null,
@@ -970,10 +990,11 @@ export class RunRoom extends DurableObject<Env> {
     };
     this.ctx.storage.sql.exec(
       `INSERT INTO pending_question
-         (id, tick_id, agent_target, kind, awaiting, question, ref, created_at, not_before, resolution)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, tick_id, epic, agent_target, kind, awaiting, question, ref, created_at, not_before, resolution)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.id,
       record.tick_id,
+      record.epic,
       record.agent_target,
       record.kind,
       record.awaiting,
@@ -1465,6 +1486,8 @@ export class RunRoom extends DurableObject<Env> {
     return {
       id: record.id,
       ...(record.tick_id === null ? {} : { tick_id: record.tick_id }),
+      // A room that predates the epic column returns undefined here, not null.
+      ...(record.epic === null || record.epic === undefined ? {} : { epic: record.epic }),
       ...(record.agent_target === null ? {} : { agent_target: record.agent_target }),
       kind: record.kind as PendingKind,
       ...(record.awaiting === null ? {} : { awaiting: record.awaiting }),

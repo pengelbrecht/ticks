@@ -53,6 +53,12 @@ gets the message as plain text with the markup stripped, and a note on stderr.
 --format and --file are mutually exclusive: one sends a message, the other
 sends a file.
 
+Every announcement names the project it is about, because one bot and one chat
+now serve many projects. --about <tick-id> adds the epic and the tick, read
+from the tracker, so a completion report says WHAT completed:
+
+  tk tell --about 8sm "worker landed, tests green"
+
 Exit codes:
   0  message sent
   2  usage error (an unknown --channel, no text in the arguments or on stdin,
@@ -75,6 +81,7 @@ var (
 	tellFile    string
 	tellCaption string
 	tellAs      string
+	tellAbout   string
 )
 
 func init() {
@@ -83,6 +90,7 @@ func init() {
 	tellCmd.Flags().StringVar(&tellFile, "file", "", "upload this local file instead of sending a message")
 	tellCmd.Flags().StringVar(&tellCaption, "caption", "", "the text shown with --file")
 	tellCmd.Flags().StringVar(&tellAs, "as", "", "how to present --file: photo or document (default: by extension)")
+	tellCmd.Flags().StringVar(&tellAbout, "about", "", "the tick this announcement is about; its epic and id are named in the message")
 	rootCmd.AddCommand(tellCmd)
 }
 
@@ -127,10 +135,29 @@ func runTell(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return tellError(cmd, NewExitError(ExitGeneric, "sending via %s: %v", channelName, err))
 	}
+	labelChannel(channel, tellMessageContext(cmd))
 	if err := tellSend(commandContext(cmd), channel, payload, cmd.ErrOrStderr()); err != nil {
 		return tellError(cmd, err)
 	}
 	return nil
+}
+
+// tellMessageContext is what this announcement is about: the checkout's
+// project always, plus the epic and tick when --about names one.
+//
+// Reading the tracker is best effort. `tk tell` is the one command a prompt is
+// encouraged to call unconditionally, and a tick id that no longer resolves
+// must cost the message its labels, never the announcement.
+func tellMessageContext(cmd *cobra.Command) operator.MessageContext {
+	about := strings.TrimSpace(tellAbout)
+	if about == "" {
+		return operator.MessageContext{Project: messageProject()}
+	}
+	root, err := repoRoot()
+	if err != nil {
+		return operator.MessageContext{Project: messageProject(), Tick: about}
+	}
+	return tickMessageContext(operator.NewEngine(root).Ticks(), about)
 }
 
 // tellPayloadFrom resolves the flags and arguments into one announcement,

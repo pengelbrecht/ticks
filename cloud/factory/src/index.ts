@@ -71,14 +71,20 @@ import {
   submitRun,
 } from "./runs";
 import {
+  TELEGRAM_WEBHOOK_PATH,
   answerTelegramCallback,
   deliverTelegramQuestion,
   isPairedTelegramUpdate,
   parseTelegramAnswer,
+  parseTopicID,
+  registerTelegramWebhook,
   sendTelegramReport,
   settleTelegramQuestion,
   telegramCallbackText,
   telegramConfig,
+  telegramWebhookInfo,
+  unregisterTelegramWebhook,
+  type TelegramRouting,
   type TelegramWebhookUpdate,
 } from "./telegram";
 
@@ -424,17 +430,26 @@ async function projectsRoute(request: Request, env: Env, path: string[]): Promis
 
     const json = await readJSON(request);
     if (!json.ok) return badRequest("the request body must be JSON");
-    const project = (json.body as Record<string, unknown>)?.project;
+    const body = (json.body ?? {}) as Record<string, unknown>;
+    const project = body?.project;
     if (typeof project !== "string" || !PROJECT_PATTERN.test(project.trim().replace(/\.git$/, ""))) {
       return badRequest("project must be the canonical owner/repo pair");
     }
+
+    // The per-project forum topic is set HERE, on the enrolment call, and
+    // nowhere else: which topic a project's operator messages go into is part
+    // of enrolling the project, not a configuration surface of its own.
+    // Absent leaves whatever is assigned alone, null clears it.
+    const topic = readTopicAssignment(body);
+    if (!topic.ok) return badRequest(topic.detail);
 
     const record: EnrolledProject = {
       project: project.trim().replace(/\.git$/, ""),
       enrolled_by: attribution(json.body),
       enrolled_at: new Date().toISOString(),
+      ...(typeof topic.value === "string" ? { telegram_topic_id: topic.value } : {}),
     };
-    await enrolProject(env.DB, record);
+    await enrolProject(env.DB, record, topic.value);
     return Response.json({ project: record }, { status: 201 });
   }
 
@@ -459,6 +474,70 @@ async function projectsRoute(request: Request, env: Env, path: string[]): Promis
   return Response.json({ project, enrolled: false });
 }
 
+/**
+ * Reads `telegram_topic_id` off an enrolment body.
+ *
+ * Three states, all meaningful: absent leaves the assignment alone (enrolment
+ * is re-run for reasons that have nothing to do with the chat), null clears
+ * it, and a value sets it. A value that is not a positive integer is refused
+ * here rather than stored, because a bad `message_thread_id` is a 400 on every
+ * message the project ever sends.
+ */
+function readTopicAssignment(
+  body: Record<string, unknown>
+): { ok: true; value: string | null | undefined } | { ok: false; detail: string } {
+  if (!("telegram_topic_id" in body)) return { ok: true, value: undefined };
+  const raw = body.telegram_topic_id;
+  if (raw === null) return { ok: true, value: null };
+  const topic = parseTopicID(raw);
+  if (topic === null) {
+    return {
+      ok: false,
+      detail:
+        "telegram_topic_id must be a positive integer (the message_thread_id of the " +
+        "project's topic in the operator's forum supergroup), or null to clear it",
+    };
+  }
+  return { ok: true, value: String(topic) };
+}
+
+/**
+ * How one project's messages are routed and labelled, read off its enrolment
+ * record.
+ *
+ * Both halves of "a shared chat stays usable" come from the same record: the
+ * forum topic the project posts into, and the project name every message
+ * carries in its text. Machine routing never needed either — the RunRoom is
+ * per project and callback data carries the question id — but a human reading
+ * one chat that several projects report into does.
+ */
+function routingFor(
+  enrolment: EnrolledProject,
+  about: { epic?: string; tick?: string } = {}
+): TelegramRouting {
+  return {
+    context: {
+      project: enrolment.project,
+      ...(about.epic === undefined ? {} : { epic: about.epic }),
+      ...(about.tick === undefined ? {} : { tick: about.tick }),
+    },
+    ...(enrolment.telegram_topic_id === undefined
+      ? {}
+      : { topic_id: enrolment.telegram_topic_id }),
+  };
+}
+
+/** routingFor, taking the epic and tick off a pending entry. */
+function questionRouting(
+  enrolment: EnrolledProject,
+  entry: { epic?: string; tick_id?: string }
+): TelegramRouting {
+  return routingFor(enrolment, {
+    ...(entry.epic === undefined ? {} : { epic: entry.epic }),
+    ...(entry.tick_id === undefined ? {} : { tick: entry.tick_id }),
+  });
+}
+
 type JSONRecord = Record<string, unknown>;
 
 async function projectOperatorRoute(
@@ -469,7 +548,8 @@ async function projectOperatorRoute(
 ): Promise<Response> {
   // The RunRoom is per enrolled project. Refusing a missing project here keeps
   // an authenticated token from turning the bridge into an arbitrary DO probe.
-  if ((await getEnrolledProject(env.DB, project)) === null) {
+  const enrolment = await getEnrolledProject(env.DB, project);
+  if (enrolment === null) {
     return Response.json(
       { error: "project_not_enrolled", detail: `project ${project} is not enrolled` },
       { status: 403 }
@@ -486,7 +566,15 @@ async function projectOperatorRoute(
     if (typeof text !== "string" || text.trim() === "") return badRequest("text is required");
     const ref = isMessageRef(body?.ref) ? body.ref : undefined;
     try {
-      const sent = await sendTelegramReport(env, text, ref);
+      const sent = await sendTelegramReport(
+        env,
+        text,
+        ref,
+        routingFor(enrolment, {
+          ...(typeof body?.epic === "string" ? { epic: body.epic } : {}),
+          ...(typeof body?.tick_id === "string" ? { tick: body.tick_id } : {}),
+        })
+      );
       return Response.json({ ok: true, ref: sent });
     } catch (error) {
       console.error(`factory telegram: report delivery failed for ${project}: ${String(error)}`);
@@ -499,6 +587,8 @@ async function projectOperatorRoute(
 
   if (path[0] !== "pending") return notFound();
   const room = roomFor(env, project);
+  const routing = (entry: { epic?: string; tick_id?: string }): TelegramRouting =>
+    questionRouting(enrolment, entry);
 
   if (path.length === 1) {
     if (request.method === "GET") {
@@ -510,7 +600,7 @@ async function projectOperatorRoute(
       });
     }
     if (request.method !== "POST") return methodNotAllowed(["GET", "POST"]);
-    return await registerRemoteQuestion(request, env, room);
+    return await registerRemoteQuestion(request, env, room, enrolment);
   }
 
   if (path.length !== 3) return notFound();
@@ -532,7 +622,7 @@ async function projectOperatorRoute(
     const parsed = parseOutcome(body?.outcome);
     if (!parsed.ok) return badRequest(parsed.detail);
     try {
-      await settleTelegramQuestion(env, entry, parsed.outcome);
+      await settleTelegramQuestion(env, entry, parsed.outcome, routing(entry));
       return Response.json({ ok: true, entry });
     } catch (error) {
       console.error(`factory telegram: settle failed for ${questionID}: ${String(error)}`);
@@ -555,7 +645,7 @@ async function projectOperatorRoute(
   if (result.ok === false && result.error === "unknown_question") return Response.json(result, { status: 404 });
   if (result.ok === false && result.error === "already_answered") return Response.json(result, { status: 409 });
   try {
-    await settleTelegramQuestion(env, result.entry, parsed.outcome);
+    await settleTelegramQuestion(env, result.entry, parsed.outcome, routing(result.entry));
   } catch (error) {
     // The DO answer is durable. A later cloud waiter or a retry can settle the
     // presentation, so do not turn a successful human answer into a failure.
@@ -567,7 +657,8 @@ async function projectOperatorRoute(
 async function registerRemoteQuestion(
   request: Request,
   env: Env,
-  room: DurableObjectStub<RunRoom>
+  room: DurableObjectStub<RunRoom>,
+  enrolment: EnrolledProject
 ): Promise<Response> {
   const json = await readJSON(request);
   if (!json.ok) return badRequest("the request body must be JSON");
@@ -581,7 +672,11 @@ async function registerRemoteQuestion(
   if (result.ok === false && result.error === "already_registered") {
     if (notify === "telegram" && result.entry.ref === undefined) {
       try {
-        const delivered = await deliverTelegramQuestion(env, result.entry);
+        const delivered = await deliverTelegramQuestion(
+          env,
+          result.entry,
+          questionRouting(enrolment, result.entry)
+        );
         const marked = await room.markDelivered(result.entry.id, delivered);
         if (marked.ok) return Response.json({ entry: marked.entry });
       } catch (error) {
@@ -601,7 +696,7 @@ async function registerRemoteQuestion(
   let entry = result.entry;
   if (notify === "telegram") {
     try {
-      const delivered = await deliverTelegramQuestion(env, entry);
+      const delivered = await deliverTelegramQuestion(env, entry, questionRouting(enrolment, entry));
       const marked = await room.markDelivered(entry.id, delivered);
       if (!marked.ok) {
         return Response.json({ error: "pending_delivery_failed", detail: marked.detail }, { status: 503 });
@@ -641,6 +736,9 @@ function pendingRegistration(
     kind: kind as PendingKind,
     question: question as Question,
     ...(typeof body.tick_id === "string" ? { tick_id: body.tick_id } : {}),
+    // The epic the question was asked from, so the delivered message can name
+    // project + epic + tick rather than one of the three.
+    ...(typeof body.epic === "string" && body.epic.trim() !== "" ? { epic: body.epic.trim() } : {}),
     ...(typeof body.agent_target === "string" ? { agent_target: body.agent_target } : {}),
     ...(typeof body.awaiting === "string" ? { awaiting: body.awaiting } : {}),
     ...(typeof body.not_before === "string" ? { not_before: body.not_before } : {}),
@@ -732,7 +830,12 @@ async function telegramWebhookRoute(request: Request, env: Env): Promise<Respons
       });
       if (result.ok === true) {
         try {
-          await settleTelegramQuestion(env, result.entry, answer.outcome);
+          await settleTelegramQuestion(
+            env,
+            result.entry,
+            answer.outcome,
+            questionRouting(project, result.entry)
+          );
         } catch (error) {
           console.error(`factory telegram: webhook settle failed for ${entry.id}: ${String(error)}`);
         }
@@ -753,6 +856,51 @@ async function telegramWebhookRoute(request: Request, env: Env): Promise<Respons
 
   await acknowledgeTelegramCallback(env, update, "This question is already resolved.");
   return Response.json({ ok: true, matched: false });
+}
+
+/**
+ * Administering webhook mode: point Telegram at this deployment, ask what it
+ * currently believes, or withdraw the registration.
+ *
+ * Deliberately NOT the update path. `/api/channels/telegram/webhook` is
+ * auth-exempt because Telegram cannot carry the operator's token; this path is
+ * a sibling of it and is authenticated like every other operator route, so a
+ * stranger who finds the exempt door cannot re-point the bot through it.
+ */
+async function telegramWebhookAdminRoute(request: Request, env: Env): Promise<Response> {
+  try {
+    telegramConfig(env);
+  } catch (error) {
+    return Response.json({ error: "telegram_not_configured", detail: String(error) }, { status: 503 });
+  }
+
+  try {
+    if (request.method === "GET") {
+      return Response.json(await telegramWebhookInfo(env));
+    }
+    if (request.method === "DELETE") {
+      await unregisterTelegramWebhook(env);
+      return Response.json({ ok: true, url: "" });
+    }
+    if (request.method !== "POST") return methodNotAllowed(["GET", "POST", "DELETE"]);
+
+    // The deployment's own public origin, which is what Telegram has to be
+    // able to reach. FACTORY_BASE_URL is the configured answer; the request's
+    // own origin is the fallback, and it is right whenever the operator is
+    // talking to the deployment through the name it is deployed under.
+    const base = env.FACTORY_BASE_URL?.trim() || new URL(request.url).origin;
+    return Response.json(await registerTelegramWebhook(env, base));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    // A bot whose privacy mode is off is a refusal to widen the blast radius,
+    // not a transport failure: 409, so a caller can tell it from a Telegram
+    // outage and act on it (the fix is in @BotFather, not in a retry).
+    if (/privacy mode/i.test(detail)) {
+      return Response.json({ error: "telegram_privacy_mode_off", detail }, { status: 409 });
+    }
+    console.error(`factory telegram: webhook registration failed: ${detail}`);
+    return Response.json({ error: "telegram_unavailable", detail }, { status: 503 });
+  }
 }
 
 async function acknowledgeTelegramCallback(
@@ -798,8 +946,14 @@ export default {
       return Response.json({ wave: result.request }, { status: 202 });
     }
 
-    if (url.pathname === "/api/channels/telegram/webhook") {
+    if (url.pathname === TELEGRAM_WEBHOOK_PATH) {
       return await telegramWebhookRoute(request, env);
+    }
+
+    // Webhook mode's control surface, authenticated (see isAuthExempt: only
+    // the update path above is exempt, and only by exact match).
+    if (url.pathname === `${TELEGRAM_WEBHOOK_PATH}/registration`) {
+      return await telegramWebhookAdminRoute(request, env);
     }
 
     const segments = url.pathname.split("/").filter((segment) => segment !== "");

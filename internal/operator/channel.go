@@ -74,6 +74,31 @@ type Adopter interface {
 	Adopt(ref MessageRef, q Question) error
 }
 
+// ContextualChannel is an optional [Channel] capability: being told which
+// project, epic and tick every message it sends from now on is about.
+//
+// It is a setter rather than an argument on Send/AskDeliver because the context
+// is a property of the RUN, not of each message: one checkout asks about one
+// project, and threading it through every call site would put the same three
+// strings in a dozen signatures to be forgotten in one of them.
+//
+// A transport that has no message text to label — or that already knows the
+// project, as a per-project cloud channel does — simply does not implement it.
+type ContextualChannel interface {
+	UseMessageContext(MessageContext)
+}
+
+// UseMessageContext tells ch what its messages are about, reporting whether it
+// could be told ([ContextualChannel]). A channel that cannot is not an error:
+// its messages are already unambiguous, or it has nowhere to put the label.
+func UseMessageContext(ch Channel, c MessageContext) bool {
+	contextual, ok := ch.(ContextualChannel)
+	if ok {
+		contextual.UseMessageContext(c)
+	}
+	return ok
+}
+
 // Format selects how a channel renders a [FormattedText].
 //
 // It is an open string enum on purpose: a transport switches on the formats it

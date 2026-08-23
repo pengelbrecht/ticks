@@ -102,8 +102,10 @@ func TestAskPhotoGateResolvesVerdictWithHumanProvenance(t *testing.T) {
 	if file.Method != "sendPhoto" {
 		t.Errorf("upload method = %q, want sendPhoto", file.Method)
 	}
-	if file.Caption != "New board" {
-		t.Errorf("caption = %q, want the --caption text", file.Caption)
+	// The caption carries the project/epic/tick label (tick spq): a photo gate
+	// in a chat several projects report into has to say which one it is about.
+	if want := "<b>test/repo · tick abc123</b>\nNew board"; file.Caption != want {
+		t.Errorf("caption = %q, want %q", file.Caption, want)
 	}
 	bot.PushCallback(askTestUserID, askTestChatID, file.MessageID, buttonCallback(t, file.ReplyMarkup, "Approve"))
 

@@ -198,6 +198,49 @@ type BotInfo struct {
 	ID        int64
 	Username  string
 	FirstName string
+	// CanReadAllGroupMessages is Telegram's name for privacy mode being OFF:
+	// true means the bot is delivered every message in every group it is in.
+	//
+	// This project keeps privacy mode ON, so this must be false. Privacy mode
+	// is a @BotFather setting and cannot be changed through the Bot API — all
+	// a program can do is read it here and refuse to widen its own reach.
+	CanReadAllGroupMessages bool
+}
+
+// WebhookInfo is the getWebhookInfo result: what Telegram believes about the
+// registered webhook, including why it last failed to deliver to it.
+type WebhookInfo struct {
+	// URL is the registered webhook, empty when the bot is in polling mode.
+	URL string
+	// PendingUpdateCount is how many updates are waiting to be delivered.
+	PendingUpdateCount int
+	// LastErrorMessage is why the most recent delivery failed, empty when
+	// none has.
+	LastErrorMessage string
+	// AllowedUpdates is the update kinds the registration asked for; empty
+	// means Telegram's default set.
+	AllowedUpdates []string
+}
+
+// Registered reports whether a webhook is registered — which is the same thing
+// as "long-polling this token would now get a 409".
+func (w WebhookInfo) Registered() bool { return strings.TrimSpace(w.URL) != "" }
+
+// Webhook is a webhook registration to install with setWebhook.
+type Webhook struct {
+	// URL is where Telegram POSTs updates.
+	URL string
+	// SecretToken, when set, is echoed back in the
+	// X-Telegram-Bot-Api-Secret-Token header of every delivery, so the
+	// receiver can tell Telegram apart from anyone who found the path.
+	SecretToken string
+	// AllowedUpdates narrows what Telegram sends. Empty asks for its default
+	// set, which is wider than this project wants.
+	AllowedUpdates []string
+	// DropPendingUpdates discards whatever queued while nothing was
+	// listening. A backlog of answers to questions that have since been
+	// settled elsewhere resolves nothing and confuses everything.
+	DropPendingUpdates bool
 }
 
 // Button is one inline-keyboard button. Data is the callback payload and must be
@@ -213,6 +256,10 @@ type OutgoingMessage struct {
 	// ChatID is the destination chat. Numeric ids are sent as numbers,
 	// anything else as a string (@channelusername).
 	ChatID string
+	// ThreadID is the forum topic to post into (`message_thread_id`), zero for
+	// the chat itself. A supergroup with Topics on is how one chat holds one
+	// conversation per project.
+	ThreadID int64
 	// Text is the HTML message body.
 	Text string
 	// Keyboard, when set, is an inline keyboard attached to the message.
@@ -254,14 +301,73 @@ type Update struct {
 // GetMe verifies the token and returns the bot's identity.
 func (c *Client) GetMe(ctx context.Context) (BotInfo, error) {
 	var res struct {
-		ID        int64  `json:"id"`
-		Username  string `json:"username"`
-		FirstName string `json:"first_name"`
+		ID                      int64  `json:"id"`
+		Username                string `json:"username"`
+		FirstName               string `json:"first_name"`
+		CanReadAllGroupMessages bool   `json:"can_read_all_group_messages"`
 	}
 	if err := c.call(ctx, "getMe", nil, &res, defaultRequestTimeout); err != nil {
 		return BotInfo{}, err
 	}
-	return BotInfo{ID: res.ID, Username: res.Username, FirstName: res.FirstName}, nil
+	return BotInfo{
+		ID:                      res.ID,
+		Username:                res.Username,
+		FirstName:               res.FirstName,
+		CanReadAllGroupMessages: res.CanReadAllGroupMessages,
+	}, nil
+}
+
+// GetWebhookInfo reports what Telegram believes the webhook is.
+//
+// It is how a long-polling flow finds out, BEFORE it gets a 409, that
+// something else owns this token's updates: setWebhook and getUpdates are
+// mutually exclusive per token, by design.
+func (c *Client) GetWebhookInfo(ctx context.Context) (WebhookInfo, error) {
+	var res struct {
+		URL                string   `json:"url"`
+		PendingUpdateCount int      `json:"pending_update_count"`
+		LastErrorMessage   string   `json:"last_error_message"`
+		AllowedUpdates     []string `json:"allowed_updates"`
+	}
+	if err := c.call(ctx, "getWebhookInfo", nil, &res, defaultRequestTimeout); err != nil {
+		return WebhookInfo{}, err
+	}
+	return WebhookInfo{
+		URL:                res.URL,
+		PendingUpdateCount: res.PendingUpdateCount,
+		LastErrorMessage:   res.LastErrorMessage,
+		AllowedUpdates:     res.AllowedUpdates,
+	}, nil
+}
+
+// SetWebhook points Telegram at hook.URL. It also STOPS every long poll on this
+// token — the Bot API allows one update consumer, so registering a webhook is
+// the same act as withdrawing polling.
+func (c *Client) SetWebhook(ctx context.Context, hook Webhook) error {
+	if strings.TrimSpace(hook.URL) == "" {
+		return errors.New("telegram: setWebhook: url is required")
+	}
+	req := struct {
+		URL                string   `json:"url"`
+		SecretToken        string   `json:"secret_token,omitempty"`
+		AllowedUpdates     []string `json:"allowed_updates,omitempty"`
+		DropPendingUpdates bool     `json:"drop_pending_updates,omitempty"`
+	}{
+		URL:                strings.TrimSpace(hook.URL),
+		SecretToken:        hook.SecretToken,
+		AllowedUpdates:     hook.AllowedUpdates,
+		DropPendingUpdates: hook.DropPendingUpdates,
+	}
+	return c.call(ctx, "setWebhook", req, nil, defaultRequestTimeout)
+}
+
+// DeleteWebhook withdraws the registration, handing the token's updates back to
+// whoever wants to long-poll them — which is what pairing needs.
+func (c *Client) DeleteWebhook(ctx context.Context, dropPending bool) error {
+	req := struct {
+		DropPendingUpdates bool `json:"drop_pending_updates,omitempty"`
+	}{DropPendingUpdates: dropPending}
+	return c.call(ctx, "deleteWebhook", req, nil, defaultRequestTimeout)
 }
 
 // SendMessage sends msg and returns the id of the message Telegram created.
@@ -278,11 +384,18 @@ func (c *Client) SendMessage(ctx context.Context, msg OutgoingMessage) (int64, e
 	}
 
 	req := struct {
-		ChatID      chatID          `json:"chat_id"`
-		Text        string          `json:"text"`
-		ParseMode   string          `json:"parse_mode"`
-		ReplyMarkup json.RawMessage `json:"reply_markup,omitempty"`
-	}{ChatID: chatID(msg.ChatID), Text: msg.Text, ParseMode: parseModeHTML, ReplyMarkup: markup}
+		ChatID          chatID          `json:"chat_id"`
+		MessageThreadID int64           `json:"message_thread_id,omitempty"`
+		Text            string          `json:"text"`
+		ParseMode       string          `json:"parse_mode"`
+		ReplyMarkup     json.RawMessage `json:"reply_markup,omitempty"`
+	}{
+		ChatID:          chatID(msg.ChatID),
+		MessageThreadID: msg.ThreadID,
+		Text:            msg.Text,
+		ParseMode:       parseModeHTML,
+		ReplyMarkup:     markup,
+	}
 
 	var res struct {
 		MessageID int64 `json:"message_id"`

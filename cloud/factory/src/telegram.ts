@@ -1,11 +1,27 @@
 /**
  * Telegram webhook and delivery helpers for the factory.
  *
- * The Worker is the one getUpdates consumer for a cloud-connected bot. The
- * RunRoom remains the only answer arbiter: this module only translates Telegram
- * updates into a RunRoom outcome and renders the resulting durable entry back
- * onto the same message.
+ * The Worker is the bot's ONE update consumer, and it consumes by webhook: the
+ * Bot API allows a single reader per token, so `setWebhook` and `getUpdates`
+ * are mutually exclusive and the front door is the choice this deployment
+ * makes. `registerTelegramWebhook` is what actually makes that true on
+ * Telegram's side; without it the route below exists and nothing ever knocks
+ * on it.
+ *
+ * The RunRoom remains the only answer arbiter: this module only translates
+ * Telegram updates into a RunRoom outcome and renders the resulting durable
+ * entry back onto the same message.
+ *
+ * Two things about a SHARED chat run through every function here. First,
+ * legibility: one bot and one chat serve many projects, so every message names
+ * its project, epic and tick in the text (`./message-context.ts`) — machine
+ * routing was never ambiguous, the human reading the chat was. Second, forum
+ * topics: a supergroup with Topics on gives one topic per project through
+ * `message_thread_id`, and which topic a project posts into is part of that
+ * project's ENROLMENT record, not a config surface of its own.
  */
+
+import { withContext, type MessageContext } from "./message-context";
 
 import type {
   MessageRef,
@@ -26,7 +42,17 @@ export type TelegramMessage = {
   chat: { id: number | string };
   from?: { id: number | string };
   text?: string;
-  reply_to_message?: { message_id: number };
+  /** The forum topic the message is in, when the chat has Topics on. */
+  message_thread_id?: number;
+  reply_to_message?: {
+    message_id: number;
+    /**
+     * Set when the "reply" is Telegram's own topic-creation service message
+     * rather than somebody replying to a message. A forum threads the first
+     * message of a topic onto it, which is not an answer to anything.
+     */
+    forum_topic_created?: unknown;
+  };
 };
 
 export type TelegramCallbackQuery = {
@@ -59,6 +85,65 @@ export type TelegramConfig = {
 
 const DEFAULT_API_BASE_URL = "https://api.telegram.org";
 const CALLBACK_LIMIT = 64;
+
+/**
+ * The path Telegram delivers updates to. Exported because registration has to
+ * name the same path the router serves, and a typo there is a bot that goes
+ * quiet with nothing in this Worker's logs to say so.
+ */
+export const TELEGRAM_WEBHOOK_PATH = "/api/channels/telegram/webhook";
+
+/**
+ * The only updates this deployment asks for.
+ *
+ * Narrow on purpose, and narrower than what the bot is entitled to: the two
+ * kinds are how an operator answers — a press on an inline keyboard, and a
+ * reply to one of the bot's own messages. Everything else Telegram could send
+ * is traffic this Worker would drop anyway, and not receiving it at all is a
+ * smaller blast radius than dropping it after the fact.
+ */
+export const TELEGRAM_ALLOWED_UPDATES = ["message", "callback_query"] as const;
+
+/**
+ * How a message is routed and labelled for one project.
+ *
+ * Both halves come from the project's enrolment record, which is deliberately
+ * the only place a project's chat presence is configured.
+ */
+export type TelegramRouting = {
+  /** Which project, epic and tick the message names in its text. */
+  context?: MessageContext;
+  /**
+   * The forum topic (`message_thread_id`) this project's messages go into,
+   * as the enrolment record holds it. Undefined posts to the chat itself,
+   * which is what a deployment without Topics has.
+   */
+  topic_id?: string;
+};
+
+/**
+ * A forum topic id, or null when the value is not one.
+ *
+ * `message_thread_id` is a positive integer message id. Anything else — the
+ * empty string, a name, a fraction, the "General" topic, which has no id — is
+ * refused here rather than sent to Telegram, because a bad thread id is a 400
+ * on every message the project ever sends.
+ */
+export function parseTopicID(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = typeof value === "number" ? String(value) : value.trim();
+  if (text === "") return null;
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+/** The `message_thread_id` field for a send, or nothing when there is no topic. */
+function threadField(routing?: TelegramRouting): { message_thread_id?: number } {
+  const topic = parseTopicID(routing?.topic_id);
+  return topic === null ? {} : { message_thread_id: topic };
+}
 
 export function telegramConfig(env: TelegramRuntimeEnv): TelegramConfig {
   const token = env.TELEGRAM_BOT_TOKEN?.trim() ?? "";
@@ -144,9 +229,19 @@ export function parseTelegramAnswer(
     };
   }
 
+  // Privacy mode stays ON, so in a group this bot is delivered only commands
+  // and replies to its OWN messages. That makes reply-to load-bearing rather
+  // than a nicety: it is the entire correlation key for a free-text answer.
   const message = update.message;
-  const replyTo = message?.reply_to_message?.message_id;
-  if (message === undefined || replyTo === undefined || entry.ref?.message_id !== String(replyTo)) {
+  const replyTo = message?.reply_to_message;
+  if (
+    message === undefined ||
+    replyTo === undefined ||
+    // A forum threads a topic's first message onto the topic-creation service
+    // message. Somebody starting to type in a topic is not answering anything.
+    replyTo.forum_topic_created !== undefined ||
+    entry.ref?.message_id !== String(replyTo.message_id)
+  ) {
     return null;
   }
   const text = message.text?.trim() ?? "";
@@ -172,10 +267,16 @@ function optionOutcome(option: QuestionOption): Outcome {
   return { status: "answered", text: option.label, option_ids: [option.id] };
 }
 
-/** Sends a question and returns the Telegram ref that belongs in RunRoom. */
+/**
+ * Sends a question and returns the Telegram ref that belongs in RunRoom.
+ *
+ * `routing` is the project's enrolment record in message form: which topic the
+ * question is posted into, and which project/epic/tick the text names.
+ */
 export async function deliverTelegramQuestion(
   env: TelegramRuntimeEnv,
-  entry: Pick<PendingEntry, "id" | "question">
+  entry: Pick<PendingEntry, "id" | "question">,
+  routing?: TelegramRouting
 ): Promise<MessageRef> {
   const config = telegramConfig(env);
   const question = entry.question;
@@ -185,7 +286,8 @@ export async function deliverTelegramQuestion(
   );
   const sent = await telegramCall<{ message_id: number }>(config, "sendMessage", {
     chat_id: config.chat_id,
-    text: renderQuestion(question),
+    ...threadField(routing),
+    text: renderQuestion(question, routing?.context),
     parse_mode: "HTML",
     ...(useQuestionID && keyboard.length > 0 ? { reply_markup: { inline_keyboard: keyboard } } : {}),
     ...(keyboard.length === 0 ? { reply_markup: { force_reply: true } } : {}),
@@ -212,30 +314,41 @@ export async function deliverTelegramQuestion(
 export async function settleTelegramQuestion(
   env: TelegramRuntimeEnv,
   entry: Pick<PendingEntry, "question" | "ref">,
-  outcome: Outcome
+  outcome: Outcome,
+  routing?: TelegramRouting
 ): Promise<void> {
   const config = telegramConfig(env);
   const ref = entry.ref;
   if (ref?.message_id === undefined) return;
+  // No thread field on an edit: a message id already names the message, topic
+  // and all, and Telegram rejects the pair.
   await telegramCall(config, "editMessageText", {
     chat_id: ref.channel_id ?? config.chat_id,
     message_id: Number(ref.message_id),
-    text: renderOutcome(entry.question, outcome),
+    text: renderOutcome(entry.question, outcome, routing?.context),
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: [] },
   });
 }
 
-/** Posts a completion report, replying to the originating Telegram message. */
+/**
+ * Posts a report or completion, replying to the originating Telegram message.
+ *
+ * The report names its project, epic and tick like every other message: a run
+ * completion that says only "3 ticks closed" is unreadable in a chat several
+ * projects report into.
+ */
 export async function sendTelegramReport(
   env: TelegramRuntimeEnv,
   text: string,
-  ref?: MessageRef
+  ref?: MessageRef,
+  routing?: TelegramRouting
 ): Promise<MessageRef> {
   const config = telegramConfig(env);
   const sent = await telegramCall<{ message_id: number }>(config, "sendMessage", {
     chat_id: ref?.channel_id ?? config.chat_id,
-    text: escapeHTML(text),
+    ...threadField(routing),
+    text: escapeHTML(withContext(routing?.context, text)),
     parse_mode: "HTML",
     ...(ref?.message_id === undefined ? {} : { reply_to_message_id: Number(ref.message_id) }),
   });
@@ -258,6 +371,123 @@ export async function answerTelegramCallback(
   });
 }
 
+// ------------------------------------------------------- webhook mode ---
+
+/** What `getMe` says about this bot. */
+export type TelegramBotInfo = {
+  id: number;
+  username?: string;
+  first_name?: string;
+  /**
+   * TRUE means privacy mode is OFF — the bot is delivered every message in
+   * every group it is in. This deployment requires the opposite.
+   */
+  can_read_all_group_messages?: boolean;
+};
+
+/** What Telegram believes about the registered webhook (`getWebhookInfo`). */
+export type TelegramWebhookInfo = {
+  url?: string;
+  pending_update_count?: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  allowed_updates?: string[];
+};
+
+/** What registration settled on, reported back to the operator. */
+export type TelegramWebhookRegistration = {
+  url: string;
+  allowed_updates: string[];
+  /** True once getMe has confirmed privacy mode is on. */
+  privacy_mode: true;
+  secret: boolean;
+};
+
+export async function telegramBotInfo(env: TelegramRuntimeEnv): Promise<TelegramBotInfo> {
+  return telegramCall<TelegramBotInfo>(telegramConfig(env), "getMe", {});
+}
+
+/**
+ * Refuses unless the bot's group privacy mode is on.
+ *
+ * Privacy mode is the blast radius this design chose: in a group the bot is
+ * delivered only commands and replies to its own messages, so a shared
+ * operator supergroup does not stream every unrelated word anyone types into
+ * a Worker that talks to a model. Inline callbacks reach the bot regardless,
+ * which is why the gate keeps working — and why the reply-to correlation in
+ * `parseTelegramAnswer` is load-bearing rather than a convenience.
+ *
+ * It cannot be set through the Bot API: it is a @BotFather setting, and all a
+ * deployment can do is check it and refuse to proceed. `can_read_all_group_messages`
+ * is that check, inverted.
+ */
+export async function assertTelegramPrivacyMode(env: TelegramRuntimeEnv): Promise<void> {
+  const bot = await telegramBotInfo(env);
+  if (bot.can_read_all_group_messages === true) {
+    throw new Error(
+      "this bot has group privacy mode DISABLED, so it would be delivered every message in " +
+        "every group it is in. Turn it back on in @BotFather (/setprivacy -> Enable), remove " +
+        "and re-add the bot to the chat, then register the webhook again."
+    );
+  }
+}
+
+/**
+ * Points Telegram at this deployment's webhook path and returns what it
+ * settled on.
+ *
+ * `baseURL` is the factory's own public origin; the path is this module's, so
+ * the registration and the router cannot disagree. Registration is what makes
+ * webhook mode real: `setWebhook` and `getUpdates` are mutually exclusive per
+ * token, so this call is also what STOPS any long-poll consumer — a local
+ * `tk` polling the same bot starts getting 409 and is told to stop, which is
+ * the intended handover rather than a fault.
+ *
+ * Pending updates are dropped: a backlog queued while nothing was listening is
+ * answers to questions that have since been settled by another surface, and
+ * replaying it would resolve nothing and confuse everything.
+ */
+export async function registerTelegramWebhook(
+  env: TelegramRuntimeEnv,
+  baseURL: string
+): Promise<TelegramWebhookRegistration> {
+  const config = telegramConfig(env);
+  const origin = baseURL.trim().replace(/\/+$/, "");
+  if (origin === "") throw new Error("a webhook base URL is required");
+  // Checked BEFORE the webhook is registered: a deployment that would widen
+  // the bot's reach should never reach the front door in the first place.
+  await assertTelegramPrivacyMode(env);
+
+  const url = `${origin}${TELEGRAM_WEBHOOK_PATH}`;
+  const allowed = [...TELEGRAM_ALLOWED_UPDATES];
+  await telegramCall(config, "setWebhook", {
+    url,
+    allowed_updates: allowed,
+    drop_pending_updates: true,
+    ...(config.webhook_secret === undefined ? {} : { secret_token: config.webhook_secret }),
+  });
+  return {
+    url,
+    allowed_updates: allowed,
+    privacy_mode: true,
+    secret: config.webhook_secret !== undefined,
+  };
+}
+
+/**
+ * Withdraws the webhook, handing the token back to whoever wants to long-poll
+ * it — which is what `tk channel setup telegram` needs before it can wait for
+ * a `/start` message.
+ */
+export async function unregisterTelegramWebhook(env: TelegramRuntimeEnv): Promise<void> {
+  await telegramCall(telegramConfig(env), "deleteWebhook", { drop_pending_updates: false });
+}
+
+/** What Telegram currently believes the webhook is. */
+export async function telegramWebhookInfo(env: TelegramRuntimeEnv): Promise<TelegramWebhookInfo> {
+  return telegramCall<TelegramWebhookInfo>(telegramConfig(env), "getWebhookInfo", {});
+}
+
 export function telegramCallbackText(answeredBy: string): string {
   return `Already answered by ${answeredBy}.`;
 }
@@ -269,8 +499,12 @@ function questionKeyboard(questionID: string, question: Question): { text: strin
   ]);
 }
 
-export function renderQuestion(question: Question): string {
+export function renderQuestion(question: Question, context?: MessageContext): string {
   const lines: string[] = [];
+  const line = withContext(context, "");
+  // The project line comes first and is the only thing a reader has to scan to
+  // know which repository is asking.
+  if (line !== "") lines.push(`<b>${escapeHTML(line)}</b>`);
   if (question.header !== undefined && question.header !== "") {
     lines.push(`<b>${escapeHTML(question.header)}</b>`);
   }
@@ -287,7 +521,11 @@ export function renderQuestion(question: Question): string {
   return lines.join("\n");
 }
 
-export function renderOutcome(question: Question, outcome: Outcome): string {
+export function renderOutcome(
+  question: Question,
+  outcome: Outcome,
+  context?: MessageContext
+): string {
   const heading =
     outcome.status === "answered"
       ? "Answered"
@@ -296,7 +534,7 @@ export function renderOutcome(question: Question, outcome: Outcome): string {
         : outcome.status === "timed_out"
           ? "Timed out"
           : "Resolved";
-  const lines = [renderQuestion(question), `<b>${heading}</b>`];
+  const lines = [renderQuestion(question, context), `<b>${heading}</b>`];
   if (outcome.text !== undefined && outcome.text !== "") lines[1] += ` — ${escapeHTML(outcome.text)}`;
   return lines.join("\n\n");
 }
