@@ -8,11 +8,13 @@
   "owner": "noreply@anthropic.com",
   "blocked_by": [
     "csr",
-    "duy"
+    "duy",
+    "t2x",
+    "h3p"
   ],
   "parent": "hdt",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:54:05.070401Z",
-  "updated_at": "2026-08-23T16:46:51.026518Z"
+  "updated_at": "2026-08-23T17:22:09.338363Z"
 }
