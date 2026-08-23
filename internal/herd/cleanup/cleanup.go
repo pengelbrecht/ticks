@@ -9,6 +9,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
 	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
+	"github.com/pengelbrecht/ticks/internal/herd/reconcile"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 )
@@ -253,7 +254,7 @@ func planFor(repoRoot string, m state.Manifest, manifestPath string, agents []cl
 	//    What remains are the two states where removal would destroy
 	//    something: blocked, whose pane IS the handoff a human answers, and
 	//    working, which may be mid-turn and about to commit.
-	if a := liveWorker(agents, m.Tick, m.Agent); a != nil {
+	if a := liveWorker(agents, m.Agent); a != nil {
 		name := agentName(a)
 		switch a.AgentStatus {
 		case client.StatusBlocked:
@@ -320,7 +321,7 @@ func recheck(ctx context.Context, h Herd, p *Plan) bool {
 			"could not re-read herdr's agent list before removing anything: %v — nothing was touched", err))
 		return false
 	}
-	a := liveWorker(agents, p.Tick, p.Agent)
+	a := liveWorker(agents, p.Agent)
 	if a == nil {
 		return true
 	}
@@ -425,26 +426,29 @@ func consumeOwnResultFile(p *Plan) {
 
 // liveWorker finds the herdr agent belonging to this tick, if any.
 //
-// The match is by prefix on `tick-<id>`: a restart needs a fresh agent name
-// (herdr releases a name only when the process exits), so the second worker
-// for a tick is `tick-<id>-r2`. An exact-name check would read that respawned
-// worker as "gone" and clean a live pane out from under it.
-// tick is the tick id; recorded is the agent name the manifest captured at
-// spawn, if any.
-func liveWorker(agents []client.AgentInfo, tick, recorded string) *client.AgentInfo {
-	prefixes := []string{spawn.AgentName(tick)}
-	if recorded != "" && recorded != prefixes[0] {
-		prefixes = append(prefixes, recorded)
+// The match is against the agent name the manifest recorded at spawn, not a
+// name derived from the tick id. A tick id is only unique within its repo, but
+// a herdr agent name is global across every repo sharing the server, so the
+// recorded name is qualified with the repo: matching its own worker by the
+// recorded name is the only way to avoid adopting a foreign repo's worker that
+// happens to hold the same tick id.
+//
+// A restart needs a fresh agent name (herdr releases a name only when the
+// process exits), so the second worker for a tick is `<name>-r2`. [reconcile]
+// .IsWorkerOf] recognises both the exact name and a numeric respawn of it.
+// recorded is the agent name the manifest captured at spawn; with none
+// recorded there is nothing authoritative to match, so no agent is matched.
+func liveWorker(agents []client.AgentInfo, recorded string) *client.AgentInfo {
+	if recorded == "" {
+		return nil
 	}
 	for i := range agents {
 		name := agentName(&agents[i])
 		if name == "" {
 			continue
 		}
-		for _, p := range prefixes {
-			if name == p || strings.HasPrefix(name, p+"-") {
-				return &agents[i]
-			}
+		if reconcile.IsWorkerOf(name, recorded) {
+			return &agents[i]
 		}
 	}
 	return nil

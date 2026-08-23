@@ -370,6 +370,8 @@ func TestTickIDFromAgent(t *testing.T) {
 	}{
 		{"tick-abc", "abc"},
 		{"tick-abc-r2", "abc"},
+		{"tick-my-repo-abc", "abc"},
+		{"tick-my-repo-abc-r2", "abc"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := tickIDFromAgent(tc.name)

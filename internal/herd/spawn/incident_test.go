@@ -199,7 +199,7 @@ func TestPendingLaunchNeverReadyFailsAtTheTimeout(t *testing.T) {
 	const timeout = 40 * time.Millisecond
 
 	start := time.Now()
-	_, err := waitInteractiveReady(t.Context(), srv.Client(t), "tick-1aw", timeout)
+	_, err := waitInteractiveReady(t.Context(), srv.Client(t), "tick-repo-1aw", timeout)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -238,7 +238,7 @@ func newPendingFakeHerd(t *testing.T) *fakeHerd {
 // after (ready) interactive readiness flips.
 func pendingAgent(pending bool) herdtest.Agent {
 	return herdtest.Agent{
-		Name:               "tick-1aw",
+		Name:               "tick-repo-1aw",
 		PaneID:             "w7:p1",
 		Status:             "idle",
 		NoInteractiveReady: pending,

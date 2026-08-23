@@ -365,8 +365,15 @@ func checkedState(target string, state client.AgentStatus) (client.AgentStatus, 
 
 func tickIDFromAgent(agent string) (string, error) {
 	base, _ := reconcile.SplitRespawn(agent)
+	// The tick id is the final component of the base name: `tick-<id>` and
+	// the repo-qualified `tick-<repo>-<id>` both end in it, and SplitRespawn
+	// has already dropped any `-r<N>` respawn suffix.
 	if !strings.HasPrefix(base, "tick-") || len(base) == len("tick-") {
-		return "", fmt.Errorf("herd/relay: agent %q is not a tick worker; use a tick-<id> agent name", agent)
+		return "", fmt.Errorf("herd/relay: agent %q is not a tick worker; use a tick-<repo>-<id> agent name", agent)
 	}
-	return strings.TrimPrefix(base, "tick-"), nil
+	segments := strings.Split(base, "-")
+	if len(segments) < 2 || segments[len(segments)-1] == "" {
+		return "", fmt.Errorf("herd/relay: agent %q is not a tick worker; use a tick-<repo>-<id> agent name", agent)
+	}
+	return segments[len(segments)-1], nil
 }

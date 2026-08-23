@@ -245,7 +245,11 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	}
 
 	branch := cfg.WorktreeBranchPrefix() + t.ID
-	agentName := spawn.AgentName(t.ID)
+	qualifier, err := spawn.RepoName(root)
+	if err != nil {
+		return NewExitError(ExitGeneric, "%v", err)
+	}
+	agentName := spawn.AgentName(qualifier, t.ID)
 
 	// 5. herdr.
 	herd, err := herdConnect(ctx, herdSpawnSocket)

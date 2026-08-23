@@ -162,6 +162,37 @@ func TestLiveWorkerMatchesRespawnSuffix(t *testing.T) {
 	}
 }
 
+// TestForeignRepoWorkerIsNotAdopted pins the fix's headline: a worker from
+// another repo holding the SAME tick id is never matched. The manifest's
+// recorded agent name is qualified with its repo, so the foreign agent's
+// different qualifier excludes it even though the tick id agrees.
+func TestForeignRepoWorkerIsNotAdopted(t *testing.T) {
+	f := newRepo(t)
+	wt := f.addWorktree("tick/bbb")
+	f.manifest(state.Manifest{
+		Tick: "bbb", Epic: "e1", Branch: "tick/bbb", Worktree: wt,
+		WorkspaceID: "w2", PaneID: "w2:p1", Agent: "tick-my-repo-bbb", Kind: "claude",
+	})
+	// A different repo's live worker for the same tick id, in the same
+	// herdr server. Under the old `tick-<id>` shape this was indistinguishable
+	// from our own worker; the qualified name is what keeps it foreign.
+	srv := newFakeHerd(t, []string{"w2"},
+		fakeAgent{name: "tick-other-repo-bbb", paneID: "w9:p1", workspaceID: "w9", status: client.StatusWorking},
+	)
+
+	r, err := Run(t.Context(), srv.Client(t), Options{RepoRoot: f.root, EpicID: "e1"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	item := only(t, r)
+	if item.Class == ClassLiveWorker {
+		t.Fatalf("class = %s — the foreign worker must not be adopted as live", item.Class)
+	}
+	if item.Evidence.LiveAgent != "" {
+		t.Errorf("live agent = %q, want none — the foreign worker is not ours", item.Evidence.LiveAgent)
+	}
+}
+
 // TestDeadResumableEmitsClaudeResumeArgv pins claude's shape: --resume is a
 // FLAG composed with the compiled spawn template.
 func TestDeadResumableEmitsClaudeResumeArgv(t *testing.T) {
