@@ -13,22 +13,17 @@ across in-process executions. **Rule:** Drive commands in tests only via `Execut
 embeds pre-built assets from `internal/tickboard/server/static/`. **Rule:** After UI source changes
 run `scripts/build-ui.sh` and commit `static/` and `ui/dist/`.
 
-**Problem:** Worker sandboxes block loopback sockets and DNS, so httptest suites and `git push`
-fail there. **Rule:** The integrated post-wave gate is the authoritative first full run.
+**Problem:** Worker sandboxes block loopback sockets and DNS, so httptest suites and `git push` fail
+there. **Rule:** The integrated post-wave gate is the authoritative first full run.
 
 ## Orchestration
 
 **Problem:** Wave-2 agents branched from a base missing wave-1's merged commit and redid its work.
-**Rule:** Name the prerequisite SHA, instruct `git merge <integration-branch>` first, then verify
-with `git merge-base --is-ancestor`.
+**Rule:** Name the prerequisite SHA, instruct `git merge <integration-branch>`, then verify with
+`git merge-base --is-ancestor`.
 
-**Problem:** A codex worker self-updated at spawn, swallowing the content-gate probe. **Rule:** A
-failed `tk herd spawn` leaves partial state — tear down worktree, branch and workspace before
-respawning; export `HOMEBREW_NO_AUTO_UPDATE=1` for spawn loops.
-
-**Problem:** A worker returned NEEDS_CONTEXT: it was pointed at an archived report under
-`.tick/logs/`, gitignored and invisible from a worktree. **Rule:** Never reference `.tick/logs/**`
-in a worker prompt — paste the content inline.
+**Problem:** A worker was pointed at an archived report under `.tick/logs/`, gitignored and invisible
+from a worktree. **Rule:** Never reference `.tick/logs/**` in a worker prompt — paste it inline.
 
 **Problem:** Two ticks in one wave shared a file and collided at merge. **Rule:** Name the seam in
 a note on each tick, and expect the CHANGELOG to conflict regardless — resolve by keeping both.
@@ -41,12 +36,21 @@ appears, never at exit — the outcome says a step failed, its output says why.
 
 **Problem:** Cloud workers resolved `[roles.implement]` and got a model their gateway could not
 route; repointing that cell would have broken every LOCAL run, which reads it with different
-credentials. **Rule:** When one config cell serves two runtimes with different credentials, the repo
-cannot be authority for both — the control plane names the value for the runtime it owns.
+credentials. **Rule:** When one config cell serves two runtimes with different credentials, the
+control plane names the value for the runtime it owns.
 
 **Problem:** A worker committed tracker state although its prompt forbade it in as many words.
 **Rule:** A boundary the substrate can enforce must not rest on instruction-following — compliance
 is a property of the model, not the system. Make it impossible, and REPORT every attempt.
+
+**Problem:** One parallel tick changed a shared return shape and broke another's file; both branches
+were green alone and only the INTEGRATED gate saw it. **Rule:** When parallel ticks share a contract,
+the merge gate is the only thing that tests it — and the break lands in the tick that did nothing.
+
+**Problem:** A row was set to `committing` before an await; a death there left it stuck forever and
+reported as already decided. **Rule:** A state meaning "in flight" must be recoverable by whoever
+finds it next — settle it from durable evidence (does the thing exist?), never by trusting the
+claimer to return. A human button press has no source that retries it.
 
 ## Orchestrator gates
 
@@ -58,8 +62,7 @@ exit, so a hanging test reached final review. **Cause:** pipelines report the LA
 ## Naming and tracker hygiene
 
 **Problem:** Backticks in double-quoted `tk create -d "..."` were shell-substituted, corrupting
-descriptions. **Rule:** Single-quote or heredoc any tick text containing backticks, `$`, `()` or
-`<>`; verify with `tk show <id>` after bulk creation.
+descriptions. **Rule:** Single-quote or heredoc tick text containing backticks, `$`, `()` or `<>`.
 
 **Problem:** A half-applied merge left files staged and `git add .tick/ && git commit` captured them.
 **Cause:** `git commit` commits the WHOLE index. **Rule:** `git add .tick/ && git commit .tick/` —
@@ -91,8 +94,8 @@ message. If two endpoints answer the same question, they must run the same check
 
 **Problem:** A run billed $49.80 against a $25 ceiling while reporting $2.98. **Cause:** the cost
 query paged on `result_info.total_pages`, which the logs API does not send, so it stopped after 50
-of 892 entries. **Rule:** Never default a pagination bound to a permissive value. Page until a short
-page proves exhaustion, and treat the page cap as a telemetry FAILURE, not a total.
+of 892 entries. **Rule:** Never default a pagination bound to a permissive value; page until a short
+page proves exhaustion, and treat the page cap as a telemetry FAILURE.
 
 **Problem:** Revoking a run's gateway token stopped nothing; only deleting the container did.
 **Cause:** the supervisor minted a FRESH token at the next boot, and closeout ran with
@@ -107,12 +110,12 @@ mechanically on a timer, and never `--force` a ref it does not own.
 **Problem:** Supervisors died at a platform limit (a Workflow step may EXECUTE for 10 minutes) while
 the run record still said `running`, so every symptom read as a worker problem. **Rule:** A
 supervisor cannot report its own death — that record is written BY the thing that may be gone.
-Observe its liveness from outside, and spread long waits across bounded steps that re-derive state.
+Observe liveness from outside, and spread long waits across bounded steps that re-derive state.
 
-**Problem:** An operator's `--max-wall-clock` was ignored: two independent clamps sat between it and
-the agent, and raising either alone changed nothing. **Rule:** When a bound does not take effect,
-enumerate every layer that can lower it — and derive an agent's budget from the run's REMAINING
-allowance. Killing an agent just before it commits costs every token and keeps none of the work.
+**Problem:** An operator's `--max-wall-clock` and `--max-cost` were both silently clamped by
+deployment ceilings, and raising either alone changed nothing. **Rule:** When a bound does not take
+effect, enumerate every layer that can lower it, derive an agent's budget from the run's REMAINING
+allowance, and REPORT the effective number — killing an agent mid-work keeps none of the work.
 
 **Problem:** 46M input tokens billed at zero cache hits. **Cause:** Workers AI prefix caching is per
 model instance and needs `x-session-affinity`. **Rule:** Affinity alone is not enough — one varying
@@ -135,9 +138,9 @@ so tooling resolution accepted npx. **Rule:** A version probe must validate WHAT
 exit code — the green-start trap applied to CLI discovery.
 
 **Problem:** A hand-rolled TOML parser let `__proto__.command` set `Object.prototype` process-wide,
-and the key vanished so the unknown-key check never saw it. **Rule:** Build every parsed table with
+and the key vanished so the unknown-key check never saw it. **Rule:** Build parsed tables with
 `Object.create(null)` and look keys up with `Object.hasOwn` — a key that evades the unknown-key
-check defeats fail-closed validation entirely.
+check defeats fail-closed validation.
 
 **Problem:** A migrator's grammar was looser than the reader's, so lines the reader had IGNORED
 became authorized commands. **Rule:** A migrator must parse with the reader's grammar and report
