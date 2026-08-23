@@ -1,0 +1,86 @@
+{
+  "why": [
+    "Two rules in `.tick/runners.toml` are enforced by two implementations in two",
+    "languages: `[sandbox].image` and `[orchestration].max_parallel`. Go owns the",
+    "format (internal/herd/config/load.go); the control plane reads both keys",
+    "before any container exists to read anything, so it re-implements them",
+    "(cloud/factory/src/repo-config.ts).",
+    "",
+    "Until this file they were kept in sync by a comment saying 'mirrored from",
+    "internal/herd/config/load.go' — the one contract in this epic without a",
+    "cross-implementation test, while every other Go/TS shape has one",
+    "(tracker-layout.json, worker-boot-contract.json). .tick/learnings.md's rule",
+    "is explicit about why a comment is not enough: both suites stay green while",
+    "each side is internally consistent, so a one-sided edit is invisible.",
+    "",
+    "Drift here already fails LOUD rather than silent — the sandbox entrypoint",
+    "refuses the boot when the image `tk` reads disagrees with the one the control",
+    "plane says it booted, and `kji`'s claim-time check inside each worker is the",
+    "authoritative wave-width bound no dispatch-side miss can bypass. So this",
+    "fixture is not closing a hole; it moves the failure from a container at run",
+    "time to a test at edit time.",
+    "",
+    "It pins the RULES. The behaviour of the two image readers over whole TOML",
+    "documents is pinned separately, and case by case, in sandbox-image-cases.json.",
+    "internal/herd/config/runners_config_parity_test.go asserts this file against",
+    "Go's validator; cloud/factory/test/repo-config.test.ts asserts it against the",
+    "Worker's reader."
+  ],
+  "image": {
+    "why": [
+      "The pattern string itself is pinned, not just its effect: it is copied",
+      "character for character between `imagePattern` in internal/herd/config and",
+      "`IMAGE_PATTERN` in cloud/factory/src/repo-config.ts, and Go's",
+      "Regexp.String() and JavaScript's RegExp.source render it identically.",
+      "Deliberately narrow — an image reference is a name, never a place to hide a",
+      "shell fragment.",
+      "",
+      "`max_length` is the schema's bound (`maxImageLen` / `MAX_IMAGE_LENGTH`).",
+      "Both sides build a reference of exactly that many `boundary_char`s, which",
+      "must be ACCEPTED, and one character more, which must be refused: a bound",
+      "pinned only from the outside would not catch an off-by-one."
+    ],
+    "path": "sandbox.image",
+    "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$",
+    "max_length": 512,
+    "boundary_char": "a",
+    "refusal_message": "is not a well-formed image reference",
+    "accepted": [
+      "ticks-orchestrator",
+      "ticks-orchestrator:0.32.0",
+      "registry.example.com/acme/ticks-orchestrator:0.32.0",
+      "registry.example.com/acme/ticks-orchestrator@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "ticks-orchestrator:0.32.0@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "refused": [
+      "",
+      "-leading-punctuation",
+      "ticks orchestrator",
+      "orchestrator; rm -rf /",
+      "ticks-orchestrator:",
+      "ticks-orchestrator:0.32.0@sha256:0123abc",
+      "ticks-orchestrator:0.32.0@sha256:0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef",
+      "ticks-orchestrator:0.32.0@sha512:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ]
+  },
+  "max_parallel": {
+    "why": [
+      "The wave width a cloud run's container fan-out must not silently exceed",
+      "(tick b6e). One bound, `>= 1`, enforced by Go's validator and by the",
+      "control plane's reader — and the refusal text is shared too, because the",
+      "two answer the same question and a config author should not be able to tell",
+      "which one refused.",
+      "",
+      "`refused_toml_values` are raw TOML value texts rather than JSON numbers:",
+      "the point of those cases is that a typed value the schema does not allow is",
+      "a refusal on both sides, never a coercion, and only the TOML text can carry",
+      "the difference between 3, 1.5 and \"3\"."
+    ],
+    "path": "orchestration.max_parallel",
+    "minimum": 1,
+    "refusal_message": "must be >= 1",
+    "accepted": [1, 2, 4, 64],
+    "refused": [0, -1],
+    "refused_toml_values": ["1.5", "\"3\"", "true"]
+  }
+}

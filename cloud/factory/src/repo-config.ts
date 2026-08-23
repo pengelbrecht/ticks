@@ -147,6 +147,13 @@ export function githubRepoConfig(env: Env): RepoConfigReader {
  * platform as the image to boot, and a value that reached here having only
  * been checked by the writer is a value nothing checked. Deliberately narrow —
  * an image reference is a name, never a place to hide a shell fragment.
+ *
+ * Mirrored is not the same as tied together, which is why the two are both
+ * pinned to `test/fixtures/runners-config-contract.json` (tick h3p) — asserted
+ * from `test/repo-config.test.ts` here and
+ * `internal/herd/config/runners_config_parity_test.go` there. Edit this
+ * pattern or the bound without editing that fixture and Go's suite goes red,
+ * which is the point: a comment saying "mirrored from" cannot fail.
  */
 export const IMAGE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$/;
 export const MAX_IMAGE_LENGTH = 512;
@@ -205,6 +212,8 @@ export type DeclaredImage = {
  * must not disagree with the width `kji` enforces on the tick claim inside
  * each worker — a wave dispatched wider than this would only book containers
  * whose claim gets refused.
+ *
+ * Pinned with the image pattern in `test/fixtures/runners-config-contract.json`.
  */
 export function declaredMaxParallel(source: string): number | null {
   const root = parseToml(source);

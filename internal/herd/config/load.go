@@ -97,6 +97,13 @@ var (
 	// imagePattern is the schema's Sandbox.image pattern: a container image
 	// reference with an optional tag and digest. Deliberately narrow — an
 	// image reference is a name, never a place to hide a shell fragment.
+	//
+	// Re-implemented in cloud/factory/src/repo-config.ts, because the control
+	// plane must know which image to boot before a container exists to read
+	// anything. The two are pinned to one file rather than to each other:
+	// cloud/factory/test/fixtures/runners-config-contract.json, asserted from
+	// runners_config_parity_test.go here and repo-config.test.ts there. Edit
+	// this pattern and that fixture together, or the other side goes red.
 	imagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$`)
 	// toolSpecPattern is the schema's ToolSpec pattern: one `tool@version` pin
 	// in the version manager's namespace. The version is required — an
@@ -272,6 +279,8 @@ func validateOrchestration(cfg *Config, md toml.MetaData, add addFunc) {
 	if md.IsDefined("orchestration", "socket") && o.Socket == "" {
 		add("orchestration.socket", "must not be empty (omit the key to resolve $HERDR_SOCKET_PATH, then ~/.config/herdr/herdr.sock)")
 	}
+	// The bound the control plane re-enforces at dispatch; pinned with the
+	// image pattern in cloud/factory/test/fixtures/runners-config-contract.json.
 	if md.IsDefined("orchestration", "max_parallel") && o.MaxParallel < 1 {
 		add("orchestration.max_parallel", fmt.Sprintf("must be >= 1, got %d", o.MaxParallel))
 	}
