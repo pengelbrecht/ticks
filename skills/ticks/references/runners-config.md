@@ -348,7 +348,7 @@ priority = 1                        # a CONSTANT, optional
 labels = ["sentry"]                 # CONSTANTS, optional
 ```
 
-The factory then serves `POST /api/hooks/source/<owner>/<repo>/sentry`, verifies the declared scheme over the raw body, maps the payload, and hands the result to the same funnel every other source uses.
+The factory then serves `POST /api/hooks/source/<owner>/<repo>/sentry`, verifies the declared scheme over the raw body, maps the payload, and hands the result to the same funnel every other source uses. **Draft is literal:** a delivery becomes a proposal in the operator channel, and a human pressing Create is what puts a tick in `.tick/`. A declaration here is consent to *propose*, never consent to file.
 
 ### Paths and constants, fixed per key
 
@@ -370,7 +370,7 @@ Registering a chatty sender is therefore a decision about volume, made in a pull
 
 ### Dedup is the funnel's
 
-`external_ref` is a path to the sender's **own stable id for the subject** — an issue id, an incident id — not a delivery id, which changes on every retry. It becomes half of `(source, external_ref)`, the key the signal funnel already dedups on. A redelivery comes back as a duplicate carrying the original tick's id and commits nothing. There is no second dedup, and a source must not be named `github` or `telegram`: it would share a built-in source's key space.
+`external_ref` is a path to the sender's **own stable id for the subject** — an issue id, an incident id — not a delivery id, which changes on every retry. It becomes half of `(source, external_ref)`, the key the signal funnel already dedups on. A redelivery comes back as a duplicate naming the original proposal and proposes nothing new — **whatever the human did with it, including discarding it**, which is what stops a chatty sender re-proposing something a human already declined. There is no second dedup, and a source must not be named `github` or `telegram`: it would share a built-in source's key space.
 
 ### Rules the loader enforces
 

@@ -6,8 +6,9 @@
  * sources this bundle knows by name; this is the door for every sender that
  * nobody wrote a module for — a Sentry alert, a Linear webhook, a status page,
  * a cron on someone's laptop. A repository declares the sender once, in its own
- * tracked config, and its deliveries become ticks through the same funnel as
- * everything else.
+ * tracked config, and its deliveries become DRAFTS through the same funnel as
+ * everything else — proposals a human accepts or discards (tick la9). Nothing
+ * a sender POSTs reaches the repository on its own.
  *
  * ## Where the declaration lives, and why it is not `.tick/config.md`
  *
@@ -86,6 +87,7 @@
  * maintainers review.
  */
 
+import { announceDraft } from "./drafts";
 import { getEnrolledProject } from "./db";
 import { RUNNERS_CONFIG_PATH, repoConfig } from "./repo-config";
 import {
@@ -552,8 +554,8 @@ function provenance(facts: SourceFacts, registered: RegisteredSource): string[] 
  * Every structural field comes from the repository's tracked declaration or is
  * a constant. The payload contributes exactly two things — a title and a body —
  * and both arrive sanitised, the body quoted. So a payload that says
- * `"priority": 0` or `"parent": "hdt"` files a tick at the declared priority
- * with no parent, those lines inert behind `> `.
+ * `"priority": 0` or `"parent": "hdt"` proposes a draft at the declared
+ * priority with no parent, those lines inert behind `> `.
  */
 export function sourceSignal(facts: SourceFacts, registered: RegisteredSource): Signal {
   const description = [
@@ -613,7 +615,13 @@ export type SourceIngestResult =
     }
   | { state: "refused"; reason: string; detail: string };
 
-/** One mapped delivery, all the way to the funnel. */
+/**
+ * One mapped delivery, all the way to the funnel — which admits it as a DRAFT.
+ *
+ * There is no path from here to a committed tick, and that absence is the
+ * human gate: `submitSignal` is the only entry point this module has, and the
+ * only thing it produces is a proposal.
+ */
 export async function ingestSourceDelivery(
   env: Env,
   registered: RegisteredSource,
@@ -625,13 +633,12 @@ export async function ingestSourceDelivery(
     return { state: "refused", reason: verdict.reason, detail: verdict.detail };
   }
   const facts = verdict.facts;
-  const outcome = await submitSignal(env, sourceSignal(facts, registered));
-  return {
-    state: "ingested",
-    outcome,
-    facts,
-    presentation: renderSourceDraft(facts, registered),
-  };
+  // The render goes WITH the signal, not merely back to the sender: the draft
+  // row carries the block the operator channel shows, and only the source
+  // knows which of its text is untrusted (tick la9, `SubmitOptions`).
+  const presentation = renderSourceDraft(facts, registered);
+  const outcome = await submitSignal(env, sourceSignal(facts, registered), { presentation });
+  return { state: "ingested", outcome, facts, presentation };
 }
 
 // -------------------------------------------------------------- the route ---
@@ -661,9 +668,12 @@ export function parseSourcePath(pathname: string): { project: string; source: st
  * The status codes are vuz's contract with a sender's redelivery machinery,
  * because every webhook sender has one:
  *
- *  - **2xx** for every settled outcome after the door is found, including a
- *    refusal. Making a sender redeliver a payload this door will refuse
- *    identically forever turns one bad delivery into an unbounded retry loop.
+ *  - **2xx** for every settled outcome after the door is found — a refusal, a
+ *    duplicate, and `drafted`, which IS settled even though no tick exists
+ *    yet: the proposal is durable and the human gate is the next step, not a
+ *    reason for the sender to try again. Making a sender redeliver a payload
+ *    this door will refuse identically forever turns one bad delivery into an
+ *    unbounded retry loop.
  *  - **401** for a bad or absent signature; **503** for a declared source whose
  *    secret this deployment does not hold. Both fail closed: an unconfigured
  *    factory accepts nothing rather than everything.
@@ -671,8 +681,9 @@ export function parseSourcePath(pathname: string): { project: string; source: st
  *    place this reader is NOT best effort, unlike `declaredSandboxImage`: the
  *    config is what says whether the delivery is authentic at all, so an
  *    unreadable file must mean "cannot decide", never "accept".
- *  - **503** when the funnel came back `deferred` — nothing was committed and
- *    the signal is still valid, so a redelivery is exactly right.
+ *  - **503** when the funnel came back `deferred` — nothing was recorded and
+ *    the signal is still valid, so a redelivery is exactly right. This is the
+ *    ONLY outcome past the door that is not 2xx.
  *  - **404**, and only here, for a door that does not exist: an unenrolled
  *    project or an undeclared source. A deliberate divergence from the
  *    2xx-for-settled rule, with the same body for both so this route cannot be
@@ -783,14 +794,19 @@ export async function webhookSourceRoute(request: Request, env: Env): Promise<Re
   }
 
   const outcome = result.outcome;
-  if (outcome.state === "created") {
+  if (outcome.state === "drafted") {
+    // 201 for a created PROPOSAL, not a created tick. There is no tick id at
+    // ingestion time any more and this route must not pretend there is: a
+    // human presses Create first (tick la9). The same shape github-issues.ts
+    // returns, deliberately — two doors onto one funnel should answer alike.
+    await announceDraft(env, outcome.project, outcome.draft_id);
     return json(
       {
         ok: true,
         ingested: true,
+        drafted: true,
         source: registered.name,
-        tick_id: outcome.tick_id,
-        path: outcome.path,
+        draft_id: outcome.draft_id,
         external_ref: outcome.external_ref,
         presentation: result.presentation,
       },
@@ -798,12 +814,18 @@ export async function webhookSourceRoute(request: Request, env: Env): Promise<Re
     );
   }
   if (outcome.state === "duplicate") {
+    // Settled, so 2xx: this `(source, external_ref)` has been seen, whatever
+    // the human did with the first proposal — including discarding it, which
+    // is what stops a sender re-proposing the same signal forever.
+    // `tick_id` is non-null only once a human accepted it.
     return json(
       {
         ok: true,
         ingested: false,
         reason: "duplicate",
         source: registered.name,
+        draft_id: outcome.draft_id,
+        draft_state: outcome.draft_state,
         tick_id: outcome.tick_id,
         external_ref: outcome.external_ref,
         deliveries: outcome.deliveries,

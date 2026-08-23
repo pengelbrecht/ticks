@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enrolProject } from "../src/db";
 import { type RepoConfigReader } from "../src/repo-config";
 import { type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
+import { inboxFor } from "../src/signal-inbox";
 import { UNTRUSTED_LINE_PREFIX } from "../src/untrusted-text";
 import { signBody } from "../src/webhook-signature";
 import {
@@ -26,16 +27,19 @@ import parityCases from "./fixtures/signal-source-cases.json";
  * Four things are under test, and the acceptance criteria name all four:
  *
  *  1. **A repo can declare a source and its payloads become draft ticks.**
- *     Run through the real HTTP door, because a registry that works in a pure
- *     function and not at the route is a registry the product does not have.
+ *     Draft is literal since tick la9: a delivery becomes a PROPOSAL, and a
+ *     human pressing Create is what puts anything in `.tick/`. Run through the
+ *     real HTTP door, because a registry that works in a pure function and not
+ *     at the route is a registry the product does not have.
  *  2. **An unsigned or wrongly-signed payload is refused**, and refused
  *     BEFORE the body is parsed.
  *  3. **An unknown key in the declaration fails closed** — the whole source is
  *     refused, not the key ignored — and `__proto__` is an unknown key rather
  *     than a hole in the check.
- *  4. **Dedup is the funnel's.** A redelivery comes back `duplicate` with the
- *     first tick's id, from `(source, external_ref)` in the SignalInbox. There
- *     is no second dedup here to test, which is the point.
+ *  4. **Dedup is the funnel's.** A redelivery comes back `duplicate` naming the
+ *     first PROPOSAL, from `(source, external_ref)` in the SignalInbox —
+ *     whatever the human did with it, including discarding it. There is no
+ *     second dedup here to test, which is the point.
  */
 
 const BASE = "https://factory.example.com";
@@ -98,6 +102,37 @@ class FakeRepoConfig implements RepoConfigReader {
   }
 }
 
+/**
+ * A fake Bot API on the global fetch, capturing every call.
+ *
+ * Here only so one thing can be asserted: a proposal nobody is told about is a
+ * proposal nobody can accept. `SELF.fetch` (the door) does not go through
+ * `globalThis.fetch`, so this intercepts the announcement and nothing else.
+ */
+type BotCall = { method: string; body: Record<string, unknown> };
+let bot: { calls: BotCall[]; restore: () => void } | null = null;
+
+function fakeBotAPI(): void {
+  const calls: BotCall[] = [];
+  const original = globalThis.fetch;
+  let messageID = 7000;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith("https://telegram.test/")) return original(input as RequestInfo, init);
+    const method = url.slice(url.lastIndexOf("/") + 1);
+    const body = init?.body === undefined ? {} : (JSON.parse(String(init.body)) as Record<string, unknown>);
+    calls.push({ method, body });
+    messageID += 1;
+    return Response.json({
+      ok: true,
+      result: method === "sendMessage" ? { message_id: messageID } : true,
+    });
+  }) as typeof fetch;
+  bot = { calls, restore: () => void (globalThis.fetch = original) };
+}
+
+const botCalls = (method: string): BotCall[] => (bot?.calls ?? []).filter((c) => c.method === method);
+
 let contents: FakeContents;
 let config: FakeRepoConfig;
 const saved: Record<string, unknown> = {};
@@ -114,9 +149,17 @@ beforeEach(() => {
   set("REPO_CONFIG", config);
   set("SIGNAL_COMMIT_RETRY_MS", "0");
   set(BINDING, SECRET);
+  set("TELEGRAM_BOT_TOKEN", "test-bot-token");
+  set("TELEGRAM_USER_ID", "424242");
+  set("TELEGRAM_CHAT_ID", "424242");
+  set("TELEGRAM_API_BASE_URL", "https://telegram.test");
+  set("FACTORY_BASE_URL", BASE);
+  fakeBotAPI();
 });
 
 afterEach(() => {
+  bot?.restore();
+  bot = null;
   for (const [name, value] of Object.entries(saved)) {
     (env as unknown as Record<string, unknown>)[name] = value;
   }
@@ -133,6 +176,33 @@ async function enrolled(): Promise<string> {
     enrolled_at: new Date().toISOString(),
   });
   return project;
+}
+
+/**
+ * A human at the gate (tick la9).
+ *
+ * Ingestion stops at a proposal now, so a test about what lands in `.tick/`
+ * has to press Create the way the operator channel does. That the press is
+ * needed at all is this file's other assertion: the tests below check
+ * `contents.files` is empty until it happens.
+ */
+async function accept(project: string, draftID: string): Promise<{ tick_id: string; path: string }> {
+  const decision = await inboxFor(env, project).decide(draftID, "create", "telegram:424242");
+  expect(decision.state).toBe("accepted");
+  if (decision.state !== "accepted") throw new Error(decision.state);
+  return { tick_id: decision.tick_id, path: decision.path };
+}
+
+/**
+ * Nothing was proposed.
+ *
+ * The assertion the refusal tests need since tick la9: a delivery no longer
+ * writes to `.tick/` even when it succeeds, so `contents.files` being empty
+ * stopped being evidence that a refusal refused anything. What must be empty
+ * is the project's own draft list.
+ */
+async function proposals(project: string): Promise<number> {
+  return (await inboxFor(env, project).listDrafts()).length;
 }
 
 function payload(over: Record<string, unknown> = {}): unknown {
@@ -177,10 +247,10 @@ const registered = (over: Partial<RegisteredSource> = {}): RegisteredSource => (
   ...over,
 });
 
-// ------------------------------------------- a declared source files ticks ---
+// ----------------------------------------- a declared source proposes drafts ---
 
-describe("a repository declares a webhook source and its payloads become ticks", () => {
-  it("files a tick from a signed delivery", async () => {
+describe("a repository declares a webhook source and its payloads become drafts", () => {
+  it("proposes a draft from a signed delivery, and a tick when a human accepts it", async () => {
     const project = await enrolled();
 
     const response = await deliver(project, payload());
@@ -188,10 +258,18 @@ describe("a repository declares a webhook source and its payloads become ticks",
     expect(response.status).toBe(201);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.ingested).toBe(true);
+    expect(body.drafted).toBe(true);
     expect(body.source).toBe("sentry");
     expect(body.external_ref).toBe("sentry:4519077231");
+    expect(typeof body.draft_id).toBe("string");
+    // Registering the source is consent to PROPOSE. Nothing is in the
+    // repository until a human presses Create (tick la9) — and a declaration
+    // in a tracked file must not be a weaker gate than a maintainer's label.
+    expect(body.tick_id).toBeUndefined();
+    expect(contents.files.size).toBe(0);
 
-    const record = JSON.parse(contents.files.get(body.path as string)!) as Record<string, unknown>;
+    const filed = await accept(project, body.draft_id as string);
+    const record = JSON.parse(contents.files.get(filed.path)!) as Record<string, unknown>;
     expect(record).toMatchObject({
       title: "TypeError: cannot read property 'rows' of undefined",
       type: "bug",
@@ -203,6 +281,40 @@ describe("a repository declares a webhook source and its payloads become ticks",
     expect(record.labels).toEqual(["sentry"]);
     expect(String(record.description)).toContain("Webhook signal from `sentry`");
     expect(String(record.description)).toContain(`${UNTRUSTED_LINE_PREFIX}app/export/csv.ts`);
+  });
+
+  it("stores the source's own render on the draft, not a generic fallback", async () => {
+    const project = await enrolled();
+
+    const body = (await (await deliver(project, payload())).json()) as Record<string, unknown>;
+    const draft = await inboxFor(env, project).getDraft(body.draft_id as string);
+
+    // The channel renders `draft.presentation`, so the anti-forgery invariant
+    // only reaches a human if the block the SOURCE composed is what got
+    // stored. A draft carrying an empty presentation falls back to a generic
+    // block and the quoting is gone.
+    expect(draft?.presentation).toBe(body.presentation);
+    expect(String(draft?.presentation)).toContain("<b>Draft tick");
+    expect(String(draft?.presentation)).toContain(
+      `${UNTRUSTED_LINE_PREFIX}app/export/csv.ts in writeRows`
+    );
+  });
+
+  it("announces the draft, because a proposal nobody sees cannot be accepted", async () => {
+    const project = await enrolled();
+
+    const body = (await (await deliver(project, payload())).json()) as Record<string, unknown>;
+
+    const sent = botCalls("sendMessage");
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0]!.body.text)).toContain("TypeError: cannot read property");
+    // And the render that reached the channel is the one the source composed,
+    // so the anti-forgery invariant is what a human actually sees.
+    expect(String(sent[0]!.body.text)).toContain(
+      `${UNTRUSTED_LINE_PREFIX}app/export/csv.ts in writeRows`
+    );
+    const draft = await inboxFor(env, project).getDraft(body.draft_id as string);
+    expect(draft?.message).not.toBeNull();
   });
 
   it("reads the declaration from the repository's default branch, not a commit", async () => {
@@ -245,7 +357,7 @@ describe("a repository declares a webhook source and its payloads become ticks",
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.error).toBe("webhook_not_configured");
     expect(String(body.detail)).toContain(BINDING);
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 
   it("answers 405 to a GET rather than 401", async () => {
@@ -275,7 +387,7 @@ describe("an unsigned or wrongly-signed payload is refused", () => {
     const response = await deliver(project, payload(), { signature: "" });
 
     expect(response.status).toBe(401);
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 
   it("refuses a signature made under a different secret", async () => {
@@ -284,7 +396,7 @@ describe("an unsigned or wrongly-signed payload is refused", () => {
     const response = await deliver(project, payload(), { secret: "not-the-shared-secret" });
 
     expect(response.status).toBe(401);
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 
   it("refuses a valid signature presented in the wrong header", async () => {
@@ -293,7 +405,7 @@ describe("an unsigned or wrongly-signed payload is refused", () => {
     const response = await deliver(project, payload(), { header: "x-hub-signature-256" });
 
     expect(response.status).toBe(401);
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 
   it("verifies the RAW body, so a re-serialised copy of it does not verify", async () => {
@@ -478,7 +590,7 @@ secret = "SIGNAL_SECRET_SMUGGLED"
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
       error: "source_config_unreadable",
     });
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 
   it("ingests nothing when the config cannot be fetched at all", async () => {
@@ -488,39 +600,75 @@ secret = "SIGNAL_SECRET_SMUGGLED"
     const response = await deliver(project, payload());
 
     expect(response.status).toBe(503);
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 });
 
 // ------------------------------------------------------------- the dedup ---
 
 describe("dedup is the funnel's, not a second one", () => {
-  it("files one tick for a redelivery of the same external_ref", async () => {
+  it("proposes once for a redelivery of the same external_ref", async () => {
     const project = await enrolled();
 
     const first = await deliver(project, payload());
+    expect(first.status).toBe(201);
+    const drafted = (await first.json()) as Record<string, unknown>;
+    const filed = await accept(project, drafted.draft_id as string);
+
     const second = await deliver(project, payload());
 
-    expect(first.status).toBe(201);
     expect(second.status).toBe(200);
-    const firstBody = (await first.json()) as Record<string, unknown>;
-    const secondBody = (await second.json()) as Record<string, unknown>;
-    expect(secondBody).toMatchObject({
+    expect((await second.json()) as Record<string, unknown>).toMatchObject({
       ingested: false,
       reason: "duplicate",
-      tick_id: firstBody.tick_id,
+      draft_id: drafted.draft_id,
+      draft_state: "created",
+      tick_id: filed.tick_id,
       deliveries: 2,
     });
     expect(contents.files.size).toBe(1);
   });
 
-  it("files a second tick for a different external_ref", async () => {
+  it("does not re-propose a redelivery of a signal a human DISCARDED", async () => {
     const project = await enrolled();
 
-    await deliver(project, payload());
+    const first = await deliver(project, payload());
+    const drafted = (await first.json()) as Record<string, unknown>;
+    const discard = await inboxFor(env, project).decide(
+      drafted.draft_id as string,
+      "discard",
+      "telegram:424242"
+    );
+    expect(discard.state).toBe("discarded");
+
+    const second = await deliver(project, payload());
+
+    // The dedup record survives the discard, which is the whole point: a
+    // sender that redelivers forever must not get a second proposal past a
+    // human who already said no.
+    expect(second.status).toBe(200);
+    expect((await second.json()) as Record<string, unknown>).toMatchObject({
+      ingested: false,
+      reason: "duplicate",
+      draft_id: drafted.draft_id,
+      draft_state: "discarded",
+      tick_id: null,
+    });
+    expect(contents.files.size).toBe(0);
+  });
+
+  it("proposes a second draft for a different external_ref", async () => {
+    const project = await enrolled();
+
+    const first = (await (await deliver(project, payload())).json()) as Record<string, unknown>;
     const other = await deliver(project, payload({ id: "4519077999" }));
 
     expect(other.status).toBe(201);
+    const second = (await other.json()) as Record<string, unknown>;
+    expect(second.draft_id).not.toBe(first.draft_id);
+
+    await accept(project, first.draft_id as string);
+    await accept(project, second.draft_id as string);
     expect(contents.files.size).toBe(2);
   });
 
@@ -534,7 +682,7 @@ describe("dedup is the funnel's, not a second one", () => {
       ingested: false,
       reason: "no_external_ref",
     });
-    expect(contents.files.size).toBe(0);
+    expect(await proposals(project)).toBe(0);
   });
 
   it("refuses an external_ref that resolves to an object rather than a scalar", async () => {
