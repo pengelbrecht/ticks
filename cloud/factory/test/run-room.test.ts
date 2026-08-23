@@ -165,6 +165,42 @@ describe("dispatch lease", () => {
     expect(impostor.error).toBe("lease_lost");
   });
 
+  /**
+   * Tick 7n7. A renewal fails two ways that need opposite fixes: the lease
+   * LAPSED (nothing renewed it — fix the heartbeat) or it was TAKEN (another
+   * run is the arbiter now — fix the race). Collapsing them is what sent the
+   * diagnosis of run_659b7cf2 hunting for a competing run that never existed:
+   * its lease had merely expired under a wave that renewed nothing.
+   */
+  it("tells an expired lease apart from one another run took", async () => {
+    const stub = room("owner/repo-lost");
+    const mine = await stub.acquireDispatchLease({
+      run_id: "run_mine",
+      epic: "ko8",
+      ttl_ms: MIN_LEASE_TTL_MS,
+    });
+    if (!mine.ok) throw new Error("expected the acquire to win");
+
+    // Nobody took it; it simply ran out.
+    await wait(MIN_LEASE_TTL_MS + 20);
+    const lapsed = await stub.renewDispatchLease({ run_id: "run_mine", token: mine.lease.token });
+    expect(lapsed.ok).toBe(false);
+    if (lapsed.ok !== false || lapsed.error !== "lease_lost") throw new Error("expected lease_lost");
+    expect(lapsed.lost).toBe("expired");
+    expect(lapsed.holder).toBeNull();
+    expect(lapsed.detail).toContain("expired");
+    expect(lapsed.detail).toContain("no other run has taken it");
+
+    // Now somebody really does hold it, and the same call says so differently.
+    const theirs = await stub.acquireDispatchLease({ run_id: "run_theirs", epic: "ko8" });
+    expect(theirs.ok).toBe(true);
+    const taken = await stub.renewDispatchLease({ run_id: "run_mine", token: mine.lease.token });
+    if (taken.ok !== false || taken.error !== "lease_lost") throw new Error("expected lease_lost");
+    expect(taken.lost).toBe("taken");
+    expect(taken.holder?.run_id).toBe("run_theirs");
+    expect(taken.detail).toContain("run_theirs");
+  });
+
   it("refuses a ttl outside the pinned bounds instead of clamping it", async () => {
     const stub = room("owner/repo-ttl");
 

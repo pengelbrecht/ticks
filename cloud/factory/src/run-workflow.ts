@@ -102,7 +102,7 @@ import {
   tickCompleted,
   tickStarted,
 } from "./run-events";
-import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS } from "./run-room";
+import { MAX_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS, type LeaseLostReason } from "./run-room";
 import { logDispatch, roomFor, type RunWorkflowParams } from "./runs";
 import {
   deploymentImage,
@@ -582,6 +582,90 @@ export function renewalTtl(pollMs: number): number {
   return Math.min(Math.max(pollMs * 3, DEFAULT_LEASE_TTL_MS), MAX_LEASE_TTL_MS);
 }
 
+/**
+ * What one renewal returned, kept as the RunRoom answered it (tick 7n7).
+ *
+ * `null` is "the renewal could not be made" — a DO hop that threw — and is
+ * NOT a lost lease: a failed read has never been a stop in this file
+ * (`hardStopRecord`, `waveCanceller`), and treating one as a stop would kill
+ * runs on a transient. `ok: false` is a verdict, and it carries WHICH of the
+ * two ways the lease went.
+ */
+export type LeaseRenewal =
+  | { ok: true }
+  | { ok: false; lost: LeaseLostReason; holder: string | null; detail: string };
+
+/**
+ * Extends the run's hold on its project, and reports the verdict verbatim.
+ *
+ * Every renewal in this file goes through here so that the two callers — the
+ * watched-orchestrator loop and the container wave — cannot drift into
+ * answering the same question differently (`.tick/learnings.md`: if two
+ * endpoints answer the same question, they must run the same check).
+ */
+export async function renewRunLease(
+  env: Env,
+  params: RunWorkflowParams,
+  ttlMs: number
+): Promise<LeaseRenewal | null> {
+  try {
+    const renewed = await roomFor(env, params.project).renewDispatchLease({
+      run_id: params.run_id,
+      token: params.lease_token,
+      ttl_ms: ttlMs,
+    });
+    if (renewed.ok) return { ok: true };
+    if (renewed.error !== "lease_lost") {
+      // A malformed call is this supervisor's own bug, not a lost lease.
+      console.error(
+        `factory run-workflow: ${params.run_id} could not renew its lease: ${renewed.detail}`
+      );
+      return null;
+    }
+    return {
+      ok: false,
+      lost: renewed.lost,
+      holder: renewed.holder?.run_id ?? null,
+      detail: renewed.detail,
+    };
+  } catch (error) {
+    console.error(
+      `factory run-workflow: ${params.run_id} could not renew its lease: ${String(error)}`
+    );
+    return null;
+  }
+}
+
+/**
+ * The stop a lost lease produces, told apart by HOW it was lost (tick 7n7).
+ *
+ * Both end the run — D4 is one arbiter per project, and a run that is not the
+ * arbiter must not keep writing — but they are opposite failures and an
+ * operator has to be able to tell which one happened. run_659b7cf2 read "the
+ * dispatch lease was lost to another run" when no other run existed: its
+ * ten-minute lease had simply lapsed under an eighty-eight-minute container
+ * wave that renewed nothing. That message sent the diagnosis looking for a
+ * competing run for as long as it stood.
+ */
+export function leaseLostTrip(renewal: { lost: LeaseLostReason; holder: string | null }): Trip {
+  if (renewal.lost === "taken") {
+    return {
+      kind: "stop",
+      hard: true,
+      detail:
+        "the dispatch lease was taken by another run" +
+        (renewal.holder === null ? "" : ` (${renewal.holder})`),
+    };
+  }
+  return {
+    kind: "stop",
+    hard: true,
+    detail:
+      "the dispatch lease expired before it was renewed — no other run has taken it, " +
+      "so this run simply stopped being the project's arbiter",
+  };
+}
+
 // ----------------------------------------------------------- the context ---
 
 export type RunContext = {
@@ -973,23 +1057,10 @@ export async function observe(env: Env, input: ObserveInput): Promise<Observatio
     );
   }
 
-  const room = roomFor(env, params.project);
-
   // The lease has to outlive the gap to the next look, or the run expires its
   // own lease between two observations.
-  let leaseLost = false;
-  try {
-    const renewed = await room.renewDispatchLease({
-      run_id: params.run_id,
-      token: params.lease_token,
-      ttl_ms: renewalTtl(input.poll_ms),
-    });
-    leaseLost = renewed.ok === false && renewed.error === "lease_lost";
-  } catch (error) {
-    console.error(
-      `factory run-workflow: ${params.run_id} could not renew its lease: ${String(error)}`
-    );
-  }
+  const renewal = await renewRunLease(env, params, renewalTtl(input.poll_ms));
+  const leaseLost = renewal !== null && renewal.ok === false ? renewal : null;
 
   const view = await sandbox.getProcess(input.process_id).catch(() => null);
   const at = Date.now();
@@ -1070,7 +1141,7 @@ async function detectTrip(
   env: Env,
   input: ObserveInput,
   at: number,
-  leaseLost: boolean
+  leaseLost: { lost: LeaseLostReason; holder: string | null } | null
 ): Promise<TripCheck> {
   const { params, context } = input;
 
@@ -1089,15 +1160,12 @@ async function detectTrip(
     };
   }
 
-  if (leaseLost) {
-    // Somebody else holds the project. Exactly one `.tick/` writer per project
-    // (D4), so this run stops rather than racing the new holder — and it stops
-    // spending immediately, because the other holder is the one doing the work
-    // now.
-    return {
-      trip: { kind: "stop", hard: true, detail: "the dispatch lease was lost to another run" },
-      cost_usd: null,
-    };
+  if (leaseLost !== null) {
+    // This run is no longer the project's arbiter. Exactly one `.tick/` writer
+    // per project (D4), so it stops rather than racing whoever is — and it
+    // stops spending immediately. WHY it is no longer the arbiter is the
+    // operator's first question, so the trip answers it (tick 7n7).
+    return { trip: leaseLostTrip(leaseLost), cost_usd: null };
   }
 
   const elapsed = at - context.started_at_ms;
@@ -1359,19 +1427,22 @@ async function supervisePass(
     // fixed acquire ttl, and a renewal that only happens after the first sleep
     // is always too late. A failure here is not fatal on its own — the first
     // observation re-reads the lease and trips properly if it really is gone.
+    //
+    // What it returns is the VERDICT, not a boolean. `{"ok":false}` is what
+    // this step recorded on run_659b7cf2, and it is the reason the diagnosis
+    // of that run had to start from a guess: the one call that knew whether
+    // the lease had been taken or had merely lapsed threw the answer away
+    // (`.tick/learnings.md`: persist a remote step's return value at its
+    // return site, before anything interprets it).
     await step.do(`${options.label}:lease:${attempt}`, OBSERVE_RETRIES, async () => {
-      const renewed = await roomFor(env, params.project).renewDispatchLease({
-        run_id: params.run_id,
-        token: params.lease_token,
-        ttl_ms: renewalTtl(pollDelay(context.config, 0)),
-      });
-      if (renewed.ok === false) {
-        console.error(
-          `factory run-workflow: ${params.run_id} could not renew its lease after boot ${boot}: ` +
-            `${renewed.error}`
-        );
-      }
-      return { ok: renewed.ok };
+      const renewal = await renewRunLease(env, params, renewalTtl(pollDelay(context.config, 0)));
+      if (renewal === null) return { ok: false, unreadable: true };
+      if (renewal.ok) return { ok: true };
+      console.error(
+        `factory run-workflow: ${params.run_id} could not renew its lease after boot ${boot}: ` +
+          `${renewal.detail}`
+      );
+      return { ok: false, lost: renewal.lost, holder: renewal.holder, detail: renewal.detail };
     });
 
     const deadline =
@@ -1648,9 +1719,35 @@ export function chunkWave(tickIDs: string[], width: number): string[][] {
  * only thing watching the money was `observe`, and a cloud wave never calls it.
  *
  * `detectTrip` is the model, minus the pieces that belong to a single watched
- * process (log drain, lease renewal, process state). A clean stop is not here
- * on purpose: "clean" means the in-flight work gets its window, and a wave's
- * in-flight work is a container that will finish on its own.
+ * PROCESS (log drain, process state). A clean stop is not here on purpose:
+ * "clean" means the in-flight work gets its window, and a wave's in-flight
+ * work is a container that will finish on its own.
+ *
+ * ## The lease renewal, and why it belongs here (tick 7n7)
+ *
+ * The lease was left out of this function as another single-process concern.
+ * It is not one: the lease is the RUN's hold on the project, and a container
+ * wave is the run working. Nothing else renewed it while a wave ran —
+ * `runWaveBatch`'s legs are supervisor-side and touched only sandboxes — so a
+ * wave outlived the ten-minute lease `runs.ts` acquires at submit and the run
+ * silently stopped being its project's arbiter while its containers worked on.
+ *
+ * Measured, not reasoned: run_659b7cf253e4462aa6c0dfebbe820ddd ran fifteen
+ * `cloud:dispatch` legs from 00:30:35Z to 01:50:59Z — eighty minutes, no
+ * lease step between them — and the `wave:1` pass that booted at 01:50:59Z
+ * failed its very first renewal and hard-stopped fifteen seconds later. No
+ * other run had taken it (the run index shows none started in that window,
+ * and the project's lease read back null): it had expired at ~00:40Z and sat
+ * unheld for seventy minutes.
+ *
+ * This is the shared cancellation probe, so it runs on the run's own poll
+ * cadence inside every leg's wait AND at every between-batch checkpoint —
+ * which is exactly the cadence a heartbeat wants. The ttl asked for outlives a
+ * whole leg, so a leg that dispatches without waiting (and therefore never
+ * polls) still cannot let the lease lapse underneath it.
+ *
+ * A renewal that could not be MADE is not a trip — same fail-open rule as
+ * `hardStopRecord` and `waveCanceller`. A renewal that came back lost is.
  */
 async function cloudWaveTrip(
   env: Env,
@@ -1666,6 +1763,9 @@ async function cloudWaveTrip(
       detail: `a hard stop requested by ${stop.requested_by} at ${stop.requested_at} stands`,
     };
   }
+
+  const renewal = await renewRunLease(env, params, renewalTtl(context.config.wave_leg_ms));
+  if (renewal !== null && renewal.ok === false) return leaseLostTrip(renewal);
 
   const elapsed = Date.now() - context.started_at_ms;
   if (elapsed >= context.config.max_wall_clock_ms) {

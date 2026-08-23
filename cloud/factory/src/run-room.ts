@@ -134,9 +134,34 @@ export type ReleaseLeaseResult =
   | { ok: false; error: "not_holder"; holder: DispatchLeaseView | null; detail: string }
   | RequestInvalid;
 
+/**
+ * HOW a renewal failed, because the two are opposite problems and the fixes
+ * for them point in opposite directions (tick 7n7).
+ *
+ * - `taken`: a live lease exists and it is not this run's. Somebody else is
+ *   the project's arbiter now, and this run must stop rather than race it.
+ * - `expired`: nobody holds the lease. It lapsed — either because nothing
+ *   renewed it on the run's behalf, or because it was already released.
+ *
+ * `POST /api/wave` has always told these apart (`lease_lost` vs
+ * `lease_held_by`, see wave-request.ts). The renewal path collapsed both into
+ * one message, so an operator reading a Workflow instance was told the lease
+ * "was lost to another run" when nobody had taken it — the fourth time this
+ * epic has hit `.tick/learnings.md`'s never-collapse-failure-classes rule.
+ */
+export type LeaseLostReason = "expired" | "taken";
+
 export type RenewLeaseResult =
   | { ok: true; lease: DispatchLease }
-  | { ok: false; error: "lease_lost"; holder: DispatchLeaseView | null; detail: string }
+  | {
+      ok: false;
+      error: "lease_lost";
+      /** Which of the two ways it was lost. Never inferred from the message. */
+      lost: LeaseLostReason;
+      /** Set only when `lost` is `taken`: an expired lease has no holder. */
+      holder: DispatchLeaseView | null;
+      detail: string;
+    }
   | RequestInvalid;
 
 /**
@@ -625,13 +650,32 @@ export class RunRoom extends DurableObject<Env> {
     const current = this.#readLease();
     const live = current !== null && current.expires_at > now;
     if (!live || current!.run_id !== runID || current!.token !== token) {
+      // A LIVE lease that is not this run's was taken; anything else lapsed.
+      // The two are told apart here, at the only place that can see both the
+      // row and the clock, rather than guessed at by every caller.
+      if (live) {
+        return {
+          ok: false,
+          error: "lease_lost",
+          lost: "taken",
+          holder: this.#leaseView(current!),
+          detail:
+            current!.run_id === runID
+              ? `run ${runID}'s dispatch lease was re-acquired under a different token`
+              : `the dispatch lease is held by run ${current!.run_id}, not ${runID}`,
+        };
+      }
       return {
         ok: false,
         error: "lease_lost",
-        holder: live ? this.#leaseView(current!) : null,
-        detail: live
-          ? `the dispatch lease is held by run ${current!.run_id}, not ${runID}`
-          : `run ${runID} no longer holds the dispatch lease`,
+        lost: "expired",
+        holder: null,
+        detail:
+          current === null
+            ? `run ${runID}'s dispatch lease has expired or been released — no lease is held ` +
+              "for this project, and no other run has taken it"
+            : `run ${runID}'s dispatch lease expired at ${new Date(current.expires_at).toISOString()} ` +
+              "and no other run has taken it",
       };
     }
 

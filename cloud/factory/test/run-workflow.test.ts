@@ -20,6 +20,7 @@ import {
   summarizeCloudWave,
   cloudWaveLoss,
   describeCloudWaveLoss,
+  leaseLostTrip,
   type RunOutcome,
 } from "../src/run-workflow";
 import { roomFor, runStatus, startRun, stopRun, submitRun } from "../src/runs";
@@ -2802,6 +2803,151 @@ describe("a wave outlives one Workflow step instead of killing its supervisor", 
     const run = await settled(runID);
     expect(run.state).toBe("stopped");
   }, 60_000);
+});
+
+/**
+ * THE last unmet clause of Phase 2 (tick 7n7).
+ *
+ * `runs.ts` acquires the project's dispatch lease for ten minutes
+ * (`BOOT_LEASE_TTL_MS`) and everything after that depends on something
+ * renewing it. On the Phase 1 path `observe` does, once per look. On the cloud
+ * wave path NOTHING did: `runWaveBatch`'s legs are supervisor-side and touch
+ * only sandboxes, so a wave of real containers — sixty to ninety minutes —
+ * ran the whole way with a lease that had lapsed after ten.
+ *
+ * Measured on run_659b7cf253e4462aa6c0dfebbe820ddd: fifteen `cloud:dispatch`
+ * legs from 00:30:35Z to 01:50:59Z with no lease step between them, then
+ *
+ *     wave:1:boot:1-1    {"process_id":"proc_1787449861245_9gnerx"}
+ *     wave:1:lease:1-1   {"ok":false}
+ *     wave:1:watch:1:0-1 {"trip":{"kind":"stop","hard":true,
+ *                          "detail":"the dispatch lease was lost to another run"}}
+ *
+ * — fifteen seconds from boot to hard stop, so the pass never computed a wave
+ * and no second batch was ever dispatched. No other run had taken it: none
+ * started in that window and the project's lease read back null afterwards.
+ * It had expired at ~00:40Z and sat unheld for seventy minutes.
+ *
+ * The lease here is deliberately far shorter than the wave, which is the same
+ * arithmetic in miniature: a fifth of a second against several seconds where
+ * production had ten minutes against eighty-eight.
+ */
+describe("a container wave outlives the lease its run was ignited with", () => {
+  let collector: FakeWorkerCollector;
+
+  beforeEach(() => {
+    collector = new FakeWorkerCollector();
+    set("WORKER_COLLECTOR", collector);
+    // A wave of many bounded legs, as a real one is many seven-minute steps.
+    set("RUN_WAVE_LEG_MS", "200");
+  });
+
+  it("renews the project lease while its containers work, so the wave pass dispatches wave 2", async () => {
+    sandboxes.holdWork = true;
+    const LEASE_MS = 200;
+    const { runID, project, epic } = await ignite({ tickIDs: ["aaa"], leaseTtlMs: LEASE_MS });
+    const room = roomFor(env, project);
+    const acquired = await room.leaseStatus();
+    expect(acquired?.run_id).toBe(runID);
+
+    const name = workerSandboxName(runID, "aaa");
+    await waitFor("wave 1's container to be mid-tick", async () => {
+      try {
+        return sandboxes
+          .named(name)
+          .processes.some((p) => p.command === WORKER_COMMAND && p.state === "running")
+          ? true
+          : null;
+      } catch {
+        return null;
+      }
+    });
+
+    // Several legs past the point the ignition lease would have run out. Only
+    // something renewing on the RUN's behalf keeps the next assertion true.
+    await waitFor(
+      "the wave to run well past the lease it was ignited with",
+      async () => (sandboxes.named(name).listed >= 4 ? true : null),
+      20_000
+    );
+
+    // THE ASSERTION THIS TICK EXISTS FOR. Before it, this read null: the run
+    // had silently stopped being its project's arbiter while its containers
+    // worked on, and nothing noticed until the wave pass asked.
+    const held = await room.leaseStatus();
+    expect(held).not.toBeNull();
+    expect(held!.run_id).toBe(runID);
+    // Renewed, not merely re-read: the deadline has moved past what ignition
+    // bought, and `acquired_at` is unchanged, so this is the SAME lease.
+    expect(held!.acquired_at).toBe(acquired!.acquired_at);
+    expect(Date.parse(held!.expires_at)).toBeGreaterThan(
+      Date.parse(held!.acquired_at) + LEASE_MS
+    );
+
+    // The container finishes — an hour later in a real run — and the wave pass
+    // boots to integrate it, holding the lease it needs.
+    sandboxes.named(name).processes.find((p) => p.command === WORKER_COMMAND)!.exit(0);
+    const integrate = await wavePass(1);
+    expect((await room.leaseStatus())?.run_id).toBe(runID);
+
+    // So `POST /api/wave` — which VERIFIES the lease and never acquires one
+    // (D4, src/wave-request.ts) — grants the ask instead of refusing it 409.
+    sandboxes.holdWork = false;
+    const MERGED_SHA = "c".repeat(40);
+    const asked = await requestNextWave(integrate, {
+      epic,
+      pass: 1,
+      base_sha: MERGED_SHA,
+      tick_ids: ["bbb"],
+    });
+    expect(asked.status).toBe(202);
+    integrate.exit(0);
+
+    // And the second dispatch batch actually happens: two container waves in
+    // one run, which is the acceptance criterion Phase 2 has never met.
+    const second = await waitFor("wave 2's container", async () => {
+      try {
+        return sandboxes.named(workerSandboxName(runID, "bbb"));
+      } catch {
+        return null;
+      }
+    });
+    const work = second.processes.find((p) => p.command === WORKER_COMMAND)!;
+    expect(work.env.TICKS_TICK).toBe("bbb");
+    expect(work.env.TICKS_BASE_SHA).toBe(MERGED_SHA);
+
+    const finish = await wavePass(2);
+    orchestratorPushedWork(epic);
+    finish.exit(0);
+
+    const run = await settled(runID);
+    expect(run.state).toBe("completed");
+
+    const record = (await readRunRecord(env.ARTIFACTS, project, runID)) as RunRecord;
+    expect(record.detail).toContain("2 container waves");
+    const log = await listDispatchLogs(env.DB, runID, epic);
+    expect(log.some((entry) => entry.decision.startsWith("cloud_wave:next=1:1@"))).toBe(true);
+  }, 60_000);
+
+  /**
+   * The other half of the message fix. An expired lease and a stolen one are
+   * opposite problems, and an operator must not read "another run took it"
+   * when nothing did — `.tick/learnings.md`'s never-collapse-failure-classes
+   * rule, which this epic has now hit four times.
+   */
+  it("says a lease was TAKEN only when another run really holds it", async () => {
+    const taken = leaseLostTrip({ lost: "taken", holder: "run_other" });
+    expect(taken.hard).toBe(true);
+    expect(taken.detail).toContain("taken by another run");
+    expect(taken.detail).toContain("run_other");
+
+    const expired = leaseLostTrip({ lost: "expired", holder: null });
+    expect(expired.hard).toBe(true);
+    expect(expired.detail).toContain("expired before it was renewed");
+    expect(expired.detail).not.toContain("another run");
+    // The words run_659b7cf2's operator was given, and which were false there.
+    expect(expired.detail).not.toContain("lost to another run");
+  });
 });
 
 /**

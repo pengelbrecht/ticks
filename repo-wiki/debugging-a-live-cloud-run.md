@@ -116,3 +116,43 @@ that matters is whether a real run did the thing.
 - **`tk herd cleanup` must run before respawning a tick** whose branch and
   worktree already exist, even if the branch was merged; the spawn fails at
   `worktree.create` otherwise (already in `.tick/learnings.md`, hit again here).
+
+## Who renews the project lease, and when (tick 7n7)
+
+`submitRun` acquires the dispatch lease for **10 minutes**
+(`BOOT_LEASE_TTL_MS`, `cloud/factory/src/runs.ts`). Nothing else about a run is
+that short, so every path a run can take has to renew it, and until this tick
+one did not:
+
+| Path | Renews? | Where |
+|---|---|---|
+| watched orchestrator (Phase 1, `wave`/`closeout` passes) | yes, per look | `observe` → `renewRunLease` |
+| orchestrator boot | yes, once, before the first sleep | `supervisePass`'s `:lease:` step (tick 4ef) |
+| **container wave** (`superviseCloudWave` → `runWaveBatch`) | **no, until 7n7** | now `cloudWaveTrip` → `renewRunLease` |
+
+The wave legs are supervisor-side and only ever addressed sandboxes, so a wave
+of real containers — 60–90 minutes — ran its whole length under a lease that
+had lapsed after ten. Measured on `run_659b7cf253e4462aa6c0dfebbe820ddd`:
+fifteen `cloud:dispatch` legs, 00:30:35Z → 01:50:59Z, with no lease step
+between them; then `wave:1:lease:1-1 {"ok":false}` and a hard stop fifteen
+seconds after the wave pass booted. **Nobody took the lease** — no run started
+in that window (`GET /api/runs`) and the project's lease read back `null`
+afterwards. It expired at ~00:40Z and sat unheld for seventy minutes.
+
+Renewal now lives in `cloudWaveTrip`, which is both the between-batch check and
+the in-flight cancellation probe, so it runs on the run's own poll cadence
+throughout a wave. The ttl asked for is `renewalTtl(wave_leg_ms)` — it outlives
+a whole leg, so a leg that dispatches without waiting (and therefore never
+polls) still cannot let the lease lapse under it.
+
+**Reading the evidence:** a renewal failure now says WHICH failure it is.
+`RenewLeaseResult` carries `lost: "expired" | "taken"`, and the `:lease:` steps
+record the whole verdict rather than `{"ok":false}`. `POST /api/wave` always
+told the two apart (`lease_lost` vs `lease_held_by`) — the Workflow did not,
+and "the dispatch lease was lost to another run" is what an operator read when
+nothing had taken it.
+
+**Trap:** `POST /api/wave` deliberately **verifies** the lease and never
+acquires one (D4 — an in-run orchestrator must not take a second lease). If a
+wave pass is refused `lease_lost`, the fix is always upstream in who was
+supposed to be renewing, never "let the pass acquire one".
