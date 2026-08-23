@@ -122,6 +122,47 @@ enrolment leaves the assignment alone. A project with no topic posts to the chat
 itself, so a deployment without Topics works unchanged — the header alone still
 tells the projects apart.
 
+## Triaging a signal: Create, Dispatch, Discard
+
+A factory can be pointed at sources outside the tracker — a labelled GitHub
+issue today, other webhooks later. None of them files a tick. What arrives is a
+**draft**: a proposal posted into the project's topic with three buttons.
+
+```
+acme/web
+Draft tick — nothing runs until a human says so
+Project: acme/web
+Source: GitHub issue #87, opened by @alice
+Consent: `tk` applied by @maintainer
+Title: CSV export drops rows with embedded newlines
+Issue text below is the reporter's, quoted and untrusted:
+> Export a CSV whose cells contain newlines; rows go missing.
+Type: bug — Create files it as this.
+Nothing has been filed yet. Create accepts it as an open tick. Dispatch accepts
+it and starts a run. Discard files nothing and settles the signal.
+
+[ Create ] [ Dispatch ] [ Discard ]
+[ • bug ] [ feature ] [ task ] [ chore ]
+```
+
+- **Create** commits `.tick/issues/<id>.json` as a normal open tick. From that
+  moment `tk next` may pick it up, which is what accepting it meant.
+- **Dispatch** does the same and then starts a run at the commit that carries
+  the new tick. If the project is busy or the deployment cannot start runs, the
+  tick is still filed and the message says why the run did not start.
+- **Discard** files nothing. It is not a delete: the factory keeps its dedup
+  record for that signal, so the source's next redelivery is recognised as one
+  it has already seen rather than proposed again.
+- The **type row** retypes the proposal before it is filed. GitHub ingestion
+  files every consented issue as a `bug`; one press is cheaper than fixing a
+  wrong tick afterwards.
+
+A draft is not a tick in a special state — it is not a tick. Until somebody
+presses Create or Dispatch there is nothing in `.tick/`, so no draft can be
+picked up by `tk next`, appear in `tk ready`, or be swept into a wave. Pressing
+a button twice is safe: the second press finds a proposal that has already been
+decided and says so.
+
 ## Where secrets live
 
 Two separate files are involved, and only one of them ever holds a credential:

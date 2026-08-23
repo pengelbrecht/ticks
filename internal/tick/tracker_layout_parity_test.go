@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -60,7 +61,12 @@ type trackerLayout struct {
 	} `json:"fields"`
 	EpicType               string `json:"epic_type"`
 	ParentOmittedWhenEmpty bool   `json:"parent_omitted_when_empty"`
-	Written                struct {
+	HumanGate              struct {
+		Statuses        []string `json:"statuses"`
+		CommittedStatus string   `json:"committed_status"`
+		RejectedStatus  string   `json:"rejected_status"`
+	} `json:"human_gate"`
+	Written struct {
 		RequiredFields              []string `json:"required_fields"`
 		DefaultStatus               string   `json:"default_status"`
 		DefaultType                 string   `json:"default_type"`
@@ -273,5 +279,58 @@ func TestTrackerLayoutIndentMatchesFixture(t *testing.T) {
 	if string(onDisk) != string(want) {
 		t.Fatalf("the Store's bytes are not %d-space indented JSON with no trailing newline;\n got: %q\nwant: %q",
 			layout.Written.JSONIndent, string(onDisk), string(want))
+	}
+}
+
+// The human gate (tick la9) rests on a claim about THIS package: a draft is not
+// a tick in a special state, because there is no status that could express one.
+//
+// The control plane holds an ingested signal as a draft in its own storage and
+// commits a record only when a person presses Create. What makes that
+// structural rather than conventional is here: `tk next`, `tk ready` and a
+// wave's sweep read tick records, and Validate accepts exactly three statuses.
+// A record marked "draft" is not a record this package will read back, so no
+// reader has to remember to filter one — there is nothing to filter.
+//
+// If a fourth status is ever added, this test is what makes somebody check
+// whether the gate still holds before the factory's writer inherits it.
+func TestHumanGateStatusVocabularyMatchesFixture(t *testing.T) {
+	layout := readTrackerLayout(t)
+
+	if len(layout.HumanGate.Statuses) == 0 {
+		t.Fatal("the fixture names no statuses; the human gate's pin is the vocabulary")
+	}
+	for _, status := range layout.HumanGate.Statuses {
+		tk := validTick("gat", TypeTask, "")
+		tk.Status = status
+		if err := tk.Validate(); err != nil {
+			t.Fatalf("the fixture says %q is a status; this package refuses it: %v", status, err)
+		}
+	}
+
+	// Every status this package has is one the fixture names, so a fourth one
+	// added here fails this test rather than quietly becoming a value the
+	// factory's writer could reach.
+	for _, status := range []string{StatusOpen, StatusInProgress, StatusClosed} {
+		if !slices.Contains(layout.HumanGate.Statuses, status) {
+			t.Fatalf("this package has status %q, which the fixture does not name", status)
+		}
+	}
+
+	// The one the control plane commits, and the one that must never be a
+	// status at all: a draft that could be written as a record would be a tick
+	// in the ready queue before a human had looked at it.
+	if !slices.Contains(layout.HumanGate.Statuses, layout.HumanGate.CommittedStatus) {
+		t.Fatalf("the committed status %q is not one of the statuses", layout.HumanGate.CommittedStatus)
+	}
+	if layout.HumanGate.CommittedStatus != StatusOpen {
+		t.Fatalf("the control plane commits %q; this package's open status is %q",
+			layout.HumanGate.CommittedStatus, StatusOpen)
+	}
+	draft := validTick("dra", TypeTask, "")
+	draft.Status = layout.HumanGate.RejectedStatus
+	if err := draft.Validate(); err == nil {
+		t.Fatalf("a tick with status %q validated; a draft must not be expressible as a record",
+			layout.HumanGate.RejectedStatus)
 	}
 }

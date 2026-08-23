@@ -268,3 +268,53 @@ Two things that had to land together because both rewrite message composition.
   and carries no tick; an unresolvable id costs the labels, never the announcement.
 - Gotcha found while landing it: `tk tell --file` with no `--caption` must stay uncaptioned — a
   caption that is only a label is chrome under a file that says nothing.
+
+## Epic hdt tick la9 (2026-08-23): the human gate — a signal is a DRAFT until somebody presses
+
+The gate between "something arrived" and "the factory spent money on it". `cloud/factory/src/drafts.ts`
+is the surface; the lifecycle lives in the project's `SignalInbox`.
+
+- **A draft is not a tick with a flag, and that is the whole design.** The rejected shape was
+  `status: "draft"` on a real record: it would sit in `.tick/issues/` in front of `tk next`, `tk ready`
+  and a wave's sweep, and invisibility would be whatever every reader remembered to filter. Instead a
+  pending proposal is a row in the DO — no tick id, no record, no commit — and the ONLY path to the
+  tracker writer is `SignalInbox.decide(draftID, ...)`, reachable only with an id a human pressed.
+  Second lock, in Go: `Tick.Validate` accepts open/in_progress/closed and nothing else, so a
+  draft-flavoured record is not expressible. Pinned both sides by the `human_gate` block in
+  `cloud/factory/test/fixtures/tracker-layout.json`.
+- **`submitSignal` produces a proposal, full stop.** There is deliberately no second front door that
+  commits directly — a gate a source could choose to skip is a convention, not a gate. This matters at
+  merge time: any source built later (tick 0vb's generic webhooks included) inherits the gate by having
+  nowhere else to go.
+- **Discard's dedup row is a feature, not litter.** It is written when the draft is ADMITTED (not after
+  a commit, as tick 8sm's ordering required) and it survives the discard, so a source that redelivers
+  forever gets `duplicate` rather than a fresh proposal each time. The 8sm ordering argument dissolves
+  because admission is now fully synchronous: the dedup read and both writes sit in one DO prefix with
+  no await between them, so a redelivery racing its original is simply the next event.
+- **Admission stopped being the thing that is serialised; PRESSES are.** `#tail` now chains accepts, and
+  `SIGNAL_INBOX_QUEUE_LIMIT` bounds commits in flight. A new `MAX_PENDING_DRAFTS` bounds the pile
+  waiting for a human. A double press is caught by claiming the draft (`state = 'committing'`) in the
+  synchronous prefix before the first await; an unsettled commit puts it back to `pending`, because
+  nothing was written and pressing again must be safe.
+- **Callback data is `d:<draft id>:<verb>`** (and `y:<draft id>:<type>` for the retype row) — a press
+  names one proposal in one project, which is why this surface needs none of yu8's disambiguation. Ids
+  are random hex, not sequential: in a shared chat a guessable id is a button somebody else's press
+  could land on. The namespaces cannot collide with the RunRoom's `q:`/`r:`, so the webhook route
+  offers a press to the draft surface first and hands everything else to the question path.
+- **Routing a press to a project is a scan, not a lookup.** The draft id does not carry the project (it
+  would not fit the 64-byte callback limit reliably), so `findDraft` asks each enrolled project's inbox.
+  Same precedent as the free-text path, and bounded by the enrolment table.
+- **The forgery invariant had to survive framing.** vuz's rule — every factory line at column 0 with
+  `<b>`, every reporter line behind `> ` — is now load-bearing for BUTTONS: a spoofed message is a
+  spoofed button. `drafts.ts` never re-wraps or un-quotes the block the source rendered, and every line
+  it adds starts at column 0 with `<b>`. `telegram.ts` gained `sendTelegramHTML`/`editTelegramHTML`
+  because `sendTelegramReport` escapes what it is given and would have shown `&lt;b&gt;`; the rule that
+  keeps that safe is that only a source-rendered block reaches them.
+- **Dispatch's base sha is the commit that carries the accepted tick** — the first commit in which the
+  tick it was dispatched to work exists. A tick with a parent dispatches as a one-tick wave under that
+  epic; one without a parent IS the epic the run is addressed by. A refused ignition (project busy, no
+  Workflow binding) still leaves the tick filed and says so on the message: accepting and igniting are
+  two acts.
+- **The one affordance: retyping.** `github-issues.ts` hardcodes `type: "bug"` per UC3 and never reads
+  it from the issue; the human retypes before filing rather than fixing a wrong tick afterwards. Only
+  while pending — a filed tick is `tk update`'s business.

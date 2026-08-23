@@ -56,5 +56,28 @@
     "json_indent": 2,
     "external_ref_separator": ":",
     "external_ref_omitted_when_empty": true
+  },
+  "human_gate": {
+    "why": [
+      "Since tick la9 a signal does not become a tick when it arrives: it becomes a",
+      "DRAFT the operator accepts or discards in the channel. The design decision",
+      "that has to hold in BOTH languages is that a draft is not a tick in a special",
+      "state — it is not a tick. A tick record marked 'draft' would sit in",
+      ".tick/issues/ and be visible to `tk next`, `tk ready` and a wave's sweep,",
+      "leaving invisibility to whichever reader remembered to filter it.",
+      "",
+      "So the pin is the status vocabulary itself. Go's Tick.Validate accepts",
+      "exactly the three values below and refuses everything else, which means a",
+      "draft-flavoured record is not expressible: a control plane that tried to",
+      "write one would produce a file `tk` refuses to read. The TypeScript half",
+      "commits 'committed_status' and nothing else, and reaching the writer at all",
+      "requires a draft id a human pressed (cloud/factory/src/signal-inbox.ts).",
+      "",
+      "If a fourth status is ever added here, this fixture is what makes somebody",
+      "look at whether the gate still holds."
+    ],
+    "statuses": ["open", "in_progress", "closed"],
+    "committed_status": "open",
+    "rejected_status": "draft"
   }
 }
