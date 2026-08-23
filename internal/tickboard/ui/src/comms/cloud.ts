@@ -20,11 +20,13 @@ import type {
   TickDetail,
   Activity,
   BlockerDetail,
+  RunEvent,
 } from './types.js';
 import type {
   CommsClient,
   TickEventHandler,
   ConnectionEventHandler,
+  RunEventHandler,
   Unsubscribe,
 } from './client.js';
 import { ReadOnlyError, ConnectionError } from './client.js';
@@ -90,6 +92,7 @@ export class CloudCommsClient implements CommsClient {
 
   private tickHandlers = new Set<TickEventHandler>();
   private connectionHandlers = new Set<ConnectionEventHandler>();
+  private runHandlers = new Set<RunEventHandler>();
 
   // ---------------------------------------------------------------------------
   // WebSocket Connection
@@ -252,6 +255,11 @@ export class CloudCommsClient implements CommsClient {
   onConnection(handler: ConnectionEventHandler): Unsubscribe {
     this.connectionHandlers.add(handler);
     return () => this.connectionHandlers.delete(handler);
+  }
+
+  onRun(handler: RunEventHandler): Unsubscribe {
+    this.runHandlers.add(handler);
+    return () => this.runHandlers.delete(handler);
   }
 
   // ---------------------------------------------------------------------------
@@ -543,9 +551,12 @@ export class CloudCommsClient implements CommsClient {
           break;
 
         case 'run_event':
-          // Live-run streaming was removed with the built-in runner; the cloud
-          // protocol may still carry run_event messages from older agents -
-          // ignore them instead of warning about an unknown message type.
+          // The protocol finally has producers (tick bne): a cloud run's
+          // orchestrator and its per-tick workers stream here through the
+          // RunRoom and the ProjectRoom. Handed on as its own event category,
+          // never as a tick event — the board is observability, and a run
+          // event must not be able to reach tick state.
+          this.emitRun({ type: 'run:event', message: msg });
           break;
 
         default:
@@ -597,6 +608,16 @@ export class CloudCommsClient implements CommsClient {
         handler(event);
       } catch (err) {
         console.error('[CloudComms] Error in tick handler:', err);
+      }
+    }
+  }
+
+  private emitRun(event: RunEvent): void {
+    for (const handler of this.runHandlers) {
+      try {
+        handler(event);
+      } catch (err) {
+        console.error('[CloudComms] Error in run handler:', err);
       }
     }
   }

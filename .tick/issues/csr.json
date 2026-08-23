@@ -1,0 +1,24 @@
+{
+  "id": "csr",
+  "title": "Final review of the Phase 3 diff",
+  "description": "Review the whole epic diff outside-in before closeout. Phase 2's review (tick oun) declared correct code that then failed twelve different ways in production, so weight this review toward the boundaries that suite green cannot see: platform limits, credential scope, untrusted input, and any config cell read by two runtimes.\n\nSpecific things Phase 3 introduces that deserve a named pass:\n- Untrusted content: GitHub issue bodies and webhook payloads reach a channel a human acts on. Look for spoofing of the channel's own formatting and for payload text treated as instructions.\n- Consent: the tk label boundary, and that removing it actually stops ingestion.\n- Write safety: the DO inbox's ordering guarantee under real concurrency, not just its unit tests.\n- Provenance: that an approval can never be attributed to the wrong project's gate.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8sm",
+    "hyi",
+    "spq",
+    "yu8",
+    "la9",
+    "vuz",
+    "0vb",
+    "vdg"
+  ],
+  "parent": "hdt",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T04:54:04.631896Z",
+  "updated_at": "2026-08-23T04:54:05.031736Z"
+}

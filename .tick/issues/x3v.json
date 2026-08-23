@@ -2,7 +2,8 @@
   "id": "x3v",
   "title": "Boot a repo-declared sandbox.image, not just validate it",
   "description": "From 79x: a repo-declared [sandbox] image is parsed, validated, reported and warned about, but the Workflow still boots the version-pinned base image regardless. The escape hatch exists in config and not yet in behaviour.\n\nDeferred to Phase 2 deliberately: Phase 1 boots ONE orchestrator sandbox, so a custom image matters far more once fan-out gives every tick its own container. Pair it with the benchmarking tick (kuf) — a custom image changes exactly the cold-start numbers that tick measures.",
-  "status": "open",
+  "notes": "2026-08-21 17:29 - Seam (wave 3, three wide with kuf and fxf). You own the sandbox image boot path — cloud/sandbox and whatever resolves a repo-declared [sandbox] image. fxf owns gateway.ts, kuf owns benchmarking. 79x landed the schema'd [sandbox] table and orl fixed pre-flight being a silent no-op; this tick is the half that actually boots what the repo declares rather than validating it and booting the default.\n2026-08-21 17:30 - runner-state: substrate=herdr kind=claude branch=tick/x3v worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-x3v workspace=wDG base=641416844203819fdf443b73b9579537889ef58a agent=tick-x3v pane=wDG:p1 session=28714d2c-34e1-4940-bda2-9a9a1d9ab0de\n2026-08-21 18:05 - runner-state: runner=claude branch=tick/x3v merged=2de7ac84",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +12,7 @@
   "acceptance_criteria": "A repo declaring sandbox.image boots that image; the version-pinned base is used when none is declared; a declared image that cannot be pulled fails the run with an actionable error rather than silently falling back.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T23:09:40.667308Z",
-  "updated_at": "2026-08-19T23:09:40.667308Z"
+  "updated_at": "2026-08-21T16:05:00.942682Z",
+  "closed_at": "2026-08-21T16:05:00.942682Z",
+  "closed_reason": "Completed: a run boots the image its checkout declares, and a declared image this deployment cannot serve fails the run with an actionable error at two layers rather than silently falling back to the base. Records the platform constraint found on the way — on Cloudflare an image belongs to the containers application, not to a boot, so per-repo images are a deployment-time choice."
 }

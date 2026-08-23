@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +21,7 @@ import (
 type cloudFactoryRequest struct {
 	Method string
 	Path   string
+	Query  url.Values
 	Body   map[string]any
 	Auth   string
 }
@@ -35,7 +38,9 @@ func newCloudFactory(t *testing.T, handler func(cloudFactoryRequest) (int, any))
 	requests := make([]cloudFactoryRequest, 0)
 	previousClient := cloudHTTPClient
 	cloudHTTPClient = &http.Client{Transport: cloudRoundTripper(func(r *http.Request) (*http.Response, error) {
-		request := cloudFactoryRequest{Method: r.Method, Path: r.URL.Path, Auth: r.Header.Get("Authorization")}
+		request := cloudFactoryRequest{
+			Method: r.Method, Path: r.URL.Path, Query: r.URL.Query(), Auth: r.Header.Get("Authorization"),
+		}
 		if r.Body != nil {
 			data, err := io.ReadAll(r.Body)
 			if err != nil {
@@ -335,15 +340,91 @@ func TestCloudWithoutFactoryConfigurationNamesSetup(t *testing.T) {
 	}
 }
 
+// D21 fixes the operator-to-orchestrator COMMAND vocabulary at run, stop,
+// status and answer: no chat, no prompt injection, no mid-run mutation channel.
+// Steering is stop -> edit the tracker -> run again.
+//
+// Two other kinds of command live under `tk cloud` and neither widens that
+// vocabulary. Observation — `logs` reads what the container printed, `trace`
+// reads what the model said — is read-only records of a run that has already
+// happened, with no path from either to the orchestrator (tick l4l).
+//
+// DISPATCH is the second, and it is a different AXIS rather than a wider
+// vocabulary (D19, tick bmo). `spawn`, `wait`, `collect` and `reconcile` are
+// what an ORCHESTRATOR uses to drive its own workers — the same verbs
+// `tk herd` exposes for herdr panes — and the cloud substrate is deliberately
+// drivable from any orchestrator location, including a laptop. An operator
+// typing them IS the orchestrator at that moment, exactly as they are when
+// they type `tk herd spawn`; nothing here steers a run that is already
+// orchestrating itself, and a Workflow-hosted run is untouched by them.
+//
+// The split is pinned here rather than left implicit, because a reader
+// counting subcommands would otherwise conclude D21 had been violated.
 func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
-	want := map[string]bool{"run": true, "stop": true, "status": true}
-	commands := cloudCmd.Commands()
-	if len(commands) != len(want) {
-		t.Fatalf("cloud commands = %d, want exactly %d", len(commands), len(want))
+	steering := map[string]bool{"run": true, "stop": true}
+	observation := map[string]bool{"status": true, "logs": true, "trace": true}
+	// The orchestrator's own hands (D19): dispatch, fan-in, verdict, recovery.
+	dispatch := map[string]bool{"spawn": true, "wait": true, "collect": true, "reconcile": true}
+	// The third kind: reads the checkout it is run in, prints, and touches no
+	// factory at all. `pr-body` composes a closeout PR body from git — it
+	// neither commands a run nor reads one, so it is outside D21 rather than an
+	// addition to it. It still has to say so in its own help.
+	local := map[string]bool{"pr-body": true}
+
+	for _, command := range cloudCmd.Commands() {
+		name := command.Name()
+		if !steering[name] && !observation[name] && !dispatch[name] && !local[name] {
+			t.Errorf("unexpected cloud command %q: it is neither a D21 verb, a D19 dispatch verb, a read-only observation, nor a local git read", name)
+		}
+		if (observation[name] || local[name]) && !strings.Contains(command.Long, "D21") {
+			// Said in the help text, not just in a design doc: the next reader
+			// of `tk cloud --help` counts the subcommands against a four-verb
+			// vocabulary and needs the answer where they are looking.
+			t.Errorf("cloud %s does not say why a non-steering command does not widen D21's vocabulary", name)
+		}
+		if dispatch[name] && !strings.Contains(command.Long, "D19") {
+			t.Errorf("cloud %s does not say it is a D19 dispatch verb — the one thing that distinguishes it from steering a run", name)
+		}
 	}
-	for _, command := range commands {
-		if !want[command.Name()] {
-			t.Errorf("unexpected cloud command %q", command.Name())
+	if len(cloudCmd.Commands()) != len(steering)+len(observation)+len(dispatch)+len(local) {
+		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()),
+			len(steering)+len(observation)+len(dispatch)+len(local))
+	}
+
+	// The half of the surface that COMMANDS A RUN is exactly D21's verbs, and
+	// stays so. Dispatch verbs mutate too — a spawn starts containers — but
+	// they are the orchestrator acting, never an operator steering an
+	// orchestrator, which is the vocabulary D21 closes.
+	mutating := []string{}
+	for _, command := range cloudCmd.Commands() {
+		if steering[command.Name()] {
+			mutating = append(mutating, command.Name())
+		}
+	}
+	sort.Strings(mutating)
+	if strings.Join(mutating, ",") != "run,stop" {
+		t.Fatalf("the mutating cloud vocabulary is %v; D21 fixes it at run and stop (answer lives on tk answer)", mutating)
+	}
+}
+
+// The dispatch verbs mirror `tk herd`'s vocabulary on purpose: an orchestrator
+// swapping substrates must not have to relearn its commands (D19). If one
+// family grows a verb the other lacks, that promise has quietly lapsed.
+func TestCloudDispatchVerbsMirrorTheHerdVocabulary(t *testing.T) {
+	cloudVerbs := map[string]bool{}
+	for _, command := range cloudCmd.Commands() {
+		cloudVerbs[command.Name()] = true
+	}
+	herdVerbs := map[string]bool{}
+	for _, command := range herdCmd.Commands() {
+		herdVerbs[command.Name()] = true
+	}
+	for _, verb := range []string{"spawn", "wait", "collect", "reconcile"} {
+		if !cloudVerbs[verb] {
+			t.Errorf("tk cloud has no %s verb; the cloud substrate is not drivable by a local orchestrator without it", verb)
+		}
+		if !herdVerbs[verb] {
+			t.Errorf("tk herd has no %s verb; the two families no longer mirror each other", verb)
 		}
 	}
 }
@@ -544,5 +625,271 @@ func TestCloudStopNowAsksForAHardStopAndSaysWhichItPerformed(t *testing.T) {
 	clean := buf.String()
 	if !strings.Contains(clean, "clean stop") || !strings.Contains(clean, "--now") {
 		t.Fatalf("clean stop output does not name the hard variant:\n%s", clean)
+	}
+}
+
+// A budget is a per-invocation choice, not a redeploy. The flags ride the
+// submit payload; the deployment ceiling still bounds them on the far side.
+func TestCloudRunCarriesPerRunBudgetOverridesInTheSubmission(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, requests := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method != http.MethodPost || request.Path != "/api/runs" {
+			return http.StatusNotFound, map[string]any{"error": "not_found"}
+		}
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_bounded"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1", "--max-cost", "2.50", "--max-wall-clock", "45m"}); err != nil {
+		t.Fatalf("bounded cloud run: %v", err)
+	}
+	body := (*requests)[0].Body
+	if got := body["max_cost_usd"]; got != 2.5 {
+		t.Errorf("max_cost_usd = %#v, want 2.5", got)
+	}
+	if got := body["max_wall_clock_ms"]; got != float64(2_700_000) {
+		t.Errorf("max_wall_clock_ms = %#v, want 2700000", got)
+	}
+
+	// Without the flags the submission carries no budget at all, so the
+	// deployment's own ceiling stands rather than being restated by the CLI.
+	ResetFlags()
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1"}); err != nil {
+		t.Fatalf("unbounded cloud run: %v", err)
+	}
+	plain := (*requests)[1].Body
+	if _, ok := plain["max_cost_usd"]; ok {
+		t.Errorf("submission carries max_cost_usd with no flag set: %#v", plain["max_cost_usd"])
+	}
+	if _, ok := plain["max_wall_clock_ms"]; ok {
+		t.Errorf("submission carries max_wall_clock_ms with no flag set: %#v", plain["max_wall_clock_ms"])
+	}
+}
+
+// tick 7zk. The operator asked for --max-cost 40 and got $8, because the
+// deployment's RUN_MAX_COST_USD was 8 and a submission may only lower a budget.
+// The policy is right; the silence was not. The number that will actually
+// govern has to appear at the moment the flag is typed, not in the cancellation
+// that ends the run — the third time in one epic a deployment ceiling replaced
+// an operator's number with no line anywhere saying so.
+func TestCloudRunPrintsTheEffectiveBudgetItWillActuallyRunUnder(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method != http.MethodPost || request.Path != "/api/runs" {
+			return http.StatusNotFound, map[string]any{"error": "not_found"}
+		}
+		return http.StatusCreated, map[string]any{
+			"run": map[string]any{"run_id": "run_clamped", "state": "starting"},
+			"budget": map[string]any{
+				"max_cost_usd":                8,
+				"max_wall_clock_ms":           14_400_000,
+				"requested_max_cost_usd":      40,
+				"requested_max_wall_clock_ms": nil,
+				"cost_clamped":                true,
+				"wall_clock_clamped":          false,
+			},
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	out := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1", "--max-cost", "40"}); err != nil {
+		t.Fatalf("cloud run: %v", err)
+	}
+	printed := out.String()
+	// The number that governs.
+	if !strings.Contains(printed, "cost budget: $8.00") {
+		t.Errorf("the effective cost budget is not printed:\n%s", printed)
+	}
+	if !strings.Contains(printed, "wall-clock budget: 4h0m0s") {
+		t.Errorf("the effective wall-clock budget is not printed:\n%s", printed)
+	}
+	// And that it is not the number that was asked for.
+	if !strings.Contains(printed, "--max-cost $40.00 was lowered") {
+		t.Errorf("the clamp is not reported:\n%s", printed)
+	}
+}
+
+// A factory deployed before the budget was reported answers without it. Saying
+// "$0.00" there would be worse than saying nothing.
+func TestCloudRunSaysNothingAboutABudgetTheFactoryDidNotReport(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_old"}}
+	})
+	configureCloudFactory(t, endpoint)
+	out := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1"}); err != nil {
+		t.Fatalf("cloud run: %v", err)
+	}
+	if strings.Contains(out.String(), "budget") {
+		t.Errorf("a budget line was invented for a factory that reported none:\n%s", out.String())
+	}
+}
+
+func TestCloudRunRefusesANonPositiveBudgetBeforeSubmitting(t *testing.T) {
+	setupCloudRepo(t, true)
+	var calls int
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		calls++
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_should_not_start"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	for _, args := range [][]string{
+		{"cloud", "run", "epic1", "--max-cost", "0"},
+		{"cloud", "run", "epic1", "--max-wall-clock", "-5m"},
+	} {
+		ResetFlags()
+		err := ExecuteArgs(args)
+		if err == nil {
+			t.Fatalf("%v was accepted, want a refusal", args)
+		}
+		if !strings.Contains(err.Error(), "positive") {
+			t.Errorf("%v error does not say the budget must be positive: %v", args, err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("factory received %d submission(s) after an invalid budget", calls)
+	}
+}
+
+// --tick-ids is the CLI's only route to the per-tick-container path (tick
+// pjq): before it, `tick_ids` was reachable from `tk cloud spawn` — the LOCAL
+// orchestrator's verb — or by POSTing to /api/runs by hand, so an operator
+// igniting a cloud-orchestrated run could not ask for a wave at all.
+func TestCloudRunTickIDsCarryTheWaveIntoTheSubmission(t *testing.T) {
+	setupCloudWaveRepo(t, "cloud", "aaa", "bbb")
+	endpoint, requests := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		if request.Method != http.MethodPost || request.Path != "/api/runs" {
+			return http.StatusNotFound, map[string]any{"error": "not_found"}
+		}
+		return http.StatusCreated, map[string]any{
+			"run": map[string]any{"run_id": "run_wave", "state": "starting"},
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1", "--tick-ids", "aaa,bbb"}); err != nil {
+		t.Fatalf("cloud run --tick-ids: %v\n%s", err, buf.String())
+	}
+	if len(*requests) != 1 {
+		t.Fatalf("factory received %d request(s), want one", len(*requests))
+	}
+	body := (*requests)[0].Body
+	wave, ok := body["tick_ids"].([]any)
+	if !ok {
+		t.Fatalf("submission tick_ids = %#v, want the wave", body["tick_ids"])
+	}
+	if len(wave) != 2 || wave[0] != "aaa" || wave[1] != "bbb" {
+		t.Errorf("submission tick_ids = %#v, want [aaa bbb]", wave)
+	}
+	if got := body["queue"]; got != false {
+		t.Errorf("submission queue = %#v, want false", got)
+	}
+	if out := buf.String(); !strings.Contains(out, "run_wave") ||
+		!strings.Contains(out, "aaa") || !strings.Contains(out, "bbb") {
+		t.Errorf("output does not report the dispatched wave:\n%s", out)
+	}
+}
+
+// A plain `tk cloud run` must stay a Phase 1 submission: no empty wave field
+// that the factory would have to interpret.
+func TestCloudRunWithoutTickIDsSubmitsNoWave(t *testing.T) {
+	setupCloudRepo(t, true)
+	endpoint, requests := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_plain"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "run", "epic1"}); err != nil {
+		t.Fatalf("cloud run: %v", err)
+	}
+	if _, ok := (*requests)[0].Body["tick_ids"]; ok {
+		t.Errorf("submission carries tick_ids with no flag set: %#v", (*requests)[0].Body["tick_ids"])
+	}
+}
+
+// The factory refuses queue+tick_ids with a 400 because the RunRoom's queued
+// submission has no tick_ids column and would lose the wave on ignition. The
+// CLI says so itself, before a push and before the network, rather than
+// letting the operator meet it as an HTTP error.
+func TestCloudRunRefusesTickIDsWithQueue(t *testing.T) {
+	repo, _, sha := setupCloudWaveRepo(t, "cloud", "aaa")
+	var calls int
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		calls++
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_should_not_start"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+	execTestCmd(t, repo, "git", "commit", "--allow-empty", "-m", "unpushed change")
+
+	err := ExecuteArgs([]string{"cloud", "run", "epic1", "--tick-ids", "aaa", "--queue"})
+	if err == nil {
+		t.Fatal("cloud run accepted --tick-ids together with --queue")
+	}
+	if code := GetExitCode(err); code != ExitUsage {
+		t.Errorf("exit code = %d, want %d (usage)", code, ExitUsage)
+	}
+	for _, want := range []string{"--tick-ids", "--queue"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err.Error(), want)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("factory received %d submission(s) for a combination it refuses", calls)
+	}
+	remote := strings.Fields(string(execTestOutput(t, repo, "git", "ls-remote", "origin", "refs/heads/main")))[0]
+	if remote != sha {
+		t.Errorf("origin/main = %s, want %s: the refusal cost a push", remote, sha)
+	}
+}
+
+// The same wave checks `tk cloud spawn` makes, for the same reason: a worker
+// container clones at the epic's base, so a tick from another epic would be
+// implemented against a base its own epic never chose. Refused locally, before
+// anything is pushed.
+func TestCloudRunRefusesAnUnusableWaveBeforeSubmitting(t *testing.T) {
+	repo, _, _ := setupCloudWaveRepo(t, "cloud", "aaa")
+	writeCloudEpic(t, repo, "epic2")
+	writeCloudTick(t, repo, "ccc", "epic2")
+	execTestCmd(t, repo, "git", "add", "-A")
+	execTestCmd(t, repo, "git", "commit", "-m", "second epic")
+	execTestCmd(t, repo, "git", "push", "origin", "main")
+
+	var calls int
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		calls++
+		return http.StatusCreated, map[string]any{"run": map[string]any{"run_id": "run_should_not_start"}}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"duplicate":    {[]string{"cloud", "run", "epic1", "--tick-ids", "aaa,aaa"}, "more than once"},
+		"unknown tick": {[]string{"cloud", "run", "epic1", "--tick-ids", "zzz"}, "zzz"},
+		"another epic": {[]string{"cloud", "run", "epic1", "--tick-ids", "ccc"}, "epic1"},
+		"blank only":   {[]string{"cloud", "run", "epic1", "--tick-ids", " "}, "--tick-ids"},
+	} {
+		ResetFlags()
+		err := ExecuteArgs(tc.args)
+		if err == nil {
+			t.Fatalf("%s: %v was accepted, want a refusal", name, tc.args)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: refusal %q does not mention %q", name, err.Error(), tc.want)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("factory received %d submission(s) for an unusable wave", calls)
 	}
 }

@@ -28,6 +28,7 @@ orchestrator sandbox, watches it, enforces the budgets and finalizes — see
 | `src/run-workflow.ts` | `RunWorkflow` — one durable instance per run: boot, watch, budgets, clean stop, finalize. Everything below it is disposable; this is not. |
 | `src/sandbox.ts` | The orchestrator sandbox seam: what a container has to be, and the environment `cloud/sandbox`'s entrypoint is started with. |
 | `src/artifacts.ts` | The R2 artifact tree, and the harness log stream written *during* the run. |
+| `src/observe.ts` | `GET /api/observe` — one read-only frame for `tk factory dashboard`: the listing, a focused run's phase/image/boot/gates, the `dispatch_log` refusals, and the `run_event` tail the room keeps. |
 | `src/env.d.ts` | Hand-written `Cloudflare.Env` (what `wrangler types` would generate). Keep in sync with `wrangler.toml`. |
 | `test/` | vitest + `@cloudflare/vitest-pool-workers`: real workerd, bindings read from `wrangler.toml`. |
 
@@ -51,6 +52,7 @@ only turns that decision into a status code.
 | `GET /api/runs` | The run index plus, for every project it mentions, that project's lease and queued submissions. Filters: `project`, `state`, `limit`. |
 | `GET /api/runs/:id` | One run: index row, Workflow step state, lease, open gates, queued submissions, stop record. |
 | `POST /api/runs/:id/stop` | Stop a run. Default (`{"mode":"clean"}`) is D15's clean stop: finish the in-flight tick, then review and closeout. `{"mode":"hard"}` (`tk cloud stop --now`) revokes the run's gateway credentials in this request and forbids any later boot from minting another — no closeout, no more spend. The response says which stop was performed and how many live credentials it killed. |
+| `GET /api/runs/:id/logs` | The run's harness output — stdout and stderr, streamed to R2 during the run. `{run_id, project, state, text, bytes, total_bytes, truncated}`. Bounded from the END (the tail is what a run being debugged is read for) and the bound is stated, never silent; `max_bytes` narrows it further and is refused above the read bound rather than clamped. Read-only: it observes a run and cannot steer one, so it does not widen D21's command vocabulary. |
 | `GET/POST /api/projects`, `DELETE /api/projects/:owner/:repo` | Project enrolment. |
 | `POST /api/projects/:owner/:repo/pending` | Register a cloud ask in the project's RunRoom; `{notify:"telegram"}` delivers it to the paired Telegram chat. |
 | `GET /api/projects/:owner/:repo/pending` | Read open pending entries; `include_resolved=true` lets the terminal report the winning surface. |
@@ -99,8 +101,39 @@ it (`src/run-workflow.ts`):
   `TICKS_PHASE=reconcile`, whose first instruction is the reconcile protocol
   (evidence order: worker manifests → git → live sandboxes). Boots are bounded
   (`MAX_SANDBOX_BOOTS`), and an entrypoint exit that is a *configuration*
-  verdict — 2 config, 3 clone, 4 tk version, 5 pre-flight — is never retried,
-  because another container reaches the identical answer.
+  verdict — 2 config, 3 clone, 4 tk version, 5 pre-flight, 6 `[sandbox]` — is
+  never retried, because another container reaches the identical answer.
+- **Which image it boots is the repository's call when it makes one.** Before
+  any container exists, the Workflow reads the tracked `.tick/runners.toml` at
+  the submitted SHA (`src/repo-config.ts`) and boots the `[sandbox].image` it
+  declares; a repository that declares none gets this deployment's own. The
+  declaration comes from the PR-reviewed file and never from a submission —
+  an image is arbitrary code, and the container holds the run's credentials.
+  A declared image this deployment cannot serve **fails the run** naming both
+  references rather than booting the base: an image belongs to the
+  `[[containers]]` application built at deploy time, so honouring one means
+  deploying a factory that serves it and naming it in `SANDBOX_IMAGE`. The
+  read is best effort — a Worker that refused every run on a GitHub hiccup
+  would be worse than the silence it replaced — and the container is the
+  backstop: it refuses a boot that is not what its checkout declares.
+- **A run reports itself to a board, if there is one (tick bne).** The Workflow
+  emits `run_event` messages — `epic-started` before anything boots,
+  `task-started` per tick before its worker container is dispatched,
+  `task-completed` carrying that tick's COLLECT verdict, `epic-completed` at
+  finalize — through the project's RunRoom, which forwards them to
+  `POST /api/projects/:project/run-events` on the board named by
+  `BOARD_BASE_URL` with the credential in the `BOARD_TOKEN` secret. Both are
+  **unset by default and neither is a dependency**: a factory runs identically
+  with no board at all, because the stream is observability and never control.
+  Nothing about a run's outcome depends on an event landing — a publish cannot
+  throw, is not retried, and is bounded by a short timeout — and a run whose
+  every event is dropped completes and collects exactly the same way. A tick
+  shows as successful only when collect said `ready-to-merge`; a worker's own
+  `STATUS:` line is carried as text and decides nothing. `costUsd` on the
+  stream comes from AI Gateway telemetry alone, and a read that failed carries
+  no cost rather than a zero. Whether a board is listening or not, the room
+  keeps the last 50 events on its `/status` probe, so "is this run still
+  alive?" is answerable without a browser.
 - **Budgets are enforced here, never in a prompt (D14).** `RUN_MAX_WALL_CLOCK_MS`
   and `RUN_MAX_COST_USD` are checked at every observation against the elapsed
   time the Workflow measured and the `cost_usd` on the index row, which is read
@@ -108,6 +141,23 @@ it (`src/run-workflow.ts`):
   self-report. A model can be talked out of a budget; a Workflow step cannot.
   And a trip does not stop at killing a process: the run's gateway token is
   revoked, so an orchestrator that survives its own kill still cannot spend.
+  Those two vars are the deployment's **ceiling**, and one submission can ask
+  for less: `tk cloud run <epic> --max-cost 2.50 --max-wall-clock 45m` rides
+  the submit payload (`max_cost_usd`, `max_wall_clock_ms`) into the Run
+  Workflow's config, so trying something cheap-and-bounded is a per-invocation
+  choice rather than an edit to `wrangler.toml` and a redeploy. A submission
+  may only ever lower a budget — a value above the ceiling is clamped to it and
+  logged — because the ceiling is the operator's standing decision and a
+  submission is something an agent can make. A submitted cost budget counts as
+  configured, so a run whose gateway cost telemetry cannot be read refuses to
+  boot rather than spending unmeasured. A budget parked by `--queue` is stored
+  with the entry and travels to ignition. **A cloud wave's worker containers
+  are bounded by that same allowance (tick 5fg):** each worker's harness budget
+  is what the run has LEFT, capped by the measured 90-minute default (or a
+  deployment's `RUN_WORKER_BUDGET_MS`), and the wave waits exactly one push
+  margin longer. It used to be a flat 30-minute constant that ignored
+  `--max-wall-clock` entirely, which killed three healthy containers at ~29
+  minutes on a run submitted with 90.
 - **Exhaustion is a clean stop, identical to `POST /api/runs/:id/stop` (D15).**
   Both trip the same branch: the in-flight work gets `RUN_STOP_GRACE_MS` to
   land, then a `closeout` orchestrator reconciles and runs review and closeout
@@ -148,6 +198,52 @@ it (`src/run-workflow.ts`):
 The observation cadence starts at 15s and backs off to 5m — fast where failures
 and first output happen, affordable across a multi-hour run within Cloudflare's
 per-instance step cap. `RUN_POLL_INTERVAL_MS` overrides it with a fixed gap.
+
+### The reconcile protocol (`src/reconcile.ts`)
+
+A supervisor that dies mid-wave is replaced by one that runs the same dispatch
+step again — a completed `step.do` is checkpointed and never re-runs, but one
+that was *in flight* when the isolate died starts from the top, and
+`cloud:dispatch:<n>` is the step that boots containers. So the wave establishes
+what is actually going on before it starts anything, on **every** attempt at
+that step, from durable state only:
+
+1. **Worker manifests** (`runs/<project>/<run>/artifacts/<tick>/manifest.json`)
+   — the authority on what was *dispatched*. Written **before** the tick's
+   container is addressed, because addressing a container is what provisions
+   it: an absent manifest is therefore a durable statement that no container
+   exists for that tick, and nothing else in the protocol can say that. It is
+   also why a tick no manifest names is never probed — probing it would boot
+   the container the reconcile exists to avoid booting.
+2. **Git** — the authority on what *work exists*, read through the same
+   `WorkerCollector` a live wave collects with. Never a container's terminal
+   output.
+3. **The live sandbox list** (`OrchestratorSandbox.listProcesses`) — the
+   authority on what is *still running*, asked only of containers a manifest
+   names.
+
+Every tick lands in exactly one class: `live-worker`, `already-landed`,
+`dead-with-work`, `stale-no-work`, `never-dispatched`, `unknown`. Two rules
+matter more than the labels:
+
+- **A live worker is never redispatched, whatever its branch looks like.** The
+  process list is consulted before git, and a branch with no commits is exactly
+  what a worker that has not committed yet looks like — Phase 1 paid for that
+  when a worker died mid-turn holding 643 uncommitted lines and settled looking
+  finished. A live worker is *adopted*: the wave waits on the process that is
+  already there, so the container gets no second probe and no second worker.
+- **"Cannot tell" is never folded into "nothing is there".** A container whose
+  process list cannot be read, a remote that answers 503, a manifest listing
+  that failed — each is `unknown`, reported with both sides of the
+  contradiction, proposing no mutation at all.
+
+Cold reconstruction always works (axiom 1). Nothing depends on a container
+surviving or a snapshot restoring: an evicted container reports no live
+process, the plan falls through to the git evidence, and the tick is dispatched
+again onto its **existing** branch, which `cloud/sandbox/worker.sh` adopts from
+origin. That is the same recovery, only slower — paid for in whatever the dead
+container had not pushed. Each batch's verdict is recorded in the dispatch log
+as `cloud_reconcile:<batch>:<counts>`.
 
 ### The evidence seam
 

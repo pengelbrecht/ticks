@@ -2,16 +2,22 @@
   "id": "ihf",
   "title": "Close out Phase 2: retro + plan Phase 3",
   "description": "Retro on Phase 2, fold learnings into .tick/learnings.md within the 150-line cap, verify the epic outside-in against a real fan-out run, then plan Phase 3 (hdt, signal ingestion) against what per-tick containers actually cost and how reconcile behaved.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "oun"
+    "oun",
+    "5bv",
+    "6uv",
+    "kya",
+    "7n7"
   ],
   "parent": "1vn",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T02:35:09.9869Z",
-  "updated_at": "2026-08-20T02:35:09.9869Z"
+  "updated_at": "2026-08-23T06:21:04.458842Z",
+  "closed_at": "2026-08-23T06:21:04.458842Z",
+  "closed_reason": "Completed: Phase 2 retro recorded on the epic; five new learnings folded into .tick/learnings.md at the 150-line cap (three superseded entries dropped to pay for them); the epic verified outside-in against all seven clauses of its definition of done, each with a live run cited; Phase 3 (hdt) planned into 8 child ticks plus its EPIC-SKELETON with its own goal-compatible definition of done; four Phase 2 carry-forwards recorded on hdt as roadmap decisions for the human rather than filed unilaterally."
 }

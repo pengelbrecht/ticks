@@ -26,12 +26,13 @@ The harness plays the orchestrator; git and `.tick/` are the durable coordinatio
 
 ## The second axis: dispatch substrate
 
-The adapter you just picked settles **who orchestrates**. A separate, independent choice settles **how workers are dispatched** — the **substrate**. The two axes are orthogonal: any of the four harnesses can orchestrate under either substrate.
+The adapter you just picked settles **who orchestrates**. A separate, independent choice settles **how workers are dispatched** — the **substrate**. The two axes are orthogonal: any of the four harnesses can orchestrate under any substrate.
 
 | Substrate | Workers are | Adapter |
 |---|---|---|
 | `harness` | subagents of the orchestrating harness | the harness adapter above — unchanged, still authoritative |
 | `herdr` | independent CLI processes in herdr panes and worktrees, one per tick, possibly of different vendors | [`herdr-runner.md`](herdr-runner.md), *in addition to* your harness adapter |
+| `cloud` | one cloud sandbox per tick, dispatched through the run API of the factory the project is enrolled with | the harness adapter runs *inside* each container; the orchestrator dispatches, it does not run workers locally |
 
 Herdr is **not a fifth harness adapter**: it replaces the dispatch and supervision layer only. Under it you still read your own harness adapter for everything herdr does not supply (tier resolution for roles you run in-process, your own self-isolation and boundary mechanisms).
 
@@ -39,10 +40,20 @@ Herdr is **not a fifth harness adapter**: it replaces the dispatch and supervisi
 
 Settle the substrate once per run, after harness detection:
 
-1. **Check `$TICKS_SUBSTRATE` first, then read `.tick/runners.toml`** (optional; absent means `auto`). An explicit `TICKS_SUBSTRATE` (`herdr | harness | auto`) is set by whatever *booted* this run — a cloud sandbox has no herdr server to probe for — and it **replaces** the file's `[orchestration].substrate` for this run. Honour it: read the file for everything else, never rewrite it, and never stop over the mismatch. A value that is not one of the three substrates is a stop, not a fall back to the file. Whatever decides, the value is `herdr | harness | auto`, default `auto`. `harness` is final — do not probe, and do not use herdr even when running inside a herdr pane. `herdr` and `auto` continue to step 2.
+1. **Check `$TICKS_SUBSTRATE` first, then read `.tick/runners.toml`** (optional; absent means `auto`). An explicit `TICKS_SUBSTRATE` (`herdr | harness | auto | cloud`) is set by whatever *booted* this run — a cloud sandbox has no herdr server to probe for — and it **replaces** the file's `[orchestration].substrate` for this run. Honour it: read the file for everything else, never rewrite it, and never stop over the mismatch. A value that is not one of the four substrates is a stop, not a fall back to the file. Whatever decides, the value is `herdr | harness | auto | cloud`, default `auto`. `harness` is final — do not probe, and do not use herdr even when running inside a herdr pane. `cloud` is final for the same reason and a stronger one: it says the workers are one cloud sandbox per tick, and a herdr server on this machine cannot change where they run — see the bullet below. `herdr` and `auto` continue to step 2.
 2. **Probe herdr availability — read-only.** Herdr is available when `HERDR_ENV=1` (you are inside a herdr-managed pane) or the herdr socket answers a read-only call (`herdr status server`); resolve the socket path as `[orchestration].socket` → `$HERDR_SOCKET_PATH` → `~/.config/herdr/herdr.sock` rather than hardcoding it, and let `[orchestration].detect` narrow which of the two probes counts. **Never start a herdr server, workspace, or TUI to detect one**, and never run bare `herdr` — it launches or attaches the TUI. Available → herdr substrate. Unavailable under `auto` → harness dispatch. Note that `HERDR_ENV` is evidence that herdr is *available*, not a statement about where workers should go: it is an input to this probe and nothing else.
 3. **Say what you resolved — once, quietly, always.** Every run states its substrate in its own output before dispatching the first worker, and records it durably: `tk note <epic-id> "runner-state: substrate=harness requested=auto reason=auto-no-herdr"`. This is not an announcement of trouble; `auto` finding no herdr is `auto` working. But say it: a substrate nobody stated is one nobody can audit afterwards, and in a cloud sandbox the run log is the only record that outlives the container. (`tk sandbox substrate` resolves and prints both lines for you, with the statement on stderr.)
-4. **`substrate = "herdr"` with herdr unavailable is the one loud case — and it never fails the run.** A pin asserts that herdr is reachable for every run of this repository; when the environment refuses that assertion, state it prominently: the requested substrate, the probe(s) that failed, the harness adapter you are falling back to, and that `substrate = "auto"` is what a repository driven both ways should say instead. Record it durably (`tk note <epic-id> "runner-state: substrate=harness requested=herdr reason=herdr-unavailable"`), then continue under harness dispatch. An explicit `$TICKS_SUBSTRATE` is loud for the same reason: it is a substrate the checkout did not ask for. Keep the two registers apart — a repository that announces a degradation on every ordinary run teaches its operator to ignore the one that matters.
+4. **`substrate = "cloud"` dispatches containers, and you are not one of the dispatch verbs.** Workers are one cloud sandbox per tick through the run API, so no worktree, pane or local branch appears for a tick until its container pushes one — a wave that looks idle locally is normal, and the durable evidence is pushed branches plus `RESULT-<tick-id>.md` exactly as always. **Never substitute another substrate for it.** `tk herd spawn` refuses with exit 9 rather than putting a local pane on a branch a container is already pushing to. Dispatch through the cloud verb family instead — it mirrors `tk herd`'s vocabulary exactly, so nothing about your loop changes but the transport:
+
+   ```
+   tk cloud spawn <epic-id> --ticks a,b,c   # one container per tick, dispatched from here
+   tk cloud wait --epic <epic-id>           # fan in: a worker settles when its report reaches the remote
+   tk cloud collect --epic <epic-id>        # verdicts from the pushed branches; never merges
+   tk cloud reconcile --epic <epic-id>      # after a crash: what is live, what is salvageable (read-only)
+   ```
+
+   Dispatch needs the project enrolled with a cloud factory; an un-enrolled checkout is refused with that reason and never quietly falls back. If you have no cloud dispatch path at all, stop and say so rather than running the wave somewhere else. If a local herdr or harness worker is genuinely what the operator wants, that is a per-run statement: `TICKS_SUBSTRATE=herdr` (or `auto`), never an edit to the checkout.
+5. **`substrate = "herdr"` with herdr unavailable is the one loud case — and it never fails the run.** A pin asserts that herdr is reachable for every run of this repository; when the environment refuses that assertion, state it prominently: the requested substrate, the probe(s) that failed, the harness adapter you are falling back to, and that `substrate = "auto"` is what a repository driven both ways should say instead. Record it durably (`tk note <epic-id> "runner-state: substrate=harness requested=herdr reason=herdr-unavailable"`), then continue under harness dispatch. An explicit `$TICKS_SUBSTRATE` is loud for the same reason: it is a substrate the checkout did not ask for. Keep the two registers apart — a repository that announces a degradation on every ordinary run teaches its operator to ignore the one that matters.
 
 [`runners-config.md`](runners-config.md) owns these semantics — the full decision table, the `detect`/`socket` keys, per-role/tier routing, and the degradation announcement. Do not re-derive them here. With no `runners.toml`, nothing changes: harness dispatch through the adapter above.
 
@@ -68,7 +79,7 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    Export TK_ACTOR=<runner>:orchestrator so every tk write from this session
    stamps activity entries with a recognisable actor — distinguishing orchestrator actions from
    human actions in the feed. (See "Actor convention" below.)
-1. tk graph <epic> --json          → waves + max_parallel
+1. tk graph <epic> --json          → waves + dispatch.now (how many to launch NOW)
 2. EPIC-SKELETON pre-flight (self-healing): if step 1's result carries a non-empty
    missing_process_ticks (roles no child tick has — "review", "closeout"), create the
    missing process ticks now — before wave 1 — with `tk create --role <role>` per the
@@ -81,6 +92,13 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    a. Mark the wave's ticks in_progress
       `tk update <id> --status in_progress` emits a 'start' activity entry and sets started_at
       on the tick — claiming is immediately visible on the board and in the activity feed.
+      THE CLAIM IS THE DISPATCH GATE. `[orchestration].max_parallel` is enforced here, not
+      by your restraint: a claim that would exceed the width is refused with exit 8 naming
+      the ticks holding the slots. Launch `dispatch.now` from step 1 — never the whole wave
+      when it is wider — and when a slot frees (close or release), claim the next tick and
+      launch its implementer. `stats.max_parallel` in the graph is the widest WAVE (graph
+      shape); `dispatch.max_parallel` is the configured WIDTH (policy). They are different
+      numbers and only the second bounds a launch.
    b. Launch one implementer per tick using the active harness adapter, recording each
       tick's branch/worktree in a durable note as soon as the name is known (before launch
       when the adapter controls naming; at first report when the harness assigns it)
@@ -420,6 +438,8 @@ Before closing the epic, run the **Epic-close retro** (see below). Write the ret
 **Deliver the completion report.** With a paired operator channel, send it with `tk tell` (pipe it in on stdin for a multi-line report) as well as writing it where the run records it — one-way is the right shape here: the epic is finished and nothing is waiting on an answer. See *The operator channel*.
 
 **Integration status.** The completion report must state the epic branch's integration status: *merged*, *awaiting PR*, or *awaiting human*. For repos with CI, the default is a PR + CI gate before merging to the default branch; configure the requirement in `.tick/config.md` → Rules so every agent prompt inherits it.
+
+**Say what the PR carries.** A branch is not only what the run put on it: it also holds everything that was already on the branch it started from. When the run began from a branch ahead of the default branch, its PR merges that work too — on this PR's CI gate rather than its own, and without whatever PR owns it being approved. So the PR body enumerates the commits the run did not create. In a cloud run, `tk cloud pr-body` writes that body from the container's environment (`tk cloud pr-body | gh pr create --base main --head "$TICKS_RUN_BRANCH" --title "epic <id>: cloud run" --body-file -`); elsewhere, `git log --oneline <default-branch>..<the SHA the branch started from>` is the same list, and a PR carrying nothing should say so rather than say nothing.
 
 ---
 

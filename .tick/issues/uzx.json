@@ -2,12 +2,15 @@
   "id": "uzx",
   "title": "A budget can overshoot by a full poll interval because detectTrip only runs on observation",
   "description": "Measured on run_62c289d1: RUN_MAX_COST_USD = 5 was deployed, syncRunCost recorded 5.86 correctly (so this is not the cts pagination defect), and the run was still in state running with no trip. The cause is cadence, not accounting: detectTrip is only called from observe, and pollDelay backs off from 15s to a 300s ceiling, so a run can spend for up to five minutes after crossing its ceiling. The backoff widens the window exactly when a run is long-lived and expensive, which is when it matters.\n\nOptions worth weighing rather than assuming: cap the poll interval while spend is within some fraction of the ceiling; check spend on a separate fixed cadence from the liveness observation; or have the gateway itself refuse once the ceiling is crossed, which needs no Workflow tick at all and is the only one that bounds the overshoot by a request rather than by a timer.",
-  "status": "open",
+  "notes": "2026-08-21 14:37 - Seam: wave 1 with kji and l4l. You own detectTrip and the observation cadence in cloud/factory/src/run-workflow.ts. kji owns the dispatch path; l4l adds new tk commands and a gateway log reader. Evidence for you: on run a1f87597 the 45-minute ceiling was crossed at 11:29:52 and the token was revoked at 11:31:59 — about 2 minutes over, not the 5 the 300s ceiling would allow, so measure before assuming the worst case.\n2026-08-21 14:37 - runner-state: substrate=herdr kind=claude branch=tick/uzx worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-uzx workspace=wD4 base=c904ba26f8b4235d978617d4c7f9a08f7432ad8a agent=tick-uzx pane=wD4:p1 session=5ef43511-9e32-496b-834f-1f3d163dc852\n2026-08-21 16:55 - runner-state: runner=claude branch=tick/uzx merged=0314e445",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T10:33:56.138053Z",
-  "updated_at": "2026-08-21T10:33:56.138053Z"
+  "updated_at": "2026-08-21T14:55:29.868786Z",
+  "closed_at": "2026-08-21T14:55:29.868786Z",
+  "closed_reason": "Completed: wall clock now stops the sleep at its own deadline for zero overshoot, and spend caps each sleep by the observed burn rate so the overshoot is one fast poll's worth rather than one backed-off poll's. Measured against the shape of run_62c289d1: unwatched spend falls from $0.4482 to $0.0066 for four extra observations."
 }

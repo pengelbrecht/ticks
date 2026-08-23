@@ -125,3 +125,56 @@ consequences for anyone editing this table:
 
 See `cloud/sandbox/README.md` → *The model, and why a boot proves it* for the
 boot-side half (route selection, the one-token gateway probe, exit 7).
+
+## `substrate = "cloud"` is a real value now (tick `ddv`)
+
+`Substrate` in `internal/herd/config/types.go` knew `herdr`, `harness` and
+`auto`. That is why the Run Workflow's per-tick fan-out (tick `b6e`) triggers on
+a **submission** carrying `tick_ids` rather than on repo config: there was no
+config to read. The cost of the workaround was a repository whose declared
+substrate and whose actual substrate could disagree with nothing reconciling
+them.
+
+Four decisions, all enforced rather than documented:
+
+1. **`cloud` is terminal, like `harness`, and probes nothing.** The reason is
+   stronger than `harness`'s: the value says *where the workers run*, and a
+   herdr server listening on the orchestrator's own machine cannot change that
+   answer. `Decide` returns it with `Probed = false` and
+   `reason=config-terminal`.
+2. **It says nothing about where the orchestrator sits.** Local-orchestrator ×
+   cloud-workers is a supported cell of the design's matrix (D19), which is also
+   why the long-standing "there is no *am I in the cloud* signal" rule survives
+   untouched.
+3. **`tk herd spawn` refuses it — exit 9, `ExitWrongSubstrate`.** It is the
+   herdr substrate's dispatch verb; running it under `cloud` would put a local
+   pane on the branch a worker container is already pushing to. The gate
+   (`cmd/tk/cmd/substrate_gate.go`) runs after the config load and before
+   routing, so a refusal costs zero herdr dials. `harness` and `auto` are
+   deliberately **not** refused: neither is dispatched by a `tk` verb, so
+   `tk herd spawn` there is an operator choosing herdr for one worker, not two
+   substrates racing for one branch.
+4. **`TICKS_SUBSTRATE` reconciles it in both directions.** `=herdr` is how an
+   operator says "a local worker really is what I want, for this run"; `=harness`
+   is what the sandbox entrypoint already defaults to, and that default is now
+   load-bearing — a container left to inherit a checkout's `cloud` declaration
+   would dispatch containers from inside a container. The note records both
+   halves: `substrate=harness requested=harness config=cloud
+   source=TICKS_SUBSTRATE reason=explicit-override`.
+
+**No version bump.** A value is not a key: an older `tk` meeting
+`substrate = "cloud"` already prints one line naming the key, the value and the
+values it accepts, which is exactly what the version gate exists to produce.
+Bumping would lock that reader out of every *other* key in the file for nothing.
+
+**The enum crosses a language boundary**, so `TestSubstrateEnumMatchesTheSchema`
+pins the Go `Substrates` slice against `runners-config.schema.json`'s enum in
+order — the cross-implementation golden test `.tick/learnings.md` requires,
+because two internally-consistent readers is exactly how a half-applied change
+survives a green suite.
+
+**Still not real: the local dispatch path.** `tk cloud spawn/wait/collect/
+reconcile` (D19, tick `bmo`) does not exist, so a local orchestrator meeting
+`cloud` has nothing to dispatch through and must stop and say so rather than
+quietly running the wave on another substrate. Declaring `cloud` today is a
+statement of intent that `tk` enforces rather than ignores.

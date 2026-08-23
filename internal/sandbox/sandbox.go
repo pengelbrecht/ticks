@@ -135,11 +135,37 @@ func RunBranch(epic string) string {
 const (
 	PhaseRun       = "run"       // first boot of a run: work the epic
 	PhaseReconcile = "reconcile" // a fresh orchestrator after one died
+	PhaseWave      = "wave"      // between container waves: integrate, then dispatch the next
 	PhaseCloseout  = "closeout"  // a clean stop: no new work, review and close
 )
 
 // Phases lists the accepted values of EnvPhase.
-var Phases = []string{PhaseRun, PhaseReconcile, PhaseCloseout}
+var Phases = []string{PhaseRun, PhaseReconcile, PhaseWave, PhaseCloseout}
+
+// EnvPass is which container wave this boot may ask for (tick wiy).
+//
+// Set only on a [PhaseWave] boot, and the in-run dispatch endpoint refuses a
+// request that carries no pass number — so "may this container dispatch a
+// wave" is a fact about how the control plane booted it, not a judgement the
+// agent inside it makes. A closeout has no pass, and therefore no way to start
+// new work even if its prompt were talked around.
+const EnvPass = "TICKS_PASS"
+
+// EnvWaveTicks and EnvWaveBase are the wave a [PhaseWave] boot INHERITS: the
+// ticks the control plane just dispatched, comma-separated, and the commit
+// their containers cloned at.
+//
+// They exist because every pass of a cloud run is a fresh container, and the
+// manifests `tk cloud spawn` writes live under `.tick/logs/`, which is
+// git-ignored local state. The pass that must fan a wave back in is therefore
+// never the container that dispatched it, and would otherwise be told "no
+// cloud dispatch is recorded — was this wave spawned from another checkout?"
+// about a wave its own run had just run. The control plane is the one party
+// that certainly knows, so it says so (tick wiy).
+const (
+	EnvWaveTicks = "TICKS_WAVE_TICKS"
+	EnvWaveBase  = "TICKS_WAVE_BASE"
+)
 
 // Actor is what the entrypoint exports as TK_ACTOR, joining the runner-shaped
 // actor namespace so the verdict guard's human-attestation rule applies to
@@ -154,10 +180,12 @@ const (
 	ExitClone     = 3 // clone/checkout of the submitted SHA failed
 	ExitTkVersion = 4 // tk is absent or is not the version the image pins
 	ExitPreflight = 5 // an [environment.commands] pre-flight check failed
-	// ExitSetup reports that the repository's own `[sandbox]` setup failed.
-	// It is deliberately not best effort like toolchain provisioning: a
-	// repository that declares a warm step and does not get it starts a wave
-	// in which every worker fails the same way, at model prices.
+	// ExitSetup reports that the repository's own `[sandbox]` declaration was
+	// not satisfied: a setup command failed, or the container is not the
+	// `[sandbox].image` the checkout declares (tick x3v). It is deliberately
+	// not best effort like toolchain provisioning: a repository that declares
+	// a warm step, or an image, and does not get it starts a wave in which
+	// every worker fails the same way, at model prices.
 	ExitSetup = 6
 	// ExitModel reports that the container has a gateway and no model it can
 	// actually call: nothing routed, a model whose provider cannot be named, a
@@ -177,9 +205,18 @@ const (
 	ExitHarness = 8
 )
 
-// Script names the files the image installs into /usr/local/bin.
+// Script names the files the image installs.
+//
+// One image plays two roles (tick x3v): entrypoint.sh is the orchestrator's
+// run entrypoint and worker.sh is a per-tick worker's, and CommonScript is the
+// role-neutral half both source — the gateway and model wiring, the harness
+// probe, caches, the clone, provisioning, setup and the pre-flight. It is a
+// library rather than a third entrypoint, and it is sourced rather than copied
+// so a fix to any of that cannot land in one role and miss the other.
 const (
 	EntrypointScript = "entrypoint.sh"
+	WorkerScript     = "worker.sh"
+	CommonScript     = "common.sh"
 	PreflightScript  = "preflight.sh"
 	DockerfileName   = "Dockerfile"
 )

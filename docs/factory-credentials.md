@@ -196,6 +196,41 @@ than as `$0`. If an explicit cost budget is configured, the Workflow refuses
 the run before sandbox boot because it cannot enforce that budget. Setup proves
 the token with a live read of that gateway's logs before storing it.
 
+### Which pot the spend comes out of
+
+The same token answers a second question the logs cannot: an AI Gateway carries
+a per-gateway `workers_ai_billing_mode`, and it decides where Workers AI traffic
+bills to.
+
+| mode | who bills | funded by |
+|---|---|---|
+| `postpaid` (default) | the normal Cloudflare invoice | an account credit can absorb it |
+| `unified` | a separate prepaid AI Gateway wallet | cash, bought up front at a 5% premium |
+
+Unified Billing is not a discount programme or a payment method for the same
+invoice — it is a separately purchased prepaid balance. Flipping the toggle
+therefore moves every run from credit-funded to cash-funded, at a premium, and
+**a run's telemetry reports the identical cost either way**: the setting is one
+click in the dashboard, it is not in `wrangler.toml`, and nothing downstream
+would ever show the difference.
+
+So it is asserted rather than observed. `tk factory setup` reads the gateway's
+own configuration and refuses to configure a factory whose gateway is not on the
+mode you settled on; `tk factory status` re-reads it and reports `workers ai
+billing` as its own rung, which `--check` turns into a nonzero exit. Postpaid is
+the default — a factory that has never been told otherwise fails on unified
+rather than quietly spending cash. An operator who did buy a prepaid wallet
+records that once:
+
+```bash
+tk factory setup --workers-ai-billing-mode unified
+```
+
+which is stored as `factory_workers_ai_billing_mode` in `~/.ticksrc` and becomes
+the mode every later check asserts against. Without a Cloudflare API token there
+is nothing to read the gateway with, so the mode goes unchecked and both setup
+and status say so rather than passing quietly.
+
 ## Checking it later
 
 ```bash

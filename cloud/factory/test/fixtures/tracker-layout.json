@@ -1,0 +1,23 @@
+{
+  "why": [
+    "The tracker's on-disk layout has two readers since tick kya: internal/tick's",
+    "Store (Go, which owns the format and writes every record) and",
+    "cloud/factory/src/tick-membership.ts (the control plane, which reads one",
+    "record at a commit through GitHub's contents API to prove a requested wave's",
+    "ticks belong to the run's epic). This file is what both suites pin themselves",
+    "to, the same way worker-boot-contract.json pins the three readers of the",
+    "worker boot contract.",
+    "",
+    "It matters more here than a parity fixture usually does, because of which way",
+    "the Worker's check fails: a tracker it cannot read ALLOWS the wave. So a",
+    "layout change landing in Go alone would not break the factory loudly — it",
+    "would silently turn every membership verdict into 'unreadable' and the check",
+    "would stop refusing anything, with both suites still green. This fixture is",
+    "what makes that change fail a test instead."
+  ],
+  "record_dir": ".tick/issues",
+  "record_path_example": { "tick": "tap", "path": ".tick/issues/tap.json" },
+  "fields": { "id": "id", "type": "type", "parent": "parent" },
+  "epic_type": "epic",
+  "parent_omitted_when_empty": true
+}

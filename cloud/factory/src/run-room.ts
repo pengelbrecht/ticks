@@ -35,14 +35,35 @@
  * lease and arbitrate nothing. See docs/design/cloud-factory.md ("The RunRoom
  * DO", D4, D5, D19).
  *
- * Reconcile alarms and `run_event` fan-out to the board's ProjectRoom are
- * later phases. The DO alarm is multiplexed: `#armAlarm` takes the earliest of
- * the lease deadline and the queue's expiries, and every handler re-arms for
- * the next one. Nothing may call `setAlarm` behind it.
+ * The single row is a *policy* of one concurrent run per project, not a fact
+ * about the tracker: two epics touch disjoint tick files, and what genuinely
+ * has to be serialised is the merge of tracker state into the default branch
+ * (D25, UC1c). The designed shape when that changes is an N-slot lease —
+ * same compare-and-delete release, same alarm expiry, same refusal naming the
+ * holders — with N from `[orchestration].max_concurrent_runs`, defaulting to
+ * 1 so this file's behaviour is unchanged until a project opts in.
+ *
+ * 5. **The `run_event` fan-out** (tick bne) — the run says what it is doing
+ *    HERE, and the room forwards it to the board's `ProjectRoom` (UC1 step 5).
+ *    The room is the funnel because it is already the per-project address, so
+ *    exactly one piece of code knows how to reach a board. Everything about
+ *    this path is best effort: the stream is observability, never authority,
+ *    and a board that is down or absent costs a run nothing.
+ *
+ * Reconcile alarms are a later phase. The DO alarm is multiplexed: `#armAlarm`
+ * takes the earliest of the lease deadline and the queue's expiries, and every
+ * handler re-arms for the next one. Nothing may call `setAlarm` behind it.
  */
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./index";
+import {
+  RUN_EVENT_SOURCES,
+  runEventSink,
+  type RunEventDelivery,
+  type RunEventMessage,
+  type RunEventSource,
+} from "./run-events";
 import { MAX_QUEUE_TTL_MS, MIN_QUEUE_TTL_MS, startRun } from "./runs";
 
 /**
@@ -113,9 +134,34 @@ export type ReleaseLeaseResult =
   | { ok: false; error: "not_holder"; holder: DispatchLeaseView | null; detail: string }
   | RequestInvalid;
 
+/**
+ * HOW a renewal failed, because the two are opposite problems and the fixes
+ * for them point in opposite directions (tick 7n7).
+ *
+ * - `taken`: a live lease exists and it is not this run's. Somebody else is
+ *   the project's arbiter now, and this run must stop rather than race it.
+ * - `expired`: nobody holds the lease. It lapsed — either because nothing
+ *   renewed it on the run's behalf, or because it was already released.
+ *
+ * `POST /api/wave` has always told these apart (`lease_lost` vs
+ * `lease_held_by`, see wave-request.ts). The renewal path collapsed both into
+ * one message, so an operator reading a Workflow instance was told the lease
+ * "was lost to another run" when nobody had taken it — the fourth time this
+ * epic has hit `.tick/learnings.md`'s never-collapse-failure-classes rule.
+ */
+export type LeaseLostReason = "expired" | "taken";
+
 export type RenewLeaseResult =
   | { ok: true; lease: DispatchLease }
-  | { ok: false; error: "lease_lost"; holder: DispatchLeaseView | null; detail: string }
+  | {
+      ok: false;
+      error: "lease_lost";
+      /** Which of the two ways it was lost. Never inferred from the message. */
+      lost: LeaseLostReason;
+      /** Set only when `lost` is `taken`: an expired lease has no holder. */
+      holder: DispatchLeaseView | null;
+      detail: string;
+    }
   | RequestInvalid;
 
 /**
@@ -131,6 +177,13 @@ export type QueuedSubmission = {
   base_sha: string;
   requested_by: string;
   notify?: string;
+  /**
+   * The submission's own budget (tick wn5). Parked with the entry rather than
+   * re-read at ignition: a budget that survives the submission but not the
+   * queue is a run the operator believes is bounded and is not.
+   */
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
   /** The run holding the lease when this parked — why it is waiting. */
   blocked_by: string;
   queued_at: string;
@@ -144,6 +197,8 @@ export type QueueSubmissionRequest = {
   base_sha: string;
   requested_by: string;
   notify?: string;
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
   blocked_by: string;
   ttl_ms?: number;
 };
@@ -287,7 +342,40 @@ export type RunRoomStatus = {
   lease: DispatchLeaseView | null;
   pending: { open: number; resolved: number };
   queued: QueuedSubmission[];
+  /**
+   * The tail of the `run_event` stream this room forwarded (tick bne), newest
+   * first — the same picture the board draws, readable over HTTP by an
+   * operator who has no browser open.
+   *
+   * A convenience, and stated as one: nothing reads it to decide anything.
+   * "The operator repeatedly had to ask whether a run was still alive" is what
+   * it answers, in the shape tpl's keeper heartbeat proved works — a working
+   * run and a hung one are distinguishable from outside without touching model
+   * telemetry.
+   */
+  recent_events: RunEventView[];
 };
+
+/** One forwarded event as `status` shows it. */
+export type RunEventView = {
+  at: string;
+  epic: string;
+  tick: string | null;
+  source: RunEventSource;
+  type: string;
+  status: string | null;
+  message: string | null;
+  delivered: boolean;
+};
+
+/**
+ * How many forwarded events a room keeps.
+ *
+ * Small on purpose. This is a live view, not an archive: the archive is R2
+ * (`artifacts.ts`), and a DO that grew an unbounded log of a chatty run's
+ * heartbeat would be paying storage for something nothing reads twice.
+ */
+export const MAX_RECENT_EVENTS = 50;
 
 /** Single-row table: the lease is one per project, and the room *is* the project. */
 const LEASE_ROW = "dispatch";
@@ -309,6 +397,8 @@ type QueuedRecord = {
   base_sha: string;
   requested_by: string;
   notify: string | null;
+  max_cost_usd: number | null;
+  max_wall_clock_ms: number | null;
   blocked_by: string;
   queued_at: number;
   expires_at: number;
@@ -334,7 +424,54 @@ type QuestionRecord = {
   resolution: string | null;
 };
 
+type RunEventRecord = {
+  seq: number;
+  at: number;
+  epic: string;
+  tick: string | null;
+  source: string;
+  type: string;
+  status: string | null;
+  message: string | null;
+  delivered: number;
+};
+
 const stamp = (ms: number): string => new Date(ms).toISOString();
+
+/**
+ * Returns a complaint when the message is not a `run_event` the schema
+ * describes, else null.
+ *
+ * The room checks rather than trusts because it is the last code that sees an
+ * event before it leaves this Worker: a producer bug that put a bare number or
+ * an unknown source on the wire would surface as a board that silently draws
+ * nothing, which is the worst way to learn about it.
+ */
+function badRunEvent(event: unknown): string | null {
+  if (typeof event !== "object" || event === null) return "the event is not an object";
+  const message = event as Partial<RunEventMessage>;
+  if (message.type !== "run_event") return `the event's type is ${String(message.type)}`;
+  if (typeof message.epicId !== "string" || message.epicId.trim() === "") {
+    return "the event names no epic";
+  }
+  if (
+    message.taskId !== undefined &&
+    (typeof message.taskId !== "string" || message.taskId.trim() === "")
+  ) {
+    return "the event's taskId is present but empty";
+  }
+  if (!RUN_EVENT_SOURCES.includes(message.source as RunEventSource)) {
+    return `${JSON.stringify(message.source)} is not one of the substrate-shaped sources ` +
+      `(${RUN_EVENT_SOURCES.join(", ")})`;
+  }
+  const data = message.event as Record<string, unknown> | undefined;
+  if (typeof data !== "object" || data === null) return "the event carries no payload";
+  if (typeof data.type !== "string" || data.type === "") return "the payload names no type";
+  if (typeof data.timestamp !== "string" || data.timestamp === "") {
+    return "the payload carries no timestamp";
+  }
+  return null;
+}
 
 /** Returns a complaint when the field is not a non-empty string, else null. */
 function badText(value: unknown, field: string): string | null {
@@ -405,6 +542,8 @@ export class RunRoom extends DurableObject<Env> {
         base_sha TEXT NOT NULL,
         requested_by TEXT NOT NULL,
         notify TEXT,
+        max_cost_usd REAL,
+        max_wall_clock_ms INTEGER,
         blocked_by TEXT NOT NULL,
         queued_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL
@@ -416,7 +555,30 @@ export class RunRoom extends DurableObject<Env> {
         requested_by TEXT NOT NULL,
         requested_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS run_event (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        epic TEXT NOT NULL,
+        tick TEXT,
+        source TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT,
+        message TEXT,
+        delivered INTEGER NOT NULL
+      );
     `);
+
+    // `CREATE TABLE IF NOT EXISTS` is a no-op on a room that already exists, so
+    // a column added after a room's first request would never appear in it —
+    // and every project this factory has ever run has such a room. The add is
+    // attempted and its "duplicate column name" is the expected answer.
+    for (const column of ["max_cost_usd REAL", "max_wall_clock_ms INTEGER"]) {
+      try {
+        ctx.storage.sql.exec(`ALTER TABLE queued_submission ADD COLUMN ${column}`);
+      } catch {
+        // The column is already there: this room was created with it.
+      }
+    }
   }
 
   // ---------------------------------------------------------------- lease ---
@@ -488,13 +650,32 @@ export class RunRoom extends DurableObject<Env> {
     const current = this.#readLease();
     const live = current !== null && current.expires_at > now;
     if (!live || current!.run_id !== runID || current!.token !== token) {
+      // A LIVE lease that is not this run's was taken; anything else lapsed.
+      // The two are told apart here, at the only place that can see both the
+      // row and the clock, rather than guessed at by every caller.
+      if (live) {
+        return {
+          ok: false,
+          error: "lease_lost",
+          lost: "taken",
+          holder: this.#leaseView(current!),
+          detail:
+            current!.run_id === runID
+              ? `run ${runID}'s dispatch lease was re-acquired under a different token`
+              : `the dispatch lease is held by run ${current!.run_id}, not ${runID}`,
+        };
+      }
       return {
         ok: false,
         error: "lease_lost",
-        holder: live ? this.#leaseView(current!) : null,
-        detail: live
-          ? `the dispatch lease is held by run ${current!.run_id}, not ${runID}`
-          : `run ${runID} no longer holds the dispatch lease`,
+        lost: "expired",
+        holder: null,
+        detail:
+          current === null
+            ? `run ${runID}'s dispatch lease has expired or been released — no lease is held ` +
+              "for this project, and no other run has taken it"
+            : `run ${runID}'s dispatch lease expired at ${new Date(current.expires_at).toISOString()} ` +
+              "and no other run has taken it",
       };
     }
 
@@ -623,6 +804,8 @@ export class RunRoom extends DurableObject<Env> {
       base_sha: request.base_sha,
       requested_by: request.requested_by,
       notify: request.notify ?? null,
+      max_cost_usd: request.max_cost_usd ?? null,
+      max_wall_clock_ms: request.max_wall_clock_ms ?? null,
       blocked_by: request.blocked_by,
       queued_at: now,
       // The window is policy and the caller states it (src/runs.ts resolves the
@@ -632,14 +815,17 @@ export class RunRoom extends DurableObject<Env> {
     };
     this.ctx.storage.sql.exec(
       `INSERT INTO queued_submission
-         (run_id, project, epic, base_sha, requested_by, notify, blocked_by, queued_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (run_id, project, epic, base_sha, requested_by, notify, max_cost_usd,
+          max_wall_clock_ms, blocked_by, queued_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.run_id,
       record.project,
       record.epic,
       record.base_sha,
       record.requested_by,
       record.notify,
+      record.max_cost_usd,
+      record.max_wall_clock_ms,
       record.blocked_by,
       record.queued_at,
       record.expires_at
@@ -937,6 +1123,114 @@ export class RunRoom extends DurableObject<Env> {
     ].map((record) => this.#entry(record));
   }
 
+  // ----------------------------------------------------------- run events ---
+
+  /**
+   * Forwards a batch of `run_event` messages to the board and remembers the
+   * tail (tick bne).
+   *
+   * NEVER THROWS and never retries. The board is observability: a run whose
+   * events are all dropped completes, collects and finalizes exactly as one
+   * whose events all landed, because nothing downstream of this method feeds
+   * anything upstream of it. That is why a sink failure is recorded as
+   * `delivered: false` on the room's own tail rather than raised — the
+   * operator can still see that the run is alive and that the board is not.
+   *
+   * The batch is one round trip on purpose: a wave's per-tick events are
+   * generated together, and one DO hop for a wave beats one per tick.
+   */
+  async publishRunEvents(
+    project: string,
+    events: RunEventMessage[]
+  ): Promise<RunEventDelivery[]> {
+    if (!Array.isArray(events) || events.length === 0) return [];
+
+    const sink = runEventSink(this.env);
+    const deliveries: RunEventDelivery[] = [];
+
+    for (const event of events) {
+      const complaint = badRunEvent(event);
+      if (complaint !== null) {
+        // A malformed event is this factory's bug, not the board's, and it is
+        // not worth failing a run over. It is logged and dropped: publishing
+        // it would put a message on the wire that no schema describes.
+        console.error(`factory run-room: ${project}: refusing to forward an event: ${complaint}`);
+        deliveries.push({ delivered: false, detail: complaint });
+        continue;
+      }
+
+      let delivery: RunEventDelivery;
+      if (sink === null) {
+        delivery = {
+          delivered: false,
+          detail: "no board is configured for this factory (BOARD_BASE_URL/BOARD_TOKEN)",
+        };
+      } else {
+        try {
+          delivery = await sink.publish(project, event);
+        } catch (error) {
+          delivery = {
+            delivered: false,
+            detail: `the board could not be reached: ${String(
+              error instanceof Error ? error.message : error
+            )}`,
+          };
+        }
+      }
+
+      this.#recordEvent(event, delivery.delivered);
+      deliveries.push(delivery);
+    }
+
+    return deliveries;
+  }
+
+  /** The tail of the forwarded stream, newest first. */
+  async recentEvents(limit: number = MAX_RECENT_EVENTS): Promise<RunEventView[]> {
+    const bounded = Number.isSafeInteger(limit)
+      ? Math.max(1, Math.min(limit, MAX_RECENT_EVENTS))
+      : MAX_RECENT_EVENTS;
+    return [
+      ...this.ctx.storage.sql.exec<RunEventRecord>(
+        `SELECT seq, at, epic, tick, source, type, status, message, delivered
+         FROM run_event ORDER BY seq DESC LIMIT ?`,
+        bounded
+      ),
+    ].map((record) => ({
+      at: stamp(record.at),
+      epic: record.epic,
+      tick: record.tick,
+      source: record.source as RunEventSource,
+      type: record.type,
+      status: record.status,
+      message: record.message,
+      delivered: record.delivered === 1,
+    }));
+  }
+
+  #recordEvent(event: RunEventMessage, delivered: boolean): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO run_event (at, epic, tick, source, type, status, message, delivered)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      Date.parse(event.event.timestamp) || Date.now(),
+      event.epicId,
+      event.taskId ?? null,
+      event.source,
+      event.event.type,
+      event.event.status ?? null,
+      event.event.message ?? null,
+      delivered ? 1 : 0
+    );
+    // Trim in the same synchronous block as the insert, so the table is never
+    // observed above its cap and a long run cannot grow the room without bound.
+    this.ctx.storage.sql.exec(
+      `DELETE FROM run_event WHERE seq <= (
+         SELECT MAX(seq) FROM run_event
+       ) - ?`,
+      MAX_RECENT_EVENTS
+    );
+  }
+
   // --------------------------------------------------------------- status ---
 
   /** What the room holds right now: the lease (token withheld) and question counts. */
@@ -955,6 +1249,7 @@ export class RunRoom extends DurableObject<Env> {
       lease: await this.leaseStatus(),
       pending: { open: counts.open, resolved: counts.resolved },
       queued: await this.listQueuedSubmissions(),
+      recent_events: await this.recentEvents(),
     };
   }
 
@@ -1089,6 +1384,10 @@ export class RunRoom extends DurableObject<Env> {
         base_sha: next.base_sha,
         requested_by: next.requested_by,
         ...(next.notify === null ? {} : { notify: next.notify }),
+        ...(next.max_cost_usd === null ? {} : { max_cost_usd: next.max_cost_usd }),
+        ...(next.max_wall_clock_ms === null
+          ? {}
+          : { max_wall_clock_ms: next.max_wall_clock_ms }),
         lease_token: token,
       });
     } catch (error) {
@@ -1117,6 +1416,10 @@ export class RunRoom extends DurableObject<Env> {
       base_sha: record.base_sha,
       requested_by: record.requested_by,
       ...(record.notify === null ? {} : { notify: record.notify }),
+      ...(record.max_cost_usd === null ? {} : { max_cost_usd: record.max_cost_usd }),
+      ...(record.max_wall_clock_ms === null
+        ? {}
+        : { max_wall_clock_ms: record.max_wall_clock_ms }),
       blocked_by: record.blocked_by,
       queued_at: stamp(record.queued_at),
       expires_at: stamp(record.expires_at),

@@ -2,12 +2,15 @@
   "id": "wn5",
   "title": "Per-run budget override on tk cloud run",
   "description": "The only budget knob today is a deployment-wide var in wrangler.toml, so trying a smaller run means editing config and redeploying the Worker. Add --max-cost and --max-wall-clock flags to tk cloud run that ride the submit payload into the Run Workflow, bounded by the deployment ceiling (a flag may lower it, never raise it). Cheap-and-bounded then becomes a per-invocation choice.",
-  "status": "open",
+  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own cmd/tk/cmd/cloud.go and the submit payload plumbing in cloud/factory/src/runs.ts + run-workflow.ts config parsing. h4n owns pre-flight, 6tt owns the closeout PR body, fxf owns gateway.ts headers. Your flags may LOWER the deployment ceiling, never raise it — uzx just landed the cadence work in run-workflow.ts, so rebase mentally on that: budgets are now checked against a projected burn, and a per-run override has to feed the same RunConfig.\n2026-08-21 16:56 - runner-state: substrate=herdr kind=claude branch=tick/wn5 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-wn5 workspace=wD8 base=f2925cf88162b6bbaff483b87c82caaf6c7942a8 agent=tick-wn5 pane=wD8:p1 session=5f89e295-174c-47d7-bfb5-da04a7deef45\n2026-08-21 17:27 - runner-state: runner=claude branch=tick/wn5 merged=49a69a57",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T06:55:06.559646Z",
-  "updated_at": "2026-08-21T06:55:06.559646Z"
+  "updated_at": "2026-08-21T15:27:14.171466Z",
+  "closed_at": "2026-08-21T15:27:14.171466Z",
+  "closed_reason": "Completed: tk cloud run takes per-run budget flags that ride the submit payload into the Run Workflow, bounded so a flag may lower the deployment ceiling and never raise it — cheap-and-bounded is now a per-invocation choice rather than a Worker redeploy."
 }

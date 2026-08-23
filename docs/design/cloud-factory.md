@@ -180,6 +180,20 @@ is a third fact rather than a quiet version of either — the same distinction
 `run.cost_source` draws between a zero and an unknown. `tk cloud status <run>`
 prints the verdict beside the state.
 
+**A mandatory closeout is not a stop (tick 074).** A cloud wave always hands off
+to a `closeout` orchestrator boot, because per-tick workers implement and push
+and nothing else — nothing merges, runs the integrated gate or closes the epic
+out until a real orchestrator does. That handoff is the wave's *normal* ending,
+so it must not be reported as an interruption: while it travelled to the
+supervisor as a trip, every cloud run — including one whose containers all came
+back `ready-to-merge` — finalized as `stopped`, which reads back to an operator
+as a run somebody killed. A finished wave is a **handoff**: the run stays
+`running` through its closeout, the dispatch log says `handoff:closeout` rather
+than `stopping:*`, and a closeout that ran is offered as `completed` for D23
+above to confirm or downgrade against the refs. A wave a budget or an operator
+actually stopped is unchanged, and so is a handoff whose closeout did not
+finish — the epic never got its ending, and `stopped` is honest about that.
+
 **Worker agents.** One sandbox per tick: clone at the epic base, branch
 `tick/<epic-id>/<tick-id>`, implement, push branch + `RESULT-<tick-id>.md`,
 exit. Collect reads *only* what survived in git — commits, the result file,
@@ -197,7 +211,7 @@ evidence of work starting, not just process start), and **expiring liveness**
 |---|---|
 | Epic run lifecycle (waves, gates, merge, closeout) | Workflow instance |
 | Implementer per tick | Sandbox (named container: sleeps idle, wakes on demand, snapshot/restore) |
-| `herd wait` fan-in | Workflow step awaiting sandbox exits |
+| `herd wait` fan-in | Workflow steps awaiting sandbox exits — **many bounded steps, never one** (see below) |
 | `herd reconcile` | Fresh orchestrator sandbox + RunRoom DO alarm |
 | Pi durable lease (compare-and-delete file) | RunRoom DO state |
 | `.tick/pending/` + `.consumer.lock` flock | RunRoom DO + alarms |
@@ -205,7 +219,17 @@ evidence of work starting, not just process start), and **expiring liveness**
 | Telegram 25s long-poll | Worker webhook route |
 | `defer_until`, escalation timeouts, `target_date` approach | DO alarms / scheduled tasks |
 | Morning sweeps, budget windows | Cron triggers |
-| Board live view | Existing `ProjectRoom` DO — the orphaned `run_event` protocol finally gets producers |
+| Board live view | Existing `ProjectRoom` DO — the `run_event` protocol got its first producers in tick bne |
+
+A Workflow step may **execute** for ten minutes (`step.sleep` is durable and
+free; only execution counts), and a step that runs longer fails the whole
+instance — supervisor, run record and lease with it. The fan-in row above is
+therefore a sequence of bounded steps: a container works for up to ninety
+minutes, so the wait is spread across legs that each adopt what the last one
+left running, re-establishing the wave from the durable layer every time. The
+limit is `WORKFLOW_STEP_TIMEOUT_MS` in `cloud/factory/src/workflow-limits.ts`,
+which every timeout inside a step is budgeted through; tick 2xm is what it cost
+to learn that in production.
 
 Deliberately **not** used at this scale: Queues (Workflow fan-out covers
 dispatch) and KV (DO storage and D1 cover it). Workers AI is *not* on that
@@ -232,11 +256,18 @@ supported CLI has one); pi routes natively per provider.
 
 This buys three things beyond vendor-agnosticism:
 
-- **Ground-truth cost telemetry.** Today `run_event.metrics.costUsd` trusts
-  the agent's self-report. Gateway logs are the actual spend, per run (runs
-  tag requests with run/tick IDs via gateway metadata headers), which is what
-  the Workflow's budget enforcement (D14/D15) should read. An agent can
+- **Ground-truth cost telemetry.** `run_event.metrics.costUsd` used to be
+  whatever the agent said it was. Gateway logs are the actual spend, per run
+  (runs tag requests with run/tick IDs via gateway metadata headers), which is
+  what the Workflow's budget enforcement (D14/D15) reads. An agent can
   misreport; a gateway invoice cannot.
+
+  *As built (tick bne):* the only way a cost reaches the stream is
+  `gatewayMetrics()`, which takes gateway.ts's `SpendResult` and nothing else
+  — no builder accepts a bare number, so an agent's claimed cost has no
+  parameter to enter through, and per-tick worker events carry no metrics at
+  all. A telemetry read that failed publishes NO cost rather than a zero:
+  unknown and free are different facts about a run.
 - **A kill switch at the credential layer.** The Workflow can revoke a run's
   gateway token when a budget trips or a human hits stop — enforcement that
   works even on a wedged or adversarial agent, consistent with the doc's rule
@@ -279,6 +310,31 @@ gateway and only one of them is worth anything here:
   the caller cannot choose or suppress its own affinity, because an agent that
   could would be able to park on another run's instance or scatter its own
   calls.
+
+One key for a whole run is deliberate, and the alternative was measured rather
+than argued (tick fxf). Under the harness substrate a run is not one
+conversation — it is an orchestrator plus N implementer subagents, all spending
+the same run token, so one affinity key carries N message arrays that share
+nothing past the harness preamble. The reading that they evict each other off
+the single instance the key routes to is wrong. In `run_62c289d1` (230 calls,
+65.3% of 10,954,464 input tokens cached, $5.96 against a modelled $15.08
+uncached) the eight conversations separate cleanly in the gateway logs by the
+first two messages of each request body, and the seven-way fan-out phase cached
+BETTER than the serial one: 67.9% with six or more conversations live against
+52.4% while the orchestrator ran alone, and 65.7% for a call whose predecessor
+belonged to another conversation against 62.4% for one that followed its own.
+Nor was the prompt head drifting: two consecutive requests around a total miss
+were byte-identical over the whole 220,891 characters of the earlier one, and
+the later was billed 512 cached tokens of 74,605. Three controlled probes (four
+synthetic 15k-token conversations, one shared key against a key each) landed
+within noise and disagreed on the sign — 24.0/24.3 sequential, 40.2/7.8
+concurrent, 12.1/29.8 concurrent with the order reversed — and a fourth showed
+why: ONE conversation, alone, on its own key still missed completely on two of
+three follow-up calls. The header buys routing that is real but statistical;
+the input a run still pays full price for is instance-side behaviour a finer
+key does not steer, while a body-derived key would hand the choice of instance
+back to the agent. `sessionAffinityKey` is the one place the value is chosen,
+and it takes the run row and nothing else.
 
 Affinity is only half of it: "a single token difference invalidates the cache
 from that point onward", so anything the factory injects at the head of the
@@ -326,11 +382,22 @@ normalises content parts into a string on the `workers-ai` route, in
 with no string form rather than dropping it. Read "OpenAI-compatible" here as
 "OpenAI-shaped, with one documented difference handled at the proxy" — a
 harness that sends anything richer than text through this rung will meet that
-refusal, not a silent truncation. The `claude` kind expects Anthropic-shaped
-APIs and stays pointed at Anthropic models. pi is still the natural default
-kind for cloud workers; picking a default MODEL for it is a harness-compat
-question as much as a capability one (see the Workers AI default-model tick),
-because the rung's wire shape is part of what the harness has to speak.
+refusal, not a silent truncation. **Dated correction (2026-08-21, tick y45):**
+the account's OpenAI-compatible endpoint now accepts content parts on all
+sixteen tool-capable models — the array shape was probed live against every one
+of them and every one returned 200. The failure above was real when it
+happened; the platform moved. `stringifyContentParts` **stays** anyway: it is
+now belt-and-braces rather than load-bearing, it fails closed on a part with no
+string form, and this epic has twice been burned by taking one dated
+observation of platform behaviour as a standing guarantee — which cuts in both
+directions. The `claude` kind expects Anthropic-shaped APIs and stays pointed
+at Anthropic models. pi is still the natural default kind for cloud workers;
+picking a default MODEL for it is a harness-compat question as much as a
+capability one — that choice is now made and measured in
+[`workers-ai-model-selection.md`](../workers-ai-model-selection.md), which
+prices every model the account serves per completed tick and recommends a model
+per role and tier — because the rung's wire shape is part of what the harness
+has to speak.
 
 One honest cost note: laptop runs often ride a flat-rate subscription; cloud
 agents run on metered API keys. The gateway makes that spend visible and
@@ -434,7 +501,7 @@ test of whether the abstraction held:
 
 | Orchestrator ↓ / Workers → | `harness` (subagents) | `herdr` (local CLIs) | `cloud` (sandboxes) |
 |---|---|---|---|
-| Local terminal | today | today | **`tk cloud` verbs** |
+| Local terminal | today | today | **`tk cloud` verbs** (Phase 2, tick bmo) |
 | Cloud Workflow | **Phase 1** | (door open, not needed) | **Phase 2** |
 
 ## Signal ingestion: the funnel
@@ -512,9 +579,19 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
    `TK_ACTOR=cloud:orchestrator`, then start the headless harness on the skill
    loop.
 5. Waves execute in worker sandboxes. The orchestrator emits `run_event`
-   messages (the protocol in `schemas/websocket/messages.schema.json`, today
-   orphaned) to the RunRoom, which forwards to `ProjectRoom` — the board shows
-   the run live, from anywhere.
+   messages (the protocol in `schemas/websocket/messages.schema.json`) to the
+   RunRoom, which forwards to `ProjectRoom` — the board shows the run live,
+   from anywhere.
+
+   *As built (tick bne):* `src/run-events.ts` builds the messages, the Run
+   Workflow emits them (`epic-started` before anything boots, `task-started`
+   per tick before its container is dispatched, `task-completed` carrying the
+   COLLECT verdict, `epic-completed` at finalize before the index row goes
+   terminal), and `RunRoom.publishRunEvents` forwards them to the board's
+   `POST /api/projects/:project/run-events`. Every step of that path is best
+   effort and cannot throw: the board is observability, so a run whose events
+   are all dropped completes and collects identically. An unconfigured board
+   (`BOARD_BASE_URL`/`BOARD_TOKEN` unset) is the default, not a degraded mode.
 6. Review and closeout process ticks run (EPIC-SKELETON, unchanged). The epic
    branch becomes a PR. Telegram: *"pay-4 complete: 6 ticks, 4 merged clean, 1
    DONE_WITH_CONCERNS (see note), PR #212. Cost $4.31."*
@@ -554,6 +631,19 @@ epic (`tk create --epic`, children, deps). It's 6pm. I tell my local agent:
   run has committed something, so the ref comparison that decides whether a run
   advanced anything stays honest. Merging to the default branch is unchanged —
   it still waits for closeout and the PR + CI gate.
+- **A closeout PR names the commits it did not create.** The run branch
+  descends from the SHA the run was submitted at, which is whatever branch the
+  operator was standing on. A run submitted from an epic branch that is ahead
+  of the default branch therefore carries that epic into its own PR, and
+  merging it lands those commits on the default branch under *this* run's CI
+  gate rather than their own — it happened once, and the carried epic's PR was
+  recorded merged by a PR nobody opened for it. `tk cloud pr-body` builds the
+  closeout PR body and lists that cargo (`<merge target>..<submitted sha>`)
+  above the run's own commits, under a heading saying what merging it does; a
+  PR carrying nothing says so positively. It fails rather than reporting a
+  clean PR when the checkout cannot resolve the merge target: the sandbox's
+  shallow clone can see one ref, and a body that certified every PR as clean
+  because it could not look would be worse than none.
 - **Notification is a run parameter, not config** — the requester chooses the
   channel per submission; the default comes from `.tick/operators.json`.
 
@@ -583,6 +673,15 @@ harness. One closed verb vocabulary is exposed on every transport:
 | what is happening | `tk cloud status` | `/status` | — |
 | answer a parked question | `tk answer <id> …` | inline keyboard (ships today) | — |
 
+Reading a run is a separate axis from commanding one, and the two must not be
+counted together:
+
+| Observation (read-only) | Terminal | Record it reads |
+|---|---|---|
+| what the container printed | `tk cloud logs <run>` | the harness stream in R2 (D20) — the orchestrator's by default, one worker container's with `--tick <id>` |
+| what the model said and decided | `tk cloud trace <run>` | AI Gateway logs, filtered on `metadata.run_id` (D17) |
+| what the factory is doing right now | `tk factory dashboard` | one composed read, `GET /api/observe`: the run listing, a focused run's Workflow phase, image digest and boot attempt, the RunRoom's gates, the `dispatch_log` refusals and the `run_event` tail (tick t9s) |
+
 **Flow.**
 
 1. The operator issues a verb on any transport. Terminal commands authenticate
@@ -611,6 +710,35 @@ harness. One closed verb vocabulary is exposed on every transport:
   mechanical trap — an operator writing a tick to the default branch mid-run is
   writing to a branch the run cannot see, since the run is pinned to `base_sha`
   and commits to `tick-run/<epic-id>`.
+- **The board is observability, never authority (tick t9s).** `tk factory
+  dashboard` watches a deployed factory from a local terminal — runs, phase,
+  harness output, gates and refusals — and takes no actions at all: its
+  factory surface is two GETs, so no key on it can start, stop or steer a run.
+  That is a property, not a policy: the board is not the completion authority
+  (`worker-collect.ts` is), and a frame is up to a couple of seconds old, so an
+  action taken from it would be an action taken on a stale view. If it ever
+  gains actions they route through the same closed command surface below, not a
+  private path. It must also degrade rather than blank: a failed read keeps the
+  last known frame and labels it stale with its age, and a board started while
+  the factory is ALREADY unreachable reads back the frame the previous session
+  cached on disk, labelled the same way — an operator debugging a broken
+  factory is exactly who is reading it. The cost it shows is AI Gateway
+  telemetry or nothing; a failed telemetry read renders no cost rather than a
+  zero, for the same reason `run_event.metrics.costUsd` may only come from
+  `gatewayMetrics`.
+- **Observation is not command; `logs` and `trace` do not widen the vocabulary.**
+  D21 fixes the operator-to-orchestrator COMMAND vocabulary at `run`, `stop`,
+  `status` and `answer`. `tk cloud logs` and `tk cloud trace` are read-only
+  observation: they read records a run has already written — R2 harness output
+  and AI Gateway logs — and there is no path from either to the orchestrator.
+  Nothing is delivered, no state is mutated, and a wedged orchestrator answers
+  them exactly as well as a healthy one, because it is not consulted. So the
+  count of `tk cloud` subcommands is not the count of D21's verbs, and it is
+  said here explicitly so the next reader does not conclude otherwise (tick
+  l4l). The two are deliberately separate commands rather than one: a harness
+  that crashed and a model that decided badly are different failures with
+  different evidence, and a single command with two answers to "what happened"
+  serves neither.
 - **A clean stop is the budget stop.** `tk cloud stop` is D15's code path with a
   human trigger instead of a spend trigger — finish the in-flight tick, run
   review/closeout on what is done. There is no "abandon the run" verb, because
@@ -649,6 +777,177 @@ harness. One closed verb vocabulary is exposed on every transport:
   lease releases. Queued submissions are visible to `status` and expire on a
   configurable window — a queue that silently ignites work hours later is worse
   than a refusal.
+
+### UC1c — Two epics at once, on one repo
+
+*"The factory has been running `pay-4` all evening. I also want `auth-9` moving.
+Same repo. Can it?"*
+
+**Today: no, deliberately.** The dispatch lease is one per project — `runs.ts`
+takes `RUN_ROOMS.idFromName(project)` and the room keeps a single-row
+`dispatch_lease` — so a second submission is refused naming the holder
+(`lease_held_by:<run>`), or parks with `--queue` (D22). That is D4 enforced at
+ignition: exactly one `.tick/` writer per project.
+
+D4 is right about **tracker writes** and too wide as a limit on **runs**. A
+factory that can only ever run one epic at a time is a serial machine, and the
+question is whether the exclusive thing can be narrowed from *the project* to
+*the tracker mutation*. It can — but not for free, and the price is paid in
+places that have no machinery yet. What follows is verified rather than
+assumed; the reproductions are in `repo-wiki/concurrent-epics.md`.
+
+#### What actually conflicts
+
+Two epics touch disjoint sets of tick files, and `.tick/` is a directory of
+per-tick JSON with a field-level merge driver. Most of the tracker is therefore
+not contended at all:
+
+| Surface | Two epics at once | Why |
+|---|---|---|
+| `.tick/issues/<id>.json`, different ids | no conflict | different files; git has nothing to merge |
+| `.tick/pending/<qid>.json` | no conflict | question ids are unique by registration |
+| `.tick/activity/activity.jsonl` | clean **where the driver runs** | `tick-activity` unions on `(ts, tick, action, actor)` and sorts |
+| `.tick/issues/<id>.json`, **same id** | fails closed, illegibly | ids are minted against one checkout (`internal/tick/id.go` asks `exists` about the local tree), so two runs can mint one 3-char id for two different ticks. git presents this as add/add with an empty base; the driver cannot parse it and exits non-zero, so git records a conflict instead of fusing two unrelated ticks through the field merge. Pinned by `TestMergeFileRefusesAddAdd`. The operator, however, sees `failed to read base: unexpected end of JSON input` and a usage dump — neither the collision nor the fix |
+| a tick claimed by both runs | not reachable by dispatch | a tick has one parent; each run dispatches its own epic's subtree. A tick shared as a cross-epic `--blocked-by` is *read* by both and closed by one — the merge driver's monotonic status rank already handles that |
+| `.tick/learnings.md` | conflicts, and dangerously | the retro **compacts** the file (rewrite under a 150-line cap), so two closeouts rewrite the same lines with no driver; a careless resolution silently drops the other epic's rules |
+| `.tick/config.md`, `.tick/runners.toml`, `CHANGELOG.md` | ordinary text conflicts | shared prose, resolvable, and already expected between two ticks in one wave |
+| `tick-run/<epic>`, `tick/<epic>/<tick>` | no conflict | separate refs, epic-namespaced, pushed independently; git updates refs atomically per ref |
+| merge into the default branch | **the serialisation point** | below |
+
+**The merge drivers are local git config, and GitHub does not have them.** This
+is the finding that decides the shape. `merge=tick` and `merge=tick-activity`
+resolve to commands in `.git/config`, installed by `tk init` in a checkout;
+GitHub's server-side merge runs neither. Verified: two branches appending
+different lines to `activity.jsonl` merge clean with the driver and conflict
+without it. Serial epics never hit this — the second branches off the first's
+merge, so only one side has touched the tail. Two concurrent epics both append
+from a shared base, so **every second concurrent epic PR conflicts on
+`activity.jsonl` on the server** and has to be resolved in a checkout that has
+the driver. Nothing is corrupted; a step that is invisible today becomes
+mandatory, and it is mandatory on the human's path, not the run's.
+
+So the honest inventory is: the tracker is *nearly* concurrency-safe by
+construction, and the three things that are not — id minting, the compacted
+`learnings.md`, and the driverless server-side merge — are all at **closeout**,
+not during the run.
+
+#### Lease granularity
+
+| Option | What it gives | What it costs |
+|---|---|---|
+| **A. Project-exclusive** (today) | D4 with no reasoning required; one writer, one PR, one Telegram thread | a serial factory |
+| **B. Per-epic lease + a narrow tracker-write lease** | concurrent runs; the commit to `.tick/` serialised globally | the lease has to be taken across a *container's* git operations, which the control plane cannot see or fence. Rebuilds a distributed write lock over git — the thing git already solved |
+| **C. Per-epic lease + per-run branch, merged at closeout** | concurrent runs; contention handled by the tool built for it | the closeout seams above become load-bearing, and the merge into the default branch still serialises |
+
+**C is the shape**, because it is what the run already does: each run commits to
+`tick-run/<epic-id>`, pushes it continuously, and merges at closeout behind the
+PR + CI gate. Concurrency does not need a new mechanism, only permission — and
+the seams closed.
+
+The correct restatement of D4 is therefore: **what must be exclusive is the
+merge of tracker state into the default branch, not the run.** That is already
+serialised by something outside the factory — GitHub merges one PR at a time
+into one branch, and this repo's rule requires green CI on each — so the second
+epic's PR rebases onto the first and re-runs CI. That is the cost, and it is a
+CI run, not a lock.
+
+#### Decision: serial by default, as policy rather than as an axiom
+
+Concurrency stays **off**, with the cap expressed as a number that defaults to
+today's behaviour instead of as a property of the architecture:
+
+- The RunRoom lease becomes an **N-slot lease** — the same compare-and-delete
+  release, the same alarm expiry, the same refusal naming the holders, with
+  `slots` instead of a single row. `N = 1` is today's refusal, byte for byte.
+- `N` comes from `[orchestration].max_concurrent_runs` in the project's
+  `.tick/runners.toml`, **default 1**, read by the dispatcher at submission.
+  It is dispatch policy, so it lives in versioned config and is enforced in the
+  control plane, never in a prompt (D14) — the same rule `max_parallel` now
+  follows on the claim path.
+- A second ceiling is the deployment's: `max_instances = 3` in the factory's
+  `wrangler.toml` bounds concurrent containers **across all projects**, and the
+  headroom above one run exists for the overlap a reboot creates. A factory-wide
+  `FACTORY_MAX_CONCURRENT_RUNS` refuses at submission with a logged dispatch
+  reason (D20) rather than letting a container start fail minutes later. The
+  arithmetic a cap has to respect is `sum over runs (1 orchestrator +
+  max_parallel workers)`: `max_parallel` is per epic, so two concurrent epics
+  multiply the wave width as well as the orchestrators.
+
+**Why not raise the default now.** Every seam that concurrency stresses is at
+closeout, which is exactly where a run is least supervised: the operator is
+asleep, and a botched `learnings.md` compaction or a silently dropped tick is
+discovered days later. A collision would also be rare enough to be untested in
+practice — 3-char ids and a retro that usually works — which is the profile of
+a bug that lands once, in the dark, on the tracker itself. Serial costs latency;
+concurrent-before-the-seams costs correctness on the one file that records what
+the factory did.
+
+**What becomes possible when the default rises**, and what stays serialised:
+two epics ignite, run and push independently, ask questions independently, and
+report independently. Their merges into the default branch remain one at a time,
+their `.tick/` conflicts are resolved by the drivers in a checkout that has
+them, and the second PR pays a CI re-run.
+
+#### Prerequisites (each a tick, none large)
+
+1. **Tick ids survive concurrent minting.** Either mint with a per-run
+   discriminator, or teach the driver to *name* the collision: an add/add on
+   `.tick/issues/<id>.json` should say "two runs minted `<id>` for different
+   ticks; rename one" instead of a JSON parse error. Failing closed is already
+   proven; being legible is not.
+2. **The retro appends, or merges, but does not blind-rewrite.** Compaction on a
+   concurrent branch must reconcile against the base it forked from — or move
+   compaction out of closeout and into a periodic, single-writer pass.
+3. **The driverless server-side merge is handled once, not per incident.**
+   Either the closeout rebases the run branch onto the default branch (in the
+   container, where the drivers are installed) before opening the PR, or a CI
+   job resolves `.tick/` conflicts with `tk merge-file` / `tk merge-activity`.
+4. **The N-slot lease**, with `[orchestration].max_concurrent_runs` (default 1)
+   and the factory-wide ceiling above it.
+5. **`status` shows the project's slots**, not a boolean: which runs hold them,
+   which submissions are queued behind them, and the two caps that produced the
+   number.
+
+#### Telegram across concurrent epics
+
+Gates carry run/tick/epic identity, and the machine path is already
+epic-agnostic in the right way:
+
+- **Buttons are unambiguous, and stay so.** Callback data is `q:<question-id>:<n>`
+  (or `r:<message-id>:<n>` for ids too long for Telegram's 64-byte limit), and
+  the webhook resolves it against the RunRoom entry with that id. Two epics in
+  one project change nothing: a press names one question.
+- **Reply-to is unambiguous, and becomes the common path.** In a group with bot
+  privacy mode on — the recommended configuration for topics — the bot only sees
+  commands and replies to its own messages, so a free-text answer is
+  reply-scoped by construction.
+- **The bare-text rules hold for N epics as written**, because they count *open
+  questions*, not projects: exactly one open question anywhere resolves it, two
+  or more must refuse and list the candidates. What must change is the list —
+  candidates are named by **project + epic + tick**, since "two open questions"
+  in one project is now a normal state rather than a sign of two repos.
+- **A topic is a project, not an epic.** Forum topics are created at enrolment
+  and are the project's durable identity; an epic is transient, and per-epic
+  topics would churn the sidebar and leave project-scoped traffic — UC2 triage
+  drafts, dispatcher refusals, budget alerts — with no topic to land in. Epic
+  identity belongs in the message text, which every gate, report and completion
+  must carry anyway for a shared chat to be legible at all.
+
+**Decisions forced.**
+
+- **What is exclusive is the tracker's merge into the default branch, not the
+  project.** D4 stands as a rule about writers; it stops being a rule about runs.
+- **Concurrency is a number with a default of 1.** Shipping the slot lease
+  without raising the default is the whole point: the refusal stays exactly as
+  it is today, and turning it on later is a config change against seams that
+  have been closed on purpose rather than a re-argument of this section.
+- **The caps live with the dispatcher.** Per-project in versioned config,
+  factory-wide in the deployment, both enforced at submission with a logged
+  reason — never in a prompt, and never discovered when a container fails to
+  start.
+- **Telegram needs legibility, not new arbitration.** Ids already disambiguate
+  the machine path; epic identity in the message text and in the refusal list is
+  what the human needs.
 
 ### UC2 — Telegram, directly
 
@@ -976,12 +1275,46 @@ Three rules keep it useful rather than voluminous:
   troubleshooting session starts from a known failure mode, and new incidents
   that fit no name are themselves a signal (the taxonomy grows by documented
   incident, as it always has here).
-- **`tk factory trace <tick|run>` is the debugging UX.** One command pulls
-  the joined story across all six layers for one ID — signal → dispatch
-  decision → workflow steps → harness log tail → gateway spend → tracker
-  notes — because a headless factory's operator debugs from the same terminal
-  the factory freed them from. `tk factory logs --follow <run>` tails a live
-  run (R2 stream + `wrangler tail` under the hood).
+- **Two commands read the two records; a joined view comes later.** The
+  layers above produce two different kinds of evidence for one run, and they
+  are read by two commands rather than one, because a harness that crashed and
+  a model that decided badly are different failures:
+
+  - `tk cloud logs <run>` — the harness stream in R2: what the container
+    printed. Readable mid-run (that is why the stream is segments), bounded
+    from the END with the bound stated, since the tail is what a run being
+    debugged is read for. Every container has one, not just the orchestrator:
+    a wave's per-tick workers each stream to their own `artifacts/<tick_id>/
+    harness/` key — one shared key would interleave a batch into nonsense —
+    and `--tick <id>` reads one of them. The default read names the streams
+    that exist.
+  - `tk cloud trace <run>` — the model conversation from AI Gateway, filtered
+    on the `run_id` the proxy stamps: message roles, tool calls and their
+    arguments, tokens in/out and cached per call, cost per call. `--call N`
+    dumps one exchange in full, `--tools` lists just the tool calls, `--cache`
+    is the per-call prefix-cache table, `--json` the raw rows.
+
+  Two things about `trace` are not obvious and cost real time when guessed at.
+  **Responses are streamed**, so a logged response body carries
+  `choices[0].message.content: null` and `tool_calls: null` — reading it and
+  concluding the model emitted nothing is wrong. What the model said is
+  reconstructed from the assistant messages inside each REQUEST body,
+  deduplicated across calls: an agentic harness replays the whole conversation
+  every call, so call N's request holds every turn up to N-1. And **the prefix
+  cache is only measurable from `usage_metadata.input_cached_tokens`** on the
+  log row, which is what makes `--cache` the answer to "is caching actually
+  hitting" (tick l8z) — per call, because one changed token near the head of
+  the prompt invalidates the prefix and an average hides exactly that swing.
+
+  `trace` reads the operator's own gateway directly with the Cloudflare API
+  token `tk factory setup --cloudflare-api-token` installs, so it works
+  against a factory whose Worker is wedged. A factory without that token
+  routes and attributes model traffic but has no trace and no cost budget;
+  the refusal says so and names the remedy, because "no trace" must not read
+  as "no factory". The joined story across all six layers for one ID — signal
+  → dispatch decision → workflow steps → harness log → gateway spend →
+  tracker notes — is still the destination, and `--follow` for a live tail
+  with it.
 - **Redact at the front door, retain by tier.** Secrets never enter any log
   (webhook payloads are digested, tokens are IDs); harness logs and events
   are the user's own code in their own account and are kept verbatim.
@@ -1015,10 +1348,11 @@ Collected from the use cases; each appears above in context.
 | D18 | Implementer harnesses stay CLIs in sandboxes, pluggable via the kind×tier table (pi/omp = the vendor-neutral kinds; omp the candidate cloud default for its subagents, config inheritance, and memory); programmatic agents serve only tool-less control-plane calls, and a matured Think/Flue harness may join as another kind, never as a rewrite | harness choice |
 | D19 | The cloud substrate is drivable by any orchestrator location: the run API doubles as `tk cloud spawn/wait/collect/reconcile` for local orchestrators, enrolled projects share one RunRoom lease across local and cloud runs, and handoff in either direction is submission + reconcile, never bespoke machinery | local orchestrators |
 | D20 | One trace ID (`signal_id`/`run_id`/`tick_id`) threads every layer; harness output streams to R2 during the run (diagnostics), never export-at-exit; every dispatch refusal is logged with its policy reason; failure events use the named taxonomy; `tk factory trace` joins the story across layers | observability |
-| D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input | UC1b |
+| D21 | Operator → cloud orchestrator is a closed command vocabulary (`run`, `stop`, `status`, `answer`) on three transports (terminal, Telegram, GitHub) arbitrated by the RunRoom DO — never a chat, a prompt injection, or a mid-run mutation channel. The tracker is read at run start, not during; steering is stop → edit → restart, riding the reconcile path. `stop` is enforced at the Workflow/gateway layer so it survives a wedged orchestrator. On Telegram, commands are parsed and free text is triaged, with an unrecognized `/command` an error rather than triage input. Read-only observation (`tk cloud status`/`logs`/`trace`) is a separate axis and does not widen this vocabulary: it reads records the run already wrote and cannot reach the orchestrator at all | UC1b |
 | D22 | Ignition on a leased project refuses with the holder's run ID; `--queue` is the opt-in park-and-ignite-on-release, visible to `status` and expiring on a configurable window | UC1b |
 | D23 | A run's terminal state is decided against durable evidence (the remote's refs before and after), never against the harness's exit status: `completed` means the epic moved, `stopped` means the run ended without moving it, and an unreadable remote is recorded as `unknown` rather than as either | UC1, axiom 1 |
-| D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
+| D24 | Prompt caching is a first-class cost lever: the gateway Worker sets `x-session-affinity` to the run id so a run's calls keep reaching the model instance holding its cached prefix, and everything the factory injects at the head of the message array is a function of the run rather than of the moment (checked in `internal/sandbox/prompt_prefix_test.go`). The key stays per RUN, not per conversation, on measurement: a fan-out run's subagents cache better together than the orchestrator does alone, and a per-conversation key tested within noise of a shared one while handing the agent influence over its own instance (tick fxf). The gateway's response cache stays off — an agentic loop never repeats a request | model access |
+| D25 | Two epics at once on one repo is a policy question, not an architectural one: what must be exclusive is the tracker's merge into the DEFAULT BRANCH, not the run, so the project lease becomes an N-slot lease with `[orchestration].max_concurrent_runs` (default 1 — today's refusal, unchanged) under a factory-wide ceiling bounded by `max_instances`. Concurrency stays off until the three closeout seams close: ids are minted per checkout, the retro compacts `.tick/learnings.md` by rewrite, and GitHub's server-side merge has none of the tick merge drivers. Telegram needs legibility (project + epic + tick on every gate, report and refusal list), not new arbitration — button and reply-to answers are already id-scoped | UC1c |
 
 ## What this is *not*
 
@@ -1098,6 +1432,87 @@ Collected from the use cases; each appears above in context.
    their transports in Phase 3.
 2. **Phase 2 — real fan-out.** Per-tick worker sandboxes; substrate `cloud` in
    `runners.toml`; reconcile-on-reboot; `run_event` producers; R2 artifacts.
+   Landed so far: the dispatch mechanism (0ds), the worker entrypoint (tap),
+   the Run Workflow call site (b6e) that fans a submitted wave out into
+   per-tick containers instead of one orchestrator running harness-native
+   subagents, and the `cloud` substrate value itself (ddv) — a repository can
+   now *declare* `[orchestration].substrate = "cloud"` and `tk` agrees it means
+   something: it validates, it resolves terminally (herdr is never probed,
+   because the value says *where the workers run* and a local herdr server
+   cannot change that), `TICKS_SUBSTRATE` overrides it in both directions, and
+   `tk herd spawn` refuses it with exit 9 rather than putting a local pane on a
+   branch a container is already pushing to. The **local** dispatch path
+   landed with it (D19, tick bmo): `tk cloud spawn/wait/collect/reconcile`
+   mirrors the `tk herd` verb family, so a laptop session drives worker
+   containers with the loop it already runs — spawn submits the wave as
+   `tick_ids`, wait settles on the report each container pushed, collect reads
+   the four verdicts off the pushed branches (plus `unknown` for evidence that
+   could not be read), and reconcile classifies a wave after the orchestrator
+   dies without ever proposing a second worker for a live tick. The lease is
+   the same lease: a locally-driven submission takes the project's RunRoom
+   lease with `origin: local`, an un-enrolled project keeps the local file
+   lease and is refused with that reason, and a checkout with no factory
+   configured makes no network call at all. `tk cloud spawn` also refuses a
+   run that dispatches herdr panes, with the same exit 9 — the two dispatch
+   verbs each refuse the other's substrate. The operator's own ignite verb
+   reaches the same path: `tk cloud run <epic> --tick-ids a,b,c` (tick pjq)
+   carries a wave into a cloud-orchestrated submission, and refuses `--queue`
+   alongside it for the reason the factory does — a parked submission is
+   stored without its wave. NOT landed: *computing* that wave; neither
+   `tk cloud run` nor `tk cloud spawn` derives a readiness set, both take the
+   one the orchestrator computed.
+
+   *As built, verified at final review (tick oun, 2026-08-22):* every claim
+   above checks out in the code and its tests — the green-start trap checks
+   probe CONTENT not exit code (`worker-dispatch.ts`'s `evaluateProbeOutput`),
+   confirmed dispatch waits for the probe marker before counting a container
+   launched, and expiring liveness re-probes a worker's process state
+   immediately before `killProcess`/`destroy` rather than trusting an earlier
+   observation (`teardownWorker`). `reconcile.ts`'s evidence order (manifests →
+   git → live sandbox list) is real and a live worker is never redispatched,
+   whatever its branch looks like. The lease genuinely is one lease:
+   `cloud_spawn.go` acquires the RunRoom lease with `LeaseOrigin: local`, the
+   same DO an origin-`cloud` run takes, and `internal/cloud/lease.Resolve`
+   never makes a network call when no factory is configured. `run_event` stays
+   observability — no route in `index.ts` exposes `publishRunEvents` to an
+   inbound caller, it is DO-internal to the Run Workflow's own emission calls,
+   and it never throws. `go test ./internal/cloud/... ./internal/sandbox/...`,
+   `go test ./cmd/tk/cmd/... -run TestCloud`, and `cd cloud/factory && npx
+   vitest run` (531/531) all pass clean at this SHA.
+
+   What this review could NOT do is the live half of "verify against a REAL
+   deployment and a REAL multi-container wave" the way tick kuf's benchmark or
+   Phase 1's final review did: the deployed factory
+   (`ticks-factory.pe-1a0.workers.dev`, confirmed live and healthy via
+   `GET /health`) 404s on `GET /api/observe` — the route tick t9s added — which
+   means it has not been redeployed since wave 6, so none of wave 6's or wave
+   7's code (bmo/s7f/t9s/k24/ddv/pjq/074) has ever run against real Cloudflare
+   infrastructure; every "as built" claim for those ticks rests on
+   `vitest`/`wrangler dev`/local Docker (`docs/sandbox-start-benchmark.md`
+   says so explicitly: "The backend is Docker on the operator's own host, not
+   Cloudflare"). The factory's own run history (`GET /api/runs`) has nothing
+   dispatched after tick b6e's per-tick containers landed, either — the most
+   recent real run (`run_a1f8759...`, epic gj9, 2026-08-21T10:44–12:14)
+   predates b6e by eleven hours and is exactly the "reports stopped, not
+   completed" symptom tick 074 was filed to fix. A reviewer without `tk`
+   access and without authority to redeploy shared production infrastructure
+   cannot close this gap; it is recorded here as what final review found
+   rather than silently assumed away, the way b6e's four gaps were. The
+   follow-up is mechanical: `tk factory deploy`, then a real `tk cloud run` on
+   a small multi-tick epic, then read `tk cloud status`/`tk factory dashboard`
+   against it.
+
+   **Every wave fans out, not just the first (tick wiy).** The review above
+   found that `context.cloud_wave` was resolved once from the submitted
+   `tick_ids` and never re-derived, so waves 2+ of a multi-wave epic ran as
+   harness subagents inside the closeout orchestrator's single sandbox. That is
+   now the alternating loop in `superviseWaveLoop`: a container wave, then an
+   orchestrator pass in the new `wave` phase that integrates what the wave
+   pushed and computes the next one, then that wave, and so on until a pass
+   asks for none — which is how a cloud run now ENDS. See "Where does
+   `wave.Compute` run for the dispatcher?" below for why the readiness half
+   runs in Go inside the container rather than as a TypeScript port, and
+   `src/wave-request.ts` for why the in-run dispatch needs no second lease.
 3. **Phase 3 — signals.** The funnel + UC2/UC3/UC6 ingestion, webhook-mode
    Telegram, `external_ref` dedup, and the Telegram/GitHub rungs of UC1b's
    command vocabulary (BotFather command registration, the parse-vs-triage
@@ -1111,11 +1526,79 @@ Order rationale: each phase is independently useful, and the risky loops
 
 ## Open questions
 
-- **Where does `wave.Compute` run for the dispatcher?** Port the (small, pure)
-  Go library to TS in the Worker, or have the dispatcher only *count* ready
-  ticks and leave graph computation to the orchestrator sandbox. Leaning to
-  the latter — the dispatcher needs "is there ready work under this filter,"
-  not the full wave structure.
+- **Where does `wave.Compute` run for the dispatcher?** DECIDED (tick wiy): it
+  runs **inside the orchestrator**, which is the second of the two branches
+  UC7's own sentence left open ("it compiles to the Worker via a thin port or
+  runs inside the orchestrator, decision deferred"). Not in the Worker.
+  `RunWorkflowParams.tick_ids` carries an already-resolved wave in from the
+  submission, and readiness is computed where `tk graph`/`wave.Compute`
+  already runs correctly and is already tested — the submitter — rather than
+  ported a second time into TypeScript (`.tick/learnings.md`'s "Cross-language
+  parity, parsers and formats" is exactly the failure class a second port
+  risks). What is still open: computing the wave.
+  `tk cloud spawn --ticks` (tick bmo) and `tk cloud run --tick-ids` (tick pjq)
+  both reach the submission field from the CLI, so `tick_ids` is no longer
+  reachable only by calling `POST /api/runs` directly — but each takes a wave
+  the orchestrator has already computed rather than computing one. Neither
+  accepts a wave alongside `--queue`: the queued-submission record has no
+  `tick_ids` column, so a parked cloud-wave submission would ignite as a plain
+  single-sandbox run with the fan-out silently dropped, and both the edge (400)
+  and the CLI (before the push) refuse the pair instead. A submitter that wants
+  ITERATIVE fan-out (wave 2 after wave 1 merges, not just one wave per run) IS
+  addressed, by tick wiy, and it is what settled the question above. The
+  orchestrator container holds the real Go `tk`, so it computes its own next
+  wave with `tk graph`/`tk next` against the tracker state it has just merged —
+  which is also the only place that state exists, since nothing upstream of the
+  container knows what the integrated gate accepted. It cannot boot containers
+  (only the Worker holds the `SANDBOXES` binding), so `tk cloud spawn` from
+  inside a run RECORDS the wave with the run's own supervisor
+  (`POST /api/wave`) and the Workflow dispatches it through the same
+  checkpointed, budget-enforced, revocable path the submitted wave takes. A run
+  therefore alternates: wave → `wave`-phase orchestrator pass → wave → … until
+  a pass requests none, which is the run's clean ending. Bounded by
+  `MAX_RUN_WAVES`, and every wave answers to the same budget and stop checks
+  the first one does.
+
+  **The lease, and why D4 is untouched.** The in-run dispatch never acquires a
+  lease. A cloud run already holds its project's, so a second submission would
+  be refused by its own run — and granting it one would break "one arbiter per
+  project" from inside the run the arbiter exists to protect. The endpoint
+  verifies the caller IS the holder instead: the credential is the run's own
+  gateway token (so the token decides which run is speaking, and a container
+  cannot name a run it is not), the run must still be active, and the RunRoom
+  must still name it as the project's lease holder. That is a stricter rule
+  than the local path's, not a looser one — `tk cloud spawn` from a laptop
+  TAKES a lease, while this path has to already be the arbiter. The same
+  credential choice is what makes an operator's stop reach dispatch: revoking
+  the run's gateway token kills its ability to request a wave exactly as it
+  kills its ability to spend (D17).
+
+  **The wave itself is checked too (tick kya).** Everything above is about the
+  caller; `tick_ids` was originally taken as given, while `tk cloud spawn` at
+  the other door refuses a tick that does not belong to the epic. Both doors
+  now make that refusal. The Worker has no checkout, but it does not need one:
+  a tick's record is a tracked file (`.tick/issues/<id>.json`) naming its
+  `parent`, and this Worker already reads tracked files at a commit through
+  GitHub's contents API — so membership is the same ancestor walk Go makes,
+  asked of `base_sha`, which is the tree the wave's containers are about to
+  clone and read each tick out of. A tick outside the epic is a 400 naming it.
+  A tracker the Worker cannot READ (GitHub errored, no `.tick/` at that commit,
+  a record its parser does not understand) does NOT refuse the wave: this is a
+  second reader of a Go-owned format, the same position `[sandbox].image`
+  reading is in, and the rule there applies here — a file it cannot read must
+  not fail a run on its own authority. The layout the two readers share is
+  pinned by a fixture from both suites, so a change in Go cannot silently turn
+  every verdict into "unreadable".
+
+  What is still open: the wave a run STARTS with is still the submitter's.
+  `tk cloud run --tick-ids` and `tk cloud spawn` both take a wave the
+  orchestrator computed rather than computing one, and neither accepts a wave
+  alongside `--queue` (the queued-submission record has no `tick_ids` column,
+  so a parked cloud-wave submission would ignite as a plain single-sandbox run
+  with the fan-out silently dropped; the edge answers the pair with a 400 and
+  the CLI refuses it before the push). A submission that computed its own first
+  wave — or a `tk cloud run` with no wave at all that fans out from pass 1 —
+  is the remaining follow-up.
 - **Multi-repo projects.** Everything above assumes project == one repo (as
   `internal/github` project detection does today). Factory 2.0-style
   cross-repo signals are out of scope until a real use case forces the issue.

@@ -13,8 +13,8 @@ compatibility_flags = ["nodejs_compat"]
 
 # One RunRoom per project (idFromName(project)) — the dispatch lease is per
 # project, so an epic-scoped room would hand every run its own lease and
-# arbitrate nothing (D4, D19). It owns the lease and the pending-question store
-# today; reconcile alarms and run_event fan-out land with later phases.
+# arbitrate nothing (D4, D19). It owns the lease, the pending-question store and
+# the run_event fan-out to the board (tick bne); reconcile alarms land later.
 [[durable_objects.bindings]]
 name = "RUN_ROOMS"
 class_name = "RunRoom"
@@ -104,14 +104,67 @@ RUN_QUEUE_TTL_MS = "1800000"
 # first uncapped run billed $49.80 against a $25 ceiling because the cost query
 # stopped after one page (see cts); a runaway under these numbers costs single
 # digits. Raise them once a measured run shows what real work actually costs.
-RUN_MAX_WALL_CLOCK_MS = "2700000"
-RUN_MAX_COST_USD = "8"
+#
+# The wall clock is that raise, and the measurement asked for it (tick 5fg).
+# Forty-five minutes could not hold ONE tick: y45 recorded a complete one-tick
+# epic at 78 minutes on `deepseek-v4-pro`, and per-tick containers then ran
+# *flash*, which takes more steps. A run submitted with `--max-wall-clock 90m`
+# was silently clamped to 45 here and its three workers were killed at ~29
+# minutes with 393+ model calls each and nothing committed. Four hours holds a
+# couple of batches of real ticks plus orchestration; the COST ceiling below is
+# unchanged and remains the bound that protects the money.
+RUN_MAX_WALL_CLOCK_MS = "14400000"
+RUN_MAX_COST_USD = "40"
 # How long the in-flight work has to land before a clean stop kills the
 # orchestrator. Nothing durable is lost either way — tracker state is committed
 # to the run branch — but a tick that is one commit from done deserves it.
 RUN_STOP_GRACE_MS = "300000"
 # A closeout that has not closed out in this long is not going to.
 RUN_CLOSEOUT_MS = "1800000"
+
+# The account's container ceiling, mirrored (tick b6e): must equal
+# `[[containers]] max_instances` above. Wrangler does not hand a container
+# application's own config back to the Worker at runtime, so a cloud wave's
+# dispatch width — bounded so it never books more concurrent containers than
+# the account can actually run — needs its own copy of the number. Raise both
+# together, bounded by the account's real container limit, or a wave wider
+# than this silently serializes exactly the way wave 3 measured for Phase 1.
+FACTORY_MAX_INSTANCES = "3"
+
+# Which harness and model a per-tick WORKER container runs (tick 1cd). Left
+# unset on purpose: the default lives in `src/worker-boot.ts`
+# (`WORKER_DEFAULT_HARNESS` = `omp`, `WORKER_DEFAULT_MODEL` =
+# `workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813`) so an unconfigured
+# deployment still boots a worker that can reach the gateway — the repository's
+# own `[roles.implement]` routes to Anthropic and this gateway serves Workers
+# AI only (tick ys3). What these vars buy is that the choice is no longer a
+# SOURCE EDIT: before them, changing the worker model meant editing TypeScript
+# and redeploying the factory.
+#
+# The default moved flash -> pro on run_215b7cbff9's evidence: three real ticks
+# at 90 minutes each on `deepseek-v4-flash-0731` and only ONE converged (201
+# and 5qj both hit the bound at exit 124 with no work commits). Pro costs
+# roughly 3x flash per completed tick on y45's model ($0.851 against $0.283)
+# and caches worse under load (12/24 post-warm hits against flash's 23/23), so
+# the real multiple on a long run is worse than 3x — but a worker that does not
+# converge costs 100% of its tokens for 0% of the work, which is the comparison
+# that decided it. Both models are Workers AI, so both stay on the credit.
+#
+# Set RUN_WORKER_MODEL to route a wave of small ticks back to flash. Order is
+# run submission (`--model`/RUN_MODEL) > this var > the built-in default.
+#
+#   RUN_WORKER_MODEL = "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731"
+#   RUN_WORKER_HARNESS = "omp"
+
+# Where a run's live `run_event` stream is forwarded so a board can draw it
+# (tick bne). Left unset on purpose: a factory is self-deployed into the
+# operator's own account and runs identically with no board — the stream is
+# observability, never authority, so an unconfigured board costs a run nothing
+# and a board that is down costs it nothing either. A deployment that wants a
+# live board sets the base URL here and puts the credential in a secret
+# (`wrangler secret put BOARD_TOKEN`), never in this tracked file.
+#
+#   BOARD_BASE_URL = "https://<your-board-host>"
 
 # The Run Workflow: one instance per run, keyed by run id, so one trace ID
 # threads every layer (D20) and `status` finds the instance with no extra

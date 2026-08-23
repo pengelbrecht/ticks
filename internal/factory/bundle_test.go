@@ -237,8 +237,12 @@ func TestSandboxContextShipsTheImage(t *testing.T) {
 		have[p] = true
 	}
 	// What the Dockerfile COPYs, plus the Dockerfile: the build context is
-	// the image, and an image missing its entrypoint boots into nothing.
-	for _, want := range []string{"Dockerfile", "entrypoint.sh", "preflight.sh"} {
+	// the image, and an image missing an entrypoint boots into nothing. Both
+	// roles' entrypoints and the common half they source have to be here —
+	// one image serves orchestrator and per-tick worker (tick x3v), and a
+	// worker.sh that never shipped is a wave of containers with nothing to
+	// run.
+	for _, want := range []string{"Dockerfile", "entrypoint.sh", "worker.sh", "common.sh", "preflight.sh"} {
 		if !have[want] {
 			t.Errorf("the embedded image context is missing %s (got %v)", want, SandboxPaths())
 		}

@@ -49,6 +49,7 @@ import { modelRoutingComplaint, revokeRunTokens } from "./gateway";
 import type { Env } from "./index";
 import type {
   DispatchLeaseView,
+  LeaseOrigin,
   PendingEntry,
   QueuedSubmission,
   RunRoom,
@@ -118,7 +119,19 @@ export const MIN_QUEUE_TTL_MS = 100;
 export const MAX_QUEUE_TTL_MS = 86_400_000;
 
 /** A pushed commit, in full 40-hex form — the submission boundary is a pushed SHA (D3). */
-const BASE_SHA_PATTERN = /^[0-9a-f]{40}$/;
+export const BASE_SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+/** A tick id: 3-4 lowercase base36 characters, mirroring `internal/tick.IDGenerator`. */
+export const TICK_ID_PATTERN = /^[a-z0-9]{3,4}$/;
+
+/**
+ * The most ticks one cloud wave may name (tick b6e).
+ *
+ * Generous relative to any real wave `wave.Compute` would ever produce, and
+ * bounded regardless: an unbounded array in a submission is a small denial
+ * lever for no legitimate gain.
+ */
+export const MAX_WAVE_TICKS = 64;
 
 /**
  * The canonical `owner/repo` project pair.
@@ -144,11 +157,34 @@ export type RunWorkflowParams = {
   requested_by: string;
   notify?: string;
   /**
+   * This submission's own budget (tick wn5), bounded by the deployment ceiling
+   * when the Workflow builds its config. Absent means "the deployment's".
+   */
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
+  /**
    * The dispatch lease's release credential. The Workflow renews it while the
    * run lives and releases it at finalize; nobody else ever sees it, which is
    * what compare-and-delete release depends on.
    */
   lease_token: string;
+  /**
+   * A wave of ticks to run as per-tick cloud worker containers (tick b6e),
+   * rather than the Phase 1 default of one orchestrator sandbox that fans
+   * subagents out inside itself.
+   *
+   * Absent (or empty) is the unchanged Phase 1 path — this is an ADDED path,
+   * not a replacement. Populating it is the caller's job: readiness — which
+   * ticks are unblocked right now — is `wave.Compute`/`query.Ready`'s answer
+   * in Go, already correct and already tested, and porting it a second time
+   * into this Worker is exactly the class of drift `.tick/learnings.md`
+   * warns against ("a fix landed in TypeScript only... both suites green
+   * because each was internally consistent"). So the wave is computed where
+   * `tk graph` already runs — the submitter — and carried in, the same way
+   * `max_cost_usd`/`max_wall_clock_ms` carry a per-submission decision the
+   * deployment did not make for it.
+   */
+  tick_ids?: string[];
 };
 
 export type WorkflowInstanceStatus = { status: string; error?: unknown; output?: unknown };
@@ -196,6 +232,28 @@ export type RunSubmission = {
   notify?: string;
   queue: boolean;
   queue_ttl_ms?: number;
+  /** `tk cloud run --max-cost`: this run's cost ceiling, never above the deployment's. */
+  max_cost_usd?: number;
+  /** `tk cloud run --max-wall-clock`: this run's clock, never above the deployment's. */
+  max_wall_clock_ms?: number;
+  /** The wave of ticks to fan out as per-tick cloud worker containers (tick b6e). */
+  tick_ids?: string[];
+  /**
+   * Where the orchestrator that submitted this run sits (D19, tick bmo).
+   *
+   * The cloud substrate is drivable from anywhere: `tk cloud spawn` on a
+   * laptop dispatches worker containers and then drives the wave locally, and
+   * that submission takes the SAME RunRoom lease a Workflow-hosted run takes —
+   * one project, one arbiter, whatever the orchestrator's location. This field
+   * is what makes the two distinguishable afterwards, and it matters at
+   * exactly the moment someone is refused: "held by run X (local)" tells an
+   * operator their own laptop session is in the way, while "(cloud)" tells
+   * them the 06:00 sweep is, and those are different next actions.
+   *
+   * Absent means `cloud`, which is what every submission before this field
+   * was.
+   */
+  origin?: LeaseOrigin;
 };
 
 export type SubmissionParse =
@@ -274,6 +332,52 @@ export function parseSubmission(body: unknown): SubmissionParse {
     queueTtl = value as number;
   }
 
+  // A budget the factory quietly dropped is worse than one it refused: the
+  // operator would believe the run is bounded and it would not be. So an
+  // unusable value is a 400, not a fallback to the deployment ceiling.
+  let maxCost: number | undefined;
+  const costComplaint = budgetField(raw.max_cost_usd, "max_cost_usd", false, (v) => (maxCost = v));
+  if (costComplaint !== null) return { ok: false, detail: costComplaint };
+
+  let maxWallClock: number | undefined;
+  const clockComplaint = budgetField(
+    raw.max_wall_clock_ms,
+    "max_wall_clock_ms",
+    true,
+    (v) => (maxWallClock = v)
+  );
+  if (clockComplaint !== null) return { ok: false, detail: clockComplaint };
+
+  let tickIDs: string[] | undefined;
+  const tickIDsComplaint = tickIDsField(raw.tick_ids, (v) => (tickIDs = v));
+  if (tickIDsComplaint !== null) return { ok: false, detail: tickIDsComplaint };
+
+  // An origin that cannot be parsed is refused rather than defaulted: the
+  // value's whole job is to say truthfully who holds the lease, and a
+  // submission whose claim about itself was silently rewritten to "cloud"
+  // would make a refusal name the wrong kind of orchestrator.
+  let origin: LeaseOrigin | undefined;
+  if (raw.origin !== undefined && raw.origin !== null) {
+    if (raw.origin !== "local" && raw.origin !== "cloud") {
+      return { ok: false, detail: `origin must be "local" or "cloud", got ${JSON.stringify(raw.origin)}` };
+    }
+    origin = raw.origin;
+  }
+
+  // The RunRoom's queued-submission record (D22) has no `tick_ids` column —
+  // queueing is for the project-lease-held case, and adding cloud-wave
+  // support to that path is its own migration. Refusing loudly here is the
+  // honest answer until that lands: silently igniting the queued submission
+  // later on the Phase 1 path, having accepted a wave up front, is exactly
+  // the kind of silent disagreement this tick was written to not repeat.
+  if (raw.queue === true && tickIDs !== undefined) {
+    return {
+      ok: false,
+      detail: "tick_ids cannot be combined with queue: true yet — a queued cloud-wave submission " +
+        "would lose its wave on ignition; submit without queue or without tick_ids",
+    };
+  }
+
   return {
     ok: true,
     submission: {
@@ -284,8 +388,66 @@ export function parseSubmission(body: unknown): SubmissionParse {
       ...(notify === undefined ? {} : { notify }),
       queue: raw.queue === true,
       ...(queueTtl === undefined ? {} : { queue_ttl_ms: queueTtl }),
+      ...(maxCost === undefined ? {} : { max_cost_usd: maxCost }),
+      ...(maxWallClock === undefined ? {} : { max_wall_clock_ms: maxWallClock }),
+      ...(tickIDs === undefined ? {} : { tick_ids: tickIDs }),
+      ...(origin === undefined ? {} : { origin }),
     },
   };
+}
+
+/**
+ * Reads an optional `tick_ids` wave (tick b6e). Absent and an empty array both
+ * mean "no cloud wave — the Phase 1 path applies", so an empty array is
+ * normalized away rather than carried as a distinct, meaningless case.
+ *
+ * Every id is validated against the same shape `internal/tick.IDGenerator`
+ * produces: a submission naming something that cannot be a tick id is a typo
+ * or a forgery, and either way the honest answer is a 400, not a wave that
+ * silently dispatches nothing useful. Duplicates are refused for the same
+ * reason `sandboxNameFor` addresses a sandbox by tick id — two tasks racing
+ * to boot the identically-named container is not "one container per tick".
+ */
+export function tickIDsField(value: unknown, into: (v: string[]) => void): string | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return "tick_ids must be an array of tick ids";
+  if (value.length === 0) return null;
+  if (value.length > MAX_WAVE_TICKS) {
+    return `tick_ids must name at most ${MAX_WAVE_TICKS} ticks, got ${value.length}`;
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string" || !TICK_ID_PATTERN.test(entry)) {
+      return `tick_ids must each be a 3-4 character tick id, got ${JSON.stringify(entry)}`;
+    }
+    if (seen.has(entry)) return `tick_ids named ${entry} more than once`;
+    seen.add(entry);
+    ids.push(entry);
+  }
+  into(ids);
+  return null;
+}
+
+/**
+ * Reads an optional per-run budget. Absent and null both mean "the deployment
+ * decides"; anything else must be a positive number of the right kind, because
+ * the alternative is a run an operator thinks is capped and is not.
+ */
+function budgetField(
+  value: unknown,
+  field: string,
+  integer: boolean,
+  into: (v: number) => void
+): string | null {
+  if (value === undefined || value === null) return null;
+  const usable =
+    typeof value === "number" && (integer ? Number.isSafeInteger(value) : Number.isFinite(value));
+  if (!usable || (value as number) <= 0) {
+    return `${field} must be a positive ${integer ? "integer" : "number"}, got ${JSON.stringify(value)}`;
+  }
+  into(value as number);
+  return null;
 }
 
 /**
@@ -329,7 +491,10 @@ export type StartRunInput = {
   base_sha: string;
   requested_by: string;
   notify?: string;
+  max_cost_usd?: number;
+  max_wall_clock_ms?: number;
   lease_token: string;
+  tick_ids?: string[];
 };
 
 export type StartedRun = { run: Run; workflow: { id: string; status: string } };
@@ -374,7 +539,12 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
         base_sha: run.base_sha,
         requested_by: run.requested_by,
         ...(input.notify === undefined ? {} : { notify: input.notify }),
+        ...(input.max_cost_usd === undefined ? {} : { max_cost_usd: input.max_cost_usd }),
+        ...(input.max_wall_clock_ms === undefined
+          ? {}
+          : { max_wall_clock_ms: input.max_wall_clock_ms }),
         lease_token: input.lease_token,
+        ...(input.tick_ids === undefined ? {} : { tick_ids: input.tick_ids }),
       },
     });
   } catch (error) {
@@ -529,7 +699,9 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
   const lease = await room.acquireDispatchLease({
     run_id: runID,
     epic: submission.epic,
-    origin: "cloud",
+    // The lease is the same lease wherever the orchestrator sits (D19); the
+    // origin only records which side asked for it.
+    origin: submission.origin ?? "cloud",
     requested_by: submission.requested_by,
     ttl_ms: BOOT_LEASE_TTL_MS,
   });
@@ -545,7 +717,14 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
           base_sha: submission.base_sha,
           requested_by: submission.requested_by,
           ...(submission.notify === undefined ? {} : { notify: submission.notify }),
+          ...(submission.max_cost_usd === undefined
+            ? {}
+            : { max_cost_usd: submission.max_cost_usd }),
+          ...(submission.max_wall_clock_ms === undefined
+            ? {}
+            : { max_wall_clock_ms: submission.max_wall_clock_ms }),
           lease_token: lease.lease.token,
+          ...(submission.tick_ids === undefined ? {} : { tick_ids: submission.tick_ids }),
         }),
       };
     } catch (error) {
@@ -584,6 +763,10 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
     base_sha: submission.base_sha,
     requested_by: submission.requested_by,
     ...(submission.notify === undefined ? {} : { notify: submission.notify }),
+    ...(submission.max_cost_usd === undefined ? {} : { max_cost_usd: submission.max_cost_usd }),
+    ...(submission.max_wall_clock_ms === undefined
+      ? {}
+      : { max_wall_clock_ms: submission.max_wall_clock_ms }),
     blocked_by: lease.holder.run_id,
     ttl_ms: queueTtlMs(env, submission.queue_ttl_ms),
   });

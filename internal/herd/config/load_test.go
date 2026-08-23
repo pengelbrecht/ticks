@@ -194,7 +194,7 @@ func TestSchemaNegatives(t *testing.T) {
 		{
 			name:     "unknown substrate",
 			toml:     "[orchestration]\nsubstrate = \"tmux\"\n" + validRole,
-			wantPath: "orchestration.substrate", wantMsg: "not one of herdr, harness, auto",
+			wantPath: "orchestration.substrate", wantMsg: "not one of herdr, harness, auto, cloud",
 		},
 		{
 			name:     "unknown detect",

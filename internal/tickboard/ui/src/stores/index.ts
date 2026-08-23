@@ -41,6 +41,18 @@ export {
   type Epic,
 } from './ticks.js';
 
+// Live run state (observability only — never tick authority)
+export {
+  $liveRun,
+  $liveTicks,
+  applyRunEvent,
+  clearLiveRun,
+  type LiveRun,
+  type LiveTick,
+  type LiveRunState,
+  type LiveTickState,
+} from './run.js';
+
 // Roadmap state
 export {
   $roadmap,

@@ -92,6 +92,17 @@ irm https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.ps1 | iex
 go install github.com/pengelbrecht/ticks/cmd/tk@latest
 ```
 
+Working *on* ticks rather than installing it? Build the dev binary instead —
+it goes to `./bin/tk` and leaves your machine-wide `tk` alone:
+
+```bash
+make build && ./bin/tk --help
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#building) for why, and for the explicit
+opt-in (`TK_ALLOW_MACHINE_INSTALL=1 make install`) needed to replace the
+machine-wide binary.
+
 ### Skill (Claude Code / Codex)
 
 The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan and orchestrate epics.
@@ -241,6 +252,7 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk factory deploy` | Deploy the cloud factory into your own Cloudflare account (see below) |
 | `tk factory setup` | Walk the factory's credential ladder — deployment, GitHub PAT, AI Gateway — verifying each rung live (see below) |
 | `tk factory status` | Report what the factory has configured and whether each credential still works (see below) |
+| `tk factory dashboard` | Watch the factory from a local terminal: runs, phase, harness output, gates and refusals — read-only, and stale-labelled when the factory is unreachable (see below) |
 | `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
 | `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
 | `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
@@ -256,7 +268,8 @@ When an epic runs inside a [herdr](https://herdr.dev) session, the `tk herd` com
 group dispatches implementers as independent, visible herdr agents — any herdr kind,
 cross-vendor (e.g. codex implementers under a claude orchestrator) — instead of the
 orchestrating harness's own subagents. Configure routing in `.tick/runners.toml`
-(`substrate = "herdr" | "harness" | "auto"`, plus per-role kind × model/effort).
+(`substrate = "herdr" | "harness" | "auto" | "cloud"`, plus per-role kind × model/effort;
+`cloud` dispatches containers instead — see [Cloud substrate](#cloud-substrate-drive-worker-containers-from-your-terminal)).
 
 | Command | Description |
 |---------|-------------|
@@ -358,6 +371,71 @@ it cannot confirm it (`--skip-rollout-wait` accepts the unconfirmed state delibe
 The confirmed image is recorded server-side and stamped onto every run, so
 `tk cloud status <run>` names the image that run actually booted.
 
+### Reading a cloud run
+
+Two different records answer "what happened", so there are two commands:
+
+| Command | Reads | Answers |
+|---|---|---|
+| `tk cloud logs <run>` | the harness stream in R2 | what the container printed — a crash, a git failure, a command that never returned. `--tail N` for the last N lines. Readable mid-run. Names the per-tick worker streams the run has; `--tick <id>` prints one worker container's own output. |
+| `tk cloud trace <run>` | AI Gateway logs for that run | what the model said and decided — message roles, tool calls and their arguments, tokens in/out and cached per call, cost per call |
+
+`trace` has flags for the four questions people actually arrive with:
+`--call N` dumps one exchange in full, `--tools` lists just the tool calls,
+`--cache` is the per-call prefix-cache table, and `--json` gives the raw
+gateway rows.
+
+Two things worth knowing about `trace`. Model responses are **streamed**, so
+the logged response body carries no content at all — what the model said is
+reconstructed from the assistant messages inside each *request* body, since a
+harness replays the whole conversation on every call. And the prefix cache is
+only measurable from each row's `usage_metadata.input_cached_tokens`, which is
+what `--cache` reports per call: one changed token near the head of a prompt
+invalidates the prefix, so an average hides exactly the swing you are looking
+for. It reads your own gateway directly, so it needs the Cloudflare API token
+`tk factory setup --cloudflare-api-token <token>` installs.
+
+All three run-scoped reads — `logs`, `trace` and `status <run>` — take a
+**truncated run id**. A run id is `run_` plus 32 hex characters, so anything
+shorter is unambiguously the head of one: it is resolved against the runs the
+factory knows about (the resolution is reported on stderr, so `--json` stays
+parseable), or refused for being a prefix. None of them answers a prefix with
+a negative, because "no calls are stamped with `run_62c289d1`" is true of the
+prefix, false of the run, and reads as "this run has no telemetry".
+
+Both are read-only. They observe a run and cannot steer one, which is why they
+do not widen the closed `run`/`stop`/`status`/`answer` command vocabulary the
+cloud surface is built on.
+
+#### Watching the factory: `tk factory dashboard`
+
+Reading one run after the fact is not the same as watching the factory work.
+`tk factory dashboard` is the cloud counterpart to `tk herd dashboard`, in a
+local terminal, with the same keys and the same fold behaviour:
+
+```
+tk factory dashboard                     # every project with runs
+tk factory dashboard --project owner/repo
+tk factory dashboard --interval 5000 --no-cost
+```
+
+It shows the **runs** (id, project, epic, state, elapsed, cost so far, and who
+holds the project lease), the **phase** each is on — the Workflow state, the
+boot attempt, and the image digest it actually booted — the **harness output**
+tailed live from R2 and following the selection, the **gates** waiting for an
+answer with their tick and, once settled, whether the phone or the terminal
+answered, and the **refusals** from `dispatch_log` with their policy reason, so
+a factory that is declining work explains itself.
+
+Two things about it are deliberate. It is **read-only**: every request it makes
+is a GET, no key commands a run, and the board is not the completion authority
+— closeout is. And it **works when the factory does not**: a failed read keeps
+the last known state, labels it `STALE` with its age and says what went wrong,
+and a board opened while the factory is already down reads back the frame the
+previous session left on disk, labelled the same way. Cost comes from AI
+Gateway telemetry (the record `trace` reads, so it needs the same Cloudflare
+API token); a telemetry read that failed shows no cost rather than `$0.00`.
+
 | Flag | Effect |
 |---|---|
 | `--rotate-token` | Mint a new token; the previous one stops working immediately |
@@ -399,6 +477,17 @@ tk factory setup
 Each answer can be passed as a flag (`--repo`, `--github-token`, `--gateway-url`,
 `--provider`, `--provider-key`) instead of typed, so the same walk is scriptable.
 
+`--cloudflare-api-token` adds the optional half of rung 4, and it buys two things.
+It is what a run's cost budget acts on — your gateway's own per-request logs rather
+than anything the agent claims — and it is what reads the gateway's **Workers AI
+billing mode**. That mode decides which pot the spend comes out of: `postpaid` puts
+Workers AI on your normal Cloudflare invoice, where an account credit can absorb it;
+`unified` drains a separately purchased prepaid AI Gateway wallet, bought at a 5%
+premium. It is one toggle in the dashboard, it appears in no config file, and a run's
+telemetry reports the identical cost either way — so setup and status read the
+gateway itself and refuse a mode you did not settle on. Postpaid is the default;
+`--workers-ai-billing-mode unified` records the other choice.
+
 Everything it stores goes to exactly two places: **Worker secrets** in your own
 Cloudflare account, and `~/.ticksrc` at 0600 as the mirror `tk factory status` re-checks.
 Never the repository — a test runs the whole walk inside a checkout and fails if any
@@ -412,6 +501,86 @@ tk factory status --check      # exit nonzero when a configured credential is re
 
 The full ladder, including the GitHub App upgrade path and how to rotate a key, is in
 [`docs/factory-credentials.md`](docs/factory-credentials.md).
+
+### Cloud substrate: drive worker containers from your terminal
+
+A repository that declares `[orchestration].substrate = "cloud"` in
+`.tick/runners.toml` runs its implementers as **one container per tick** instead of
+local worktrees. Nothing about that requires the orchestrator to be in the cloud too:
+a Claude Code, omp or Pi session on your laptop dispatches the containers and drives
+the wave from here — local judgment, cloud hands. Five parallel implementers stop
+costing local worktrees, CPU and battery, and a lid closed mid-wave loses only the
+orchestrator, which is the failure every runner already recovers from.
+
+The verbs mirror `tk herd`'s one for one, so an orchestrator swapping substrates keeps
+the loop it already runs:
+
+| Command | Description |
+|---------|-------------|
+| `tk cloud spawn <epic> --ticks a,b,c` | Dispatch the wave as one container per tick; writes a manifest per tick |
+| `tk cloud wait --epic <id>` | Fan in: a worker settles when its `RESULT-<tick>.md` reaches the remote |
+| `tk cloud collect [<id>] --epic <id>` | Verify each pushed branch and print a verdict — never merges |
+| `tk cloud reconcile [--epic <id>]` | Read-only recovery plan after the orchestrator dies |
+
+Because a container is destroyed when it exits, the durable layer is all there is:
+`collect` reads the branch `tick/<epic>/<tick>` off the remote — commits beyond the
+submitted base, the **committed** report, an empty `.tick/` boundary diff — and adds a
+fifth verdict, `unknown`, for evidence it could not read at all. An unreachable remote
+is not a worker that failed, and is never reported as one.
+
+**One lease, wherever the orchestrator sits.** On an enrolled project a local dispatch
+takes the *same* per-project lease a cloud run takes, recorded as `origin: local`, so a
+laptop session and a scheduled run cannot both be inside `.tick/`; a second dispatch is
+refused and names the holder's run id. A project that is not enrolled keeps the local
+file lease and is told so — enrolment upgrades the arbiter, it never installs a second
+one. And a checkout with no factory configured makes no network call to find that out:
+a fully local orchestrator on the `harness` or `herdr` substrate keeps working offline,
+forever.
+
+`tk cloud spawn` refuses a run whose workers are herdr panes (exit 9), exactly as
+`tk herd spawn` refuses a run whose workers are containers. Two dispatch verbs, each
+refusing the other's substrate, is what keeps two workers off one tick.
+
+**Every wave fans out, wherever the orchestrator sits.** A cloud-orchestrated run
+(`tk cloud run <epic> --tick-ids a,b,c`) does not stop at the wave it was submitted
+with: it alternates between container waves and a short orchestrator pass that merges
+what the last wave pushed, runs the integrated gate, and computes the next wave with
+`tk graph` — in Go, inside the container, against the tracker state it has just
+updated, because nothing outside the container knows what the gate actually accepted.
+That pass dispatches with the same `tk cloud spawn` you would type yourself, and the
+run ends when a pass finds nothing left to dispatch and closes the epic out.
+
+The one thing that differs inside a run: `tk cloud spawn` there takes **no second
+lease**. The run already holds the project's, so the factory verifies it is still the
+holder rather than granting another — one arbiter per project, and an orchestrator
+that has lost the lease is refused exactly as a competitor would be. It also does not
+boot the containers itself (only the control plane can), so the wave starts once the
+pass exits and the next pass fans it in.
+
+### Merging a cloud run: `tk cloud pr-body`
+
+A run is submitted from whatever branch you were standing on, and its run branch
+descends from that SHA. If that branch was already ahead of the default branch,
+the run's closeout PR carries those commits too: merging it lands a second epic
+on `main` on *this* PR's CI gate, with no approval of its own. That has happened
+— a PR nobody merged was recorded merged, because all of its commits arrived
+inside someone else's.
+
+`tk cloud pr-body` writes the closeout PR body and names that cargo:
+
+```bash
+tk cloud pr-body | gh pr create --base main --head "$TICKS_RUN_BRANCH" \
+    --title "epic <id>: cloud run" --body-file -
+```
+
+Commits in the diff the run did not create are listed first, under a heading
+saying what merging them does; the run's own commits follow. A PR that carries
+nothing says so positively — silence would be indistinguishable from not having
+looked, which is also why a checkout that cannot resolve the merge target (a
+sandbox's shallow clone, before it fetches) is an error rather than a clean
+report. Inside a run the defaults come from the container's environment
+(`TICKS_RUN_BRANCH`, `TICKS_BASE_SHA`, `TICKS_EPIC`); elsewhere `--head`,
+`--run-base`, `--base` and `--epic` name them.
 
 ### Operator channel: reach a human from an autonomous run
 

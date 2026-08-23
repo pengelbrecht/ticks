@@ -1,0 +1,20 @@
+{
+  "id": "3gr",
+  "title": "A worker that succeeds without writing a report is reported as BLOCKED and told to re-dispatch",
+  "description": "Same live run, same tick (run_215b7cbff9dd405c80d738be45cccde5, tick 5jo). The container's own facts line and the report it generated contradict each other:\n\n  _ticks-worker: branch tick/72y/5jo, base 16a0d262, harness omp exited 0, 2 work commit(s), 0 uncommitted path(s)._\n  ...\n  STATUS: BLOCKED — the harness exited 0 and wrote no report; re-dispatch this tick\n\nExit 0 and two real work commits is a SUCCESS. The agent simply never wrote RESULT-5jo.md, which the prompt calls 'the ONLY channel'. The fallback report then recommends the single most wasteful possible action — re-dispatching a tick whose work already landed and is sitting on the branch.\n\nThe fallback itself is right to exist and tick 5fg's salvage is right to keep the work; the defect is that one shape ('no report, nothing landed') and a very different shape ('no report, work landed and the harness exited clean') collapse into the same verdict and the same advice. That is the failure mode .tick/learnings.md already names: never collapse distinct failure classes into one message.\n\nWhat the fallback should distinguish, using facts the entrypoint already has in hand:\n- exit != 0, no commits            -\u003e BLOCKED, re-dispatch. Today's message, correct.\n- exit == 0, work commits present  -\u003e the work landed and is reviewable; the agent's account is MISSING. Do not advise re-dispatch; advise reviewing the branch, and say plainly that no agent report exists.\n- exit != 0, work commits present  -\u003e partial, salvaged (5fg's path); name both facts.\n\nRelated and worth checking in the same pass: tick gm5 covers a report written to the wrong directory. If the agent DID write a report somewhere other than the worktree root, this tick's symptom and gm5's are the same event — confirm which happened here before designing the fix.",
+  "notes": "2026-08-22 19:28 - runner-state: substrate=herdr kind=claude branch=tick/3gr worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-3gr workspace=wEX base=b17d0e06b4cb59f21ac9ca0249ba74c2a9afcb83 agent=tick-3gr pane=wEX:p1 session=c76f04a4-64eb-40d3-b0ad-829f6a47ea98\n2026-08-22 19:45 - runner-state: runner=herdr branch=tick/3gr merged gate=green (go build, go test ./..., public-repo guard, gofmt, tsc, factory vitest 611). Confirmed no conflict with dxk's boundary block, and confirmed 3gr and gm5 are distinct events — 5jo's branch carried no misplaced report and 0 uncommitted paths, so this was an absent report, not a misplaced one.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "dxk"
+  ],
+  "parent": "1vn",
+  "acceptance_criteria": "A worker whose harness exits 0 with work commits but no agent report produces a status that does not say BLOCKED and does not advise re-dispatch, and names the missing report as the actual gap. Pinned by tests over the three exit/commit combinations.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T16:52:32.817016Z",
+  "updated_at": "2026-08-22T17:45:45.576665Z",
+  "closed_at": "2026-08-22T17:45:45.576665Z",
+  "closed_reason": "Completed: the container's fallback report now distinguishes the exit-status x work-commits x salvaged shapes instead of collapsing them all into 'BLOCKED, re-dispatch'. A harness that exits 0 with work commits is reported as work-landed-without-an-agent-account and points the reader at the branch; a killed harness with salvaged paths names the salvage. Only the genuinely empty case still says re-dispatch."
+}

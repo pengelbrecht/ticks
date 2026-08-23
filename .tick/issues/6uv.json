@@ -1,0 +1,16 @@
+{
+  "id": "6uv",
+  "title": "reconcile classifies a busy container as unknown even when git says ready-to-merge",
+  "description": "Noted by the Phase 2 final review (oun) as an observation rather than a bug. classifyWorker in reconcile.ts treats a container busy with something other than the work command as unknown — which is safe, it never redispatches — but it does so even when git already shows that tick branch is ready-to-merge. In that narrow window reconcile escalates to a human for a tick whose evidence is already durable and conclusive. Prefer the durable layer when it is unambiguous.",
+  "notes": "2026-08-22 12:24 - runner-state: substrate=herdr kind=claude branch=tick/6uv worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-6uv workspace=wE9 base=22491bf1b9d9825831dc9ed45d60169b53750445 agent=tick-6uv pane=wE9:p1 session=b2ec3f36-a6f2-45e4-8d25-12cdbc383b37\n2026-08-22 12:44 - runner-state: runner=herdr branch=tick/6uv merged=1b1af7e1 gate=green",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T05:39:15.070356Z",
+  "updated_at": "2026-08-22T10:44:55.956725Z",
+  "closed_at": "2026-08-22T10:44:55.956725Z",
+  "closed_reason": "Completed: reconcile prefers durable git evidence over a busy non-work container — a tick whose branch already collects ready-to-merge classifies already-landed/skip instead of escalating unknown to a human. Guarded on the full ready-to-merge verdict (commits + result artifact + clean boundary), so a genuinely working container is untouched."
+}

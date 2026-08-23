@@ -82,6 +82,11 @@ Exit codes
   3  not inside a git repository
   4  no such tick
   6  the manifest could not be written
+  8  the wave is at its configured width — retry when a slot frees
+  9  this run dispatches through a substrate this command does not serve
+     (` + "`[orchestration].substrate = \"cloud\"`" + `, or $` + herdconfig.SubstrateEnvVar + `=cloud):
+     the workers are containers, and a herdr pane here would be a second
+     worker on the branch one of them is pushing to
 
 Examples
   tk herd spawn 1aw
@@ -170,12 +175,29 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 2. Routing. Compiled BEFORE any herdr connection, so a refusal costs
-	//    zero dials and leaves no half-made workspace behind.
+	// 2. The wave width. Checked BEFORE any herdr connection for the same
+	//    reason routing is: a refusal costs zero dials and leaves no
+	//    half-made workspace behind. `[orchestration].max_parallel` is a
+	//    dispatch policy, so this is the path that has to honour it.
+	if err := waveWidthGate(errOut, root, t); err != nil {
+		return err
+	}
+
+	// 3. The substrate. Checked BEFORE routing for the same reason routing is
+	//    checked before dialling: this is the cheapest refusal there is, and
+	//    the one whose remedy is a different command rather than a different
+	//    config cell. A repo dispatching per-tick cloud sandboxes must not also
+	//    get a local pane on the branch its container is pushing to.
 	cfg, err := herdLoadConfig(root, herdSpawnConfig)
 	if err != nil {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
+	if err := substrateGate(cfg, "tk herd spawn", t.ID); err != nil {
+		return err
+	}
+
+	// 4. Routing. Compiled BEFORE any herdr connection, so a refusal costs
+	//    zero dials and leaves no half-made workspace behind.
 	// The spawn environment. A worker runs in a LINKED worktree, whose git
 	// metadata lives under the main repo's git common dir — outside the
 	// worktree, and so outside a sandboxed kind's writable area unless it is
@@ -225,7 +247,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	branch := cfg.WorktreeBranchPrefix() + t.ID
 	agentName := spawn.AgentName(t.ID)
 
-	// 3. herdr.
+	// 5. herdr.
 	herd, err := herdConnect(ctx, herdSpawnSocket)
 	if err != nil {
 		return err
@@ -263,7 +285,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
 
-	// 4. Run-state manifest. The single path under .tick/ this command
+	// 6. Run-state manifest. The single path under .tick/ this command
 	//    writes, and it is git-ignored local state, never tracker state.
 	m := state.Manifest{
 		Tick:         t.ID,

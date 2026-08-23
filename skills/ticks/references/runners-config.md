@@ -92,10 +92,10 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `substrate` | `"herdr"` \| `"harness"` \| `"auto"` | `"auto"` | Dispatch substrate. See [Substrate semantics](#substrate-semantics). |
+| `substrate` | `"herdr"` \| `"harness"` \| `"auto"` \| `"cloud"` | `"auto"` | Dispatch substrate. See [Substrate semantics](#substrate-semantics). |
 | `detect` | `"env-or-socket"` \| `"env"` \| `"socket"` | `"env-or-socket"` | Which probes count as "herdr is available". |
 | `socket` | string | `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock` | Socket path used by the `socket` probe. |
-| `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. |
+| `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. **Enforced, not advisory**: `tk` refuses a claim (`tk update --status in_progress`) or a `tk herd spawn` that would exceed it with exit 8, naming the ticks holding the slots. A slot is held by every in_progress non-epic child of the epic and freed by closing or releasing one. `tk graph --json` reports the width, the free slots and `dispatch.now` under `dispatch`. Unset means no cap. |
 | `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for the worker branch (branch = `<prefix><tick-id>`). Read by `tk herd spawn` (to name the branch) and `tk herd reconcile` (to match branches to ticks), so neither hardcodes `tick/`. `cleanup` does **not** read it — it deletes the branch the manifest recorded at spawn, which is why changing the prefix mid-run still cleans up correctly. Ignored under harness orchestration — there the harness names branches. |
 | `full_auto` | boolean | `true` | Start workers with their kind's full-auto arg template. When `false`, every approval prompt becomes a human escalation. |
 
@@ -290,7 +290,7 @@ setup = [
 
 | Key | Meaning |
 |---|---|
-| `image` | Image reference the sandbox boots. Absent means the version-pinned base image. `tk sandbox image` prints the resolved reference; `--declared-only` prints one only when the repo declares it. |
+| `image` | Image reference the sandbox boots. Absent means the version-pinned base image. `tk sandbox image` prints the resolved reference; `--declared-only` prints one only when the repo declares it. In a cloud run the control plane reads this key at the submitted SHA and boots it; a deployment that does not serve that image fails the run naming both references rather than booting the base, and the container refuses a boot that is not what this file declares. |
 | `toolchain` | Extra `tool@version` pins provisioned through the version manager the base image already ships, into the project's persistent cache — resolved on first run, warm after. The version is required: an unpinned tool makes the warm sandbox and the cold one different environments. Ecosystem pins the image reads on its own (`go.mod`, `package.json`'s `packageManager`, `.node-version`, `.tool-versions`) do **not** belong here. |
 | `setup` | Idempotent, cache-populating commands run once per sandbox, in order, after the checkout and before the harness starts. An array, not a keyed table: order is the contract and nothing refers to a setup command by id. |
 
@@ -317,9 +317,13 @@ One implementation serves both substrates, so a local worker warms identically t
 | A tool may be pinned once. | `["rust@1.90.0", "rust@1.91.0"]` is an ambiguous sandbox; the version manager would silently pick one. |
 | Unknown keys are errors, as everywhere else in this file. | A typo'd key in the one table that runs shell before any worker exists must fail closed, not be ignored. |
 
-### What is not implemented yet
+### How a declared `image` is honoured
 
-`image` is validated, resolved and reported, but **the control plane does not yet boot a declared image**: it chooses one before it has a checkout to read, so honouring `sandbox.image` needs a read of the tracked config at the submitted SHA before boot. Until then the container is told which image it actually got (`TICKS_SANDBOX_IMAGE`) and the entrypoint prints a warning naming both references, so a declared image is never silently ignored. `toolchain` and `setup` are honoured on both substrates today.
+The control plane reads this file at the **submitted SHA** — never from the submission, because an image is arbitrary code and the container holds the run's credentials — and boots what it declares. A declaration this deployment cannot serve **fails the run**, naming both references and both remedies, rather than booting the base image: on the Cloudflare substrate an image belongs to the container application built at deploy time, so honouring one means the operator deployed a factory serving it.
+
+The container is the backstop, and it is the reader that cannot be skipped: the entrypoint compares this file's declaration — read by `tk`, in the checkout — against the image it was told it got (`TICKS_SANDBOX_IMAGE`) and refuses the boot with exit 6 when they differ. So a control plane that could not read this file (a GitHub outage; `[[sandbox.setup]]` array-of-tables syntax, which its reader refuses) boots the deployment's own image and the container ends the run legibly, rather than a wave provisioning and spending in an image the repository did not ask for.
+
+`toolchain` and `setup` are honoured on both substrates.
 
 ## The deprecated markdown path
 
@@ -388,13 +392,13 @@ Herdr is **available** when either probe below succeeds, subject to `orchestrati
 
 ### The `TICKS_SUBSTRATE` override
 
-**An explicit override wins over the file.** `TICKS_SUBSTRATE` (`herdr | harness | auto`) is set by whatever *boots* a run, and it replaces `[orchestration].substrate` for that run only. Everything else in this section is unchanged by it: `harness` is still terminal and still probes nothing, `herdr` still probes and still degrades explicitly, and the checkout is **read, never rewritten** — an orchestrator that edited the tracked file would change the base every worker commits against and put a config change nobody submitted into the run's diff.
+**An explicit override wins over the file.** `TICKS_SUBSTRATE` (`herdr | harness | auto | cloud`) is set by whatever *boots* a run, and it replaces `[orchestration].substrate` for that run only. Everything else in this section is unchanged by it: `harness` is still terminal and still probes nothing, `herdr` still probes and still degrades explicitly, and the checkout is **read, never rewritten** — an orchestrator that edited the tracked file would change the base every worker commits against and put a config change nobody submitted into the run's diff.
 
 It exists because a pin in a tracked file is a statement about the runs a repository usually has, and one run can be somewhere else. The case that forced it: a **cloud sandbox**. A container has no herdr server and never will in Phase 1 of the cloud factory (herdr-in-the-cloud is a door deliberately left open, not a deliverable), while the same repository's local runs orchestrate through herdr and must keep doing so. The first cloud run that completed a real agent turn read the repo's `substrate = "herdr"`, correctly found no socket, and stopped — a correct agent on a configuration nobody had told about the container. The sandbox entrypoint now exports `TICKS_SUBSTRATE=harness`, and the orchestrator honours it.
 
 Two rules come with it, and both are the point:
 
-- **Fail closed.** A value that is not one of the three substrates is a stop naming the variable, never a silent fall back to the file.
+- **Fail closed.** A value that is not one of the four substrates is a stop naming the variable, never a silent fall back to the file.
 - **Say it.** An override is a deliberate choice rather than a degradation, but the run still states which substrate it resolved and why before dispatching the first worker, and records it durably: `runner-state: substrate=harness requested=harness config=herdr source=TICKS_SUBSTRATE reason=explicit-override`. The `config=` field is what lets a later reader tell configured intent from actual execution without opening the file at the run's base commit.
 
 `tk sandbox substrate` is the implementation, and it is what a boot script asks rather than parsing this file itself: two lines on stdout — the resolved substrate, then the note line — with the reasoning on stderr.
@@ -408,6 +412,7 @@ Two rules come with it, and both are the point:
 | `herdr` | yes | herdr orchestration. State it once, quietly. |
 | `herdr` | no | **Explicit degradation** — see below. Loud. The run continues under harness orchestration. |
 | `harness` | either | Harness orchestration, always. Herdr is not probed and not used, even inside a herdr pane. State it once, quietly. |
+| `cloud` | either | Cloud orchestration, always: one worker sandbox per tick through the run API. Herdr is not probed and not used — the value says *where the workers run*, and a herdr server on this machine cannot change that. State it once, quietly. |
 | any value, with `TICKS_SUBSTRATE` set | as the override's own value dictates above | The override is the request; the file's value is reported as configured intent. Announced, never silent. |
 
 ### Two registers: state everything, announce one thing
@@ -422,6 +427,7 @@ The distinction is the whole point, and getting it wrong costs more than the noi
 |---|---|---|
 | `auto` resolving either substrate | quiet | what was asked for, what the probes found, what is dispatching |
 | `harness` (terminal) | quiet | the config asked for subagents; herdr was not probed |
+| `cloud` (terminal) | quiet | the config asked for worker sandboxes; herdr was not probed |
 | `herdr` resolving herdr | quiet | the pin held |
 | `herdr` with no herdr | **loud** | the degradation below, plus the setting that would have made this run ordinary |
 | any value with `TICKS_SUBSTRATE` set | **loud** | a substrate the checkout did not ask for |
@@ -443,6 +449,38 @@ Three consequences of the fallback are worth stating to the user when they matte
 - Workers no longer outlive the orchestrator; harness subagents are child processes.
 
 `substrate = "harness"` is *not* a degradation: it is a deliberate choice. State it quietly like any other resolution; do not announce it.
+
+### `substrate = "cloud"`
+
+`cloud` says the repository's workers are **one cloud sandbox per tick**, dispatched through the run API of the cloud factory the project is enrolled with. Like `harness` it is terminal and probes nothing, and for a stronger reason: it states *where the workers run*, and a herdr server listening on the orchestrator's own machine cannot change that answer.
+
+It says **nothing about where the orchestrator sits.** A local Claude Code, omp or Pi session that sets `cloud` drives worker containers from the laptop — local judgment, cloud hands (D19 in the cloud-factory design) — and the Workflow-hosted orchestrator dispatching sibling worker containers is the same substrate reached from the other side. The two axes are independent, which is exactly why there is no "am I in the cloud" signal (see [Pin, or `auto`?](#pin-or-auto)).
+
+What changes for a run under it:
+
+- **No worktree, pane or local branch appears for a tick** until its container pushes one. A run that looks idle on the laptop is normal; the durable evidence is pushed branches and `RESULT-<tick-id>.md`, as it always was.
+- **`[roles]` routes the harness each container runs**, not a local CLI. The table's `kind` values are read by the worker boot inside the container.
+- **`max_parallel` is concurrent worker containers**, and a deployment's own instance ceiling can lower it further. The two ceilings resolve to one number, which the dispatch log records.
+- **`tk herd spawn` refuses**, with exit 9. It is the herdr substrate's dispatch verb; running it here would put a local pane on the branch a container is already pushing to — the declared substrate and the actual substrate disagreeing with nothing to reconcile them. The refusal names the two ways out: dispatch through the cloud substrate, or set `TICKS_SUBSTRATE=herdr` (or `auto`) to state that herdr is what is effective *here* for this one run.
+
+`harness` and `auto` are **not** refused by `tk herd spawn`, and the asymmetry is deliberate: neither is dispatched by a `tk` verb — harness workers are subagents of the orchestrating harness — so `tk herd spawn` on such a repository is an operator choosing herdr for one worker, not two substrates racing for one branch.
+
+**How a local orchestrator dispatches it.** The `tk cloud` verb family mirrors `tk herd`'s, one verb for one verb, so an orchestrator swapping substrates keeps its loop:
+
+```
+tk cloud spawn <epic> --ticks a,b,c   # one container per tick
+tk cloud wait --epic <epic>           # settles on the report each container pushed
+tk cloud collect --epic <epic>        # the same four verdicts, read off the pushed branches
+tk cloud reconcile --epic <epic>      # read-only recovery after the orchestrator dies
+```
+
+Two things differ from the herdr family, both because a container is destroyed when it exits. There is no worktree, so `collect` reads `RESULT-<tick-id>.md` **committed on the branch** rather than sitting in a working directory; and there is no process to watch, so `wait` settles on that pushed report rather than on an agent's lifecycle event. A fifth verdict, `unknown`, exists for evidence that could not be *read* — an unreachable remote is not a worker that failed.
+
+**One lease, wherever the orchestrator sits.** On a project enrolled with a factory, a local `tk cloud spawn` takes the **same** RunRoom lease a Workflow-hosted run takes, recorded with `origin: local` so a refusal names which kind of orchestrator is in the way; a second dispatch is refused with the holder's run id. An un-enrolled project keeps the local file lease and cannot dispatch containers at all — enrolment upgrades the arbiter and never installs a second one. A checkout with no factory configured makes no network call to learn this, which is what keeps the degenerate case (a fully local orchestrator, no cloud enrolment, on a plane) working forever.
+
+The Workflow-hosted path is the same substrate reached from the other side: it fans a wave out from a submission carrying `tick_ids`, which is exactly what `tk cloud spawn` sends.
+
+**A worker container is told `harness`, not left to inherit `cloud`.** The sandbox entrypoint defaults `TICKS_SUBSTRATE=harness` precisely so that a container booting on a cloud-declaring checkout does not dispatch containers of its own. The note records both halves: `runner-state: substrate=harness requested=harness config=cloud source=TICKS_SUBSTRATE reason=explicit-override`.
 
 ### Pin, or `auto`?
 

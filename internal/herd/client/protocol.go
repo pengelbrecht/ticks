@@ -7,8 +7,14 @@ import (
 )
 
 // ProtocolVersion is the herdr API protocol this package is written against
-// (herdr 0.8.0). [New] fails closed when the server reports anything else.
-const ProtocolVersion uint32 = 19
+// (herdr 0.8.2). [New] fails closed when the server reports anything else.
+//
+// Bumped 19 -> 20 for herdr 0.8.2. The pin is deliberately exact rather than a
+// floor: this client reads response shapes field by field, so "newer than
+// tested" is not a safe default. Re-verified live against 0.8.2 — the full
+// helper call set (worktree.create, agent.start/prompt/list, pane.read,
+// events.subscribe, session.snapshot) answers unchanged on 20.
+const ProtocolVersion uint32 = 20
 
 // Method names, exactly as herdr spells them.
 const (

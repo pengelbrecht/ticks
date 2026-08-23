@@ -31,7 +31,13 @@ import (
 const RequiredTkCommandsFile = "required-tk-commands"
 
 // entrypointScripts are the shell scripts the image installs and runs.
-var entrypointScripts = []string{"entrypoint.sh", "preflight.sh"}
+//
+// All of them, in both roles: one image plays orchestrator and per-tick worker
+// (tick x3v), and common.sh — which both entrypoints source — is where most of
+// the `tk` invocations now live. A scanner that read only the orchestrator's
+// file would let a worker-only subcommand ship in an image whose tk does not
+// have it, which is the exact failure this gate exists to make impossible.
+var entrypointScripts = []string{"entrypoint.sh", "worker.sh", "common.sh", "preflight.sh"}
 
 // tkInvocation matches `tk <sub> [<sub> [<sub>]]` in COMMAND position: at the
 // start of a line, inside a command substitution, after a pipeline or list

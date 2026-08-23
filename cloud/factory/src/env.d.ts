@@ -43,9 +43,14 @@ declare namespace Cloudflare {
       | import("./sandbox").SandboxBinding
       | import("./sandbox").SandboxNamespace;
     /**
-     * Image reference a run boots, for a deployment that pushed the
-     * orchestrator image into its own registry. Unset uses the bundled
-     * default (`DEFAULT_SANDBOX_IMAGE`).
+     * The orchestrator image this deployment's container application serves,
+     * for a deployment that pushed it into its own registry. Unset means the
+     * bundled default (`DEFAULT_SANDBOX_IMAGE`).
+     *
+     * Load-bearing since tick x3v: a repository that declares
+     * `[sandbox].image` boots that image, and this is what "does this
+     * deployment serve it?" is answered against. A run whose repository
+     * declares something else is refused rather than booted on the base.
      */
     SANDBOX_IMAGE?: string;
     /**
@@ -58,6 +63,57 @@ declare namespace Cloudflare {
      * repository is a rule nobody tests.
      */
     REPO_REFS?: import("./progress").RepoRefs;
+    /**
+     * The reader the Run Workflow resolves a repository's declared sandbox
+     * image with: its tracked `.tick/runners.toml` at the submitted SHA
+     * (tick x3v).
+     *
+     * Unset on a deployment, which reads GitHub's contents API directly. A
+     * seam for the same reason `REPO_REFS` is one.
+     */
+    REPO_CONFIG?: import("./repo-config").RepoConfigReader;
+    /**
+     * The reader a cloud wave's per-tick verdicts are collected with: the
+     * durable git layer, never a worker sandbox's terminal output (tick b6e,
+     * `worker-collect.ts`).
+     *
+     * Unset on a deployment, which reads GitHub's compare and contents APIs
+     * directly. A seam for the same reason `REPO_CONFIG` is one.
+     */
+    WORKER_COLLECTOR?: import("./worker-collect").WorkerCollector;
+    /**
+     * The reader `POST /api/wave` proves a requested wave's ticks belong to
+     * the run's epic with: their tracked `.tick/issues/<id>.json` records at
+     * the commit the wave's containers will clone (tick kya).
+     *
+     * Unset on a deployment, which reads GitHub's contents API directly. A
+     * seam for the same reason `REPO_CONFIG` is one.
+     */
+    TICK_TRACKER?: import("./tick-membership").TrackerReader;
+    /**
+     * Where the RunRoom forwards a run's `run_event` stream (tick bne).
+     *
+     * Unset on a deployment that reports to a board, which posts to
+     * `BOARD_BASE_URL` directly. A seam for the same reason
+     * `WORKER_COLLECTOR` is one — and the one that lets a test prove the
+     * load-bearing claim: a run whose every event is dropped still completes
+     * and still collects.
+     */
+    RUN_EVENTS?: import("./run-events").RunEventSink;
+    /**
+     * The ticks.sh board (or a self-hosted one) this factory reports a live
+     * run to, and the board token it authenticates with (tick bne).
+     *
+     * BOTH are optional and neither is a dependency: a factory is
+     * self-deployed into the operator's own account (D16) and runs identically
+     * with no board at all. Absent, run events are recorded on the RunRoom's
+     * own tail and go nowhere else — the stream is observability, so losing it
+     * costs the run nothing. `BOARD_BASE_URL` is a wrangler `[vars]` value;
+     * `BOARD_TOKEN` is a Worker secret (`wrangler secret put BOARD_TOKEN`),
+     * because it is a credential for someone else's service.
+     */
+    BOARD_BASE_URL?: string;
+    BOARD_TOKEN?: string;
     /** Test/deployment override; defaults to api.github.com. */
     GITHUB_API_BASE_URL?: string;
     /**
@@ -82,9 +138,55 @@ declare namespace Cloudflare {
      * step cap, and lowering it makes a run stop cleanly sooner, not fail.
      */
     RUN_MAX_OBSERVATIONS?: string;
-    /** Harness kind and model the orchestrator sandbox is started with. */
+    /**
+     * How long one dispatch leg of a cloud wave watches its containers, in ms
+     * (tick 2xm). Unset on a real deployment: the default is derived from
+     * Cloudflare's per-step execution cap (`src/workflow-limits.ts`), and a
+     * value above what a step may spend is clamped down to it rather than
+     * honoured — a leg that outlives its step kills the whole run.
+     */
+    RUN_WAVE_LEG_MS?: string;
+    /**
+     * A ceiling on what any ONE worker container's harness may spend, in ms
+     * (tick 5fg). Unset on a real deployment: the default is derived from
+     * measurement (`DEFAULT_WORKER_HARNESS_BUDGET_MS`) and bounded by the
+     * run's own remaining wall clock, which is the bound that matters. Set it
+     * to stop a single long tick from eating a generous run allowance.
+     */
+    RUN_WORKER_BUDGET_MS?: string;
+    /**
+     * Harness kind and model a run is started with — the orchestrator sandbox,
+     * and any per-tick worker container the run dispatches unless the worker
+     * vars below are what the deployment wants instead. This is the run's own
+     * choice and it outranks them.
+     */
     RUN_HARNESS?: string;
     RUN_MODEL?: string;
+    /**
+     * This deployment's standing harness and model for a per-tick WORKER
+     * container (tick 1cd). Unset on a real deployment: the built-in default
+     * is `omp` on `deepseek-v4-pro-0813`, chosen on run_215b7cbff9's evidence
+     * that flash failed to converge on two of three real ticks inside a
+     * 90-minute budget — see `WORKER_DEFAULT_MODEL` in src/worker-boot.ts for
+     * the measurement and what pro costs.
+     *
+     * Set `RUN_WORKER_MODEL` to route workers somewhere else — back to
+     * `workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731` for a wave of small
+     * ticks, say — without editing TypeScript. Resolution order is
+     * run submission > deployment var > built-in default (`workerModel`).
+     */
+    RUN_WORKER_HARNESS?: string;
+    RUN_WORKER_MODEL?: string;
+    /**
+     * The `[[containers]] max_instances` ceiling from this file (tick b6e) —
+     * a second declaration of the same number, because wrangler does not
+     * expose a container application's own config back to the Worker at
+     * runtime. A cloud wave's dispatch width is bounded by it, so raising the
+     * ceiling without raising this reintroduces exactly the silent
+     * serialization wave 3 measured, just one layer up. Bounds and the
+     * default live in src/run-workflow.ts.
+     */
+    FACTORY_MAX_INSTANCES?: string;
     /**
      * How long a queued submission stays ignitable, in ms (D22). A wrangler
      * `[vars]` value, so the window is a deployment decision; bounds and the

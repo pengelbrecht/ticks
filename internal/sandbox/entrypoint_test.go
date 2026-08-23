@@ -894,6 +894,62 @@ func TestEntrypointBootsTheCloseoutPhase(t *testing.T) {
 	}
 }
 
+// Tick wiy: the pass BETWEEN container waves.
+//
+// It is a phase of its own rather than a `reconcile` or a `closeout`, and both
+// distinctions are load-bearing. A `reconcile` adopts state and continues, but
+// knows nothing about dispatching the next wave; a `closeout` is a run being
+// wound up and its prompt forbids exactly the new work this pass exists to
+// start. Conflating either would boot a container that adopts the state
+// correctly and then does the wrong thing with it.
+func TestEntrypointBootsTheWavePhase(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvPhase] = PhaseWave
+	f.env[EnvSubstrate] = "cloud"
+	f.env["TICKS_TEST_SANDBOX_SUBSTRATE"] = "cloud"
+	f.env[EnvPass] = "2"
+	f.env[EnvStopReason] = "the cloud wave dispatched 3 per-tick worker container(s)"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, EnvPhase+"="+PhaseWave, "the phase is exported for the harness")
+	mustContain(t, rec, EnvPass+"=2", "the pass number authorises this container to dispatch")
+	mustContain(t, rec, "reconcile", "a wave boot adopts the pushed state first")
+	mustContain(t, rec, "dispatched 3 per-tick", "the prompt says what it inherited")
+	mustContain(t, rec, "tk cloud spawn", "the prompt names the dispatch verb")
+	mustContain(t, rec, "tk graph", "readiness is computed HERE, by tk")
+	// The one instruction that makes the handshake work: containers are booted
+	// by the supervisor after this pass exits, so waiting here waits forever.
+	mustContain(t, rec, "EXIT 0", "the prompt says to exit after dispatching")
+	mustContain(t, rec, "Do NOT run 'tk cloud wait'", "the prompt forbids waiting on a wave it just asked for")
+	// And unlike a closeout, it is allowed to start new work.
+	if strings.Contains(rec, "Do not start new work") {
+		t.Errorf("a wave pass was told not to start new work:\n%s", rec)
+	}
+}
+
+// The substrate a dispatching pass is given changes what the orchestrator is
+// told to do with its workers — and it comes from the control plane, never
+// from the checkout's own pin.
+func TestEntrypointTellsACloudSubstrateOrchestratorToSpawnContainers(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvSubstrate] = "cloud"
+	f.env["TICKS_TEST_SANDBOX_SUBSTRATE"] = "cloud"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "tk cloud spawn", "the prompt names the container dispatch verb")
+	// The harness-substrate instruction would be actively wrong here: this
+	// orchestrator's workers are sibling containers, not its own subagents.
+	if strings.Contains(rec, "dispatch workers as subagents of this harness") {
+		t.Errorf("a cloud-substrate orchestrator was told to dispatch subagents:\n%s", rec)
+	}
+}
+
 // An unknown phase is a Workflow bug, and a Workflow bug must not become a run
 // that quietly does the wrong thing.
 func TestEntrypointRefusesAnUnknownPhase(t *testing.T) {
@@ -1005,22 +1061,62 @@ func TestEntrypointIgnoresSetupInjectedThroughTheEnvironment(t *testing.T) {
 	}
 }
 
-// A repository asking for an image this container is not is reported, never
-// silently ignored: the container cannot change what it is running, so the log
-// is where that fact has to land.
-func TestEntrypointReportsAnImageItCouldNotHonour(t *testing.T) {
+// The control plane boots the image a repository declares (tick x3v), so a
+// container that is NOT that image is a configuration failure — not a warning
+// it works through. The container cannot change what it is running, and
+// continuing means provisioning, warming and spending in an environment the
+// repository explicitly said was the wrong one.
+func TestEntrypointRefusesAnImageItsRepositoryDidNotDeclare(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
 	f.env[EnvSandboxImage] = "ticks-orchestrator:0.31.0"
 	out, code := f.run()
+	if code != ExitSetup {
+		t.Fatalf("exit %d, want %d (a [sandbox] configuration verdict)\n%s", code, ExitSetup, out)
+	}
+	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the refusal names the declared image")
+	mustContain(t, out, "ticks-orchestrator:0.31.0", "the refusal names the booted image")
+	mustContain(t, out, "remove [sandbox].image", "the refusal names a remedy")
+	if f.harnessStarted() {
+		t.Error("the harness ran in an image the repository did not declare")
+	}
+}
+
+// The other side of the same rule: the declared image IS what booted, so the
+// boot continues without so much as a warning. This is the escape hatch
+// working — a repository pinning its own image and getting it.
+func TestEntrypointRunsWhenTheDeclaredImageIsTheBootedOne(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
+	f.env[EnvSandboxImage] = "registry.example.com/acme/orchestrator:2.0.0"
+	out, code := f.run()
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
 	}
-	mustContain(t, out, "warning", "the mismatch is a warning, not silence")
-	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the warning names the declared image")
-	mustContain(t, out, "ticks-orchestrator:0.31.0", "the warning names the booted image")
+	if strings.Contains(out, "warning") && strings.Contains(out, "sandbox image") {
+		t.Errorf("the image the repository declared was warned about:\n%s", out)
+	}
 	if !f.harnessStarted() {
-		t.Error("a declared image the control plane did not boot stopped the run")
+		t.Error("a repository that got the image it declared did not start")
+	}
+}
+
+// A hand-driven boot: nothing told this container what it is, so there is
+// nothing to compare a declaration against. That is reported and worked
+// through — refusing here would make the image undrivable by hand, and the
+// container still has no way to know it is wrong.
+func TestEntrypointReportsADeclaredImageItCannotConfirm(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env["TICKS_TEST_SANDBOX_IMAGE_DECLARED"] = "registry.example.com/acme/orchestrator:2.0.0"
+	delete(f.env, EnvSandboxImage)
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, out, "warning", "an unconfirmable declaration is reported")
+	mustContain(t, out, "registry.example.com/acme/orchestrator:2.0.0", "the warning names the declared image")
+	if !f.harnessStarted() {
+		t.Error("a boot nothing identified was stopped by a declaration it could not check")
 	}
 }
 

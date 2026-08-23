@@ -25,7 +25,20 @@ Read the current mode from the gateway object:
     GET /accounts/{account_id}/ai-gateway/gateways/{gateway_id}
     → result.workers_ai_billing_mode   # "postpaid" | "unified"
 
-`postpaid` is the mode this project wants. `h4n` makes pre-flight assert it.
+`postpaid` is the mode this project wants, and pre-flight now asserts it
+(`h4n`). The expectation lives in `~/.ticksrc` as
+`factory_workers_ai_billing_mode` and defaults to `postpaid`, so a factory that
+was never told otherwise FAILS on unified rather than quietly spending cash:
+`tk factory setup` reads the gateway object and refuses to configure a factory
+that drifted, and `tk factory status` carries it as its own `workers ai billing`
+rung, which `--check` turns into a nonzero exit. An operator who really did buy
+a prepaid wallet opts in once with
+`tk factory setup --workers-ai-billing-mode unified`. Implementation:
+`internal/factory/billing.go` (`CheckWorkersAIBilling`), which is also the entry
+point a run-submit path can call. Both reads need the Cloudflare API token the
+telemetry rung installs — without one the mode is UNCHECKED, and both commands
+say so rather than passing quietly. An absent `workers_ai_billing_mode` field
+fails closed for the same reason: it is not evidence of postpaid.
 
 Cloudflare unified Workers AI and AI Gateway billing on 2026-08-07, so any
 reasoning about this that predates that changelog entry is wrong.
@@ -77,11 +90,92 @@ anyone reasoning about what a run costs.
 
 For that run: 3,799,364 uncached + 7,154,176 cached input and 157,709 output
 came to **$5.95 actual against $15.08 modelled with no caching — 61% saved**.
-The pre-`l8z` runaway cached nothing and paid full freight on all 46M tokens.
+
+The pre-`l8z` runaway is often quoted as having cached *nothing*. It did not:
+re-read row by row (`fxf`), `run_f15efdfb` cached **11,823,872 of 46,098,950
+input tokens — 25.6%** with 510 of its 892 calls at exactly zero. The "0" in the
+original write-up came from the log row's `cached` boolean, which reports the
+gateway RESPONSE cache and is false on every agentic call by construction. So
+the real before/after for the affinity header is **25.6% → 65.3%**, not 0 → 65%,
+and the honest reading of it is weaker and more useful: affinity roughly 2.5×'d
+the hit rate without ever making instance routing deterministic.
 
 Read cached tokens from `usage_metadata.input_cached_tokens` on each gateway log
 row, or `prompt_tokens_details.cached_tokens` in the response body. Nothing in D1
-carries it.
+carries it. **Never read the row's `cached` field for this** — that is the
+response cache, permanently false here.
+
+## Publishing a cached rate is not delivering one (2026-08-21, tick y45)
+
+Six of the sixteen tool-capable models on this account publish a
+`per M cached input tokens` price. Probed with a byte-identical 22.5k-token
+prefix over six rounds, they do not behave alike, and the price list gives no
+hint which is which:
+
+| Model | Cached rate | Post-warm hits |
+|---|---:|:---:|
+| `deepseek-v4-flash-0731` | $0.014 | 23/23 |
+| `kimi-k2.7-code` | $0.19 | 23/23 |
+| `kimi-k2.6` | $0.16 | 18/18 |
+| `deepseek-v4-pro-0813` | $0.044 | 12/24 |
+| `glm-5.2` | $0.26 | 5/24 |
+| `qwen3.8-27b` | $0.05 | **0/27** |
+
+Three consequences for anyone pricing a run here:
+
+- **A published cached rate is not a discount you will receive.** `qwen3.8-27b`
+  advertises $0.05/M and billed 27 of 27 post-warm calls at its $0.45/M list
+  rate. Model the cache from a probe, never from the rate card.
+- **A reported cache is not a billed cache.** `gemma-4-26b-a4b-it` returns
+  `cached_tokens` at ~100% of the prompt while its Neurons do not move. Score
+  the Neurons, not the field — the same trap as the log row's `cached` boolean,
+  one level down.
+- **`result_info.total_count` on `/ai/models/search` is not a page bound.** It
+  reported 291 against a real 64; it counts the platform catalog, not the
+  account's slice. Page until a short page proves exhaustion.
+
+The conversion is confirmed live rather than quoted: USD predicted from the
+published per-token prices matched `neurons x $0.011 / 1000` to within 0.66%
+worst case across sixteen models, and exactly on ten of them. Harness:
+`scripts/bench_workers_ai_models.py`; full comparison and the per-role/tier
+recommendation in `docs/workers-ai-model-selection.md`.
+
+## What `x-session-affinity` does and does not buy
+
+The header routes a session's calls toward one model instance, which is where a
+prefix cache lives. It is worth a lot (25.6% → 65.3%) and it is **not**
+stickiness. Measured on `run_62c289d1` and against the live model (`fxf`):
+
+- **The key is per RUN, and a run is many conversations.** That run's 230 calls
+  are one orchestrator plus seven implementer subagents — separable in the logs
+  by the first two messages of each request body — all sharing one key. They do
+  not fight: the fan-out phase cached **67.9%** with six or more conversations
+  live against **52.4%** while the orchestrator ran alone, and a call following
+  *another* conversation hit 65.7% against 62.4% following its own.
+- **A miss is usually not a drifting prompt.** Two consecutive requests around a
+  total miss were byte-identical for all 220,891 characters of the earlier one,
+  same tools and options — and the later was billed 512 cached of 74,605.
+- **Nothing about the key fixes it.** Four synthetic 15k-token conversations,
+  one shared key vs one key each: 24.0/24.3% sequential, 40.2/7.8% concurrent,
+  12.1/29.8% concurrent with the order reversed — noise, both signs. One
+  conversation, alone, on its own key still missed completely on two of three
+  follow-up calls.
+- **Caching also warms up.** In every probe the first repeat of a prefix was
+  billed at 0% and hits only appeared from the second repeat on, so a short
+  conversation can pay full price throughout.
+
+**The headroom is real but bounded.** `run_62c289d1` left 3,799,364 input tokens
+uncached; billing every one of them at the cached rate would have saved
+3,799,364 × (0.120 − 0.004) = 440,726 neurons = **$4.85**, taking the run from
+$5.96 to about $1.11. That is the whole prize for perfect caching, and none of
+it is bought by choosing a different affinity key.
+
+The recurring signature of a miss is a *floor*: the call is billed a cached
+count equal to some earlier snapshot of that conversation (~15.6k tokens in the
+fan-out, 15,872 in the runaway) rather than zero, i.e. it reached an instance
+that saw the conversation once and never since. Treat the remaining ~35% as
+instance-side and unpurchasable by header choice; the levers that do move it are
+prompt size and turn count.
 
 ## Where a run's conversation lives
 

@@ -181,6 +181,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if updateStatusSet {
 		switch updateStatus {
 		case tick.StatusInProgress:
+			// The dispatch path, and so the wave-width gate: a claim beyond
+			// `[orchestration].max_parallel` is refused here rather than
+			// discouraged in a prompt (see wave_width.go). An already-claimed
+			// tick holds its own slot and is never refused.
+			if err := waveWidthGate(cmd.ErrOrStderr(), root, t); err != nil {
+				return err
+			}
 			// Idempotent re-claim: an already-in_progress tick keeps its
 			// started_at (no activity entry is emitted either, so resetting
 			// it would break the stale-recovery invariant).

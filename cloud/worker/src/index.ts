@@ -159,6 +159,42 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     // Tick Operations API - Forward to ProjectRoom via RPC
     // =========================================================================
 
+    // Live run stream: POST /api/projects/:project/run-events
+    //
+    // The board's ingest door for `run_event` (tick bne). The WebSocket sync
+    // endpoint above carries run events from a LOCAL agent; this is the same
+    // fan-out for a run with no laptop in it — a cloud factory's RunRoom
+    // forwards here so the board shows the run live, from anywhere.
+    //
+    // It is observability and nothing else: the room broadcasts the message to
+    // the browsers watching and stores nothing. No tick is created, updated or
+    // closed by anything arriving on this route, so a producer cannot use it
+    // to move tracker state — that still goes through the local agent, and a
+    // tick is still only done when collect says so.
+    const runEventsMatch = url.pathname.match(/^\/api\/projects\/(.+?)\/run-events$/);
+    if (runEventsMatch && request.method === "POST") {
+      const projectId = decodeURIComponent(runEventsMatch[1]);
+
+      const authResult = await withProjectAuth(env, request, projectId);
+      if (authResult instanceof Response) {
+        return authResult;
+      }
+
+      try {
+        const body = await request.json();
+        const doId = env.PROJECT_ROOMS.idFromName(projectId);
+        const room = env.PROJECT_ROOMS.get(doId);
+        const published = await room.publishRunEvent(body);
+        if (!published.ok) {
+          return jsonResponse({ error: published.error ?? "Invalid run event" }, 400);
+        }
+        return jsonResponse({ ok: true });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResponse({ error: message }, 400);
+      }
+    }
+
     // Add note: POST /api/projects/:project/ticks/:tickId/note
     const addNoteMatch = url.pathname.match(/^\/api\/projects\/(.+?)\/ticks\/([^\/]+)\/note$/);
     if (addNoteMatch && request.method === "POST") {

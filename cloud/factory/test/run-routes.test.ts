@@ -289,6 +289,128 @@ describe("submission on a free project", () => {
     });
   });
 
+  // D19 (tick bmo): the cloud substrate is drivable from a laptop. A local
+  // orchestrator's `tk cloud spawn` submission takes the SAME lease a
+  // Workflow-hosted run takes — one project, one arbiter — and the origin is
+  // what makes the holder legible to whoever gets refused next.
+  it("records a locally-driven wave as a local lease holder", async () => {
+    const project = await enrolled("local-origin");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { origin: "local", tick_ids: ["bmo", "s7f"] })
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { run: { run_id: string } };
+    await expect(roomFor(env, project).leaseStatus()).resolves.toMatchObject({
+      run_id: body.run.run_id,
+      epic: "ko8",
+      origin: "local",
+    });
+    // Same lease, same room: a second submission is refused and NAMES the
+    // local holder, which is what stops a laptop session and the 06:00 sweep
+    // from both being inside .tick/.
+    const second = await post("/api/runs", submission(project));
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      error: "lease_held",
+      holder: { run_id: body.run.run_id, origin: "local" },
+    });
+  });
+
+  it("defaults an unstated origin to cloud, as every submission before it was", async () => {
+    const project = await enrolled("default-origin");
+    const res = await post("/api/runs", submission(project));
+    expect(res.status).toBe(201);
+    await expect(roomFor(env, project).leaseStatus()).resolves.toMatchObject({ origin: "cloud" });
+  });
+
+  it("refuses an origin it cannot parse rather than rewriting it", async () => {
+    const project = await enrolled("bad-origin");
+    const res = await post("/api/runs", submission(project, { origin: "laptop" }));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    await expect(roomFor(env, project).leaseStatus()).resolves.toBeNull();
+  });
+
+  // The flags on `tk cloud run` are a per-invocation choice; nothing about
+  // them is a redeploy, so they have to reach the Workflow's params.
+  it("carries a per-run budget into the Workflow params", async () => {
+    const project = await enrolled("budget-direct");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { max_cost_usd: 2.5, max_wall_clock_ms: 2_700_000 })
+    );
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params).toMatchObject({
+      max_cost_usd: 2.5,
+      max_wall_clock_ms: 2_700_000,
+    });
+  });
+
+  /**
+   * tick 7zk. An operator asked for `--max-cost 40`, the deployment ceiling was
+   * 8, and the run was bounded at $8 — correct policy, applied silently. `tk
+   * cloud run` printed nothing about it, so the first place the number that
+   * actually governed appeared was the cancellation forty minutes later, which
+   * destroyed three working containers. It is the third time in one epic a
+   * deployment ceiling replaced an operator's number with no line saying so.
+   *
+   * The ceiling itself is deliberately not pinned here: what has to hold is
+   * that the submission ANSWERS with the number that will govern, whatever
+   * this deployment's ceiling happens to be.
+   */
+  it("answers with the budget the run will actually be bounded by", async () => {
+    const project = await enrolled("budget-effective");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { max_cost_usd: 2.5, max_wall_clock_ms: 2_700_000 })
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { budget: Record<string, unknown> };
+    expect(body.budget).toMatchObject({
+      max_cost_usd: 2.5,
+      max_wall_clock_ms: 2_700_000,
+      requested_max_cost_usd: 2.5,
+      cost_clamped: false,
+      wall_clock_clamped: false,
+    });
+  });
+
+  it("says when the deployment ceiling lowered what was asked for", async () => {
+    const project = await enrolled("budget-clamped");
+
+    // Far above any ceiling this deployment could carry, so the clamp is the
+    // thing under test rather than the particular number configured.
+    const res = await post("/api/runs", submission(project, { max_cost_usd: 100_000 }));
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      budget: { max_cost_usd: number; requested_max_cost_usd: number; cost_clamped: boolean };
+    };
+    expect(body.budget.cost_clamped).toBe(true);
+    expect(body.budget.requested_max_cost_usd).toBe(100_000);
+    // The effective number is the ceiling, and it is what the Workflow was
+    // handed to enforce — one clamp, reported, not a second opinion.
+    expect(body.budget.max_cost_usd).toBeLessThan(100_000);
+    expect(body.budget.max_cost_usd).toBeGreaterThan(0);
+  });
+
+  it("refuses a budget that is not a positive number rather than dropping it", async () => {
+    const project = await enrolled("budget-invalid");
+
+    const res = await post("/api/runs", submission(project, { max_cost_usd: 0 }));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    expect(workflow.created).toHaveLength(0);
+  });
+
   it("writes the ignition to dispatch_log", async () => {
     const project = await enrolled("free-logged");
     const { run } = (await (await post("/api/runs", submission(project))).json()) as {
@@ -346,6 +468,91 @@ describe("submission on a free project", () => {
     expect(body.error).toBe("run_unavailable");
     expect(body.detail).toContain("tk factory setup");
     await expect(roomFor(env, project).leaseStatus()).resolves.toBeNull();
+    expect(workflow.created).toHaveLength(0);
+  });
+});
+
+/**
+ * The wave of ticks a cloud-wave submission carries (tick b6e).
+ *
+ * Readiness is computed where `tk graph` already runs — the submitter, not
+ * this Worker — so the submission is where the wave enters the system. This
+ * is what makes `dispatchWave` (0ds) reachable from a real run at all.
+ */
+describe("submitting a wave of ticks for per-tick cloud dispatch", () => {
+  it("carries tick_ids into the Workflow params", async () => {
+    const project = await enrolled("wave-direct");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: ["aaa", "bbb", "ccc"] }));
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params).toMatchObject({ tick_ids: ["aaa", "bbb", "ccc"] });
+  });
+
+  it("treats an absent tick_ids exactly as Phase 1 always has", async () => {
+    const project = await enrolled("wave-absent");
+
+    const res = await post("/api/runs", submission(project));
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params.tick_ids).toBeUndefined();
+  });
+
+  it("refuses an id that is not tick-id shaped", async () => {
+    const project = await enrolled("wave-bad-id");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: ["aaa", "not-a-tick-id"] }));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
+    expect(workflow.created).toHaveLength(0);
+  });
+
+  it("refuses a duplicate tick id rather than booting two containers for one name", async () => {
+    const project = await enrolled("wave-dup");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: ["aaa", "aaa"] }));
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_request",
+      detail: expect.stringContaining("aaa"),
+    });
+  });
+
+  it("refuses tick_ids past the bound rather than truncating it", async () => {
+    const project = await enrolled("wave-too-wide");
+    const tooMany = Array.from({ length: 65 }, (_, i) => i.toString(36).padStart(3, "0"));
+
+    const res = await post("/api/runs", submission(project, { tick_ids: tooMany }));
+
+    expect(res.status).toBe(400);
+    expect(workflow.created).toHaveLength(0);
+  });
+
+  it("treats an empty tick_ids the same as absent", async () => {
+    const project = await enrolled("wave-empty");
+
+    const res = await post("/api/runs", submission(project, { tick_ids: [] }));
+
+    expect(res.status).toBe(201);
+    expect(workflow.created[0]!.params.tick_ids).toBeUndefined();
+  });
+
+  // The RunRoom's queued-submission record has no tick_ids column yet: rather
+  // than silently ignite the queued submission on the Phase 1 path later
+  // having accepted a wave up front, the combination is refused loudly at
+  // submission, while there is still a caller to tell.
+  it("refuses to queue a wave until queued cloud-wave submissions are supported", async () => {
+    const project = await enrolled("wave-queue");
+
+    const res = await post(
+      "/api/runs",
+      submission(project, { tick_ids: ["aaa"], queue: true })
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_request" });
     expect(workflow.created).toHaveLength(0);
   });
 });
@@ -469,6 +676,40 @@ describe("queued submissions (D22)", () => {
       expect.stringContaining("queued"),
       "dispatched",
     ]);
+  });
+
+  // A budget that survives the submission but not the queue is a run the
+  // operator believes is bounded and is not.
+  it("keeps a parked submission's budget through to ignition", async () => {
+    const project = await enrolled("queue-budget");
+    const first = (await (await post("/api/runs", submission(project))).json()) as {
+      run: { run_id: string };
+    };
+    const parked = (await (
+      await post(
+        "/api/runs",
+        submission(project, {
+          epic: "afj",
+          base_sha: OTHER_SHA,
+          queue: true,
+          max_cost_usd: 1.25,
+          max_wall_clock_ms: 600_000,
+        })
+      )
+    ).json()) as { queued: QueuedSubmission };
+
+    const released = await roomFor(env, project).releaseDispatchLease({
+      run_id: first.run.run_id,
+      token: workflow.created[0]!.params.lease_token,
+    });
+    expect(released.ok).toBe(true);
+
+    expect(workflow.created).toHaveLength(2);
+    expect(workflow.created[1]!.params).toMatchObject({
+      run_id: parked.queued.run_id,
+      max_cost_usd: 1.25,
+      max_wall_clock_ms: 600_000,
+    });
   });
 
   it("expires on its window rather than igniting work hours later", async () => {

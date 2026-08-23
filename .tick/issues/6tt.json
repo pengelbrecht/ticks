@@ -2,12 +2,15 @@
   "id": "6tt",
   "title": "A cloud run's PR carries its base epic's commits to main as a side effect",
   "description": "PR 49 (epic ko8, Phase 1) was recorded MERGED at 12:02:38 — the same second PR 50 merged — and its merge commit is a commit that was already on the epic branch. Nobody merged 49. The cloud run for epic gj9 was submitted from epic/ko8, so its base_sha was that branch HEAD, tick-run/gj9 descended from it, and merging the run PR to main carried every commit on epic/ko8 along with it. GitHub then marked 49 merged because its commits were all in main.\n\nThe outcome happened to be fine here — 49 was green and intended to land — but the mechanism is not: a run opened for one epic can merge an unrelated epic branch to main without that branch being reviewed or its PR approved, and the operator gets no signal that it happened. It also silently violates the config.md rule that epic integration goes through a PR and CI gate, because the gate that ran belonged to a different PR.\n\nOptions to weigh: submit runs from the default branch unless an explicit base is given; refuse to open a PR whose diff contains commits outside the run branch; or have the closeout PR body enumerate any commits it carries that the run did not create, so the extra cargo is at least visible. The third is the cheapest and probably wanted regardless of which other option is taken.",
-  "status": "open",
+  "notes": "2026-08-21 16:55 - Seam (wave 2, six wide). You own the closeout PR body and whatever assembles it. wn5 owns cmd/tk/cmd/cloud.go, h4n owns pre-flight, fxf owns gateway.ts. The cheapest option in the description — enumerate commits the run did not create — is wanted regardless of which other option is taken, so do that one first and make it stand alone.\n2026-08-21 16:56 - runner-state: substrate=herdr kind=claude branch=tick/6tt worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-6tt workspace=wDB base=f2925cf88162b6bbaff483b87c82caaf6c7942a8 agent=tick-6tt pane=wDB:p1 session=983cf442-a9b9-44cd-a409-a0c9b14eb963\n2026-08-21 17:27 - runner-state: runner=claude branch=tick/6tt merged=49a69a57",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "parent": "1vn",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-21T12:36:25.262408Z",
-  "updated_at": "2026-08-21T12:36:25.262408Z"
+  "updated_at": "2026-08-21T15:27:14.240233Z",
+  "closed_at": "2026-08-21T15:27:14.240233Z",
+  "closed_reason": "Completed: tk cloud pr-body makes a run's cargo visible — commits in merge-target..submitted-sha are listed as carried, with what merging them means stated plainly, so an epic branch can no longer reach the default branch under another PR's CI gate unnoticed."
 }

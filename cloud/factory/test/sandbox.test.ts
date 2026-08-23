@@ -1,8 +1,12 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_SANDBOX_IMAGE,
   adaptSandbox,
+  deploymentImage,
   isSandboxNamespace,
+  resolveSandboxImage,
+  sameImageReference,
   sandboxBinding,
   type SandboxBinding,
   type SdkProcess,
@@ -33,6 +37,9 @@ function fakeSdkSandbox(overrides: Partial<SdkSandbox> = {}) {
     },
     async getProcess() {
       return record;
+    },
+    async listProcesses() {
+      return record === null ? [] : [record];
     },
     async getProcessLogs() {
       return { stdout, stderr, processId: "p1" };
@@ -212,5 +219,96 @@ describe("sandboxBinding", () => {
 
     expect(binding).not.toBeNull();
     expect(binding).not.toBe(env.SANDBOXES);
+  });
+});
+
+/**
+ * Which image a run boots (tick x3v).
+ *
+ * The escape hatch `[sandbox].image` was parsed, validated, reported and
+ * warned about; what it was not, was booted. These are the three rules that
+ * close it — and the third one, the refusal, is the one worth the file: a
+ * declared image the deployment cannot serve must end the run with something
+ * an operator can act on, never a container that quietly is not what the
+ * repository asked for.
+ */
+describe("resolveSandboxImage", () => {
+  const BASE = "ticks-orchestrator:0.31.0";
+
+  it("boots the image the repository declares", () => {
+    const declared = "registry.example.com/acme/ticks-orchestrator:0.32.0";
+
+    expect(resolveSandboxImage({ declared, deployment: declared })).toEqual({
+      ok: true,
+      image: declared,
+      source: "declared",
+    });
+  });
+
+  it("boots the version-pinned base when the repository declares nothing", () => {
+    expect(resolveSandboxImage({ declared: null, deployment: BASE })).toEqual({
+      ok: true,
+      image: BASE,
+      source: "base",
+    });
+  });
+
+  // The clause this tick exists for. A container's image is fixed when the
+  // factory is deployed, so a declaration this deployment does not serve
+  // cannot be pulled — and the run has to say so rather than boot the base and
+  // let a wave fail somewhere far from the cause.
+  it("refuses a declared image this deployment cannot serve", () => {
+    const result = resolveSandboxImage({
+      declared: "registry.example.com/acme/ticks-orchestrator:0.32.0",
+      deployment: BASE,
+      at: "d".repeat(40),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Actionable means: both references, where the declaration lives, and both
+    // ways out of it.
+    expect(result.detail).toContain("registry.example.com/acme/ticks-orchestrator:0.32.0");
+    expect(result.detail).toContain(BASE);
+    expect(result.detail).toContain(".tick/runners.toml");
+    expect(result.detail).toContain("d".repeat(40));
+    expect(result.detail).toContain("SANDBOX_IMAGE");
+    expect(result.detail).toContain("remove [sandbox].image");
+  });
+
+  // The repository's spelling is what the container is told, because the
+  // container compares it against its own checkout. Handing it the
+  // deployment's equal-but-differently-written reference would read there as
+  // a mismatch and refuse a boot that is correct.
+  it("carries the repository's own spelling of an equal reference", () => {
+    const result = resolveSandboxImage({
+      declared: "ticks-orchestrator",
+      deployment: "ticks-orchestrator:latest",
+    });
+
+    expect(result).toEqual({ ok: true, image: "ticks-orchestrator", source: "declared" });
+  });
+
+  it("treats a digest as the stronger claim it is", () => {
+    const digest = "@sha256:" + "0".repeat(64);
+
+    expect(sameImageReference(`acme/orchestrator:1.0${digest}`, "acme/orchestrator:1.0")).toBe(false);
+    expect(sameImageReference(`acme/orchestrator:1.0${digest}`, `acme/orchestrator:1.0${digest}`)).toBe(true);
+  });
+
+  // A registry port is not a tag, so `host:5000/image` still gets `:latest`.
+  it("does not mistake a registry port for a tag", () => {
+    expect(sameImageReference("registry.example.com:5000/acme/orchestrator", "registry.example.com:5000/acme/orchestrator:latest")).toBe(true);
+    expect(sameImageReference("registry.example.com:5000/acme/orchestrator", "registry.example.com:5000/acme/orchestrator:2.0")).toBe(false);
+  });
+});
+
+describe("deploymentImage", () => {
+  it("is the bundled default unless the deployment named its own", () => {
+    expect(deploymentImage({} as never)).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(deploymentImage({ SANDBOX_IMAGE: "  " } as never)).toBe(DEFAULT_SANDBOX_IMAGE);
+    expect(deploymentImage({ SANDBOX_IMAGE: " acme/orchestrator:2.0 " } as never)).toBe(
+      "acme/orchestrator:2.0"
+    );
   });
 });

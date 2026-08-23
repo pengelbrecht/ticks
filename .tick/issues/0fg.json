@@ -1,0 +1,20 @@
+{
+  "id": "0fg",
+  "title": "tk cloud logs shows the orchestrator only — a worker container's own output is unreadable",
+  "description": "Diagnosing the exit-7 worker failures cost seven paid runs because the one thing that would have answered it in one — what the worker container printed — is not readable anywhere.\n\n`tk cloud logs \u003crun\u003e` streams the ORCHESTRATOR sandbox's stdout/stderr from R2. Verified against run_1f9e082a394840fcb539befb82ccdf45: the output is entirely 'ticks-orchestrator:' lines. A worker container boots, runs cloud/sandbox/worker.sh, dies on 'die $EXIT_MODEL ...' with a message that names the exact gateway route and HTTP body — and that message goes nowhere durable.\n\nys3 persists the dispatch OUTCOME (exit code, probe verdict). This tick is the other half: the container's own TEXT.\n\nDeliverable: each worker container streams its stdout/stderr to R2 the same way the orchestrator sandbox does (continuously, never export-at-exit — a container that dies must still leave its diagnostics), and `tk cloud logs \u003crun\u003e` can print them per tick. Suggested surface: `tk cloud logs \u003crun\u003e --tick \u003cid\u003e`, with the default listing which streams exist.\n\nDo NOT reuse the orchestrator's single stream key — one object per (run, tick) or the wave's containers interleave into nonsense.",
+  "notes": "2026-08-22 12:45 - runner-state: substrate=herdr kind=claude branch=tick/0fg worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-0fg workspace=wEA base=52be1021ed2d6232471402700530f60c98f1d7a8 agent=tick-0fg pane=wEA:p1 session=a09036b8-accb-4041-9997-74f23708c325\n2026-08-22 13:18 - runner-state: runner=herdr branch=tick/0fg merged=c3c64311 gate=green (go build, go test ./..., public-repo guard, factory vitest 559)",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "ys3"
+  ],
+  "parent": "1vn",
+  "acceptance_criteria": "A worker container that dies at boot leaves its own stderr in R2, and `tk cloud logs \u003crun\u003e --tick \u003cid\u003e` prints it. Proven against a real failed worker, not a unit test alone. Existing factory vitest suite stays green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T10:19:39.677302Z",
+  "updated_at": "2026-08-22T11:18:13.147227Z",
+  "closed_at": "2026-08-22T11:18:13.147227Z",
+  "closed_reason": "Completed: each worker container now streams its own stdout/stderr to its own R2 key as it appears, and 'tk cloud logs \u003crun\u003e --tick \u003cid\u003e' prints it. One stream per (run, tick) so a wave's containers do not interleave. The live half — proving it against a real failed worker in a deployed factory — is tick 5bv's job, which is exactly what it makes diagnosable."
+}

@@ -55,8 +55,9 @@ func FactoryFS() embed.FS {
 	return factoryFS
 }
 
-// sandboxFS holds the orchestrator sandbox image's build context
-// (cloud/sandbox) — the container one cloud run boots. It ships in the binary
+// sandboxFS holds the sandbox image's build context (cloud/sandbox) — the
+// container a cloud run boots, in either of its two roles: the orchestrator
+// entrypoint, the per-tick worker entrypoint, and the common half both source. It ships in the binary
 // for the same reason the worker bundle does: `tk factory deploy` builds and
 // pushes this image into the operator's own registry, so the image a
 // deployment runs is the one that shipped with this tk build.
@@ -65,6 +66,7 @@ func FactoryFS() embed.FS {
 // context is exactly the Dockerfile and what it copies.
 //
 //go:embed cloud/sandbox/Dockerfile cloud/sandbox/entrypoint.sh cloud/sandbox/preflight.sh
+//go:embed cloud/sandbox/worker.sh cloud/sandbox/common.sh
 //go:embed cloud/sandbox/build.sh cloud/sandbox/README.md
 //go:embed cloud/sandbox/required-tk-commands
 var sandboxFS embed.FS

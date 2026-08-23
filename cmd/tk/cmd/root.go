@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/pengelbrecht/ticks/internal/factory/dashboard"
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/skills"
 )
@@ -48,6 +49,23 @@ const (
 	// orchestrator branching on "still unanswered" must not have to read stderr
 	// to tell the two apart.
 	ExitTimeout = 7
+
+	// ExitWaveFull reports that a dispatch was refused because the wave is at
+	// its configured width (`[orchestration].max_parallel`). It has its own
+	// slot for the same reason ExitTimeout does: "wait for a slot" and "that
+	// tick does not exist" are different next actions, and an orchestrator
+	// must be able to tell them apart without parsing stderr. Refused work is
+	// not failed work — the claim is retried when a slot frees.
+	ExitWaveFull = 8
+
+	// ExitWrongSubstrate reports that a dispatch verb refused because the run
+	// dispatches through a different substrate than the verb serves: `tk herd
+	// spawn` on a repository that declares `[orchestration].substrate =
+	// "cloud"`. It has its own slot for the reason ExitWaveFull does — the next
+	// action is neither "retry" nor "fix the config", it is "use the other
+	// verb", and an orchestrator must be able to tell that apart from a routing
+	// refusal (1) without parsing stderr.
+	ExitWrongSubstrate = 9
 )
 
 // ExitError is an error that carries a specific exit code.
@@ -527,6 +545,11 @@ func ResetFlags() {
 	sandboxStamp = ""
 	sandboxTkVerRaw = ""
 	sandboxDeclaredOnly = false
+	sandboxModelRole = ""
+	sandboxModelTier = ""
+	sandboxPromptTick = ""
+	sandboxPromptBranch = ""
+	sandboxPromptBase = ""
 
 	// Reset herd reconcile flags
 	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
@@ -605,11 +628,44 @@ func ResetFlags() {
 	factoryStatusCheck = false
 	factoryStatusGitHubAPI = ""
 	factoryStatusCFAPIBase = ""
+	factoryDashboardProject = ""
+	factoryDashboardInterval = defaultFactoryDashboardIntervalMs
+	factoryDashboardCost = defaultFactoryDashboardCostMs
+	factoryDashboardTailBytes = dashboard.DefaultHarnessBytes
+	factoryDashboardNoCost = false
 
 	// Reset cloud flags
 	cloudRunNotify = ""
 	cloudRunQueue = false
+	cloudRunTickIDs = nil
+	cloudRunMaxCost = 0
+	cloudRunMaxWallClock = 0
 	cloudStopNow = false
+	cloudTraceJSON = false
+	cloudTraceCall = 0
+	cloudTraceTools = false
+	cloudTraceCache = false
+	cloudLogsTail = 0
+	cloudLogsTick = ""
+	cloudPRBodyHead = ""
+	cloudPRBodyBase = ""
+	cloudPRBodyRunBase = ""
+	cloudPRBodyEpic = ""
+
+	// Reset cloud wave (spawn/wait/collect/reconcile) flags
+	cloudSpawnTicks = nil
+	cloudSpawnConfig = ""
+	cloudSpawnNotify = ""
+	cloudSpawnMaxCost = 0
+	cloudSpawnMaxClock = 0
+	cloudSpawnJSON = false
+	cloudWaitEpic = ""
+	cloudWaitTicks = nil
+	cloudWaitTimeout = defaultCloudWaitTimeoutMs
+	cloudWaitPoll = defaultCloudWaitPollMs
+	cloudWaitJSON = false
+	cloudCollectEpic, cloudCollectJSON = "", false
+	cloudReconcileEpic, cloudReconcileJSON = "", false
 
 	// Reset config migration flags
 	configMigrateApply = false

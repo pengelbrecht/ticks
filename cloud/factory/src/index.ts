@@ -11,6 +11,8 @@
  * - GET  /api/runs         - the run index plus per-project lease and queue
  * - GET  /api/runs/:id     - one run: Workflow step state, lease, gates, queue
  * - POST /api/runs/:id/stop- a clean stop, enforced at the control plane (D15)
+ * - GET  /api/runs/:id/logs- the run's harness output, streamed to R2 during
+ *                             the run (read-only; it steers nothing — see D21)
  * - ANY  /api/gateway/*     - a run's model traffic, on its own run-scoped
  *                             gateway token (D17) — never the factory token
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
@@ -28,16 +30,25 @@
  * docs/design/cloud-factory.md.
  */
 
-import { authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
+import { WAVE_PATH, authenticateFactoryRequest, isAuthConfigured, isAuthExempt } from "./auth";
+import {
+  HARNESS_TAIL_MAX_BYTES,
+  listWorkerLogStreams,
+  readHarnessTail,
+  readWorkerLogTail,
+} from "./artifacts";
 import {
   enrolProject,
   getEnrolledProject,
+  getRun,
   listEnrolledProjects,
   removeEnrolledProject,
   type EnrolledProject,
 } from "./db";
 import { proxyModelRequest } from "./gateway";
-import { RunWorkflow } from "./run-workflow";
+import { observeRoute } from "./observe";
+import { requestWave } from "./wave-request";
+import { RunWorkflow, effectiveRunBudget } from "./run-workflow";
 import {
   RunRoom,
   type MessageRef,
@@ -154,17 +165,36 @@ async function submitRoute(request: Request, env: Env): Promise<Response> {
   if (!parsed.ok) return badRequest(parsed.detail);
 
   const result = await submitRun(env, parsed.submission);
+  // The budget this submission will ACTUALLY run under (tick 7zk). Computed
+  // from the same `runConfig` clamp the Workflow applies, and reported at the
+  // one moment an operator is still reading: `--max-cost 40` against a
+  // deployment ceiling of 8 is a run bounded at $8, and until this line the
+  // first place that number appeared was the cancellation that ended the run.
+  const budget = effectiveRunBudget(env, {
+    ...(parsed.submission.max_cost_usd === undefined
+      ? {}
+      : { max_cost_usd: parsed.submission.max_cost_usd }),
+    ...(parsed.submission.max_wall_clock_ms === undefined
+      ? {}
+      : { max_wall_clock_ms: parsed.submission.max_wall_clock_ms }),
+  });
   switch (result.outcome) {
     case "started":
       return Response.json(
-        { run: result.started.run, workflow: result.started.workflow },
+        { run: result.started.run, workflow: result.started.workflow, budget },
         { status: 201 }
       );
     case "queued":
       // 202: accepted, not running. The holder is named either way, so the
-      // operator knows what it is waiting behind.
+      // operator knows what it is waiting behind — and the budget it will
+      // ignite under, which the clamp decides now and not at ignition.
       return Response.json(
-        { queued: result.queued, holder: result.holder, reason: `lease_held_by:${result.holder.run_id}` },
+        {
+          queued: result.queued,
+          holder: result.holder,
+          reason: `lease_held_by:${result.holder.run_id}`,
+          budget,
+        },
         { status: 202 }
       );
     case "refused":
@@ -288,6 +318,87 @@ async function stopRoute(request: Request, runID: string, env: Env): Promise<Res
       return badRequest(result.detail);
   }
 }
+
+/**
+ * A run's harness output: what the container actually printed.
+ *
+ * Deliberately NOT the same command as `tk cloud trace`. This is stdout and
+ * stderr, already streamed to R2 during the run (D20) so a crashed sandbox
+ * still leaves its diagnostics behind; trace is the model conversation, read
+ * from AI Gateway. Conflating them would give one command two answers to
+ * "what happened", and the log is the one that shows a harness crash while the
+ * trace is the one that shows a bad decision.
+ *
+ * Read-only, like status: it observes a run and cannot steer one, so the
+ * operator-to-orchestrator command vocabulary stays run/stop/status/answer
+ * (D21).
+ */
+async function logsRoute(url: URL, runID: string, env: Env): Promise<Response> {
+  // getRun, not runStatus: the log stream is R2 and the run's index row, and
+  // asking the Workflows binding for step state to serve a log read would make
+  // a diagnostic depend on the layer most likely to be the thing being
+  // diagnosed.
+  const run = await getRun(env.DB, runID);
+  if (run === null) {
+    return Response.json({ error: "unknown_run", detail: `no run ${runID}` }, { status: 404 });
+  }
+  if (!env.ARTIFACTS) {
+    return Response.json(
+      {
+        error: "artifacts_unavailable",
+        detail: "this deployment has no artifacts bucket, so no harness output was ever stored",
+      },
+      { status: 503 }
+    );
+  }
+
+  const requested = url.searchParams.get("max_bytes");
+  let maxBytes = HARNESS_TAIL_MAX_BYTES;
+  if (requested !== null) {
+    const parsed = Number(requested);
+    if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > HARNESS_TAIL_MAX_BYTES) {
+      return badRequest(`max_bytes must be an integer between 1 and ${HARNESS_TAIL_MAX_BYTES}`);
+    }
+    maxBytes = parsed;
+  }
+
+  // Which worker containers left a stream, always — on a per-tick read as much
+  // as on the default one. A `--tick` whose valid values are unlisted is a
+  // flag nobody can use, and it is what tells a typo'd tick id apart from a
+  // container that printed nothing (tick 0fg).
+  const streams = await listWorkerLogStreams(env.ARTIFACTS, run.project, runID);
+
+  const tick = url.searchParams.get("tick");
+  if (tick !== null) {
+    // A tick id addresses a folder under the run's own prefix, so it is
+    // checked rather than trusted: `../orchestrator` would read a stream this
+    // parameter does not name.
+    if (!TICK_ID_PATTERN.test(tick)) {
+      return badRequest("tick must be a tick id — letters, digits, dots, dashes or underscores");
+    }
+    const worker = await readWorkerLogTail(env.ARTIFACTS, run.project, runID, tick, maxBytes);
+    return Response.json({
+      run_id: runID,
+      project: run.project,
+      state: run.state,
+      tick_id: tick,
+      ...worker,
+      streams,
+    });
+  }
+
+  const output = await readHarnessTail(env.ARTIFACTS, run.project, runID, maxBytes);
+  return Response.json({
+    run_id: runID,
+    project: run.project,
+    state: run.state,
+    ...output,
+    streams,
+  });
+}
+
+/** What may name a worker stream: a tick id, and nothing that walks the tree. */
+const TICK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 // -------------------------------------------------------------- projects ---
 
@@ -669,6 +780,19 @@ export default {
       return await health(env);
     }
 
+    // The in-run dispatch door (tick wiy). Placed beside the other
+    // token-exempt routes and before the /api/runs table, because it is
+    // authorized by a run credential rather than the operator's, and reading
+    // it as an /api/runs sub-path would put it behind the wrong gate.
+    if (url.pathname === WAVE_PATH) {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      const result = await requestWave(env, request);
+      if (!result.ok) {
+        return Response.json({ error: result.error, detail: result.detail }, { status: result.status });
+      }
+      return Response.json({ wave: result.request }, { status: 202 });
+    }
+
     if (url.pathname === "/api/channels/telegram/webhook") {
       return await telegramWebhookRoute(request, env);
     }
@@ -680,6 +804,13 @@ export default {
     // the control plane (D17).
     if (segments[0] === "api" && segments[1] === "gateway") {
       return await proxyModelRequest(env, request, segments.slice(2));
+    }
+
+    // One read that draws a board frame for `tk factory dashboard` (tick t9s).
+    // Read-only, like status, logs and trace: it composes records other code
+    // wrote and cannot steer a run.
+    if (segments[0] === "api" && segments[1] === "observe" && segments.length === 2) {
+      return await observeRoute(request, env);
     }
 
     if (segments[0] === "api" && segments[1] === "projects") {
@@ -702,6 +833,11 @@ export default {
       if (segments.length === 4 && segments[3] === "stop") {
         if (request.method !== "POST") return methodNotAllowed(["POST"]);
         return await stopRoute(request, segments[2]!, env);
+      }
+      // /api/runs/:id/logs
+      if (segments.length === 4 && segments[3] === "logs") {
+        if (request.method !== "GET") return methodNotAllowed(["GET"]);
+        return await logsRoute(url, segments[2]!, env);
       }
     }
 

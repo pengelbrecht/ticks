@@ -255,12 +255,8 @@ func validateOrchestration(cfg *Config, md toml.MetaData, add addFunc) {
 	if o == nil {
 		return
 	}
-	if md.IsDefined("orchestration", "substrate") {
-		switch o.Substrate {
-		case SubstrateHerdr, SubstrateHarness, SubstrateAuto:
-		default:
-			add("orchestration.substrate", fmt.Sprintf("%q is not one of herdr, harness, auto", string(o.Substrate)))
-		}
+	if md.IsDefined("orchestration", "substrate") && !o.Substrate.Valid() {
+		add("orchestration.substrate", fmt.Sprintf("%q is not one of %s", string(o.Substrate), SubstrateList(false)))
 	}
 	if md.IsDefined("orchestration", "detect") {
 		switch o.Detect {

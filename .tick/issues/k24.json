@@ -1,0 +1,16 @@
+{
+  "id": "k24",
+  "title": "Budgets and stop are not enforced mid-batch on the cloud-wave path",
+  "description": "From b6e gap 4, and it is the one with teeth. The hard-stop killcheck runs BETWEEN batches, not while one is in flight: dispatchWave has no cancellation seam through its spawn-wait-collect-teardown cycle. So an operator hard stop, or a budget trip, waits for the current batch of up to max_instances containers to finish before anything reacts.\n\nThis repo has already paid for the general version of this lesson twice — cts (a budget that could not trip) and gyl (a kill switch a reboot undid) — and the same money is now spendable through a window nobody watches. Give dispatchWave a cancellation seam and check on it, rather than only at batch boundaries.\n\nb6e also notes, correctly, that the PRE-EXISTING orchestrator path has the identical untested gap: no test asserts stop-before-first-boot or stop-between-reboot-attempts. It declined to add a timing-dependent test rather than add a flaky one, which was the right call — but the assertion is still missing on both paths, so this tick owns finding a non-racy way to make it (a synchronization seam the suite does not have anywhere yet).",
+  "notes": "2026-08-21 22:18 - Seam (wave 5, three wide with ddv and bne). You own cloud/factory/src/worker-dispatch.ts and the batch loop in run-workflow.ts that calls it. ddv owns internal/herd/config; bne owns run_event producers. Treat the cancellation seam as the deliverable, not a nice-to-have — this is the third time this epic has met the same shape (cts: a budget that could not trip; gyl: a revocation the next boot undid; now a stop that waits for a batch), and the pattern each time is that enforcement existed somewhere that could not act in time. The pre-existing orchestrator path has the same untested assertion, so whatever synchronisation seam you find should serve both.\n2026-08-21 22:18 - runner-state: substrate=herdr kind=claude branch=tick/k24 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-k24 workspace=wDS base=dfe17ee97edaea552b86d8a87acfab77302c5ae1 agent=tick-k24 pane=wDS:p1 session=64171352-cd2a-4c77-af0e-3685887e0e3c\n2026-08-21 22:51 - runner-state: runner=claude branch=tick/k24 merged=386bcfb4",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-21T19:36:09.833827Z",
+  "updated_at": "2026-08-21T20:51:16.908526Z",
+  "closed_at": "2026-08-21T20:51:16.908526Z",
+  "closed_reason": "Completed: a cloud wave now has a real cancellation seam — every polling loop sleeps in chunks sized by the canceller rather than its own interval, so a stop or a budget trip lands mid-batch instead of waiting for up to max_instances containers to finish. The credential is revoked the instant the wave is found cancelled, ahead of the slower teardowns, and stops are asserted at every boundary including the ones the pre-existing orchestrator path never tested."
+}

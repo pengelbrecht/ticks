@@ -80,3 +80,50 @@ func OrchestratorModel(root string) (RoutedModel, error) {
 	}
 	return RoutedModel{Model: worker.Model, Source: worker.Label() + ".model"}, nil
 }
+
+// WorkerRole is the role a per-tick worker container resolves under. It is
+// `implement` because that is what a worker does — the frontier cell the
+// orchestrator asks for plans waves and reviews epics, and routing every
+// per-tick container at it is a silent multiple on every wave's bill.
+const WorkerRole = "implement"
+
+// WorkerModel reports the model a per-tick worker container booting on this
+// checkout should run, read from the repository's own routing config.
+//
+// It is the same resolution [OrchestratorModel] makes, one cell over: role
+// `implement` at the tier the caller names, or the role's own model when it
+// names none. `[orchestrator].model` is deliberately NOT consulted — that
+// entry is the orchestrator's, and a repository that pins a frontier model
+// there has not thereby asked for one per tick.
+//
+// A checkout with no config, or with nothing routed, yields a zero
+// [RoutedModel] and no error, exactly as OrchestratorModel does: reporting it
+// is the caller's job, and the worker entrypoint refuses to boot a harness on
+// it rather than guessing.
+func WorkerModel(root string, tier config.Tier) (RoutedModel, error) {
+	return RoleModel(root, WorkerRole, tier)
+}
+
+// RoleModel resolves one role/tier cell of the repository's routing table.
+//
+// Exported because "which model does this container run on" is now asked by
+// two roles of one image (tick x3v) and will be asked by more; the alternative
+// is a second reader of the same table, which is the shape of bug this
+// repository has already paid for once.
+func RoleModel(root, role string, tier config.Tier) (RoutedModel, error) {
+	cfg, err := config.LoadRepo(root)
+	if err != nil {
+		return RoutedModel{}, fmt.Errorf("sandbox model: %w", err)
+	}
+	worker, err := cfg.Resolve(role, tier)
+	switch {
+	case errors.Is(err, config.ErrNoConfig):
+		return RoutedModel{}, nil
+	case err != nil:
+		return RoutedModel{}, fmt.Errorf("sandbox model: %w", err)
+	}
+	if worker.Model == "" {
+		return RoutedModel{}, nil
+	}
+	return RoutedModel{Model: worker.Model, Source: worker.Label() + ".model"}, nil
+}

@@ -1,24 +1,266 @@
-# orchestrator sandbox image
+# ticks sandbox image
 
-The container one cloud run boots. `tk cloud run <epic>` starts a Run Workflow;
-the Workflow boots **one** sandbox from this image and starts
-`ticks-orchestrator` inside it, which clones the repo at the submitted SHA,
-verifies `tk`, provisions anything the repository needs that the image does not
-already carry, runs the repository's own `[sandbox]` setup, runs the Environment
-pre-flight, exports
-`TK_ACTOR=cloud:orchestrator`, and execs the headless harness on the ticks skill
-loop. See `docs/design/cloud-factory.md` (Phase 1).
+The container a cloud run boots — in either of its **two roles**. On Cloudflare
+an image belongs to the containers application rather than to a boot (tick
+x3v), so an orchestrator container and a per-tick worker container are the
+*same image*, and what tells a container which role it is playing is **which
+entrypoint the control plane starts inside it**: `ticks-orchestrator` works an
+epic, `ticks-worker` works one tick. There is deliberately no role flag beside
+that — a container whose role is the command it was given cannot be started in
+the wrong one.
+
+The role-neutral half of the boot lives in `common.sh` and is sourced by both.
+It is sourced rather than copied because a gateway or credential fix that lands
+in one role and misses the other is a whole wave of containers dying the same
+way, at model prices.
 
 | File | What it is |
 |---|---|
 | `Dockerfile` | The image. Every version and checksum is pinned in one ARG block. |
-| `entrypoint.sh` | Installed as `/usr/local/bin/ticks-orchestrator` — the run entrypoint. |
+| `entrypoint.sh` | Installed as `/usr/local/bin/ticks-orchestrator` — the ORCHESTRATOR run entrypoint. |
+| `worker.sh` | Installed as `/usr/local/bin/ticks-worker` — the PER-TICK WORKER run entrypoint, plus `--probe` and `--cancel`. |
+| `common.sh` | Installed as `/usr/local/share/ticks/common.sh` — the role-neutral half both entrypoints source. A library, not an entrypoint. |
 | `preflight.sh` | Installed as `/usr/local/bin/ticks-preflight` — the Environment pre-flight. |
 | `build.sh` | Builds and optionally pushes, tagged with the tk version the Dockerfile pins. |
-| `required-tk-commands` | Derived list of every `tk` subcommand the two scripts run. The image build asserts each one against the tk it produced. |
+| `required-tk-commands` | Derived list of every `tk` subcommand the run scripts invoke. The image build asserts each one against the tk it produced. |
 
-Guarded by `internal/sandbox` (`go test ./internal/sandbox`), which runs the two
-scripts against stub harnesses and checks the Dockerfile's pin discipline.
+Guarded by `internal/sandbox` (`go test ./internal/sandbox`), which runs both
+entrypoints against stub harnesses — with a real git remote, a real clone and a
+real push for the worker — and checks the Dockerfile's pin discipline.
+
+## The orchestrator role
+
+`tk cloud run <epic>` starts a Run Workflow; the Workflow boots **one** sandbox
+from this image and starts `ticks-orchestrator` inside it, which clones the repo
+at the submitted SHA, verifies `tk`, provisions anything the repository needs
+that the image does not already carry, runs the repository's own `[sandbox]`
+setup, runs the Environment pre-flight, exports `TK_ACTOR=cloud:orchestrator`,
+and execs the headless harness on the ticks skill loop. See
+`docs/design/cloud-factory.md` (Phase 1).
+
+## The worker role
+
+One sandbox per tick. `ticks-worker` clones at the epic base, branches
+`tick/<epic-id>/<tick-id>`, runs the harness on that one tick, then **commits
+`RESULT-<tick-id>.md`, pushes the branch, and exits**. Its caller is
+`cloud/factory/src/worker-dispatch.ts`, which probes the container, confirms
+dispatch, waits, collects from git and tears the sandbox down;
+`cloud/factory/src/worker-boot.ts` is where the control plane reads the command,
+the probe and the environment from.
+
+Four things about it are load-bearing:
+
+**It does not `exec` the harness.** The orchestrator execs, so the harness's
+exit status is the run's. A worker cannot: its entire contract is what it does
+*after* the agent stops. The last thing the container does is make sure the
+durable layer has something in it, because collect reads git and nothing else —
+terminal output from a destroyed container is not a channel.
+
+**It commits the report.** A herdr worker leaves `RESULT-<tick-id>.md`
+uncommitted in its worktree and `tk herd collect` reads it off the filesystem.
+There is no worktree here, so `worker-collect.ts` reads the report *off the
+pushed branch* — which means it has to be committed, and the entrypoint (not the
+agent) commits it, in its own commit, with an explicit pathspec. The agent's
+`STATUS:` line is never rewritten; a header of facts the agent could not know —
+its own exit status, how many commits it made, what it left uncommitted — is
+prepended above it.
+
+**A pushed branch is adopted, never overwritten.** An earlier attempt's work is
+evidence collect explicitly still looks for. A branch already on origin that
+descends from this base is continued; one from another base is left alone and
+this attempt pushes beside it as `tick/<epic>/<tick>-<run-id>`.
+
+**Exit codes distinguish the classes**, on top of the shared 2–8:
+
+| Exit | Meaning |
+|---|---|
+| `9` | Commits exist and origin would not take them. The worst outcome: the work lives only in a container about to be destroyed. Retry. |
+| `10` | Branch and report reached origin with **no work commits**. The green-start trap's exit counterpart (D23) — the harness exited 0 having done nothing. Look at the tick, not the container. |
+| `11` | The harness failed, ran out of time, or exited without writing its report. Whatever it committed was pushed first. |
+
+### The probe marker
+
+`ticks-worker --probe` is the green-start probe `worker-dispatch.ts` runs before
+it dispatches any real work. It proves `tk`, `git` and the harness binary answer,
+and then prints:
+
+```
+ticks-worker: ticks-worker-probe-ok tick=<id> tk=<version> harness=<kind> git version …
+```
+
+The gate is **`ticks-worker-probe-ok` appearing in the output**, never the exit
+status — a probe that exits 0 having printed the wrong thing is exactly the
+trap. The marker is defined here and read from three places: `worker.sh`,
+`internal/sandbox/worker.go` and `cloud/factory/src/worker-boot.ts`, pinned
+together by `cloud/factory/test/fixtures/worker-boot-contract.json`.
+
+The probe deliberately makes **no model call** and does **no clone**. It runs
+once per sandbox in a wave, and the model round-trip is already proved during
+the boot itself, where a failure has a route to blame.
+
+### The cancellation door (`--cancel`)
+
+`ticks-worker --cancel <reason>` is how the SUPERVISOR asks a container to stop
+and push before destroying it. It is started as its own process inside the same
+container, lodges the request, and sends the *harness* — never the entrypoint —
+a `SIGTERM`, then a `SIGKILL` if it will not stop. The boot then returns from
+its harness call exactly as it does when its own `TICKS_WORKER_TIMEOUT` fires,
+and everything after it runs: the boundary sweep, the salvage commit, the report
+and the push. It prints:
+
+```
+ticks-worker: ticks-worker-cancel-requested reason=<reason>
+```
+
+**Why it exists.** Run `run_f7bd5a36` tripped its cost budget while three
+containers were all mid-tick. The supervisor did the right thing — revoke the
+credential, then tear the containers down — and the run kept nothing: no
+branch, no report, no salvage, `$8.00` for zero output. The salvage itself was
+already there and already proven (tick `5fg`); it had no door the supervisor
+could knock on, because `killProcess` and `destroy` both mean *the work is
+gone*.
+
+**Why a grace window does not weaken the kill switch.** The run's gateway
+credential is revoked *before* the ask (tick `gyl`), so a container inside the
+window is answered `403 run_token_revoked` by the gateway and cannot make a
+model call at all. The only thing it can still do is finish a `git push`. The
+money dies first; the work is rescued second. The window is bounded on the
+supervisor's side (`DEFAULT_SALVAGE_GRACE_MS`, 60s) and the container's side
+(`TICKS_WORKER_CANCEL_KILL_S`, 10s to `SIGTERM` before `SIGKILL`).
+
+A container cancelled *before* its harness starts never starts one: the request
+is on disk, and the boot checks for it. It still pushes a report, because a
+cancelled container that pushes nothing is indistinguishable from one that was
+never dispatched.
+
+### Worker inputs
+
+Everything in *Entrypoint contract* below applies, minus `TICKS_PHASE`,
+`TICKS_STOP_REASON`, `TICKS_SUBSTRATE` and `TICKS_KEEPER_INTERVAL` (a worker
+plans no waves and dispatches nobody), plus:
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `TICKS_TICK` | yes | The one tick this container implements. A worker with no tick refuses to boot (exit 2) rather than run something else's prompt. |
+| `TICKS_WORKER_SETUP` | no | `always` (default) or `skip` — whether this worker runs the repository's `[sandbox]` setup. See below. |
+| `TICKS_WORKER_TIMEOUT` | no | Seconds the harness may run before the container stops waiting and pushes what it has; `0` (default) leaves it unbounded. Derived per run from its wall-clock allowance — see below. |
+| `TICKS_WORKER_STATE_DIR` | no | Where the container keeps the harness pid and any lodged cancellation, so `--cancel` (a second process) can find them. Defaults to `/tmp/ticks-worker`; overridden only by the repository's tests. |
+| `TICKS_WORKER_CANCEL_KILL_S` | no | Seconds `--cancel` waits after `SIGTERM` before `SIGKILL` (default 10). |
+| `TICKS_WORKER_BRANCH` | derived | **Output, not input.** `tick/<epic>/<tick>`, exported for everything the harness spawns. |
+
+`TICKS_MODEL`, when unset, is resolved from the **`implement`** cell of the
+repository's role/tier table (`tk sandbox model --role implement`), not from
+`[orchestrator].model`. The orchestrator's cell is a frontier one because it
+plans waves and reviews epics; routing every per-tick container at it is a
+silent multiple on a wave's bill.
+
+### Dependencies are the fan-out cost
+
+Tick kuf measured it: per-sandbox time degrades **3.74x at N=5**, and *all* of
+that is dependency install — not the image pull. That is why
+`TICKS_WORKER_SETUP` is a switch and why the entrypoint prints how long setup
+took on every boot: the number belongs in a log an operator can read, not in a
+measurement somebody has to remember.
+
+`always` is the default and the correct one — a worker that cannot run the
+repository's tests cannot implement a tick. `skip` exists for a wave whose ticks
+touch no dependencies, and says so loudly in the boot log.
+
+Two related facts about fan-out that are not this script's to fix: the caches
+every toolchain is pointed at are per-sandbox unless the control plane keeps a
+shared tree warm, and Cloudflare's `max_instances` silently *serialises* a wave
+wider than it (3 at the time of writing).
+
+### The harness bound, and why it exists
+
+`worker-dispatch.ts`'s wait timeout ends in `teardownWorker` **killing** the
+container — and a killed container pushes nothing. A worker bounded just under
+the dispatcher's bound turns a hung agent into a pushed branch plus a report,
+which is the difference between a lost tick and a legible one.
+
+**Two bounds, two jobs, derived in that order (tick 5fg).** The *harness*
+budget is how long the agent may work; the *wave wait* is how long the
+supervisor watches before reconciling. They used to be one constant — thirty
+minutes — with the harness bound derived from it, so every worker got ~29
+minutes regardless of the tick or of the run's own `--max-wall-clock`. Run
+`run_2e66e765` was submitted with 90 minutes and its three containers were
+still killed `exit 124` at ~29, each having made 393+ real model calls with
+95-99% prompt cache, and each committing nothing.
+
+Now `workerHarnessBudgetMs` decides the agent's budget first — never more than
+the run has LEFT, never more than the deployment's per-worker ceiling
+(`RUN_WORKER_BUDGET_MS`), defaulting to **90 minutes** because tick y45
+measured a *complete* one-tick epic at 78 minutes on `deepseek-v4-pro-0813` and
+the worker default model is *flash*, which takes more steps than pro. The
+wave's wait is then `waveWaitTimeoutMs` = that budget plus the push margin, so
+the margin still separates them and still converts a timeout into a branch.
+
+### The salvage
+
+Everything the harness wrote and did not commit is committed by the container
+before it pushes, on its own commit whose subject says the container made it
+(tick 5fg). It used to be *counted* into the report header and then destroyed
+with the container — the most expensive available failure, since the run paid
+for every token of it. A reviewer can keep the salvage commit or drop it; both
+beat paying for work that no longer exists. `RESULT-<tick>.md` is never part of
+it: that file gets its own commit, with the agent's `STATUS:` line untouched.
+
+### The boundary guard
+
+**A worker agent cannot run `tk` and cannot commit under `.tick/`. This is
+enforced by the container, not asked for in the prompt.**
+
+The worker prompt has always forbidden it, in the second line of its Boundaries
+section: *"Do NOT run any `tk` command and do NOT touch the `.tick/` directory —
+the orchestrator owns all tick state."* In
+`run_215b7cbff9dd405c80d738be45cccde5` the first cloud worker in this project's
+history to finish real work made a correct, substantial implementation commit
+and then ran `tk close` and committed the result, touching
+`.tick/activity/activity.jsonl` and `.tick/issues/5jo.json` (tick dxk). The
+instruction was right and was ignored, at the tier this factory routes
+containers at — a fact to design around rather than a bug to file.
+
+It matters more than one stray commit because several workers of one wave each
+closing their own tick write the same `activity.jsonl` and the same issue files
+on branches that all merge into one integration commit. That is the conflict
+class the invariant exists to prevent, and D4's one-writer rule with it.
+
+`worker-collect.ts` already refuses such a branch with `boundary-violation`, the
+way `tk herd collect` does, so tracker state could never have *merged*. What it
+could do, and did, is discard a tick whose implementation commit was good. The
+guard is what keeps the good commit.
+
+Three layers, installed after the checkout and before the prompt is built:
+
+| Layer | Closes |
+|---|---|
+| A `tk` shim, first on the harness's `PATH` | Every route through the tracker CLI, including ones nobody enumerated |
+| A `pre-commit` hook in the clone | A direct write to `.tick/` the agent then commits — invisible to any `PATH` edit |
+| A sweep of `.tick/` before the salvage | The container's own rescue commit laundering a violation into a commit it authored |
+
+The split between "the entrypoint's `tk`" and "the agent's `tk`" is clean
+because every `tk` this script needs — the version check, the model cell, the
+toolchain, `[sandbox]` setup, the pre-flight and the prompt — runs *before* the
+harness starts, and nothing after it needs `tk` at all. So `PATH` is rewritten
+around the harness call alone and restored afterwards; the container keeps its
+own binary throughout. The container's own commits pass `--no-verify`: the hook
+exists to stop the agent, and the report and the salvage must reach origin
+whatever the agent did.
+
+**Every attempt is reported.** A boundary violation that is silently prevented
+and never mentioned trains nobody, so the entrypoint prepends a
+`BOUNDARY VIOLATION ATTEMPTED` block to `RESULT-<tick>.md` naming what was
+tried, above the agent's own words and nowhere near its `STATUS:` line. It is
+written only when there was an attempt — a marker every report carried would
+mean nothing on the report where it matters. `worker-collect.ts` reads the same
+marker into `WorkerReport.boundary_attempted`, because the guard working means
+the branch comes back clean and `ready-to-merge` for exactly the runs a human
+most needs to hear about.
+
+The refusal text and the report marker are pinned in
+`cloud/factory/test/fixtures/worker-boot-contract.json` beside the probe marker,
+for the same reason that one is: two halves matching on a substring drift the
+moment only one of them is edited.
 
 ## The image's tk is built from the deployed source
 
@@ -104,11 +346,17 @@ Bun-runtime harness (`docs/design/cloud-factory.md`, "oh-my-pi as a candidate
 default kind"). It does not replace Node — this repo's own tooling is
 pnpm-on-Node and keeps working.
 
-**The cost, stated honestly.** A batteries-included image is large, and image
-size is paid on *cold start*. Phase 2 starts a container per tick, so a ~2 GB
-image across five parallel workers is real wall-clock. The mitigation is named
-sandboxes that sleep and wake with the image already pulled, plus keeping the
-set to what the projects actually use — not "every runtime that might come up".
+**The cost, measured.** A batteries-included image is large, and image size is
+paid on *cold start*. That cost used to be stated as an estimate; it is now
+measured, and the estimate was wrong in a useful direction —
+`docs/sandbox-start-benchmark.md` (2026-08-21) puts the image at 2.90 GB on disk
+but **1.11 GB on the wire**, of which this Dockerfile's additions are ~750 MB.
+A cold start comes to ~93 s and a warm one to ~18 s; the alternative, a thin base
+that provisions the same toolchains per sandbox, costs 31.9 s *every* sandbox and
+so loses from the second one onward. The measurement says keep this image, and
+names the one trim worth its own decision (the base's `-python` variant, 137 MB
+compressed). Re-measure after any change to the pins above:
+`python3 scripts/bench_sandbox_start.py --all`.
 
 **Runtimes in the image, caches in the sandbox.** Nothing repository-specific is
 ever baked in: no clone, no `node_modules`, no module cache. Baking dependencies
@@ -135,7 +383,7 @@ skill's `references/runners-config.md`, *The sandbox a run gets*:
 
 | Key | What this image does with it |
 |---|---|
-| `image` | **Not honoured here yet.** The control plane picks an image before it has a checkout to read one from. The entrypoint compares what the repo declares against `TICKS_SANDBOX_IMAGE` and warns, naming both, so a declared image is never silently ignored. |
+| `image` | **Booted by the control plane**, which reads this file at the submitted SHA before it starts a container (`cloud/factory/src/repo-config.ts`). The entrypoint is the backstop: it compares what the repo declares against `TICKS_SANDBOX_IMAGE` and **refuses the boot** (exit 6) when they differ, because provisioning and spending in an image the repository did not ask for fails later and less legibly. A boot with no `TICKS_SANDBOX_IMAGE` at all — the image driven by hand — warns instead, having nothing to compare against. |
 | `toolchain` | Provisioned with the ecosystem pins above, through `mise`, into `TICKS_CACHE_DIR`. |
 | `setup` | Run by `tk sandbox setup` after the checkout and before the harness — idempotent, cache-populating commands (`pnpm install --frozen-lockfile`, `go mod download`). A failure ends the boot with exit 6. |
 
@@ -199,7 +447,7 @@ starts a command in a sandbox.
 | `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the one-token gateway probe may take (default 30). |
 | `TICKS_HARNESS_PROBE_TIMEOUT` | no | Seconds the harness's own pre-flight round-trip may take (default 120). Larger than the gateway probe's because it starts a whole agent CLI. |
-| `TICKS_SUBSTRATE` | no | The dispatch substrate this run uses: `harness` (default), `herdr` or `auto`. It **overrides** `[orchestration].substrate` in the checkout, which a repository pins for its LOCAL runs; the checkout is read, never rewritten. A value that is not a substrate is exit 2. See *The substrate, and why a container is told* below. |
+| `TICKS_SUBSTRATE` | no | The dispatch substrate this run uses: `harness` (default), `herdr`, `auto` or `cloud`. It **overrides** `[orchestration].substrate` in the checkout, which a repository pins for its LOCAL runs; the checkout is read, never rewritten. A value that is not a substrate is exit 2. The default is load-bearing: a checkout may now declare `cloud`, and a container that inherited that declaration would dispatch worker containers from inside a container. See *The substrate, and why a container is told* below. |
 | `TICKS_MAX_TIME` | no | Passed through to the harness. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the pre-flight model probe may take, default 30. |
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
@@ -207,7 +455,7 @@ starts a command in a sandbox.
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
 | `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
 | `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
-| `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Advisory: reported, and compared against a repository's declared `[sandbox].image` so a mismatch is a warning rather than silence. |
+| `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Reported, and compared against a repository's declared `[sandbox].image`: a mismatch ends the boot with exit 6 rather than running a wave in an image nobody asked for. Unset (a hand-driven boot) means the comparison cannot be made, which is a warning. |
 | `TICKS_KEEPER_INTERVAL` | no | Seconds between run-keeper passes — one push of the run branch when it has moved, one heartbeat — default 60. `0` turns the keeper off, which means nothing this run commits reaches origin until it chooses to push. See *The run branch, and why it is pushed continuously*. |
 | `TICKS_RUN_BRANCH` | derived | **Output, not input.** The branch this run's commits land on (`tick-run/<epic>`), exported so the orchestrator and everything it spawns name the same branch. Setting it has no effect; the entrypoint derives it. |
 | `TICKS_FACTORY_URL` | no | Factory Worker URL for the RunRoom-backed operator channel. |
@@ -224,6 +472,12 @@ pushes that branch to origin every `TICKS_KEEPER_INTERVAL` seconds whenever it
 has moved. Merging it to the default branch still waits for closeout and the
 PR + CI gate — the incremental push is to the run's *own* branch, so it costs
 nothing and risks nothing.
+
+The branch also descends from `TICKS_BASE_SHA`, which is whatever branch the
+operator submitted from — so a run submitted from an epic branch that was ahead
+of the default branch carries that epic's commits into its own closeout PR. The
+body for that PR comes from `tk cloud pr-body`, which enumerates every commit
+the run did not create, above the ones it did.
 
 It exists because the property the design claimed was not true. D4 says a run's
 tracker state is on a pushed run branch and is therefore "durable, recoverable,
@@ -444,13 +698,45 @@ defaults to `harness` — Phase 1's design: the existing harness substrate
 
 `TICKS_SUBSTRATE=herdr` is honoured too, and gets the documented explicit
 degradation: the probes run, find nothing, and the run continues under harness
-dispatch saying so. A value that is not one of the three substrates is exit 2 —
+dispatch saying so. A value that is not one of the four substrates is exit 2 —
 fail closed, never a silent fall back to the file.
+
+**Why the default is load-bearing, not cosmetic.** A repository can now declare
+`[orchestration].substrate = "cloud"`, meaning "my workers are one cloud sandbox
+per tick". That is a statement about the workers, not about where the
+orchestrator sits — so a container left to infer its substrate from such a
+checkout would resolve `cloud` and start dispatching worker containers from
+inside a container. `TICKS_SUBSTRATE=harness` is what separates "this repository
+dispatches to the cloud" from "this container is where that dispatch landed",
+and the runner-state note records both: `substrate=harness requested=harness
+config=cloud source=TICKS_SUBSTRATE reason=explicit-override`. A control plane
+that genuinely wants a container to fan work out into sibling worker containers
+says so by setting `TICKS_SUBSTRATE=cloud` explicitly.
+
+**And since tick wiy it does exactly that, for one kind of boot.** A `wave`
+phase container — the pass a cloud run boots between container waves — is given
+`TICKS_SUBSTRATE=cloud`, a `TICKS_PASS` number, and its factory endpoint, and
+its prompt tells it to dispatch the next wave with `tk cloud spawn`. Nothing
+about the default changed: permission is the control plane's to give, per boot,
+and a container that was not given a pass number is refused by the dispatch
+endpoint however its checkout is pinned and whatever the agent inside it
+believes. A `closeout` gets no pass, which is what keeps a run being wound up
+from starting new work even if its prompt were argued around.
+
+Note what such a container still cannot do: boot a sibling itself. `tk cloud
+spawn` inside a run records the wave with the run's own supervisor, which boots
+it after the pass exits — so the containers are still dispatched by the one
+party holding the `SANDBOXES` binding, the checkpoints, the budgets and the
+kill switch.
 
 The other `[orchestration]` key a cloud boot inherits, `max_parallel`, is
 honoured as-is: under the harness substrate it is concurrent subagents inside
 this one sandbox rather than independent panes. The resolution prints it for the
-same reason it prints everything else.
+same reason it prints everything else — and, since run_62c289d1 printed "wave
+width 3" and then dispatched seven implementers into this one container, the
+resolution also states that the width is *enforced*: `tk` refuses the claim that
+would exceed it (exit 8) until a slot frees, so the boot log's number binds the
+run rather than advising it.
 
 ## The model, and why a boot proves it
 
@@ -528,7 +814,7 @@ distinct, because these are read from a log after the sandbox is gone:
 | 3 | Clone or checkout of the submitted SHA failed. |
 | 4 | `tk` is absent, or is not the version the image pins. |
 | 5 | An Environment pre-flight check failed (the failing check is named). |
-| 6 | The repository's own `[sandbox]` setup failed (the failing command is named). |
+| 6 | The repository's own `[sandbox]` declaration was not satisfied: a setup command failed (the failing command is named), or this container is not the `[sandbox].image` the checkout declares (both references are named). |
 | 7 | A gateway with no usable model behind it: nothing routed, a model whose provider cannot be named, a model the chosen harness does not speak, or a gateway that refused the probe. |
 | 8 | The gateway answers and the harness cannot use it: no provider wired for the route, a credential the harness looks for under another name, or a harness round-trip that failed, timed out, or exited clean without answering. |
 | other | The harness's own exit status — the entrypoint `exec`s it. |

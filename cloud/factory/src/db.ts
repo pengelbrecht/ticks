@@ -365,6 +365,27 @@ export async function listDispatchLogs(
   return result.results;
 }
 
+/**
+ * The newest dispatch decisions this factory made, whatever run they belong to.
+ *
+ * Deliberately not scoped to a run, unlike {@link listDispatchLogs}: a refused
+ * submission never becomes a run row, so a per-run read can never show one. A
+ * factory that is declining work explains itself here (tick t9s).
+ */
+export async function listRecentDispatch(db: D1Database, limit: number): Promise<DispatchLog[]> {
+  const result = await db
+    .prepare(
+      `SELECT run_id, tick_id, decision, reason, "at"
+       FROM dispatch_log
+       ORDER BY "at" DESC, rowid DESC
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all<DispatchLog>();
+
+  return result.results;
+}
+
 /** A repository this factory is allowed to run (see migrations/0003). */
 export interface EnrolledProject {
   project: string;

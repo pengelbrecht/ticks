@@ -1,0 +1,16 @@
+{
+  "id": "7go",
+  "title": "CRITICAL: the worker green-start probe times out before a real container can boot",
+  "description": "Found by the first real per-tick container wave, run_1ce4fae5 on 2026-08-22. The wave was written off in 21 seconds:\n\n  06:38:49.641  dispatched\n  06:38:52.781  cloud_wave:width=3:capped\n  06:39:13.985  cloud_reconcile:1:3 never-dispatched\n  06:39:14.098  handoff:closeout\n\nAll three worker manifests were written with a real process_id and dispatched_at, so containers WERE addressed — then reconcile classified 3 of 3 as never-dispatched and collect correctly reported no-commits (\"tick/72y/3nh does not exist on origin\"). The run fell back to closeout under the Phase 1 single-sandbox path.\n\nCause: DEFAULT_PROBE_TIMEOUT_MS is 30s and DEFAULT_CONFIRM_TIMEOUT_MS is 60s, but kuf measured a COLD container start at 93.2 seconds, of which 71.9s is the image pull. A cold worker cannot answer a probe inside 30s, so the green-start trap fires on every cold container and reports the honest-but-wrong verdict \"this container started cleanly and did nothing\".\n\nThis is the exact class Phase 1 paid for and the final review predicted: the timeouts look generous against FakeSandboxes, which answers instantly, and are impossible against a real Cloudflare Sandbox pulling a 1.1 GB compressed image. 532 green tests could not see it. Note the numbers to fix it were already committed in this same epic — kuf measured them, and nothing connected the benchmark to the timeout.\n\nFix: size the probe and confirm budgets from measured cold start with headroom, not from a round number; distinguish \"still booting\" from \"booted and did nothing\" so the green-start trap keeps its meaning; and add a guard test that asserts the probe budget exceeds the committed cold-start benchmark, so the two cannot drift apart again.",
+  "notes": "2026-08-22 09:07 - Fixed by the orchestrator directly rather than dispatched: the diagnosis was already complete from the live run, and the epic's verification was blocked on it. The budget is derived from the committed benchmark (93.24s cold x 3.74 fan-out x 1.2) rather than picked, silence is now boot-timeout distinct from a stalled probe, and internal/sandbox/benchmark_test.go compares the shipped constant to the artifact in both directions. Red-checked: regressing COLD_START_BENCHMARK_MS to 20s fails the guard with all three assertions.",
+  "status": "closed",
+  "priority": 0,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T06:55:19.060989Z",
+  "updated_at": "2026-08-22T07:07:49.723294Z",
+  "closed_at": "2026-08-22T07:07:49.723294Z",
+  "closed_reason": "Completed: the probe budget is derived from the cold start this epic measured rather than from a round number, so a cold container is no longer written off before it can answer, and a container that produced nothing is reported as never having reached its probe instead of as one that started cleanly and did nothing. A guard test pins the constant against the committed benchmark in both directions."
+}

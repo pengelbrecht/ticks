@@ -8,7 +8,7 @@
  * lifecycle that can only be exercised by starting a real container is a
  * lifecycle nobody tests. A fake binding assigned to `env.SANDBOXES` proves the
  * supervision loop; the deployment binds the SDK's `getSandbox` behind the same
- * five methods. Nothing below is Cloudflare-specific, which is also what keeps
+ * six methods. Nothing below is Cloudflare-specific, which is also what keeps
  * the door open for the substrate to grow a second implementation (D19).
  *
  * The environment builder is the other half of the seam. `cloud/sandbox`
@@ -32,8 +32,15 @@ import type { Env } from "./index";
  * cleanly" are variables, not messages the harness has to be listening for. The
  * phase is never the agent's decision: budget and stop enforcement live here
  * (D14/D15), never in a prompt. Mirrors `sandbox.Phase*` in Go.
+ *
+ * `wave` is the continuation pass a cloud run alternates with its container
+ * waves (tick wiy): integrate what the last wave pushed, then compute and
+ * request the next one, or finish the epic if none remains. It is deliberately
+ * NOT `closeout` — a closeout is a run being wound up early and its prompt
+ * forbids new work, and conflating "this wave finished" with "somebody stopped
+ * this run" is the mistake tick 074 already had to undo once.
  */
-export type OrchestratorPhase = "run" | "reconcile" | "closeout";
+export type OrchestratorPhase = "run" | "reconcile" | "wave" | "closeout";
 
 /**
  * The image reference a run boots when the deployment asks for nothing else.
@@ -45,21 +52,93 @@ export type OrchestratorPhase = "run" | "reconcile" | "closeout";
 export const DEFAULT_SANDBOX_IMAGE = "ticks-orchestrator";
 
 /**
- * The image this deployment boots a run in.
+ * The image this deployment's container application serves.
  *
- * A deployment-level knob, not a per-run one: the control plane picks an image
- * BEFORE it has a checkout, so it cannot yet read the `[sandbox].image` a
- * repository declares in its tracked config at the submitted SHA. What it can
- * do — and does — is tell the container which image it got, so a repository
- * asking for a different one is reported in the boot log instead of being
- * silently ignored (`TICKS_SANDBOX_IMAGE`, and the entrypoint's warning).
- * Honouring a declared image is the remaining half of that seam.
+ * A deployment-level fact, and on this substrate a deploy-time one: an image
+ * belongs to the `[[containers]]` application a Durable Object class is bound
+ * to, built and digest-pinned by `tk factory deploy` (internal/factory/
+ * rollout.go). Nothing at run time can make a container run something else.
+ *
+ * `SANDBOX_IMAGE` is therefore how a deployment SAYS which image it serves,
+ * for an operator who pushed their own into their own registry — and since
+ * tick x3v it is load-bearing rather than descriptive: it is what a
+ * repository's declared `[sandbox].image` is honoured against.
  */
-export function sandboxImage(env: Env): string {
+export function deploymentImage(env: Env): string {
   const configured = env.SANDBOX_IMAGE;
   return typeof configured === "string" && configured.trim() !== ""
     ? configured.trim()
     : DEFAULT_SANDBOX_IMAGE;
+}
+
+/** The image a boot asks for, and whether the repository chose it. */
+export type ImageResolution =
+  | { ok: true; image: string; source: "declared" | "base" }
+  | { ok: false; detail: string };
+
+/**
+ * The image a run boots: the one its repository declares, else the base.
+ *
+ * The escape hatch `[sandbox].image` has always been parsed and validated;
+ * this is where it becomes behaviour (tick x3v). Two of the three rules are
+ * unremarkable — a declaration is booted, an absent one leaves the
+ * version-pinned base standing. The third is the one that matters: a declared
+ * image this deployment cannot serve REFUSES the run, naming both references
+ * and both remedies, because the alternative is a container that quietly is
+ * not the one the repository asked for and a wave that fails somewhere far
+ * from the cause.
+ *
+ * "Cannot serve" rather than "cannot pull" is the honest phrasing on this
+ * substrate: the image is fixed by the deploy, so an image the deployment does
+ * not serve is one this run has no way to obtain. The comparison is exact
+ * after an implicit `:latest` — a digest or a tag that differs is a different
+ * image, and confirming one this deployment is not running is not something a
+ * string comparison can do.
+ */
+export function resolveSandboxImage(input: {
+  declared: string | null;
+  deployment: string;
+  at?: string;
+}): ImageResolution {
+  const { declared, deployment } = input;
+  if (declared === null) return { ok: true, image: deployment, source: "base" };
+  if (sameImageReference(declared, deployment)) {
+    // The repository's own spelling, not the deployment's: it is what the
+    // container compares against its tracked config, and an equal-but-
+    // differently-spelled reference would read there as a mismatch.
+    return { ok: true, image: declared, source: "declared" };
+  }
+  const at = input.at === undefined ? "the submitted commit" : input.at;
+  return {
+    ok: false,
+    detail:
+      `the repository declares the sandbox image ${declared} in .tick/runners.toml at ${at}, ` +
+      `and this deployment's container application serves ${deployment}. A container's image ` +
+      "is fixed when the factory is deployed, so the declared image cannot be pulled for this " +
+      `run — deploy a factory whose orchestrator image is ${declared} (build and push it, then ` +
+      "name it in SANDBOX_IMAGE), or remove [sandbox].image to boot the version-pinned base",
+  };
+}
+
+/**
+ * Whether two references name the same image.
+ *
+ * Only the implicit `latest` is normalised. A reference carrying a digest and
+ * one without it are NOT the same: the digest is the stronger claim, and a
+ * deployment that cannot prove it is serving that digest has not earned a
+ * boot on it.
+ */
+export function sameImageReference(a: string, b: string): boolean {
+  return withImplicitTag(a) === withImplicitTag(b);
+}
+
+function withImplicitTag(reference: string): string {
+  const trimmed = reference.trim();
+  if (trimmed.includes("@")) return trimmed;
+  // A colon in the last path segment is a tag; anywhere earlier it is a
+  // registry port, which is not one.
+  const lastSegment = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  return lastSegment.includes(":") ? trimmed : `${trimmed}:latest`;
 }
 
 /** The command the sandbox runs. It is on PATH in the Phase 1 image. */
@@ -94,6 +173,15 @@ export type SandboxProcessView = {
   state: SandboxProcessState;
   /** The entrypoint's (and therefore the harness's) exit status, once it has one. */
   exit_code: number | null;
+  /**
+   * The command the process was started with, when the container reports one.
+   *
+   * Absent from a `startProcess` round trip that does not echo it, so nothing
+   * may REQUIRE it — but a reconcile reading the live process list needs to
+   * tell a worker's real work from its green-start probe, and the command is
+   * the only thing that distinguishes them (src/reconcile.ts).
+   */
+  command?: string;
 };
 
 /** Output produced since a cursor, plus the cursor to resume from. */
@@ -102,8 +190,9 @@ export type SandboxOutput = { text: string; offset: number };
 /**
  * One orchestrator container.
  *
- * Deliberately small: start a process, ask how it is doing, read what it has
- * printed since a cursor, kill it, throw the container away. Anything richer
+ * Deliberately small: start a process, ask how it is doing (by id, or by
+ * listing what is running), read what it has printed since a cursor, kill it,
+ * throw the container away. Anything richer
  * would be a capability the supervision loop does not have a use for, and every
  * method here is one a fake has to implement honestly for the tests to mean
  * something.
@@ -118,6 +207,18 @@ export interface OrchestratorSandbox {
    * which is what a container that died and came back empty looks like.
    */
   getProcess(id: string): Promise<SandboxProcessView | null>;
+  /**
+   * Every process this container knows about — the live sandbox list, which is
+   * the third and last evidence source of the reconcile protocol
+   * (src/reconcile.ts).
+   *
+   * It is deliberately not `getProcess(id)` with a remembered id. A supervisor
+   * that died between starting a worker's process and recording its id would
+   * hold no id to ask about, and "I have no id for it" must never be allowed
+   * to read as "nothing is running here" — that is precisely the evidence gap
+   * that redispatches a live worker.
+   */
+  listProcesses(): Promise<SandboxProcessView[]>;
   /** Everything printed after `offset` characters, with the new cursor. */
   readOutput(id: string, offset: number): Promise<SandboxOutput>;
   killProcess(id: string): Promise<void>;
@@ -187,6 +288,7 @@ export type SdkSandbox = {
     options?: { env?: Record<string, string>; autoCleanup?: boolean }
   ): Promise<SdkProcess>;
   getProcess(id: string): Promise<SdkProcess | null>;
+  listProcesses(): Promise<SdkProcess[]>;
   getProcessLogs(id: string): Promise<{ stdout: string; stderr: string }>;
   killProcess(id: string): Promise<void>;
   destroy(): Promise<void>;
@@ -197,6 +299,8 @@ export type SdkProcess = {
   id: string;
   status: string;
   exitCode?: number | null;
+  /** The SDK reports it on a listing; `startProcess` need not echo it back. */
+  command?: string;
 };
 
 /** The Durable Object namespace `[[containers]]` binds the Sandbox class to. */
@@ -219,12 +323,14 @@ export function isSandboxNamespace(
  * The deployment's binding: the SDK's `getSandbox` behind the seam's five
  * methods.
  *
- * `options.image` is accepted and ignored here, because a container's image is
+ * `options.image` is accepted and not passed on, because a container's image is
  * fixed by the `[[containers]]` application the Durable Object class belongs to
- * — there is one image per class, chosen at deploy time. The Workflow still
- * passes it, and still tells the container which image it got
- * (`TICKS_SANDBOX_IMAGE`), so a repository that declares a different one is
- * reported by the entrypoint instead of silently ignored.
+ * — there is one image per class, chosen at deploy time. That is not the same
+ * as ignoring it: a boot only ever asks for an image this deployment serves,
+ * because `resolveSandboxImage` refuses the run otherwise, and the container is
+ * told which image it got (`TICKS_SANDBOX_IMAGE`) so its own reader can refuse
+ * a boot that is not what the repository declared. A substrate that CAN pull
+ * per-boot (D19) implements this seam by honouring the parameter.
  */
 export function sdkSandboxBinding(namespace: SandboxNamespace): SandboxBinding {
   return {
@@ -234,7 +340,7 @@ export function sdkSandboxBinding(namespace: SandboxNamespace): SandboxBinding {
   };
 }
 
-/** One SDK sandbox, behind the five methods the supervision loop uses. */
+/** One SDK sandbox, behind the six methods the supervision loop uses. */
 export function adaptSandbox(sandbox: SdkSandbox): OrchestratorSandbox {
   return {
     async startProcess(command, options) {
@@ -251,6 +357,10 @@ export function adaptSandbox(sandbox: SdkSandbox): OrchestratorSandbox {
     async getProcess(id) {
       const view = await sandbox.getProcess(id);
       return view === null || view === undefined ? null : processView(view);
+    },
+    async listProcesses() {
+      const listed = await sandbox.listProcesses();
+      return (listed ?? []).map(processView);
     },
     async readOutput(id, offset) {
       const logs = await sandbox.getProcessLogs(id);
@@ -284,6 +394,12 @@ function processView(process: SdkProcess): SandboxProcessView {
     id: process.id,
     state: processState(process.status),
     exit_code: process.exitCode === undefined ? null : process.exitCode,
+    // The redirect `startProcess` appends is stripped again: the seam's
+    // callers compare against the command they ASKED for, and a stored
+    // `... 2>&1` would never match one.
+    ...(process.command === undefined
+      ? {}
+      : { command: process.command.replace(/\s*2>&1\s*$/, "") }),
   };
 }
 
@@ -336,12 +452,69 @@ export type OrchestratorEnvInput = {
   workdir?: string;
   cache_dir?: string;
   /**
-   * The image the control plane booted. Advisory and one-way: the container
-   * cannot change what it is running, so this exists so that a repository
-   * declaring a different `[sandbox].image` is visible in the log rather than
-   * silently ignored.
+   * The image the control plane booted. One-way — the container cannot change
+   * what it is running — but not advisory: the entrypoint compares it against
+   * the `[sandbox].image` its checkout declares, through the reader that owns
+   * the format, and refuses the boot when they differ. That is the backstop
+   * under a control-plane read that could not reach the tracked config.
    */
   sandbox_image?: string;
+  /**
+   * Which substrate this orchestrator dispatches its workers through
+   * (`TICKS_SUBSTRATE`), overriding `[orchestration].substrate` in the
+   * checkout.
+   *
+   * Absent means the container's own default — `harness`, its subagents in
+   * this container — which is the load-bearing default
+   * (`cloud/sandbox/entrypoint.sh`): left to infer, an orchestrator booted on
+   * a checkout that declares `substrate = "cloud"` would read "my workers are
+   * cloud sandboxes" and "I am one of them" as the same statement, and
+   * dispatch containers from inside a container with nothing arbitrating it.
+   *
+   * `cloud` is that permission, given explicitly by the control plane to a run
+   * it is prepared to dispatch waves for (tick wiy). It is not a hint the
+   * agent may take: the Workflow is what boots the containers, and it does so
+   * only for a wave the run asked for through the factory.
+   */
+  substrate?: string;
+  /**
+   * How many container waves this run has already dispatched, so this pass can
+   * name the wave it is requesting (`TICKS_PASS`).
+   *
+   * The Workflow reads back exactly the request stamped with this number,
+   * which is what keeps a replayed step from re-consuming an earlier pass's
+   * wave — a Workflow step that completes is checkpointed, but the R2 object
+   * beside it is not versioned by the replay.
+   */
+  pass?: number;
+  /**
+   * The factory this run belongs to, so `tk` inside the container can reach
+   * its own control plane (`tk cloud spawn`, `tk ask`).
+   *
+   * Note what the token is NOT: the operator's factory token. A container
+   * holding that could enrol projects, submit runs and read every other run's
+   * logs, and D17 exists so that a leaked sandbox environment leaks something
+   * run-scoped and revocable. So the credential here is the run's own gateway
+   * token — the same one a stop revokes — and the in-run dispatch endpoint
+   * authenticates it exactly as the model proxy does. A revoked run cannot
+   * dispatch a wave any more than it can make a model call.
+   */
+  factory_url?: string;
+  factory_project?: string;
+  /**
+   * The wave this pass inherits: the ticks the control plane just dispatched,
+   * and the commit their containers cloned at.
+   *
+   * A `tk cloud wait`/`collect`/`reconcile` reads the manifests
+   * `tk cloud spawn` wrote under `.tick/logs/cloud/`, which is git-ignored
+   * local state — and every pass of a cloud run is a FRESH container, so that
+   * state is gone by the time the pass that must collect the wave boots. The
+   * control plane is the one party that certainly knows what it dispatched, so
+   * it says so here rather than leaving the container to infer a wave from a
+   * directory it cannot have (tick wiy).
+   */
+  wave_ticks?: string[];
+  wave_base_sha?: string;
 };
 
 /**
@@ -385,6 +558,25 @@ export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, str
   if (input.cache_dir !== undefined && input.cache_dir !== "") env.TICKS_CACHE_DIR = input.cache_dir;
   if (input.sandbox_image !== undefined && input.sandbox_image !== "") {
     env.TICKS_SANDBOX_IMAGE = input.sandbox_image;
+  }
+  if (input.substrate !== undefined && input.substrate !== "") {
+    env.TICKS_SUBSTRATE = input.substrate;
+  }
+  if (input.pass !== undefined) env.TICKS_PASS = String(input.pass);
+  if (input.factory_url !== undefined && input.factory_url !== "") {
+    env.TICKS_FACTORY_URL = input.factory_url;
+    // The run's own gateway credential, deliberately reused rather than a
+    // second secret: one revocation has to kill both spending and dispatch.
+    env.TICKS_FACTORY_TOKEN = input.gateway_token;
+  }
+  if (input.factory_project !== undefined && input.factory_project !== "") {
+    env.TICKS_FACTORY_PROJECT = input.factory_project;
+  }
+  if (input.wave_ticks !== undefined && input.wave_ticks.length > 0) {
+    env.TICKS_WAVE_TICKS = input.wave_ticks.join(",");
+  }
+  if (input.wave_base_sha !== undefined && input.wave_base_sha !== "") {
+    env.TICKS_WAVE_BASE = input.wave_base_sha;
   }
   return env;
 }

@@ -1,0 +1,16 @@
+{
+  "id": "wiy",
+  "title": "Only the first wave of a cloud-submitted epic fans out to containers",
+  "description": "Found by the Phase 2 final review (oun), verified directly in run-workflow.ts rather than taken from the design doc. context.cloud_wave is computed ONCE at run start from params.tick_ids, and the closeout pass always runs through the unchanged Phase 1 single-sandbox supervisePass without re-deriving or re-dispatching a second cloud wave. So an epic needing more than one wave gets per-tick containers for the first wave only; everything after runs inside the closeout orchestrator sandbox as harness-substrate subagents.\n\nNot a defect in what was built — b6e scoped it honestly — but an operator reading \"Phase 2: cloud substrate fan-out\" will reasonably assume every wave fans out, and the runs where it silently does not are exactly the long multi-wave epics where it matters most. Either re-derive the wave per pass, or say plainly in status and docs that fan-out is first-wave-only.",
+  "notes": "2026-08-22 12:24 - runner-state: substrate=herdr kind=claude branch=tick/wiy worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-wiy workspace=wE8 base=22491bf1b9d9825831dc9ed45d60169b53750445 agent=tick-wiy pane=wE8:p1 session=bd46e819-b63c-4ba3-b449-c15d312e5361\n2026-08-22 13:35 - runner-state: runner=herdr branch=tick/wiy merged=0bb4af86 gate=green (go build, go test ./..., public-repo guard, gofmt, tsc, factory vitest 564). Merge conflicted with 0fg on two import lists in index.ts and run-workflow.ts; resolved as unions by the orchestrator.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "1vn",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-22T05:39:15.038213Z",
+  "updated_at": "2026-08-22T11:35:54.21109Z",
+  "closed_at": "2026-08-22T11:35:54.21109Z",
+  "closed_reason": "Completed: every wave of a cloud-submitted epic now fans out into per-tick containers. Readiness is computed by Go (tk graph) inside the orchestrator sandbox — not ported to TypeScript, which the design doc and learnings both forbid — and dispatched through POST /api/wave, which requires the caller to already BE the project's lease holder (stricter than the local path, which takes a lease). Wave N+1 branches from the merged run-branch head, not the original base. The documentation-only first pass was reverted, not left standing."
+}

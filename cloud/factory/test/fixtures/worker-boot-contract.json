@@ -1,0 +1,38 @@
+{
+  "why": [
+    "The per-tick worker boot contract has three readers and they must not drift:",
+    "cloud/sandbox/worker.sh (the container), internal/sandbox/worker.go (tk, and",
+    "what the repository's tests check), and cloud/factory/src/worker-boot.ts (the",
+    "control plane, which tells worker-dispatch.ts what to run and what its probe",
+    "must see). This file is what both suites pin themselves to, the same way",
+    "sandbox-image-cases.json pins the two readers of [sandbox].image — a fix that",
+    "lands in one language and not the other is the failure this repository has",
+    "already paid for once."
+  ],
+  "orchestrator_command": "/usr/local/bin/ticks-orchestrator",
+  "worker_command": "/usr/local/bin/ticks-worker",
+  "probe_arg": "--probe",
+  "probe_command": "/usr/local/bin/ticks-worker --probe",
+  "probe_marker": "ticks-worker-probe-ok",
+  "cancel_arg": "--cancel",
+  "cancel_command": "/usr/local/bin/ticks-worker --cancel",
+  "cancel_marker": "ticks-worker-cancel-requested",
+  "cancel_report_marker": "CANCELLED BY THE SUPERVISOR",
+  "worker_actor": "cloud:worker",
+  "branch_prefix": "tick/",
+  "branch_example": { "epic": "1vn", "tick": "tap", "branch": "tick/1vn/tap" },
+  "result_file_example": { "tick": "tap", "path": "RESULT-tap.md" },
+  "env": {
+    "tick": "TICKS_TICK",
+    "worker_branch": "TICKS_WORKER_BRANCH",
+    "worker_timeout": "TICKS_WORKER_TIMEOUT",
+    "worker_setup": "TICKS_WORKER_SETUP",
+    "worker_state_dir": "TICKS_WORKER_STATE_DIR"
+  },
+  "setup_modes": { "always": "always", "skip": "skip" },
+  "boundary": {
+    "tk_denied": "tk is not available to a worker agent",
+    "report_marker": "BOUNDARY VIOLATION ATTEMPTED"
+  },
+  "exit_codes": { "push": 9, "no_work": 10, "agent": 11 }
+}
