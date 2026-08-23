@@ -17,7 +17,7 @@ tk factory setup
 |---|---|---|
 | 0. wrangler | nothing | `wrangler --version` and `wrangler whoami` must both succeed |
 | 1. deployment | permission to deploy | offers `tk factory deploy` when `~/.ticksrc` names no factory; an existing one must answer `/health` and accept your token |
-| 2. GitHub | a fine-grained PAT | `GET /user`, then `GET /repos/<owner>/<repo>` — the token must exist *and* be able to write to the repository the factory works on |
+| 2. GitHub | one browser approval (device flow) | `GET /user`, then `GET /repos/<owner>/<repo>` — the credential must exist *and* be able to write to the repository the factory works on |
 | 3. model access | an AI Gateway base URL and the provider behind it | a model-list call through the gateway with the provider key |
 
 Nothing is stored before its probe passes, and each rung is stored as soon as it
@@ -47,7 +47,9 @@ Two places, and only two:
   writes so the Worker knows its own endpoint). These are write-only: nothing,
   including `tk`, reads them back.
 - **`~/.ticksrc`**, written 0600, as the local mirror `tk factory status`
-  re-checks and a later setup offers to keep.
+  re-checks and a later setup offers to keep. The device flow's **refresh
+  token** lives here and *only* here — never as a Worker secret, never in a
+  sandbox (see below).
 
 Never the repository. That is not a convention — `factory.SecretSinks` names the
 allowed sinks and a test runs the whole walk inside a git checkout and fails if
@@ -58,31 +60,160 @@ and `factory_gateway_key` lines from `~/.ticksrc`: the deployment keeps working
 (the Worker secrets are the copies that matter), and `tk factory status` will
 report those rungs as unconfigured until the next setup.
 
-## The GitHub rung: PAT first, App as the upgrade
+## The GitHub rung: device flow first, your own App as the upgrade
 
 The design's D11 wants per-run installation tokens with two credential grades
 (push-scoped for a run's own work, read+comment for external review). That
-presupposes a GitHub App, and "create your own GitHub App" is a heavy first-run
-ask. So the ladder is:
+presupposes a GitHub App — and the original reading of it was that "create your
+own GitHub App" is a heavy first-run ask, so the ladder started on a
+hand-created PAT.
 
-1. **A fine-grained, repo-scoped PAT** — the supported first rung, and what
-   `tk factory setup` walks. Create it at
-   <https://github.com/settings/personal-access-tokens/new>, restrict it to the
-   repository the factory works on, and grant **Contents: Read and write** plus
-   **Pull requests: Read and write**. Setup rejects a token that authenticates
-   but cannot write to that repository, which is the mistake this rung is
-   otherwise silent about until a run fails to push.
+That reading was wrong in one specific way: it is heavy when EVERY USER
+registers an App. It is not heavy if **ticks ships one**. So the ladder is now:
 
-2. **A personal GitHub App** — the documented upgrade path for anyone who wants
-   per-run token minting and the two grades enforced at the platform level
-   rather than by convention. You create the App under your own account, install
-   it on the repositories the factory may touch, and the factory mints a
-   short-lived installation token per run instead of holding a long-lived PAT.
-   The walk does not automate this rung today; when you take it, the App's
-   credentials replace the PAT in the same `GITHUB_TOKEN` sink.
+1. **The device flow** — the shipped rung, and what `tk factory setup` walks.
+   It prints a code, you open <https://github.com/login/device>, approve the
+   ticks GitHub App and pick which repositories it may use. No form, no
+   scope-picking, nothing to paste. This is exactly how `gh` authenticates.
 
-A fine-grained PAT is adequate for a personal factory. The App matters when the
-blast radius grows — more repositories, other people's code, external review.
+2. **Your own GitHub App** — the upgrade for anyone who wants per-run
+   installation tokens and the two grades enforced at the platform level. You
+   register the App under your own account, install it on the repositories the
+   factory may touch, and it mints a short-lived installation token per run.
+
+### Why the shipped rung is user-to-server, and why it has to be
+
+This is the constraint the whole design turns on, and it is worth stating
+plainly:
+
+| credential | what mints it | what ticks would have to ship |
+|---|---|---|
+| **user-to-server token** (device flow) | the App's **public client id** | a client id — public by construction, granting nothing on its own |
+| **installation token** (per-run, ~1h, repo-scoped — D11's gold standard) | the App's **private key** | a key that mints tokens for *every* installation of the shared App |
+
+So the shipped rung is user-to-server. A shared App must never carry its private
+key — in this repository or inside a released binary — because any holder of
+that key could mint tokens against every operator who ever installed the App.
+The private-key rung therefore stays with an operator who registers their own
+App, where the key is theirs and the blast radius is theirs.
+
+### How the shipped rung compares
+
+|  | fine-grained PAT | `gh auth token` | **device flow** |
+|---|---|---|---|
+| how you get it | multi-screen form in the GitHub UI | already on your machine | one browser approval |
+| what it reaches | the repositories you listed | **every repo you can, plus `admin:org`** | the repositories you picked at approval |
+| lifetime | long-lived, expiry you chose | as long as your `gh` login | bounded by the App's token setting, renewable |
+| how you revoke it | delete the token | log out of `gh` everywhere | uninstall the App |
+
+`gh auth token` is rejected on blast radius, not on convenience.
+
+### The client id, and the one place it is filled in
+
+The device flow needs the ticks App's public client id. It lives in exactly one
+place — the `GitHubAppClientID` constant in
+[`internal/factory/githubapp.go`](../internal/factory/githubapp.go) — and it is
+public by construction: every operator's device-flow request carries it in
+plaintext, and it authorises nothing on its own.
+
+**A build whose constant is empty keeps the manual walk.** `tk factory setup`
+selects the device flow only when a client id actually resolves; without one it
+falls back to the PAT prompt exactly as before, rather than offering a flow that
+cannot complete. Two overrides come before the constant, in order:
+`--github-client-id`, then `$TICKS_GITHUB_APP_CLIENT_ID`. `$TICKS_GITHUB_OAUTH_BASE`
+(and the hidden `--github-oauth-base`) move the flow off github.com for GitHub
+Enterprise Server.
+
+### Registering the App (maintainer checklist)
+
+This is a one-time browser action on the account that owns the ticks App. It is
+not something a checkout can do for itself.
+
+1. <https://github.com/settings/apps> → **New GitHub App** (an *organisation*
+   account is the right owner for a shipped App; a personal account works too).
+2. **Name**: `ticks factory`. **Homepage URL**: the ticks project URL.
+3. **Callback URL**: leave empty. Nothing in this flow uses a redirect.
+4. Tick **Enable Device Flow**. Without it every device-code request comes back
+   `device_flow_disabled`.
+5. Leave **Webhook → Active** unticked.
+6. **Repository permissions** — only these two, and no organisation or account
+   permissions at all:
+   - **Contents**: Read and write (clone, branch, push)
+   - **Pull requests**: Read and write (open PRs, comment on review)
+7. **Where can this GitHub App be installed?** → **Any account**. A shipped App
+   installed only on the owner's account is a shipped App nobody else can use.
+8. **User authorization** → leave **"Expire user authorization tokens"**
+   **disabled**. This is deliberate: refreshing an expiring user token requires
+   the App's **client secret**, and a shipped App has none to distribute. With
+   expiration off the device flow returns a non-expiring user-to-server token —
+   still bounded by the installation, still revoked by uninstalling. Turning it
+   on is supported by the code (the expiry and the refresh token are stored and
+   renewed) but means every operator's credential eventually needs one more
+   browser confirmation.
+9. Create the App, then copy the **Client ID** (it looks like `Iv23li…`) from
+   its settings page into `GitHubAppClientID` in
+   `internal/factory/githubapp.go`, and commit that.
+
+Do **not** generate a private key, and do not commit one if you already have:
+nothing in the shipped rung uses it, and see the table above for why.
+
+### Expiry, refresh, and what a run does when its token dies mid-run
+
+What is stored, in `~/.ticksrc` (0600) and nowhere else:
+
+| key | meaning |
+|---|---|
+| `factory_github_auth` | `device-flow` or `pat` — the two renew differently |
+| `factory_github_token_expires_at` | RFC 3339, **empty means it does not expire** |
+| `factory_github_refresh_token` | renews the token above without a browser |
+| `factory_github_refresh_token_expires_at` | when renewal needs a browser again |
+
+The refresh token is written to that file **and nowhere else**. It is never
+pushed as a Worker secret and never reaches a sandbox: it outlives the token it
+mints, so a sandbox holding it would hold a longer-lived credential than the one
+it actually needs — precisely what D11 forbids.
+
+- **`tk factory setup` renews.** A stored device-flow credential with less than
+  two hours left is refreshed before the walk continues, and the renewed token
+  is pushed to the Worker *and* mirrored. A refresh that only updated the local
+  file would leave the factory running on the credential that is about to die.
+- **`tk factory status` reports.** The GitHub rung says `expires in 6h12m
+  (2026-08-20T20:00:00Z)`, or `does not expire`. A recorded deadline that has
+  already passed is reported as rejected on its own, without a network call —
+  it is a local fact, and `--check` turns it into a nonzero exit.
+- **Mid-run expiry.** The Worker holds a *snapshot* of the credential; nothing
+  in the cloud refreshes it, by the design rule above. So a run that starts
+  with a valid token and outlives it fails at its next `git push` with GitHub's
+  401 — visibly, at the push, not silently. Recovery is `tk factory setup`
+  (a silent refresh while the refresh token lives, one browser confirmation
+  after that) followed by re-running the run. **Check `tk factory status`
+  before a long run**: if the credential expires inside the run's wall-clock
+  budget, renew first.
+- **The zero-expiry case is the recommended one.** With the App registered per
+  step 8 above there is no mid-run expiry at all, and this whole section is
+  about the configuration you get if someone turns token expiration on.
+
+### The manual escape hatch
+
+`--github-token` still works and always will — it is what a GitHub Enterprise
+account, a policy-restricted org, or a scripted install uses:
+
+```bash
+tk factory setup --github-token "$GITHUB_PAT" --repo <owner>/<repo>
+```
+
+It bypasses the device flow entirely, is recorded as `factory_github_auth=pat`,
+and carries no expiry or refresh token — so nothing later tries to renew a
+credential that cannot be renewed. Create the token at
+<https://github.com/settings/personal-access-tokens/new>, restricted to the
+repository the factory works on, with **Contents: Read and write** and
+**Pull requests: Read and write**.
+
+Setup rejects a credential that authenticates but cannot write to the target
+repository, on either rung — and says which screen to fix it on, because "you
+did not tick this repository when you approved the App" and "this PAT does not
+list the repository under Repository access" are the same 404 and completely
+different remedies.
 
 ## The model-access rung
 
@@ -247,9 +378,13 @@ unconditionally.
 
 ## Rotating or revoking
 
-- **GitHub PAT** — revoke it on GitHub, create a new one, run `tk factory setup`
-  again (or `tk factory setup --github-token <new>`). The Worker secret and the
-  local mirror are both replaced.
+- **The GitHub credential** — for a device-flow credential, uninstall the ticks
+  App (<https://github.com/settings/installations>) or revoke it under
+  Authorized GitHub Apps, then run `tk factory setup` and approve it again. To
+  change only *which* repositories it reaches, edit the App's installation and
+  re-run setup so the repository check re-runs. For a hand-supplied token,
+  revoke it on GitHub and run `tk factory setup --github-token <new>`. Either
+  way the Worker secret and the local mirror are both replaced.
 - **Provider key** — same shape: rotate at the vendor, then re-run setup.
 - **A single run's model access** — that is not a rotation, it is `tk cloud stop
   <run>` (or any budget trip): the Workflow revokes that run's gateway token and

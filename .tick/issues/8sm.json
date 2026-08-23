@@ -2,7 +2,8 @@
   "id": "8sm",
   "title": "Signal funnel foundation: a Worker writes a tick to the tracker safely",
   "description": "The contract every other Phase 3 tick consumes, so it lands first and alone.\n\nA signal becomes a tick by the Worker committing .tick/issues/\u003cid\u003e.json to the repo through the GitHub contents API — the same mechanism kya already uses to READ tick records at a commit, now writing. The hazard is concurrency: two signals arriving together, or a signal arriving while a cloud run is committing tracker state, produce a lost update or a rejected push, and .tick/ is the one place this project cannot tolerate either (D4, one writer).\n\nDeliverable: a Durable Object inbox that serialises writes per project and buffers them, plus the commit path itself with retry on the contents API's own conflict response. The DO is the conflict buffer named in the epic scope; make its ordering guarantee explicit and tested.\n\nAlso here because everything downstream needs it: external_ref on the tick record, and dedup by (source, external_ref) so the same signal delivered twice — which every webhook source will do — creates one tick. Dedup belongs in this tick, not sprinkled through the sources.\n\nDo NOT build any source here. No Telegram, no GitHub issues, no generic webhook. This tick is the funnel and its safety.",
-  "status": "open",
+  "notes": "2026-08-23 15:22 - runner-state: substrate=herdr kind=claude branch=tick/8sm worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-8sm workspace=wF9 base=7ef8a57773eff75322dd3af9d8fe905956a3b49a agent=tick-8sm pane=wF9:p1 session=1c303836-dca0-42e8-90fd-9fab9f8a00f3",
+  "status": "in_progress",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +11,6 @@
   "acceptance_criteria": "Two concurrent signals for one project both become ticks with no lost update; a redelivered signal with the same (source, external_ref) creates no second tick; a signal arriving while a run commits tracker state does not corrupt .tick/. Tested against the real DO and a fake contents API.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:52:56.921328Z",
-  "updated_at": "2026-08-23T04:52:56.921328Z"
+  "updated_at": "2026-08-23T13:22:14.518456Z",
+  "started_at": "2026-08-23T13:22:14.518456Z"
 }
