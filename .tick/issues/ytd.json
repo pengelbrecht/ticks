@@ -2,7 +2,8 @@
   "id": "ytd",
   "title": "A PR review run is gated only by enrolment, so any stranger's PR spends money",
   "description": "Raised by tick v7g, which correctly declined to decide it alone.\n\nEnrolment of a repository is currently the ONLY gate on a PR review run. So every incoming pull request against an enrolled repo starts a paid run. On a public repository that is an open door: anyone can open pull requests, and each one costs money, with no human between the stranger and the spend.\n\nCompare what Phase 3 did for the sibling case. An ISSUE needs the tk consent label before it becomes even a draft, and a draft needs a human press before anything runs. A PULL REQUEST currently needs neither — it goes straight to a run. The asymmetry is not defensible: a PR is more expensive to process than an issue, and equally stranger-authored.\n\nThis is the shape Phase 2's cost lessons and Phase 3's consent boundary both point at, so it should be settled before Phase 4 closes rather than carried.\n\nOptions to weigh, not a prescription:\n- The same consent-label boundary as issues, applied to PRs.\n- Author trust: members/collaborators reviewed automatically, outside contributors requiring a label or a human press.\n- A per-repo daily review budget, so the worst case is bounded even if the gate is generous.\nWhichever is chosen, the read-only grade already bounds the DAMAGE; what is unbounded today is the COST.",
-  "status": "open",
+  "notes": "2026-08-24 18:59 - runner-state: substrate=herdr kind=claude branch=tick/ytd worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-ytd workspace=wG5 base=8d64a9298cc7378cd8be0744b9648534858a37e9 agent=tick-ytd pane=wG5:p1 session=0864385c-ce8c-49bb-b192-1fdd5b2abb91\n2026-08-24 19:24 - runner-state: runner=herdr branch=tick/ytd merged=e3905ffa gate=green (go build, go test ./..., public-repo guard, gofmt, tsc, factory vitest 1098). Took both options — the author-trust gate AND the per-repo daily budget as its backstop — and refused CONTRIBUTOR as its own case, correctly: one merged PR is not write access. It also names the honest limit, that author_association approximates write access rather than being a permission check.",
+  "status": "closed",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +11,7 @@
   "acceptance_criteria": "A pull request from someone with no write access to an enrolled repo cannot start a paid run without either a consent signal or a human press; the chosen rule is documented and pinned by tests, including the outside-contributor case.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-24T16:59:16.567156Z",
-  "updated_at": "2026-08-24T16:59:16.567156Z"
+  "updated_at": "2026-08-24T17:24:42.456886Z",
+  "closed_at": "2026-08-24T17:24:42.456886Z",
+  "closed_reason": "Completed: a PR review run is gated on the author having write access to the base repository, with a consent label as the escape hatch for outside contributors and a per-repo daily review budget as the backstop for the gate being wrong. Closes the asymmetry where an issue needed a consent label and a human press while a pull request — costlier and equally stranger-authored — needed only enrolment. The read-only grade already bounded the damage; this bounds the cost."
 }
