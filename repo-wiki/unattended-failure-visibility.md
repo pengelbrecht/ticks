@@ -53,6 +53,7 @@ someone happens to look?** There is now.
 |---|---|---|
 | Sweep | its last **3** firings in a row are `refused` (unreadable policy, unreadable frontier, no epic, a refused submission) | `empty` — the frontier held nothing this filter wanted, which is a working sweep on a quiet tracker. Also `ignited` and `queued`. One transient refusal is not news, and news that is not news is how a channel gets muted. |
 | PR review | a `pr_reviews` row has been in flight **> 24h** with `comment_id IS NULL` | anything that has commented, and anything claimed recently. `comment_id` is the filter rather than `state`, because `state` is bookkeeping and the comment is what a review run exists to produce. |
+| PR review, expired (tick 6tx) | a `pr_reviews` row has `expired_at` set within the last **24h** — the review's queue window closed behind an epic run and it never started | anything older than that. This is the one finding NOT repeated until it recovers, because it cannot: it is settled, and the pull request's author has already been told on the pull request itself. |
 
 Two shapes of review failure, and the digest tells them apart because the
 operator's next move differs:
@@ -65,6 +66,17 @@ operator's next move differs:
   duplicate. The digest says so rather than naming a command that would not
   help. *Known follow-up: nothing releases such a row yet; it has to be
   cleared in D1 by hand.*
+
+Since tick `6tx` there is a **third** shape, and it is its own finding kind
+(`pr_review_expired`) rather than a variant of the first: **the review expired
+on the dispatch queue and never ran at all**, because an epic run held the
+project's one slot for longer than `RUN_QUEUE_TTL_MS`. It has no run to ask
+about, so folding it into the stale case would have handed an operator
+`tk cloud supervisor <run-id>` for a run that never booted — which is why
+`readInFlightReviews` excludes `expired_at IS NOT NULL`. The finding's measure
+carries the one distinction the record keeps: whether the author was told
+(`expiry_comment_id`) or the notice itself failed to post, which is a person
+waiting on nothing. See `pr-review-loop.md`.
 
 **Deliberately not reported:** a sweep whose run ignited and then failed. That
 run has its own completion gate, its own record and its own notify channel; a

@@ -541,6 +541,10 @@ export type ReviewTarget = {
   posted_at: string | null;
   comment_id: string | null;
   claimed_at: string;
+  /** Set when the review's queue window closed with no run ever started (tick 6tx). */
+  expired_at?: string | null;
+  /** The comment that told the author so. Never `comment_id` — see migrations/0013. */
+  expiry_comment_id?: string | null;
 };
 
 /**
@@ -657,6 +661,118 @@ export async function recordReviewComment(
     .prepare("UPDATE pr_reviews SET comment_id = ?, state = 'reviewed' WHERE run_id = ?")
     .bind(commentID, runID)
     .run();
+}
+
+// -------------------------------------------------------------- the expiry ---
+
+/**
+ * Claims the right to announce that this review's queue window closed unrun.
+ *
+ * The same shape as {@link claimReviewPost} and for the same reason: the
+ * announcement is a comment on somebody's pull request, so it is claimed by a
+ * conditional UPDATE before it is sent rather than by a check-then-act. Two
+ * alarms, a retried release and a redelivery cannot each post a notice.
+ *
+ * `comment_id IS NULL` is in the predicate as well, because a review that
+ * somehow commented is not an expired review whatever the queue thinks, and
+ * `expiry_comment_id IS NULL` is deliberately NOT: the FACT of expiry is what
+ * is claimed here, and it is claimed exactly once whether or not the telling
+ * afterwards succeeds.
+ */
+export async function claimReviewExpiry(
+  db: D1Database,
+  runID: string,
+  detail: string,
+  at: string
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE pr_reviews
+          SET expired_at = ?, state = 'expired', detail = ?
+        WHERE run_id = ? AND expired_at IS NULL AND comment_id IS NULL`
+    )
+    .bind(at, detail, runID)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Records the notice that reached the author.
+ *
+ * Its own column, never `comment_id`: that one is the evidence a review run
+ * did its job, and "no review happened" is the opposite of that. A row with
+ * `expired_at` and no `expiry_comment_id` is the third outcome — expired, and
+ * nobody told the author — which the daily digest reports rather than hides.
+ */
+export async function recordExpiryComment(
+  db: D1Database,
+  runID: string,
+  commentID: string
+): Promise<void> {
+  await db
+    .prepare("UPDATE pr_reviews SET expiry_comment_id = ? WHERE run_id = ?")
+    .bind(commentID, runID)
+    .run();
+}
+
+/** What the author is told, and why. Composed by the factory; no untrusted text reaches it. */
+export const REVIEW_EXPIRY_HEADING = "**Automated review — ticks factory — not run**";
+
+export type ExpiredReviewCommentInput = {
+  project: string;
+  pr_number: number;
+  head_sha: string;
+  /** The run id this review would have ignited as. It never existed. */
+  run_id: string;
+  /** The run that held the project's dispatch lease while this waited. */
+  blocked_by: string;
+  /** How long it waited, ISO timestamps from the parked row. */
+  queued_at: string;
+  expires_at: string;
+};
+
+/**
+ * The comment that says a review did not happen, and why.
+ *
+ * Every line is the factory's own and begins with {@link FACTORY_LINE_PREFIX},
+ * because there is no untrusted half here at all: no run ever started, so
+ * there are no findings, so nothing a diff wrote can reach this text. The
+ * fields are structural (project, number, sha, run ids, timestamps), and each
+ * is re-flattened for the reason {@link renderReviewComment} states — this
+ * function promises the invariant, so it does not delegate it.
+ *
+ * What it must convey, and the order is the argument:
+ *
+ *  1. **No review happened.** Said first and in those words, because the whole
+ *     defect this closes is that silence read as "nothing was wrong".
+ *  2. **Why** — another run held the project's single dispatch lease for
+ *     longer than the review's queue window. That is a capacity fact about the
+ *     factory, not a judgement about the pull request, and saying so stops a
+ *     reader inferring the judgement.
+ *  3. **That nothing will retry it**, which is true and is the part a reader
+ *     would otherwise wait for. The claim row survives, so a redelivery of
+ *     this pull request is answered as a duplicate.
+ */
+export function renderExpiredReviewComment(input: ExpiredReviewCommentInput): string {
+  const project = sanitizeUntrustedLine(input.project, 120);
+  const runID = sanitizeUntrustedLine(input.run_id, 80);
+  const blocker = sanitizeUntrustedLine(input.blocked_by, 80);
+  const head = sanitizeUntrustedLine(input.head_sha, 40);
+  const queued = sanitizeUntrustedLine(input.queued_at, 40);
+  const expired = sanitizeUntrustedLine(input.expires_at, 40);
+  return [
+    REVIEW_EXPIRY_HEADING,
+    `**No automated review was posted on ${project}#${input.pr_number} (\`${head}\`), and none ` +
+      "is coming. This is not a clean bill of health — nothing looked at this pull request at " +
+      "all.**",
+    `**Why:** this factory runs one job at a time per repository. Run \`${blocker}\` held that ` +
+      `slot for the whole of this review's queue window (parked ${queued}, expired ${expired}), ` +
+      `so run \`${runID}\` was never started.`,
+    "**Nothing will retry it automatically:** this pull request is already recorded as claimed, " +
+      "so a repeat delivery of the same event is treated as a duplicate. A maintainer can run " +
+      "the review by hand, or ask the operator of this factory to release the record and " +
+      "re-trigger it.",
+  ].join("\n");
 }
 
 // ------------------------------------------------------------ the dispatch ---

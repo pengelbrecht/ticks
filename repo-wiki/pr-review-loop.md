@@ -95,17 +95,110 @@ A container that exits 0 having posted nothing is `stopped`, not `completed`.
 - **`synchronize` does not re-review.** It fires on every push to the branch,
   which would be an unbounded spend lever, and the dedup would refuse the
   second review anyway. Re-review on push is a per-repository policy question.
-- **A review takes the project's dispatch lease.** It is submitted with
-  `queue: true`, so it parks behind a live epic run and ignites on release
-  rather than being lost — but it can still expire on the queue window. The
-  principled answer is that a run which cannot write `.tick/` needs no
-  `.tick/`-writer lease at all (D4 is about writers); that is a change to
-  `run-room.ts` and was out of this tick's scope.
+- **A review takes the project's dispatch lease, and usually dies there.** It
+  is submitted with `queue: true`, so it parks behind a live epic run and
+  ignites on release rather than being lost — but the default window is 30
+  minutes (`RUN_QUEUE_TTL_MS`) and Phase 2 measured container waves at 60-90,
+  so expiring unrun is the *ordinary* outcome on a repository that runs epics,
+  not a rare one. Since tick `6tx` an expiry is **announced** rather than
+  silent; see *A review that expires says so* below. Reviews still queue.
 - **`labeled` now dispatches too.** It has to: an outside contributor's PR is
   declined on `opened`, and GitHub does not resend `opened` because a
   maintainer labelled it afterwards, so the act of consenting must be a
   delivery of its own. `unlabeled` still never dispatches — a removal is never
   an act of consent.
+
+## A review that expires says so (tick 6tx)
+
+Tick `v7g` raised two policy questions; this is the second of them, and the
+answer it got was the cheap honest one rather than the ambitious one.
+
+**The defect was the silence, not the queueing.** The lease behaviour is D4
+working as designed and a review IS lower priority than an epic. What was
+wrong is that `RunRoom` swept the expired row with a bare `DELETE` and nothing
+else happened, so from outside the pull request these were one observation:
+
+    no review because nothing was wrong
+    no review because the factory is broken
+    no review because somebody else's run held the one slot for 30 minutes
+
+Phase 2's rule (`.tick/learnings.md`) forbids exactly that collapse. So the
+prune is now `DELETE ... RETURNING *` — the rows are evidence, and the atomic
+delete makes exactly one caller their owner — and the room hands them to
+`queue-expiry.ts`, which comments on the pull request: no review happened,
+**this is not a clean bill of health**, run `<id>` held the slot for the whole
+window, and nothing will retry it.
+
+`run-room.ts` does not import `pr-review.ts`. The room arbitrates a lease and
+has no business knowing what a pull request is; `queue-expiry.ts` is the seam,
+and it is also where "which expired submissions are worth telling somebody
+about" is written down rather than implied by an import. An expired submission
+that is *not* a review has no pull request to speak on and is logged — named
+as its own outcome (`not_a_review`) rather than folded into a silent skip.
+
+### Two columns, because there are three outcomes
+
+`expired_at` is the **fact**, and the conditional UPDATE that writes it is the
+at-most-once claim on announcing — the same shape `posted_at` uses, so an
+alarm firing twice or racing a release cannot post two notices.
+`expiry_comment_id` is the **telling**, and it is deliberately not
+`comment_id`: that column is the durable evidence a review run *did its job*
+(tick ehy's rule for a run that changes no branch), and folding a "no review
+happened" notice into it would make a reviewed pull request and an abandoned
+one read alike in the one field every other reader trusts.
+
+The gap between them is the third outcome and stays legible: `expired_at` set
+with `expiry_comment_id` NULL is **expired, and nobody outside this factory
+knows** — a GitHub outage on the way out. The claim is not given back on that
+failure, because the expiry is still a fact; what failed is the telling.
+
+### The digest gained a kind rather than a row
+
+`pr_review_expired` is its own finding kind in `loop-digest.ts`, and
+`readInFlightReviews` now excludes expired rows. Without both, an expired
+review — no comment, old `claimed_at` — is exactly the shape the stale-review
+rule matches, so the digest would have offered an operator
+`tk cloud supervisor <run-id>` for a run that never booted.
+
+It is reported for **24 hours** rather than until it recovers, which is a
+deliberate exception to that module's "repeat until the loop works again"
+rule. An expiry cannot recover: it is settled, the author has already been
+told on the pull request, and what an operator does with it is decide whether
+the queue window fits how long their runs actually take.
+
+### What was NOT changed, and why it is a separate decision
+
+**An expired claim is still a claim.** The `pr_reviews` row survives, so a
+redelivery of that pull request is still answered as a duplicate and it will
+not be reviewed. Making an expired row re-dispatchable is defensible, but it
+edits the UNIQUE-node-id dedup that mechanism 4 above rests on, and that is
+its own tick. The comment says so plainly rather than letting a reader wait.
+
+**Reviews still queue behind epic runs.** The principled argument that they
+should not is unchanged and is stronger than it looks: a review boot
+(`TICKS_PHASE=review`) fetches the head as a ref and never checks it out,
+provisions no toolchain, runs no `[sandbox]` setup, holds a `read_only`
+credential github.com will not accept for a write, and produces exactly one
+artefact — a comment posted through the factory. It writes no `.tick/`, and
+D4's lease is about `.tick/` writers. The lease it takes is therefore
+protecting nothing from it.
+
+What a separate lane would take, concretely: `startRun` (`src/runs.ts`)
+acquires the lease for every submission without branching on
+`credential_grade`, and `run-workflow.ts` renews and releases it the same way
+for every run, so the change is a grade-aware (or N-slot) lease in
+`run-room.ts` plus the two call sites — the room's own header already
+sketches the N-slot shape. What else assumes one run per project at a time is
+narrower than it first appears: the per-project singletons are the `RunRoom`
+itself and the `SignalInbox` (already a separate DO with its own
+serialisation), sandboxes are addressed per run rather than per project, and
+the thing D25 says genuinely has to be serialised is the *merge of tracker
+state into the default branch* — which a read-only run never reaches. The
+open risks are cost (two containers billing at once, where the lease is
+currently the only thing bounding concurrency per project) and the fact that
+"a review cannot write" is today enforced by the credential grade rather than
+by the scheduler, so a lane keyed on grade would be leaning on that boundary
+twice in one step.
 
 ## Who may spend the money (tick ytd)
 
@@ -210,3 +303,9 @@ the operator channel in the **daily digest** (tick `zaw`), naming
 `tk cloud supervisor <run-id>` for a run that stalled — or saying plainly that
 no run was ever bound, which makes that pull request unreviewable because every
 redelivery is answered as a duplicate. See `unattended-failure-visibility.md`.
+
+Since tick `6tx` the digest tells a third case apart from both: a review that
+**expired on the queue and never ran**. It is excluded from the stale read (it
+has no run to ask about) and reported as its own kind for a day. The person
+who actually needed to know — the pull request's author — is told on the pull
+request itself, not in the digest.

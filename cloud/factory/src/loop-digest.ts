@@ -68,6 +68,16 @@
  * that pull request permanently unreviewable because every redelivery after it
  * is answered as a duplicate.
  *
+ * **A review that EXPIRED unrun** (tick 6tx) is a third thing again, and gets
+ * its own kind rather than being folded into either. It has no run to ask
+ * about — it never started, because an epic run held the project's one
+ * dispatch slot for longer than the review's queue window — so reporting it as
+ * a stalled review would hand an operator `tk cloud supervisor <run-id>` for a
+ * run that never booted. It is reported for a day rather than until it
+ * recovers, because it cannot recover: it is settled, the author has already
+ * been told on the pull request itself, and what an operator does with it is
+ * decide whether the queue window fits how long their runs take.
+ *
  * What is deliberately NOT here: a sweep whose run ignited and then failed.
  * That run has its own completion gate, its own record and its own notify
  * channel; a second opinion about it from here would be the duplicate
@@ -117,6 +127,24 @@ export const SWEEP_FIRING_LIMIT = 500;
 /** How long a claimed pull request may be in flight before it is stuck. */
 export const REVIEW_STALE_HOURS = 24;
 
+/**
+ * How far back an expired review is still news (tick 6tx).
+ *
+ * A review whose queue window closed behind an epic run is a SETTLED outcome,
+ * not a stuck one: the author has been told on the pull request itself
+ * (`queue-expiry.ts`), and nothing is going to change. Reporting it forever
+ * would be the cry-wolf failure this module is built to avoid, so it is
+ * reported for a day — long enough that an operator watching one repository
+ * starve its reviews sees the pattern, short enough that a settled fact stops
+ * occupying the channel.
+ *
+ * That is a deliberate exception to this file's "repeated until it works
+ * again" rule, and the exception is what the rule is FOR: a finding is
+ * repeated while it is still actionable. An expiry stops being actionable the
+ * moment it is announced.
+ */
+export const REVIEW_EXPIRY_LOOKBACK_HOURS = 24;
+
 /** How many findings one message carries before it says "and N more". */
 export const MAX_DIGEST_FINDINGS = 20;
 
@@ -138,7 +166,13 @@ export const SWEEP_RECORDS_PATH = "/api/sweeps";
 
 /** One loop that is not working, in the words the digest will use. */
 export type LoopFinding = {
-  loop: "sweep" | "pr_review";
+  /**
+   * Which loop, and `pr_review_expired` is its own kind on purpose (tick 6tx).
+   * A review that is STUCK and a review that EXPIRED unrun need different
+   * commands and mean different things about the factory; folding them into
+   * `pr_review` would be the collapse this whole epic keeps ruling out.
+   */
+  loop: "sweep" | "pr_review" | "pr_review_expired";
   /** What is broken: `project/sweep-name`, or `project#pr-number`. */
   subject: string;
   project: string;
@@ -168,6 +202,18 @@ export type InFlightReview = {
   run_id: string | null;
   state: string;
   claimed_at: string;
+  detail: string | null;
+};
+
+/** A pull request whose review expired on the dispatch queue without ever running (tick 6tx). */
+export type ExpiredReview = {
+  project: string;
+  pr_number: number;
+  run_id: string | null;
+  claimed_at: string;
+  expired_at: string;
+  /** The comment that told the author, or NULL — which is a finding in itself. */
+  expiry_comment_id: string | null;
   detail: string | null;
 };
 
@@ -293,6 +339,54 @@ export function assessReviews(reviews: InFlightReview[], now: Date): LoopFinding
   return findings;
 }
 
+/**
+ * Reviews that expired on the dispatch queue without ever running (tick 6tx).
+ *
+ * Pure. These are NOT the stale reviews above and must never be reported as
+ * them: a stale review has a run to ask about (`tk cloud supervisor`), and an
+ * expired one never had a run at all, so that command would answer about
+ * nothing. Before this kind existed, an expired row was a `pr_reviews` row
+ * with no comment and an old `claimed_at`, which is exactly the shape
+ * {@link assessReviews} reports — so it would have been reported as a stalled
+ * supervisor, naming a run id that never booted.
+ *
+ * The measure carries the one distinction the record keeps: whether the pull
+ * request's author was told. An expiry that was announced is a factory working
+ * as designed under load; an expiry that was not is a person waiting on
+ * nothing, and the two get different words.
+ */
+export function assessExpiredReviews(reviews: ExpiredReview[], now: Date): LoopFinding[] {
+  const cutoff = now.getTime() - REVIEW_EXPIRY_LOOKBACK_HOURS * 3_600_000;
+  const findings: LoopFinding[] = [];
+  for (const review of reviews) {
+    const expired = Date.parse(review.expired_at);
+    // An unreadable timestamp is reported rather than skipped, for
+    // `assessReviews`' reason: it is itself a broken record.
+    if (Number.isFinite(expired) && expired < cutoff) continue;
+    const told = review.expiry_comment_id !== null && review.expiry_comment_id !== "";
+    findings.push({
+      loop: "pr_review_expired",
+      subject: `${review.project}#${review.pr_number}`,
+      project: review.project,
+      measure: told
+        ? "expired on the dispatch queue without running; the author was told on the pull request"
+        : "expired on the dispatch queue without running, AND the notice never reached the pull " +
+          "request — nobody outside this factory knows",
+      since: review.expired_at,
+      detail: sanitizeUntrustedLine(review.detail ?? "", DETAIL_MAX_CHARS),
+      // There is no run to inspect: the whole point is that none was ever
+      // started. What an operator can act on is the queue window against how
+      // long this project's runs actually take.
+      command:
+        `no run exists to inspect — this review never started. RUN_QUEUE_TTL_MS is the window ` +
+        `it waited in; compare it with how long ${review.project}'s epic runs hold the ` +
+        `dispatch lease`,
+    });
+  }
+  findings.sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+  return findings;
+}
+
 // --------------------------------------------------------------- the reads ---
 
 /** Every sweep firing inside the lookback, newest first. */
@@ -318,13 +412,19 @@ export async function readSweepFirings(env: Env, now: Date): Promise<SweepFiring
  * table (`migrations/0010_pr_reviews.sql` says so in as many words), and a
  * watcher that trusted it would be reading the field the loop updates last.
  * The comment id is the thing a review run exists to produce.
+ *
+ * `expired_at IS NULL` is the second half of the filter and it is the same
+ * argument (tick 6tx): a review that expired unrun also has no comment and an
+ * old `claimed_at`, so without this it would arrive here and be reported as a
+ * stalled supervisor — naming a run id that never booted. It is a settled
+ * outcome with its own read and its own finding below.
  */
 export async function readInFlightReviews(env: Env, now: Date): Promise<InFlightReview[]> {
   const cutoff = new Date(now.getTime() - REVIEW_STALE_HOURS * 3_600_000).toISOString();
   const rows = await env.DB.prepare(
     `SELECT project, pr_number, run_id, state, claimed_at, detail
        FROM pr_reviews
-      WHERE comment_id IS NULL AND claimed_at <= ?
+      WHERE comment_id IS NULL AND expired_at IS NULL AND claimed_at <= ?
       ORDER BY claimed_at ASC
       LIMIT ?`
   )
@@ -333,13 +433,41 @@ export async function readInFlightReviews(env: Env, now: Date): Promise<InFlight
   return rows.results ?? [];
 }
 
+/**
+ * Every review that expired unrun inside the lookback, most recent first.
+ *
+ * `expired_at IS NOT NULL` is the whole filter, and it is durable evidence for
+ * the same reason `comment_id IS NULL` is above: `state` is bookkeeping, and
+ * the timestamp is what the room's conditional UPDATE actually claimed.
+ */
+export async function readExpiredReviews(env: Env, now: Date): Promise<ExpiredReview[]> {
+  const cutoff = new Date(
+    now.getTime() - REVIEW_EXPIRY_LOOKBACK_HOURS * 3_600_000
+  ).toISOString();
+  const rows = await env.DB.prepare(
+    `SELECT project, pr_number, run_id, claimed_at, expired_at, expiry_comment_id, detail
+       FROM pr_reviews
+      WHERE expired_at IS NOT NULL AND expired_at >= ?
+      ORDER BY expired_at DESC
+      LIMIT ?`
+  )
+    .bind(cutoff, MAX_DIGEST_FINDINGS + 1)
+    .all<ExpiredReview>();
+  return rows.results ?? [];
+}
+
 /** Everything the digest has to say today, sweeps first. */
 export async function collectFindings(env: Env, now: Date): Promise<LoopFinding[]> {
-  const [firings, reviews] = await Promise.all([
+  const [firings, reviews, expired] = await Promise.all([
     readSweepFirings(env, now),
     readInFlightReviews(env, now),
+    readExpiredReviews(env, now),
   ]);
-  return [...assessSweeps(firings), ...assessReviews(reviews, now)];
+  return [
+    ...assessSweeps(firings),
+    ...assessReviews(reviews, now),
+    ...assessExpiredReviews(expired, now),
+  ];
 }
 
 // ------------------------------------------------------------- the message ---
@@ -355,6 +483,19 @@ export async function collectFindings(env: Env, now: Date): Promise<LoopFinding[
  * that silence means "nothing to report" cannot tell it from "the watcher is
  * broken", and that is the exact confusion this whole tick is about.
  */
+/**
+ * How each kind of finding names itself in the message.
+ *
+ * A table rather than a ternary, so adding a kind cannot silently inherit
+ * another kind's label — which is how "expired unrun" would have arrived
+ * reading as an ordinary stalled "review".
+ */
+const LOOP_LABELS: Record<LoopFinding["loop"], string> = {
+  sweep: "sweep",
+  pr_review: "review",
+  pr_review_expired: "review never ran",
+};
+
 export function renderDigest(findings: LoopFinding[], day: string): string {
   const shown = findings.slice(0, MAX_DIGEST_FINDINGS);
   const lines = [
@@ -365,7 +506,7 @@ export function renderDigest(findings: LoopFinding[], day: string): string {
   ];
   for (const finding of shown) {
     lines.push(
-      `${finding.loop === "sweep" ? "sweep" : "review"}: ${finding.subject}`,
+      `${LOOP_LABELS[finding.loop]}: ${finding.subject}`,
       `  ${finding.measure}`,
       `  since ${finding.since}`,
       ...(finding.detail === "" ? [] : [`  ${finding.detail}`]),
