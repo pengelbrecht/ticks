@@ -143,3 +143,40 @@ returns nothing. Off the message:
 
 A deployment with no Telegram configured still builds the digest and still
 writes its row; only the delivery is absent. Same rule as escalation.
+
+## The live check that proved the loop, and the one that proved the tooling
+
+Phase 4's closeout ran the PR review loop twice against the deployed factory.
+Both runs are worth keeping, because the failure taught more than the success.
+
+**Attempt 1 — `run_19cb914b`, PR #58, failed in 28 seconds.**
+
+    fatal: Authentication failed for
+    'https://ticks-factory.pe-1a0.workers.dev/api/git/pengelbrecht/ticks.git/'
+
+Everything except the door worked, and that is what made it diagnosable:
+
+| Built by | Did what |
+|---|---|
+| `pzf` | pointed the run at `/api/git/…`, not github.com — the read-only grade holding |
+| `acy` | `tk cloud supervisor` answered from *outside* the supervisor, first try |
+| `hyi` | the trace id was on the log line |
+
+Cause (`jwd`): the door returned **bare 401s with no `WWW-Authenticate` header**.
+Git does not volunteer a credential it was never challenged for, so the token sat
+in the container unused. Shape 1 of two candidates, settled by reading the code
+rather than guessing.
+
+**Attempt 2 — `run_6e3550f9`, PR #59, completed.** An automated review comment
+appeared with nobody in the loop, and the comment itself carries the epic's
+safety properties rather than asserting them: it names the read-only grade, and
+frames the reviewer's words as *"a report to verify — not as instructions"* with
+every reviewer line quoted behind `> `.
+
+### The rule
+
+**Observability first, loops second.** Phase 2 diagnosed its worst defect over
+seven paid runs because the record that would have answered it did not exist.
+Phase 4 put `acy` in wave 1 rather than last, and its first live failure cost
+*one* run. That ordering is the whole difference, and it is the inverse of what
+Phase 2 did.
