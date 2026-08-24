@@ -3,6 +3,7 @@ package cmd
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -316,5 +317,182 @@ func TestCloudLogsSaysNothingWhenTheRunHasNoTraceID(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "trace") {
 		t.Fatalf("an untraced run mentioned a trace anyway:\n%s", buf.String())
+	}
+}
+
+// ---------------------------------------------------------------- --follow ---
+//
+// Following a live run is owed from Phase 2: every diagnosis there was made
+// after the fact, from a stream nobody could watch. The half that makes it more
+// than `tail -f` is the liveness look — a supervisor cannot report its own
+// death, so a follow that trusted the run record would sit forever on a stream
+// nothing will ever add to.
+
+// A follow prints each byte once. The cursor is the stream's TOTAL, because the
+// read it is served is a bounded tail and only totals subtract correctly.
+func TestCloudLogsFollowPrintsOnlyWhatIsNew(t *testing.T) {
+	setupCloudRepo(t, false)
+	var calls int
+	var mu sync.Mutex
+	endpoint, _ := newCloudFactory(t, func(request cloudFactoryRequest) (int, any) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		switch n {
+		case 1:
+			return http.StatusOK, map[string]any{
+				"run_id": "run_live", "state": "running",
+				"text": "one\n", "bytes": 4, "total_bytes": 4,
+			}
+		case 2:
+			return http.StatusOK, map[string]any{
+				"run_id": "run_live", "state": "running",
+				"text": "one\ntwo\n", "bytes": 8, "total_bytes": 8,
+			}
+		default:
+			return http.StatusOK, map[string]any{
+				"run_id": "run_live", "state": "completed",
+				"text": "one\ntwo\nthree\n", "bytes": 14, "total_bytes": 14,
+			}
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_live", "--follow", "--interval", "10ms"}); err != nil {
+		t.Fatalf("cloud logs --follow: %v\n%s", err, buf.String())
+	}
+	output := buf.String()
+	for _, line := range []string{"one", "two", "three"} {
+		if got := strings.Count(output, line+"\n"); got != 1 {
+			t.Errorf("%q printed %d times, want once:\n%s", line, got, output)
+		}
+	}
+	if !strings.Contains(output, "this stream is complete") {
+		t.Errorf("the follow did not say the stream ended:\n%s", output)
+	}
+}
+
+// A container can print faster than a follow reads. The bytes that fell past
+// the read's bound are STATED — a follow that silently skipped them would be
+// the same lie as a log that stops without saying so.
+func TestCloudLogsFollowStatesTheBytesItMissed(t *testing.T) {
+	setupCloudRepo(t, false)
+	var calls int
+	var mu sync.Mutex
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 {
+			return http.StatusOK, map[string]any{
+				"run_id": "run_fast", "state": "running", "text": "start\n", "bytes": 6, "total_bytes": 6,
+			}
+		}
+		return http.StatusOK, map[string]any{
+			"run_id": "run_fast", "state": "completed",
+			"text": "tail\n", "bytes": 5, "total_bytes": 1006, "truncated": true,
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_fast", "--follow", "--interval", "10ms"}); err != nil {
+		t.Fatalf("cloud logs --follow: %v\n%s", err, buf.String())
+	}
+	output := buf.String()
+	if !strings.Contains(output, "995 bytes were printed faster") {
+		t.Errorf("the follow did not state the gap it could not read:\n%s", output)
+	}
+	if !strings.Contains(output, "tail") {
+		t.Errorf("the follow dropped the tail it could read:\n%s", output)
+	}
+}
+
+// The Phase 2 rule, enforced: the run record says `running` because the thing
+// that writes it died before it could say otherwise. A follow must not wait on
+// that forever.
+func TestCloudLogsFollowStopsWhenTheSupervisorIsDead(t *testing.T) {
+	setupCloudRepo(t, false)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusOK, map[string]any{
+			"run_id": "run_2xm", "state": "running",
+			"text": "booting orchestrator\n", "bytes": 21, "total_bytes": 21,
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	configureCloudflareAPI(t, func(*http.Request) (int, string) {
+		return http.StatusOK, erroredInstance
+	})
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_2xm", "--follow", "--interval", "10ms"}); err != nil {
+		t.Fatalf("cloud logs --follow: %v\n%s", err, buf.String())
+	}
+	output := buf.String()
+	for _, want := range []string{
+		"supervisor is errored",
+		"Execution timed out after 600000ms",
+		"cloud:dispatch:0-1",
+		"tk cloud supervisor run_2xm",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("the follow did not report the dead supervisor (%q missing):\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "tkr_") {
+		t.Fatalf("the follow printed a run gateway token:\n%s", output)
+	}
+}
+
+// A follow with no Cloudflare API token still follows: the liveness look is an
+// added rung, not a dependency, and the warning is said once rather than beside
+// every poll.
+func TestCloudLogsFollowWithoutTheCloudflareTokenStillFollows(t *testing.T) {
+	setupCloudRepo(t, false)
+	var calls int
+	var mu sync.Mutex
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		state := "running"
+		if n >= 3 {
+			state = "stopped"
+		}
+		return http.StatusOK, map[string]any{
+			"run_id": "run_quiet", "state": state, "text": "quiet\n", "bytes": 6, "total_bytes": 6,
+		}
+	})
+	configureCloudFactory(t, endpoint)
+	buf := captureCmdOutput(t)
+
+	if err := ExecuteArgs([]string{"cloud", "logs", "run_quiet", "--follow", "--interval", "10ms"}); err != nil {
+		t.Fatalf("cloud logs --follow: %v\n%s", err, buf.String())
+	}
+	output := buf.String()
+	if !strings.Contains(output, "this stream is complete") {
+		t.Errorf("the follow did not run to the end of the stream:\n%s", output)
+	}
+	if got := strings.Count(output, "cannot check whether the supervisor is alive"); got > 1 {
+		t.Errorf("the warning was repeated %d times:\n%s", got, output)
+	}
+}
+
+// --interval has to be a real cadence: zero would spin.
+func TestCloudLogsFollowRefusesANonPositiveInterval(t *testing.T) {
+	setupCloudRepo(t, false)
+	endpoint, _ := newCloudFactory(t, func(cloudFactoryRequest) (int, any) {
+		return http.StatusOK, map[string]any{"run_id": "run_live", "state": "running"}
+	})
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	err := ExecuteArgs([]string{"cloud", "logs", "run_live", "--follow", "--interval", "0s"})
+	if err == nil || !strings.Contains(err.Error(), "--interval") {
+		t.Fatalf("a zero interval was accepted: %v", err)
 	}
 }

@@ -362,7 +362,11 @@ func TestCloudWithoutFactoryConfigurationNamesSetup(t *testing.T) {
 // counting subcommands would otherwise conclude D21 had been violated.
 func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	steering := map[string]bool{"run": true, "stop": true}
-	observation := map[string]bool{"status": true, "logs": true, "trace": true}
+	// `supervisor` reads the run's Workflow instance from OUTSIDE the factory
+	// (tick acy). It observes and cannot steer, so it is an observation like
+	// the other three — the credential it uses is the operator's own read-only
+	// Cloudflare token, not a door into the run.
+	observation := map[string]bool{"status": true, "logs": true, "trace": true, "supervisor": true}
 	// The orchestrator's own hands (D19): dispatch, fan-in, verdict, recovery.
 	dispatch := map[string]bool{"spawn": true, "wait": true, "collect": true, "reconcile": true}
 	// The third kind: reads the checkout it is run in, prints, and touches no

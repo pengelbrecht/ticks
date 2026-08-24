@@ -651,6 +651,9 @@ func ResetFlags() {
 	cloudTraceCache = false
 	cloudLogsTail = 0
 	cloudLogsTick = ""
+	cloudLogsFollow = false
+	cloudLogsInterval = defaultCloudLogsInterval
+	cloudSupervisorSteps = 0
 	cloudPRBodyHead = ""
 	cloudPRBodyBase = ""
 	cloudPRBodyRunBase = ""

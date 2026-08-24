@@ -1,19 +1,30 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/pengelbrecht/ticks/internal/factory"
 )
 
 var (
-	cloudLogsTail int
-	cloudLogsTick string
+	cloudLogsTail     int
+	cloudLogsTick     string
+	cloudLogsFollow   bool
+	cloudLogsInterval time.Duration
 )
+
+// defaultCloudLogsInterval is how often a --follow read asks again. Each poll
+// is one remote read of an R2-backed tail, and a container that printed
+// something between two polls has still printed it.
+const defaultCloudLogsInterval = 5 * time.Second
 
 var cloudLogsCmd = &cobra.Command{
 	Use:   "logs <run>",
@@ -43,6 +54,15 @@ minted when the signal arrived, carried onto the tick, the run and this
 container's own log stream, so one string joins a message in a chat to what a
 container printed.
 
+--follow keeps reading as the run prints, until the run ends or its
+SUPERVISOR dies. The second half of that is the point. A supervisor cannot
+report its own death — the run record is written BY the Workflow that may be
+gone — so a follow watching only the record would sit forever on a stream
+nothing will ever add to, which is exactly what Phase 2's stuck runs looked
+like. Whenever a live run goes quiet, this asks the Workflow instance from
+outside it and says so if the answer is that nothing is supervising the run
+any more. 'tk cloud supervisor' is the same read, in full.
+
 A truncated run id is resolved against the factory's run index first, so a
 prefix is never answered with "no run <prefix>".
 
@@ -56,6 +76,8 @@ orchestrator command vocabulary stays run/stop/status/answer (D21).`,
 func init() {
 	cloudLogsCmd.Flags().IntVar(&cloudLogsTail, "tail", 0, "print only the last N lines")
 	cloudLogsCmd.Flags().StringVar(&cloudLogsTick, "tick", "", "print one worker container's own output instead of the orchestrator's")
+	cloudLogsCmd.Flags().BoolVarP(&cloudLogsFollow, "follow", "f", false, "keep reading as the run prints, until it ends or its supervisor dies")
+	cloudLogsCmd.Flags().DurationVar(&cloudLogsInterval, "interval", defaultCloudLogsInterval, "how often --follow asks again")
 
 	cloudCmd.AddCommand(cloudLogsCmd)
 }
@@ -92,6 +114,9 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 	if cloudLogsTail < 0 {
 		return NewExitError(ExitGeneric, "--tail takes a line count, got %d", cloudLogsTail)
 	}
+	if cloudLogsFollow && cloudLogsInterval <= 0 {
+		return NewExitError(ExitGeneric, "--interval takes a positive duration, got %s", cloudLogsInterval)
+	}
 	client, err := newCloudClient()
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
@@ -115,17 +140,25 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 	if tick != "" {
 		path += "?tick=" + url.QueryEscape(tick)
 	}
-	data, err := client.request(cmd.Context(), http.MethodGet, path, nil)
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
+	read := func(ctx context.Context) (cloudLogsResponse, error) {
+		var response cloudLogsResponse
+		data, err := client.request(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return response, err
+		}
+		if err := decodeCloudJSON(data, &response); err != nil {
+			return response, err
+		}
+		return response, nil
 	}
-	var response cloudLogsResponse
-	if err := decodeCloudJSON(data, &response); err != nil {
+
+	response, err := read(cmd.Context())
+	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)
 	}
 
 	out := cmd.OutOrStdout()
-	if strings.TrimSpace(response.Text) == "" {
+	if strings.TrimSpace(response.Text) == "" && !cloudLogsFollow {
 		reportEmptyCloudLog(out, runID, tick, response)
 		return nil
 	}
@@ -162,11 +195,160 @@ func runCloudLogs(cmd *cobra.Command, args []string) error {
 	} else if dropped {
 		fmt.Fprintf(out, "# showing the last %d lines\n", cloudLogsTail)
 	}
+	writeCloudLogChunk(out, text)
+	if !cloudLogsFollow {
+		return nil
+	}
+	return followCloudLog(cmd, runID, response, read)
+}
+
+// writeCloudLogChunk prints one piece of a stream, newline-terminated so the
+// next thing written starts on its own line.
+func writeCloudLogChunk(out io.Writer, text string) {
+	if text == "" {
+		return
+	}
 	fmt.Fprint(out, text)
 	if !strings.HasSuffix(text, "\n") {
 		fmt.Fprintln(out)
 	}
-	return nil
+}
+
+// followCloudLog keeps reading one stream until the run ends, its supervisor
+// dies, or the caller interrupts.
+//
+// The cursor is the stream's TOTAL byte count, not the tail it was served: a
+// read is bounded from the end, so subtracting totals is the only thing that
+// stays correct when a fast container outruns the window between two polls —
+// and when it does, the gap is STATED. A follow that silently skipped bytes
+// would be the same class of lie as a log that stops without saying so.
+//
+// The liveness look is what makes this more than tail -f. A supervisor that
+// died leaves the run record frozen at 'running', so a follow watching only
+// the record would sit forever on a stream nothing will ever add to. It is
+// asked exactly when the question arises — a live run that just printed
+// nothing — so a chatty run costs no extra reads at all.
+func followCloudLog(
+	cmd *cobra.Command,
+	runID string,
+	first cloudLogsResponse,
+	read func(context.Context) (cloudLogsResponse, error),
+) error {
+	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+	seen := first.TotalBytes
+	state := first.State
+	watch := newCloudSupervisorWatch(runID)
+
+	if isFinishedCloudRun(state) {
+		fmt.Fprintf(out, "# %s is %s; this stream is complete\n", runID, stateOrUnknown(state))
+		return nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(cloudLogsInterval):
+		}
+
+		response, err := read(ctx)
+		if err != nil {
+			// A follow is a long-lived read of a factory that may be
+			// redeploying under it, so one failed poll is reported and
+			// retried rather than ending the watch.
+			fmt.Fprintf(cmd.ErrOrStderr(), "# the factory could not be read: %v\n", err)
+			continue
+		}
+		state = response.State
+
+		added := response.TotalBytes - seen
+		if added > 0 {
+			text := response.Text
+			if added > len(text) {
+				fmt.Fprintf(out, "# %d bytes were printed faster than this follow could read them; they are in R2, past this read's bound\n",
+					added-len(text))
+			} else {
+				text = text[len(text)-added:]
+			}
+			seen = response.TotalBytes
+			writeCloudLogChunk(out, text)
+		}
+
+		if isFinishedCloudRun(state) {
+			fmt.Fprintf(out, "# %s is %s; this stream is complete\n", runID, stateOrUnknown(state))
+			return nil
+		}
+		if added > 0 {
+			continue
+		}
+		// Nothing new, and the record says the run is alive. That is precisely
+		// the claim only the Workflow instance can check.
+		if verdict := watch.look(ctx, cmd.ErrOrStderr()); verdict != "" {
+			fmt.Fprint(out, verdict)
+			return nil
+		}
+	}
+}
+
+// cloudSupervisorWatch is the outside-the-supervisor liveness look a follow
+// makes when a live run goes quiet.
+//
+// It disables itself after one unusable answer and says why ONCE: a factory
+// with no Cloudflare API token still follows a log perfectly well, and a
+// warning repeated every five seconds would bury the log it is printed beside.
+type cloudSupervisorWatch struct {
+	runID   string
+	opts    factory.SupervisorOptions
+	off     bool
+	offSaid bool
+	offWhy  error
+}
+
+func newCloudSupervisorWatch(runID string) *cloudSupervisorWatch {
+	watch := &cloudSupervisorWatch{runID: runID}
+	opts, err := cloudSupervisorOptions()
+	if err != nil {
+		watch.off, watch.offWhy = true, err
+		return watch
+	}
+	watch.opts = opts
+	return watch
+}
+
+// look returns what to print and stop on, or "" to keep following.
+func (w *cloudSupervisorWatch) look(ctx context.Context, warn io.Writer) string {
+	if w.off {
+		w.explainOnce(warn)
+		return ""
+	}
+	supervisor, err := factory.ReadSupervisor(ctx, w.runID, w.opts)
+	if err != nil {
+		w.off, w.offWhy = true, err
+		w.explainOnce(warn)
+		return ""
+	}
+	if supervisor.Alive() {
+		return ""
+	}
+	report := fmt.Sprintf("# the run record still says this run is live, but its supervisor is %s: %s\n",
+		stateOrUnknown(supervisor.Status), supervisor.Explain())
+	if detail := supervisor.Error.String(); detail != "" {
+		report += fmt.Sprintf("# supervisor error: %s\n", detail)
+	}
+	if step := supervisor.CurrentStep(); step != nil {
+		report += fmt.Sprintf("# it stopped on step %s\n", step.Name)
+	}
+	report += fmt.Sprintf("# nothing will be added to this stream — see 'tk cloud supervisor %s'\n", w.runID)
+	return report
+}
+
+func (w *cloudSupervisorWatch) explainOnce(warn io.Writer) {
+	if w.offSaid || w.offWhy == nil {
+		return
+	}
+	w.offSaid = true
+	fmt.Fprintf(warn, "# this follow cannot check whether the supervisor is alive: %v\n", w.offWhy)
 }
 
 // reportEmptyCloudLog says WHICH empty this is. A container that printed

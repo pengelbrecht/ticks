@@ -45,8 +45,9 @@ or mutation command: stop a run, edit the tracker in a normal checkout, and
 submit it again so the new orchestrator follows the reconcile path.
 
   run    ignite an epic          |  status  runs, leases and queue
-  stop   end one (--now kills)   |  logs    what the container printed
+  stop   end one (--now kills)   |  logs    what the container printed (-f follows)
                                  |  trace   what the model said and decided
+                                 |  supervisor  whether the Workflow is alive
 
 The left column is D21's command vocabulary (with tk answer). The right one
 is observation: it reads records a run left behind and cannot steer one, so
