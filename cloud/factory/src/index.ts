@@ -63,6 +63,7 @@ import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
 import { runDueSweeps } from "./sweep-dispatch";
+import { runDailyDigest } from "./loop-digest";
 import { getSweepSelection, listSweepSelections } from "./db";
 import { SignalInbox } from "./signal-inbox";
 import { RunWorkflow, effectiveRunBudget } from "./run-workflow";
@@ -1306,6 +1307,13 @@ export default {
    * frontier or a branch head records a refusal and the next project is still
    * swept. A throw here would abandon every project after the failing one with
    * no record of why.
+   *
+   * The same trigger carries the daily loop digest (tick zaw), which is the
+   * one thing that ASKS whether the unattended loops are still working — and
+   * it is asked here, after the sweep pass and in its own try, so that the
+   * watcher can never be what stops the work it watches. It rides this trigger
+   * rather than declaring a second one because the sweeps' trigger is the
+   * thing whose failures it reports.
    */
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -1324,6 +1332,19 @@ export default {
         } catch (error) {
           console.error(
             `factory sweep: the ${controller.cron} trigger at ${at.toISOString()} failed: ${String(error)}`
+          );
+        }
+        try {
+          const digest = await runDailyDigest(env, at);
+          if (digest.state !== "not_due") {
+            console.log(`factory digest: ${digest.state} at ${at.toISOString()}`);
+          }
+        } catch (error) {
+          // `runDailyDigest` is written not to throw, so reaching this is
+          // itself the news: the watcher broke, and the one thing that must
+          // never happen quietly is the watcher failing quietly.
+          console.error(
+            `factory digest: the ${controller.cron} trigger at ${at.toISOString()} threw: ${String(error)}`
           );
         }
       })()
