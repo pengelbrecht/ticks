@@ -230,6 +230,7 @@ func validate(cfg *Config, md toml.MetaData) ValidationErrors {
 	validateRoles(cfg, md, add)
 	validateCommands(cfg, md, add)
 	validateSignals(cfg, add)
+	validateSweeps(cfg, add)
 
 	sort.SliceStable(errs, func(i, j int) bool { return errs[i].Path < errs[j].Path })
 	return errs
@@ -705,6 +706,115 @@ func validateSignals(cfg *Config, add addFunc) {
 		}
 		if len(src.Labels) > 8 {
 			add(base+".labels", "at most 8 labels")
+		}
+	}
+}
+
+// ------------------------------------------------------------ cron sweeps ---
+
+// sweepNamePattern bounds a sweep's name: it is what an operator reads in the
+// sweep record and in the factory's `/api/sweeps` listing.
+var sweepNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// SweepTiers and SweepGates are the closed vocabularies a sweep may name, in
+// schema order. Closed rather than free text because both are CLAMPED against
+// a deployment ceiling, and a value nobody enumerated cannot be compared with
+// one.
+var (
+	SweepTiers = []string{"economy", "standard"}
+	SweepGates = []string{"telegram", "none"}
+)
+
+// MaxSweeps bounds one repository's schedule. A factory is not a scheduler.
+const MaxSweeps = 8
+
+// MaxSweepTicks and MaxSweepBudgetUSD bound what one declaration may ask for
+// before any deployment ceiling is applied. They are the outer edge of the
+// format, not the operator's policy: the deployment's own ceilings lower these
+// further, and every clamp is reported in the sweep's record.
+const (
+	MaxSweepTicks     = 50
+	MaxSweepBudgetUSD = 1000
+)
+
+// sweepFilterTerm is one term of a filter expression. Mirrored from
+// `cloud/factory/src/sweeps.ts`, which is the reader that ACTS on it — this
+// check exists so a typo is refused at author time rather than by a morning
+// that swept nothing.
+var sweepFilterTerm = regexp.MustCompile(`^(unblocked|(type|label):[A-Za-z0-9][A-Za-z0-9._-]*|priority(<=|>=|<|>|=|:)[0-9]+)$`)
+
+// sweepCronField is one field of a five-field cron expression: `*`, a number,
+// a range, a list of either, each optionally stepped.
+var sweepCronField = regexp.MustCompile(`^(\*|[0-9]+(-[0-9]+)?)(/[0-9]+)?(,(\*|[0-9]+(-[0-9]+)?)(/[0-9]+)?)*$`)
+
+func validateSweeps(cfg *Config, add addFunc) {
+	names := cfg.SweepNames()
+	if len(names) == 0 {
+		return
+	}
+	if len(names) > MaxSweeps {
+		add("sweeps", fmt.Sprintf("%d sweeps declared, past the %d a repository may declare", len(names), MaxSweeps))
+	}
+	for _, name := range names {
+		base := "sweeps." + name
+		if !sweepNamePattern.MatchString(name) {
+			add(base, fmt.Sprintf("%q is not a usable sweep name (lowercase letters, digits, - and _) — it is what an operator reads in the sweep record", name))
+		}
+		sweep := cfg.Sweeps[name]
+		if sweep == nil {
+			add(base, "must be a table")
+			continue
+		}
+		validateSweepCron(add, base+".cron", sweep.Cron)
+		validateSweepFilter(add, base+".filter", sweep.Filter)
+		switch {
+		case sweep.MaxTicks == nil:
+			add(base+".max_ticks", "is required — how many ticks one firing may select")
+		case *sweep.MaxTicks < 1 || *sweep.MaxTicks > MaxSweepTicks:
+			add(base+".max_ticks", fmt.Sprintf("must be an integer between 1 and %d, got %d", MaxSweepTicks, *sweep.MaxTicks))
+		}
+		switch {
+		case sweep.BudgetUSD == nil:
+			add(base+".budget_usd", "is required — a sweep runs with nobody watching, so it names what it may spend")
+		case *sweep.BudgetUSD <= 0 || *sweep.BudgetUSD > MaxSweepBudgetUSD:
+			add(base+".budget_usd", fmt.Sprintf("must be a positive number no greater than %d, got %g", MaxSweepBudgetUSD, *sweep.BudgetUSD))
+		}
+		if sweep.Tier != "" && !slices.Contains(SweepTiers, sweep.Tier) {
+			add(base+".tier", fmt.Sprintf("%q is not one of %s", sweep.Tier, strings.Join(SweepTiers, ", ")))
+		}
+		if sweep.GateOnComplete != "" && !slices.Contains(SweepGates, sweep.GateOnComplete) {
+			add(base+".gate_on_complete", fmt.Sprintf("%q is not one of %s", sweep.GateOnComplete, strings.Join(SweepGates, ", ")))
+		}
+	}
+}
+
+func validateSweepCron(add addFunc, path, value string) {
+	if value == "" {
+		add(path, "is required — the five-field UTC schedule this sweep is due at (e.g. `0 4 * * 1-5`)")
+		return
+	}
+	fields := strings.Fields(value)
+	if len(fields) != 5 {
+		add(path, fmt.Sprintf("%q has %d fields; a cron expression has 5 (minute hour day-of-month month day-of-week)", value, len(fields)))
+		return
+	}
+	for _, field := range fields {
+		if !sweepCronField.MatchString(field) {
+			add(path, fmt.Sprintf("%q is not a cron field this reader understands (a number, a range, a list, each optionally stepped, or `*`)", field))
+			return
+		}
+	}
+}
+
+func validateSweepFilter(add addFunc, path, value string) {
+	if value == "" {
+		add(path, "is required — what this sweep selects (e.g. `type:bug priority<=2 unblocked`)")
+		return
+	}
+	for _, term := range strings.Fields(value) {
+		if !sweepFilterTerm.MatchString(term) {
+			add(path, fmt.Sprintf("%q is not a term this reader knows; known terms: type:<type>, label:<label>, priority<=<n> (also <, =, >=, >), unblocked", term))
+			return
 		}
 	}
 }

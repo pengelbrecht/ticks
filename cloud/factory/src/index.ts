@@ -60,6 +60,8 @@ import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
 import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
+import { runDueSweeps } from "./sweep-dispatch";
+import { getSweepSelection, listSweepSelections } from "./db";
 import { SignalInbox } from "./signal-inbox";
 import { RunWorkflow, effectiveRunBudget } from "./run-workflow";
 import {
@@ -1081,6 +1083,53 @@ async function acknowledgeTelegramCallback(
   );
 }
 
+/**
+ * One sweep's record (tick hye), which is the whole explanation of what it
+ * selected and why — see migrations/0010_sweep_selection.sql.
+ */
+async function sweepRoute(sweepID: string, env: Env): Promise<Response> {
+  const row = await getSweepSelection(env.DB, sweepID);
+  if (row === null) {
+    return Response.json({ error: "not_found", detail: `no sweep ${sweepID}` }, { status: 404 });
+  }
+  return Response.json({ sweep: { ...row, record: safeSweepRecord(row.record) } });
+}
+
+/** Recent sweeps, newest first, optionally for one project. */
+async function sweepsRoute(url: URL, env: Env): Promise<Response> {
+  const project = url.searchParams.get("project");
+  const limitParam = url.searchParams.get("limit");
+  const limit = limitParam === null ? undefined : Number(limitParam);
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+    return Response.json(
+      { error: "invalid_request", detail: "limit must be a positive integer" },
+      { status: 400 }
+    );
+  }
+  const rows = await listSweepSelections(env.DB, {
+    ...(project === null || project === "" ? {} : { project }),
+    ...(limit === undefined ? {} : { limit }),
+  });
+  return Response.json({
+    sweeps: rows.map((row) => ({ ...row, record: safeSweepRecord(row.record) })),
+  });
+}
+
+/**
+ * The stored record as JSON, or the raw text when it will not parse.
+ *
+ * A record this route cannot parse is still the only account of that sweep, so
+ * it is handed back as it was stored rather than dropped — an operator reading
+ * a malformed record can still see what was written.
+ */
+function safeSweepRecord(record: string): unknown {
+  try {
+    return JSON.parse(record);
+  } catch {
+    return record;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1167,6 +1216,15 @@ export default {
       return await observeRoute(request, env);
     }
 
+    // Cron sweep records (D14/D15, tick hye). Read-only, like status and
+    // logs: it hands back the account a sweep already wrote, and cannot start
+    // one — a sweep ignites from the clock and from nothing else.
+    if (segments[0] === "api" && segments[1] === "sweeps") {
+      if (request.method !== "GET") return methodNotAllowed(["GET"]);
+      if (segments.length === 2) return await sweepsRoute(url, env);
+      if (segments.length === 3) return await sweepRoute(segments[2]!, env);
+    }
+
     if (segments[0] === "api" && segments[1] === "projects") {
       return await projectsRoute(request, env, segments.slice(2));
     }
@@ -1196,6 +1254,43 @@ export default {
     }
 
     return notFound();
+  },
+
+  /**
+   * The clock's door into the factory (D14/D15, tick hye).
+   *
+   * Cron triggers declared in wrangler.toml wake the Worker; which sweeps are
+   * DUE is the repository's decision, read from its own tracked
+   * `.tick/runners.toml` and matched against this minute. So a deployment
+   * declares when the factory may look and a repository declares what it looks
+   * for, and neither can be changed by anything a run says.
+   *
+   * `runDueSweeps` never throws: a sweep that could not read a policy, a
+   * frontier or a branch head records a refusal and the next project is still
+   * swept. A throw here would abandon every project after the failing one with
+   * no record of why.
+   */
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        // The trigger's own scheduled time, not `new Date()`: a delivery that
+        // arrives late must sweep the minute it was FOR, or a policy due at
+        // 04:00 silently stops matching whenever the platform is busy.
+        const at = new Date(controller.scheduledTime);
+        try {
+          const outcomes = await runDueSweeps(env, at);
+          for (const outcome of outcomes) {
+            console.log(
+              `factory sweep: ${outcome.sweep_id} ${outcome.outcome} — ${outcome.detail}`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `factory sweep: the ${controller.cron} trigger at ${at.toISOString()} failed: ${String(error)}`
+          );
+        }
+      })()
+    );
   },
 } satisfies ExportedHandler<Env>;
 

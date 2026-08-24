@@ -213,6 +213,43 @@ FACTORY_MAX_INSTANCES = "3"
 #
 #   BOARD_BASE_URL = "https://<your-board-host>"
 
+# What a declared sweep policy is CLAMPED to. Every one of these is reported in
+# the sweep's record beside the number the repository asked for (tick 7zk: an
+# operator whose $40 silently became $8 found out from the cancellation).
+#
+# The cost ceiling is deliberately absent: it is RUN_MAX_COST_USD above,
+# because a sweep is a run and a second cost ceiling that could disagree with
+# the enforcing one is exactly the layering tick 5fg had to enumerate by hand.
+SWEEP_MAX_TICKS = "5"
+SWEEP_MAX_TIER = "economy"
+SWEEP_MAX_PROJECTS = "4"
+
+# Cron sweeps (D14/D15, tick hye): when the factory WAKES to look for work.
+#
+# Two decisions, deliberately split. This is the deployment's: the minutes at
+# which the Worker's `scheduled` handler runs at all. WHICH sweeps are due at
+# one of those minutes is the repository's, declared in its own tracked
+# `.tick/runners.toml`:
+#
+#   [sweeps.morning-bugs]
+#   cron = "0 4 * * 1-5"
+#   filter = "type:bug priority<=2 unblocked"
+#   max_ticks = 5
+#   budget_usd = 10
+#   tier = "economy"
+#   gate_on_complete = "telegram"
+#
+# So an operator controls when unattended work may start and a repository
+# controls what it is, and neither can be widened by anything a run says. A
+# repository declaring a minute this deployment never wakes for simply never
+# fires — add the minute here.
+#
+# Hourly on the hour is the default because it is the coarsest schedule that
+# can serve an `0 4 * * 1-5` policy; every wake-up with no due sweep costs one
+# `.tick/runners.toml` read per enrolled project and nothing else.
+[triggers]
+crons = ["0 * * * *"]
+
 # The Run Workflow: one instance per run, keyed by run id, so one trace ID
 # threads every layer (D20) and `status` finds the instance with no extra
 # column. src/runs.ts creates instances; src/run-workflow.ts is the lifecycle.
